@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      23.1
+// @version      23.2
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -4844,8 +4844,8 @@
         const productionCost = getBaseItemProductionCost(itemDetailObj.name, price_data);
 
         const item_price_data = price_data.marketData[hrid];
-        const ask = item_price_data?.[0].a;
-        const bid = item_price_data?.[0].b;
+        const ask = item_price_data?.[0]?.a;
+        const bid = item_price_data?.[0]?.b;
 
         let result = 0;
 
@@ -4888,8 +4888,8 @@
         }
 
         // Return the other price if the item does not have ask or bid price.
-        let ask = item_price_data[0].a;
-        let bid = item_price_data[0].b;
+        let ask = item_price_data[0]?.a;
+        let bid = item_price_data[0]?.b;
         if (ask > 0 && bid < 0) {
             return ask;
         }
