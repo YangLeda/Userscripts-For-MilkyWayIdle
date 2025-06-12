@@ -252,6 +252,55 @@
             desc: isZH ? "MWITools本身强制显示中文 MWITools always in Chinese" : "MWITools本身强制显示中文 MWITools always in Chinese",
             isTrue: false,
         },
+        // --- Enhancement Simulator Settings ---
+        enhancing_level: {
+            id: "enhancing_level",
+            desc: isZH ? "强化模拟：人物强化技能等级" : "Enhance Sim: Enhancing skill level",
+            type: "number",
+            value: 125,
+        },
+        laboratory_level: {
+            id: "laboratory_level",
+            desc: isZH ? "强化模拟：房子等级" : "Enhance Sim: Laboratory (house) level",
+            type: "number",
+            value: 6,
+        },
+        enhancer_bonus: {
+            id: "enhancer_bonus",
+            desc: isZH ? "强化模拟：工具强化成功率加成" : "Enhance Sim: Enhancer tool bonus",
+            type: "number",
+            value: 5.42,
+        },
+        glove_bonus: {
+            id: "glove_bonus",
+            desc: isZH ? "强化模拟：手套强化速度加成" : "Enhance Sim: Glove speed bonus",
+            type: "number",
+            value: 12.9,
+        },
+        tea_type: {
+            id: "tea_type",
+            desc: isZH ? "强化模拟：强化茶类型" : "Enhance Sim: Tea type",
+            type: "option",
+            value: "ultra_enhancing",
+            options: [
+                { value: "none", label: isZH ? "无" : "None" },
+                { value: "enhancing", label: isZH ? "强化茶" : "Enhancing Tea" },
+                { value: "super_enhancing", label: isZH ? "超级强化茶" : "Super Enhancing Tea" },
+                { value: "ultra_enhancing", label: isZH ? "究极强化茶" : "Ultra Enhancing Tea" },
+            ],
+        },
+        tea_blessed: {
+            id: "tea_blessed",
+            desc: isZH ? "强化模拟：祝福茶" : "Enhance Sim: Blessed tea",
+            type: "checkbox",
+            isTrue: true,
+        },
+        time_fee: {
+            id: "time_fee",
+            desc: isZH ? "强化模拟：工时费（每小时金币）" : "Enhance Sim: Time fee (coins/hour)",
+            type: "number",
+            value: 0,
+        },
     };
     readSettings();
 
@@ -2199,6 +2248,7 @@
         let equippedNetworthBid = 0;
         let inventoryNetworthAsk = 0;
         let inventoryNetworthBid = 0;
+        let input_data = getEnhanceSimInputData();
 
         for (const item of initData_characterItems) {
             const enhanceLevel = item.enhancementLevel;
@@ -2761,6 +2811,7 @@
         // 装备净值
         let networthAsk = 0;
         let networthBid = 0;
+        let input_data = getEnhanceSimInputData();
         for (const key in obj.wearableItemMap) {
             let item = obj.wearableItemMap[key];
             const enhanceLevel = obj.wearableItemMap[key].enhancementLevel;
@@ -4620,6 +4671,7 @@
             return;
         }
 
+        let input_data = getEnhanceSimInputData();
         input_data.item_hrid = itemHrid;
         input_data.stop_at = enhancementLevel;
         const best = await findBestEnhanceStrat(input_data);
@@ -4634,8 +4686,8 @@
             }
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
-                    ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，无工时费，无市场税）："
-                    : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "
+                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${input_data.tea_enhancing ? '，强化茶' : ''}${input_data.tea_super_enhancing ? '，超级强化茶' : ''}${input_data.tea_ultra_enhancing ? '，究极强化茶' : ''}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，无市场税：`
+                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${input_data.tea_enhancing ? ', enhancing tea' : ''}${input_data.tea_super_enhancing ? ', super enhancing tea' : ''}${input_data.tea_ultra_enhancing ? ', ultra enhancing tea' : ''}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, no market tax:`
             }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
                 best.simResult.totalActionTimeStr
             }</div>${
@@ -4651,7 +4703,7 @@
                       " " +
                       numberFormatter(best.costs.minProtectionCost)
                     : ""
-            } 
+            }
              </div>${needMatStr}</div>`;
         }
 
@@ -4669,7 +4721,7 @@
         for (let protect_at = 2; protect_at <= input_data.stop_at; protect_at++) {
             const simResult = Enhancelate(input_data, protect_at);
             const costs = getCosts(input_data.item_hrid, price_data);
-            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions;
+            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions + input_data.time_fee * simResult.totalActionTimeSec / 3600.0;
             const r = {};
             r.protect_at = protect_at;
             r.protect_count = simResult.protect_count;
@@ -4769,24 +4821,23 @@
         return result;
     }
 
-    // 自定义强化模拟输入参数
-    // Customization
-    let input_data = {
-        item_hrid: null,
-        stop_at: null,
-
-        enhancing_level: 125, // 人物 Enhancing 技能等级
-        laboratory_level: 6, // 房子等级
-        enhancer_bonus: 5.42, // 工具提高成功率，10级星空强化工具
-        glove_bonus: 12.9, // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
-
-        tea_enhancing: false, // 强化茶
-        tea_super_enhancing: false, // 超级强化茶
-        tea_ultra_enhancing: true,
-        tea_blessed: true, // 祝福茶
-
-        priceAskBidRatio: 1, // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
-    };
+    function getEnhanceSimInputData() {
+        const teaType = settingsMap.tea_type.value;
+        return {
+            item_hrid: null,
+            stop_at: null,
+            enhancing_level: settingsMap.enhancing_level.value, // 人物 Enhancing 技能等级
+            laboratory_level: settingsMap.laboratory_level.value, // 房子等级
+            enhancer_bonus: settingsMap.enhancer_bonus.value, // 工具提高成功率，0级=3.6，5级=4.03，10级=4.64
+            glove_bonus: settingsMap.glove_bonus.value, // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
+            tea_enhancing: teaType === "enhancing", // 强化茶
+            tea_super_enhancing: teaType === "super_enhancing", // 超级强化茶
+            tea_ultra_enhancing: teaType === "ultra_enhancing",
+            tea_blessed: settingsMap.tea_blessed.isTrue, // 祝福茶
+            priceAskBidRatio: 1,
+            time_fee: settingsMap.time_fee.value,  // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
+        };
+    }
 
     function getCosts(hrid, price_data) {
         const itemDetailObj = initData_itemDetailMap[hrid];
@@ -4892,6 +4943,7 @@
             return bid;
         }
 
+        let input_data = getEnhanceSimInputData();
         let final_cost = ask * input_data.priceAskBidRatio + bid * (1 - input_data.priceAskBidRatio);
         return final_cost;
     }
@@ -4920,48 +4972,80 @@
     }
 
     /* 脚本设置面板 */
-    const waitForSetttins = () => {
+    const waitForSettings = () => {
         const targetNode = document.querySelector("div.SettingsPanel_profileTab__214Bj");
         if (targetNode) {
             if (!targetNode.querySelector("#script_settings")) {
                 targetNode.insertAdjacentHTML("beforeend", `<div id="script_settings"></div>`);
                 const insertElem = targetNode.querySelector("div#script_settings");
+                // Use flex column layout for the settings panel
+                insertElem.style.display = "flex";
+                insertElem.style.flexDirection = "column";
+                insertElem.style.alignItems = "flex-start";
                 insertElem.insertAdjacentHTML(
                     "beforeend",
-                    `<div style="float: left; color: ${SCRIPT_COLOR_MAIN}">${
+                    `<div style="color: ${SCRIPT_COLOR_MAIN}; margin-bottom: 8px;">${
                         isZH ? "MWITools 设置 （刷新生效）：" : "MWITools Settings (refresh page to apply): "
                     }</div></br>`
                 );
 
                 for (const setting of Object.values(settingsMap)) {
-                    insertElem.insertAdjacentHTML(
-                        "beforeend",
-                        `<div style="float: left;"><input type="checkbox" id="${setting.id}" ${setting.isTrue ? "checked" : ""}></input>${
-                            setting.desc
-                        }</div></br>`
-                    );
+                    if (setting.type === "number") {
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <label for="${setting.id}" style="text-align: left; min-width: 250px;">${setting.desc}</label>
+                                <input type="number" id="${setting.id}" value="${setting.value}" style="width:100px;">
+                            </div>`
+                        );
+                    } else if (setting.type === "option") {
+                        let optionsHtml = setting.options.map(opt => `<option value="${opt.value}" ${setting.value === opt.value ? "selected" : ""}>${opt.label}</option>`).join("");
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <label for="${setting.id}" style="text-align: left; min-width: 250px;">${setting.desc}</label>
+                                <select id="${setting.id}">${optionsHtml}</select>
+                            </div>`
+                        );
+                    } else if (setting.type === "checkbox" || typeof setting.isTrue !== "undefined") {
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="${setting.id}" ${setting.isTrue ? "checked" : ""}></input>
+                                <label for="${setting.id}">${setting.desc}</label>
+                            </div>`
+                        );
+                    }
                 }
 
                 insertElem.insertAdjacentHTML(
                     "beforeend",
-                    `<div style="float: left;">${
+                    `<div style="margin-top: 8px; color: ${SCRIPT_COLOR_MAIN};">${
                         isZH
-                            ? "代码里搜索“自定义”可以手动修改字体颜色、强化模拟默认参数"
-                            : `Search "Customization" in code to customize font colors and default enhancement simulation parameters.`
+                            ? "代码里搜索“自定义”可以手动修改字体颜色"
+                            : `Search "Customization" in code to customize font colors.`
                     }</div></br>`
                 );
                 insertElem.addEventListener("change", saveSettings);
             }
         }
-        setTimeout(waitForSetttins, 500);
+        setTimeout(waitForSettings, 500);
     };
-    waitForSetttins();
+    waitForSettings();
 
     function saveSettings() {
-        for (const checkbox of document.querySelectorAll("div#script_settings input")) {
-            settingsMap[checkbox.id].isTrue = checkbox.checked;
-            localStorage.setItem("script_settingsMap", JSON.stringify(settingsMap));
+        for (const setting of Object.values(settingsMap)) {
+            const elem = document.getElementById(setting.id);
+            if (!elem) continue;
+            if (setting.type === "number") {
+                setting.value = Number(elem.value);
+            } else if (setting.type === "option") {
+                setting.value = elem.value;
+            } else if (setting.type === "checkbox" || typeof setting.isTrue !== "undefined") {
+                setting.isTrue = elem.checked;
+            }
         }
+        localStorage.setItem("script_settingsMap", JSON.stringify(settingsMap));
     }
 
     function readSettings() {
@@ -4970,7 +5054,13 @@
             const lsObj = JSON.parse(ls);
             for (const option of Object.values(lsObj)) {
                 if (settingsMap.hasOwnProperty(option.id)) {
-                    settingsMap[option.id].isTrue = option.isTrue;
+                    if (settingsMap[option.id].type === "number") {
+                        settingsMap[option.id].value = option.value;
+                    } else if (settingsMap[option.id].type === "option") {
+                        settingsMap[option.id].value = option.value;
+                    } else if (settingsMap[option.id].type === "checkbox" || typeof settingsMap[option.id].isTrue !== "undefined") {
+                        settingsMap[option.id].isTrue = option.isTrue;
+                    }
                 }
             }
         }
