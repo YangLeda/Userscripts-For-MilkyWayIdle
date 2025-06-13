@@ -284,9 +284,9 @@
             value: "ultra_enhancing",
             options: [
                 { value: "none", label: isZH ? "无" : "None" },
-                { value: "enhancing", label: isZH ? "强化茶" : "Enhancing Tea" },
-                { value: "super_enhancing", label: isZH ? "超级强化茶" : "Super Enhancing Tea" },
-                { value: "ultra_enhancing", label: isZH ? "究极强化茶" : "Ultra Enhancing Tea" },
+                { value: "enhancing_tea", label: isZH ? "强化茶" : "Enhancing Tea" },
+                { value: "super_enhancing_tea", label: isZH ? "超级强化茶" : "Super Enhancing Tea" },
+                { value: "ultra_enhancing_tea", label: isZH ? "究极强化茶" : "Ultra Enhancing Tea" },
             ],
         },
         tea_blessed: {
@@ -4684,10 +4684,12 @@
             for (const [key, value] of Object.entries(best.costs.needMap)) {
                 needMatStr += `<div>${key} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
             }
+            const tea_name = input_data.tea_type === "none" ? "" :
+                isZH ? "，" + ZHitemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
-                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${input_data.tea_enhancing ? '，强化茶' : ''}${input_data.tea_super_enhancing ? '，超级强化茶' : ''}${input_data.tea_ultra_enhancing ? '，究极强化茶' : ''}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，无市场税：`
-                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${input_data.tea_enhancing ? ', enhancing tea' : ''}${input_data.tea_super_enhancing ? ', super enhancing tea' : ''}${input_data.tea_ultra_enhancing ? ', ultra enhancing tea' : ''}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, no market tax:`
+                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，无市场税：：`
+                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, no market tax:`
             }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
                 best.simResult.totalActionTimeStr
             }</div>${
@@ -4720,8 +4722,8 @@
         const allResults = [];
         for (let protect_at = 2; protect_at <= input_data.stop_at; protect_at++) {
             const simResult = Enhancelate(input_data, protect_at);
-            const costs = getCosts(input_data.item_hrid, price_data);
-            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions + input_data.time_fee * simResult.totalActionTimeSec / 3600.0;
+            const costs = getCosts(input_data, price_data, simResult);
+            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions + costs.timeFee + costs.blessedTeaCost + costs.enhancingTeaCost;
             const r = {};
             r.protect_at = protect_at;
             r.protect_count = simResult.protect_count;
@@ -4772,9 +4774,9 @@
         let total_bonus = null;
         const effective_level =
             input_data.enhancing_level +
-            (input_data.tea_enhancing ? 3 : 0) +
-            (input_data.tea_super_enhancing ? 6 : 0) +
-            (input_data.tea_ultra_enhancing ? 8 : 0);
+            (input_data.tea_type === "enhancing_tea" ? 3 : 0) +
+            (input_data.tea_type === "super_enhancing_tea" ? 6 : 0) +
+            (input_data.tea_type === "ultra_enhancing_tea" ? 8 : 0);
         if (effective_level >= itemLevel) {
             total_bonus = 1 + (0.05 * (effective_level + input_data.laboratory_level - itemLevel) + input_data.enhancer_bonus) / 100;
         } else {
@@ -4822,7 +4824,6 @@
     }
 
     function getEnhanceSimInputData() {
-        const teaType = settingsMap.tea_type.value;
         return {
             item_hrid: null,
             stop_at: null,
@@ -4830,28 +4831,26 @@
             laboratory_level: settingsMap.laboratory_level.value, // 房子等级
             enhancer_bonus: settingsMap.enhancer_bonus.value, // 工具提高成功率，0级=3.6，5级=4.03，10级=4.64
             glove_bonus: settingsMap.glove_bonus.value, // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
-            tea_enhancing: teaType === "enhancing", // 强化茶
-            tea_super_enhancing: teaType === "super_enhancing", // 超级强化茶
-            tea_ultra_enhancing: teaType === "ultra_enhancing",
+            tea_type: settingsMap.tea_type.value,
             tea_blessed: settingsMap.tea_blessed.isTrue, // 祝福茶
             priceAskBidRatio: 1,
             time_fee: settingsMap.time_fee.value,  // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
         };
     }
 
-    function getCosts(hrid, price_data) {
-        const itemDetailObj = initData_itemDetailMap[hrid];
+    function getCosts(input_data, price_data, simResult) {
+        const itemDetailObj = initData_itemDetailMap[input_data.item_hrid];
 
         // +0本体成本
-        const baseCost = getRealisticBaseItemPrice(hrid, price_data);
+        const baseCost = getRealisticBaseItemPrice(input_data.item_hrid, price_data);
 
         // 保护成本
         let minProtectionPrice = null;
         let minProtectionHrid = null;
         let protect_item_hrids =
             itemDetailObj.protectionItemHrids == null
-                ? [hrid, "/items/mirror_of_protection"]
-                : [hrid, "/items/mirror_of_protection"].concat(itemDetailObj.protectionItemHrids);
+                ? [input_data.item_hrid, "/items/mirror_of_protection"]
+                : [input_data.item_hrid, "/items/mirror_of_protection"].concat(itemDetailObj.protectionItemHrids);
         protect_item_hrids.forEach((protection_hrid, i) => {
             const this_cost = getRealisticBaseItemPrice(protection_hrid, price_data);
             if (i === 0) {
@@ -4876,12 +4875,19 @@
             }
         }
 
+        const timeFee = input_data.time_fee * simResult.totalActionTimeSec / 3600.0;
+        const blessedTeaCost = input_data.tea_blessed ? getItemMarketPrice("/items/blessed_tea", price_data) * simResult.totalActionTimeSec / 300.0 : 0;
+        const enhancingTeaCost = input_data.tea_type === "none" ? 0 : getItemMarketPrice(`/items/${input_data.tea_type}`, price_data) * simResult.totalActionTimeSec / 300.0;
+
         return {
             baseCost: baseCost,
             minProtectionCost: minProtectionPrice,
             perActionCost: totalNeedPrice,
             choiceOfProtection: minProtectionHrid,
             needMap: needMap,
+            timeFee: timeFee,
+            blessedTeaCost: blessedTeaCost,
+            enhancingTeaCost: enhancingTeaCost,
         };
     }
 
