@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      23.2
+// @version      23.3
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -4484,14 +4484,9 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "战斗模拟 AmVoidGuy-shykai" : "Combat sim AmVoidGuy";
+                div.innerHTML = isZH ? "战斗模拟 shykai" : "Combat sim shykai";
                 div.addEventListener("click", () => {
-                    window.open(
-                        isZH
-                            ? "https://shykai.github.io/MWICombatSimulatorTest/dist/"
-                            : "https://amvoidguy.github.io/MWICombatSimulatorTest/dist/index.html",
-                        "_blank"
-                    );
+                    window.open("https://shykai.github.io/MWICombatSimulatorTest/dist/", "_blank");
                 });
                 targetNode.insertAdjacentElement("afterbegin", div);
             } else {
