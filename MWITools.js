@@ -3497,7 +3497,7 @@
         return validateMarketJsonFetch(MARKET_JSON_LOCAL_BACKUP, false);
     }
 
-    function numberFormatter(num, digits = 1) {
+    function numberFormatter(num, digits = 2) {
         if (num === null || num === undefined) {
             return null;
         }
