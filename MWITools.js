@@ -301,6 +301,12 @@
             type: "number",
             value: 0,
         },
+        tax_rate: {
+            id: "tax_rate",
+            desc: isZH ? "强化模拟：税率（百分比）" : "Enhance Sim: Tax Rate (percentage)",
+            type: "number",
+            value: 2,
+        }
     };
     readSettings();
 
@@ -4686,11 +4692,12 @@
             }
             const tea_name = input_data.tea_type === "none" ? "" :
                 isZH ? "，" + ZHitemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
+            const total_cost_including_tax = best.totalCost / (1 - input_data.tax_rate / 100);
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
-                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，无市场税：：`
-                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, no market tax:`
-            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
+                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：：`
+                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
+            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(total_cost_including_tax.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
                 best.simResult.totalActionTimeStr
             }</div>${
                 best.protect_count > 0
@@ -4835,6 +4842,7 @@
             tea_blessed: settingsMap.tea_blessed.isTrue, // 祝福茶
             priceAskBidRatio: 1,
             time_fee: settingsMap.time_fee.value,  // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
+            tax_rate: settingsMap.tax_rate.value, // 市场税率
         };
     }
 
