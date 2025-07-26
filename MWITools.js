@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      23.7
+// @version      23.8
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -2236,7 +2236,7 @@
             const marketPrices = marketAPIJson.marketData[item.itemHrid];
             if (!marketPrices || !marketPrices[0]) {
                 console.log("calculateNetworth cannot get marketPrices of " + item.itemHrid);
-                return;
+                continue;
             }
             if (item.isSell) {
                 if (item.itemHrid === "/items/bag_of_10_cowbells") {
