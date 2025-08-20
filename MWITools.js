@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.0
+// @version      24.1
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -271,7 +271,7 @@
 
     /* 官方汉化 */
     // /static/js/main.9972e69d.chunk.js
-    const ZHitemNames = {
+    const ZHItemNames = {
         "/items/coin": "\u91d1\u5e01",
         "/items/task_token": "\u4efb\u52a1\u4ee3\u5e01",
         "/items/chimerical_token": "\u5947\u5e7b\u4ee3\u5e01",
@@ -2047,7 +2047,7 @@
         return retobj;
     }
 
-    const ZHToItemHridMap = inverseKV(ZHitemNames);
+    const ZHToItemHridMap = inverseKV(ZHItemNames);
     const ZHToActionHridMap = inverseKV(ZHActionNames);
     const ZHToOthersMap = inverseKV(ZHOthersDic);
 
@@ -3356,7 +3356,7 @@
                 inputItems = JSON.parse(JSON.stringify(initData_actionDetailMap[actionHrid].inputItems));
                 for (const item of inputItems) {
                     item.name = initData_itemDetailMap[item.itemHrid].name;
-                    item.zhName = ZHitemNames[item.itemHrid];
+                    item.zhName = ZHItemNames[item.itemHrid];
                     item.perAskPrice = marketJson?.marketData[item.itemHrid]?.[0].a;
                     item.perBidPrice = marketJson?.marketData[item.itemHrid]?.[0].b;
                     totalResourcesAskPricePerAction += item.perAskPrice * item.count;
@@ -3376,7 +3376,7 @@
                 let upgradedFromItemBid = null;
                 if (upgradedFromItemHrid) {
                     upgradedFromItemName = initData_itemDetailMap[upgradedFromItemHrid].name;
-                    upgradedFromItemZhName = ZHitemNames[upgradedFromItemHrid];
+                    upgradedFromItemZhName = ZHItemNames[upgradedFromItemHrid];
                     upgradedFromItemAsk += marketJson?.marketData[upgradedFromItemHrid]?.[0].a;
                     upgradedFromItemBid += marketJson?.marketData[upgradedFromItemHrid]?.[0].b;
                     totalResourcesAskPricePerAction += upgradedFromItemAsk;
@@ -4867,8 +4867,11 @@
         if (best) {
             let needMatStr = "";
             for (const [key, value] of Object.entries(best.costs.needMap)) {
-                needMatStr += `<div>${key} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
+                const itemHrid = "/items/" + key.toLowerCase().replaceAll(" ", "_").replaceAll("'", "");
+                const itemName = isZH ? (ZHItemNames[itemHrid] ? ZHItemNames[itemHrid] : key) : key;
+                needMatStr += `<div>${itemName} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
             }
+
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
                     ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）："
@@ -4884,7 +4887,9 @@
             }${numberFormatter(best.costs.baseCost)}</div><div>${
                 best.protect_count > 0
                     ? (isZH ? "保护单价: " : "Price per protection: ") +
-                      initData_itemDetailMap[best.costs.choiceOfProtection].name +
+                      (isZH && ZHItemNames[best.costs.choiceOfProtection]
+                          ? ZHItemNames[best.costs.choiceOfProtection]
+                          : initData_itemDetailMap[best.costs.choiceOfProtection].name) +
                       " " +
                       numberFormatter(best.costs.minProtectionCost)
                     : ""
@@ -5055,7 +5060,7 @@
         const needMap = {};
         let totalNeedPrice = 0;
         for (const need of itemDetailObj.enhancementCosts) {
-            const price = getItemMarketPrice(need.itemHrid, price_data);
+            const price = need.itemHrid.startsWith("/items/trainee_") ? 250000 : getItemMarketPrice(need.itemHrid, price_data); // Trainee charms have a fixed price of 250k
             totalNeedPrice += price * need.count;
             if (!need.itemHrid.includes("/coin")) {
                 needMap[initData_itemDetailMap[need.itemHrid].name] = price;
