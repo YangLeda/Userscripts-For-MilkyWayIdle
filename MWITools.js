@@ -1,14 +1,13 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.1
+// @version      24.2
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
-// @match        https://shykai.github.io/mwisim.github.io/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
 // @grant        GM_addStyle
@@ -4666,39 +4665,39 @@
                     div = document.createElement("div");
                     div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                     div.style.color = SCRIPT_COLOR_MAIN;
-                    div.innerHTML = isZH ? "9战模拟" : "9战模拟";
-                    div.addEventListener("click", () => {
-                        window.open("https://shykai.github.io/mwisim.github.io/", "_blank");
-                    });
-                    targetNode.insertAdjacentElement("afterbegin", div);
-
-                    div = document.createElement("div");
-                    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                    div.style.color = SCRIPT_COLOR_MAIN;
-                    div.innerHTML = isZH ? "利润网站 Mooneycalc" : "利润网站 Mooneycalc";
-                    div.addEventListener("click", () => {
-                        window.open("https://mooneycalc.netlify.app/", "_blank");
-                    });
-                    targetNode.insertAdjacentElement("afterbegin", div);
-
-                    div = document.createElement("div");
-                    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                    div.style.color = SCRIPT_COLOR_MAIN;
-                    div.innerHTML = isZH ? "利润网站 Milkonomy" : "利润网站 Milkonomy";
-                    div.addEventListener("click", () => {
-                        window.open("https://milkonomy.pages.dev/", "_blank");
-                    });
-                    targetNode.insertAdjacentElement("afterbegin", div);
-
-                    div = document.createElement("div");
-                    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                    div.style.color = SCRIPT_COLOR_MAIN;
                     div.innerHTML = isZH ? "牛牛手册" : "牛牛手册";
                     div.addEventListener("click", () => {
                         window.open("https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe", "_blank");
                     });
                     targetNode.insertAdjacentElement("afterbegin", div);
                 }
+
+                div = document.createElement("div");
+                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+                div.style.color = SCRIPT_COLOR_MAIN;
+                div.innerHTML = isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc";
+                div.addEventListener("click", () => {
+                    window.open("https://mooneycalc.netlify.app/", "_blank");
+                });
+                targetNode.insertAdjacentElement("afterbegin", div);
+
+                div = document.createElement("div");
+                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+                div.style.color = SCRIPT_COLOR_MAIN;
+                div.innerHTML = isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy";
+                div.addEventListener("click", () => {
+                    window.open("https://milkonomy.pages.dev/", "_blank");
+                });
+                targetNode.insertAdjacentElement("afterbegin", div);
+
+                div = document.createElement("div");
+                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+                div.style.color = SCRIPT_COLOR_MAIN;
+                div.innerHTML = isZH ? "利润计算 Cowculator" : "Profit calc Cowculator";
+                div.addEventListener("click", () => {
+                    window.open("https://danthegoodman.github.io/cowculator/", "_blank");
+                });
+                targetNode.insertAdjacentElement("afterbegin", div);
 
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
@@ -4712,9 +4711,9 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Cowculator" : "Profit calc Cowculator";
+                div.innerHTML = isZH ? "战斗榜 socko" : "Combat Tracker socko";
                 div.addEventListener("click", () => {
-                    window.open("https://danthegoodman.github.io/cowculator/", "_blank");
+                    window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
                 });
                 targetNode.insertAdjacentElement("afterbegin", div);
 
@@ -5876,51 +5875,6 @@
                 document.querySelector(`button#buttonStartSimulation`).click();
             }, 500);
         }
-    }
-
-    /* 为 9战模拟网站 添加导入按钮 */
-    function addImportButtonFor9Battles() {
-        const checkElem = () => {
-            const selectedElement = document.querySelector(`button#buttonImportExport`);
-            if (selectedElement) {
-                clearInterval(timer);
-                let button = document.createElement("button");
-                selectedElement.parentNode.parentElement.parentElement.insertBefore(button, selectedElement.parentElement.parentElement.nextSibling);
-                button.textContent = isZH ? "导入自己(刷新游戏网页更新人物数据)" : "Import Self(Refresh game page to update character set)";
-                button.style.backgroundColor = SCRIPT_COLOR_MAIN;
-                button.style.padding = "5px";
-                button.onclick = function () {
-                    console.log("Importer: Import button onclick");
-                    const getPriceButton = document.querySelector(`button#buttonGetPrices`);
-                    if (getPriceButton) {
-                        console.log("Click getPriceButton");
-                        getPriceButton.click();
-                    }
-                    importDataFor9Battles(button);
-                    return false;
-                };
-            }
-        };
-        let timer = setInterval(checkElem, 200);
-    }
-
-    async function importDataFor9Battles(button) {
-        const characterObj = JSON.parse(GM_getValue("init_character_data", ""));
-        const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
-        console.log(characterObj);
-        console.log(clientObj);
-
-        const json = constructSelfPlayerExportObjFromInitCharacterData(characterObj, clientObj);
-        console.log(json);
-
-        const importInputElem = document.querySelector(`input#inputSet`);
-        importInputElem.value = JSON.stringify(json);
-        document.querySelector(`button#buttonImportSet`).click();
-
-        button.textContent = isZH ? "已导入" : "Imported";
-        // setTimeout(() => {
-        //     document.querySelector(`button#buttonStartSimulation`).click();
-        // }, 500);
     }
 
     function constructGroupExportObj() {
