@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.2
+// @version      24.3
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -19,6 +19,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
 // @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
+// @require     https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // ==/UserScript==
 
 /*
@@ -2094,6 +2095,20 @@
     let isUsingExpiredMarketJson = false;
     let reasonForUsingExpiredMarketJson = "";
 
+    function decompressInitClientData(compressedData) {
+        try {
+            // 使用lz-string库解压UTF16格式数据
+            const decompressedJson = LZString.decompressFromUTF16(compressedData);
+            if (!decompressedJson) {
+                throw new Error("decompressInitClientData: decompressFromUTF16() returned null");
+            }
+            return JSON.parse(decompressedJson);
+        } catch (error) {
+            console.error("decompressInitClientData: ", error);
+            return null;
+        }
+    }
+
     let initData_characterSkills = null;
     let initData_characterItems = null;
     let initData_combatAbilities = null;
@@ -2111,9 +2126,9 @@
     let currentEquipmentMap = {};
 
     if (localStorage.getItem("initClientData")) {
-        const obj = JSON.parse(localStorage.getItem("initClientData"));
+        const obj = decompressInitClientData(localStorage.getItem("initClientData"));
         console.log(obj);
-        GM_setValue("init_client_data", localStorage.getItem("initClientData"));
+        GM_setValue("init_client_data", JSON.stringify(decompressInitClientData(localStorage.getItem("initClientData"))));
 
         initData_actionDetailMap = obj.actionDetailMap;
         initData_levelExperienceTable = obj.levelExperienceTable;
