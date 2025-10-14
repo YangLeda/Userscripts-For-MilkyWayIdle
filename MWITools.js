@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.4
+// @version      24.5
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -2534,7 +2534,7 @@
 
             invElem.insertAdjacentHTML(
                 "beforebegin",
-                `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 14px;">
+                `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                     <!-- 战力打造分 -->
                     <div style="cursor: pointer; font-weight: bold" id="toggleScores">${
                         isZH ? "+ 战力打造分: " : "+ Character Build Score: "
@@ -2618,7 +2618,7 @@
             if (targetNode) {
                 targetNode.insertAdjacentHTML(
                     "afterend",
-                    `<div style="font-size: 13px; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberFormatter(
+                    `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberFormatter(
                         networthAsk
                     )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${
                         isZH ? "无法从API更新市场数据" : "Can't update market prices"
@@ -2711,7 +2711,7 @@
             style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black;">
             ${isZH ? "无" : "None"}
             </button>`;
-        const buttonsDiv = `<div style="color: ${SCRIPT_COLOR_MAIN}; font-size: 14px; text-align: left; ">${
+        const buttonsDiv = `<div style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
             isZH ? "物品排序：" : "Sort items by: "
         }${askButton} ${bidButton} ${noneButton}</div>`;
         invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
@@ -2904,7 +2904,7 @@
         const panel = await getInfoPanel();
         panel.insertAdjacentHTML(
             "beforeend",
-            `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 14px;">
+            `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                 <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${
                     isZH ? "+ 战力打造分: " : "+ Character Build Score: "
                 }${totalBuildScore.toFixed(1)}${isEquipmentHiddenText}</div>
@@ -3328,14 +3328,14 @@
                 const hpPerMiniute = (60 / (cd / 1000000000)) * hp;
                 const pricePer100Hp = ask ? ask / (hp / 100) : null;
                 const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${
+                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
                     pricePer100Hp ? pricePer100Hp.toFixed(0) + (isZH ? "金/100血, " : "coins/100hp, ") : ""
                 }${hpPerMiniute.toFixed(0) + (isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
             } else if (mp && cd) {
                 const mpPerMiniute = (60 / (cd / 1000000000)) * mp;
                 const pricePer100Mp = ask ? ask / (mp / 100) : null;
                 const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${
+                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
                     pricePer100Mp ? pricePer100Mp.toFixed(0) + (isZH ? "金/100蓝, " : "coins/100hp, ") : ""
                 }${mpPerMiniute.toFixed(0) + (isZH ? "蓝/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
             } else if (cd) {
@@ -3399,7 +3399,7 @@
 
                 // 使用表格显示原料信息
                 appendHTMLStr += `
-                                <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">
+                                <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">
                                     <table style="width:100%; border-collapse: collapse;">
                                         <tr style="border-bottom: 1px solid ${SCRIPT_COLOR_TOOLTIP};">
                                             <th style="text-align: left;">${isZH ? "原料" : "Material"}</th>
@@ -3427,7 +3427,7 @@
 
                 if (upgradedFromItemHrid) {
                     appendHTMLStr += `
-                    <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;"> ${
+                    <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${
                         isZH ? upgradedFromItemZhName : upgradedFromItemName
                     }: ${numberFormatter(upgradedFromItemAsk)} / ${numberFormatter(upgradedFromItemBid)}</div>
                     `;
@@ -3497,13 +3497,13 @@
                 extraFreeItemPerHour * bidAfterTax -
                 drinksConsumedPerHourAskPrice;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
                 isZH
                     ? "生产利润(卖单价进、买单价出，包含销售税；不包括加工茶、社区增益、稀有掉落、袋子饮食增益；刷新网页更新人物数据)："
                     : "Production profit(Sell price in, bid price out, including sales tax; Not including processing tea, comm buffs, rare drops, pouch consumables buffs; Refresh page to update player data): "
             }</div>`;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${baseTimePerActionSec.toFixed(2)}s ${
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${baseTimePerActionSec.toFixed(2)}s ${
                 isZH ? "基础速度" : "base speed,"
             } x${droprate} ${isZH ? "基础掉率" : "base drop rate,"} +${toolPercent}%${isZH ? "工具速度" : " tool speed,"} +${levelEffBuff}%${
                 isZH ? "等级效率" : " level eff,"
@@ -3513,11 +3513,11 @@
                 isZH ? "茶减少消耗" : " tea lower resource"
             }</div>`;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
                 isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "
             }${numberFormatter(drinksConsumedPerHourAskPrice)}  / ${numberFormatter(drinksConsumedPerHourBidPrice)}</div>`;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 10px;">${isZH ? "每小时动作" : "Actions per hour"} ${Number(
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${isZH ? "每小时动作" : "Actions per hour"} ${Number(
                 actionPerHour
             ).toFixed(1)}${isZH ? " 次" : " times"}, ${isZH ? "每小时生产" : "Production per hour"} ${Number(
                 itemPerHour + extraFreeItemPerHour
@@ -5289,7 +5289,7 @@
         if (warningStr) {
             document.body.insertAdjacentHTML(
                 "beforeend",
-                `<div id="script_item_warning" style="position: fixed; top: 1%; left: 30%; color: ${SCRIPT_COLOR_ALERT}; font-size: 20px;">${warningStr}</div>`
+                `<div id="script_item_warning" style="position: fixed; top: 1%; left: 30%; color: ${SCRIPT_COLOR_ALERT}; font-size: 1rem;">${warningStr}</div>`
             );
         }
     }
@@ -5437,7 +5437,7 @@
 
             panel.innerHTML = `
             <div id="panelHeader" style="display: flex; justify-content: space-between; align-items: center; cursor: move; width: auto; height: auto;">
-                <span style="font-weight: bold; font-size: 16px; color: #0078d4;">DPS</span>
+                <span style="font-weight: bold; font-size: 1rem; color: #0078d4;">DPS</span>
                 <button id="script_toggleButton" style="background-color: #0078d4; color: white; border: none; padding: 5px 10px; margin-left: 10px; border-radius: 8px; cursor: pointer;">${lang.toggleButtonHide}</button>
             </div>
             <div id="script_panelContent">
