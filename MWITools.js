@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.3
+// @version      24.4
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -2128,7 +2128,7 @@
     if (localStorage.getItem("initClientData")) {
         const obj = decompressInitClientData(localStorage.getItem("initClientData"));
         console.log(obj);
-        GM_setValue("init_client_data", JSON.stringify(decompressInitClientData(localStorage.getItem("initClientData"))));
+        GM_setValue("init_client_data", JSON.stringify(obj));
 
         initData_actionDetailMap = obj.actionDetailMap;
         initData_levelExperienceTable = obj.levelExperienceTable;
