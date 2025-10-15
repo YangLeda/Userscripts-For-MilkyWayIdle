@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.6
+// @version      24.7
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -4082,7 +4082,7 @@
                 const span = document.createElement("span");
                 span.textContent = text;
                 span.classList.add("insertedSpan");
-                span.style.fontSize = "13px";
+                span.style.fontSize = "0.875rem";
                 span.style.color = SCRIPT_COLOR_MAIN;
 
                 element.parentNode.parentNode.querySelector("span.NavigationBar_level__3C7eR").style.width = "auto";
@@ -5416,7 +5416,7 @@
             panel.style.top = "50px";
             panel.style.left = "50px";
             panel.style.zIndex = "9999";
-            panel.style.fontSize = "14px";
+            panel.style.fontSize = "0.875rem";
             panel.style.padding = "10px";
             panel.style.borderRadius = "16px";
             panel.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.3)";
