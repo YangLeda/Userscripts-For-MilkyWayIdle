@@ -3238,9 +3238,8 @@
             lessResource: 0, // Artisan tea.
             extraExp: 0, // Wisdom tea. Not used.
             upgradedProduct: 0, // Processing tea. Not used.
-            concentration: 0,
+            concentration: 1 + getGuzzlingConcentration(),
         };
-        teaBuffs.concentration = 1 + getGuzzlingConcentration();
 
         const actionTypeId = initData_actionDetailMap[actionHrid].type;
         const teaList = initData_actionTypeDrinkSlotsMap[actionTypeId];
