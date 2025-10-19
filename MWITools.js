@@ -3264,7 +3264,7 @@
                 } else if (buff.typeHrid === "/buff_types/efficiency") {
                     teaBuffs.efficiency += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === `/buff_types/${actionTypeId.replace("/action_types/", "")}_level`) {
-                    teaBuffs.efficiency += buff.flatBoost;
+                    teaBuffs.efficiency += buff.flatBoost * teaBuffs.concentration;
                 }
             }
         }
