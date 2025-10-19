@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.7
+// @version      24.8
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
@@ -5092,7 +5092,7 @@
 
     function getRealisticBaseItemPrice(hrid, price_data) {
         const itemDetailObj = initData_itemDetailMap[hrid];
-        const productionCost = getBaseItemProductionCost(itemDetailObj.name, price_data);
+        const productionCost = getBaseItemProductionCost(itemDetailObj.name, price_data); // Inacuracy warning: productionCost is unreliable, it may be low or 0 due to missing market data.
 
         const item_price_data = price_data.marketData[hrid];
         const ask = item_price_data?.[0]?.a;
@@ -5132,9 +5132,8 @@
     function getItemMarketPrice(hrid, price_data) {
         const item_price_data = price_data.marketData[hrid];
 
-        // Return 0 if the item does not have neither ask nor bid prices.
-        if (!item_price_data || (item_price_data[0].a < 0 && item_price_data[0].b < 0)) {
-            // console.log("getItemMarketPrice() return 0 due to neither ask nor bid prices: " + hrid);
+        // Return 0 if the item does not have neither ask nor bid prices for enhancement level 0.
+        if (!item_price_data || !item_price_data[0] || (item_price_data[0].a < 0 && item_price_data[0].b < 0)) {
             return 0;
         }
 
