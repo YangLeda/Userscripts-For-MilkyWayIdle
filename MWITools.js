@@ -2165,7 +2165,6 @@
             if (!(socket instanceof WebSocket)) {
                 return oriGet.call(this);
             }
-            if (socket.url.indexOf("api.milkywayidle.com/ws") <= -1 && socket.url.indexOf("api-test.milkywayidle.com/ws") <= -1) {
                 return oriGet.call(this);
             }
 
