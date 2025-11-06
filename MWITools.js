@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.8
+// @version      24.9
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
+// @match        https://www.milkywayidlecn.com/*
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
@@ -2165,6 +2166,11 @@
             if (!(socket instanceof WebSocket)) {
                 return oriGet.call(this);
             }
+            if (
+                socket.url.indexOf("api.milkywayidle.com/ws") <= -1 &&
+                socket.url.indexOf("api-test.milkywayidle.com/ws") <= -1 &&
+                socket.url.indexOf("api.milkywayidlecn.com/ws") <= -1
+            ) {
                 return oriGet.call(this);
             }
 
