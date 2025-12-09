@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      24.7
+// @version      25.0
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
+// @match        https://www.milkywayidlecn.com/*
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
@@ -19,7 +20,7 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
 // @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
-// @require     https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
+// @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // ==/UserScript==
 
 /*
@@ -62,7 +63,10 @@
     let SCRIPT_COLOR_TOOLTIP = "darkgreen"; // 物品悬浮窗的字体颜色
     const SCRIPT_COLOR_ALERT = "red"; // 警告字体颜色
 
-    const MARKET_API_URL = "https://www.milkywayidle.com/game_data/marketplace.json";
+    console.log(window.location.href);
+    const MARKET_API_URL = window.location.href.includes("milkywayidle.com")
+        ? "https://www.milkywayidle.com/game_data/marketplace.json"
+        : "https://www.milkywayidlecn.com/game_data/marketplace.json";
 
     let settingsMap = {
         useOrangeAsMainColor: {
@@ -2165,7 +2169,11 @@
             if (!(socket instanceof WebSocket)) {
                 return oriGet.call(this);
             }
-            if (socket.url.indexOf("api.milkywayidle.com/ws") <= -1 && socket.url.indexOf("api-test.milkywayidle.com/ws") <= -1) {
+            if (
+                socket.url.indexOf("api.milkywayidle.com/ws") <= -1 &&
+                socket.url.indexOf("api-test.milkywayidle.com/ws") <= -1 &&
+                socket.url.indexOf("api.milkywayidlecn.com/ws") <= -1
+            ) {
                 return oriGet.call(this);
             }
 
@@ -5112,7 +5120,7 @@
 
     function getRealisticBaseItemPrice(hrid, price_data) {
         const itemDetailObj = initData_itemDetailMap[hrid];
-        const productionCost = getBaseItemProductionCost(itemDetailObj.name, price_data);
+        const productionCost = getBaseItemProductionCost(itemDetailObj.name, price_data); // Inacuracy warning: productionCost is unreliable, it may be low or 0 due to missing market data.
 
         const item_price_data = price_data.marketData[hrid];
         const ask = item_price_data?.[0]?.a;
@@ -5152,9 +5160,8 @@
     function getItemMarketPrice(hrid, price_data) {
         const item_price_data = price_data.marketData[hrid];
 
-        // Return 0 if the item does not have neither ask nor bid prices.
-        if (!item_price_data || (item_price_data[0].a < 0 && item_price_data[0].b < 0)) {
-            // console.log("getItemMarketPrice() return 0 due to neither ask nor bid prices: " + hrid);
+        // Return 0 if the item does not have neither ask nor bid prices for enhancement level 0.
+        if (!item_price_data || !item_price_data[0] || (item_price_data[0].a < 0 && item_price_data[0].b < 0)) {
             return 0;
         }
 
