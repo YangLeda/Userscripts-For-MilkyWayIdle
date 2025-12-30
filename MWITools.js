@@ -2742,8 +2742,10 @@
                     continue;
                 }
 
-                typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
+                const invElem = typeDiv.querySelector(".Inventory_label__XEOAx")
+                invElem.style.order = Number.MIN_SAFE_INTEGER;
 
+                let priceInvTotal = 0;
                 const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
                 for (const itemElem of itemElems) {
                     let itemName = itemElem.querySelector("svg").attributes["aria-label"].value;
@@ -2775,14 +2777,25 @@
                     if (order === "ask") {
                         itemElem.style.order = -itemAskmWorth;
                         priceElem.textContent = numberFormatter(itemAskmWorth);
+                        priceInvTotal += itemAskmWorth;
                     } else if (order === "bid") {
                         itemElem.style.order = -itemBidWorth;
                         priceElem.textContent = numberFormatter(itemBidWorth);
+                        priceInvTotal += itemBidWorth;
                     } else if (order === "none") {
                         itemElem.style.order = 0;
                         priceElem.textContent = "";
                     }
                 }
+
+                if (!invElem.querySelector("#script_inventory_price")) {
+                    invElem.insertAdjacentHTML("beforeend", `<span
+                        id="script_inventory_price"
+                        style="color: ${SCRIPT_COLOR_MAIN};">
+                        ></span>`);
+                }
+                const priceInvElem = invElem.querySelector("#script_inventory_price");
+                priceInvElem.textContent = priceInvTotal == 0 ? `` : `(${numberFormatter(priceInvTotal)})`;
             }
         };
     }
