@@ -3246,6 +3246,7 @@
             lessResource: 0, // Artisan tea.
             extraExp: 0, // Wisdom tea. Not used.
             upgradedProduct: 0, // Processing tea. Not used.
+            concentration: 1 + getGuzzlingConcentration(),
         };
 
         const actionTypeId = initData_actionDetailMap[actionHrid].type;
@@ -3257,26 +3258,45 @@
 
             for (const buff of initData_itemDetailMap[tea.itemHrid].consumableDetail.buffs) {
                 if (buff.typeHrid === "/buff_types/artisan") {
-                    teaBuffs.lessResource += buff.flatBoost * 100;
+                    teaBuffs.lessResource += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === "/buff_types/action_level") {
                     teaBuffs.efficiency -= buff.flatBoost;
                 } else if (buff.typeHrid === "/buff_types/gathering") {
-                    teaBuffs.quantity += buff.flatBoost * 100;
+                    teaBuffs.quantity += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === "/buff_types/gourmet") {
-                    teaBuffs.quantity += buff.flatBoost * 100;
+                    teaBuffs.quantity += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === "/buff_types/wisdom") {
-                    teaBuffs.extraExp += buff.flatBoost * 100;
+                    teaBuffs.extraExp += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === "/buff_types/processing") {
-                    teaBuffs.upgradedProduct += buff.flatBoost * 100;
+                    teaBuffs.upgradedProduct += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === "/buff_types/efficiency") {
-                    teaBuffs.efficiency += buff.flatBoost * 100;
+                    teaBuffs.efficiency += buff.flatBoost * 100 * teaBuffs.concentration;
                 } else if (buff.typeHrid === `/buff_types/${actionTypeId.replace("/action_types/", "")}_level`) {
-                    teaBuffs.efficiency += buff.flatBoost;
+                    teaBuffs.efficiency += buff.flatBoost * teaBuffs.concentration;
                 }
             }
         }
 
         return teaBuffs;
+    }
+
+    /**
+     * @returns {Number}
+     */
+    function getGuzzlingConcentration() {
+        const guzzlingHrid = "/items/guzzling_pouch";
+        for (const item of initData_characterItems) {
+            if (item.itemHrid != guzzlingHrid) {
+                continue
+            }
+            const guzzlingDetail = initData_itemDetailMap[guzzlingHrid];
+            const concentration = guzzlingDetail?.equipmentDetail?.noncombatStats["drinkConcentration"];
+            if (concentration != null) {
+                const enhanceBonus = 1 + itemEnhanceLevelToBuffBonusMap[item.enhancementLevel] / 100;
+                return concentration * enhanceBonus;
+            }
+        }
+        return 0;
     }
 
     async function handleTooltipItem(tooltip) {
@@ -3959,8 +3979,8 @@
                 if (!drink || !drink.itemHrid) {
                     continue;
                 }
-                drinksConsumedPerHourAskPrice += (marketJson?.marketData[drink.itemHrid]?.[0].a ?? 0) * 12;
-                drinksConsumedPerHourBidPrice += (marketJson?.marketData[drink.itemHrid]?.[0].b ?? 0) * 12;
+                drinksConsumedPerHourAskPrice += (marketJson?.marketData[drink.itemHrid]?.[0].a ?? 0) * 12 * teaBuffs.concentration;
+                drinksConsumedPerHourBidPrice += (marketJson?.marketData[drink.itemHrid]?.[0].b ?? 0) * 12 * teaBuffs.concentration;
             }
 
             // 每小时动作数（包含工具缩减动作时间）
