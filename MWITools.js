@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.1
+// @version      25.2
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -73,6 +73,11 @@
             id: "useOrangeAsMainColor",
             desc: isZH ? "使用橙色字体" : "Use orange as the main color for the script.",
             isTrue: true,
+        },
+        displayCapMM:{
+            id: "displayCapMM",
+            desc: isZH ? "限制最高支持M量级（之前最高B量级）" : "Values are capped at the million level, which used to be billion.",
+            isTrue: false,
         },
         totalActionTime: {
             id: "totalActionTime",
@@ -1170,6 +1175,7 @@
         "/items/crushed_philosophers_stone": "\u8d24\u8005\u4e4b\u77f3\u788e\u7247",
         "/items/shard_of_protection": "\u4fdd\u62a4\u788e\u7247",
         "/items/mirror_of_protection": "\u4fdd\u62a4\u4e4b\u955c",
+        "/items/philosophers_mirror": "\u8d24\u8005\u4e4b\u955c"
     };
 
     const ZHActionNames = {
@@ -1450,7 +1456,7 @@
         "/actions/crafting/basic_crafting_charm": "\u57fa\u7840\u5236\u4f5c\u62a4\u7b26",
         "/actions/crafting/basic_tailoring_charm": "\u57fa\u7840\u7f1d\u7eab\u62a4\u7b26",
         "/actions/crafting/basic_cooking_charm": "\u57fa\u7840\u70f9\u996a\u62a4\u7b26",
-        "/actions/crafting/basic_brewing_charm": "\u57fa\u7840\u917f\u9020\u62a4\u7b26",
+        "/actions/crafting/basic_brewing_charm": "\u57fa\u7840\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/basic_alchemy_charm": "\u57fa\u7840\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/basic_enhancing_charm": "\u57fa\u7840\u5f3a\u5316\u62a4\u7b26",
         "/actions/crafting/cedar_shield": "\u96ea\u677e\u76fe",
@@ -1474,7 +1480,7 @@
         "/actions/crafting/advanced_crafting_charm": "\u9ad8\u7ea7\u5236\u4f5c\u62a4\u7b26",
         "/actions/crafting/advanced_tailoring_charm": "\u9ad8\u7ea7\u7f1d\u7eab\u62a4\u7b26",
         "/actions/crafting/advanced_cooking_charm": "\u9ad8\u7ea7\u70f9\u996a\u62a4\u7b26",
-        "/actions/crafting/advanced_brewing_charm": "\u9ad8\u7ea7\u917f\u9020\u62a4\u7b26",
+        "/actions/crafting/advanced_brewing_charm": "\u9ad8\u7ea7\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/advanced_alchemy_charm": "\u9ad8\u7ea7\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/advanced_enhancing_charm": "\u9ad8\u7ea7\u5f3a\u5316\u62a4\u7b26",
         "/actions/crafting/advanced_stamina_charm": "\u9ad8\u7ea7\u8010\u529b\u62a4\u7b26",
@@ -1516,7 +1522,7 @@
         "/actions/crafting/expert_crafting_charm": "\u4e13\u5bb6\u5236\u4f5c\u62a4\u7b26",
         "/actions/crafting/expert_tailoring_charm": "\u4e13\u5bb6\u7f1d\u7eab\u62a4\u7b26",
         "/actions/crafting/expert_cooking_charm": "\u4e13\u5bb6\u70f9\u996a\u62a4\u7b26",
-        "/actions/crafting/expert_brewing_charm": "\u4e13\u5bb6\u917f\u9020\u62a4\u7b26",
+        "/actions/crafting/expert_brewing_charm": "\u4e13\u5bb6\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/expert_alchemy_charm": "\u4e13\u5bb6\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/expert_enhancing_charm": "\u4e13\u5bb6\u5f3a\u5316\u62a4\u7b26",
         "/actions/crafting/expert_stamina_charm": "\u4e13\u5bb6\u8010\u529b\u62a4\u7b26",
@@ -1555,7 +1561,7 @@
         "/actions/crafting/master_crafting_charm": "\u5927\u5e08\u5236\u4f5c\u62a4\u7b26",
         "/actions/crafting/master_tailoring_charm": "\u5927\u5e08\u7f1d\u7eab\u62a4\u7b26",
         "/actions/crafting/master_cooking_charm": "\u5927\u5e08\u70f9\u996a\u62a4\u7b26",
-        "/actions/crafting/master_brewing_charm": "\u5927\u5e08\u917f\u9020\u62a4\u7b26",
+        "/actions/crafting/master_brewing_charm": "\u5927\u5e08\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/master_alchemy_charm": "\u5927\u5e08\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/master_enhancing_charm": "\u5927\u5e08\u5f3a\u5316\u62a4\u7b26",
         "/actions/crafting/master_stamina_charm": "\u5927\u5e08\u8010\u529b\u62a4\u7b26",
@@ -1598,7 +1604,7 @@
         "/actions/crafting/grandmaster_crafting_charm": "\u5b97\u5e08\u5236\u4f5c\u62a4\u7b26",
         "/actions/crafting/grandmaster_tailoring_charm": "\u5b97\u5e08\u7f1d\u7eab\u62a4\u7b26",
         "/actions/crafting/grandmaster_cooking_charm": "\u5b97\u5e08\u70f9\u996a\u62a4\u7b26",
-        "/actions/crafting/grandmaster_brewing_charm": "\u5b97\u5e08\u917f\u9020\u62a4\u7b26",
+        "/actions/crafting/grandmaster_brewing_charm": "\u5b97\u5e08\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/grandmaster_alchemy_charm": "\u5b97\u5e08\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/grandmaster_enhancing_charm": "\u5b97\u5e08\u5f3a\u5316\u62a4\u7b26",
         "/actions/crafting/grandmaster_stamina_charm": "\u5b97\u5e08\u8010\u529b\u62a4\u7b26",
@@ -1608,6 +1614,7 @@
         "/actions/crafting/grandmaster_melee_charm": "\u5b97\u5e08\u8fd1\u6218\u62a4\u7b26",
         "/actions/crafting/grandmaster_ranged_charm": "\u5b97\u5e08\u8fdc\u7a0b\u62a4\u7b26",
         "/actions/crafting/grandmaster_magic_charm": "\u5b97\u5e08\u9b54\u6cd5\u62a4\u7b26",
+        "/actions/crafting/philosophers_mirror": "\u8d24\u8005\u4e4b\u955c",
         "/actions/crafting/bishops_codex_refined": "\u4e3b\u6559\u6cd5\u5178\uff08\u7cbe\uff09",
         "/actions/crafting/cursed_bow_refined": "\u5492\u6028\u4e4b\u5f13\uff08\u7cbe\uff09",
         "/actions/crafting/sundering_crossbow_refined": "\u88c2\u7a7a\u4e4b\u5f29\uff08\u7cbe\uff09",
@@ -2172,7 +2179,8 @@
             if (
                 socket.url.indexOf("api.milkywayidle.com/ws") <= -1 &&
                 socket.url.indexOf("api-test.milkywayidle.com/ws") <= -1 &&
-                socket.url.indexOf("api.milkywayidlecn.com/ws") <= -1
+                socket.url.indexOf("api.milkywayidlecn.com/ws") <= -1 &&
+                socket.url.indexOf("api-test.milkywayidlecn.com/ws") <= -1
             ) {
                 return oriGet.call(this);
             }
@@ -2466,7 +2474,7 @@
             if (enhanceLevel && enhanceLevel > 1) {
                 input_data.item_hrid = item.itemHrid;
                 input_data.stop_at = enhanceLevel;
-                const best = await findBestEnhanceStrat(input_data);
+                const best = await findBestEnhanceStratWithPhiMirror(input_data);
                 let totalCost = best?.totalCost;
                 totalCost = totalCost ? Math.round(totalCost) : 0;
                 if (item.itemLocationHrid !== "/item_locations/inventory") {
@@ -2493,25 +2501,27 @@
             const quantity = item.orderQuantity - item.filledQuantity;
             const enhancementLevel = item.enhancementLevel;
             const marketPrices = marketAPIJson.marketData[item.itemHrid];
-            if (!marketPrices || !marketPrices[0]) {
+            if (!marketPrices) {
                 console.log("calculateNetworth cannot get marketPrices of " + item.itemHrid);
                 continue;
             }
+            let askPrice = marketPrices[0]?.a ?? 0;
+            let bidPrice = marketPrices[0]?.b ?? 0;
             if (item.isSell) {
                 if (item.itemHrid === "/items/bag_of_10_cowbells") {
-                    marketPrices[0].a *= 1 - 18 / 100;
-                    marketPrices[0].b *= 1 - 18 / 100;
+                    askPrice *= 1 - 18 / 100;
+                    bidPrice *= 1 - 18 / 100;
                 } else {
-                    marketPrices[0].a *= 1 - 2 / 100;
-                    marketPrices[0].b *= 1 - 2 / 100;
+                    askPrice *= 1 - 2 / 100;
+                    bidPrice *= 1 - 2 / 100;
                 }
                 if (!enhancementLevel || enhancementLevel <= 1) {
-                    marketListingsNetworthAsk += quantity * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-                    marketListingsNetworthBid += quantity * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
+                    marketListingsNetworthAsk += quantity * (askPrice > 0 ? askPrice : 0);
+                    marketListingsNetworthBid += quantity * (bidPrice > 0 ? bidPrice : 0);
                 } else {
                     input_data.item_hrid = item.itemHrid;
                     input_data.stop_at = enhancementLevel;
-                    const best = await findBestEnhanceStrat(input_data);
+                    const best = await findBestEnhanceStratWithPhiMirror(input_data);
                     let totalCost = best?.totalCost;
                     totalCost = totalCost ? Math.round(totalCost) : 0;
                     marketListingsNetworthAsk += quantity * (totalCost > 0 ? totalCost : 0);
@@ -2522,8 +2532,8 @@
             } else {
                 marketListingsNetworthAsk += quantity * item.price;
                 marketListingsNetworthBid += quantity * item.price;
-                marketListingsNetworthAsk += item.unclaimedItemCount * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-                marketListingsNetworthBid += item.unclaimedItemCount * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
+                marketListingsNetworthAsk += item.unclaimedItemCount * (askPrice > 0 ? askPrice : 0);
+                marketListingsNetworthBid += item.unclaimedItemCount * (bidPrice > 0 ? bidPrice : 0);
             }
         }
 
@@ -2753,10 +2763,12 @@
                     const itemHrid = itemEnNameToHridMap[itemName];
                     let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
                     itemCount = Number(itemCount.toLowerCase().replaceAll("k", "000").replaceAll("m", "000000"));
-                    const askPrice =
-                        price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0].a > 0 ? price_data.marketData[itemHrid][0].a : 0;
-                    const bidPrice =
-                        price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0].b > 0 ? price_data.marketData[itemHrid][0].b : 0;
+                    let askPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        askPrice = price_data.marketData[itemHrid][0].a;
+                    let bidPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        bidPrice = price_data.marketData[itemHrid][0].b;
                     const itemAskmWorth = askPrice * itemCount;
                     const itemBidWorth = bidPrice * itemCount;
 
@@ -2910,6 +2922,7 @@
         const isEquipmentHiddenText = abilityScore + equipmentScore <= 0 ? (isZH ? " (装备隐藏)" : " (Equipment hidden)") : " ";
 
         const panel = await getInfoPanel();
+        panel.style.height = "auto";
         panel.insertAdjacentHTML(
             "beforeend",
             `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
@@ -3029,7 +3042,7 @@
             if (enhanceLevel && enhanceLevel > 1) {
                 input_data.item_hrid = item.itemHrid;
                 input_data.stop_at = enhanceLevel;
-                const best = await findBestEnhanceStrat(input_data);
+                const best = await findBestEnhanceStratWithPhiMirror(input_data);
                 let totalCost = best?.totalCost;
                 totalCost = totalCost ? Math.round(totalCost) : 0;
                 networthAsk += item.count * (totalCost > 0 ? totalCost : 0);
@@ -3317,8 +3330,8 @@
                 console.error("jsonObj null");
             }
 
-            ask = marketJson?.marketData[itemHrid]?.[0].a;
-            bid = marketJson?.marketData[itemHrid]?.[0].b;
+            ask = marketJson?.marketData[itemHrid]?.[0]?.a ?? 0;
+            bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
             appendHTMLStr += `
         <div style="color: ${SCRIPT_COLOR_TOOLTIP};">${isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
                 ask && ask > 0 ? numberFormatter(ask * amount) : ""
@@ -3379,8 +3392,8 @@
                 for (const item of inputItems) {
                     item.name = initData_itemDetailMap[item.itemHrid].name;
                     item.zhName = ZHItemNames[item.itemHrid];
-                    item.perAskPrice = marketJson?.marketData[item.itemHrid]?.[0].a;
-                    item.perBidPrice = marketJson?.marketData[item.itemHrid]?.[0].b;
+                    item.perAskPrice = marketJson?.marketData[item.itemHrid]?.[0]?.a ?? 0;
+                    item.perBidPrice = marketJson?.marketData[item.itemHrid]?.[0]?.b ?? 0;
                     totalResourcesAskPricePerAction += item.perAskPrice * item.count;
                     totalResourcesBidPricePerAction += item.perBidPrice * item.count;
                 }
@@ -3399,8 +3412,8 @@
                 if (upgradedFromItemHrid) {
                     upgradedFromItemName = initData_itemDetailMap[upgradedFromItemHrid].name;
                     upgradedFromItemZhName = ZHItemNames[upgradedFromItemHrid];
-                    upgradedFromItemAsk += marketJson?.marketData[upgradedFromItemHrid]?.[0].a;
-                    upgradedFromItemBid += marketJson?.marketData[upgradedFromItemHrid]?.[0].b;
+                    upgradedFromItemAsk += marketJson?.marketData[upgradedFromItemHrid]?.[0]?.a ?? 0;
+                    upgradedFromItemBid += marketJson?.marketData[upgradedFromItemHrid]?.[0]?.b ?? 0;
                     totalResourcesAskPricePerAction += upgradedFromItemAsk;
                     totalResourcesBidPricePerAction += upgradedFromItemBid;
                 }
@@ -3716,8 +3729,10 @@
             { value: 1, symbol: "" },
             { value: 1e3, symbol: "k" },
             { value: 1e6, symbol: "M" },
-            { value: 1e9, symbol: "B" },
         ];
+        if (!settingsMap.displayCapMM.isTrue) {
+            lookup.push({ value: 1e9, symbol: "B" });
+        }
         const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
         var item = lookup
             .slice()
@@ -3827,13 +3842,14 @@
 
         // 显示快捷按钮
         if (settingsMap.actionPanel_totalTime_quickInputs.isTrue) {
-            hTMLStr = `<div id="quickInputButtons" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${isZH ? "做 " : "Do "}</div>`;
+            hTMLStr = `<div id="quickInputHourButtons" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left; display:flex;">${isZH ? "做 " : "Do "}</div>`;
             showTotalTimeDiv.insertAdjacentHTML("afterend", hTMLStr);
-            const quickInputButtonsDiv = panel.querySelector("div#quickInputButtons");
+            const quickInputHourButtonsDiv = panel.querySelector("div#quickInputHourButtons");
 
             const presetHours = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
             for (const value of presetHours) {
                 const btn = document.createElement("button");
+                btn.className = "Button_button__1Fe9z Button_small__3fqC7";
                 btn.style.backgroundColor = "white";
                 btn.style.color = "black";
                 btn.style.padding = "1px 6px 1px 6px";
@@ -3842,15 +3858,17 @@
                 btn.onclick = () => {
                     reactInputTriggerHack(inputElem, Math.round((value * 60 * 60 * effBuff) / duration));
                 };
-                quickInputButtonsDiv.append(btn);
+                quickInputHourButtonsDiv.append(btn);
             }
-            quickInputButtonsDiv.append(document.createTextNode(isZH ? " 小时" : " hours"));
+            quickInputHourButtonsDiv.append(document.createTextNode(isZH ? " 小时" : " hours"));
 
-            quickInputButtonsDiv.append(document.createElement("div"));
-            quickInputButtonsDiv.append(document.createTextNode(isZH ? "做 " : "Do "));
+            hTMLStr = `<div id="quickInputCountButtons" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left; display:flex;">${isZH ? "做 " : "Do "}</div>`;
+            quickInputHourButtonsDiv.insertAdjacentHTML("afterend", hTMLStr);
+            const quickInputCountButtonsDiv = panel.querySelector("div#quickInputCountButtons");
             const presetTimes = [10, 100, 300, 500, 1000, 2000];
             for (const value of presetTimes) {
                 const btn = document.createElement("button");
+                btn.className = "Button_button__1Fe9z Button_small__3fqC7";
                 btn.style.backgroundColor = "white";
                 btn.style.color = "black";
                 btn.style.padding = "1px 6px 1px 6px";
@@ -3859,11 +3877,11 @@
                 btn.onclick = () => {
                     reactInputTriggerHack(inputElem, value);
                 };
-                quickInputButtonsDiv.append(btn);
+                quickInputCountButtonsDiv.append(btn);
             }
-            quickInputButtonsDiv.append(document.createTextNode(isZH ? " 次" : " times"));
+            quickInputCountButtonsDiv.append(document.createTextNode(isZH ? " 次" : " times"));
 
-            appendAfterElem = quickInputButtonsDiv;
+            appendAfterElem = quickInputCountButtonsDiv;
         }
 
         // 还有多久到多少技能等级
@@ -4124,7 +4142,7 @@
         let totalPriceAskBid = 0;
         let totalRawCoins = 0; // For IC
 
-        if (hasMarketJson) {
+        if (hasMarketJson && message.unit.totalLootMap) {
             for (const loot of Object.values(message.unit.totalLootMap)) {
                 const itemCount = loot.count;
                 if (loot.itemHrid === "/items/coin") {
@@ -4140,8 +4158,10 @@
         }
 
         let totalSkillsExp = 0;
-        for (const exp of Object.values(message.unit.totalSkillExperienceMap)) {
-            totalSkillsExp += exp;
+        if (message.unit.totalSkillExperienceMap) {
+            for (const exp of Object.values(message.unit.totalSkillExperienceMap)) {
+                totalSkillsExp += exp;
+            }
         }
 
         let tryTimes = 0;
@@ -4881,45 +4901,156 @@
 
         input_data.item_hrid = itemHrid;
         input_data.stop_at = enhancementLevel;
-        const best = await findBestEnhanceStrat(input_data);
+        const best = await findBestEnhanceStratWithPhiMirror(input_data);
 
         let appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};">${
             isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"
-        }</div>`;
+            }</div>`;
         if (best) {
             let needMatStr = "";
-            for (const [key, value] of Object.entries(best.costs.needMap)) {
-                const itemHrid = "/items/" + key.toLowerCase().replaceAll(" ", "_").replaceAll("'", "");
-                const itemName = isZH ? (ZHItemNames[itemHrid] ? ZHItemNames[itemHrid] : key) : key;
-                needMatStr += `<div>${itemName} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
+            if (best.costs.needMap) {
+                for (const [key, value] of Object.entries(best.costs.needMap)) {
+                    needMatStr += `<div>${isZH ? ZHItemNames[initData_itemDetailMap[key].hrid] : initData_itemDetailMap[key].name} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
+                }
             }
-
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
-                    ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）："
-                    : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "
-            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
-                best.simResult.totalActionTimeStr
-            }</div>${
+                ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）："
+                : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "
+            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div>
+            <div>${isZH ? "耗时 " : "Time spend "}${best.simResult.totalActionTimeStr}</div>
+            ${
                 best.protect_count > 0
                     ? `<div>${isZH ? "从 " : "Use protection from level "}` + best.protect_at + `${isZH ? " 级开始保护" : ""}</div>`
                     : `<div>${isZH ? "不需要保护" : "No protection use"}</div>`
-            }<div>${isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${isZH ? " 次" : " times"}</div><div>${
-                isZH ? "+0底子: " : "+0 Base item: "
-            }${numberFormatter(best.costs.baseCost)}</div><div>${
+            }
+            <div>${isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${isZH ? " 次" : " times"}</div>
+            ${
+                best.costs.inputCount 
+                    ? `<div>+${best.protect_at}${isZH ? "底子价格: " : " Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>` +
+                      `<div>+${best.protect_at}${isZH ? "底子数量: " : " Base item Count: "}${numberFormatter(best.costs.baseCount)}</div>` +
+                      `<div>+${best.protect_at-1}${isZH ? "材料价格: " : " Base item Price: "}${numberFormatter(best.costs.inputCost)}</div>` +
+                      `<div>+${best.protect_at-1}${isZH ? "材料数量: " : " Base item Count: "}${numberFormatter(best.costs.inputCount)}</div>`
+                    : `<div>${isZH ? "+0底子价格: " : "+0 Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>`
+            }
+            <div>${
                 best.protect_count > 0
                     ? (isZH ? "保护单价: " : "Price per protection: ") +
-                      (isZH && ZHItemNames[best.costs.choiceOfProtection]
-                          ? ZHItemNames[best.costs.choiceOfProtection]
-                          : initData_itemDetailMap[best.costs.choiceOfProtection].name) +
-                      " " +
-                      numberFormatter(best.costs.minProtectionCost)
+                     (isZH ? ZHItemNames[initData_itemDetailMap[best.costs.choiceOfProtection].hrid] : initData_itemDetailMap[best.costs.choiceOfProtection].name) +
+                    " " +
+                    numberFormatter(best.costs.minProtectionCost)
                     : ""
-            } 
+                }
              </div>${needMatStr}</div>`;
         }
 
         tooltip.querySelector(".ItemTooltipText_itemTooltipText__zFq3A").insertAdjacentHTML("beforeend", appendHTMLStr);
+    }
+
+    async function findBestEnhanceStratWithPhiMirror(input_data) {
+        const price_data = await fetchMarketJSON();
+        if (!price_data || !price_data.marketData) {
+            console.error("findBestEnhanceStrat fetchMarketJSON null");
+            return null;
+        }
+
+        let best = await findBestEnhanceStrat(input_data);
+        if (!best) {
+            return best;
+        }
+
+        const pMirrorHrid = "/items/philosophers_mirror";
+        const pMirrorCost = getItemMarketPrice(pMirrorHrid, price_data);
+        if (pMirrorCost <= 0) {
+            return best;
+        }
+
+        const enhancementLevel = input_data.stop_at;
+        if (enhancementLevel <= 3) {
+            return best;
+        }
+
+        const keyRefined = "_refined";
+        const refinedHrid = input_data.item_hrid;
+        const isRefined = input_data.item_hrid.includes(keyRefined);
+
+        input_data.item_hrid = isRefined ? input_data.item_hrid.replace(keyRefined, "") : input_data.item_hrid;
+
+        const lowerBest = {};
+        const lowestAt = 9; // from 9 begin
+        for (let i = lowestAt; i < enhancementLevel; i++) {
+            input_data.stop_at = i;
+            lowerBest[i] = await findBestEnhanceStrat(input_data);
+        }
+
+        const refinedNeedMap = {};
+        let refinedCost = 0;
+        if (isRefined) {
+            const actionHrid = getActionHridFromItemName(initData_itemDetailMap[refinedHrid].name);
+            if (actionHrid && initData_actionDetailMap[actionHrid].inputItems && initData_actionDetailMap[actionHrid].inputItems.length > 0) {
+                const inputItems = JSON.parse(JSON.stringify(initData_actionDetailMap[actionHrid].inputItems));
+                for (const item of inputItems) {
+                    refinedNeedMap[item.itemHrid] = getItemMarketPrice(item.itemHrid, price_data);
+                    refinedCost += getItemMarketPrice(item.itemHrid, price_data) * item.count;
+                }
+            }
+        }
+
+        const allResults = [];
+        for (let protect_at = lowestAt+1; protect_at < enhancementLevel; protect_at++)
+        {
+            const fibonacci = [ 0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181];
+
+            const baseCount = fibonacci[enhancementLevel - protect_at + 1];
+            const inputCount = fibonacci[enhancementLevel - protect_at];
+            const protectCount = baseCount + inputCount - 1;
+
+            const totalCost = baseCount * lowerBest[protect_at].totalCost + inputCount * lowerBest[protect_at-1].totalCost + pMirrorCost * protectCount + refinedCost;
+
+            const cost = {
+                minProtectionCost: pMirrorCost,
+                choiceOfProtection: pMirrorHrid,
+                baseCost: lowerBest[protect_at].totalCost,
+                baseCount: baseCount,
+                inputCost : lowerBest[protect_at-1].totalCost,
+                inputCount : inputCount,
+                needMap : refinedNeedMap
+            };
+
+            const itemLevel = initData_itemDetailMap[input_data.item_hrid].itemLevel;
+            const effective_level =
+                input_data.enhancing_level +
+                (input_data.tea_enhancing ? 3 : 0) +
+                (input_data.tea_super_enhancing ? 6 : 0) +
+                (input_data.tea_ultra_enhancing ? 8 : 0);
+            const perActionTimeSec = (
+                12 /
+                (1 +
+                    (input_data.enhancing_level > itemLevel
+                        ? (effective_level + input_data.laboratory_level - itemLevel + input_data.glove_bonus) / 100
+                        : (input_data.laboratory_level + input_data.glove_bonus) / 100))
+            ).toFixed(2);
+            const totalActionTimeSec = protectCount * perActionTimeSec;
+            const simResult = {
+                totalActionTimeStr: timeReadable(totalActionTimeSec)
+            };
+
+            const r = {};
+            r.protect_at = protect_at;
+            r.protect_count = protectCount;
+            r.intput_count = inputCount;
+            r.simResult = simResult;
+            r.costs = cost;
+            r.totalCost = totalCost;
+            allResults.push(r);
+        }
+
+        for (const r of allResults) {
+            if (r.totalCost < best.totalCost) {
+                best = r;
+            }
+        }
+        return best;
     }
 
     async function findBestEnhanceStrat(input_data) {
@@ -5085,7 +5216,7 @@
             const price = need.itemHrid.startsWith("/items/trainee_") ? 250000 : getItemMarketPrice(need.itemHrid, price_data); // Trainee charms have a fixed price of 250k
             totalNeedPrice += price * need.count;
             if (!need.itemHrid.includes("/coin")) {
-                needMap[initData_itemDetailMap[need.itemHrid].name] = price;
+                needMap[need.itemHrid] = price;
             }
         }
 
@@ -6090,6 +6221,12 @@
             playerObj.houseRooms[house.houseRoomHrid] = house.level;
         }
 
+        // Achievements
+        playerObj.achievements = {};
+        for (const achievement of Object.values(characterObj.characterAchievements)) {
+            playerObj.achievements[achievement.achievementHrid] = achievement.isCompleted;
+        }
+
         return playerObj;
     }
 
@@ -6298,6 +6435,12 @@
         playerObj.houseRooms = {};
         for (const house of Object.values(profile.profile.characterHouseRoomMap)) {
             playerObj.houseRooms[house.houseRoomHrid] = house.level;
+        }
+
+        // Achievements
+        playerObj.achievements = {};
+        for (const achievement of Object.values(profile.profile.characterAchievements)) {
+            playerObj.achievements[achievement.achievementHrid] = achievement.isCompleted;
         }
 
         return playerObj;
