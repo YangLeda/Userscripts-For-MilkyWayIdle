@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         MWITools_Kongregate_Version
+// @name         MWITools
 // @namespace    http://tampermonkey.net/
 // @version      25.4
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
@@ -2214,8 +2214,6 @@
             ) {
                 return oriGet.call(this);
             }
-            else{
-            }
 
             const message = oriGet.call(this);
             Object.defineProperty(this, "data", { value: message }); // Anti-loop
@@ -2668,6 +2666,7 @@
             if (targetNode) {
                 targetNode.insertAdjacentHTML(
                     "afterend",
+                    // this was too long on Kongregate screen, overlapping with community buffs, so just shortening the words here.
                     `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Assets: ${numberFormatter(
                         networthAsk
                     )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${
@@ -4653,7 +4652,6 @@
                 .replaceAll(" ", "_")
                 .replaceAll("'", "");
             for (const skillHrid of Object.keys(initData_abilityDetailMap)) {
-                //console.info("abilityDetailMap: " + skillHrid);
                 if (skillHrid.includes("/" + itemName)) {
                     abilityHrid = skillHrid;
                 }
@@ -4722,6 +4720,20 @@
         });
     }
 
+    /* 
+    .SYNOPSIS
+        Show an SVG icon (Left Menu). Share code to avoid repeating patterns. 
+    .DESCRIPTION
+        I noticed that all SVG icons on screen use mostly
+        all the same code, with the only changes being the href path and #sprite_selector
+        EXAMPLES:
+            <use href="/static/media/skills_sprite.3bb4d936.svg#attack'>
+            <use href="/static/media/skills_sprite.3bb4d936.svg#enhancing'>
+            <use href="/static/media/misc_sprite.354aafcf.svg#settings'>
+
+        So this function just returns the same <svg> tag but changes the sprite sheet and selector based on category, key inputs.
+        There is probably a dictionary/lookup somewhere, but I just used Chrome-->Inspect on the website to copy the ones already there.
+    */
     function svg_icons_small(category, key) {
         console.info("input: (" + category + ", " + key + ")");
         const known_keys = ["skills/attack", "skills/milking/", "skills/enhancing", "misc/settings", "misc/combat", "misc/patch_notes", "misc/marketplace"]; //for reference only, so I can remember which ones belong together
