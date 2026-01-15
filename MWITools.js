@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         MWITools
+// @name         MWITools_Kongregate_Version
 // @namespace    http://tampermonkey.net/
-// @version      25.3
+// @version      25.4
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
-// @author       bot7420, shykai
+// @author       bot7420, shykai, YangLeda, m1m1k
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -11,6 +11,7 @@
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
+// @match        https://www.kongregate.com/en/games/chezedude/milky-way-idle
 // @grant        GM_addStyle
 // @grant        GM.xmlHttpRequest
 // @grant        GM_xmlhttpRequest
@@ -21,19 +22,31 @@
 // @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
 // @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
 // @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
+// @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
+// @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
+// @supportURL   https://github.com/YangLeda/Userscripts-For-MilkyWayIdle/issues
 // ==/UserScript==
 
 /*
-    Steam客户端玩家还需要额外安装兼容插件。
+    # Other Platforms Supported:
 
+    ## Steam 客户端玩家还需要额外安装兼容插件。
+    https://store.steampowered.com/app/3224420/Milky_Way_Idle/
     MilkyWayIdle Steam game client players should also install this script:
     https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/refs/heads/main/MWITools%20addon%20for%20Steam%20version.js
+
+
+    ## Kongregate
+    As of 2026-Jan-15 version 25.4+ now supports the Kongregate.com version of Milky Way Idle (MWI)
+    此版本现已支持"聚集"网站
+    https://www.kongregate.com/en/games/chezedude/milky-way-idle
+    2026-Jan-15 @m1m1k
 */
 
 /*
-    【遇到MWITools插件有问题时的解决方法】
+    #【遇到MWITools插件有问题时的解决方法】
 
-    请先务必排查以下问题：
+    ### 请先务必排查以下问题：
     1. 你的MWITools插件已更新至最新版（greasyfork网站有可能被墙，请开梯子更新；或者到QQ群文件里下载后手动导入或复制粘贴代码）；
     2. 你没有重复安装插件（有的人装了新版本插件，但还有个旧版本的没有删除，在同时运行；或者有的人在同一个浏览器里装了两个油猴类浏览器插件）；
     3. 安装或更新完插件后，以及在游戏设置里切换过语言后，必须刷新游戏网页；
@@ -44,6 +57,23 @@
     如果仍有问题，请私聊作者具体问题是什么、复现问题的具体步骤、最好附带截图；
     与网络有关的问题，右上角红字显示无法从API更新市场数据时，点击红字查看错误信息，截图发给作者；
     报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
+
+    -------------------------------------------------------------------------------------------
+    [ENGLISH VERSION / SAME AS ABOVE]
+
+    #[Troubleshooting Steps for MWITools Plugin Issues]
+
+    ### Please check the following issues first:
+    1. Ensure your MWITools plugin is updated to the latest version (the Greasyfork website might be blocked in your region, please use a VPN to update; or download it from the QQ group files and manually import or copy and paste the code);
+    2. Make sure you haven't installed the plugin multiple times (some people install a new version but still have an old version running simultaneously; or some people have two Tampermonkey-like browser extensions installed in the same browser);
+    3. After installing or updating the plugin, and after changing the language in the game settings, you must refresh the game page;
+    4. Please try using the latest version of Chrome browser and the latest version of Tampermonkey plugin on your computer (the author has limited resources and cannot adapt to every environment or troubleshoot every individual's environment problems.
+    When encountering problems, please prioritize using the above mainstream environment. If you must use an older version or a different browser or Tampermonkey plugin, please try to find a solution yourself first, as the author may not be able to solve your problem.
+    There are many problems with mobile phone usage, and the author does not troubleshoot problems on mobile phones. Ask other group members which browser works best, and try several different browsers. For Apple phones, it is recommended to try the Focus browser.)
+
+    If you still have problems, please privately message the author with the specific problem, the steps to reproduce the problem, and preferably include screenshots;
+    For network-related issues, if red text in the upper right corner indicates that market data cannot be updated from the API, click on the red text to view the error message and send a screenshot to the author;
+    Error logs are a quick and sometimes the only way to pinpoint problems. Please open your browser's developer tools, check the console, refresh the game page, reproduce the problem, and send a screenshot to the author.
 */
 
 (() => {
@@ -64,7 +94,7 @@
     const SCRIPT_COLOR_ALERT = "red"; // 警告字体颜色
 
     console.log(window.location.href);
-    const MARKET_API_URL = window.location.href.includes("milkywayidle.com")
+    const MARKET_API_URL = (window.location.href.includes("milkywayidle.com") || window.location.href.includes("kongregate.com"))
         ? "https://www.milkywayidle.com/game_data/marketplace.json"
         : "https://www.milkywayidlecn.com/game_data/marketplace.json";
 
@@ -2184,6 +2214,8 @@
             ) {
                 return oriGet.call(this);
             }
+            else{
+            }
 
             const message = oriGet.call(this);
             Object.defineProperty(this, "data", { value: message }); // Anti-loop
@@ -2636,7 +2668,7 @@
             if (targetNode) {
                 targetNode.insertAdjacentHTML(
                     "afterend",
-                    `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberFormatter(
+                    `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Assets: ${numberFormatter(
                         networthAsk
                     )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${
                         isZH ? "无法从API更新市场数据" : "Can't update market prices"
@@ -4621,6 +4653,7 @@
                 .replaceAll(" ", "_")
                 .replaceAll("'", "");
             for (const skillHrid of Object.keys(initData_abilityDetailMap)) {
+                //console.info("abilityDetailMap: " + skillHrid);
                 if (skillHrid.includes("/" + itemName)) {
                     abilityHrid = skillHrid;
                 }
@@ -4689,6 +4722,14 @@
         });
     }
 
+    function svg_icons_small(category, key) {
+        console.info("input: (" + category + ", " + key + ")");
+        const known_keys = ["skills/attack", "skills/milking/", "skills/enhancing", "misc/settings", "misc/combat", "misc/patch_notes", "misc/marketplace"]; //for reference only, so I can remember which ones belong together
+        const categories = {"skills" : "skills_sprite.3bb4d936.svg",
+                           "misc" : "misc_sprite.354aafcf.svg"};
+        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%"><use href="/static/media/' + categories[category] + '#' + key + '"></use></svg>';
+    }
+
     /* 添加第三方网站链接 */
     function add3rdPartyLinks() {
         const waitForNavi = () => {
@@ -4697,7 +4738,8 @@
                 let div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "插件设置" : "Script settings";
+                div.innerHTML = svg_icons_small('misc', 'patch_notes') + svg_icons_small('misc', 'settings') +
+                    (isZH ? "插件设置" : "Script settings");
                 div.addEventListener("click", () => {
                     const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
                     array[array.length - 1]?.click();
@@ -4718,7 +4760,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc";
+                div.innerHTML = svg_icons_small('misc', 'marketplace') +
+                    (isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc");
                 div.addEventListener("click", () => {
                     window.open("https://mooneycalc.netlify.app/", "_blank");
                 });
@@ -4727,7 +4770,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy";
+                div.innerHTML = svg_icons_small('skills', 'milking') +
+                    (isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy")
                 div.addEventListener("click", () => {
                     window.open("https://milkonomy.pages.dev/", "_blank");
                 });
@@ -4736,7 +4780,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Cowculator" : "Profit calc Cowculator";
+                div.innerHTML = svg_icons_small('misc', 'marketplace') +
+                    (isZH ? "利润计算 Cowculator" : "Profit calc Cowculator");
                 div.addEventListener("click", () => {
                     window.open("https://danthegoodman.github.io/cowculator/", "_blank");
                 });
@@ -4745,7 +4790,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "强化模拟 Enhancelator" : "Enhancement sim Enhancelator";
+                div.innerHTML = svg_icons_small('skills', 'milking') +
+                    (isZH ? "强化模拟 Enhancelator" : "Enhancelator sim");
                 div.addEventListener("click", () => {
                     window.open("https://doh-nuts.github.io/Enhancelator/", "_blank");
                 });
@@ -4754,7 +4800,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "战斗榜 socko" : "Combat Tracker socko";
+                div.innerHTML = svg_icons_small('misc', 'combat') +
+                    (isZH ? "战斗榜 socko" : "Combat Tracker socko");
                 div.addEventListener("click", () => {
                     window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
                 });
@@ -4763,7 +4810,8 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "战斗模拟 shykai" : "Combat sim shykai";
+                div.innerHTML = svg_icons_small('skills', 'attack') +
+                    (isZH ? "战斗模拟 shykai" : "Combat sim shykai");
                 div.addEventListener("click", () => {
                     window.open("https://shykai.github.io/MWICombatSimulatorTest/dist/", "_blank");
                 });
