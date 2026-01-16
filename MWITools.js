@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.3
+// @version      25.4
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
-// @author       bot7420, shykai
+// @author       bot7420, shykai, YangLeda, m1m1k
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
@@ -11,6 +11,7 @@
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
+// @match        https://www.kongregate.com/en/games/chezedude/milky-way-idle
 // @grant        GM_addStyle
 // @grant        GM.xmlHttpRequest
 // @grant        GM_xmlhttpRequest
@@ -21,19 +22,31 @@
 // @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
 // @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
 // @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
+// @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
+// @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
+// @supportURL   https://github.com/YangLeda/Userscripts-For-MilkyWayIdle/issues
 // ==/UserScript==
 
 /*
-    Steam客户端玩家还需要额外安装兼容插件。
+    # Other Platforms Supported:
 
+    ## Steam 客户端玩家还需要额外安装兼容插件。
+    https://store.steampowered.com/app/3224420/Milky_Way_Idle/
     MilkyWayIdle Steam game client players should also install this script:
     https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/refs/heads/main/MWITools%20addon%20for%20Steam%20version.js
+
+
+    ## Kongregate
+    As of 2026-Jan-15 version 25.4+ now supports the Kongregate.com version of Milky Way Idle (MWI)
+    此版本现已支持"聚集"网站
+    https://www.kongregate.com/en/games/chezedude/milky-way-idle
+    2026-Jan-15 @m1m1k
 */
 
 /*
-    【遇到MWITools插件有问题时的解决方法】
+    #【遇到MWITools插件有问题时的解决方法】
 
-    请先务必排查以下问题：
+    ### 请先务必排查以下问题：
     1. 你的MWITools插件已更新至最新版（greasyfork网站有可能被墙，请开梯子更新；或者到QQ群文件里下载后手动导入或复制粘贴代码）；
     2. 你没有重复安装插件（有的人装了新版本插件，但还有个旧版本的没有删除，在同时运行；或者有的人在同一个浏览器里装了两个油猴类浏览器插件）；
     3. 安装或更新完插件后，以及在游戏设置里切换过语言后，必须刷新游戏网页；
@@ -44,6 +57,23 @@
     如果仍有问题，请私聊作者具体问题是什么、复现问题的具体步骤、最好附带截图；
     与网络有关的问题，右上角红字显示无法从API更新市场数据时，点击红字查看错误信息，截图发给作者；
     报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
+
+    -------------------------------------------------------------------------------------------
+    [ENGLISH VERSION / SAME AS ABOVE]
+
+    #[Troubleshooting Steps for MWITools Plugin Issues]
+
+    ### Please check the following issues first:
+    1. Ensure your MWITools plugin is updated to the latest version (the Greasyfork website might be blocked in your region, please use a VPN to update; or download it from the QQ group files and manually import or copy and paste the code);
+    2. Make sure you haven't installed the plugin multiple times (some people install a new version but still have an old version running simultaneously; or some people have two Tampermonkey-like browser extensions installed in the same browser);
+    3. After installing or updating the plugin, and after changing the language in the game settings, you must refresh the game page;
+    4. Please try using the latest version of Chrome browser and the latest version of Tampermonkey plugin on your computer (the author has limited resources and cannot adapt to every environment or troubleshoot every individual's environment problems.
+    When encountering problems, please prioritize using the above mainstream environment. If you must use an older version or a different browser or Tampermonkey plugin, please try to find a solution yourself first, as the author may not be able to solve your problem.
+    There are many problems with mobile phone usage, and the author does not troubleshoot problems on mobile phones. Ask other group members which browser works best, and try several different browsers. For Apple phones, it is recommended to try the Focus browser.)
+
+    If you still have problems, please privately message the author with the specific problem, the steps to reproduce the problem, and preferably include screenshots;
+    For network-related issues, if red text in the upper right corner indicates that market data cannot be updated from the API, click on the red text to view the error message and send a screenshot to the author;
+    Error logs are a quick and sometimes the only way to pinpoint problems. Please open your browser's developer tools, check the console, refresh the game page, reproduce the problem, and send a screenshot to the author.
 */
 
 (() => {
@@ -64,7 +94,7 @@
     const SCRIPT_COLOR_ALERT = "red"; // 警告字体颜色
 
     console.log(window.location.href);
-    const MARKET_API_URL = window.location.href.includes("milkywayidle.com")
+    const MARKET_API_URL = (window.location.href.includes("milkywayidle.com") || window.location.href.includes("kongregate.com"))
         ? "https://www.milkywayidle.com/game_data/marketplace.json"
         : "https://www.milkywayidlecn.com/game_data/marketplace.json";
 
@@ -2636,7 +2666,8 @@
             if (targetNode) {
                 targetNode.insertAdjacentHTML(
                     "afterend",
-                    `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberFormatter(
+                    // this was too long on Kongregate screen, overlapping with community buffs, so just shortening the words here.
+                    `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Assets: ${numberFormatter(
                         networthAsk
                     )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${
                         isZH ? "无法从API更新市场数据" : "Can't update market prices"
@@ -4689,85 +4720,177 @@
         });
     }
 
+    /*
+    .SYNOPSIS
+        Show an SVG icon (Left Menu). Share code to avoid repeating patterns.
+    .DESCRIPTION
+        I noticed that all SVG icons on screen use mostly
+        all the same code, with the only changes being the href path and #sprite_selector
+        EXAMPLES:
+            <use href="/static/media/skills_sprite.3bb4d936.svg#attack'>
+            <use href="/static/media/skills_sprite.3bb4d936.svg#enhancing'>
+            <use href="/static/media/misc_sprite.354aafcf.svg#settings'>
+
+        So this function just returns the same <svg> tag but changes the sprite sheet and selector based on category, key inputs.
+        There is probably a dictionary/lookup somewhere, but I just used Chrome-->Inspect on the website to copy the ones already there.
+    .EXAMPLE usage
+        svg_icons_small('loot')
+        svg_icons_small('cow')
+        svg_icons_small('milking')
+    */
+    function svg_icons_small2(category, key) {
+        //console.debug("input: (" + category + ", " + key + ")");
+        let which_sprite_sheet = category;
+        const Spritesheets = Object.freeze({
+            SKILLS: "skills_sprite.3bb4d936.svg",
+            MISC: "misc_sprite.354aafcf.svg",
+            ITEMS: "items_sprite.328d6606.svg",
+            ACTIONS: "actions_sprite.e6388cbc.svg"
+        });
+        const known_keys = Object.freeze({
+            "loot" : Spritesheets.MISC,
+            "marketplace" : Spritesheets.MISC,
+            "tasks" : Spritesheets.MISC,
+            //----------------------------
+            "milking" : Spritesheets.SKILLS,
+            "foraging" : Spritesheets.SKILLS,
+            "woodcutting" : Spritesheets.SKILLS,
+            "cheesemaking" : Spritesheets.SKILLS,
+            "crafting" : Spritesheets.SKILLS,
+            "tailoring" : Spritesheets.SKILLS,
+            "cooking" : Spritesheets.SKILLS,
+            "brewing" : Spritesheets.SKILLS,
+            "alchemy" : Spritesheets.SKILLS,
+            "enhancing" : Spritesheets.SKILLS,
+            //----------------------------
+            "combat" : Spritesheets.MISC,
+            "stamina" : Spritesheets.SKILLS,
+            "intelligence" : Spritesheets.SKILLS,
+            "attack" : Spritesheets.SKILLS,
+            "defense" : Spritesheets.SKILLS,
+            "melee" : Spritesheets.SKILLS,
+            "ranged" : Spritesheets.SKILLS,
+            "magic" : Spritesheets.SKILLS,
+            //----------------------------
+            "shop" : Spritesheets.MISC,
+            "cowbell_store" : Spritesheets.MISC,
+            "achievements" : Spritesheets.MISC,
+            "social" : Spritesheets.MISC,
+            "guild" : Spritesheets.MISC,
+            "leaderboard" : Spritesheets.MISC,
+            "settings" : Spritesheets.MISC,
+            //----------------------------
+            "news" : Spritesheets.MISC,
+            "patch_notes" : Spritesheets.MISC,
+            "guide" : Spritesheets.MISC,
+            "rules" : Spritesheets.MISC,
+            "wiki" : Spritesheets.MISC,
+            "discord" : Spritesheets.MISC,
+            "test_server" : Spritesheets.MISC,
+            "privacy_policy" : Spritesheets.MISC,
+            "switch_character" : Spritesheets.MISC,
+            "logout" : Spritesheets.MISC,
+            //=============================
+            "coin" : Spritesheets.ITEMS,
+            "bishops_scroll" : Spritesheets.ITEMS,
+            "cow" : Spritesheets.ACTIONS
+        }); // if we already know which sprite sheet it is in, use that -- otherwise user can specify it
+        if( null === which_sprite_sheet && null != known_keys[key])
+        {
+            which_sprite_sheet = known_keys[key];
+        }
+        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%">' +
+                  '<use href="/static/media/' + which_sprite_sheet + '#' + key + '"></use></svg>';
+        //         final output should look like these:
+        //         <use href="/static/media/skills_sprite.3bb4d936.svg#crafting"></use>
+        //         <use href="/static/media/misc_sprite.354aafcf.svg#settings"></use>
+    }
+    function svg_icons_small(key) {
+        // overload the higher-order function with just a single param for simpler/easier lookups
+        return svg_icons_small2(null, key);
+    }
+
+    /*
+        Refactor repeating patterns to avoid bloat.
+    */
+    function create_Left_Nav_Link_EL(targetNode, inner, event_name, eventListener)
+    {
+        let div = document.createElement("div");
+        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+        div.style.color = SCRIPT_COLOR_MAIN;
+        div.innerHTML = inner;
+        div.addEventListener(event_name, eventListener);
+        targetNode.insertAdjacentElement("afterbegin", div);
+        return div;
+    }
+    function create_Left_Nav_Link(targetNode, inner, url)
+    {
+        // Normal path just uses this overloaded function
+        let div = create_Left_Nav_Link_EL(targetNode, inner,
+            "click",
+            () => {
+                window.open( url );
+            }
+        );
+        targetNode.insertAdjacentElement("afterbegin", div);
+     }
     /* 添加第三方网站链接 */
     function add3rdPartyLinks() {
         const waitForNavi = () => {
             const targetNode = document.querySelector("div.NavigationBar_minorNavigationLinks__dbxh7");
             if (targetNode) {
-                let div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "插件设置" : "Script settings";
-                div.addEventListener("click", () => {
-                    const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
-                    array[array.length - 1]?.click();
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link_EL(targetNode,
+                        (svg_icons_small('bishops_scroll') +
+                        (isZH ? "插件设置" : "Script settings")),
+                        ("click", () => {
+                            const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
+                            array[array.length - 1]?.click();
+                        })
+                );
 
                 if (isZH) {
-                    div = document.createElement("div");
-                    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                    div.style.color = SCRIPT_COLOR_MAIN;
-                    div.innerHTML = isZH ? "牛牛手册" : "牛牛手册";
-                    div.addEventListener("click", () => {
-                        window.open("https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe", "_blank");
-                    });
-                    targetNode.insertAdjacentElement("afterbegin", div);
-                }
+                    create_Left_Nav_Link(
+                        (isZH ? "牛牛手册" : "牛牛手册"),
+                        "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe"
+                    );
+                };
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc";
-                div.addEventListener("click", () => {
-                    window.open("https://mooneycalc.netlify.app/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('cow') +
+                        (isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc")),
+                        (isZH ? "https://mooneycalc.netlify.app/" : "https://mooneycalc.vercel.app/")
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy";
-                div.addEventListener("click", () => {
-                    window.open("https://milkonomy.pages.dev/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "利润计算 Cowculator" : "Profit calc Cowculator";
-                div.addEventListener("click", () => {
-                    window.open("https://danthegoodman.github.io/cowculator/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('milking') +
+                        (isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy")),
+                        "https://milkonomy.pages.dev/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "强化模拟 Enhancelator" : "Enhancement sim Enhancelator";
-                div.addEventListener("click", () => {
-                    window.open("https://doh-nuts.github.io/Enhancelator/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('coin') +
+                        (isZH ? "利润计算 Cowculator" : "Profit calc Cowculator")),
+                        "https://danthegoodman.github.io/cowculator/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "战斗榜 socko" : "Combat Tracker socko";
-                div.addEventListener("click", () => {
-                    window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('enhancing') +
+                        (isZH ? "强化模拟 Enhancelator" : "Enhancelator sim")),
+                        "https://doh-nuts.github.io/Enhancelator/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = isZH ? "战斗模拟 shykai" : "Combat sim shykai";
-                div.addEventListener("click", () => {
-                    window.open("https://shykai.github.io/MWICombatSimulatorTest/dist/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('combat') +
+                        (isZH ? "战斗榜 socko" : "<em>Combined</em> Combat leaderboard socko")),
+                        "https://sockosnewcombattracker.pages.dev/"
+                 );
+
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('attack') +
+                        (isZH ? "战斗模拟 shykai" : "Combat sim shykai")),
+                        "https://shykai.github.io/MWICombatSimulatorTest/dist/"
+                 );
             } else {
                 setTimeout(add3rdPartyLinks, 200);
             }
@@ -4926,7 +5049,7 @@
             }
             <div>${isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${isZH ? " 次" : " times"}</div>
             ${
-                best.costs.inputCount 
+                best.costs.inputCount
                     ? `<div>+${best.protect_at}${isZH ? "底子价格: " : " Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>` +
                       `<div>+${best.protect_at}${isZH ? "底子数量: " : " Base item Count: "}${numberFormatter(best.costs.baseCount)}</div>` +
                       `<div>+${best.protect_at-1}${isZH ? "材料价格: " : " Base item Price: "}${numberFormatter(best.costs.inputCost)}</div>` +
