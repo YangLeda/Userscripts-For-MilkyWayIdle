@@ -4734,18 +4734,20 @@
         So this function just returns the same <svg> tag but changes the sprite sheet and selector based on category, key inputs.
         There is probably a dictionary/lookup somewhere, but I just used Chrome-->Inspect on the website to copy the ones already there.
     .EXAMPLE usage
-        svg_icons_small('marketplace')
-        svg_icons_small('misc', 'marketplace')
-        svg_icons_small('skills', 'milking')
+        svg_icons_small('loot')
+        svg_icons_small('cow')
+        svg_icons_small('milking')
     */
     function svg_icons_small2(category, key) {
         //console.debug("input: (" + category + ", " + key + ")");
         let which_sprite_sheet = category;
         const Spritesheets = Object.freeze({
             SKILLS: "skills_sprite.3bb4d936.svg",
-            MISC: "misc_sprite.354aafcf.svg"
+            MISC: "misc_sprite.354aafcf.svg",
+            ITEMS: "items_sprite.328d6606.svg",
+            ACTIONS: "actions_sprite.e6388cbc.svg"
         });
-        const known_keys = {
+        const known_keys = Object.freeze({
             "loot" : Spritesheets.MISC,
             "marketplace" : Spritesheets.MISC,
             "tasks" : Spritesheets.MISC,
@@ -4787,107 +4789,106 @@
             "test_server" : Spritesheets.MISC,
             "privacy_policy" : Spritesheets.MISC,
             "switch_character" : Spritesheets.MISC,
-            "logout" : Spritesheets.MISC
-        }; // if we already know which sprite sheet it is in, use that -- otherwise user will need to specify it
-        if( null === category && known_keys[key])
+            "logout" : Spritesheets.MISC,
+            //=============================
+            "coin" : Spritesheets.ITEMS,
+            "bishops_scroll" : Spritesheets.ITEMS,
+            "cow" : Spritesheets.ACTIONS
+        }); // if we already know which sprite sheet it is in, use that -- otherwise user can specify it
+        if( null === which_sprite_sheet && null != known_keys[key])
         {
             which_sprite_sheet = known_keys[key];
         }
-        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%"><use href="/static/media/' + Spritesheets[which_sprite_sheet] + '#' + key + '"></use></svg>';
-        //                                                                                                              <use href="/static/media/skills_sprite.3bb4d936.svg#crafting"></use>
-        //                                                                                                              <use href="/static/media/misc_sprite.354aafcf.svg#settings"></use>
+        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%">' +
+                  '<use href="/static/media/' + which_sprite_sheet + '#' + key + '"></use></svg>';
+        //         final output should look like these:
+        //         <use href="/static/media/skills_sprite.3bb4d936.svg#crafting"></use>
+        //         <use href="/static/media/misc_sprite.354aafcf.svg#settings"></use>
     }
     function svg_icons_small(key) {
-        // overload the higher-order function with just a single param
+        // overload the higher-order function with just a single param for simpler/easier lookups
         return svg_icons_small2(null, key);
     }
 
+    /*
+        Refactor repeating patterns to avoid bloat.
+    */
+    function create_Left_Nav_Link_EL(targetNode, inner, eventListener)
+    {
+        let div = document.createElement("div");
+        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+        div.style.color = SCRIPT_COLOR_MAIN;
+        div.innerHTML = inner;
+        div.addEventListener(eventListener);
+        targetNode.insertAdjacentElement("afterbegin", div);
+        return div;
+    }
+    function create_Left_Nav_Link(targetNode, inner, url)
+    {
+        // Normal path just uses this overloaded function
+        let div = create_Left_Nav_Link_EL(targetNode, inner, 
+            "click", () => {
+                window.open( url );
+            });
+        targetNode.insertAdjacentElement("afterbegin", div);
+     }
     /* 添加第三方网站链接 */
     function add3rdPartyLinks() {
         const waitForNavi = () => {
             const targetNode = document.querySelector("div.NavigationBar_minorNavigationLinks__dbxh7");
             if (targetNode) {
-                let div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('patch_notes') + svg_icons_small('settings') +
-                    (isZH ? "插件设置" : "Script settings");
-                div.addEventListener("click", () => {
-                    const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
-                    array[array.length - 1]?.click();
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link_EL(targetNode,
+                        (svg_icons_small('bishops_scroll') +
+                        (isZH ? "插件设置" : "Script settings")),
+                        "click", () => {
+                            const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
+                            array[array.length - 1]?.click();
+                        }
+                );
 
                 if (isZH) {
-                    div = document.createElement("div");
-                    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                    div.style.color = SCRIPT_COLOR_MAIN;
-                    div.innerHTML = isZH ? "牛牛手册" : "牛牛手册";
-                    div.addEventListener("click", () => {
-                        window.open("https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe", "_blank");
-                    });
-                    targetNode.insertAdjacentElement("afterbegin", div);
-                }
+                    create_Left_Nav_Link(
+                        (isZH ? "牛牛手册" : "牛牛手册"),
+                        "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe"
+                    );
+                };
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('marketplace') +
-                    (isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc");
-                div.addEventListener("click", () => {
-                    window.open("https://mooneycalc.netlify.app/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('cow') +
+                        (isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc")),
+                        (isZH ? "https://mooneycalc.netlify.app/" : "https://mooneycalc.vercel.app/")
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('milking') +
-                    (isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy")
-                div.addEventListener("click", () => {
-                    window.open("https://milkonomy.pages.dev/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('marketplace') +
-                    (isZH ? "利润计算 Cowculator" : "Profit calc Cowculator");
-                div.addEventListener("click", () => {
-                    window.open("https://danthegoodman.github.io/cowculator/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('milking') +
+                        (isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy")),
+                        "https://milkonomy.pages.dev/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('milking') +
-                    (isZH ? "强化模拟 Enhancelator" : "Enhancelator sim");
-                div.addEventListener("click", () => {
-                    window.open("https://doh-nuts.github.io/Enhancelator/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('coin') +
+                        (isZH ? "利润计算 Cowculator" : "Profit calc Cowculator")),
+                        "https://danthegoodman.github.io/cowculator/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('combat') +
-                    (isZH ? "战斗榜 socko" : "Combat Tracker socko");
-                div.addEventListener("click", () => {
-                    window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('enhancing') +
+                        (isZH ? "强化模拟 Enhancelator" : "Enhancelator sim")),
+                        "https://doh-nuts.github.io/Enhancelator/"
+                 );
 
-                div = document.createElement("div");
-                div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-                div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('attack') +
-                    (isZH ? "战斗模拟 shykai" : "Combat sim shykai");
-                div.addEventListener("click", () => {
-                    window.open("https://shykai.github.io/MWICombatSimulatorTest/dist/", "_blank");
-                });
-                targetNode.insertAdjacentElement("afterbegin", div);
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('combat') +
+                        (isZH ? "战斗榜 socko" : "<em>Combined</em> Combat leaderboard socko")),
+                        "https://sockosnewcombattracker.pages.dev/"
+                 );
+
+                create_Left_Nav_Link(targetNode,
+                        (svg_icons_small('attack') +
+                        (isZH ? "战斗模拟 shykai" : "Combat sim shykai")),
+                        "https://shykai.github.io/MWICombatSimulatorTest/dist/"
+                 );
             } else {
                 setTimeout(add3rdPartyLinks, 200);
             }
