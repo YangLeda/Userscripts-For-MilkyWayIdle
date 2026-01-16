@@ -4842,10 +4842,10 @@
                 create_Left_Nav_Link_EL(targetNode,
                         (svg_icons_small('bishops_scroll') +
                         (isZH ? "插件设置" : "Script settings")),
-                        ("click", () => {
+                        "click", () => {
                             const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
                             array[array.length - 1]?.click();
-                        })
+                        }
                 );
 
                 if (isZH) {
