@@ -4720,9 +4720,9 @@
         });
     }
 
-    /* 
+    /*
     .SYNOPSIS
-        Show an SVG icon (Left Menu). Share code to avoid repeating patterns. 
+        Show an SVG icon (Left Menu). Share code to avoid repeating patterns.
     .DESCRIPTION
         I noticed that all SVG icons on screen use mostly
         all the same code, with the only changes being the href path and #sprite_selector
@@ -4733,13 +4733,73 @@
 
         So this function just returns the same <svg> tag but changes the sprite sheet and selector based on category, key inputs.
         There is probably a dictionary/lookup somewhere, but I just used Chrome-->Inspect on the website to copy the ones already there.
+    .EXAMPLE usage
+        svg_icons_small('marketplace')
+        svg_icons_small('misc', 'marketplace')
+        svg_icons_small('skills', 'milking')
     */
-    function svg_icons_small(category, key) {
-        console.info("input: (" + category + ", " + key + ")");
-        const known_keys = ["skills/attack", "skills/milking/", "skills/enhancing", "misc/settings", "misc/combat", "misc/patch_notes", "misc/marketplace"]; //for reference only, so I can remember which ones belong together
-        const categories = {"skills" : "skills_sprite.3bb4d936.svg",
-                           "misc" : "misc_sprite.354aafcf.svg"};
-        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%"><use href="/static/media/' + categories[category] + '#' + key + '"></use></svg>';
+    function svg_icons_small2(category, key) {
+        //console.debug("input: (" + category + ", " + key + ")");
+        let which_sprite_sheet = category;
+        const Spritesheets = Object.freeze({
+            SKILLS: "skills_sprite.3bb4d936.svg",
+            MISC: "misc_sprite.354aafcf.svg"
+        });
+        const known_keys = {
+            "loot" : Spritesheets.MISC,
+            "marketplace" : Spritesheets.MISC,
+            "tasks" : Spritesheets.MISC,
+            //----------------------------
+            "milking" : Spritesheets.SKILLS,
+            "foraging" : Spritesheets.SKILLS,
+            "woodcutting" : Spritesheets.SKILLS,
+            "cheesemaking" : Spritesheets.SKILLS,
+            "crafting" : Spritesheets.SKILLS,
+            "tailoring" : Spritesheets.SKILLS,
+            "cooking" : Spritesheets.SKILLS,
+            "brewing" : Spritesheets.SKILLS,
+            "alchemy" : Spritesheets.SKILLS,
+            "enhancing" : Spritesheets.SKILLS,
+            //----------------------------
+            "combat" : Spritesheets.MISC,
+            "stamina" : Spritesheets.SKILLS,
+            "intelligence" : Spritesheets.SKILLS,
+            "attack" : Spritesheets.SKILLS,
+            "defense" : Spritesheets.SKILLS,
+            "melee" : Spritesheets.SKILLS,
+            "ranged" : Spritesheets.SKILLS,
+            "magic" : Spritesheets.SKILLS,
+            //----------------------------
+            "shop" : Spritesheets.MISC,
+            "cowbell_store" : Spritesheets.MISC,
+            "achievements" : Spritesheets.MISC,
+            "social" : Spritesheets.MISC,
+            "guild" : Spritesheets.MISC,
+            "leaderboard" : Spritesheets.MISC,
+            "settings" : Spritesheets.MISC,
+            //----------------------------
+            "news" : Spritesheets.MISC,
+            "patch_notes" : Spritesheets.MISC,
+            "guide" : Spritesheets.MISC,
+            "rules" : Spritesheets.MISC,
+            "wiki" : Spritesheets.MISC,
+            "discord" : Spritesheets.MISC,
+            "test_server" : Spritesheets.MISC,
+            "privacy_policy" : Spritesheets.MISC,
+            "switch_character" : Spritesheets.MISC,
+            "logout" : Spritesheets.MISC
+        }; // if we already know which sprite sheet it is in, use that -- otherwise user will need to specify it
+        if( null === category && known_keys[key])
+        {
+            which_sprite_sheet = known_keys[key];
+        }
+        return '<svg role="img" aria-label="Icon" class="Icon_icon__2LtL_ Icon_small__2bxvH" width="100%" height="100%"><use href="/static/media/' + Spritesheets[which_sprite_sheet] + '#' + key + '"></use></svg>';
+        //                                                                                                              <use href="/static/media/skills_sprite.3bb4d936.svg#crafting"></use>
+        //                                                                                                              <use href="/static/media/misc_sprite.354aafcf.svg#settings"></use>
+    }
+    function svg_icons_small(key) {
+        // overload the higher-order function with just a single param
+        return svg_icons_small2(null, key);
     }
 
     /* 添加第三方网站链接 */
@@ -4750,7 +4810,7 @@
                 let div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('misc', 'patch_notes') + svg_icons_small('misc', 'settings') +
+                div.innerHTML = svg_icons_small('patch_notes') + svg_icons_small('settings') +
                     (isZH ? "插件设置" : "Script settings");
                 div.addEventListener("click", () => {
                     const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
@@ -4772,7 +4832,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('misc', 'marketplace') +
+                div.innerHTML = svg_icons_small('marketplace') +
                     (isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc");
                 div.addEventListener("click", () => {
                     window.open("https://mooneycalc.netlify.app/", "_blank");
@@ -4782,7 +4842,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('skills', 'milking') +
+                div.innerHTML = svg_icons_small('milking') +
                     (isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy")
                 div.addEventListener("click", () => {
                     window.open("https://milkonomy.pages.dev/", "_blank");
@@ -4792,7 +4852,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('misc', 'marketplace') +
+                div.innerHTML = svg_icons_small('marketplace') +
                     (isZH ? "利润计算 Cowculator" : "Profit calc Cowculator");
                 div.addEventListener("click", () => {
                     window.open("https://danthegoodman.github.io/cowculator/", "_blank");
@@ -4802,7 +4862,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('skills', 'milking') +
+                div.innerHTML = svg_icons_small('milking') +
                     (isZH ? "强化模拟 Enhancelator" : "Enhancelator sim");
                 div.addEventListener("click", () => {
                     window.open("https://doh-nuts.github.io/Enhancelator/", "_blank");
@@ -4812,7 +4872,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('misc', 'combat') +
+                div.innerHTML = svg_icons_small('combat') +
                     (isZH ? "战斗榜 socko" : "Combat Tracker socko");
                 div.addEventListener("click", () => {
                     window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
@@ -4822,7 +4882,7 @@
                 div = document.createElement("div");
                 div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
                 div.style.color = SCRIPT_COLOR_MAIN;
-                div.innerHTML = svg_icons_small('skills', 'attack') +
+                div.innerHTML = svg_icons_small('attack') +
                     (isZH ? "战斗模拟 shykai" : "Combat sim shykai");
                 div.addEventListener("click", () => {
                     window.open("https://shykai.github.io/MWICombatSimulatorTest/dist/", "_blank");
@@ -4986,7 +5046,7 @@
             }
             <div>${isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${isZH ? " 次" : " times"}</div>
             ${
-                best.costs.inputCount 
+                best.costs.inputCount
                     ? `<div>+${best.protect_at}${isZH ? "底子价格: " : " Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>` +
                       `<div>+${best.protect_at}${isZH ? "底子数量: " : " Base item Count: "}${numberFormatter(best.costs.baseCount)}</div>` +
                       `<div>+${best.protect_at-1}${isZH ? "材料价格: " : " Base item Price: "}${numberFormatter(best.costs.inputCost)}</div>` +
