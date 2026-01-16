@@ -14,7 +14,7 @@ This script has both English & Chinese language options. 本插件是中文的�
 - Shows skill exp percentages.
 - Shows total networth.
 
-[![til](https://raw.githubusercontent.com/brothers-morrison/Userscripts-For-MilkyWayIdle/master/screenshots/2026-01-15_MWITools_DPS_Popup.png)](https://raw.githubusercontent.com/brothers-morrison/Userscripts-For-MilkyWayIdle/refs/heads/Kongregate-support2/screenshots/2026-01-15_MWITools_DPS_Popup.png)
+[![til](/screenshots/2026-01-15_MWITools_DPS_Popup.png)](/screenshots/2026-01-15_MWITools_DPS_Popup.png)
 #### Combat Features
 - Shows combat DPS summary.
 - Shows combat maps index.
