@@ -4813,23 +4813,25 @@
     /*
         Refactor repeating patterns to avoid bloat.
     */
-    function create_Left_Nav_Link_EL(targetNode, inner, eventListener)
+    function create_Left_Nav_Link_EL(targetNode, inner, event_name, eventListener)
     {
         let div = document.createElement("div");
         div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
         div.style.color = SCRIPT_COLOR_MAIN;
         div.innerHTML = inner;
-        div.addEventListener(eventListener);
+        div.addEventListener(event_name, eventListener);
         targetNode.insertAdjacentElement("afterbegin", div);
         return div;
     }
     function create_Left_Nav_Link(targetNode, inner, url)
     {
         // Normal path just uses this overloaded function
-        let div = create_Left_Nav_Link_EL(targetNode, inner, 
-            "click", () => {
+        let div = create_Left_Nav_Link_EL(targetNode, inner,
+            "click",
+            () => {
                 window.open( url );
-            });
+            }
+        );
         targetNode.insertAdjacentElement("afterbegin", div);
      }
     /* 添加第三方网站链接 */
@@ -4840,10 +4842,10 @@
                 create_Left_Nav_Link_EL(targetNode,
                         (svg_icons_small('bishops_scroll') +
                         (isZH ? "插件设置" : "Script settings")),
-                        "click", () => {
+                        ("click", () => {
                             const array = document.querySelectorAll(".NavigationBar_navigationLink__3eAHA");
                             array[array.length - 1]?.click();
-                        }
+                        })
                 );
 
                 if (isZH) {
