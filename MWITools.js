@@ -5306,14 +5306,12 @@
             const tea_name = input_data.tea_type === "none" ? "" :
                 isZH ? "，" + ZHItemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
             const total_cost_including_tax = best.totalCost / (1 - input_data.tax_rate / 100);
-            appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
-                isZH
-                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，装备加成${input_data.enhance_gear_speed_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：`
-                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.enhance_gear_speed_bonus}% gear speed bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
-            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(total_cost_including_tax.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
-                best.simResult.totalActionTimeStr
-            }</div>${
-                best.protect_count > 0
+            appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${isZH
+                ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，装备加成${input_data.enhance_gear_speed_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：`
+                : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.enhance_gear_speed_bonus}% gear speed bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
+                }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(total_cost_including_tax.toFixed(0))}</div>
+            <div>${isZH ? "耗时 " : "Time spend "}${best.simResult.totalActionTimeStr}</div>
+            ${best.protect_count > 0
                     ? `<div>${isZH ? "从 " : "Use protection from level "}` + best.protect_at + `${isZH ? " 级开始保护" : ""}</div>`
                     : `<div>${isZH ? "不需要保护" : "No protection use"}</div>`
             }
