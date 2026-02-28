@@ -270,25 +270,25 @@
             id: "enhancing_level",
             desc: isZH ? "强化模拟：人物强化技能等级" : "Enhance Sim: Enhancing skill level",
             type: "number",
-            value: 125,
+            value: 136,
         },
         laboratory_level: {
             id: "laboratory_level",
             desc: isZH ? "强化模拟：房子等级" : "Enhance Sim: Laboratory (house) level",
             type: "number",
-            value: 6,
+            value: 8,
         },
         enhancer_bonus: {
             id: "enhancer_bonus",
             desc: isZH ? "强化模拟：工具强化成功率加成" : "Enhance Sim: Enhancer tool bonus",
             type: "number",
-            value: 5.42,
+            value: 5.26,
         },
-        glove_bonus: {
-            id: "glove_bonus",
-            desc: isZH ? "强化模拟：手套强化速度加成" : "Enhance Sim: Glove speed bonus",
+        enhance_gear_speed_bonus: {
+            id: "enhance_gear_speed_bonus",
+            desc: isZH ? "强化模拟：装备强化速度加成" : "Enhance Sim: Gear speed bonus",
             type: "number",
-            value: 12.9,
+            value: 37.22,
         },
         tea_type: {
             id: "tea_type",
@@ -5304,12 +5304,12 @@
                 }
             }
             const tea_name = input_data.tea_type === "none" ? "" :
-                isZH ? "，" + ZHitemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
+                isZH ? "，" + ZHItemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
             const total_cost_including_tax = best.totalCost / (1 - input_data.tax_rate / 100);
             appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
                 isZH
-                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，手套加成${input_data.glove_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：：`
-                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.glove_bonus}% gloves bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
+                    ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，装备加成${input_data.enhance_gear_speed_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：`
+                    : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.enhance_gear_speed_bonus}% gear speed bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
             }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(total_cost_including_tax.toFixed(0))}</div><div>${isZH ? "耗时 " : "Time spend "}${
                 best.simResult.totalActionTimeStr
             }</div>${
@@ -5420,8 +5420,8 @@
                 12 /
                 (1 +
                     (input_data.enhancing_level > itemLevel
-                        ? (effective_level + input_data.laboratory_level - itemLevel + input_data.glove_bonus) / 100
-                        : (input_data.laboratory_level + input_data.glove_bonus) / 100))
+                        ? (effective_level + input_data.laboratory_level - itemLevel + input_data.enhance_gear_speed_bonus) / 100
+                        : (input_data.laboratory_level + input_data.enhance_gear_speed_bonus) / 100))
             ).toFixed(2);
             const totalActionTimeSec = protectCount * perActionTimeSec;
             const simResult = {
@@ -5545,8 +5545,8 @@
             12 /
             (1 +
                 (input_data.enhancing_level > itemLevel
-                    ? (effective_level + input_data.laboratory_level - itemLevel + input_data.glove_bonus) / 100
-                    : (input_data.laboratory_level + input_data.glove_bonus) / 100))
+                    ? (effective_level + input_data.laboratory_level - itemLevel + input_data.enhance_gear_speed_bonus) / 100
+                    : (input_data.laboratory_level + input_data.enhance_gear_speed_bonus) / 100))
         ).toFixed(2);
 
         const result = {};
@@ -5564,7 +5564,7 @@
             enhancing_level: settingsMap.enhancing_level.value, // 人物 Enhancing 技能等级
             laboratory_level: settingsMap.laboratory_level.value, // 房子等级
             enhancer_bonus: settingsMap.enhancer_bonus.value, // 工具提高成功率，0级=3.6，5级=4.03，10级=4.64
-            glove_bonus: settingsMap.glove_bonus.value, // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
+            enhance_gear_speed_bonus: settingsMap.enhance_gear_speed_bonus.value,
             tea_type: settingsMap.tea_type.value,
             tea_blessed: settingsMap.tea_blessed.isTrue, // 祝福茶
             priceAskBidRatio: 1,
