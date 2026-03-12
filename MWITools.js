@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.8
+// @version      25.9
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -4387,7 +4387,7 @@
                 }
                 if (
                     !initData_itemDetailMap[itemHrid]?.equipmentDetail?.type?.includes("_tool") &&
-                    div.parentElement.parentElement.parentElement.className.includes("MarketplacePanel_marketItems__D4k7e")
+                    div.parentElement.parentElement.parentElement.parentElement.className.includes("MarketplacePanel_marketItems__D4k7e")
                 ) {
                     handleMarketItemFilter(div, initData_itemDetailMap[itemHrid]);
                 }
