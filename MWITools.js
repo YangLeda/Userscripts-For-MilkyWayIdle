@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.10
+// @version      25.11
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -2622,12 +2622,12 @@
         /* 仓库搜索栏下方显示人物总结 */
         // Some code of networth summery is by Stella.
         const addInventorySummery = async (invElem) => {
-            const [battleHouseScore, nonBattleHouseScore, abilityScore, equipmentScore] = await getSelfBuildScores(
+            const [battleHouseScore, nonBattleHouseScore, abilityScore, allAbilityScore, equipmentScore] = await getSelfBuildScores(
                 equippedNetworthAsk * 0.5 + equippedNetworthBid * 0.5
             );
             const totalScore = battleHouseScore + abilityScore + equipmentScore;
             const totalHouseScore = battleHouseScore + nonBattleHouseScore;
-            const totalNetworth = networthAsk * 0.5 + networthBid * 0.5 + (totalHouseScore + abilityScore) * 1000000;
+            const totalNetworth = networthAsk * 0.5 + networthBid * 0.5 + (totalHouseScore + allAbilityScore) * 1000000;
 
             invElem.insertAdjacentHTML(
                 "beforebegin",
@@ -2664,7 +2664,7 @@
                         </div>
                         <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
                             <div>${isZH ? "房子价值：" : "Houses value: "}${numberFormatter(totalHouseScore * 1000000)}</div>
-                            <div>${isZH ? "技能价值：" : "Abilities value: "}${numberFormatter(abilityScore * 1000000)}</div>
+                            <div>${isZH ? "技能价值：" : "Abilities value: "}${numberFormatter(allAbilityScore * 1000000)}</div>
                         </div>
                     </div>
                 </div>`
@@ -2902,11 +2902,20 @@
         }
         // console.log("abilityScore " + abilityScore);
 
+        // 总技能分：全部已学技能所需技能书总价，单位M
+        let allAbilityScore = 0;
+        try {
+            allAbilityScore = await calculateAbilityScore(true);
+        } catch (error) {
+            console.error("Error in calculateAbilityScore(true)", error);
+        }
+        // console.log("allAbilityScore " + allAbilityScore);
+
         // 装备分：当前身上装备总价，单位M
         let equipmentScore = equippedNetworth / 1000000;
         // console.log("equipmentScore " + equipmentScore);
 
-        return [battleHouseScore, nonBattleHouseScore, abilityScore, equipmentScore];
+        return [battleHouseScore, nonBattleHouseScore, abilityScore, allAbilityScore, equipmentScore];
     }
 
     // 计算单个房子完整造价
@@ -2948,7 +2957,7 @@
     }
 
     // 技能价格计算
-    async function calculateAbilityScore() {
+    async function calculateAbilityScore(isAll = false) {
         const marketAPIJson = await fetchMarketJSON();
         if (!marketAPIJson) {
             return 0;
@@ -2962,7 +2971,8 @@
         };
         // 技能净值
         let price = 0;
-        initData_combatAbilities.forEach((item) => {
+        const abilities = isAll ? initData_characterAbilities : initData_combatAbilities;
+        abilities.forEach((item) => {
             let numBooks = 0;
             if (exp_50_skill.some((skill) => item.abilityHrid.includes(skill))) {
                 numBooks = getNeedBooksToLevel(item.level, 50);
