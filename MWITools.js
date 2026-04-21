@@ -73,7 +73,7 @@
             desc: isZH ? "使用橙色字体" : "Use orange as the main color for the script.",
             isTrue: true,
         },
-        displayCapMM:{
+        displayCapMM: {
             id: "displayCapMM",
             desc: isZH ? "限制最高支持M量级（之前最高B量级）" : "Values are capped at the million level, which used to be billion.",
             isTrue: false,
@@ -260,6 +260,61 @@
             desc: isZH ? "MWITools本身强制显示中文 MWITools always in Chinese" : "MWITools本身强制显示中文 MWITools always in Chinese",
             isTrue: false,
         },
+        // --- Enhancement Simulator Settings ---
+        enhancing_level: {
+            id: "enhancing_level",
+            desc: isZH ? "强化模拟：人物强化技能等级" : "Enhance Sim: Enhancing skill level",
+            type: "number",
+            value: 136,
+        },
+        laboratory_level: {
+            id: "laboratory_level",
+            desc: isZH ? "强化模拟：房子等级" : "Enhance Sim: Laboratory (house) level",
+            type: "number",
+            value: 8,
+        },
+        enhancer_bonus: {
+            id: "enhancer_bonus",
+            desc: isZH ? "强化模拟：工具强化成功率加成" : "Enhance Sim: Enhancer tool bonus",
+            type: "number",
+            value: 5.26,
+        },
+        enhance_gear_speed_bonus: {
+            id: "enhance_gear_speed_bonus",
+            desc: isZH ? "强化模拟：装备强化速度加成" : "Enhance Sim: Gear speed bonus",
+            type: "number",
+            value: 37.22,
+        },
+        tea_type: {
+            id: "tea_type",
+            desc: isZH ? "强化模拟：强化茶类型" : "Enhance Sim: Tea type",
+            type: "option",
+            value: "ultra_enhancing",
+            options: [
+                { value: "none", label: isZH ? "无" : "None" },
+                { value: "enhancing_tea", label: isZH ? "强化茶" : "Enhancing Tea" },
+                { value: "super_enhancing_tea", label: isZH ? "超级强化茶" : "Super Enhancing Tea" },
+                { value: "ultra_enhancing_tea", label: isZH ? "究极强化茶" : "Ultra Enhancing Tea" },
+            ],
+        },
+        tea_blessed: {
+            id: "tea_blessed",
+            desc: isZH ? "强化模拟：祝福茶" : "Enhance Sim: Blessed tea",
+            type: "checkbox",
+            isTrue: true,
+        },
+        time_fee: {
+            id: "time_fee",
+            desc: isZH ? "强化模拟：工时费（每小时金币）" : "Enhance Sim: Time fee (coins/hour)",
+            type: "number",
+            value: 0,
+        },
+        tax_rate: {
+            id: "tax_rate",
+            desc: isZH ? "强化模拟：税率（百分比）" : "Enhance Sim: Tax Rate (percentage)",
+            type: "number",
+            value: 2,
+        }
     };
     readSettings();
 
@@ -2402,8 +2457,8 @@
                     players[userIndex].currentAction = players[userIndex].preparingAbilityHrid
                         ? players[userIndex].preparingAbilityHrid
                         : players[userIndex].isPreparingAutoAttack
-                        ? "auto"
-                        : "idle";
+                            ? "auto"
+                            : "idle";
                 });
                 monsters = obj.monsters;
                 if (!totalDamage.length) {
@@ -2519,8 +2574,8 @@
                     players[userIndex].currentAction = pMap[userIndex].abilityHrid
                         ? pMap[userIndex].abilityHrid
                         : pMap[userIndex].isAutoAtk
-                        ? "auto"
-                        : "idle";
+                            ? "auto"
+                            : "idle";
                 });
                 endTime = Date.now();
                 updateStatisticsPanel();
@@ -2545,6 +2600,7 @@
         let equippedNetworthBid = 0;
         let inventoryNetworthAsk = 0;
         let inventoryNetworthBid = 0;
+        let input_data = getEnhanceSimInputData();
 
         for (const item of initData_characterItems) {
             const enhanceLevel = item.enhancementLevel;
@@ -2633,9 +2689,8 @@
                 "beforebegin",
                 `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                     <!-- 战力打造分 -->
-                    <div style="cursor: pointer; font-weight: bold" id="toggleScores">${
-                        isZH ? "+ 战力打造分: " : "+ Character Build Score: "
-                    }${totalScore.toFixed(1)}</div>
+                    <div style="cursor: pointer; font-weight: bold" id="toggleScores">${isZH ? "+ 战力打造分: " : "+ Character Build Score: "
+                }${totalScore.toFixed(1)}</div>
                     <div id="buildScores" style="display: none; margin-left: 20px;">
                             <div>${isZH ? "房子分：" : "House score: "}${battleHouseScore.toFixed(1)}</div>
                             <div>${isZH ? "技能分：" : "Ability score: "}${abilityScore.toFixed(1)}</div>
@@ -2717,8 +2772,7 @@
                     "afterend",
                     `<div style="font-size: 0.875rem; font-weight: 500; color: ${SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberFormatter(
                         networthAsk
-                    )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${
-                        isZH ? "无法从API更新市场数据" : "Can't update market prices"
+                    )} / ${numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${SCRIPT_COLOR_ALERT};">${isZH ? "无法从API更新市场数据" : "Can't update market prices"
                     }</div>`}</div>`
                 );
 
@@ -2808,9 +2862,8 @@
             style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black;">
             ${isZH ? "无" : "None"}
             </button>`;
-        const buttonsDiv = `<div style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
-            isZH ? "物品排序：" : "Sort items by: "
-        }${askButton} ${bidButton} ${noneButton}</div>`;
+        const buttonsDiv = `<div style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${isZH ? "物品排序：" : "Sort items by: "
+            }${askButton} ${bidButton} ${noneButton}</div>`;
         invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
 
         invElem.parentElement.querySelector("button#script_sortByAsk_btn").addEventListener("click", function (e) {
@@ -3015,9 +3068,8 @@
         panel.insertAdjacentHTML(
             "beforeend",
             `<div style="text-align: left; color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-                <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${
-                    isZH ? "+ 战力打造分: " : "+ Character Build Score: "
-                }${totalBuildScore.toFixed(1)}${isEquipmentHiddenText}</div>
+                <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${isZH ? "+ 战力打造分: " : "+ Character Build Score: "
+            }${totalBuildScore.toFixed(1)}${isEquipmentHiddenText}</div>
                 <div id="buildScores_profile" style="display: none; margin-left: 20px;">
                         <div>${isZH ? "房子分：" : "House score: "}${battleHouseScore.toFixed(1)}</div>
                         <div>${isZH ? "技能分：" : "Ability score: "}${abilityScore.toFixed(1)}</div>
@@ -3122,6 +3174,7 @@
         // 装备净值
         let networthAsk = 0;
         let networthBid = 0;
+        let input_data = getEnhanceSimInputData();
         for (const key in obj.wearableItemMap) {
             let item = obj.wearableItemMap[key];
             const enhanceLevel = obj.wearableItemMap[key].enhancementLevel;
@@ -3422,9 +3475,8 @@
             ask = marketJson?.marketData[itemHrid]?.[0]?.a ?? 0;
             bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
             appendHTMLStr += `
-        <div style="color: ${SCRIPT_COLOR_TOOLTIP};">${isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
-                ask && ask > 0 ? numberFormatter(ask * amount) : ""
-            } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
+        <div style="color: ${SCRIPT_COLOR_TOOLTIP};">${isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${ask && ask > 0 ? numberFormatter(ask * amount) : ""
+                } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
         `;
         }
 
@@ -3438,16 +3490,14 @@
                 const hpPerMiniute = (60 / (cd / 1000000000)) * hp;
                 const pricePer100Hp = ask ? ask / (hp / 100) : null;
                 const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-                    pricePer100Hp ? pricePer100Hp.toFixed(0) + (isZH ? "金/100血, " : "coins/100hp, ") : ""
-                }${hpPerMiniute.toFixed(0) + (isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
+                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Hp ? pricePer100Hp.toFixed(0) + (isZH ? "金/100血, " : "coins/100hp, ") : ""
+                    }${hpPerMiniute.toFixed(0) + (isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
             } else if (mp && cd) {
                 const mpPerMiniute = (60 / (cd / 1000000000)) * mp;
                 const pricePer100Mp = ask ? ask / (mp / 100) : null;
                 const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-                    pricePer100Mp ? pricePer100Mp.toFixed(0) + (isZH ? "金/100蓝, " : "coins/100hp, ") : ""
-                }${mpPerMiniute.toFixed(0) + (isZH ? "蓝/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
+                appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? pricePer100Mp.toFixed(0) + (isZH ? "金/100蓝, " : "coins/100hp, ") : ""
+                    }${mpPerMiniute.toFixed(0) + (isZH ? "蓝/分" : "hp/min")}, ${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
             } else if (cd) {
                 const usePerday = (24 * 60 * 60) / (cd / 1000000000);
                 appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${isZH ? "个/天" : "/day"}</div>`;
@@ -3537,9 +3587,8 @@
 
                 if (upgradedFromItemHrid) {
                     appendHTMLStr += `
-                    <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${
-                        isZH ? upgradedFromItemZhName : upgradedFromItemName
-                    }: ${numberFormatter(upgradedFromItemAsk)} / ${numberFormatter(upgradedFromItemBid)}</div>
+                    <div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${isZH ? upgradedFromItemZhName : upgradedFromItemName
+                        }: ${numberFormatter(upgradedFromItemAsk)} / ${numberFormatter(upgradedFromItemBid)}</div>
                     `;
                 }
             }
@@ -3607,25 +3656,19 @@
                 extraFreeItemPerHour * bidAfterTax -
                 drinksConsumedPerHourAskPrice;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-                isZH
-                    ? "生产利润(卖单价进、买单价出，包含销售税；不包括加工茶、社区增益、稀有掉落、袋子饮食增益；刷新网页更新人物数据)："
-                    : "Production profit(Sell price in, bid price out, including sales tax; Not including processing tea, comm buffs, rare drops, pouch consumables buffs; Refresh page to update player data): "
-            }</div>`;
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${isZH
+                ? "生产利润(卖单价进、买单价出，包含销售税；不包括加工茶、社区增益、稀有掉落、袋子饮食增益；刷新网页更新人物数据)："
+                : "Production profit(Sell price in, bid price out, including sales tax; Not including processing tea, comm buffs, rare drops, pouch consumables buffs; Refresh page to update player data): "
+                }</div>`;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${baseTimePerActionSec.toFixed(2)}s ${
-                isZH ? "基础速度" : "base speed,"
-            } x${droprate} ${isZH ? "基础掉率" : "base drop rate,"} +${toolPercent}%${isZH ? "工具速度" : " tool speed,"} +${levelEffBuff}%${
-                isZH ? "等级效率" : " level eff,"
-            } +${houseEffBuff}%${isZH ? "房子效率" : " house eff,"} +${teaBuffs.efficiency}%${isZH ? "茶效率" : " tea eff,"} +${itemEffiBuff}%${
-                isZH ? "装备效率" : " equipment eff,"
-            } +${teaBuffs.quantity}%${isZH ? "茶额外数量" : " tea extra outcome,"} +${teaBuffs.lessResource}%${
-                isZH ? "茶减少消耗" : " tea lower resource"
-            }</div>`;
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${baseTimePerActionSec.toFixed(2)}s ${isZH ? "基础速度" : "base speed,"
+                } x${droprate} ${isZH ? "基础掉率" : "base drop rate,"} +${toolPercent}%${isZH ? "工具速度" : " tool speed,"} +${levelEffBuff}%${isZH ? "等级效率" : " level eff,"
+                } +${houseEffBuff}%${isZH ? "房子效率" : " house eff,"} +${teaBuffs.efficiency}%${isZH ? "茶效率" : " tea eff,"} +${itemEffiBuff}%${isZH ? "装备效率" : " equipment eff,"
+                } +${teaBuffs.quantity}%${isZH ? "茶额外数量" : " tea extra outcome,"} +${teaBuffs.lessResource}%${isZH ? "茶减少消耗" : " tea lower resource"
+                }</div>`;
 
-            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-                isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "
-            }${numberFormatter(drinksConsumedPerHourAskPrice)}  / ${numberFormatter(drinksConsumedPerHourBidPrice)}</div>`;
+            appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "
+                }${numberFormatter(drinksConsumedPerHourAskPrice)}  / ${numberFormatter(drinksConsumedPerHourBidPrice)}</div>`;
 
             appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${isZH ? "每小时动作" : "Actions per hour"} ${Number(
                 actionPerHour
@@ -3635,9 +3678,8 @@
 
             appendHTMLStr += `<div style="color: ${SCRIPT_COLOR_TOOLTIP};">${isZH ? "利润: " : "Profit: "}${numberFormatter(
                 profitPerHour / actionPerHour
-            )}${isZH ? "/动作" : "/action"}, ${numberFormatter(profitPerHour)}${isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${
-                isZH ? "/天" : "/day"
-            }</div>`;
+            )}${isZH ? "/动作" : "/action"}, ${numberFormatter(profitPerHour)}${isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${isZH ? "/天" : "/day"
+                }</div>`;
         }
 
         insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
@@ -3807,7 +3849,7 @@
         return validateMarketJsonFetch(MARKET_JSON_LOCAL_BACKUP, false);
     }
 
-    function numberFormatter(num, digits = 1) {
+    function numberFormatter(num, digits = 2) {
         if (num === null || num === undefined) {
             return null;
         }
@@ -4004,13 +4046,10 @@
             };
 
             const need = calculateNeedToLevel(currentLevel, currentLevel + 1, effBuff, duration, exp);
-            hTMLStr = `<div id="tillLevel" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${
-                isZH ? "到 " : "To reach level "
-            }<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${
-                isZH ? " 级还需做 " : ", need to do "
-            }<span id="tillLevelNumber">${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${
-                isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
-            }</span></div>`;
+            hTMLStr = `<div id="tillLevel" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${isZH ? "到 " : "To reach level "
+                }<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${isZH ? " 级还需做 " : ", need to do "
+                }<span id="tillLevelNumber">${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
+                }</span></div>`;
 
             appendAfterElem.insertAdjacentHTML("afterend", hTMLStr);
             const tillLevelInput = panel.querySelector("input#tillLevelInput");
@@ -4019,9 +4058,8 @@
                 const targetLevel = Number(tillLevelInput.value);
                 if (targetLevel > currentLevel && targetLevel <= 200) {
                     const need = calculateNeedToLevel(currentLevel, targetLevel, effBuff, duration, exp);
-                    tillLevelNumber.textContent = `${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${
-                        isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
-                    }`;
+                    tillLevelNumber.textContent = `${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
+                        }`;
                 } else {
                     tillLevelNumber.textContent = "Error";
                 }
@@ -4030,9 +4068,8 @@
                 const targetLevel = Number(tillLevelInput.value);
                 if (targetLevel > currentLevel && targetLevel <= 200) {
                     const need = calculateNeedToLevel(currentLevel, targetLevel, effBuff, duration, exp);
-                    tillLevelNumber.textContent = `${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${
-                        isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
-                    }`;
+                    tillLevelNumber.textContent = `${need.numOfActions}${isZH ? " 次" : " times "}[${timeReadable(need.timeSec)}]${isZH ? " (刷新网页更新当前等级)" : " (Refresh page to update current level)"
+                        }`;
                 } else {
                     tillLevelNumber.textContent = "Error";
                 }
@@ -4117,9 +4154,8 @@
             // 每小时利润
             const profitPerHour = itemPerHour * bidAfterTax + extraFreeItemPerHour * bidAfterTax - drinksConsumedPerHourAskPrice;
 
-            let htmlStr = `<div id="totalProfit"  style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${
-                isZH ? "综合利润: " : "Overall profit: "
-            }${numberFormatter(profitPerHour)}${isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${isZH ? "/天" : "/day"}</div>`;
+            let htmlStr = `<div id="totalProfit"  style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${isZH ? "综合利润: " : "Overall profit: "
+                }${numberFormatter(profitPerHour)}${isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${isZH ? "/天" : "/day"}</div>`;
             panel.querySelector("div#expPerHour").insertAdjacentHTML("afterend", htmlStr);
         }
     }
@@ -4276,8 +4312,7 @@
                         let efficiencyPerHour = ((battles / battleDurationSec) * 3600).toFixed(1);
                         elem.insertAdjacentHTML(
                             "beforeend",
-                            `<div id="script_battleNumbers" style="color: ${SCRIPT_COLOR_MAIN};">${
-                                isZH ? "每小时战斗: " : "Encounters/hour: "
+                            `<div id="script_battleNumbers" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时战斗: " : "Encounters/hour: "
                             }${efficiencyPerHour}${isZH ? " 次" : ""}</div>`
                         );
                     }
@@ -4297,8 +4332,7 @@
                         .querySelector("div#script_totalIncome")
                         .insertAdjacentHTML(
                             "afterend",
-                            `<div id="script_averageIncome" style="color: ${SCRIPT_COLOR_MAIN};">${
-                                isZH ? "每小时收获: " : "Revenue/hour: "
+                            `<div id="script_averageIncome" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时收获: " : "Revenue/hour: "
                             }${numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60))} / ${numberFormatter(
                                 totalPriceAskBid / (battleDurationSec / 60 / 60)
                             )}</div>`
@@ -4307,8 +4341,7 @@
                         .querySelector("div#script_averageIncome")
                         .insertAdjacentHTML(
                             "afterend",
-                            `<div id="script_totalIncomeDay" style="color: ${SCRIPT_COLOR_MAIN};">${
-                                isZH ? "每天收获: " : "Revenue/day: "
+                            `<div id="script_totalIncomeDay" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每天收获: " : "Revenue/day: "
                             }${numberFormatter((totalPriceAsk / (battleDurationSec / 60 / 60)) * 24)} / ${numberFormatter(
                                 (totalPriceAskBid / (battleDurationSec / 60 / 60)) * 24
                             )}</div>`
@@ -4317,8 +4350,7 @@
                         .querySelector("div#script_totalIncomeDay")
                         .insertAdjacentHTML(
                             "afterend",
-                            `<div id="script_avgRawCoinHour" style="color: ${SCRIPT_COLOR_MAIN};">${
-                                isZH ? "每小时仅金币收获: " : "Raw coins/hour: "
+                            `<div id="script_avgRawCoinHour" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时仅金币收获: " : "Raw coins/hour: "
                             }${numberFormatter(totalRawCoins / (battleDurationSec / 60 / 60))}</div>`
                         );
                 }
@@ -4337,8 +4369,7 @@
                         .querySelector("div#script_totalSkillsExp")
                         .insertAdjacentHTML(
                             "afterend",
-                            `<div id="script_averageSkillsExp" style="color: ${SCRIPT_COLOR_MAIN};">${
-                                isZH ? "每小时总经验: " : "Total exp/hour: "
+                            `<div id="script_averageSkillsExp" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时总经验: " : "Total exp/hour: "
                             }${numberFormatter(totalSkillsExp / (battleDurationSec / 60 / 60))}</div>`
                         );
 
@@ -4357,8 +4388,7 @@
                                 .querySelector("div#script_totalSkillsExp")
                                 .insertAdjacentHTML(
                                     "afterend",
-                                    `<div style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时" : ""}${isZH ? skill.zhName : skill.enName}${
-                                        isZH ? "经验: " : " exp/hour: "
+                                    `<div style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "每小时" : ""}${isZH ? skill.zhName : skill.enName}${isZH ? "经验: " : " exp/hour: "
                                     }${numberFormatter(expGained / (battleDurationSec / 60 / 60))}</div>`
                                 );
                         }
@@ -4637,9 +4667,9 @@
                     } else if (action.combatZoneInfo.fightInfo.battlesPerBoss === 10) {
                         if (
                             actionHrid?.replaceAll("/actions/combat/", "/monsters/") ===
-                                action.combatZoneInfo.fightInfo.bossSpawns[0].combatMonsterHrid ||
+                            action.combatZoneInfo.fightInfo.bossSpawns[0].combatMonsterHrid ||
                             "/monsters/" + monsterName.toLowerCase().replaceAll(" ", "_") ===
-                                action.combatZoneInfo.fightInfo.bossSpawns[0].combatMonsterHrid
+                            action.combatZoneInfo.fightInfo.bossSpawns[0].combatMonsterHrid
                         ) {
                             actionObj = action;
                             break;
@@ -4746,11 +4776,9 @@
         const ask = marketAPIJson.marketData[itemHrid][0].a || 0;
         const bid = marketAPIJson.marketData[itemHrid][0].b || 0;
 
-        let hTMLStr = `<div id="tillLevel" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${
-            isZH ? "到 " : "To "
-        }<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${
-            isZH ? " 级还需 " : " level need "
-        }
+        let hTMLStr = `<div id="tillLevel" style="color: ${SCRIPT_COLOR_MAIN}; text-align: left;">${isZH ? "到 " : "To "
+            }<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${isZH ? " 级还需 " : " level need "
+            }
         <span id="tillLevelNumber">${numBooks} (${numberFormatter(numBooks * ask)} / ${numberFormatter(numBooks * bid)})</span>
         <div>${isZH ? " 本书 (刷新网页更新当前等级)" : " books (Refresh page to update current level.)"}</div>
         </div>`;
@@ -4921,9 +4949,8 @@
             }
 
             if (hasSkippedfirstActionObj) {
-                const html = `<div class="script_actionTime" style="color: ${SCRIPT_COLOR_MAIN};">${
-                    isInfinit ? "[ ∞ ] " : `[${timeReadable(totalTimeSec)}]`
-                } ${str}</div>`;
+                const html = `<div class="script_actionTime" style="color: ${SCRIPT_COLOR_MAIN};">${isInfinit ? "[ ∞ ] " : `[${timeReadable(totalTimeSec)}]`
+                    } ${str}</div>`;
                 if (actionDivList[actionDivListIndex].querySelector("div div.script_actionTime")) {
                     actionDivList[actionDivListIndex].querySelector("div div.script_actionTime").innerHTML = html;
                 } else {
@@ -4933,9 +4960,8 @@
             }
             hasSkippedfirstActionObj = true;
         }
-        const html = `<div id="script_queueTotalTime" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "总时间：" : "Total time: "}${
-            isAccumulatedTimeInfinite ? "[ ∞ ] " : `[${timeReadable(accumulatedTimeSec)}]`
-        }</div>`;
+        const html = `<div id="script_queueTotalTime" style="color: ${SCRIPT_COLOR_MAIN};">${isZH ? "总时间：" : "Total time: "}${isAccumulatedTimeInfinite ? "[ ∞ ] " : `[${timeReadable(accumulatedTimeSec)}]`
+            }</div>`;
         if (document.querySelector("div#script_queueTotalTime")) {
             document.querySelector("div#script_queueTotalTime").innerHTML = html;
         } else {
@@ -4968,8 +4994,7 @@
                 .querySelector(".ItemTooltipText_itemTooltipText__zFq3A")
                 .insertAdjacentHTML(
                     "beforeend",
-                    `<div style="color: ${SCRIPT_COLOR_ALERT};">${
-                        isZH ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；" : "Enhancement sim Internet error"
+                    `<div style="color: ${SCRIPT_COLOR_ALERT};">${isZH ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；" : "Enhancement sim Internet error"
                     }</div>`
                 );
             return;
@@ -4988,44 +5013,44 @@
             return;
         }
 
+        let input_data = getEnhanceSimInputData();
         input_data.item_hrid = itemHrid;
         input_data.stop_at = enhancementLevel;
         const best = await findBestEnhanceStratWithPhiMirror(input_data);
 
-        let appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};">${
-            isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"
+        let appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};">${isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"
             }</div>`;
         if (best) {
             let needMatStr = "";
+
             if (best.costs.needMap) {
                 for (const [key, value] of Object.entries(best.costs.needMap)) {
                     needMatStr += `<div>${isZH ? ZHItemNames[initData_itemDetailMap[key].hrid] : initData_itemDetailMap[key].name} ${isZH ? "单价: " : "price per item: "}${numberFormatter(value)}<div>`;
                 }
             }
-            appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${
-                isZH
-                ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）："
-                : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "
-            }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(best.totalCost.toFixed(0))}</div>
+            const tea_name = input_data.tea_type === "none" ? "" :
+                isZH ? "，" + ZHitemNames[`/items/${input_data.tea_type}`] : `, ${initData_itemDetailMap[`/items/${input_data.tea_type}`]?.name}`;
+            const total_cost_including_tax = best.totalCost / (1 - input_data.tax_rate / 100);
+            appendHTMLStr = `<div style="color: ${SCRIPT_COLOR_TOOLTIP};"><div>${isZH
+                ? `强化模拟（强化等级${input_data.enhancing_level}，房子等级${input_data.laboratory_level}，强化器加成${input_data.enhancer_bonus}% ，装备加成${input_data.enhance_gear_speed_bonus}%${tea_name}${input_data.tea_blessed ? '，幸运茶' : ''}，卖单价收货，工时费${numberFormatter(input_data.time_fee)}/小时)，${input_data.tax_rate}%市场税：`
+                : `Enhancement simulator: level ${input_data.enhancing_level} enhancing, level ${input_data.laboratory_level} house, ${input_data.enhancer_bonus}% enhancer bonus, ${input_data.enhance_gear_speed_bonus}% gear speed bonus${tea_name}${input_data.tea_blessed ? ', blessed tea' : ''}, sell order price in, ${numberFormatter(input_data.time_fee)} hourly fee, ${input_data.tax_rate}% tax:`
+                }</div><div>${isZH ? "总成本 " : "Total cost "}${numberFormatter(total_cost_including_tax.toFixed(0))}</div>
             <div>${isZH ? "耗时 " : "Time spend "}${best.simResult.totalActionTimeStr}</div>
-            ${
-                best.protect_count > 0
+            ${best.protect_count > 0
                     ? `<div>${isZH ? "从 " : "Use protection from level "}` + best.protect_at + `${isZH ? " 级开始保护" : ""}</div>`
                     : `<div>${isZH ? "不需要保护" : "No protection use"}</div>`
-            }
+                }
             <div>${isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${isZH ? " 次" : " times"}</div>
-            ${
-                best.costs.inputCount 
+            ${best.costs.inputCount
                     ? `<div>+${best.protect_at}${isZH ? "底子价格: " : " Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>` +
-                      `<div>+${best.protect_at}${isZH ? "底子数量: " : " Base item Count: "}${numberFormatter(best.costs.baseCount)}</div>` +
-                      `<div>+${best.protect_at-1}${isZH ? "材料价格: " : " Base item Price: "}${numberFormatter(best.costs.inputCost)}</div>` +
-                      `<div>+${best.protect_at-1}${isZH ? "材料数量: " : " Base item Count: "}${numberFormatter(best.costs.inputCount)}</div>`
+                    `<div>+${best.protect_at}${isZH ? "底子数量: " : " Base item Count: "}${numberFormatter(best.costs.baseCount)}</div>` +
+                    `<div>+${best.protect_at - 1}${isZH ? "材料价格: " : " Base item Price: "}${numberFormatter(best.costs.inputCost)}</div>` +
+                    `<div>+${best.protect_at - 1}${isZH ? "材料数量: " : " Base item Count: "}${numberFormatter(best.costs.inputCount)}</div>`
                     : `<div>${isZH ? "+0底子价格: " : "+0 Base item Price: "}${numberFormatter(best.costs.baseCost)}</div>`
-            }
-            <div>${
-                best.protect_count > 0
+                }
+            <div>${best.protect_count > 0
                     ? (isZH ? "保护单价: " : "Price per protection: ") +
-                     (isZH ? ZHItemNames[initData_itemDetailMap[best.costs.choiceOfProtection].hrid] : initData_itemDetailMap[best.costs.choiceOfProtection].name) +
+                    (isZH ? ZHItemNames[initData_itemDetailMap[best.costs.choiceOfProtection].hrid] : initData_itemDetailMap[best.costs.choiceOfProtection].name) +
                     " " +
                     numberFormatter(best.costs.minProtectionCost)
                     : ""
@@ -5086,24 +5111,23 @@
         }
 
         const allResults = [];
-        for (let protect_at = lowestAt+1; protect_at < enhancementLevel; protect_at++)
-        {
-            const fibonacci = [ 0,1,1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597,2584,4181];
+        for (let protect_at = lowestAt + 1; protect_at < enhancementLevel; protect_at++) {
+            const fibonacci = [0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181];
 
             const baseCount = fibonacci[enhancementLevel - protect_at + 1];
             const inputCount = fibonacci[enhancementLevel - protect_at];
             const protectCount = baseCount + inputCount - 1;
 
-            const totalCost = baseCount * lowerBest[protect_at].totalCost + inputCount * lowerBest[protect_at-1].totalCost + pMirrorCost * protectCount + refinedCost;
+            const totalCost = baseCount * lowerBest[protect_at].totalCost + inputCount * lowerBest[protect_at - 1].totalCost + pMirrorCost * protectCount + refinedCost;
 
             const cost = {
                 minProtectionCost: pMirrorCost,
                 choiceOfProtection: pMirrorHrid,
                 baseCost: lowerBest[protect_at].totalCost,
                 baseCount: baseCount,
-                inputCost : lowerBest[protect_at-1].totalCost,
-                inputCount : inputCount,
-                needMap : refinedNeedMap
+                inputCost: lowerBest[protect_at - 1].totalCost,
+                inputCount: inputCount,
+                needMap: refinedNeedMap
             };
 
             const itemLevel = initData_itemDetailMap[input_data.item_hrid].itemLevel;
@@ -5116,8 +5140,8 @@
                 12 /
                 (1 +
                     (input_data.enhancing_level > itemLevel
-                        ? (effective_level + input_data.laboratory_level - itemLevel + input_data.glove_bonus) / 100
-                        : (input_data.laboratory_level + input_data.glove_bonus) / 100))
+                        ? (effective_level + input_data.laboratory_level - itemLevel + input_data.enhance_gear_speed_bonus) / 100
+                        : (input_data.laboratory_level + input_data.enhance_gear_speed_bonus) / 100))
             ).toFixed(2);
             const totalActionTimeSec = protectCount * perActionTimeSec;
             const simResult = {
@@ -5152,8 +5176,8 @@
         const allResults = [];
         for (let protect_at = 2; protect_at <= input_data.stop_at; protect_at++) {
             const simResult = Enhancelate(input_data, protect_at);
-            const costs = getCosts(input_data.item_hrid, price_data);
-            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions;
+            const costs = getCosts(input_data, price_data, simResult);
+            const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions + costs.timeFee + costs.blessedTeaCost + costs.enhancingTeaCost;
             const r = {};
             r.protect_at = protect_at;
             r.protect_count = simResult.protect_count;
@@ -5204,9 +5228,9 @@
         let total_bonus = null;
         const effective_level =
             input_data.enhancing_level +
-            (input_data.tea_enhancing ? 3 : 0) +
-            (input_data.tea_super_enhancing ? 6 : 0) +
-            (input_data.tea_ultra_enhancing ? 8 : 0);
+            (input_data.tea_type === "enhancing_tea" ? 3 : 0) +
+            (input_data.tea_type === "super_enhancing_tea" ? 6 : 0) +
+            (input_data.tea_type === "ultra_enhancing_tea" ? 8 : 0);
         if (effective_level >= itemLevel) {
             total_bonus = 1 + (0.05 * (effective_level + input_data.laboratory_level - itemLevel) + input_data.enhancer_bonus) / 100;
         } else {
@@ -5241,8 +5265,8 @@
             12 /
             (1 +
                 (input_data.enhancing_level > itemLevel
-                    ? (effective_level + input_data.laboratory_level - itemLevel + input_data.glove_bonus) / 100
-                    : (input_data.laboratory_level + input_data.glove_bonus) / 100))
+                    ? (effective_level + input_data.laboratory_level - itemLevel + input_data.enhance_gear_speed_bonus) / 100
+                    : (input_data.laboratory_level + input_data.enhance_gear_speed_bonus) / 100))
         ).toFixed(2);
 
         const result = {};
@@ -5253,38 +5277,35 @@
         return result;
     }
 
-    // 自定义强化模拟输入参数
-    // Customization
-    let input_data = {
-        item_hrid: null,
-        stop_at: null,
+    function getEnhanceSimInputData() {
+        return {
+            item_hrid: null,
+            stop_at: null,
+            enhancing_level: settingsMap.enhancing_level.value, // 人物 Enhancing 技能等级
+            laboratory_level: settingsMap.laboratory_level.value, // 房子等级
+            enhancer_bonus: settingsMap.enhancer_bonus.value, // 工具提高成功率，0级=3.6，5级=4.03，10级=4.64
+            enhance_gear_speed_bonus: settingsMap.enhance_gear_speed_bonus.value,
+            tea_type: settingsMap.tea_type.value,
+            tea_blessed: settingsMap.tea_blessed.isTrue, // 祝福茶
+            priceAskBidRatio: 1,
+            time_fee: settingsMap.time_fee.value,  // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
+            tax_rate: settingsMap.tax_rate.value, // 市场税率
+        };
+    }
 
-        enhancing_level: 125, // 人物 Enhancing 技能等级
-        laboratory_level: 6, // 房子等级
-        enhancer_bonus: 5.42, // 工具提高成功率，10级星空强化工具
-        glove_bonus: 12.9, // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
-
-        tea_enhancing: false, // 强化茶
-        tea_super_enhancing: false, // 超级强化茶
-        tea_ultra_enhancing: true,
-        tea_blessed: true, // 祝福茶
-
-        priceAskBidRatio: 1, // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
-    };
-
-    function getCosts(hrid, price_data) {
-        const itemDetailObj = initData_itemDetailMap[hrid];
+    function getCosts(input_data, price_data, simResult) {
+        const itemDetailObj = initData_itemDetailMap[input_data.item_hrid];
 
         // +0本体成本
-        const baseCost = getRealisticBaseItemPrice(hrid, price_data);
+        const baseCost = getRealisticBaseItemPrice(input_data.item_hrid, price_data);
 
         // 保护成本
         let minProtectionPrice = null;
         let minProtectionHrid = null;
         let protect_item_hrids =
             itemDetailObj.protectionItemHrids == null
-                ? [hrid, "/items/mirror_of_protection"]
-                : [hrid, "/items/mirror_of_protection"].concat(itemDetailObj.protectionItemHrids);
+                ? [input_data.item_hrid, "/items/mirror_of_protection"]
+                : [input_data.item_hrid, "/items/mirror_of_protection"].concat(itemDetailObj.protectionItemHrids);
         protect_item_hrids.forEach((protection_hrid, i) => {
             const this_cost = getRealisticBaseItemPrice(protection_hrid, price_data);
             if (i === 0) {
@@ -5309,12 +5330,19 @@
             }
         }
 
+        const timeFee = input_data.time_fee * simResult.totalActionTimeSec / 3600.0;
+        const blessedTeaCost = input_data.tea_blessed ? getItemMarketPrice("/items/blessed_tea", price_data) * simResult.totalActionTimeSec / 300.0 : 0;
+        const enhancingTeaCost = input_data.tea_type === "none" ? 0 : getItemMarketPrice(`/items/${input_data.tea_type}`, price_data) * simResult.totalActionTimeSec / 300.0;
+
         return {
             baseCost: baseCost,
             minProtectionCost: minProtectionPrice,
             perActionCost: totalNeedPrice,
             choiceOfProtection: minProtectionHrid,
             needMap: needMap,
+            timeFee: timeFee,
+            blessedTeaCost: blessedTeaCost,
+            enhancingTeaCost: enhancingTeaCost,
         };
     }
 
@@ -5375,6 +5403,7 @@
             return bid;
         }
 
+        let input_data = getEnhanceSimInputData();
         let final_cost = ask * input_data.priceAskBidRatio + bid * (1 - input_data.priceAskBidRatio);
         return final_cost;
     }
@@ -5403,48 +5432,78 @@
     }
 
     /* 脚本设置面板 */
-    const waitForSetttins = () => {
+    const waitForSettings = () => {
         const targetNode = document.querySelector("div.SettingsPanel_profileTab__214Bj");
         if (targetNode) {
             if (!targetNode.querySelector("#script_settings")) {
                 targetNode.insertAdjacentHTML("beforeend", `<div id="script_settings"></div>`);
                 const insertElem = targetNode.querySelector("div#script_settings");
+                // Use flex column layout for the settings panel
+                insertElem.style.display = "flex";
+                insertElem.style.flexDirection = "column";
+                insertElem.style.alignItems = "flex-start";
                 insertElem.insertAdjacentHTML(
                     "beforeend",
-                    `<div style="float: left; color: ${SCRIPT_COLOR_MAIN}">${
-                        isZH ? "MWITools 设置 （刷新生效）：" : "MWITools Settings (refresh page to apply): "
+                    `<div style="color: ${SCRIPT_COLOR_MAIN}; margin-bottom: 8px;">${isZH ? "MWITools 设置 （刷新生效）：" : "MWITools Settings (refresh page to apply): "
                     }</div></br>`
                 );
 
                 for (const setting of Object.values(settingsMap)) {
-                    insertElem.insertAdjacentHTML(
-                        "beforeend",
-                        `<div style="float: left;"><input type="checkbox" id="${setting.id}" ${setting.isTrue ? "checked" : ""}></input>${
-                            setting.desc
-                        }</div></br>`
-                    );
+                    if (setting.type === "number") {
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <label for="${setting.id}" style="text-align: left; min-width: 250px;">${setting.desc}</label>
+                                <input type="number" id="${setting.id}" value="${setting.value}" style="width:100px;">
+                            </div>`
+                        );
+                    } else if (setting.type === "option") {
+                        let optionsHtml = setting.options.map(opt => `<option value="${opt.value}" ${setting.value === opt.value ? "selected" : ""}>${opt.label}</option>`).join("");
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <label for="${setting.id}" style="text-align: left; min-width: 250px;">${setting.desc}</label>
+                                <select id="${setting.id}">${optionsHtml}</select>
+                            </div>`
+                        );
+                    } else if (setting.type === "checkbox" || typeof setting.isTrue !== "undefined") {
+                        insertElem.insertAdjacentHTML(
+                            "beforeend",
+                            `<div style="display: flex; align-items: center; gap: 8px;">
+                                <input type="checkbox" id="${setting.id}" ${setting.isTrue ? "checked" : ""}></input>
+                                <label for="${setting.id}">${setting.desc}</label>
+                            </div>`
+                        );
+                    }
                 }
 
                 insertElem.insertAdjacentHTML(
                     "beforeend",
-                    `<div style="float: left;">${
-                        isZH
-                            ? "代码里搜索“自定义”可以手动修改字体颜色、强化模拟默认参数"
-                            : `Search "Customization" in code to customize font colors and default enhancement simulation parameters.`
+                    `<div style="margin-top: 8px; color: ${SCRIPT_COLOR_MAIN};">${isZH
+                        ? "代码里搜索“自定义”可以手动修改字体颜色"
+                        : `Search "Customization" in code to customize font colors.`
                     }</div></br>`
                 );
                 insertElem.addEventListener("change", saveSettings);
             }
         }
-        setTimeout(waitForSetttins, 500);
+        setTimeout(waitForSettings, 500);
     };
-    waitForSetttins();
+    waitForSettings();
 
     function saveSettings() {
-        for (const checkbox of document.querySelectorAll("div#script_settings input")) {
-            settingsMap[checkbox.id].isTrue = checkbox.checked;
-            localStorage.setItem("script_settingsMap", JSON.stringify(settingsMap));
+        for (const setting of Object.values(settingsMap)) {
+            const elem = document.getElementById(setting.id);
+            if (!elem) continue;
+            if (setting.type === "number") {
+                setting.value = Number(elem.value);
+            } else if (setting.type === "option") {
+                setting.value = elem.value;
+            } else if (setting.type === "checkbox" || typeof setting.isTrue !== "undefined") {
+                setting.isTrue = elem.checked;
+            }
         }
+        localStorage.setItem("script_settingsMap", JSON.stringify(settingsMap));
     }
 
     function readSettings() {
@@ -5453,7 +5512,13 @@
             const lsObj = JSON.parse(ls);
             for (const option of Object.values(lsObj)) {
                 if (settingsMap.hasOwnProperty(option.id)) {
-                    settingsMap[option.id].isTrue = option.isTrue;
+                    if (settingsMap[option.id].type === "number") {
+                        settingsMap[option.id].value = option.value;
+                    } else if (settingsMap[option.id].type === "option") {
+                        settingsMap[option.id].value = option.value;
+                    } else if (settingsMap[option.id].type === "checkbox" || typeof settingsMap[option.id].isTrue !== "undefined") {
+                        settingsMap[option.id].isTrue = option.isTrue;
+                    }
                 }
             }
         }
@@ -6009,8 +6074,7 @@
                 ${Object.entries(monsterCounts)
                     .map(
                         ([monsterName, count]) =>
-                            `<th style="font-size: smaller; white-space: normal; text-align: left; color: white;">${
-                                isZH ? ZHOthersDic[monsterHrids[monsterName]] : monsterName
+                            `<th style="font-size: smaller; white-space: normal; text-align: left; color: white;">${isZH ? ZHOthersDic[monsterHrids[monsterName]] : monsterName
                             } (${count})</th>`
                     )
                     .join("")}
@@ -6095,7 +6159,7 @@
             if (difficultyTier) {
                 const selectDifficulty = document.querySelector(`select#selectDifficulty`);
                 for (let i = 0; i < selectDifficulty.options.length; i++) {
-                    if  (Number(selectDifficulty.options[i].value) === difficultyTier) {
+                    if (Number(selectDifficulty.options[i].value) === difficultyTier) {
                         selectDifficulty.options[i].selected = true;
                         break;
                     }
@@ -6675,16 +6739,13 @@
         const skillNamesInOrder = ["stamina", "intelligence", "attack", "melee", "defense", "ranged", "magic"];
         let hTMLStr = "";
         for (const skill of skillNamesInOrder) {
-            hTMLStr += `<div id="${"inputDiv_" + skill}" style="display: flex; justify-content: flex-end">${
-                isZHIn3rdPartyWebsites ? skillLevels[skill].skillZhName : skillLevels[skill].skillName
-            }${isZHIn3rdPartyWebsites ? "到" : " to level "}<input id="${"input_" + skill}" type="number" value="${
-                skillLevels[skill].currentLevel + 1
-            }" min="${skillLevels[skill].currentLevel + 1}" max="200">${isZHIn3rdPartyWebsites ? "级" : ""}</div>`;
+            hTMLStr += `<div id="${"inputDiv_" + skill}" style="display: flex; justify-content: flex-end">${isZHIn3rdPartyWebsites ? skillLevels[skill].skillZhName : skillLevels[skill].skillName
+                }${isZHIn3rdPartyWebsites ? "到" : " to level "}<input id="${"input_" + skill}" type="number" value="${skillLevels[skill].currentLevel + 1
+                }" min="${skillLevels[skill].currentLevel + 1}" max="200">${isZHIn3rdPartyWebsites ? "级" : ""}</div>`;
         }
 
-        hTMLStr += `<div id="script_afterDays" style="display: flex; justify-content: flex-end"><input id="script_afterDays_input" type="number" value="1" min="0" max="200">${
-            isZHIn3rdPartyWebsites ? "天后" : "days after"
-        }</div>`;
+        hTMLStr += `<div id="script_afterDays" style="display: flex; justify-content: flex-end"><input id="script_afterDays_input" type="number" value="1" min="0" max="200">${isZHIn3rdPartyWebsites ? "天后" : "days after"
+            }</div>`;
 
         hTMLStr += `<div id="needDiv"></div>`;
         hTMLStr += `<div id="needListDiv"></div>`;
@@ -6736,9 +6797,8 @@
     function calculateAfterDays(daysAfterInput, skillLevels, parentDiv, perHourGainExp, skillNamesInOrder, isZHIn3rdPartyWebsites) {
         const initData_levelExperienceTable = JSON.parse(GM_getValue("init_client_data", null)).levelExperienceTable;
         const days = Number(daysAfterInput.value);
-        parentDiv.querySelector(`div#needDiv`).textContent = `${isZHIn3rdPartyWebsites ? "" : "After"} ${days} ${
-            isZHIn3rdPartyWebsites ? "天后：" : "days: "
-        }`;
+        parentDiv.querySelector(`div#needDiv`).textContent = `${isZHIn3rdPartyWebsites ? "" : "After"} ${days} ${isZHIn3rdPartyWebsites ? "天后：" : "days: "
+            }`;
         const listDiv = parentDiv.querySelector(`div#needListDiv`);
 
         let html = "";
@@ -6757,9 +6817,8 @@
                     const expSpanInLevel = maxExpAtLevel - minExpAtLevel;
                     const levelPercentage = Number(((exp - minExpAtLevel) / expSpanInLevel) * 100).toFixed(1);
                     resultLevels[skillName.toLowerCase()] = level;
-                    html += `<div>${isZHIn3rdPartyWebsites ? skill.skillZhName : skill.skillName} ${isZHIn3rdPartyWebsites ? "" : "level"} ${level} ${
-                        isZHIn3rdPartyWebsites ? "级" : ""
-                    } ${levelPercentage}%</div>`;
+                    html += `<div>${isZHIn3rdPartyWebsites ? skill.skillZhName : skill.skillName} ${isZHIn3rdPartyWebsites ? "" : "level"} ${level} ${isZHIn3rdPartyWebsites ? "级" : ""
+                        } ${levelPercentage}%</div>`;
                     break;
                 }
             }
@@ -6774,9 +6833,8 @@
     function calculateTill(skillName, skillInputElem, skillLevels, parentDiv, perHourGainExp, isZHIn3rdPartyWebsites) {
         const initData_levelExperienceTable = JSON.parse(GM_getValue("init_client_data", null)).levelExperienceTable;
         const targetLevel = Number(skillInputElem.value);
-        parentDiv.querySelector(`div#needDiv`).textContent = `${
-            isZHIn3rdPartyWebsites ? skillLevels[skillName].skillZhName : skillLevels[skillName].skillName
-        } ${isZHIn3rdPartyWebsites ? "到" : "to level"} ${targetLevel} ${isZHIn3rdPartyWebsites ? "级 还需：" : " takes: "}`;
+        parentDiv.querySelector(`div#needDiv`).textContent = `${isZHIn3rdPartyWebsites ? skillLevels[skillName].skillZhName : skillLevels[skillName].skillName
+            } ${isZHIn3rdPartyWebsites ? "到" : "to level"} ${targetLevel} ${isZHIn3rdPartyWebsites ? "级 还需：" : " takes: "}`;
         const listDiv = parentDiv.querySelector(`div#needListDiv`);
 
         const currentLevel = Number(skillLevels[skillName].currentLevel);
