@@ -2218,7 +2218,6 @@
     if (localStorage.getItem("initClientData")) {
         const obj = localStorageUtil.getInitClientData();
         console.log(obj);
-        GM_setValue("init_client_data", JSON.stringify(obj));
 
         initData_actionDetailMap = obj.actionDetailMap;
         initData_levelExperienceTable = obj.levelExperienceTable;
@@ -2314,7 +2313,6 @@
             }
         } else if (obj && obj.type === "init_client_data") {
             console.log(obj);
-            GM_setValue("init_client_data", message);
 
             initData_actionDetailMap = obj.actionDetailMap;
             initData_levelExperienceTable = obj.levelExperienceTable;
@@ -2924,7 +2922,7 @@
         if (!marketAPIJson) {
             return 0;
         }
-        const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
+        const clientObj = localStorageUtil.getInitClientData();
 
         const upgradeCostsMap = clientObj.houseRoomDetailMap[house.houseRoomHrid].upgradeCostsMap;
         const level = house.level;
@@ -6131,7 +6129,7 @@
 
     function constructGroupExportObj() {
         const characterObj = JSON.parse(GM_getValue("init_character_data", ""));
-        const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
+        const clientObj = localStorageUtil.getInitClientData();
         let battleObj = null;
         if (GM_getValue("new_battle", "")) {
             battleObj = JSON.parse(GM_getValue("new_battle", ""));
@@ -6734,7 +6732,7 @@
     }
 
     function calculateAfterDays(daysAfterInput, skillLevels, parentDiv, perHourGainExp, skillNamesInOrder, isZHIn3rdPartyWebsites) {
-        const initData_levelExperienceTable = JSON.parse(GM_getValue("init_client_data", null)).levelExperienceTable;
+        const initData_levelExperienceTable = localStorageUtil.getInitClientData()?.levelExperienceTable;
         const days = Number(daysAfterInput.value);
         parentDiv.querySelector(`div#needDiv`).textContent = `${isZHIn3rdPartyWebsites ? "" : "After"} ${days} ${
             isZHIn3rdPartyWebsites ? "天后：" : "days: "
@@ -6772,7 +6770,7 @@
     }
 
     function calculateTill(skillName, skillInputElem, skillLevels, parentDiv, perHourGainExp, isZHIn3rdPartyWebsites) {
-        const initData_levelExperienceTable = JSON.parse(GM_getValue("init_client_data", null)).levelExperienceTable;
+        const initData_levelExperienceTable = localStorageUtil.getInitClientData()?.levelExperienceTable;
         const targetLevel = Number(skillInputElem.value);
         parentDiv.querySelector(`div#needDiv`).textContent = `${
             isZHIn3rdPartyWebsites ? skillLevels[skillName].skillZhName : skillLevels[skillName].skillName
@@ -6909,7 +6907,7 @@
                 button.onclick = function () {
                     let exportString = "";
                     const playerID = obj.profile.characterSkills[0].characterID;
-                    const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
+const clientObj = localStorageUtil.getInitClientData();
                     const characterObj = JSON.parse(GM_getValue("init_character_data", ""));
 
                     if (playerID === characterObj.character.id) {
