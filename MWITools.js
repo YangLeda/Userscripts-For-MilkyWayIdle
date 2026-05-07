@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.12
+// @version      25.13
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -4686,7 +4686,7 @@
                 for (const mutation of mutations) {
                     for (const added of mutation.addedNodes) {
                         if (
-                            added?.classList?.contains("Modal_modalContainer__3B80m") &&
+                            added?.classList?.contains("ItemDictionary_modalWrapper__1Ywn2") &&
                             added.querySelector("div.ItemDictionary_modalContent__WvEBY")
                         ) {
                             handleItemDict(added.querySelector("div.ItemDictionary_modalContent__WvEBY"));
