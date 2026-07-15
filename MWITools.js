@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.13
+// @version      25.14
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -121,6 +121,11 @@
         invSort: {
             id: "invSort",
             desc: isZH ? "仓库显示：仓库物品排序 [依赖上一项]" : "Inventory: Sort inventory items. [Depends on the previous selection]",
+            isTrue: true,
+        },
+        guildCreditConversionsSort: {
+            id: "guildCreditConversionsSort",
+            desc: isZH ? "工会信用兑换：公会信用兑换选择排序" : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
             isTrue: true,
         },
         profileBuildScore: {
@@ -287,6 +292,15 @@
         "/items/sinister_token": "\u9634\u68ee\u4ee3\u5e01",
         "/items/enchanted_token": "\u79d8\u6cd5\u4ee3\u5e01",
         "/items/pirate_token": "\u6d77\u76d7\u4ee3\u5e01",
+        "/items/guild_token": "\u516c\u4f1a\u4ee3\u5e01",
+        "/items/green_guild_credit": "\u7eff\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/brown_guild_credit": "\u68d5\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/white_guild_credit": "\u767d\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/blue_guild_credit": "\u84dd\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/purple_guild_credit": "\u7d2b\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/red_guild_credit": "\u7ea2\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/silver_guild_credit": "\u94f6\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/gold_guild_credit": "\u91d1\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
         "/items/cowbell": "\u725b\u94c3",
         "/items/bag_of_10_cowbells": "\u725b\u94c3\u888b (10\u4e2a)",
         "/items/purples_gift": "\u5c0f\u7d2b\u725b\u7684\u793c\u7269",
@@ -1997,8 +2011,10 @@
         // monsterNames
         "/monsters/abyssal_imp": "\u6df1\u6e0a\u5c0f\u9b3c",
         "/monsters/acrobat": "\u6742\u6280\u5e08",
+        "/monsters/trial_hedgehog": "\u8bd5\u70bc\u523a\u732c",
         "/monsters/anchor_shark": "\u6301\u951a\u9ca8",
         "/monsters/aquahorse": "\u6c34\u9a6c",
+        "/monsters/trial_jellyfish": "\u8bd5\u70bc\u6c34\u6bcd",
         "/monsters/black_bear": "\u9ed1\u718a",
         "/monsters/gobo_boomy": "\u8f70\u8f70",
         "/monsters/brine_marksman": "\u6d77\u76d0\u5c04\u624b",
@@ -2014,6 +2030,7 @@
         "/monsters/deranged_jester": "\u5c0f\u4e11\u7687",
         "/monsters/dodocamel": "\u6e21\u6e21\u9a7c",
         "/monsters/dusk_revenant": "\u9ec4\u660f\u4ea1\u7075",
+        "/monsters/trial_chameleon": "\u8bd5\u70bc\u53d8\u8272\u9f99",
         "/monsters/elementalist": "\u5143\u7d20\u6cd5\u5e08",
         "/monsters/enchanted_bishop": "\u79d8\u6cd5\u4e3b\u6559",
         "/monsters/enchanted_king": "\u79d8\u6cd5\u56fd\u738b",
@@ -2025,6 +2042,10 @@
         "/monsters/eyes": "\u53e0\u773c",
         "/monsters/flame_sorcerer": "\u706b\u7130\u5deb\u5e08",
         "/monsters/fly": "\u82cd\u8747",
+        "/monsters/trial_beetle": "\u8bd5\u70bc\u7532\u866b",
+        "/monsters/trial_dragonfly": "\u8bd5\u70bc\u873b\u8713",
+        "/monsters/trial_wasp": "\u8bd5\u70bc\u9ec4\u8702",
+        "/monsters/trial_firefly": "\u8bd5\u70bc\u8424\u706b\u866b",
         "/monsters/frog": "\u9752\u86d9",
         "/monsters/sea_snail": "\u8717\u725b",
         "/monsters/giant_shoebill": "\u9cb8\u5934\u9e73",
@@ -2036,6 +2057,7 @@
         "/monsters/crab": "\u8783\u87f9",
         "/monsters/ice_sorcerer": "\u51b0\u971c\u5deb\u5e08",
         "/monsters/infernal_warlock": "\u5730\u72f1\u672f\u58eb",
+        "/monsters/trial_badger": "\u8bd5\u70bc\u737e",
         "/monsters/jackalope": "\u9e7f\u89d2\u5154",
         "/monsters/rat": "\u6770\u745e",
         "/monsters/juggler": "\u6742\u800d\u8005",
@@ -2782,6 +2804,14 @@
             setTimeout(waitForInv, 1000);
         };
         waitForInv();
+
+        const waitGuildCreditConversionsSelect = () => {
+            if (settingsMap.guildCreditConversionsSort.isTrue)
+                addGuildCreditConversionsSortButton();
+            
+            setTimeout(waitGuildCreditConversionsSelect, 1000);
+        };
+        waitGuildCreditConversionsSelect();
     }
 
     /* 仓库物品排序 */
@@ -2876,6 +2906,219 @@
                 }
             }
         };
+    }
+
+     /* 公会信用兑换选择弹窗排序 */
+    async function addGuildCreditConversionsSortButton() {
+        const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
+        if (!selectorContainer) {
+            return;
+        }
+
+        if (selectorContainer.querySelector("#script_itemSelector_sort_div")) {
+            return;
+        }
+
+        const price_data = await fetchMarketJSON();
+        if (!price_data || !price_data.marketData) {
+            return;
+        }
+
+        // 预计算所有信用点类型的最佳兑换物品
+        const bestCreditConversionMap = {};
+        for (const itemHrid in initData_itemDetailMap) {
+            if (initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+                const conversions = initData_itemDetailMap[itemHrid].guildCreditConversions;
+                for (const conversion of conversions) {
+                    const creditHrid = conversion.creditItemHrid;
+                    let askPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        askPrice = price_data.marketData[itemHrid][0].a;
+                    let bidPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        bidPrice = price_data.marketData[itemHrid][0].b;
+                    if (askPrice === 0 && bidPrice === 0) continue;
+                    const creditAskPrice = (askPrice * conversion.itemCount) / conversion.creditCount;
+                    const creditBidPrice = (bidPrice * conversion.itemCount) / conversion.creditCount;
+                    const enName = initData_itemDetailMap[itemHrid].name;
+                    const zhName = ZHItemNames[itemHrid];
+                    const displayName = isZHInGameSetting ? (zhName || enName) : enName;
+                    if (!bestCreditConversionMap[creditHrid]) {
+                        bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
+                    }
+                    if (askPrice > 0 && (!bestCreditConversionMap[creditHrid].ask || creditAskPrice < bestCreditConversionMap[creditHrid].ask.price)) {
+                        bestCreditConversionMap[creditHrid].ask = { name: displayName, price: creditAskPrice };
+                    }
+                    if (bidPrice > 0 && (!bestCreditConversionMap[creditHrid].bid || creditBidPrice < bestCreditConversionMap[creditHrid].bid.price)) {
+                        bestCreditConversionMap[creditHrid].bid = { name: displayName, price: creditBidPrice };
+                    }
+                }
+            }
+        }
+
+        const inputContainer = selectorContainer.querySelector(".Input_inputContainer__22GnD");
+        if (!inputContainer) {
+            return;
+        }
+
+        const askButton = `<button
+            id="script_itemSelector_sortByAsk_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "出售价" : "Ask"}
+            </button>`;
+        const bidButton = `<button
+            id="script_itemSelector_sortByBid_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "收购价" : "Bid"}
+            </button>`;
+        const noneButton = `<button
+            id="script_itemSelector_sortByNone_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "无" : "None"}
+            </button>`;
+        const buttonsDiv = `<div id="script_itemSelector_sort_div" style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; margin-left: 8px; display: inline;">${
+            isZH ? "排序：" : "Sort: "
+            }${askButton} ${bidButton} ${noneButton}</div>`;
+        inputContainer.insertAdjacentHTML("afterend", buttonsDiv);
+
+        const itemList = selectorContainer.querySelector(".ItemSelector_itemList__Qa5lq");
+        if (!itemList) {
+            return;
+        }
+
+        const sortItemsBy = (order) => {
+            const itemContainers = itemList.querySelectorAll(".ItemSelector_itemContainer__3olqe");
+
+            let targetCreditHrid = "";
+            let targetCreditName = "";
+            const exchangeModal = document.querySelector(".GuildPanel_exchangeModalContent__aQqyL");
+            if (exchangeModal) {
+                const creditIcon = exchangeModal.querySelector(".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg");
+                if (creditIcon) {
+                    let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+                    if (creditAriaLabel) {
+                        if (isZHInGameSetting) {
+                            creditAriaLabel = getItemEnNameFromZhName(creditAriaLabel);
+                        }
+                        targetCreditHrid = itemEnNameToHridMap[creditAriaLabel];
+                        targetCreditName = creditAriaLabel;
+                    }
+                }
+            }
+
+            const priceList = [];
+
+            itemContainers.forEach(itemContainer => {
+                const itemElem = itemContainer.querySelector(".Item_itemContainer__x7kH1");
+                if (!itemElem) return;
+
+                let itemName = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+                if (!itemName) {
+                    itemElem.style.order = 0;
+                    const priceElem = itemElem.querySelector("#script_itemSelector_price");
+                    if (priceElem) priceElem.remove();
+                    return;
+                }
+
+                if (isZHInGameSetting) {
+                    itemName = getItemEnNameFromZhName(itemName);
+                }
+                const itemHrid = itemEnNameToHridMap[itemName];
+                let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
+                if (!itemCount) {
+                    itemElem.style.order = 0;
+                    const priceElem = itemElem.querySelector("#script_itemSelector_price");
+                    if (priceElem) priceElem.remove();
+                    return;
+                }
+                itemCount = Number(itemCount.toLowerCase().replaceAll("k", "000").replaceAll("m", "000000"));
+                let askPrice = 0;
+                if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                    askPrice = price_data.marketData[itemHrid][0].a;
+                let bidPrice = 0;
+                if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                    bidPrice = price_data.marketData[itemHrid][0].b;
+
+                let creditValue = 0;
+                let creditAskPrice = 0;
+                let creditBidPrice = 0;
+                if (targetCreditHrid && initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+                    const conversions = initData_itemDetailMap[itemHrid].guildCreditConversions;
+                    const matchedConversion = conversions.find(c => c.creditItemHrid === targetCreditHrid);
+                    if (matchedConversion) {
+                        creditValue = (itemCount / matchedConversion.itemCount) * matchedConversion.creditCount;
+                        creditAskPrice = (askPrice * itemCount) / creditValue;
+                        creditBidPrice = (bidPrice * itemCount) / creditValue;
+                    }
+                }
+
+                if (targetCreditHrid && creditAskPrice > 0) {
+                    priceList.push({ name: itemName, ask: creditAskPrice, bid: creditBidPrice });
+                }
+
+                if (!itemElem.querySelector("#script_itemSelector_price")) {
+                    itemElem.style.position = "relative";
+                    const priceElemHTML = `<div
+                        id="script_itemSelector_price"
+                        style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
+                    </div>`;
+                    itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+                }
+                const priceElem = itemElem.querySelector("#script_itemSelector_price");
+
+                if (!itemElem.querySelector("#script_itemSelector_credit")) {
+                    const creditElemHTML = `<div
+                        id="script_itemSelector_credit"
+                        style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
+                    </div>`;
+                    itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", creditElemHTML);
+                }
+                const creditElem = itemElem.querySelector("#script_itemSelector_credit");
+
+                if (order === "ask") {
+                    const sortValue = creditAskPrice > 0 ? creditAskPrice : (askPrice * itemCount);
+                    itemContainer.style.order = Math.round(sortValue);
+                    priceElem.textContent = numberFormatter(creditValue > 0 ? creditValue : (askPrice * itemCount));
+                    creditElem.textContent = numberFormatter(sortValue);
+                } else if (order === "bid") {
+                    const sortValue = creditBidPrice > 0 ? creditBidPrice : (bidPrice * itemCount);
+                    itemContainer.style.order = Math.round(sortValue);
+                    priceElem.textContent = numberFormatter(creditValue > 0 ? creditValue : (bidPrice * itemCount));
+                    creditElem.textContent = numberFormatter(sortValue);
+                } else if (order === "none") {
+                    itemContainer.style.order = 0;
+                    priceElem.textContent = "";
+                    creditElem.textContent = "";
+                }
+            });
+
+            const bestItemSpan = selectorContainer.querySelector("#script_best_item");
+            if (order !== "none" && targetCreditHrid && bestCreditConversionMap[targetCreditHrid]) {
+                const best = bestCreditConversionMap[targetCreditHrid][order];
+                if (best) {
+                    if (bestItemSpan) {
+                        bestItemSpan.textContent = `${best.name} ${numberFormatter(best.price)}`;
+                    } else {
+                        const span = `<span id="script_best_item" style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; margin-left: 8px;">${best.name} ${numberFormatter(best.price)}</span>`;
+                        selectorContainer.querySelector("#script_itemSelector_sort_div").insertAdjacentHTML("beforeend", span);
+                    }
+                } else if (bestItemSpan) {
+                    bestItemSpan.remove();
+                }
+            } else if (bestItemSpan) {
+                bestItemSpan.remove();
+            }
+        };
+
+        selectorContainer.querySelector("button#script_itemSelector_sortByAsk_btn").addEventListener("click", function (e) {
+            sortItemsBy("ask");
+        });
+        selectorContainer.querySelector("button#script_itemSelector_sortByBid_btn").addEventListener("click", function (e) {
+            sortItemsBy("bid");
+        });
+        selectorContainer.querySelector("button#script_itemSelector_sortByNone_btn").addEventListener("click", function (e) {
+            sortItemsBy("none");
+        });
     }
 
     /* 计算打造分 */
