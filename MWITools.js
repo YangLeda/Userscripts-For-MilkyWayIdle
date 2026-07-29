@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.6
+// @version      25.14
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -20,7 +20,6 @@
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
 // @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
-// @require      https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js
 // ==/UserScript==
 
 /*
@@ -122,6 +121,11 @@
         invSort: {
             id: "invSort",
             desc: isZH ? "仓库显示：仓库物品排序 [依赖上一项]" : "Inventory: Sort inventory items. [Depends on the previous selection]",
+            isTrue: true,
+        },
+        guildCreditConversionsSort: {
+            id: "guildCreditConversionsSort",
+            desc: isZH ? "工会信用兑换：公会信用兑换选择排序" : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
             isTrue: true,
         },
         profileBuildScore: {
@@ -343,6 +347,15 @@
         "/items/sinister_token": "\u9634\u68ee\u4ee3\u5e01",
         "/items/enchanted_token": "\u79d8\u6cd5\u4ee3\u5e01",
         "/items/pirate_token": "\u6d77\u76d7\u4ee3\u5e01",
+        "/items/guild_token": "\u516c\u4f1a\u4ee3\u5e01",
+        "/items/green_guild_credit": "\u7eff\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/brown_guild_credit": "\u68d5\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/white_guild_credit": "\u767d\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/blue_guild_credit": "\u84dd\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/purple_guild_credit": "\u7d2b\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/red_guild_credit": "\u7ea2\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/silver_guild_credit": "\u94f6\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
+        "/items/gold_guild_credit": "\u91d1\u8272\u516c\u4f1a\u4fe1\u7528\u70b9",
         "/items/cowbell": "\u725b\u94c3",
         "/items/bag_of_10_cowbells": "\u725b\u94c3\u888b (10\u4e2a)",
         "/items/purples_gift": "\u5c0f\u7d2b\u725b\u7684\u793c\u7269",
@@ -366,18 +379,18 @@
         "/items/purdoras_box_skilling": "\u7d2b\u591a\u62c9\u4e4b\u76d2\uff08\u751f\u6d3b\uff09",
         "/items/purdoras_box_combat": "\u7d2b\u591a\u62c9\u4e4b\u76d2\uff08\u6218\u6597\uff09",
         "/items/labyrinth_refinement_chest": "\u8ff7\u5bab\u7cbe\u70bc\u5b9d\u7bb1",
-        "/items/seal_of_gathering": "\u91c7\u96c6\u5c01\u5370",
-        "/items/seal_of_gourmet": "\u7f8e\u98df\u5c01\u5370",
-        "/items/seal_of_processing": "\u52a0\u5de5\u5c01\u5370",
-        "/items/seal_of_efficiency": "\u6548\u7387\u5c01\u5370",
-        "/items/seal_of_action_speed": "\u884c\u52a8\u901f\u5ea6\u5c01\u5370",
-        "/items/seal_of_combat_drop": "\u6218\u6597\u6389\u843d\u5c01\u5370",
-        "/items/seal_of_attack_speed": "\u653b\u51fb\u901f\u5ea6\u5c01\u5370",
-        "/items/seal_of_cast_speed": "\u65bd\u6cd5\u901f\u5ea6\u5c01\u5370",
-        "/items/seal_of_damage": "\u4f24\u5bb3\u5c01\u5370",
-        "/items/seal_of_critical_rate": "\u66b4\u51fb\u7387\u5c01\u5370",
-        "/items/seal_of_wisdom": "\u7ecf\u9a8c\u5c01\u5370",
-        "/items/seal_of_rare_find": "\u7a00\u6709\u53d1\u73b0\u5c01\u5370",
+        "/items/seal_of_gathering": "\u91c7\u96c6\u5377\u8f74",
+        "/items/seal_of_gourmet": "\u7f8e\u98df\u5377\u8f74",
+        "/items/seal_of_processing": "\u52a0\u5de5\u5377\u8f74",
+        "/items/seal_of_efficiency": "\u6548\u7387\u5377\u8f74",
+        "/items/seal_of_action_speed": "\u884c\u52a8\u901f\u5ea6\u5377\u8f74",
+        "/items/seal_of_combat_drop": "\u6218\u6597\u6389\u843d\u5377\u8f74",
+        "/items/seal_of_attack_speed": "\u653b\u51fb\u901f\u5ea6\u5377\u8f74",
+        "/items/seal_of_cast_speed": "\u65bd\u6cd5\u901f\u5ea6\u5377\u8f74",
+        "/items/seal_of_damage": "\u4f24\u5bb3\u5377\u8f74",
+        "/items/seal_of_critical_rate": "\u66b4\u51fb\u7387\u5377\u8f74",
+        "/items/seal_of_wisdom": "\u7ecf\u9a8c\u5377\u8f74",
+        "/items/seal_of_rare_find": "\u7a00\u6709\u53d1\u73b0\u5377\u8f74",
         "/items/blue_key_fragment": "\u84dd\u8272\u94a5\u5319\u788e\u7247",
         "/items/green_key_fragment": "\u7eff\u8272\u94a5\u5319\u788e\u7247",
         "/items/purple_key_fragment": "\u7d2b\u8272\u94a5\u5319\u788e\u7247",
@@ -549,11 +562,11 @@
         "/items/spiked_bulwark": "\u5c16\u523a\u91cd\u76fe",
         "/items/werewolf_slasher": "\u72fc\u4eba\u5173\u5200",
         "/items/griffin_bulwark": "\u72ee\u9e6b\u91cd\u76fe",
-        "/items/griffin_bulwark_refined": "\u72ee\u9e6b\u91cd\u76fe\uff08\u7cbe\uff09",
+        "/items/griffin_bulwark_refined": "\u72ee\u9e6b\u91cd\u76fe \u2605",
         "/items/gobo_shooter": "\u54e5\u5e03\u6797\u5f39\u5f13",
         "/items/vampiric_bow": "\u5438\u8840\u5f13",
         "/items/cursed_bow": "\u5492\u6028\u4e4b\u5f13",
-        "/items/cursed_bow_refined": "\u5492\u6028\u4e4b\u5f13\uff08\u7cbe\uff09",
+        "/items/cursed_bow_refined": "\u5492\u6028\u4e4b\u5f13 \u2605",
         "/items/gobo_boomstick": "\u54e5\u5e03\u6797\u706b\u68cd",
         "/items/cheese_bulwark": "\u5976\u916a\u91cd\u76fe",
         "/items/verdant_bulwark": "\u7fe0\u7eff\u91cd\u76fe",
@@ -572,23 +585,23 @@
         "/items/stalactite_spear": "\u77f3\u949f\u957f\u67aa",
         "/items/granite_bludgeon": "\u82b1\u5c97\u5ca9\u5927\u68d2",
         "/items/furious_spear": "\u72c2\u6012\u957f\u67aa",
-        "/items/furious_spear_refined": "\u72c2\u6012\u957f\u67aa\uff08\u7cbe\uff09",
+        "/items/furious_spear_refined": "\u72c2\u6012\u957f\u67aa \u2605",
         "/items/regal_sword": "\u541b\u738b\u4e4b\u5251",
-        "/items/regal_sword_refined": "\u541b\u738b\u4e4b\u5251\uff08\u7cbe\uff09",
+        "/items/regal_sword_refined": "\u541b\u738b\u4e4b\u5251 \u2605",
         "/items/chaotic_flail": "\u6df7\u6c8c\u8fde\u67b7",
-        "/items/chaotic_flail_refined": "\u6df7\u6c8c\u8fde\u67b7\uff08\u7cbe\uff09",
+        "/items/chaotic_flail_refined": "\u6df7\u6c8c\u8fde\u67b7 \u2605",
         "/items/soul_hunter_crossbow": "\u7075\u9b42\u730e\u624b\u5f29",
         "/items/sundering_crossbow": "\u88c2\u7a7a\u4e4b\u5f29",
-        "/items/sundering_crossbow_refined": "\u88c2\u7a7a\u4e4b\u5f29\uff08\u7cbe\uff09",
+        "/items/sundering_crossbow_refined": "\u88c2\u7a7a\u4e4b\u5f29 \u2605",
         "/items/frost_staff": "\u51b0\u971c\u6cd5\u6756",
         "/items/infernal_battlestaff": "\u70bc\u72f1\u6cd5\u6756",
         "/items/jackalope_staff": "\u9e7f\u89d2\u5154\u4e4b\u6756",
         "/items/rippling_trident": "\u6d9f\u6f2a\u4e09\u53c9\u621f",
-        "/items/rippling_trident_refined": "\u6d9f\u6f2a\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
+        "/items/rippling_trident_refined": "\u6d9f\u6f2a\u4e09\u53c9\u621f \u2605",
         "/items/blooming_trident": "\u7efd\u653e\u4e09\u53c9\u621f",
-        "/items/blooming_trident_refined": "\u7efd\u653e\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
+        "/items/blooming_trident_refined": "\u7efd\u653e\u4e09\u53c9\u621f \u2605",
         "/items/blazing_trident": "\u70bd\u7130\u4e09\u53c9\u621f",
-        "/items/blazing_trident_refined": "\u70bd\u7130\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
+        "/items/blazing_trident_refined": "\u70bd\u7130\u4e09\u53c9\u621f \u2605",
         "/items/cheese_sword": "\u5976\u916a\u5251",
         "/items/verdant_sword": "\u7fe0\u7eff\u5251",
         "/items/azure_sword": "\u851a\u84dd\u5251",
@@ -644,14 +657,14 @@
         "/items/gobo_defender": "\u54e5\u5e03\u6797\u9632\u5fa1\u8005",
         "/items/vampire_fang_dirk": "\u5438\u8840\u9b3c\u77ed\u5251",
         "/items/knights_aegis": "\u9a91\u58eb\u76fe",
-        "/items/knights_aegis_refined": "\u9a91\u58eb\u76fe\uff08\u7cbe\uff09",
+        "/items/knights_aegis_refined": "\u9a91\u58eb\u76fe \u2605",
         "/items/treant_shield": "\u6811\u4eba\u76fe",
         "/items/manticore_shield": "\u874e\u72ee\u76fe",
         "/items/tome_of_healing": "\u6cbb\u7597\u4e4b\u4e66",
         "/items/tome_of_the_elements": "\u5143\u7d20\u4e4b\u4e66",
         "/items/watchful_relic": "\u8b66\u6212\u9057\u7269",
         "/items/bishops_codex": "\u4e3b\u6559\u6cd5\u5178",
-        "/items/bishops_codex_refined": "\u4e3b\u6559\u6cd5\u5178\uff08\u7cbe\uff09",
+        "/items/bishops_codex_refined": "\u4e3b\u6559\u6cd5\u5178 \u2605",
         "/items/cheese_buckler": "\u5976\u916a\u5706\u76fe",
         "/items/verdant_buckler": "\u7fe0\u7eff\u5706\u76fe",
         "/items/azure_buckler": "\u851a\u84dd\u5706\u76fe",
@@ -667,29 +680,29 @@
         "/items/redwood_shield": "\u7ea2\u6749\u76fe",
         "/items/arcane_shield": "\u795e\u79d8\u76fe",
         "/items/gatherer_cape": "\u91c7\u96c6\u8005\u62ab\u98ce",
-        "/items/gatherer_cape_refined": "\u91c7\u96c6\u8005\u62ab\u98ce\uff08\u7cbe\uff09",
+        "/items/gatherer_cape_refined": "\u91c7\u96c6\u8005\u62ab\u98ce \u2605",
         "/items/artificer_cape": "\u5de5\u5320\u62ab\u98ce",
-        "/items/artificer_cape_refined": "\u5de5\u5320\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/items/culinary_cape": "\u70f9\u996a\u62ab\u98ce",
-        "/items/culinary_cape_refined": "\u70f9\u996a\u62ab\u98ce\uff08\u7cbe\uff09",
+        "/items/artificer_cape_refined": "\u5de5\u5320\u62ab\u98ce \u2605",
+        "/items/culinary_cape": "\u53a8\u5e08\u62ab\u98ce",
+        "/items/culinary_cape_refined": "\u53a8\u5e08\u62ab\u98ce \u2605",
         "/items/chance_cape": "\u673a\u7f18\u62ab\u98ce",
-        "/items/chance_cape_refined": "\u673a\u7f18\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/items/sinister_cape": "\u9634\u68ee\u6597\u7bf7",
-        "/items/sinister_cape_refined": "\u9634\u68ee\u6597\u7bf7\uff08\u7cbe\uff09",
+        "/items/chance_cape_refined": "\u673a\u7f18\u62ab\u98ce \u2605",
+        "/items/sinister_cape": "\u9634\u68ee\u62ab\u98ce",
+        "/items/sinister_cape_refined": "\u9634\u68ee\u62ab\u98ce \u2605",
         "/items/chimerical_quiver": "\u5947\u5e7b\u7bad\u888b",
-        "/items/chimerical_quiver_refined": "\u5947\u5e7b\u7bad\u888b\uff08\u7cbe\uff09",
+        "/items/chimerical_quiver_refined": "\u5947\u5e7b\u7bad\u888b \u2605",
         "/items/enchanted_cloak": "\u79d8\u6cd5\u62ab\u98ce",
-        "/items/enchanted_cloak_refined": "\u79d8\u6cd5\u62ab\u98ce\uff08\u7cbe\uff09",
+        "/items/enchanted_cloak_refined": "\u79d8\u6cd5\u62ab\u98ce \u2605",
         "/items/red_culinary_hat": "\u7ea2\u8272\u53a8\u5e08\u5e3d",
         "/items/snail_shell_helmet": "\u8717\u725b\u58f3\u5934\u76d4",
         "/items/vision_helmet": "\u89c6\u89c9\u5934\u76d4",
         "/items/fluffy_red_hat": "\u84ec\u677e\u7ea2\u5e3d\u5b50",
         "/items/corsair_helmet": "\u63a0\u593a\u8005\u5934\u76d4",
-        "/items/corsair_helmet_refined": "\u63a0\u593a\u8005\u5934\u76d4\uff08\u7cbe\uff09",
+        "/items/corsair_helmet_refined": "\u63a0\u593a\u8005\u5934\u76d4 \u2605",
         "/items/acrobatic_hood": "\u6742\u6280\u5e08\u515c\u5e3d",
-        "/items/acrobatic_hood_refined": "\u6742\u6280\u5e08\u515c\u5e3d\uff08\u7cbe\uff09",
+        "/items/acrobatic_hood_refined": "\u6742\u6280\u5e08\u515c\u5e3d \u2605",
         "/items/magicians_hat": "\u9b54\u672f\u5e08\u5e3d",
-        "/items/magicians_hat_refined": "\u9b54\u672f\u5e08\u5e3d\uff08\u7cbe\uff09",
+        "/items/magicians_hat_refined": "\u9b54\u672f\u5e08\u5e3d \u2605",
         "/items/cheese_helmet": "\u5976\u916a\u5934\u76d4",
         "/items/verdant_helmet": "\u7fe0\u7eff\u5934\u76d4",
         "/items/azure_helmet": "\u851a\u84dd\u5934\u76d4",
@@ -722,23 +735,23 @@
         "/items/colossus_plate_body": "\u5de8\u50cf\u80f8\u7532",
         "/items/demonic_plate_body": "\u6076\u9b54\u80f8\u7532",
         "/items/anchorbound_plate_body": "\u951a\u5b9a\u80f8\u7532",
-        "/items/anchorbound_plate_body_refined": "\u951a\u5b9a\u80f8\u7532\uff08\u7cbe\uff09",
+        "/items/anchorbound_plate_body_refined": "\u951a\u5b9a\u80f8\u7532 \u2605",
         "/items/maelstrom_plate_body": "\u6012\u6d9b\u80f8\u7532",
-        "/items/maelstrom_plate_body_refined": "\u6012\u6d9b\u80f8\u7532\uff08\u7cbe\uff09",
+        "/items/maelstrom_plate_body_refined": "\u6012\u6d9b\u80f8\u7532 \u2605",
         "/items/marine_tunic": "\u6d77\u6d0b\u76ae\u8863",
         "/items/revenant_tunic": "\u4ea1\u7075\u76ae\u8863",
         "/items/griffin_tunic": "\u72ee\u9e6b\u76ae\u8863",
         "/items/kraken_tunic": "\u514b\u62c9\u80af\u76ae\u8863",
-        "/items/kraken_tunic_refined": "\u514b\u62c9\u80af\u76ae\u8863\uff08\u7cbe\uff09",
+        "/items/kraken_tunic_refined": "\u514b\u62c9\u80af\u76ae\u8863 \u2605",
         "/items/icy_robe_top": "\u51b0\u971c\u888d\u670d",
         "/items/flaming_robe_top": "\u70c8\u7130\u888d\u670d",
         "/items/luna_robe_top": "\u6708\u795e\u888d\u670d",
         "/items/royal_water_robe_top": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d",
-        "/items/royal_water_robe_top_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
+        "/items/royal_water_robe_top_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d \u2605",
         "/items/royal_nature_robe_top": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d",
-        "/items/royal_nature_robe_top_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
+        "/items/royal_nature_robe_top_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d \u2605",
         "/items/royal_fire_robe_top": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d",
-        "/items/royal_fire_robe_top_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
+        "/items/royal_fire_robe_top_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d \u2605",
         "/items/cheese_plate_body": "\u5976\u916a\u80f8\u7532",
         "/items/verdant_plate_body": "\u7fe0\u7eff\u80f8\u7532",
         "/items/azure_plate_body": "\u851a\u84dd\u80f8\u7532",
@@ -770,23 +783,23 @@
         "/items/colossus_plate_legs": "\u5de8\u50cf\u817f\u7532",
         "/items/demonic_plate_legs": "\u6076\u9b54\u817f\u7532",
         "/items/anchorbound_plate_legs": "\u951a\u5b9a\u817f\u7532",
-        "/items/anchorbound_plate_legs_refined": "\u951a\u5b9a\u817f\u7532\uff08\u7cbe\uff09",
+        "/items/anchorbound_plate_legs_refined": "\u951a\u5b9a\u817f\u7532 \u2605",
         "/items/maelstrom_plate_legs": "\u6012\u6d9b\u817f\u7532",
-        "/items/maelstrom_plate_legs_refined": "\u6012\u6d9b\u817f\u7532\uff08\u7cbe\uff09",
+        "/items/maelstrom_plate_legs_refined": "\u6012\u6d9b\u817f\u7532 \u2605",
         "/items/marine_chaps": "\u822a\u6d77\u76ae\u88e4",
         "/items/revenant_chaps": "\u4ea1\u7075\u76ae\u88e4",
         "/items/griffin_chaps": "\u72ee\u9e6b\u76ae\u88e4",
         "/items/kraken_chaps": "\u514b\u62c9\u80af\u76ae\u88e4",
-        "/items/kraken_chaps_refined": "\u514b\u62c9\u80af\u76ae\u88e4\uff08\u7cbe\uff09",
+        "/items/kraken_chaps_refined": "\u514b\u62c9\u80af\u76ae\u88e4 \u2605",
         "/items/icy_robe_bottoms": "\u51b0\u971c\u888d\u88d9",
         "/items/flaming_robe_bottoms": "\u70c8\u7130\u888d\u88d9",
         "/items/luna_robe_bottoms": "\u6708\u795e\u888d\u88d9",
         "/items/royal_water_robe_bottoms": "\u7687\u5bb6\u6c34\u7cfb\u888d\u88d9",
-        "/items/royal_water_robe_bottoms_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
+        "/items/royal_water_robe_bottoms_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u88d9 \u2605",
         "/items/royal_nature_robe_bottoms": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u88d9",
-        "/items/royal_nature_robe_bottoms_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
+        "/items/royal_nature_robe_bottoms_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u88d9 \u2605",
         "/items/royal_fire_robe_bottoms": "\u7687\u5bb6\u706b\u7cfb\u888d\u88d9",
-        "/items/royal_fire_robe_bottoms_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
+        "/items/royal_fire_robe_bottoms_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u88d9 \u2605",
         "/items/cheese_plate_legs": "\u5976\u916a\u817f\u7532",
         "/items/verdant_plate_legs": "\u7fe0\u7eff\u817f\u7532",
         "/items/azure_plate_legs": "\u851a\u84dd\u817f\u7532",
@@ -809,10 +822,10 @@
         "/items/panda_gloves": "\u718a\u732b\u624b\u5957",
         "/items/magnetic_gloves": "\u78c1\u529b\u624b\u5957",
         "/items/dodocamel_gauntlets": "\u6e21\u6e21\u9a7c\u62a4\u624b",
-        "/items/dodocamel_gauntlets_refined": "\u6e21\u6e21\u9a7c\u62a4\u624b\uff08\u7cbe\uff09",
+        "/items/dodocamel_gauntlets_refined": "\u6e21\u6e21\u9a7c\u62a4\u624b \u2605",
         "/items/sighted_bracers": "\u7784\u51c6\u62a4\u8155",
         "/items/marksman_bracers": "\u795e\u5c04\u62a4\u8155",
-        "/items/marksman_bracers_refined": "\u795e\u5c04\u62a4\u8155\uff08\u7cbe\uff09",
+        "/items/marksman_bracers_refined": "\u795e\u5c04\u62a4\u8155 \u2605",
         "/items/chrono_gloves": "\u65f6\u7a7a\u624b\u5957",
         "/items/cheese_gauntlets": "\u5976\u916a\u62a4\u624b",
         "/items/verdant_gauntlets": "\u7fe0\u7eff\u62a4\u624b",
@@ -837,13 +850,13 @@
         "/items/grizzly_bear_shoes": "\u68d5\u718a\u978b",
         "/items/polar_bear_shoes": "\u5317\u6781\u718a\u978b",
         "/items/pathbreaker_boots": "\u5f00\u8def\u8005\u9774",
-        "/items/pathbreaker_boots_refined": "\u5f00\u8def\u8005\u9774\uff08\u7cbe\uff09",
+        "/items/pathbreaker_boots_refined": "\u5f00\u8def\u8005\u9774 \u2605",
         "/items/centaur_boots": "\u534a\u4eba\u9a6c\u9774",
         "/items/pathfinder_boots": "\u63a2\u8def\u8005\u9774",
-        "/items/pathfinder_boots_refined": "\u63a2\u8def\u8005\u9774\uff08\u7cbe\uff09",
+        "/items/pathfinder_boots_refined": "\u63a2\u8def\u8005\u9774 \u2605",
         "/items/sorcerer_boots": "\u5deb\u5e08\u9774",
         "/items/pathseeker_boots": "\u5bfb\u8def\u8005\u9774",
-        "/items/pathseeker_boots_refined": "\u5bfb\u8def\u8005\u9774\uff08\u7cbe\uff09",
+        "/items/pathseeker_boots_refined": "\u5bfb\u8def\u8005\u9774 \u2605",
         "/items/cheese_boots": "\u5976\u916a\u9774",
         "/items/verdant_boots": "\u7fe0\u7eff\u9774",
         "/items/azure_boots": "\u851a\u84dd\u9774",
@@ -1266,15 +1279,15 @@
         "/items/shard_of_protection": "\u4fdd\u62a4\u788e\u7247",
         "/items/mirror_of_protection": "\u4fdd\u62a4\u4e4b\u955c",
         "/items/philosophers_mirror": "\u8d24\u8005\u4e4b\u955c",
-        "/items/basic_torch": "\u57fa\u7840\u706b\u70ac",
-        "/items/advanced_torch": "\u8fdb\u9636\u706b\u70ac",
-        "/items/expert_torch": "\u4e13\u5bb6\u706b\u70ac",
+        "/items/basic_torch": "\u57fa\u7840\u706b\u628a",
+        "/items/advanced_torch": "\u8fdb\u9636\u706b\u628a",
+        "/items/expert_torch": "\u4e13\u5bb6\u706b\u628a",
         "/items/basic_shroud": "\u57fa\u7840\u6597\u7bf7",
         "/items/advanced_shroud": "\u8fdb\u9636\u6597\u7bf7",
         "/items/expert_shroud": "\u4e13\u5bb6\u6597\u7bf7",
-        "/items/basic_beacon": "\u57fa\u7840\u4fe1\u6807",
-        "/items/advanced_beacon": "\u8fdb\u9636\u4fe1\u6807",
-        "/items/expert_beacon": "\u4e13\u5bb6\u4fe1\u6807",
+        "/items/basic_beacon": "\u57fa\u7840\u63a2\u7167\u706f",
+        "/items/advanced_beacon": "\u8fdb\u9636\u63a2\u7167\u706f",
+        "/items/expert_beacon": "\u4e13\u5bb6\u63a2\u7167\u706f",
         "/items/basic_food_crate": "\u57fa\u7840\u98df\u7269\u7bb1",
         "/items/advanced_food_crate": "\u8fdb\u9636\u98df\u7269\u7bb1",
         "/items/expert_food_crate": "\u4e13\u5bb6\u98df\u7269\u7bb1",
@@ -1379,7 +1392,7 @@
         "/actions/cheesesmithing/verdant_plate_body": "\u7fe0\u7eff\u80f8\u7532",
         "/actions/cheesesmithing/azure_cheese": "\u851a\u84dd\u5976\u916a",
         "/actions/cheesesmithing/azure_boots": "\u851a\u84dd\u9774",
-        "/actions/cheesesmithing/basic_beacon": "\u57fa\u7840\u4fe1\u6807",
+        "/actions/cheesesmithing/basic_beacon": "\u57fa\u7840\u63a2\u7167\u706f",
         "/actions/cheesesmithing/azure_gauntlets": "\u851a\u84dd\u62a4\u624b",
         "/actions/cheesesmithing/azure_sword": "\u851a\u84dd\u5251",
         "/actions/cheesesmithing/azure_brush": "\u851a\u84dd\u5237\u5b50",
@@ -1426,7 +1439,7 @@
         "/actions/cheesesmithing/burble_plate_body": "\u6df1\u7d2b\u80f8\u7532",
         "/actions/cheesesmithing/crimson_cheese": "\u7edb\u7ea2\u5976\u916a",
         "/actions/cheesesmithing/crimson_boots": "\u7edb\u7ea2\u9774",
-        "/actions/cheesesmithing/advanced_beacon": "\u8fdb\u9636\u4fe1\u6807",
+        "/actions/cheesesmithing/advanced_beacon": "\u8fdb\u9636\u63a2\u7167\u706f",
         "/actions/cheesesmithing/crimson_gauntlets": "\u7edb\u7ea2\u62a4\u624b",
         "/actions/cheesesmithing/crimson_sword": "\u7edb\u7ea2\u5251",
         "/actions/cheesesmithing/crimson_brush": "\u7edb\u7ea2\u5237\u5b50",
@@ -1475,7 +1488,7 @@
         "/actions/cheesesmithing/rainbow_plate_body": "\u5f69\u8679\u80f8\u7532",
         "/actions/cheesesmithing/holy_cheese": "\u795e\u5723\u5976\u916a",
         "/actions/cheesesmithing/holy_boots": "\u795e\u5723\u9774",
-        "/actions/cheesesmithing/expert_beacon": "\u4e13\u5bb6\u4fe1\u6807",
+        "/actions/cheesesmithing/expert_beacon": "\u4e13\u5bb6\u63a2\u7167\u706f",
         "/actions/cheesesmithing/holy_gauntlets": "\u795e\u5723\u62a4\u624b",
         "/actions/cheesesmithing/holy_sword": "\u795e\u5723\u5251",
         "/actions/cheesesmithing/holy_brush": "\u795e\u5723\u5237\u5b50",
@@ -1527,18 +1540,18 @@
         "/actions/cheesesmithing/regal_sword": "\u541b\u738b\u4e4b\u5251",
         "/actions/cheesesmithing/anchorbound_plate_body": "\u951a\u5b9a\u80f8\u7532",
         "/actions/cheesesmithing/maelstrom_plate_body": "\u6012\u6d9b\u80f8\u7532",
-        "/actions/cheesesmithing/pathbreaker_boots_refined": "\u5f00\u8def\u8005\u9774\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/dodocamel_gauntlets_refined": "\u6e21\u6e21\u9a7c\u62a4\u624b\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/corsair_helmet_refined": "\u63a0\u593a\u8005\u5934\u76d4\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/knights_aegis_refined": "\u9a91\u58eb\u76fe\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/anchorbound_plate_legs_refined": "\u951a\u5b9a\u817f\u7532\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/maelstrom_plate_legs_refined": "\u6012\u6d9b\u817f\u7532\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/griffin_bulwark_refined": "\u72ee\u9e6b\u91cd\u76fe\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/furious_spear_refined": "\u72c2\u6012\u957f\u67aa\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/chaotic_flail_refined": "\u6df7\u6c8c\u8fde\u67b7\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/regal_sword_refined": "\u541b\u738b\u4e4b\u5251\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/anchorbound_plate_body_refined": "\u951a\u5b9a\u80f8\u7532\uff08\u7cbe\uff09",
-        "/actions/cheesesmithing/maelstrom_plate_body_refined": "\u6012\u6d9b\u80f8\u7532\uff08\u7cbe\uff09",
+        "/actions/cheesesmithing/pathbreaker_boots_refined": "\u5f00\u8def\u8005\u9774 \u2605",
+        "/actions/cheesesmithing/dodocamel_gauntlets_refined": "\u6e21\u6e21\u9a7c\u62a4\u624b \u2605",
+        "/actions/cheesesmithing/corsair_helmet_refined": "\u63a0\u593a\u8005\u5934\u76d4 \u2605",
+        "/actions/cheesesmithing/knights_aegis_refined": "\u9a91\u58eb\u76fe \u2605",
+        "/actions/cheesesmithing/anchorbound_plate_legs_refined": "\u951a\u5b9a\u817f\u7532 \u2605",
+        "/actions/cheesesmithing/maelstrom_plate_legs_refined": "\u6012\u6d9b\u817f\u7532 \u2605",
+        "/actions/cheesesmithing/griffin_bulwark_refined": "\u72ee\u9e6b\u91cd\u76fe \u2605",
+        "/actions/cheesesmithing/furious_spear_refined": "\u72c2\u6012\u957f\u67aa \u2605",
+        "/actions/cheesesmithing/chaotic_flail_refined": "\u6df7\u6c8c\u8fde\u67b7 \u2605",
+        "/actions/cheesesmithing/regal_sword_refined": "\u541b\u738b\u4e4b\u5251 \u2605",
+        "/actions/cheesesmithing/anchorbound_plate_body_refined": "\u951a\u5b9a\u80f8\u7532 \u2605",
+        "/actions/cheesesmithing/maelstrom_plate_body_refined": "\u6012\u6d9b\u80f8\u7532 \u2605",
         "/actions/crafting/lumber": "\u6728\u677f",
         "/actions/crafting/wooden_crossbow": "\u6728\u5f29",
         "/actions/crafting/wooden_water_staff": "\u6728\u5236\u6c34\u6cd5\u6756",
@@ -1572,7 +1585,7 @@
         "/actions/crafting/basic_brewing_charm": "\u57fa\u7840\u51b2\u6ce1\u62a4\u7b26",
         "/actions/crafting/basic_alchemy_charm": "\u57fa\u7840\u70bc\u91d1\u62a4\u7b26",
         "/actions/crafting/basic_enhancing_charm": "\u57fa\u7840\u5f3a\u5316\u62a4\u7b26",
-        "/actions/crafting/basic_torch": "\u57fa\u7840\u706b\u70ac",
+        "/actions/crafting/basic_torch": "\u57fa\u7840\u706b\u628a",
         "/actions/crafting/cedar_shield": "\u96ea\u677e\u76fe",
         "/actions/crafting/cedar_nature_staff": "\u96ea\u677e\u81ea\u7136\u6cd5\u6756",
         "/actions/crafting/cedar_bow": "\u96ea\u677e\u5f13",
@@ -1618,7 +1631,7 @@
         "/actions/crafting/ginkgo_water_staff": "\u94f6\u674f\u6c34\u6cd5\u6756",
         "/actions/crafting/ring_of_armor": "\u62a4\u7532\u6212\u6307",
         "/actions/crafting/catalyst_of_decomposition": "\u5206\u89e3\u50ac\u5316\u5242",
-        "/actions/crafting/advanced_torch": "\u8fdb\u9636\u706b\u70ac",
+        "/actions/crafting/advanced_torch": "\u8fdb\u9636\u706b\u628a",
         "/actions/crafting/ginkgo_shield": "\u94f6\u674f\u76fe",
         "/actions/crafting/earrings_of_armor": "\u62a4\u7532\u8033\u73af",
         "/actions/crafting/ginkgo_nature_staff": "\u94f6\u674f\u81ea\u7136\u6cd5\u6756",
@@ -1688,7 +1701,7 @@
         "/actions/crafting/master_magic_charm": "\u5927\u5e08\u9b54\u6cd5\u62a4\u7b26",
         "/actions/crafting/sinister_entry_key": "\u9634\u68ee\u94a5\u5319",
         "/actions/crafting/sinister_chest_key": "\u9634\u68ee\u5b9d\u7bb1\u94a5\u5319",
-        "/actions/crafting/expert_torch": "\u4e13\u5bb6\u706b\u70ac",
+        "/actions/crafting/expert_torch": "\u4e13\u5bb6\u706b\u628a",
         "/actions/crafting/arcane_shield": "\u795e\u79d8\u76fe",
         "/actions/crafting/arcane_nature_staff": "\u795e\u79d8\u81ea\u7136\u6cd5\u6756",
         "/actions/crafting/manticore_shield": "\u874e\u72ee\u76fe",
@@ -1731,12 +1744,12 @@
         "/actions/crafting/grandmaster_ranged_charm": "\u5b97\u5e08\u8fdc\u7a0b\u62a4\u7b26",
         "/actions/crafting/grandmaster_magic_charm": "\u5b97\u5e08\u9b54\u6cd5\u62a4\u7b26",
         "/actions/crafting/philosophers_mirror": "\u8d24\u8005\u4e4b\u955c",
-        "/actions/crafting/bishops_codex_refined": "\u4e3b\u6559\u6cd5\u5178\uff08\u7cbe\uff09",
-        "/actions/crafting/cursed_bow_refined": "\u5492\u6028\u4e4b\u5f13\uff08\u7cbe\uff09",
-        "/actions/crafting/sundering_crossbow_refined": "\u88c2\u7a7a\u4e4b\u5f29\uff08\u7cbe\uff09",
-        "/actions/crafting/rippling_trident_refined": "\u6d9f\u6f2a\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
-        "/actions/crafting/blooming_trident_refined": "\u7efd\u653e\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
-        "/actions/crafting/blazing_trident_refined": "\u70bd\u7130\u4e09\u53c9\u621f\uff08\u7cbe\uff09",
+        "/actions/crafting/bishops_codex_refined": "\u4e3b\u6559\u6cd5\u5178 \u2605",
+        "/actions/crafting/cursed_bow_refined": "\u5492\u6028\u4e4b\u5f13 \u2605",
+        "/actions/crafting/sundering_crossbow_refined": "\u88c2\u7a7a\u4e4b\u5f29 \u2605",
+        "/actions/crafting/rippling_trident_refined": "\u6d9f\u6f2a\u4e09\u53c9\u621f \u2605",
+        "/actions/crafting/blooming_trident_refined": "\u7efd\u653e\u4e09\u53c9\u621f \u2605",
+        "/actions/crafting/blazing_trident_refined": "\u70bd\u7130\u4e09\u53c9\u621f \u2605",
         "/actions/tailoring/rough_leather": "\u7c97\u7cd9\u76ae\u9769",
         "/actions/tailoring/cotton_fabric": "\u68c9\u82b1\u5e03\u6599",
         "/actions/tailoring/rough_boots": "\u7c97\u7cd9\u9774",
@@ -1860,26 +1873,26 @@
         "/actions/tailoring/royal_water_robe_top": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d",
         "/actions/tailoring/royal_nature_robe_top": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d",
         "/actions/tailoring/royal_fire_robe_top": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d",
-        "/actions/tailoring/gatherer_cape_refined": "\u91c7\u96c6\u8005\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/actions/tailoring/artificer_cape_refined": "\u5de5\u5320\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/actions/tailoring/culinary_cape_refined": "\u70f9\u996a\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/actions/tailoring/chance_cape_refined": "\u673a\u7f18\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/actions/tailoring/chimerical_quiver_refined": "\u5947\u5e7b\u7bad\u888b\uff08\u7cbe\uff09",
-        "/actions/tailoring/sinister_cape_refined": "\u9634\u68ee\u6597\u7bf7\uff08\u7cbe\uff09",
-        "/actions/tailoring/enchanted_cloak_refined": "\u79d8\u6cd5\u62ab\u98ce\uff08\u7cbe\uff09",
-        "/actions/tailoring/pathfinder_boots_refined": "\u63a2\u8def\u8005\u9774\uff08\u7cbe\uff09",
-        "/actions/tailoring/pathseeker_boots_refined": "\u5bfb\u8def\u8005\u9774\uff08\u7cbe\uff09",
-        "/actions/tailoring/marksman_bracers_refined": "\u795e\u5c04\u62a4\u8155\uff08\u7cbe\uff09",
-        "/actions/tailoring/acrobatic_hood_refined": "\u6742\u6280\u5e08\u515c\u5e3d\uff08\u7cbe\uff09",
-        "/actions/tailoring/magicians_hat_refined": "\u9b54\u672f\u5e08\u5e3d\uff08\u7cbe\uff09",
-        "/actions/tailoring/kraken_chaps_refined": "\u514b\u62c9\u80af\u76ae\u88e4\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_water_robe_bottoms_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_nature_robe_bottoms_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_fire_robe_bottoms_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u88d9\uff08\u7cbe\uff09",
-        "/actions/tailoring/kraken_tunic_refined": "\u514b\u62c9\u80af\u76ae\u8863\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_water_robe_top_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_nature_robe_top_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
-        "/actions/tailoring/royal_fire_robe_top_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d\uff08\u7cbe\uff09",
+        "/actions/tailoring/gatherer_cape_refined": "\u91c7\u96c6\u8005\u62ab\u98ce \u2605",
+        "/actions/tailoring/artificer_cape_refined": "\u5de5\u5320\u62ab\u98ce \u2605",
+        "/actions/tailoring/culinary_cape_refined": "\u53a8\u5e08\u62ab\u98ce \u2605",
+        "/actions/tailoring/chance_cape_refined": "\u673a\u7f18\u62ab\u98ce \u2605",
+        "/actions/tailoring/chimerical_quiver_refined": "\u5947\u5e7b\u7bad\u888b \u2605",
+        "/actions/tailoring/sinister_cape_refined": "\u9634\u68ee\u62ab\u98ce \u2605",
+        "/actions/tailoring/enchanted_cloak_refined": "\u79d8\u6cd5\u62ab\u98ce \u2605",
+        "/actions/tailoring/pathfinder_boots_refined": "\u63a2\u8def\u8005\u9774 \u2605",
+        "/actions/tailoring/pathseeker_boots_refined": "\u5bfb\u8def\u8005\u9774 \u2605",
+        "/actions/tailoring/marksman_bracers_refined": "\u795e\u5c04\u62a4\u8155 \u2605",
+        "/actions/tailoring/acrobatic_hood_refined": "\u6742\u6280\u5e08\u515c\u5e3d \u2605",
+        "/actions/tailoring/magicians_hat_refined": "\u9b54\u672f\u5e08\u5e3d \u2605",
+        "/actions/tailoring/kraken_chaps_refined": "\u514b\u62c9\u80af\u76ae\u88e4 \u2605",
+        "/actions/tailoring/royal_water_robe_bottoms_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u88d9 \u2605",
+        "/actions/tailoring/royal_nature_robe_bottoms_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u88d9 \u2605",
+        "/actions/tailoring/royal_fire_robe_bottoms_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u88d9 \u2605",
+        "/actions/tailoring/kraken_tunic_refined": "\u514b\u62c9\u80af\u76ae\u8863 \u2605",
+        "/actions/tailoring/royal_water_robe_top_refined": "\u7687\u5bb6\u6c34\u7cfb\u888d\u670d \u2605",
+        "/actions/tailoring/royal_nature_robe_top_refined": "\u7687\u5bb6\u81ea\u7136\u7cfb\u888d\u670d \u2605",
+        "/actions/tailoring/royal_fire_robe_top_refined": "\u7687\u5bb6\u706b\u7cfb\u888d\u670d \u2605",
         "/actions/cooking/donut": "\u751c\u751c\u5708",
         "/actions/cooking/cupcake": "\u7eb8\u676f\u86cb\u7cd5",
         "/actions/cooking/gummy": "\u8f6f\u7cd6",
@@ -2053,8 +2066,10 @@
         // monsterNames
         "/monsters/abyssal_imp": "\u6df1\u6e0a\u5c0f\u9b3c",
         "/monsters/acrobat": "\u6742\u6280\u5e08",
+        "/monsters/trial_hedgehog": "\u8bd5\u70bc\u523a\u732c",
         "/monsters/anchor_shark": "\u6301\u951a\u9ca8",
         "/monsters/aquahorse": "\u6c34\u9a6c",
+        "/monsters/trial_jellyfish": "\u8bd5\u70bc\u6c34\u6bcd",
         "/monsters/black_bear": "\u9ed1\u718a",
         "/monsters/gobo_boomy": "\u8f70\u8f70",
         "/monsters/brine_marksman": "\u6d77\u76d0\u5c04\u624b",
@@ -2070,6 +2085,7 @@
         "/monsters/deranged_jester": "\u5c0f\u4e11\u7687",
         "/monsters/dodocamel": "\u6e21\u6e21\u9a7c",
         "/monsters/dusk_revenant": "\u9ec4\u660f\u4ea1\u7075",
+        "/monsters/trial_chameleon": "\u8bd5\u70bc\u53d8\u8272\u9f99",
         "/monsters/elementalist": "\u5143\u7d20\u6cd5\u5e08",
         "/monsters/enchanted_bishop": "\u79d8\u6cd5\u4e3b\u6559",
         "/monsters/enchanted_king": "\u79d8\u6cd5\u56fd\u738b",
@@ -2081,6 +2097,10 @@
         "/monsters/eyes": "\u53e0\u773c",
         "/monsters/flame_sorcerer": "\u706b\u7130\u5deb\u5e08",
         "/monsters/fly": "\u82cd\u8747",
+        "/monsters/trial_beetle": "\u8bd5\u70bc\u7532\u866b",
+        "/monsters/trial_dragonfly": "\u8bd5\u70bc\u873b\u8713",
+        "/monsters/trial_wasp": "\u8bd5\u70bc\u9ec4\u8702",
+        "/monsters/trial_firefly": "\u8bd5\u70bc\u8424\u706b\u866b",
         "/monsters/frog": "\u9752\u86d9",
         "/monsters/sea_snail": "\u8717\u725b",
         "/monsters/giant_shoebill": "\u9cb8\u5934\u9e73",
@@ -2092,6 +2112,7 @@
         "/monsters/crab": "\u8783\u87f9",
         "/monsters/ice_sorcerer": "\u51b0\u971c\u5deb\u5e08",
         "/monsters/infernal_warlock": "\u5730\u72f1\u672f\u58eb",
+        "/monsters/trial_badger": "\u8bd5\u70bc\u737e",
         "/monsters/jackalope": "\u9e7f\u89d2\u5154",
         "/monsters/rat": "\u6770\u745e",
         "/monsters/juggler": "\u6742\u800d\u8005",
@@ -2255,20 +2276,6 @@
     let isUsingExpiredMarketJson = false;
     let reasonForUsingExpiredMarketJson = "";
 
-    function decompressInitClientData(compressedData) {
-        try {
-            // 使用lz-string库解压UTF16格式数据
-            const decompressedJson = LZString.decompressFromUTF16(compressedData);
-            if (!decompressedJson) {
-                throw new Error("decompressInitClientData: decompressFromUTF16() returned null");
-            }
-            return JSON.parse(decompressedJson);
-        } catch (error) {
-            console.error("decompressInitClientData: ", error);
-            return null;
-        }
-    }
-
     let initData_characterSkills = null;
     let initData_characterItems = null;
     let initData_combatAbilities = null;
@@ -2286,7 +2293,7 @@
     let currentEquipmentMap = {};
 
     if (localStorage.getItem("initClientData")) {
-        const obj = decompressInitClientData(localStorage.getItem("initClientData"));
+        const obj = localStorageUtil.getInitClientData();
         console.log(obj);
         GM_setValue("init_client_data", JSON.stringify(obj));
 
@@ -2693,12 +2700,12 @@
         /* 仓库搜索栏下方显示人物总结 */
         // Some code of networth summery is by Stella.
         const addInventorySummery = async (invElem) => {
-            const [battleHouseScore, nonBattleHouseScore, abilityScore, equipmentScore] = await getSelfBuildScores(
+            const [battleHouseScore, nonBattleHouseScore, abilityScore, allAbilityScore, equipmentScore] = await getSelfBuildScores(
                 equippedNetworthAsk * 0.5 + equippedNetworthBid * 0.5
             );
             const totalScore = battleHouseScore + abilityScore + equipmentScore;
             const totalHouseScore = battleHouseScore + nonBattleHouseScore;
-            const totalNetworth = networthAsk * 0.5 + networthBid * 0.5 + (totalHouseScore + abilityScore) * 1000000;
+            const totalNetworth = networthAsk * 0.5 + networthBid * 0.5 + (totalHouseScore + allAbilityScore) * 1000000;
 
             invElem.insertAdjacentHTML(
                 "beforebegin",
@@ -2734,7 +2741,7 @@
                         </div>
                         <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
                             <div>${isZH ? "房子价值：" : "Houses value: "}${numberFormatter(totalHouseScore * 1000000)}</div>
-                            <div>${isZH ? "技能价值：" : "Abilities value: "}${numberFormatter(abilityScore * 1000000)}</div>
+                            <div>${isZH ? "技能价值：" : "Abilities value: "}${numberFormatter(allAbilityScore * 1000000)}</div>
                         </div>
                     </div>
                 </div>`
@@ -2851,6 +2858,14 @@
             setTimeout(waitForInv, 1000);
         };
         waitForInv();
+
+        const waitGuildCreditConversionsSelect = () => {
+            if (settingsMap.guildCreditConversionsSort.isTrue)
+                addGuildCreditConversionsSortButton();
+            
+            setTimeout(waitGuildCreditConversionsSelect, 1000);
+        };
+        waitGuildCreditConversionsSelect();
     }
 
     /* 仓库物品排序 */
@@ -2946,6 +2961,219 @@
         };
     }
 
+     /* 公会信用兑换选择弹窗排序 */
+    async function addGuildCreditConversionsSortButton() {
+        const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
+        if (!selectorContainer) {
+            return;
+        }
+
+        if (selectorContainer.querySelector("#script_itemSelector_sort_div")) {
+            return;
+        }
+
+        const price_data = await fetchMarketJSON();
+        if (!price_data || !price_data.marketData) {
+            return;
+        }
+
+        // 预计算所有信用点类型的最佳兑换物品
+        const bestCreditConversionMap = {};
+        for (const itemHrid in initData_itemDetailMap) {
+            if (initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+                const conversions = initData_itemDetailMap[itemHrid].guildCreditConversions;
+                for (const conversion of conversions) {
+                    const creditHrid = conversion.creditItemHrid;
+                    let askPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        askPrice = price_data.marketData[itemHrid][0].a;
+                    let bidPrice = 0;
+                    if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                        bidPrice = price_data.marketData[itemHrid][0].b;
+                    if (askPrice === 0 && bidPrice === 0) continue;
+                    const creditAskPrice = (askPrice * conversion.itemCount) / conversion.creditCount;
+                    const creditBidPrice = (bidPrice * conversion.itemCount) / conversion.creditCount;
+                    const enName = initData_itemDetailMap[itemHrid].name;
+                    const zhName = ZHItemNames[itemHrid];
+                    const displayName = isZHInGameSetting ? (zhName || enName) : enName;
+                    if (!bestCreditConversionMap[creditHrid]) {
+                        bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
+                    }
+                    if (askPrice > 0 && (!bestCreditConversionMap[creditHrid].ask || creditAskPrice < bestCreditConversionMap[creditHrid].ask.price)) {
+                        bestCreditConversionMap[creditHrid].ask = { name: displayName, price: creditAskPrice };
+                    }
+                    if (bidPrice > 0 && (!bestCreditConversionMap[creditHrid].bid || creditBidPrice < bestCreditConversionMap[creditHrid].bid.price)) {
+                        bestCreditConversionMap[creditHrid].bid = { name: displayName, price: creditBidPrice };
+                    }
+                }
+            }
+        }
+
+        const inputContainer = selectorContainer.querySelector(".Input_inputContainer__22GnD");
+        if (!inputContainer) {
+            return;
+        }
+
+        const askButton = `<button
+            id="script_itemSelector_sortByAsk_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "出售价" : "Ask"}
+            </button>`;
+        const bidButton = `<button
+            id="script_itemSelector_sortByBid_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "收购价" : "Bid"}
+            </button>`;
+        const noneButton = `<button
+            id="script_itemSelector_sortByNone_btn"
+            style="border-radius: 3px; background-color: ${SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+            ${isZH ? "无" : "None"}
+            </button>`;
+        const buttonsDiv = `<div id="script_itemSelector_sort_div" style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; margin-left: 8px; display: inline;">${
+            isZH ? "排序：" : "Sort: "
+            }${askButton} ${bidButton} ${noneButton}</div>`;
+        inputContainer.insertAdjacentHTML("afterend", buttonsDiv);
+
+        const itemList = selectorContainer.querySelector(".ItemSelector_itemList__Qa5lq");
+        if (!itemList) {
+            return;
+        }
+
+        const sortItemsBy = (order) => {
+            const itemContainers = itemList.querySelectorAll(".ItemSelector_itemContainer__3olqe");
+
+            let targetCreditHrid = "";
+            let targetCreditName = "";
+            const exchangeModal = document.querySelector(".GuildPanel_exchangeModalContent__aQqyL");
+            if (exchangeModal) {
+                const creditIcon = exchangeModal.querySelector(".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg");
+                if (creditIcon) {
+                    let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+                    if (creditAriaLabel) {
+                        if (isZHInGameSetting) {
+                            creditAriaLabel = getItemEnNameFromZhName(creditAriaLabel);
+                        }
+                        targetCreditHrid = itemEnNameToHridMap[creditAriaLabel];
+                        targetCreditName = creditAriaLabel;
+                    }
+                }
+            }
+
+            const priceList = [];
+
+            itemContainers.forEach(itemContainer => {
+                const itemElem = itemContainer.querySelector(".Item_itemContainer__x7kH1");
+                if (!itemElem) return;
+
+                let itemName = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+                if (!itemName) {
+                    itemElem.style.order = 0;
+                    const priceElem = itemElem.querySelector("#script_itemSelector_price");
+                    if (priceElem) priceElem.remove();
+                    return;
+                }
+
+                if (isZHInGameSetting) {
+                    itemName = getItemEnNameFromZhName(itemName);
+                }
+                const itemHrid = itemEnNameToHridMap[itemName];
+                let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
+                if (!itemCount) {
+                    itemElem.style.order = 0;
+                    const priceElem = itemElem.querySelector("#script_itemSelector_price");
+                    if (priceElem) priceElem.remove();
+                    return;
+                }
+                itemCount = Number(itemCount.toLowerCase().replaceAll("k", "000").replaceAll("m", "000000"));
+                let askPrice = 0;
+                if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                    askPrice = price_data.marketData[itemHrid][0].a;
+                let bidPrice = 0;
+                if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+                    bidPrice = price_data.marketData[itemHrid][0].b;
+
+                let creditValue = 0;
+                let creditAskPrice = 0;
+                let creditBidPrice = 0;
+                if (targetCreditHrid && initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+                    const conversions = initData_itemDetailMap[itemHrid].guildCreditConversions;
+                    const matchedConversion = conversions.find(c => c.creditItemHrid === targetCreditHrid);
+                    if (matchedConversion) {
+                        creditValue = (itemCount / matchedConversion.itemCount) * matchedConversion.creditCount;
+                        creditAskPrice = (askPrice * itemCount) / creditValue;
+                        creditBidPrice = (bidPrice * itemCount) / creditValue;
+                    }
+                }
+
+                if (targetCreditHrid && creditAskPrice > 0) {
+                    priceList.push({ name: itemName, ask: creditAskPrice, bid: creditBidPrice });
+                }
+
+                if (!itemElem.querySelector("#script_itemSelector_price")) {
+                    itemElem.style.position = "relative";
+                    const priceElemHTML = `<div
+                        id="script_itemSelector_price"
+                        style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
+                    </div>`;
+                    itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+                }
+                const priceElem = itemElem.querySelector("#script_itemSelector_price");
+
+                if (!itemElem.querySelector("#script_itemSelector_credit")) {
+                    const creditElemHTML = `<div
+                        id="script_itemSelector_credit"
+                        style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
+                    </div>`;
+                    itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", creditElemHTML);
+                }
+                const creditElem = itemElem.querySelector("#script_itemSelector_credit");
+
+                if (order === "ask") {
+                    const sortValue = creditAskPrice > 0 ? creditAskPrice : (askPrice * itemCount);
+                    itemContainer.style.order = Math.round(sortValue);
+                    priceElem.textContent = numberFormatter(creditValue > 0 ? creditValue : (askPrice * itemCount));
+                    creditElem.textContent = numberFormatter(sortValue);
+                } else if (order === "bid") {
+                    const sortValue = creditBidPrice > 0 ? creditBidPrice : (bidPrice * itemCount);
+                    itemContainer.style.order = Math.round(sortValue);
+                    priceElem.textContent = numberFormatter(creditValue > 0 ? creditValue : (bidPrice * itemCount));
+                    creditElem.textContent = numberFormatter(sortValue);
+                } else if (order === "none") {
+                    itemContainer.style.order = 0;
+                    priceElem.textContent = "";
+                    creditElem.textContent = "";
+                }
+            });
+
+            const bestItemSpan = selectorContainer.querySelector("#script_best_item");
+            if (order !== "none" && targetCreditHrid && bestCreditConversionMap[targetCreditHrid]) {
+                const best = bestCreditConversionMap[targetCreditHrid][order];
+                if (best) {
+                    if (bestItemSpan) {
+                        bestItemSpan.textContent = `${best.name} ${numberFormatter(best.price)}`;
+                    } else {
+                        const span = `<span id="script_best_item" style="color: ${SCRIPT_COLOR_MAIN}; font-size: 0.875rem; margin-left: 8px;">${best.name} ${numberFormatter(best.price)}</span>`;
+                        selectorContainer.querySelector("#script_itemSelector_sort_div").insertAdjacentHTML("beforeend", span);
+                    }
+                } else if (bestItemSpan) {
+                    bestItemSpan.remove();
+                }
+            } else if (bestItemSpan) {
+                bestItemSpan.remove();
+            }
+        };
+
+        selectorContainer.querySelector("button#script_itemSelector_sortByAsk_btn").addEventListener("click", function (e) {
+            sortItemsBy("ask");
+        });
+        selectorContainer.querySelector("button#script_itemSelector_sortByBid_btn").addEventListener("click", function (e) {
+            sortItemsBy("bid");
+        });
+        selectorContainer.querySelector("button#script_itemSelector_sortByNone_btn").addEventListener("click", function (e) {
+            sortItemsBy("none");
+        });
+    }
+
     /* 计算打造分 */
     // BuildScore algorithm by Ratatatata (https://greasyfork.org/zh-CN/scripts/511240)
     async function getSelfBuildScores(equippedNetworth) {
@@ -2970,11 +3198,20 @@
         }
         // console.log("abilityScore " + abilityScore);
 
+        // 总技能分：全部已学技能所需技能书总价，单位M
+        let allAbilityScore = 0;
+        try {
+            allAbilityScore = await calculateAbilityScore(true);
+        } catch (error) {
+            console.error("Error in calculateAbilityScore(true)", error);
+        }
+        // console.log("allAbilityScore " + allAbilityScore);
+
         // 装备分：当前身上装备总价，单位M
         let equipmentScore = equippedNetworth / 1000000;
         // console.log("equipmentScore " + equipmentScore);
 
-        return [battleHouseScore, nonBattleHouseScore, abilityScore, equipmentScore];
+        return [battleHouseScore, nonBattleHouseScore, abilityScore, allAbilityScore, equipmentScore];
     }
 
     // 计算单个房子完整造价
@@ -3016,7 +3253,7 @@
     }
 
     // 技能价格计算
-    async function calculateAbilityScore() {
+    async function calculateAbilityScore(isAll = false) {
         const marketAPIJson = await fetchMarketJSON();
         if (!marketAPIJson) {
             return 0;
@@ -3030,7 +3267,8 @@
         };
         // 技能净值
         let price = 0;
-        initData_combatAbilities.forEach((item) => {
+        const abilities = isAll ? initData_characterAbilities : initData_combatAbilities;
+        abilities.forEach((item) => {
             let numBooks = 0;
             if (exp_50_skill.some((skill) => item.abilityHrid.includes(skill))) {
                 numBooks = getNeedBooksToLevel(item.level, 50);
@@ -4432,7 +4670,7 @@
                 }
                 if (
                     !initData_itemDetailMap[itemHrid]?.equipmentDetail?.type?.includes("_tool") &&
-                    div.parentElement.parentElement.parentElement.className.includes("MarketplacePanel_marketItems__D4k7e")
+                    div.parentElement.parentElement.parentElement.parentElement.className.includes("MarketplacePanel_marketItems__D4k7e")
                 ) {
                     handleMarketItemFilter(div, initData_itemDetailMap[itemHrid]);
                 }
@@ -4721,7 +4959,7 @@
                 for (const mutation of mutations) {
                     for (const added of mutation.addedNodes) {
                         if (
-                            added?.classList?.contains("Modal_modalContainer__3B80m") &&
+                            added?.classList?.contains("ItemDictionary_modalWrapper__1Ywn2") &&
                             added.querySelector("div.ItemDictionary_modalContent__WvEBY")
                         ) {
                             handleItemDict(added.querySelector("div.ItemDictionary_modalContent__WvEBY"));
@@ -4772,7 +5010,7 @@
             if (currentLevel === 0) {
                 needBooks += 1;
             }
-            return needBooks.toFixed(1);
+            return (Math.ceil(needBooks * 10) / 10).toFixed(1);
         };
 
         let numBooks = getNeedBooksToLevel(currentLevel, currentExp, currentLevel + 1, abilityPerBookExp);
@@ -6273,7 +6511,7 @@
 
             // Zone
             zone = characterObj.partyInfo?.party?.actionHrid;
-            difficultyTier = characterObj.partyInfo?.party?.actionHrid?.difficultyTier;
+            difficultyTier = characterObj.partyInfo?.party?.difficultyTier;
             isZoneDungeon = clientObj.actionDetailMap[zone]?.combatZoneInfo?.isDungeon;
         }
 
