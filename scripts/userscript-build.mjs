@@ -31,7 +31,7 @@ export async function getTestBanner() {
       continue;
     }
     if (line.startsWith("// @version      ")) {
-      testLines.push("// @version      26.0.1");
+      testLines.push("// @version      26.0.2");
       continue;
     }
     if (line.startsWith("// @description  ")) {

@@ -23,6 +23,10 @@ let initData_levelExperienceTable = null;
 
 let initData_itemDetailMap = null;
 
+let initData_itemLocationDetailMap = null;
+
+let initData_houseRoomDetailMap = null;
+
 let initData_actionCategoryDetailMap = null;
 
 let initData_abilityDetailMap = null;
@@ -143,6 +147,24 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       initData_itemDetailMap = value;
+    },
+  },
+  initData_itemLocationDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_itemLocationDetailMap;
+    },
+    set(value) {
+      initData_itemLocationDetailMap = value;
+    },
+  },
+  initData_houseRoomDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_houseRoomDetailMap;
+    },
+    set(value) {
+      initData_houseRoomDetailMap = value;
     },
   },
   initData_actionCategoryDetailMap: {

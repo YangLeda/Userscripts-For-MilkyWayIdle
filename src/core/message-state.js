@@ -4,6 +4,8 @@ function applyClientData(payload) {
   runtime.state.initData_actionDetailMap = payload.actionDetailMap;
   runtime.state.initData_levelExperienceTable = payload.levelExperienceTable;
   runtime.state.initData_itemDetailMap = payload.itemDetailMap;
+  runtime.state.initData_itemLocationDetailMap = payload.itemLocationDetailMap;
+  runtime.state.initData_houseRoomDetailMap = payload.houseRoomDetailMap;
   runtime.state.initData_actionCategoryDetailMap =
     payload.actionCategoryDetailMap;
   runtime.state.initData_abilityDetailMap = payload.abilityDetailMap;

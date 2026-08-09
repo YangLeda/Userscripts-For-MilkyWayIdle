@@ -24,6 +24,9 @@ function loadCachedClientData() {
   runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
   runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
   runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
+  runtime.state.initData_itemLocationDetailMap =
+    clientData.itemLocationDetailMap;
+  runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
   runtime.state.initData_actionCategoryDetailMap =
     clientData.actionCategoryDetailMap;
   runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;

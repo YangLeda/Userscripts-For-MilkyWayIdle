@@ -16,6 +16,7 @@ globalThis.location = dom.window.location;
 globalThis.window = dom.window;
 globalThis.setTimeout = () => 0;
 globalThis.clearTimeout = () => {};
+localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
@@ -39,7 +40,12 @@ runtime.state.marketApiJson = {
   marketData: { "/items/milk": { 0: { a: 1100, b: 900 } } },
 };
 runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
-runtime.api.getSelfBuildScores = async () => [0, 0, 0, 0, 0];
+runtime.api.getSelfBuildScores = async () => ({
+  battle: { house: 1, abilities: 2, equipment: 3, total: 6 },
+  skilling: { tools: 4, equipment: 5, total: 9, available: true },
+  assets: { allHouses: 10, allAbilities: 20 },
+  equipmentHidden: false,
+});
 
 test("networth rerenders update existing UI instead of duplicating it", async () => {
   await runtime.api.calculateNetworth();
@@ -57,4 +63,29 @@ test("networth rerenders update existing UI instead of duplicating it", async ()
     document.querySelector("#script_current_assets").textContent,
     /10k/,
   );
+  assert.match(
+    document.querySelector("#toggleScores").textContent,
+    /战斗着装评分：6\.0/,
+  );
+  assert.match(
+    document.querySelector("#toggleSkillingScores").textContent,
+    /生活着装评分：9\.0/,
+  );
+  assert.match(
+    document.querySelector("#buildScores").textContent,
+    /房屋：1\.0/,
+  );
+  assert.match(
+    document.querySelector("#skillingScores").textContent,
+    /工具：4\.0/,
+  );
+  assert.match(
+    document.querySelector("#nonCurrentAssets").textContent,
+    /房子价值：10M/,
+  );
+  assert.match(
+    document.querySelector("#nonCurrentAssets").textContent,
+    /技能价值：20M/,
+  );
+  assert.doesNotMatch(document.body.textContent, /战力打造分/);
 });

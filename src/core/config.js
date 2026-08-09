@@ -79,8 +79,8 @@ let settingsMap = {
   invWorth: {
     id: "invWorth",
     desc: isZH
-      ? "仓库搜索栏下方显示：仓库和战力总结 [依赖上一项]"
-      : "Below inventory search bar: Inventory and character summery. [Depends on the previous selection]",
+      ? "仓库搜索栏下方显示：仓库和着装评分总结 [依赖上一项]"
+      : "Below inventory search bar: Inventory and gear score summary. [Depends on the previous selection]",
     isTrue: true,
   },
   invSort: {
@@ -99,7 +99,9 @@ let settingsMap = {
   },
   profileBuildScore: {
     id: "profileBuildScore",
-    desc: isZH ? "人物面板显示：战力分" : "Profile panel: Build score.",
+    desc: isZH
+      ? "人物面板显示：战斗和生活着装评分"
+      : "Profile panel: Combat and skilling gear scores.",
     isTrue: true,
   },
   itemTooltip_prices: {

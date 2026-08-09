@@ -604,7 +604,7 @@
     },
     invWorth: {
       id: "invWorth",
-      desc: isZH ? "仓库搜索栏下方显示：仓库和战力总结 [依赖上一项]" : "Below inventory search bar: Inventory and character summery. [Depends on the previous selection]",
+      desc: isZH ? "仓库搜索栏下方显示：仓库和着装评分总结 [依赖上一项]" : "Below inventory search bar: Inventory and gear score summary. [Depends on the previous selection]",
       isTrue: true
     },
     invSort: {
@@ -619,7 +619,7 @@
     },
     profileBuildScore: {
       id: "profileBuildScore",
-      desc: isZH ? "人物面板显示：战力分" : "Profile panel: Build score.",
+      desc: isZH ? "人物面板显示：战斗和生活着装评分" : "Profile panel: Combat and skilling gear scores.",
       isTrue: true
     },
     itemTooltip_prices: {
@@ -16953,6 +16953,8 @@
   var initData_actionDetailMap = null;
   var initData_levelExperienceTable = null;
   var initData_itemDetailMap = null;
+  var initData_itemLocationDetailMap = null;
+  var initData_houseRoomDetailMap = null;
   var initData_actionCategoryDetailMap = null;
   var initData_abilityDetailMap = null;
   var initData_characterAbilities = null;
@@ -17061,6 +17063,24 @@
       },
       set(value) {
         initData_itemDetailMap = value;
+      }
+    },
+    initData_itemLocationDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_itemLocationDetailMap;
+      },
+      set(value) {
+        initData_itemLocationDetailMap = value;
+      }
+    },
+    initData_houseRoomDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_houseRoomDetailMap;
+      },
+      set(value) {
+        initData_houseRoomDetailMap = value;
       }
     },
     initData_actionCategoryDetailMap: {
@@ -17479,6 +17499,8 @@
     runtime.state.initData_actionDetailMap = payload.actionDetailMap;
     runtime.state.initData_levelExperienceTable = payload.levelExperienceTable;
     runtime.state.initData_itemDetailMap = payload.itemDetailMap;
+    runtime.state.initData_itemLocationDetailMap = payload.itemLocationDetailMap;
+    runtime.state.initData_houseRoomDetailMap = payload.houseRoomDetailMap;
     runtime.state.initData_actionCategoryDetailMap = payload.actionCategoryDetailMap;
     runtime.state.initData_abilityDetailMap = payload.abilityDetailMap;
     for (const [key, value] of Object.entries(
@@ -17675,30 +17697,31 @@
     networthBid = equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
     const currentAssetsFairValue = equippedFairValue + inventoryFairValue + marketListingsFairValue;
     const addInventorySummery = async (invElem) => {
-      const [
-        battleHouseScore,
-        nonBattleHouseScore,
-        abilityScore,
-        allAbilityScore,
-        equipmentScore
-      ] = await runtime.api.getSelfBuildScores(equippedFairValue);
-      const totalScore = battleHouseScore + abilityScore + equipmentScore;
-      const totalHouseScore = battleHouseScore + nonBattleHouseScore;
-      const totalNetworth = currentAssetsFairValue + (totalHouseScore + allAbilityScore) * 1e6;
+      const scores = await runtime.api.getSelfBuildScores();
+      const totalNetworth = currentAssetsFairValue + (scores.assets.allHouses + scores.assets.allAbilities) * 1e6;
       const previousSummary = invElem.parentElement?.querySelector(
         "#script_inventory_summary"
       );
+      const wasCombatScoreOpen = previousSummary?.querySelector("#buildScores")?.style.display === "block";
+      const wasSkillingScoreOpen = previousSummary?.querySelector("#skillingScores")?.style.display === "block";
       const wasNetworthOpen = previousSummary?.querySelector("#netWorthDetails")?.style.display === "block";
       previousSummary?.remove();
       invElem.insertAdjacentHTML(
         "beforebegin",
         `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-                <!-- 战力打造分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战力打造分: " : "+ Character Build Score: "}${totalScore.toFixed(1)}</div>
+                <!-- 战斗着装评分 -->
+                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${scores.battle.total.toFixed(1)}</div>
                 <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子分：" : "House score: "}${battleHouseScore.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "技能分：" : "Ability score: "}${abilityScore.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备分：" : "Equipment score: "}${equipmentScore.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${scores.battle.abilities.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.battle.equipment.toFixed(1)}</div>
+                </div>
+
+                <!-- 生活着装评分 -->
+                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${scores.skilling.total.toFixed(1)}</div>
+                <div id="skillingScores" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${scores.skilling.tools.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.skilling.equipment.toFixed(1)}</div>
                 </div>
 
                 <!-- 总NetWorth -->
@@ -17722,8 +17745,8 @@
                         ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
                     </div>
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(totalHouseScore * 1e6)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(allAbilityScore * 1e6)}</div>
+                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(scores.assets.allHouses * 1e6)}</div>
+                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(scores.assets.allAbilities * 1e6)}</div>
                     </div>
                 </div>
             </div>`
@@ -17733,6 +17756,8 @@
       );
       const toggleScores = summary.querySelector("#toggleScores");
       const ScoreDetails = summary.querySelector("#buildScores");
+      const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
+      const skillingScoreDetails = summary.querySelector("#skillingScores");
       const toggleButton = summary.querySelector("#toggleNetWorth");
       const netWorthDetails = summary.querySelector("#netWorthDetails");
       const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
@@ -17746,10 +17771,23 @@
         currentAssets.style.display = "block";
         nonCurrentAssets.style.display = "block";
       }
+      if (wasCombatScoreOpen) {
+        ScoreDetails.style.display = "block";
+        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + scores.battle.total.toFixed(1);
+      }
+      if (wasSkillingScoreOpen) {
+        skillingScoreDetails.style.display = "block";
+        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + scores.skilling.total.toFixed(1);
+      }
       toggleScores.addEventListener("click", () => {
         const isCollapsed = ScoreDetails.style.display === "none";
         ScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战力打造分: " : "Character Build Score: ") + totalScore.toFixed(1);
+        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + scores.battle.total.toFixed(1);
+      });
+      toggleSkillingScores.addEventListener("click", () => {
+        const isCollapsed = skillingScoreDetails.style.display === "none";
+        skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
+        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + scores.skilling.total.toFixed(1);
       });
       toggleButton.addEventListener("click", () => {
         const isCollapsed = netWorthDetails.style.display === "none";
@@ -18174,31 +18212,100 @@
   });
 
   // src/features/build-score.js
-  async function getSelfBuildScores(equippedNetworth) {
-    const battleHouses = [
-      "dining_room",
-      "library",
-      "dojo",
-      "gym",
-      "armory",
-      "archery_range",
-      "mystical_study"
-    ];
-    let battleHouseScore = 0;
-    let nonBattleHouseScore = 0;
-    for (const key in runtime.state.initData_characterHouseRoomMap) {
-      if (battleHouses.some(
-        (house) => runtime.state.initData_characterHouseRoomMap[key].houseRoomHrid.includes(house)
-      )) {
-        battleHouseScore += await getHouseFullBuildPrice(
-          runtime.state.initData_characterHouseRoomMap[key]
-        ) / 1e6;
-      } else {
-        nonBattleHouseScore += await getHouseFullBuildPrice(
-          runtime.state.initData_characterHouseRoomMap[key]
-        ) / 1e6;
+  var SCORE_UNIT = 1e6;
+  function hasStats(stats) {
+    return Boolean(stats && Object.keys(stats).length);
+  }
+  function classifyEquippedItem(item) {
+    const locationDetail = runtime.state.initData_itemLocationDetailMap?.[item.itemLocationHrid];
+    const equipmentDetail = runtime.state.initData_itemDetailMap?.[item.itemHrid]?.equipmentDetail;
+    const isTool = locationDetail?.isTool === true;
+    return {
+      isTool,
+      isCombat: !isTool && (hasStats(equipmentDetail?.combatStats) || hasStats(equipmentDetail?.combatEnhancementBonuses)),
+      isSkilling: isTool || hasStats(equipmentDetail?.noncombatStats) || hasStats(equipmentDetail?.noncombatEnhancementBonuses)
+    };
+  }
+  function isCombatHouse(house) {
+    return Boolean(
+      runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid]?.usableInActionTypeMap?.["/action_types/combat"]
+    );
+  }
+  function createEmptyGearScores() {
+    return {
+      combatEquipment: 0,
+      skillingTools: 0,
+      skillingEquipment: 0
+    };
+  }
+  function calculateGearScores(items) {
+    const scores = createEmptyGearScores();
+    for (const item of items ?? []) {
+      if (item.itemLocationHrid === "/item_locations/inventory") continue;
+      const classification = classifyEquippedItem(item);
+      if (!classification.isTool && !classification.isCombat && !classification.isSkilling) {
+        continue;
       }
+      const fairValue = runtime.api.getFairValue(
+        item.itemHrid,
+        item.enhancementLevel
+      );
+      if (!(fairValue > 0)) {
+        console.log("calculateGearScores cannot find price of " + item.itemHrid);
+        continue;
+      }
+      const value = Number(item.count ?? 1) * fairValue;
+      if (classification.isCombat) scores.combatEquipment += value;
+      if (classification.isTool) scores.skillingTools += value;
+      else if (classification.isSkilling) scores.skillingEquipment += value;
     }
+    for (const key of Object.keys(scores)) scores[key] /= SCORE_UNIT;
+    return scores;
+  }
+  async function calculateHouseScores(characterHouseRoomMap) {
+    let combat = 0;
+    let all = 0;
+    for (const house of Object.values(characterHouseRoomMap ?? {})) {
+      const value = await getHouseFullBuildPrice(house) / SCORE_UNIT;
+      all += value;
+      if (isCombatHouse(house)) combat += value;
+    }
+    return { combat, all };
+  }
+  function createScoreResult({
+    houseScores,
+    abilityScore,
+    allAbilityScore,
+    gearScores,
+    equipmentHidden = false
+  }) {
+    const battle = {
+      house: houseScores.combat,
+      abilities: abilityScore,
+      equipment: gearScores.combatEquipment
+    };
+    battle.total = battle.house + battle.abilities + battle.equipment;
+    const skilling = {
+      tools: gearScores.skillingTools,
+      equipment: gearScores.skillingEquipment,
+      available: !equipmentHidden
+    };
+    skilling.total = skilling.tools + skilling.equipment;
+    return {
+      battle,
+      skilling,
+      assets: {
+        allHouses: houseScores.all,
+        allAbilities: allAbilityScore
+      },
+      equipmentHidden
+    };
+  }
+  async function getSelfBuildScores() {
+    const houseScores = await calculateHouseScores(
+      runtime.state.initData_characterHouseRoomMap
+    );
+    const gearScores = calculateGearScores(runtime.state.initData_characterItems);
     let abilityScore = 0;
     try {
       abilityScore = await calculateAbilityScore();
@@ -18211,26 +18318,32 @@
     } catch (error) {
       console.error("Error in calculateAbilityScore(true)", error);
     }
-    let equipmentScore = equippedNetworth / 1e6;
-    return [
-      battleHouseScore,
-      nonBattleHouseScore,
+    return createScoreResult({
+      houseScores,
       abilityScore,
       allAbilityScore,
-      equipmentScore
-    ];
+      gearScores
+    });
   }
   async function getHouseFullBuildPrice(house) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
     if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       return 0;
     }
-    const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
-    const upgradeCostsMap = clientObj.houseRoomDetailMap[house.houseRoomHrid].upgradeCostsMap;
+    let houseDetail = runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid];
+    if (!houseDetail) {
+      try {
+        houseDetail = JSON.parse(GM_getValue("init_client_data", "{}")).houseRoomDetailMap?.[house.houseRoomHrid];
+      } catch {
+        return 0;
+      }
+    }
+    const upgradeCostsMap = houseDetail?.upgradeCostsMap;
+    if (!upgradeCostsMap) return 0;
     const level = house.level;
     let cost = 0;
     for (let i = 1; i <= level; i++) {
-      for (const item of upgradeCostsMap[i]) {
+      for (const item of upgradeCostsMap[i] ?? []) {
         const fairValue = runtime.api.getFairValue(item.itemHrid, 0);
         if (fairValue > 0) {
           cost += item.count * fairValue;
@@ -18308,52 +18421,63 @@
     }
   }
   async function showBuildScoreOnProfile(profile_shared_obj) {
-    const [battleHouseScore, abilityScore, equipmentScore] = await getBuildScoreByProfile(profile_shared_obj);
-    const totalBuildScore = battleHouseScore + abilityScore + equipmentScore;
-    const isEquipmentHiddenText = abilityScore + equipmentScore <= 0 ? runtime.config.isZH ? " (装备隐藏)" : " (Equipment hidden)" : " ";
+    const scores = await getBuildScoreByProfile(profile_shared_obj);
+    const hiddenText = scores.equipmentHidden ? runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)" : "";
+    const hiddenValue = scores.equipmentHidden ? "-" : null;
     const panel = await getInfoPanel();
     panel.style.height = "auto";
+    panel.querySelector("#script_profile_gear_scores")?.remove();
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${runtime.config.isZH ? "+ 战力打造分: " : "+ Character Build Score: "}${totalBuildScore.toFixed(1)}${isEquipmentHiddenText}</div>
+      `<div id="script_profile_gear_scores" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
+            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${scores.battle.total.toFixed(1)}${hiddenText}</div>
             <div id="buildScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房子分：" : "House score: "}${battleHouseScore.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "技能分：" : "Ability score: "}${abilityScore.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "装备分：" : "Equipment score: "}${equipmentScore.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? scores.battle.abilities.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.battle.equipment.toFixed(1)}</div>
+            </div>
+            <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${hiddenValue ?? scores.skilling.total.toFixed(1)}${hiddenText}</div>
+            <div id="skillingScores_profile" style="display: none; margin-left: 20px;">
+                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? scores.skilling.tools.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.skilling.equipment.toFixed(1)}</div>
             </div>
         </div>`
     );
-    const toggleScores = document.getElementById("toggleScores_profile");
-    const ScoreDetails = document.getElementById("buildScores_profile");
-    toggleScores.addEventListener("click", () => {
-      const isCollapsed = ScoreDetails.style.display === "none";
-      ScoreDetails.style.display = isCollapsed ? "block" : "none";
-      toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战力打造分: " : "Character Build Score: ") + totalBuildScore.toFixed(1) + isEquipmentHiddenText;
-    });
+    const bindToggle = (toggleId, detailsId, label, value) => {
+      const toggle = document.getElementById(toggleId);
+      const details = document.getElementById(detailsId);
+      toggle.addEventListener("click", () => {
+        const isCollapsed = details.style.display === "none";
+        details.style.display = isCollapsed ? "block" : "none";
+        toggle.textContent = (isCollapsed ? "↓ " : "+ ") + label + value + hiddenText;
+      });
+    };
+    bindToggle(
+      "toggleScores_profile",
+      "buildScores_profile",
+      runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ",
+      scores.battle.total.toFixed(1)
+    );
+    bindToggle(
+      "toggleSkillingScores_profile",
+      "skillingScores_profile",
+      runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ",
+      hiddenValue ?? scores.skilling.total.toFixed(1)
+    );
   }
   async function getBuildScoreByProfile(profile_shared_obj) {
-    const battleHouses = [
-      "dining_room",
-      "library",
-      "dojo",
-      "gym",
-      "armory",
-      "archery_range",
-      "mystical_study"
-    ];
-    let battleHouseScore = 0;
-    for (const key in profile_shared_obj.profile.characterHouseRoomMap) {
-      if (battleHouses.some(
-        (house) => profile_shared_obj.profile.characterHouseRoomMap[key].houseRoomHrid.includes(house)
-      )) {
-        battleHouseScore += await getHouseFullBuildPrice(
-          profile_shared_obj.profile.characterHouseRoomMap[key]
-        ) / 1e6;
-      }
-    }
-    if (profile_shared_obj.profile.hideWearableItems) {
-      return [battleHouseScore, 0, 0];
+    const profile = profile_shared_obj.profile;
+    const houseScores = await calculateHouseScores(profile.characterHouseRoomMap);
+    const equipmentHidden = profile.hideWearableItems === true;
+    const emptyGearScores = createEmptyGearScores();
+    if (equipmentHidden) {
+      return createScoreResult({
+        houseScores,
+        abilityScore: 0,
+        allAbilityScore: 0,
+        gearScores: emptyGearScores,
+        equipmentHidden: true
+      });
     }
     let abilityScore = 0;
     try {
@@ -18361,13 +18485,18 @@
     } catch (error) {
       console.error("Error in calculate skill:", error);
     }
-    let equipmentScore = 0;
+    let gearScores = emptyGearScores;
     try {
-      equipmentScore = await calculateEquipment(profile_shared_obj);
+      gearScores = await calculateEquipment(profile_shared_obj);
     } catch (error) {
-      console.error("Error in calculateEquipmen:", error);
+      console.error("Error in calculateEquipment:", error);
     }
-    return [battleHouseScore, abilityScore, equipmentScore];
+    return createScoreResult({
+      houseScores,
+      abilityScore,
+      allAbilityScore: 0,
+      gearScores
+    });
   }
   async function calculateSkill(profile_shared_obj) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
@@ -18412,27 +18541,20 @@
   async function calculateEquipment(profile_shared_obj) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
     if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-      return 0;
+      return createEmptyGearScores();
     }
-    let obj = profile_shared_obj.profile;
-    let networth = 0;
-    for (const key in obj.wearableItemMap) {
-      const item = obj.wearableItemMap[key];
-      const enhanceLevel = obj.wearableItemMap[key].enhancementLevel;
-      const itemHrid = obj.wearableItemMap[key].itemHrid;
-      const fairValue = runtime.api.getFairValue(itemHrid, enhanceLevel);
-      if (fairValue > 0) {
-        networth += item.count * fairValue;
-      } else {
-        console.log("calculateEquipment cannot find price of " + itemHrid);
-      }
-    }
-    return networth / 1e6;
+    return calculateGearScores(
+      Object.values(profile_shared_obj.profile.wearableItemMap ?? {})
+    );
   }
   Object.assign(runtime.api, {
     getSelfBuildScores,
     getHouseFullBuildPrice,
     getWeightedMarketPrice,
+    classifyEquippedItem,
+    isCombatHouse,
+    calculateGearScores,
+    calculateHouseScores,
     calculateAbilityScore,
     getInfoPanel,
     showBuildScoreOnProfile,
@@ -22363,6 +22485,8 @@
     runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
     runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
     runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
+    runtime.state.initData_itemLocationDetailMap = clientData.itemLocationDetailMap;
+    runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
     runtime.state.initData_actionCategoryDetailMap = clientData.actionCategoryDetailMap;
     runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
     for (const [key, value] of Object.entries(

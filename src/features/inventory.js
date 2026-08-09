@@ -90,21 +90,19 @@ async function calculateNetworth() {
   /* 仓库搜索栏下方显示人物总结 */
   // Some code of networth summery is by Stella.
   const addInventorySummery = async (invElem) => {
-    const [
-      battleHouseScore,
-      nonBattleHouseScore,
-      abilityScore,
-      allAbilityScore,
-      equipmentScore,
-    ] = await runtime.api.getSelfBuildScores(equippedFairValue);
-    const totalScore = battleHouseScore + abilityScore + equipmentScore;
-    const totalHouseScore = battleHouseScore + nonBattleHouseScore;
+    const scores = await runtime.api.getSelfBuildScores();
     const totalNetworth =
-      currentAssetsFairValue + (totalHouseScore + allAbilityScore) * 1000000;
+      currentAssetsFairValue +
+      (scores.assets.allHouses + scores.assets.allAbilities) * 1000000;
 
     const previousSummary = invElem.parentElement?.querySelector(
       "#script_inventory_summary",
     );
+    const wasCombatScoreOpen =
+      previousSummary?.querySelector("#buildScores")?.style.display === "block";
+    const wasSkillingScoreOpen =
+      previousSummary?.querySelector("#skillingScores")?.style.display ===
+      "block";
     const wasNetworthOpen =
       previousSummary?.querySelector("#netWorthDetails")?.style.display ===
       "block";
@@ -113,16 +111,27 @@ async function calculateNetworth() {
     invElem.insertAdjacentHTML(
       "beforebegin",
       `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-                <!-- 战力打造分 -->
+                <!-- 战斗着装评分 -->
                 <div style="cursor: pointer; font-weight: bold" id="toggleScores">${
                   runtime.config.isZH
-                    ? "+ 战力打造分: "
-                    : "+ Character Build Score: "
-                }${totalScore.toFixed(1)}</div>
+                    ? "+ 战斗着装评分："
+                    : "+ Combat Gear Score: "
+                }${scores.battle.total.toFixed(1)}</div>
                 <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子分：" : "House score: "}${battleHouseScore.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "技能分：" : "Ability score: "}${abilityScore.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备分：" : "Equipment score: "}${equipmentScore.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${scores.battle.abilities.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.battle.equipment.toFixed(1)}</div>
+                </div>
+
+                <!-- 生活着装评分 -->
+                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${
+                  runtime.config.isZH
+                    ? "+ 生活着装评分："
+                    : "+ Skilling Gear Score: "
+                }${scores.skilling.total.toFixed(1)}</div>
+                <div id="skillingScores" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${scores.skilling.tools.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.skilling.equipment.toFixed(1)}</div>
                 </div>
 
                 <!-- 总NetWorth -->
@@ -146,8 +155,8 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
                     </div>
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(totalHouseScore * 1000000)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(allAbilityScore * 1000000)}</div>
+                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(scores.assets.allHouses * 1000000)}</div>
+                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(scores.assets.allAbilities * 1000000)}</div>
                     </div>
                 </div>
             </div>`,
@@ -159,6 +168,8 @@ async function calculateNetworth() {
     );
     const toggleScores = summary.querySelector("#toggleScores");
     const ScoreDetails = summary.querySelector("#buildScores");
+    const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
+    const skillingScoreDetails = summary.querySelector("#skillingScores");
     const toggleButton = summary.querySelector("#toggleNetWorth");
     const netWorthDetails = summary.querySelector("#netWorthDetails");
     const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
@@ -173,14 +184,37 @@ async function calculateNetworth() {
       currentAssets.style.display = "block";
       nonCurrentAssets.style.display = "block";
     }
+    if (wasCombatScoreOpen) {
+      ScoreDetails.style.display = "block";
+      toggleScores.textContent =
+        "↓ " +
+        (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") +
+        scores.battle.total.toFixed(1);
+    }
+    if (wasSkillingScoreOpen) {
+      skillingScoreDetails.style.display = "block";
+      toggleSkillingScores.textContent =
+        "↓ " +
+        (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") +
+        scores.skilling.total.toFixed(1);
+    }
 
     toggleScores.addEventListener("click", () => {
       const isCollapsed = ScoreDetails.style.display === "none";
       ScoreDetails.style.display = isCollapsed ? "block" : "none";
       toggleScores.textContent =
         (isCollapsed ? "↓ " : "+ ") +
-        (runtime.config.isZH ? "战力打造分: " : "Character Build Score: ") +
-        totalScore.toFixed(1);
+        (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") +
+        scores.battle.total.toFixed(1);
+    });
+
+    toggleSkillingScores.addEventListener("click", () => {
+      const isCollapsed = skillingScoreDetails.style.display === "none";
+      skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
+      toggleSkillingScores.textContent =
+        (isCollapsed ? "↓ " : "+ ") +
+        (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") +
+        scores.skilling.total.toFixed(1);
     });
 
     toggleButton.addEventListener("click", () => {

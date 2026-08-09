@@ -20,6 +20,14 @@ test("client data is available before message effects run", () => {
       actionDetailMap: {},
       levelExperienceTable: [0, 100],
       itemDetailMap: { "/items/coin": { name: "Coin" } },
+      itemLocationDetailMap: {
+        "/item_locations/inventory": { isTool: false },
+      },
+      houseRoomDetailMap: {
+        "/house_rooms/dojo": {
+          usableInActionTypeMap: { "/action_types/combat": true },
+        },
+      },
       actionCategoryDetailMap: {},
       abilityDetailMap: {},
     }),
@@ -27,6 +35,16 @@ test("client data is available before message effects run", () => {
 
   assert.equal(observedName, "Coin");
   assert.equal(runtime.state.itemEnNameToHridMap.Coin, "/items/coin");
+  assert.equal(
+    runtime.state.initData_itemLocationDetailMap["/item_locations/inventory"]
+      .isTool,
+    false,
+  );
+  assert.equal(
+    runtime.state.initData_houseRoomDetailMap["/house_rooms/dojo"]
+      .usableInActionTypeMap["/action_types/combat"],
+    true,
+  );
 });
 
 test("market state is updated before feature effects run", () => {
