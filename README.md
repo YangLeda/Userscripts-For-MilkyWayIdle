@@ -21,7 +21,7 @@ npm run build
 
 Source code is organized by responsibility:
 
-- `src/core/`: runtime context, settings-facing state, websocket interception, message reducer and dispatcher.
+- `src/core/`: runtime context, settings-facing state, websocket interception, message reducer and dispatcher, plus normalized server market values and orderbook data.
 - `src/data/`: translations and the bundled fallback market snapshot.
 - `src/features/`: inventory, actions, tooltips, marketplace, combat, settings and external-tool integrations.
 - `src/main.js`: page routing and startup order.
@@ -45,6 +45,8 @@ This checks formatting and lint rules, runs the state/settings/userscript smoke 
 5. Confirm the GreasyFork sync URL still points to the root `MWITools.js` before syncing.
 
 The build preserves the existing userscript matches, grants, external `@require` libraries, storage keys and DOM selectors.
+
+Marketplace values come from two sources: the environment-specific `marketplace.json` endpoint supplies executable ask/bid prices, while the game's `market_item_values_updated` websocket message supplies the server-tracked fair value. Test uses the `test.milkywayidle.com` endpoint and a 10-minute cache; production uses `www.milkywayidle.com` and a six-hour cache.
 
 ## Mooneycalc Importer
 

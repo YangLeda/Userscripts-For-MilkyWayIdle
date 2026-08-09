@@ -26,10 +26,6 @@ let SCRIPT_COLOR_TOOLTIP = "darkgreen";
 // 物品悬浮窗的字体颜色
 const SCRIPT_COLOR_ALERT = "red";
 
-const MARKET_API_URL = window.location.href.includes("milkywayidle.com")
-  ? "https://www.milkywayidle.com/game_data/marketplace.json"
-  : "https://www.milkywayidlecn.com/game_data/marketplace.json";
-
 let settingsMap = {
   useOrangeAsMainColor: {
     id: "useOrangeAsMainColor",
@@ -76,8 +72,8 @@ let settingsMap = {
   networth: {
     id: "networth",
     desc: isZH
-      ? "右上角显示：流动资产(+2及以上物品按强化模拟成本计算)"
-      : "Top right: Current assets (Items with at least 2 enhancement levels are valued by enchancing simulator).",
+      ? "右上角显示：按服务器市场价值计算的流动资产"
+      : "Top right: Current assets valued with server market values.",
     isTrue: true,
   },
   invWorth: {
@@ -109,8 +105,8 @@ let settingsMap = {
   itemTooltip_prices: {
     id: "itemTooltip_prices",
     desc: isZH
-      ? "物品悬浮窗显示：24小时市场均价"
-      : "Item tooltip: 24 hours average market price.",
+      ? "物品悬浮窗显示：服务器市场价值和订单簿价格"
+      : "Item tooltip: Server market value and orderbook prices.",
     isTrue: true,
   },
   itemTooltip_profit: {
@@ -317,7 +313,7 @@ Object.defineProperties(runtime.config, {
   MARKET_API_URL: {
     enumerable: true,
     get() {
-      return MARKET_API_URL;
+      return runtime.api.getMarketApiUrl?.() ?? "";
     },
   },
 });

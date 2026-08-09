@@ -31,6 +31,16 @@ let initData_characterAbilities = null;
 
 let initData_myMarketListings = null;
 
+let marketApiJson = null;
+
+let marketValuesVersion = null;
+
+let marketItemValues = {};
+
+const marketOrderBooks = {};
+
+const marketPriceBands = {};
+
 let currentActionsHridList = [];
 
 let currentEquipmentMap = {};
@@ -169,6 +179,45 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       initData_myMarketListings = value;
+    },
+  },
+  marketApiJson: {
+    enumerable: true,
+    get() {
+      return marketApiJson;
+    },
+    set(value) {
+      marketApiJson = value;
+    },
+  },
+  marketValuesVersion: {
+    enumerable: true,
+    get() {
+      return marketValuesVersion;
+    },
+    set(value) {
+      marketValuesVersion = value;
+    },
+  },
+  marketItemValues: {
+    enumerable: true,
+    get() {
+      return marketItemValues;
+    },
+    set(value) {
+      marketItemValues = value ?? {};
+    },
+  },
+  marketOrderBooks: {
+    enumerable: true,
+    get() {
+      return marketOrderBooks;
+    },
+  },
+  marketPriceBands: {
+    enumerable: true,
+    get() {
+      return marketPriceBands;
     },
   },
   currentActionsHridList: {

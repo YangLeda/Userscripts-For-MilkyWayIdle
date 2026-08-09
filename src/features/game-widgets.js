@@ -21,7 +21,7 @@ async function handleBattleSummary(message) {
       if (marketJson.marketData[loot.itemHrid]) {
         totalPriceAsk += marketJson.marketData[loot.itemHrid][0].a * itemCount;
         totalPriceAskBid +=
-          marketJson.marketData[loot.itemHrid][0].b * itemCount;
+          runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
       } else {
         console.log(
           "handleBattleSummary failed to read price of " + loot.itemHrid,

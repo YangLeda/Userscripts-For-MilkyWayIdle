@@ -1,9 +1,20 @@
 import { runtime } from "../core/runtime.js";
 
+let networthWatcherStarted = false;
+let guildCreditWatcherStarted = false;
+let networthRefreshTimer = null;
+
+function scheduleNetworthRefresh() {
+  if (!Array.isArray(runtime.state.initData_characterItems)) return;
+  clearTimeout(networthRefreshTimer);
+  networthRefreshTimer = setTimeout(() => calculateNetworth(), 100);
+}
+
 /* 计算Networth */
 async function calculateNetworth() {
+  if (!Array.isArray(runtime.state.initData_characterItems)) return;
   const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson) {
+  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     console.error("calculateNetworth marketAPIJson is null");
     return;
   }
@@ -16,86 +27,56 @@ async function calculateNetworth() {
   let equippedNetworthBid = 0;
   let inventoryNetworthAsk = 0;
   let inventoryNetworthBid = 0;
+  let marketListingsFairValue = 0;
+  let equippedFairValue = 0;
+  let inventoryFairValue = 0;
 
   for (const item of runtime.state.initData_characterItems) {
     const enhanceLevel = item.enhancementLevel;
-    const marketPrices = marketAPIJson.marketData[item.itemHrid];
-
-    if (enhanceLevel && enhanceLevel > 1) {
-      runtime.state.input_data.item_hrid = item.itemHrid;
-      runtime.state.input_data.stop_at = enhanceLevel;
-      const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-        runtime.state.input_data,
-      );
-      let totalCost = best?.totalCost;
-      totalCost = totalCost ? Math.round(totalCost) : 0;
-      if (item.itemLocationHrid !== "/item_locations/inventory") {
-        equippedNetworthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-        equippedNetworthBid += item.count * (totalCost > 0 ? totalCost : 0);
-      } else {
-        inventoryNetworthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-        inventoryNetworthBid += item.count * (totalCost > 0 ? totalCost : 0);
-      }
-    } else if (marketPrices && marketPrices[0]) {
-      if (item.itemLocationHrid !== "/item_locations/inventory") {
-        equippedNetworthAsk +=
-          item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-        equippedNetworthBid +=
-          item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
-      } else {
-        inventoryNetworthAsk +=
-          item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-        inventoryNetworthBid +=
-          item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
-      }
+    const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
+    const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
+    const fairValue = runtime.api.getFairValue(item.itemHrid, enhanceLevel);
+    if (item.itemLocationHrid !== "/item_locations/inventory") {
+      equippedNetworthAsk += item.count * askPrice;
+      equippedNetworthBid += item.count * bidPrice;
+      equippedFairValue += item.count * fairValue;
     } else {
+      inventoryNetworthAsk += item.count * askPrice;
+      inventoryNetworthBid += item.count * bidPrice;
+      inventoryFairValue += item.count * fairValue;
+    }
+    if (!fairValue && !askPrice && !bidPrice) {
       console.log("calculateNetworth cannot find price of " + item.itemHrid);
     }
   }
 
   for (const item of runtime.state.initData_myMarketListings) {
-    const quantity = item.orderQuantity - item.filledQuantity;
+    const quantity =
+      Number(item.orderQuantity ?? 0) - Number(item.filledQuantity ?? 0);
     const enhancementLevel = item.enhancementLevel;
-    const marketPrices = marketAPIJson.marketData[item.itemHrid];
-    if (!marketPrices) {
-      console.log(
-        "calculateNetworth cannot get marketPrices of " + item.itemHrid,
-      );
-      continue;
-    }
-    let askPrice = marketPrices[0]?.a ?? 0;
-    let bidPrice = marketPrices[0]?.b ?? 0;
+    let askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
+    let bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
+    const fairValue = runtime.api.getFairValue(item.itemHrid, enhancementLevel);
     if (item.isSell) {
-      if (item.itemHrid === "/items/bag_of_10_cowbells") {
-        askPrice *= 1 - 18 / 100;
-        bidPrice *= 1 - 18 / 100;
-      } else {
-        askPrice *= 1 - 2 / 100;
-        bidPrice *= 1 - 2 / 100;
-      }
-      if (!enhancementLevel || enhancementLevel <= 1) {
-        marketListingsNetworthAsk += quantity * (askPrice > 0 ? askPrice : 0);
-        marketListingsNetworthBid += quantity * (bidPrice > 0 ? bidPrice : 0);
-      } else {
-        runtime.state.input_data.item_hrid = item.itemHrid;
-        runtime.state.input_data.stop_at = enhancementLevel;
-        const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-          runtime.state.input_data,
-        );
-        let totalCost = best?.totalCost;
-        totalCost = totalCost ? Math.round(totalCost) : 0;
-        marketListingsNetworthAsk += quantity * (totalCost > 0 ? totalCost : 0);
-        marketListingsNetworthBid += quantity * (totalCost > 0 ? totalCost : 0);
-      }
-      marketListingsNetworthAsk += item.unclaimedCoinCount;
-      marketListingsNetworthBid += item.unclaimedCoinCount;
+      const taxMultiplier = 1 - runtime.api.getMarketTaxRate(item.itemHrid);
+      askPrice *= taxMultiplier;
+      bidPrice *= taxMultiplier;
+      marketListingsNetworthAsk += quantity * askPrice;
+      marketListingsNetworthBid += quantity * bidPrice;
+      marketListingsFairValue += quantity * fairValue;
+      marketListingsNetworthAsk += Number(item.unclaimedCoinCount ?? 0);
+      marketListingsNetworthBid += Number(item.unclaimedCoinCount ?? 0);
+      marketListingsFairValue += Number(item.unclaimedCoinCount ?? 0);
     } else {
-      marketListingsNetworthAsk += quantity * item.price;
-      marketListingsNetworthBid += quantity * item.price;
+      marketListingsNetworthAsk += quantity * Number(item.price ?? 0);
+      marketListingsNetworthBid += quantity * Number(item.price ?? 0);
       marketListingsNetworthAsk +=
-        item.unclaimedItemCount * (askPrice > 0 ? askPrice : 0);
+        Number(item.unclaimedItemCount ?? 0) * (askPrice > 0 ? askPrice : 0);
       marketListingsNetworthBid +=
-        item.unclaimedItemCount * (bidPrice > 0 ? bidPrice : 0);
+        Number(item.unclaimedItemCount ?? 0) * (bidPrice > 0 ? bidPrice : 0);
+      marketListingsFairValue += quantity * Number(item.price ?? 0);
+      marketListingsFairValue +=
+        Number(item.unclaimedItemCount ?? 0) * fairValue;
     }
   }
 
@@ -103,6 +84,8 @@ async function calculateNetworth() {
     equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
   networthBid =
     equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
+  const currentAssetsFairValue =
+    equippedFairValue + inventoryFairValue + marketListingsFairValue;
 
   /* 仓库搜索栏下方显示人物总结 */
   // Some code of networth summery is by Stella.
@@ -113,19 +96,23 @@ async function calculateNetworth() {
       abilityScore,
       allAbilityScore,
       equipmentScore,
-    ] = await runtime.api.getSelfBuildScores(
-      equippedNetworthAsk * 0.5 + equippedNetworthBid * 0.5,
-    );
+    ] = await runtime.api.getSelfBuildScores(equippedFairValue);
     const totalScore = battleHouseScore + abilityScore + equipmentScore;
     const totalHouseScore = battleHouseScore + nonBattleHouseScore;
     const totalNetworth =
-      networthAsk * 0.5 +
-      networthBid * 0.5 +
-      (totalHouseScore + allAbilityScore) * 1000000;
+      currentAssetsFairValue + (totalHouseScore + allAbilityScore) * 1000000;
+
+    const previousSummary = invElem.parentElement?.querySelector(
+      "#script_inventory_summary",
+    );
+    const wasNetworthOpen =
+      previousSummary?.querySelector("#netWorthDetails")?.style.display ===
+      "block";
+    previousSummary?.remove();
 
     invElem.insertAdjacentHTML(
       "beforebegin",
-      `<div style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
+      `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                 <!-- 战力打造分 -->
                 <div style="cursor: pointer; font-weight: bold" id="toggleScores">${
                   runtime.config.isZH
@@ -149,9 +136,9 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
                     </div>
                     <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${runtime.api.numberFormatter(equippedNetworthAsk)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${runtime.api.numberFormatter(inventoryNetworthAsk)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${runtime.api.numberFormatter(marketListingsNetworthAsk)}</div>
+                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${runtime.api.numberFormatter(equippedFairValue)}</div>
+                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${runtime.api.numberFormatter(inventoryFairValue)}</div>
+                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${runtime.api.numberFormatter(marketListingsFairValue)}</div>
                     </div>
 
                     <!-- 非流动资产 -->
@@ -167,16 +154,25 @@ async function calculateNetworth() {
     );
 
     // 监听点击事件，控制折叠和展开
-    const toggleScores = document.getElementById("toggleScores");
-    const ScoreDetails = document.getElementById("buildScores");
-    const toggleButton = document.getElementById("toggleNetWorth");
-    const netWorthDetails = document.getElementById("netWorthDetails");
-    const toggleCurrentAssets = document.getElementById("toggleCurrentAssets");
-    const currentAssets = document.getElementById("currentAssets");
-    const toggleNonCurrentAssets = document.getElementById(
-      "toggleNonCurrentAssets",
+    const summary = invElem.parentElement.querySelector(
+      "#script_inventory_summary",
     );
-    const nonCurrentAssets = document.getElementById("nonCurrentAssets");
+    const toggleScores = summary.querySelector("#toggleScores");
+    const ScoreDetails = summary.querySelector("#buildScores");
+    const toggleButton = summary.querySelector("#toggleNetWorth");
+    const netWorthDetails = summary.querySelector("#netWorthDetails");
+    const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
+    const currentAssets = summary.querySelector("#currentAssets");
+    const toggleNonCurrentAssets = summary.querySelector(
+      "#toggleNonCurrentAssets",
+    );
+    const nonCurrentAssets = summary.querySelector("#nonCurrentAssets");
+
+    if (wasNetworthOpen) {
+      netWorthDetails.style.display = "block";
+      currentAssets.style.display = "block";
+      nonCurrentAssets.style.display = "block";
+    }
 
     toggleScores.addEventListener("click", () => {
       const isCollapsed = ScoreDetails.style.display === "none";
@@ -224,16 +220,16 @@ async function calculateNetworth() {
   const waitForHeader = () => {
     const targetNode = document.querySelector("div.Header_totalLevel__8LY3Q");
     if (targetNode) {
-      targetNode.insertAdjacentHTML(
-        "afterend",
-        `<div style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${runtime.api.numberFormatter(
-          networthAsk,
-        )} / ${runtime.api.numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
-          runtime.config.isZH
-            ? "无法从API更新市场数据"
-            : "Can't update market prices"
-        }</div>`}</div>`,
-      );
+      const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${runtime.api.numberFormatter(
+        currentAssetsFairValue,
+      )} (Ask/Bid: ${runtime.api.numberFormatter(networthAsk)} / ${runtime.api.numberFormatter(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
+        runtime.config.isZH
+          ? "无法从API更新市场数据"
+          : "Can't update market prices"
+      }</div>`}</div>`;
+      const currentHeader = document.querySelector("#script_current_assets");
+      if (currentHeader) currentHeader.outerHTML = headerHTML;
+      else targetNode.insertAdjacentHTML("afterend", headerHTML);
 
       const alertDiv = document.querySelector("div#script_api_fail_alert");
       if (alertDiv) {
@@ -252,18 +248,20 @@ async function calculateNetworth() {
         }
       }
 
-      document.body.insertAdjacentHTML(
-        "beforeend",
-        `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`,
-      );
+      if (!document.querySelector("#script_api_fail_popout")) {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`,
+        );
+      }
 
       const popout = document.querySelector("#script_api_fail_popout");
       if (popout) {
-        popout.addEventListener("click", function () {
+        popout.onclick = function () {
           const popout = document.querySelector("#script_api_fail_popout");
           popout.style.display =
             popout.style.display === "block" ? "none" : "block";
-        });
+        };
       }
     } else {
       setTimeout(waitForHeader, 200);
@@ -280,14 +278,12 @@ async function calculateNetworth() {
     }
   }
 
-  const waitForInv = () => {
+  const renderInventoryPanels = () => {
     const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
     for (const node of targetNodes) {
       if (runtime.settings.settingsMap.invWorth.isTrue) {
-        if (!node.classList.contains("script_buildScore_added")) {
-          node.classList.add("script_buildScore_added");
-          addInventorySummery(node);
-        }
+        node.classList.add("script_buildScore_added");
+        addInventorySummery(node);
       }
       if (runtime.settings.settingsMap.invSort.isTrue) {
         if (!node.classList.contains("script_invSort_added")) {
@@ -296,9 +292,20 @@ async function calculateNetworth() {
         }
       }
     }
-    setTimeout(waitForInv, 1000);
   };
-  waitForInv();
+  renderInventoryPanels();
+
+  if (!networthWatcherStarted) {
+    networthWatcherStarted = true;
+    const waitForInv = () => {
+      const hasNewPanel = [
+        ...document.querySelectorAll("div.Inventory_items__6SXv0"),
+      ].some((node) => !node.classList.contains("script_buildScore_added"));
+      if (hasNewPanel) scheduleNetworthRefresh();
+      setTimeout(waitForInv, 1000);
+    };
+    waitForInv();
+  }
 
   const waitGuildCreditConversionsSelect = () => {
     if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
@@ -306,7 +313,10 @@ async function calculateNetworth() {
 
     setTimeout(waitGuildCreditConversionsSelect, 1000);
   };
-  waitGuildCreditConversionsSelect();
+  if (!guildCreditWatcherStarted) {
+    guildCreditWatcherStarted = true;
+    waitGuildCreditConversionsSelect();
+  }
 }
 
 /* 仓库物品排序 */
@@ -318,6 +328,11 @@ async function addInvSortButton(invElem) {
     return;
   }
 
+  const fairButton = `<button
+        id="script_sortByFair_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "市场价值" : "Market Value"}
+        </button>`;
   const askButton = `<button
         id="script_sortByAsk_btn"
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
@@ -335,9 +350,14 @@ async function addInvSortButton(invElem) {
         </button>`;
   const buttonsDiv = `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     runtime.config.isZH ? "物品排序：" : "Sort items by: "
-  }${askButton} ${bidButton} ${noneButton}</div>`;
+  }${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
   invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
 
+  invElem.parentElement
+    .querySelector("button#script_sortByFair_btn")
+    .addEventListener("click", function () {
+      sortItemsBy("fair");
+    });
   invElem.parentElement
     .querySelector("button#script_sortByAsk_btn")
     .addEventListener("click", function (e) {
@@ -376,12 +396,7 @@ async function addInvSortButton(invElem) {
         }
         const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
         let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
-        itemCount = Number(
-          itemCount
-            .toLowerCase()
-            .replaceAll("k", "000")
-            .replaceAll("m", "000000"),
-        );
+        itemCount = runtime.api.parseCompactNumber(itemCount);
         let askPrice = 0;
         if (
           price_data.marketData[itemHrid] &&
@@ -396,6 +411,7 @@ async function addInvSortButton(invElem) {
           bidPrice = price_data.marketData[itemHrid][0].b;
         const itemAskmWorth = askPrice * itemCount;
         const itemBidWorth = bidPrice * itemCount;
+        const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
 
         // 价格角标
         if (!itemElem.querySelector("#script_stack_price")) {
@@ -411,7 +427,10 @@ async function addInvSortButton(invElem) {
         const priceElem = itemElem.querySelector("#script_stack_price");
 
         // 排序
-        if (order === "ask") {
+        if (order === "fair") {
+          itemElem.style.order = -itemFairWorth;
+          priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
+        } else if (order === "ask") {
           itemElem.style.order = -itemAskmWorth;
           priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
         } else if (order === "bid") {
@@ -590,12 +609,7 @@ async function addGuildCreditConversionsSortButton() {
         if (priceElem) priceElem.remove();
         return;
       }
-      itemCount = Number(
-        itemCount
-          .toLowerCase()
-          .replaceAll("k", "000")
-          .replaceAll("m", "000000"),
-      );
+      itemCount = runtime.api.parseCompactNumber(itemCount);
       let askPrice = 0;
       if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
         askPrice = price_data.marketData[itemHrid][0].a;
@@ -721,6 +735,7 @@ async function addGuildCreditConversionsSortButton() {
 
 Object.assign(runtime.api, {
   calculateNetworth,
+  scheduleNetworthRefresh,
   addInvSortButton,
   addGuildCreditConversionsSortButton,
 });

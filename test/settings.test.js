@@ -35,3 +35,34 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(runtime.config.SCRIPT_COLOR_TOOLTIP, "#804600");
   assert.equal(runtime.settings.settingsMap.totalActionTime.isTrue, true);
 });
+
+test("market autofill selects semantic plus and minus buttons", () => {
+  runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
+  document.body.innerHTML = `
+    <div id="market-order">
+      <div class="MarketplacePanel_header__yahJo">Limit Order</div>
+      <div id="best-label">Best Buy <span class="MarketplacePanel_bestPrice__3bgKp">Best</span></div>
+      <div class="MarketplacePanel_inputContainer__3xmB2">
+        <div class="MarketplacePanel_priceInputs__3iWxy">
+          <div class="MarketplacePanel_buttonContainer__vJQud"><button>Min</button></div>
+          <div class="MarketplacePanel_buttonContainer__vJQud"><button id="minus">−</button></div>
+          <div class="MarketplacePanel_buttonContainer__vJQud"><button id="plus">+</button></div>
+          <div class="MarketplacePanel_buttonContainer__vJQud"><button>Max</button></div>
+        </div>
+      </div>
+    </div>`;
+  const order = document.querySelector("#market-order");
+  let plusClicks = 0;
+  let minusClicks = 0;
+  document.querySelector("#plus").addEventListener("click", () => plusClicks++);
+  document
+    .querySelector("#minus")
+    .addEventListener("click", () => minusClicks++);
+
+  runtime.api.handleMarketNewOrder(order);
+  document.querySelector("#best-label").firstChild.textContent = "Best Sell ";
+  runtime.api.handleMarketNewOrder(order);
+
+  assert.equal(plusClicks, 1);
+  assert.equal(minusClicks, 1);
+});

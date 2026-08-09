@@ -42,6 +42,7 @@ export default [
         Notification: "readonly",
         setInterval: "readonly",
         clearInterval: "readonly",
+        clearTimeout: "readonly",
         setTimeout: "readonly",
         URL: "readonly",
         WebSocket: "readonly",

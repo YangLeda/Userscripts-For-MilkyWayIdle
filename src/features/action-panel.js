@@ -330,11 +330,12 @@ async function handleActionPanel(panel) {
     // 将掉落表看作每次动作掉落一件虚拟物品
     const dropTable =
       runtime.state.initData_actionDetailMap[actionHrid].dropTable;
-    let virtualItemBid = 0;
+    let virtualItemNetBid = 0;
     for (const drop of dropTable) {
       const bid = marketJson?.marketData[drop.itemHrid]?.[0].b;
       const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
-      virtualItemBid += bid * amount;
+      virtualItemNetBid +=
+        bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
     }
     let droprate = 1;
     let itemPerHour = actionPerHour * droprate;
@@ -376,7 +377,7 @@ async function handleActionPanel(panel) {
     const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
 
     // 出售市场税
-    const bidAfterTax = virtualItemBid * 0.98;
+    const bidAfterTax = virtualItemNetBid;
 
     // 每小时利润
     const profitPerHour =

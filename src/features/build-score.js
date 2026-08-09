@@ -69,7 +69,7 @@ async function getSelfBuildScores(equippedNetworth) {
 // 计算单个房子完整造价
 async function getHouseFullBuildPrice(house) {
   const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson) {
+  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     return 0;
   }
   const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
@@ -81,9 +81,9 @@ async function getHouseFullBuildPrice(house) {
   let cost = 0;
   for (let i = 1; i <= level; i++) {
     for (const item of upgradeCostsMap[i]) {
-      const marketPrices = marketAPIJson.marketData[item.itemHrid];
-      if (marketPrices && marketPrices[0]) {
-        cost += item.count * getWeightedMarketPrice(marketPrices);
+      const fairValue = runtime.api.getFairValue(item.itemHrid, 0);
+      if (fairValue > 0) {
+        cost += item.count * fairValue;
       } else {
         console.log(
           "getHouseFullBuildPrice cannot find price of " + item.itemHrid,
@@ -110,7 +110,7 @@ function getWeightedMarketPrice(marketPrices, ratio = 0.5) {
 // 技能价格计算
 async function calculateAbilityScore(isAll = false) {
   const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson) {
+  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     return 0;
   }
   let exp_50_skill = [
@@ -142,9 +142,9 @@ async function calculateAbilityScore(isAll = false) {
       numBooks = getNeedBooksToLevel(item.level, 500);
     }
     const itemHrid = item.abilityHrid.replace("/abilities/", "/items/");
-    const marketPrices = marketAPIJson.marketData[itemHrid];
-    if (marketPrices && marketPrices[0]) {
-      price += numBooks * getWeightedMarketPrice(marketPrices);
+    const fairValue = runtime.api.getFairValue(itemHrid, 0);
+    if (fairValue > 0) {
+      price += numBooks * fairValue;
     } else {
       console.log("calculateAbilityScore cannot find price of " + itemHrid);
     }
@@ -268,7 +268,7 @@ async function getBuildScoreByProfile(profile_shared_obj) {
 // 技能价格计算
 async function calculateSkill(profile_shared_obj) {
   const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson) {
+  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     return 0;
   }
   let obj = profile_shared_obj.profile;
@@ -298,9 +298,9 @@ async function calculateSkill(profile_shared_obj) {
       numBooks = getNeedBooksToLevel(item.level, 500);
     }
     const itemHrid = item.abilityHrid.replace("/abilities/", "/items/");
-    const marketPrices = marketAPIJson.marketData[itemHrid];
-    if (marketPrices && marketPrices[0]) {
-      price += numBooks * getWeightedMarketPrice(marketPrices);
+    const fairValue = runtime.api.getFairValue(itemHrid, 0);
+    if (fairValue > 0) {
+      price += numBooks * fairValue;
     } else {
       console.log("calculateSkill cannot find price of " + itemHrid);
     }
@@ -313,40 +313,25 @@ async function calculateSkill(profile_shared_obj) {
 // 装备价格计算
 async function calculateEquipment(profile_shared_obj) {
   const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson) {
+  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     return 0;
   }
   let obj = profile_shared_obj.profile;
   // 装备净值
-  let networthAsk = 0;
-  let networthBid = 0;
+  let networth = 0;
   for (const key in obj.wearableItemMap) {
-    let item = obj.wearableItemMap[key];
+    const item = obj.wearableItemMap[key];
     const enhanceLevel = obj.wearableItemMap[key].enhancementLevel;
     const itemHrid = obj.wearableItemMap[key].itemHrid;
-    const marketPrices = marketAPIJson.marketData[itemHrid];
-
-    if (enhanceLevel && enhanceLevel > 1) {
-      runtime.state.input_data.item_hrid = item.itemHrid;
-      runtime.state.input_data.stop_at = enhanceLevel;
-      const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-        runtime.state.input_data,
-      );
-      let totalCost = best?.totalCost;
-      totalCost = totalCost ? Math.round(totalCost) : 0;
-      networthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-      networthBid += item.count * (totalCost > 0 ? totalCost : 0);
-    } else if (marketPrices && marketPrices[0]) {
-      networthAsk +=
-        item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-      networthBid +=
-        item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
+    const fairValue = runtime.api.getFairValue(itemHrid, enhanceLevel);
+    if (fairValue > 0) {
+      networth += item.count * fairValue;
     } else {
       console.log("calculateEquipment cannot find price of " + itemHrid);
     }
   }
 
-  return (networthAsk * 0.5 + networthBid * 0.5) / 1000000;
+  return networth / 1000000;
 }
 
 Object.assign(runtime.api, {

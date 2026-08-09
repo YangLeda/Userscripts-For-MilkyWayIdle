@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      25.15
+// @version      26.0
 // @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -45,6 +45,492 @@
     报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
 */
 (() => {
+  var __create = Object.create;
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getProtoOf = Object.getPrototypeOf;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __commonJS = (cb, mod) => function __require() {
+    try {
+      return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
+    } catch (e) {
+      throw mod = 0, e;
+    }
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
+
+  // node_modules/lz-string/libs/lz-string.js
+  var require_lz_string = __commonJS({
+    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
+      var LZString2 = (function() {
+        var f = String.fromCharCode;
+        var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+        var keyStrUriSafe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-$";
+        var baseReverseDic = {};
+        function getBaseValue(alphabet, character) {
+          if (!baseReverseDic[alphabet]) {
+            baseReverseDic[alphabet] = {};
+            for (var i = 0; i < alphabet.length; i++) {
+              baseReverseDic[alphabet][alphabet.charAt(i)] = i;
+            }
+          }
+          return baseReverseDic[alphabet][character];
+        }
+        var LZString3 = {
+          compressToBase64: function(input) {
+            if (input == null) return "";
+            var res = LZString3._compress(input, 6, function(a) {
+              return keyStrBase64.charAt(a);
+            });
+            switch (res.length % 4) {
+              // To produce valid Base64
+              default:
+              // When could this happen ?
+              case 0:
+                return res;
+              case 1:
+                return res + "===";
+              case 2:
+                return res + "==";
+              case 3:
+                return res + "=";
+            }
+          },
+          decompressFromBase64: function(input) {
+            if (input == null) return "";
+            if (input == "") return null;
+            return LZString3._decompress(input.length, 32, function(index) {
+              return getBaseValue(keyStrBase64, input.charAt(index));
+            });
+          },
+          compressToUTF16: function(input) {
+            if (input == null) return "";
+            return LZString3._compress(input, 15, function(a) {
+              return f(a + 32);
+            }) + " ";
+          },
+          decompressFromUTF16: function(compressed) {
+            if (compressed == null) return "";
+            if (compressed == "") return null;
+            return LZString3._decompress(compressed.length, 16384, function(index) {
+              return compressed.charCodeAt(index) - 32;
+            });
+          },
+          //compress into uint8array (UCS-2 big endian format)
+          compressToUint8Array: function(uncompressed) {
+            var compressed = LZString3.compress(uncompressed);
+            var buf = new Uint8Array(compressed.length * 2);
+            for (var i = 0, TotalLen = compressed.length; i < TotalLen; i++) {
+              var current_value = compressed.charCodeAt(i);
+              buf[i * 2] = current_value >>> 8;
+              buf[i * 2 + 1] = current_value % 256;
+            }
+            return buf;
+          },
+          //decompress from uint8array (UCS-2 big endian format)
+          decompressFromUint8Array: function(compressed) {
+            if (compressed === null || compressed === void 0) {
+              return LZString3.decompress(compressed);
+            } else {
+              var buf = new Array(compressed.length / 2);
+              for (var i = 0, TotalLen = buf.length; i < TotalLen; i++) {
+                buf[i] = compressed[i * 2] * 256 + compressed[i * 2 + 1];
+              }
+              var result = [];
+              buf.forEach(function(c) {
+                result.push(f(c));
+              });
+              return LZString3.decompress(result.join(""));
+            }
+          },
+          //compress into a string that is already URI encoded
+          compressToEncodedURIComponent: function(input) {
+            if (input == null) return "";
+            return LZString3._compress(input, 6, function(a) {
+              return keyStrUriSafe.charAt(a);
+            });
+          },
+          //decompress from an output of compressToEncodedURIComponent
+          decompressFromEncodedURIComponent: function(input) {
+            if (input == null) return "";
+            if (input == "") return null;
+            input = input.replace(/ /g, "+");
+            return LZString3._decompress(input.length, 32, function(index) {
+              return getBaseValue(keyStrUriSafe, input.charAt(index));
+            });
+          },
+          compress: function(uncompressed) {
+            return LZString3._compress(uncompressed, 16, function(a) {
+              return f(a);
+            });
+          },
+          _compress: function(uncompressed, bitsPerChar, getCharFromInt) {
+            if (uncompressed == null) return "";
+            var i, value, context_dictionary = {}, context_dictionaryToCreate = {}, context_c = "", context_wc = "", context_w = "", context_enlargeIn = 2, context_dictSize = 3, context_numBits = 2, context_data = [], context_data_val = 0, context_data_position = 0, ii;
+            for (ii = 0; ii < uncompressed.length; ii += 1) {
+              context_c = uncompressed.charAt(ii);
+              if (!Object.prototype.hasOwnProperty.call(context_dictionary, context_c)) {
+                context_dictionary[context_c] = context_dictSize++;
+                context_dictionaryToCreate[context_c] = true;
+              }
+              context_wc = context_w + context_c;
+              if (Object.prototype.hasOwnProperty.call(context_dictionary, context_wc)) {
+                context_w = context_wc;
+              } else {
+                if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
+                  if (context_w.charCodeAt(0) < 256) {
+                    for (i = 0; i < context_numBits; i++) {
+                      context_data_val = context_data_val << 1;
+                      if (context_data_position == bitsPerChar - 1) {
+                        context_data_position = 0;
+                        context_data.push(getCharFromInt(context_data_val));
+                        context_data_val = 0;
+                      } else {
+                        context_data_position++;
+                      }
+                    }
+                    value = context_w.charCodeAt(0);
+                    for (i = 0; i < 8; i++) {
+                      context_data_val = context_data_val << 1 | value & 1;
+                      if (context_data_position == bitsPerChar - 1) {
+                        context_data_position = 0;
+                        context_data.push(getCharFromInt(context_data_val));
+                        context_data_val = 0;
+                      } else {
+                        context_data_position++;
+                      }
+                      value = value >> 1;
+                    }
+                  } else {
+                    value = 1;
+                    for (i = 0; i < context_numBits; i++) {
+                      context_data_val = context_data_val << 1 | value;
+                      if (context_data_position == bitsPerChar - 1) {
+                        context_data_position = 0;
+                        context_data.push(getCharFromInt(context_data_val));
+                        context_data_val = 0;
+                      } else {
+                        context_data_position++;
+                      }
+                      value = 0;
+                    }
+                    value = context_w.charCodeAt(0);
+                    for (i = 0; i < 16; i++) {
+                      context_data_val = context_data_val << 1 | value & 1;
+                      if (context_data_position == bitsPerChar - 1) {
+                        context_data_position = 0;
+                        context_data.push(getCharFromInt(context_data_val));
+                        context_data_val = 0;
+                      } else {
+                        context_data_position++;
+                      }
+                      value = value >> 1;
+                    }
+                  }
+                  context_enlargeIn--;
+                  if (context_enlargeIn == 0) {
+                    context_enlargeIn = Math.pow(2, context_numBits);
+                    context_numBits++;
+                  }
+                  delete context_dictionaryToCreate[context_w];
+                } else {
+                  value = context_dictionary[context_w];
+                  for (i = 0; i < context_numBits; i++) {
+                    context_data_val = context_data_val << 1 | value & 1;
+                    if (context_data_position == bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = value >> 1;
+                  }
+                }
+                context_enlargeIn--;
+                if (context_enlargeIn == 0) {
+                  context_enlargeIn = Math.pow(2, context_numBits);
+                  context_numBits++;
+                }
+                context_dictionary[context_wc] = context_dictSize++;
+                context_w = String(context_c);
+              }
+            }
+            if (context_w !== "") {
+              if (Object.prototype.hasOwnProperty.call(context_dictionaryToCreate, context_w)) {
+                if (context_w.charCodeAt(0) < 256) {
+                  for (i = 0; i < context_numBits; i++) {
+                    context_data_val = context_data_val << 1;
+                    if (context_data_position == bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                  }
+                  value = context_w.charCodeAt(0);
+                  for (i = 0; i < 8; i++) {
+                    context_data_val = context_data_val << 1 | value & 1;
+                    if (context_data_position == bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = value >> 1;
+                  }
+                } else {
+                  value = 1;
+                  for (i = 0; i < context_numBits; i++) {
+                    context_data_val = context_data_val << 1 | value;
+                    if (context_data_position == bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = 0;
+                  }
+                  value = context_w.charCodeAt(0);
+                  for (i = 0; i < 16; i++) {
+                    context_data_val = context_data_val << 1 | value & 1;
+                    if (context_data_position == bitsPerChar - 1) {
+                      context_data_position = 0;
+                      context_data.push(getCharFromInt(context_data_val));
+                      context_data_val = 0;
+                    } else {
+                      context_data_position++;
+                    }
+                    value = value >> 1;
+                  }
+                }
+                context_enlargeIn--;
+                if (context_enlargeIn == 0) {
+                  context_enlargeIn = Math.pow(2, context_numBits);
+                  context_numBits++;
+                }
+                delete context_dictionaryToCreate[context_w];
+              } else {
+                value = context_dictionary[context_w];
+                for (i = 0; i < context_numBits; i++) {
+                  context_data_val = context_data_val << 1 | value & 1;
+                  if (context_data_position == bitsPerChar - 1) {
+                    context_data_position = 0;
+                    context_data.push(getCharFromInt(context_data_val));
+                    context_data_val = 0;
+                  } else {
+                    context_data_position++;
+                  }
+                  value = value >> 1;
+                }
+              }
+              context_enlargeIn--;
+              if (context_enlargeIn == 0) {
+                context_enlargeIn = Math.pow(2, context_numBits);
+                context_numBits++;
+              }
+            }
+            value = 2;
+            for (i = 0; i < context_numBits; i++) {
+              context_data_val = context_data_val << 1 | value & 1;
+              if (context_data_position == bitsPerChar - 1) {
+                context_data_position = 0;
+                context_data.push(getCharFromInt(context_data_val));
+                context_data_val = 0;
+              } else {
+                context_data_position++;
+              }
+              value = value >> 1;
+            }
+            while (true) {
+              context_data_val = context_data_val << 1;
+              if (context_data_position == bitsPerChar - 1) {
+                context_data.push(getCharFromInt(context_data_val));
+                break;
+              } else context_data_position++;
+            }
+            return context_data.join("");
+          },
+          decompress: function(compressed) {
+            if (compressed == null) return "";
+            if (compressed == "") return null;
+            return LZString3._decompress(compressed.length, 32768, function(index) {
+              return compressed.charCodeAt(index);
+            });
+          },
+          _decompress: function(length, resetValue, getNextValue) {
+            var dictionary = [], next, enlargeIn = 4, dictSize = 4, numBits = 3, entry = "", result = [], i, w, bits, resb, maxpower, power, c, data = { val: getNextValue(0), position: resetValue, index: 1 };
+            for (i = 0; i < 3; i += 1) {
+              dictionary[i] = i;
+            }
+            bits = 0;
+            maxpower = Math.pow(2, 2);
+            power = 1;
+            while (power != maxpower) {
+              resb = data.val & data.position;
+              data.position >>= 1;
+              if (data.position == 0) {
+                data.position = resetValue;
+                data.val = getNextValue(data.index++);
+              }
+              bits |= (resb > 0 ? 1 : 0) * power;
+              power <<= 1;
+            }
+            switch (next = bits) {
+              case 0:
+                bits = 0;
+                maxpower = Math.pow(2, 8);
+                power = 1;
+                while (power != maxpower) {
+                  resb = data.val & data.position;
+                  data.position >>= 1;
+                  if (data.position == 0) {
+                    data.position = resetValue;
+                    data.val = getNextValue(data.index++);
+                  }
+                  bits |= (resb > 0 ? 1 : 0) * power;
+                  power <<= 1;
+                }
+                c = f(bits);
+                break;
+              case 1:
+                bits = 0;
+                maxpower = Math.pow(2, 16);
+                power = 1;
+                while (power != maxpower) {
+                  resb = data.val & data.position;
+                  data.position >>= 1;
+                  if (data.position == 0) {
+                    data.position = resetValue;
+                    data.val = getNextValue(data.index++);
+                  }
+                  bits |= (resb > 0 ? 1 : 0) * power;
+                  power <<= 1;
+                }
+                c = f(bits);
+                break;
+              case 2:
+                return "";
+            }
+            dictionary[3] = c;
+            w = c;
+            result.push(c);
+            while (true) {
+              if (data.index > length) {
+                return "";
+              }
+              bits = 0;
+              maxpower = Math.pow(2, numBits);
+              power = 1;
+              while (power != maxpower) {
+                resb = data.val & data.position;
+                data.position >>= 1;
+                if (data.position == 0) {
+                  data.position = resetValue;
+                  data.val = getNextValue(data.index++);
+                }
+                bits |= (resb > 0 ? 1 : 0) * power;
+                power <<= 1;
+              }
+              switch (c = bits) {
+                case 0:
+                  bits = 0;
+                  maxpower = Math.pow(2, 8);
+                  power = 1;
+                  while (power != maxpower) {
+                    resb = data.val & data.position;
+                    data.position >>= 1;
+                    if (data.position == 0) {
+                      data.position = resetValue;
+                      data.val = getNextValue(data.index++);
+                    }
+                    bits |= (resb > 0 ? 1 : 0) * power;
+                    power <<= 1;
+                  }
+                  dictionary[dictSize++] = f(bits);
+                  c = dictSize - 1;
+                  enlargeIn--;
+                  break;
+                case 1:
+                  bits = 0;
+                  maxpower = Math.pow(2, 16);
+                  power = 1;
+                  while (power != maxpower) {
+                    resb = data.val & data.position;
+                    data.position >>= 1;
+                    if (data.position == 0) {
+                      data.position = resetValue;
+                      data.val = getNextValue(data.index++);
+                    }
+                    bits |= (resb > 0 ? 1 : 0) * power;
+                    power <<= 1;
+                  }
+                  dictionary[dictSize++] = f(bits);
+                  c = dictSize - 1;
+                  enlargeIn--;
+                  break;
+                case 2:
+                  return result.join("");
+              }
+              if (enlargeIn == 0) {
+                enlargeIn = Math.pow(2, numBits);
+                numBits++;
+              }
+              if (dictionary[c]) {
+                entry = dictionary[c];
+              } else {
+                if (c === dictSize) {
+                  entry = w + w.charAt(0);
+                } else {
+                  return null;
+                }
+              }
+              result.push(entry);
+              dictionary[dictSize++] = w + entry.charAt(0);
+              enlargeIn--;
+              w = entry;
+              if (enlargeIn == 0) {
+                enlargeIn = Math.pow(2, numBits);
+                numBits++;
+              }
+            }
+          }
+        };
+        return LZString3;
+      })();
+      if (typeof define === "function" && define.amd) {
+        define(function() {
+          return LZString2;
+        });
+      } else if (typeof module !== "undefined" && module != null) {
+        module.exports = LZString2;
+      } else if (typeof angular !== "undefined" && angular != null) {
+        angular.module("LZString", []).factory("LZString", function() {
+          return LZString2;
+        });
+      }
+    }
+  });
+
   // src/core/runtime.js
   var runtime = {
     api: {},
@@ -80,7 +566,6 @@
   var SCRIPT_COLOR_MAIN = "green";
   var SCRIPT_COLOR_TOOLTIP = "darkgreen";
   var SCRIPT_COLOR_ALERT = "red";
-  var MARKET_API_URL = window.location.href.includes("milkywayidle.com") ? "https://www.milkywayidle.com/game_data/marketplace.json" : "https://www.milkywayidlecn.com/game_data/marketplace.json";
   var settingsMap = {
     useOrangeAsMainColor: {
       id: "useOrangeAsMainColor",
@@ -114,7 +599,7 @@
     },
     networth: {
       id: "networth",
-      desc: isZH ? "右上角显示：流动资产(+2及以上物品按强化模拟成本计算)" : "Top right: Current assets (Items with at least 2 enhancement levels are valued by enchancing simulator).",
+      desc: isZH ? "右上角显示：按服务器市场价值计算的流动资产" : "Top right: Current assets valued with server market values.",
       isTrue: true
     },
     invWorth: {
@@ -139,7 +624,7 @@
     },
     itemTooltip_prices: {
       id: "itemTooltip_prices",
-      desc: isZH ? "物品悬浮窗显示：24小时市场均价" : "Item tooltip: 24 hours average market price.",
+      desc: isZH ? "物品悬浮窗显示：服务器市场价值和订单簿价格" : "Item tooltip: Server market value and orderbook prices.",
       isTrue: true
     },
     itemTooltip_profit: {
@@ -303,7 +788,7 @@
     MARKET_API_URL: {
       enumerable: true,
       get() {
-        return MARKET_API_URL;
+        return runtime.api.getMarketApiUrl?.() ?? "";
       }
     }
   });
@@ -16472,6 +16957,11 @@
   var initData_abilityDetailMap = null;
   var initData_characterAbilities = null;
   var initData_myMarketListings = null;
+  var marketApiJson = null;
+  var marketValuesVersion = null;
+  var marketItemValues = {};
+  var marketOrderBooks = {};
+  var marketPriceBands = {};
   var currentActionsHridList = [];
   var currentEquipmentMap = {};
   Object.defineProperties(runtime.data, {
@@ -16609,6 +17099,45 @@
         initData_myMarketListings = value;
       }
     },
+    marketApiJson: {
+      enumerable: true,
+      get() {
+        return marketApiJson;
+      },
+      set(value) {
+        marketApiJson = value;
+      }
+    },
+    marketValuesVersion: {
+      enumerable: true,
+      get() {
+        return marketValuesVersion;
+      },
+      set(value) {
+        marketValuesVersion = value;
+      }
+    },
+    marketItemValues: {
+      enumerable: true,
+      get() {
+        return marketItemValues;
+      },
+      set(value) {
+        marketItemValues = value ?? {};
+      }
+    },
+    marketOrderBooks: {
+      enumerable: true,
+      get() {
+        return marketOrderBooks;
+      }
+    },
+    marketPriceBands: {
+      enumerable: true,
+      get() {
+        return marketPriceBands;
+      }
+    },
     currentActionsHridList: {
       enumerable: true,
       get() {
@@ -16629,6 +17158,322 @@
     }
   });
 
+  // src/core/market.js
+  var import_lz_string = __toESM(require_lz_string(), 1);
+  var MARKET_TAX_RATE = 0.05;
+  var COWBELL_TAX_RATE = 0.18;
+  var MARKET_MAX_PRICE = 1e12;
+  var TEST_MARKET_REFRESH_MS = 10 * 60 * 1e3;
+  var PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1e3;
+  function getMarketEnvironment(hostname = globalThis.location?.hostname ?? "") {
+    if (hostname.startsWith("test.")) return "test";
+    if (hostname.endsWith("milkywayidlecn.com")) return "china";
+    return "production";
+  }
+  function getMarketApiUrl(hostname = globalThis.location?.hostname ?? "") {
+    switch (getMarketEnvironment(hostname)) {
+      case "test":
+        return "https://test.milkywayidle.com/game_data/marketplace.json";
+      case "china":
+        return "https://www.milkywayidlecn.com/game_data/marketplace.json";
+      default:
+        return "https://www.milkywayidle.com/game_data/marketplace.json";
+    }
+  }
+  function getMarketRefreshInterval(hostname = globalThis.location?.hostname ?? "") {
+    return getMarketEnvironment(hostname) === "test" ? TEST_MARKET_REFRESH_MS : PRODUCTION_MARKET_REFRESH_MS;
+  }
+  function getLevelValue(map, itemHrid, enhancementLevel = 0) {
+    const itemValues = map?.[itemHrid];
+    if (!itemValues) return null;
+    const value = itemValues[enhancementLevel] ?? itemValues[String(enhancementLevel)];
+    return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
+  }
+  function getMarketRecord(itemHrid, enhancementLevel = 0) {
+    return runtime.state.marketApiJson?.marketData?.[itemHrid]?.[enhancementLevel] ?? runtime.state.marketApiJson?.marketData?.[itemHrid]?.[String(enhancementLevel)] ?? null;
+  }
+  function getAskPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getMarketRecord(itemHrid, enhancementLevel)?.a);
+    return price > 0 ? price : 0;
+  }
+  function getBidPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getMarketRecord(itemHrid, enhancementLevel)?.b);
+    return price > 0 ? price : 0;
+  }
+  function getFairValue(itemHrid, enhancementLevel = 0) {
+    const serverValue = getLevelValue(
+      runtime.state.marketItemValues,
+      itemHrid,
+      enhancementLevel
+    );
+    if (serverValue !== null && serverValue > 0) return serverValue;
+    const ask = getAskPrice(itemHrid, enhancementLevel);
+    const bid = getBidPrice(itemHrid, enhancementLevel);
+    if (ask > 0 && bid > 0) return (ask + bid) / 2;
+    return ask || bid || 0;
+  }
+  function getMarketTaxRate(itemHrid) {
+    return itemHrid === "/items/bag_of_10_cowbells" ? COWBELL_TAX_RATE : MARKET_TAX_RATE;
+  }
+  function getNetSellPrice(itemHrid, enhancementLevel = 0) {
+    return getBidPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
+  }
+  function getMarketPriceIncrement(price) {
+    const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
+    const priceText = String(integerPrice);
+    const firstDigit = Number(priceText[0]);
+    const digits = priceText.length;
+    if (firstDigit <= 2 && digits >= 4) return 5 * 10 ** (digits - 4);
+    if (firstDigit <= 4 && digits >= 3) return 10 ** (digits - 3);
+    if (digits >= 3) return 2 * 10 ** (digits - 3);
+    return 1;
+  }
+  function normalizeMarketPrice(price, minimum = 1, maximum = MARKET_MAX_PRICE) {
+    const numericPrice = Math.min(
+      Math.max(Number(price) || minimum, minimum),
+      maximum
+    );
+    const increment = getMarketPriceIncrement(numericPrice);
+    const normalized = Math.round(numericPrice / increment) * increment;
+    return Math.min(Math.max(normalized, minimum), maximum);
+  }
+  function parseCompactNumber(value) {
+    if (typeof value === "number") return value;
+    const normalized = String(value ?? "").trim().toLowerCase().replaceAll(runtime.config.THOUSAND_SEPERATOR || ",", "").replace(runtime.config.DECIMAL_SEPERATOR || ".", ".");
+    const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
+    if (!match) return Number.NaN;
+    const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
+    return Number(match[1]) * (multipliers[match[2]] ?? 1);
+  }
+  function numberFormatter(num, digits = 1) {
+    if (num === null || num === void 0) return null;
+    if (num < 0) return "-" + numberFormatter(-num, digits);
+    const lookup = [
+      { value: 1, symbol: "" },
+      { value: 1e3, symbol: "k" },
+      { value: 1e6, symbol: "M" }
+    ];
+    if (!runtime.settings.settingsMap?.displayCapMM?.isTrue) {
+      lookup.push({ value: 1e9, symbol: "B" }, { value: 1e12, symbol: "T" });
+    }
+    const item = lookup.slice().reverse().find(({ value }) => num >= value);
+    const trimZeros = /\.0+$|(\.[0-9]*[1-9])0+$/;
+    return item ? (num / item.value).toFixed(digits).replace(trimZeros, "$1") + item.symbol : "0";
+  }
+  function getPriceBand(itemHrid, enhancementLevel = 0) {
+    const storedBand = runtime.state.marketPriceBands?.[itemHrid]?.[enhancementLevel];
+    if (storedBand) return storedBand;
+    const fairValue = getFairValue(itemHrid, enhancementLevel);
+    if (!fairValue) return null;
+    return {
+      minimum: normalizeMarketPrice(fairValue * 0.9),
+      maximum: normalizeMarketPrice(fairValue * 1.1)
+    };
+  }
+  function parseStoredMarketItemValues(rawValue) {
+    if (!rawValue) return null;
+    const candidates = [
+      rawValue,
+      import_lz_string.default.decompressFromUTF16(rawValue),
+      import_lz_string.default.decompress(rawValue),
+      import_lz_string.default.decompressFromBase64(rawValue)
+    ];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed?.marketItemValues) return parsed;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function loadMarketItemValuesFromStorage() {
+    let parsed = null;
+    try {
+      parsed = globalThis.localStorageUtil?.getMarketItemValues?.() ?? null;
+    } catch (error) {
+      console.error("Unable to read market values through the game cache", error);
+    }
+    parsed ??= parseStoredMarketItemValues(
+      globalThis.localStorage?.getItem("marketItemValues")
+    );
+    if (!parsed) return false;
+    runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
+    runtime.state.marketItemValues = parsed.marketItemValues;
+    return true;
+  }
+  function validateMarketJsonFetch(jsonValue, isSave = false) {
+    if (!jsonValue) return null;
+    let jsonObj = jsonValue;
+    try {
+      if (typeof jsonValue === "string") jsonObj = JSON.parse(jsonValue);
+    } catch (error) {
+      console.error("validateMarketJson failed to parse JSON:", error.message);
+      return null;
+    }
+    if (!jsonObj?.timestamp || !jsonObj?.marketData) return null;
+    const fixedPrices = {
+      "/items/coin": { a: 1, b: 1 },
+      "/items/task_token": { a: 0, b: 0 },
+      "/items/cowbell": { a: 0, b: 0 },
+      "/items/small_treasure_chest": { a: 0, b: 0 },
+      "/items/medium_treasure_chest": { a: 0, b: 0 },
+      "/items/large_treasure_chest": { a: 0, b: 0 },
+      "/items/basic_task_badge": { a: 0, b: 0 },
+      "/items/advanced_task_badge": { a: 0, b: 0 },
+      "/items/expert_task_badge": { a: 0, b: 0 }
+    };
+    for (const [itemHrid, prices] of Object.entries(fixedPrices)) {
+      jsonObj.marketData[itemHrid] = { 0: prices };
+    }
+    runtime.state.marketApiJson = jsonObj;
+    if (isSave) {
+      localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
+      localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
+    }
+    return jsonObj;
+  }
+  function setMarketFetchFailure(reason) {
+    runtime.state.isUsingExpiredMarketJson = true;
+    runtime.state.reasonForUsingExpiredMarketJson += `${(/* @__PURE__ */ new Date()).toUTCString()} ${reason}
+`;
+    const alert = document.querySelector?.("div#script_api_fail_alert");
+    if (alert) alert.style.display = "block";
+  }
+  function requestMarketJson() {
+    const sendRequest = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
+    if (!sendRequest) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (response) => {
+        if (settled) return;
+        settled = true;
+        resolve(response);
+      };
+      const options = {
+        url: getMarketApiUrl(),
+        method: "GET",
+        timeout: 5e3,
+        onload: finish,
+        onabort: () => finish(null),
+        onerror: () => finish(null),
+        ontimeout: () => finish(null)
+      };
+      try {
+        const result = sendRequest(options);
+        if (result?.then) result.then(finish).catch(() => finish(null));
+      } catch (error) {
+        console.error("fetchMarketJSON request failed", error);
+        finish(null);
+      }
+    });
+  }
+  async function fetchMarketJSON(forceFetch = false) {
+    const cacheTimestamp = Number(
+      localStorage.getItem("MWITools_marketAPI_timestamp")
+    );
+    const cachedJson = localStorage.getItem("MWITools_marketAPI_json");
+    if (!forceFetch && cachedJson && cacheTimestamp && Date.now() - cacheTimestamp < getMarketRefreshInterval()) {
+      return validateMarketJsonFetch(cachedJson, false);
+    }
+    const response = await requestMarketJson();
+    const jsonObj = validateMarketJsonFetch(
+      response?.status === 200 ? response.responseText : null,
+      true
+    );
+    if (jsonObj) {
+      runtime.state.isUsingExpiredMarketJson = false;
+      runtime.state.reasonForUsingExpiredMarketJson = "";
+      const alert = document.querySelector?.("div#script_api_fail_alert");
+      if (alert) alert.style.display = "none";
+      return jsonObj;
+    }
+    setMarketFetchFailure("market API fetch failed");
+    if (cachedJson) {
+      const cached = validateMarketJsonFetch(cachedJson, false);
+      if (cached) return cached;
+    }
+    if (getMarketEnvironment() === "test") return null;
+    return validateMarketJsonFetch(runtime.data.MARKET_JSON_LOCAL_BACKUP, false);
+  }
+  function applyMarketItemValues(payload) {
+    if (!payload.marketItemValues) return;
+    runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
+    runtime.state.marketItemValues = payload.marketItemValues;
+  }
+  function applyMarketOrderBooks(payload) {
+    const orderBookPayload = payload.marketItemOrderBooks ?? payload;
+    const itemHrid = orderBookPayload.itemHrid;
+    if (!itemHrid) return;
+    runtime.state.marketOrderBooks[itemHrid] = orderBookPayload.orderBooks ?? {};
+    if (orderBookPayload.marketValues) {
+      runtime.state.marketItemValues[itemHrid] = {
+        ...runtime.state.marketItemValues[itemHrid] ?? {},
+        ...orderBookPayload.marketValues
+      };
+    }
+    const minimums = orderBookPayload.priceBandMins ?? {};
+    const maximums = orderBookPayload.priceBandMaxs ?? {};
+    const levels = /* @__PURE__ */ new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
+    runtime.state.marketPriceBands[itemHrid] ??= {};
+    for (const level of levels) {
+      runtime.state.marketPriceBands[itemHrid][level] = {
+        minimum: Number(minimums[level]) || 0,
+        maximum: Number(maximums[level]) || MARKET_MAX_PRICE
+      };
+    }
+  }
+  function applyMarketListings(payload) {
+    const listings = payload.myMarketListings ?? payload.marketListings ?? payload.endMarketListings ?? payload.listings;
+    if (!Array.isArray(listings)) return;
+    if (payload.myMarketListings || payload.marketListings || payload.listings) {
+      runtime.state.initData_myMarketListings = listings;
+      return;
+    }
+    const current = [...runtime.state.initData_myMarketListings ?? []];
+    for (const listing of listings) {
+      const listingId = listing.id ?? listing.marketListingId;
+      const index = current.findIndex(
+        (candidate) => (candidate.id ?? candidate.marketListingId) === listingId
+      );
+      if (listing.isDone || listing.isCancelled) {
+        if (index >= 0) current.splice(index, 1);
+      } else if (index >= 0) {
+        current[index] = listing;
+      } else {
+        current.push(listing);
+      }
+    }
+    runtime.state.initData_myMarketListings = current;
+  }
+  function getListingWorkingPrice(listing) {
+    return Number(listing?.workingPrice) > 0 ? Number(listing.workingPrice) : Number(listing?.price) || 0;
+  }
+  Object.assign(runtime.api, {
+    getMarketEnvironment,
+    getMarketApiUrl,
+    getMarketRefreshInterval,
+    getAskPrice,
+    getBidPrice,
+    getFairValue,
+    getMarketTaxRate,
+    getNetSellPrice,
+    getMarketPriceIncrement,
+    normalizeMarketPrice,
+    parseCompactNumber,
+    numberFormatter,
+    getPriceBand,
+    parseStoredMarketItemValues,
+    loadMarketItemValuesFromStorage,
+    validateMarketJsonFetch,
+    fetchMarketJSON,
+    applyMarketItemValues,
+    applyMarketOrderBooks,
+    applyMarketListings,
+    getListingWorkingPrice
+  });
+
   // src/core/message-state.js
   function applyClientData(payload) {
     runtime.state.initData_actionDetailMap = payload.actionDetailMap;
@@ -16644,14 +17489,15 @@
   }
   function applyCharacterData(payload) {
     runtime.state.initData_characterSkills = payload.characterSkills;
-    runtime.state.initData_characterItems = payload.characterItems;
+    runtime.state.initData_characterItems = payload.characterItems ?? [];
     runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
     runtime.state.initData_actionTypeDrinkSlotsMap = payload.actionTypeDrinkSlotsMap;
     runtime.state.initData_characterAbilities = payload.characterAbilities;
-    runtime.state.initData_myMarketListings = payload.myMarketListings;
-    runtime.state.initData_combatAbilities = payload.combatUnit.combatAbilities;
-    runtime.state.currentActionsHridList = [...payload.characterActions];
-    for (const item of payload.characterItems) {
+    runtime.state.initData_myMarketListings = payload.myMarketListings ?? [];
+    runtime.state.initData_combatAbilities = payload.combatUnit?.combatAbilities ?? [];
+    runtime.state.currentActionsHridList = [...payload.characterActions ?? []];
+    runtime.state.currentEquipmentMap = {};
+    for (const item of payload.characterItems ?? []) {
       if (item.itemLocationHrid !== "/item_locations/inventory") {
         runtime.state.currentEquipmentMap[item.itemLocationHrid] = item;
       }
@@ -16678,6 +17524,16 @@
   function applyItemsUpdated(payload) {
     if (!payload.endCharacterItems) return;
     for (const item of payload.endCharacterItems) {
+      const existingIndex = runtime.state.initData_characterItems?.findIndex(
+        (current) => item.id != null && current.id === item.id || item.id == null && current.itemHrid === item.itemHrid && current.itemLocationHrid === item.itemLocationHrid && current.enhancementLevel === item.enhancementLevel
+      );
+      if (existingIndex >= 0) {
+        if (item.count === 0)
+          runtime.state.initData_characterItems.splice(existingIndex, 1);
+        else runtime.state.initData_characterItems[existingIndex] = item;
+      } else if (item.count > 0) {
+        runtime.state.initData_characterItems?.push(item);
+      }
       if (item.itemLocationHrid === "/item_locations/inventory") continue;
       runtime.state.currentEquipmentMap[item.itemLocationHrid] = item.count === 0 ? null : item;
     }
@@ -16698,6 +17554,15 @@
         break;
       case "items_updated":
         applyItemsUpdated(payload);
+        break;
+      case "market_item_values_updated":
+        runtime.api.applyMarketItemValues(payload);
+        break;
+      case "market_item_order_books_updated":
+        runtime.api.applyMarketOrderBooks(payload);
+        break;
+      case "market_listings_updated":
+        runtime.api.applyMarketListings(payload);
         break;
     }
   }
@@ -16737,9 +17602,18 @@
   Object.assign(runtime.api, { hookWS, handleMessage });
 
   // src/features/inventory.js
+  var networthWatcherStarted = false;
+  var guildCreditWatcherStarted = false;
+  var networthRefreshTimer = null;
+  function scheduleNetworthRefresh() {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return;
+    clearTimeout(networthRefreshTimer);
+    networthRefreshTimer = setTimeout(() => calculateNetworth(), 100);
+  }
   async function calculateNetworth() {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return;
     const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson) {
+    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       console.error("calculateNetworth marketAPIJson is null");
       return;
     }
@@ -16751,81 +17625,55 @@
     let equippedNetworthBid = 0;
     let inventoryNetworthAsk = 0;
     let inventoryNetworthBid = 0;
+    let marketListingsFairValue = 0;
+    let equippedFairValue = 0;
+    let inventoryFairValue = 0;
     for (const item of runtime.state.initData_characterItems) {
       const enhanceLevel = item.enhancementLevel;
-      const marketPrices = marketAPIJson.marketData[item.itemHrid];
-      if (enhanceLevel && enhanceLevel > 1) {
-        runtime.state.input_data.item_hrid = item.itemHrid;
-        runtime.state.input_data.stop_at = enhanceLevel;
-        const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-          runtime.state.input_data
-        );
-        let totalCost = best?.totalCost;
-        totalCost = totalCost ? Math.round(totalCost) : 0;
-        if (item.itemLocationHrid !== "/item_locations/inventory") {
-          equippedNetworthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-          equippedNetworthBid += item.count * (totalCost > 0 ? totalCost : 0);
-        } else {
-          inventoryNetworthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-          inventoryNetworthBid += item.count * (totalCost > 0 ? totalCost : 0);
-        }
-      } else if (marketPrices && marketPrices[0]) {
-        if (item.itemLocationHrid !== "/item_locations/inventory") {
-          equippedNetworthAsk += item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-          equippedNetworthBid += item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
-        } else {
-          inventoryNetworthAsk += item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-          inventoryNetworthBid += item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
-        }
+      const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
+      const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
+      const fairValue = runtime.api.getFairValue(item.itemHrid, enhanceLevel);
+      if (item.itemLocationHrid !== "/item_locations/inventory") {
+        equippedNetworthAsk += item.count * askPrice;
+        equippedNetworthBid += item.count * bidPrice;
+        equippedFairValue += item.count * fairValue;
       } else {
+        inventoryNetworthAsk += item.count * askPrice;
+        inventoryNetworthBid += item.count * bidPrice;
+        inventoryFairValue += item.count * fairValue;
+      }
+      if (!fairValue && !askPrice && !bidPrice) {
         console.log("calculateNetworth cannot find price of " + item.itemHrid);
       }
     }
     for (const item of runtime.state.initData_myMarketListings) {
-      const quantity = item.orderQuantity - item.filledQuantity;
+      const quantity = Number(item.orderQuantity ?? 0) - Number(item.filledQuantity ?? 0);
       const enhancementLevel = item.enhancementLevel;
-      const marketPrices = marketAPIJson.marketData[item.itemHrid];
-      if (!marketPrices) {
-        console.log(
-          "calculateNetworth cannot get marketPrices of " + item.itemHrid
-        );
-        continue;
-      }
-      let askPrice = marketPrices[0]?.a ?? 0;
-      let bidPrice = marketPrices[0]?.b ?? 0;
+      let askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
+      let bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
+      const fairValue = runtime.api.getFairValue(item.itemHrid, enhancementLevel);
       if (item.isSell) {
-        if (item.itemHrid === "/items/bag_of_10_cowbells") {
-          askPrice *= 1 - 18 / 100;
-          bidPrice *= 1 - 18 / 100;
-        } else {
-          askPrice *= 1 - 2 / 100;
-          bidPrice *= 1 - 2 / 100;
-        }
-        if (!enhancementLevel || enhancementLevel <= 1) {
-          marketListingsNetworthAsk += quantity * (askPrice > 0 ? askPrice : 0);
-          marketListingsNetworthBid += quantity * (bidPrice > 0 ? bidPrice : 0);
-        } else {
-          runtime.state.input_data.item_hrid = item.itemHrid;
-          runtime.state.input_data.stop_at = enhancementLevel;
-          const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-            runtime.state.input_data
-          );
-          let totalCost = best?.totalCost;
-          totalCost = totalCost ? Math.round(totalCost) : 0;
-          marketListingsNetworthAsk += quantity * (totalCost > 0 ? totalCost : 0);
-          marketListingsNetworthBid += quantity * (totalCost > 0 ? totalCost : 0);
-        }
-        marketListingsNetworthAsk += item.unclaimedCoinCount;
-        marketListingsNetworthBid += item.unclaimedCoinCount;
+        const taxMultiplier = 1 - runtime.api.getMarketTaxRate(item.itemHrid);
+        askPrice *= taxMultiplier;
+        bidPrice *= taxMultiplier;
+        marketListingsNetworthAsk += quantity * askPrice;
+        marketListingsNetworthBid += quantity * bidPrice;
+        marketListingsFairValue += quantity * fairValue;
+        marketListingsNetworthAsk += Number(item.unclaimedCoinCount ?? 0);
+        marketListingsNetworthBid += Number(item.unclaimedCoinCount ?? 0);
+        marketListingsFairValue += Number(item.unclaimedCoinCount ?? 0);
       } else {
-        marketListingsNetworthAsk += quantity * item.price;
-        marketListingsNetworthBid += quantity * item.price;
-        marketListingsNetworthAsk += item.unclaimedItemCount * (askPrice > 0 ? askPrice : 0);
-        marketListingsNetworthBid += item.unclaimedItemCount * (bidPrice > 0 ? bidPrice : 0);
+        marketListingsNetworthAsk += quantity * Number(item.price ?? 0);
+        marketListingsNetworthBid += quantity * Number(item.price ?? 0);
+        marketListingsNetworthAsk += Number(item.unclaimedItemCount ?? 0) * (askPrice > 0 ? askPrice : 0);
+        marketListingsNetworthBid += Number(item.unclaimedItemCount ?? 0) * (bidPrice > 0 ? bidPrice : 0);
+        marketListingsFairValue += quantity * Number(item.price ?? 0);
+        marketListingsFairValue += Number(item.unclaimedItemCount ?? 0) * fairValue;
       }
     }
     networthAsk = equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
     networthBid = equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
+    const currentAssetsFairValue = equippedFairValue + inventoryFairValue + marketListingsFairValue;
     const addInventorySummery = async (invElem) => {
       const [
         battleHouseScore,
@@ -16833,15 +17681,18 @@
         abilityScore,
         allAbilityScore,
         equipmentScore
-      ] = await runtime.api.getSelfBuildScores(
-        equippedNetworthAsk * 0.5 + equippedNetworthBid * 0.5
-      );
+      ] = await runtime.api.getSelfBuildScores(equippedFairValue);
       const totalScore = battleHouseScore + abilityScore + equipmentScore;
       const totalHouseScore = battleHouseScore + nonBattleHouseScore;
-      const totalNetworth = networthAsk * 0.5 + networthBid * 0.5 + (totalHouseScore + allAbilityScore) * 1e6;
+      const totalNetworth = currentAssetsFairValue + (totalHouseScore + allAbilityScore) * 1e6;
+      const previousSummary = invElem.parentElement?.querySelector(
+        "#script_inventory_summary"
+      );
+      const wasNetworthOpen = previousSummary?.querySelector("#netWorthDetails")?.style.display === "block";
+      previousSummary?.remove();
       invElem.insertAdjacentHTML(
         "beforebegin",
-        `<div style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
+        `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                 <!-- 战力打造分 -->
                 <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战力打造分: " : "+ Character Build Score: "}${totalScore.toFixed(1)}</div>
                 <div id="buildScores" style="display: none; margin-left: 20px;">
@@ -16861,9 +17712,9 @@
                         ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
                     </div>
                     <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${runtime.api.numberFormatter(equippedNetworthAsk)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${runtime.api.numberFormatter(inventoryNetworthAsk)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${runtime.api.numberFormatter(marketListingsNetworthAsk)}</div>
+                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${runtime.api.numberFormatter(equippedFairValue)}</div>
+                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${runtime.api.numberFormatter(inventoryFairValue)}</div>
+                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${runtime.api.numberFormatter(marketListingsFairValue)}</div>
                     </div>
 
                     <!-- 非流动资产 -->
@@ -16877,16 +17728,24 @@
                 </div>
             </div>`
       );
-      const toggleScores = document.getElementById("toggleScores");
-      const ScoreDetails = document.getElementById("buildScores");
-      const toggleButton = document.getElementById("toggleNetWorth");
-      const netWorthDetails = document.getElementById("netWorthDetails");
-      const toggleCurrentAssets = document.getElementById("toggleCurrentAssets");
-      const currentAssets = document.getElementById("currentAssets");
-      const toggleNonCurrentAssets = document.getElementById(
-        "toggleNonCurrentAssets"
+      const summary = invElem.parentElement.querySelector(
+        "#script_inventory_summary"
       );
-      const nonCurrentAssets = document.getElementById("nonCurrentAssets");
+      const toggleScores = summary.querySelector("#toggleScores");
+      const ScoreDetails = summary.querySelector("#buildScores");
+      const toggleButton = summary.querySelector("#toggleNetWorth");
+      const netWorthDetails = summary.querySelector("#netWorthDetails");
+      const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
+      const currentAssets = summary.querySelector("#currentAssets");
+      const toggleNonCurrentAssets = summary.querySelector(
+        "#toggleNonCurrentAssets"
+      );
+      const nonCurrentAssets = summary.querySelector("#nonCurrentAssets");
+      if (wasNetworthOpen) {
+        netWorthDetails.style.display = "block";
+        currentAssets.style.display = "block";
+        nonCurrentAssets.style.display = "block";
+      }
       toggleScores.addEventListener("click", () => {
         const isCollapsed = ScoreDetails.style.display === "none";
         ScoreDetails.style.display = isCollapsed ? "block" : "none";
@@ -16915,12 +17774,12 @@
     const waitForHeader = () => {
       const targetNode = document.querySelector("div.Header_totalLevel__8LY3Q");
       if (targetNode) {
-        targetNode.insertAdjacentHTML(
-          "afterend",
-          `<div style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${runtime.api.numberFormatter(
-            networthAsk
-          )} / ${runtime.api.numberFormatter(networthBid)}${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "无法从API更新市场数据" : "Can't update market prices"}</div>`}</div>`
-        );
+        const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${runtime.api.numberFormatter(
+          currentAssetsFairValue
+        )} (Ask/Bid: ${runtime.api.numberFormatter(networthAsk)} / ${runtime.api.numberFormatter(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "无法从API更新市场数据" : "Can't update market prices"}</div>`}</div>`;
+        const currentHeader = document.querySelector("#script_current_assets");
+        if (currentHeader) currentHeader.outerHTML = headerHTML;
+        else targetNode.insertAdjacentHTML("afterend", headerHTML);
         const alertDiv = document.querySelector("div#script_api_fail_alert");
         if (alertDiv) {
           alertDiv.style.cursor = "pointer";
@@ -16933,16 +17792,18 @@
             alertDiv.style.display = "none";
           }
         }
-        document.body.insertAdjacentHTML(
-          "beforeend",
-          `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`
-        );
+        if (!document.querySelector("#script_api_fail_popout")) {
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`
+          );
+        }
         const popout = document.querySelector("#script_api_fail_popout");
         if (popout) {
-          popout.addEventListener("click", function() {
+          popout.onclick = function() {
             const popout2 = document.querySelector("#script_api_fail_popout");
             popout2.style.display = popout2.style.display === "block" ? "none" : "block";
-          });
+          };
         }
       } else {
         setTimeout(waitForHeader, 200);
@@ -16957,14 +17818,12 @@
         popout.style.display = "block";
       }
     }
-    const waitForInv = () => {
+    const renderInventoryPanels = () => {
       const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
       for (const node of targetNodes) {
         if (runtime.settings.settingsMap.invWorth.isTrue) {
-          if (!node.classList.contains("script_buildScore_added")) {
-            node.classList.add("script_buildScore_added");
-            addInventorySummery(node);
-          }
+          node.classList.add("script_buildScore_added");
+          addInventorySummery(node);
         }
         if (runtime.settings.settingsMap.invSort.isTrue) {
           if (!node.classList.contains("script_invSort_added")) {
@@ -16973,15 +17832,28 @@
           }
         }
       }
-      setTimeout(waitForInv, 1e3);
     };
-    waitForInv();
+    renderInventoryPanels();
+    if (!networthWatcherStarted) {
+      networthWatcherStarted = true;
+      const waitForInv = () => {
+        const hasNewPanel = [
+          ...document.querySelectorAll("div.Inventory_items__6SXv0")
+        ].some((node) => !node.classList.contains("script_buildScore_added"));
+        if (hasNewPanel) scheduleNetworthRefresh();
+        setTimeout(waitForInv, 1e3);
+      };
+      waitForInv();
+    }
     const waitGuildCreditConversionsSelect = () => {
       if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
         addGuildCreditConversionsSortButton();
       setTimeout(waitGuildCreditConversionsSelect, 1e3);
     };
-    waitGuildCreditConversionsSelect();
+    if (!guildCreditWatcherStarted) {
+      guildCreditWatcherStarted = true;
+      waitGuildCreditConversionsSelect();
+    }
   }
   async function addInvSortButton(invElem) {
     const price_data = await runtime.api.fetchMarketJSON();
@@ -16989,6 +17861,11 @@
       console.error("addInvSortButton fetchMarketJSON null");
       return;
     }
+    const fairButton = `<button
+        id="script_sortByFair_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "市场价值" : "Market Value"}
+        </button>`;
     const askButton = `<button
         id="script_sortByAsk_btn"
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
@@ -17004,8 +17881,11 @@
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const buttonsDiv = `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${runtime.config.isZH ? "物品排序：" : "Sort items by: "}${askButton} ${bidButton} ${noneButton}</div>`;
+    const buttonsDiv = `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${runtime.config.isZH ? "物品排序：" : "Sort items by: "}${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
     invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+    invElem.parentElement.querySelector("button#script_sortByFair_btn").addEventListener("click", function() {
+      sortItemsBy("fair");
+    });
     invElem.parentElement.querySelector("button#script_sortByAsk_btn").addEventListener("click", function(e) {
       sortItemsBy("ask");
     });
@@ -17033,9 +17913,7 @@
           }
           const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
           let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
-          itemCount = Number(
-            itemCount.toLowerCase().replaceAll("k", "000").replaceAll("m", "000000")
-          );
+          itemCount = runtime.api.parseCompactNumber(itemCount);
           let askPrice = 0;
           if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
             askPrice = price_data.marketData[itemHrid][0].a;
@@ -17044,6 +17922,7 @@
             bidPrice = price_data.marketData[itemHrid][0].b;
           const itemAskmWorth = askPrice * itemCount;
           const itemBidWorth = bidPrice * itemCount;
+          const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
           if (!itemElem.querySelector("#script_stack_price")) {
             itemElem.style.position = "relative";
             const priceElemHTML = `<div
@@ -17053,7 +17932,10 @@
             itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
           }
           const priceElem = itemElem.querySelector("#script_stack_price");
-          if (order === "ask") {
+          if (order === "fair") {
+            itemElem.style.order = -itemFairWorth;
+            priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
+          } else if (order === "ask") {
             itemElem.style.order = -itemAskmWorth;
             priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
           } else if (order === "bid") {
@@ -17192,9 +18074,7 @@
           if (priceElem2) priceElem2.remove();
           return;
         }
-        itemCount = Number(
-          itemCount.toLowerCase().replaceAll("k", "000").replaceAll("m", "000000")
-        );
+        itemCount = runtime.api.parseCompactNumber(itemCount);
         let askPrice = 0;
         if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
           askPrice = price_data.marketData[itemHrid][0].a;
@@ -17288,6 +18168,7 @@
   }
   Object.assign(runtime.api, {
     calculateNetworth,
+    scheduleNetworthRefresh,
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
@@ -17341,7 +18222,7 @@
   }
   async function getHouseFullBuildPrice(house) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson) {
+    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       return 0;
     }
     const clientObj = JSON.parse(GM_getValue("init_client_data", ""));
@@ -17350,9 +18231,9 @@
     let cost = 0;
     for (let i = 1; i <= level; i++) {
       for (const item of upgradeCostsMap[i]) {
-        const marketPrices = marketAPIJson.marketData[item.itemHrid];
-        if (marketPrices && marketPrices[0]) {
-          cost += item.count * getWeightedMarketPrice(marketPrices);
+        const fairValue = runtime.api.getFairValue(item.itemHrid, 0);
+        if (fairValue > 0) {
+          cost += item.count * fairValue;
         } else {
           console.log(
             "getHouseFullBuildPrice cannot find price of " + item.itemHrid
@@ -17376,7 +18257,7 @@
   }
   async function calculateAbilityScore(isAll = false) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson) {
+    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       return 0;
     }
     let exp_50_skill = [
@@ -17405,9 +18286,9 @@
         numBooks = getNeedBooksToLevel(item.level, 500);
       }
       const itemHrid = item.abilityHrid.replace("/abilities/", "/items/");
-      const marketPrices = marketAPIJson.marketData[itemHrid];
-      if (marketPrices && marketPrices[0]) {
-        price += numBooks * getWeightedMarketPrice(marketPrices);
+      const fairValue = runtime.api.getFairValue(itemHrid, 0);
+      if (fairValue > 0) {
+        price += numBooks * fairValue;
       } else {
         console.log("calculateAbilityScore cannot find price of " + itemHrid);
       }
@@ -17490,7 +18371,7 @@
   }
   async function calculateSkill(profile_shared_obj) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson) {
+    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       return 0;
     }
     let obj = profile_shared_obj.profile;
@@ -17519,9 +18400,9 @@
         numBooks = getNeedBooksToLevel(item.level, 500);
       }
       const itemHrid = item.abilityHrid.replace("/abilities/", "/items/");
-      const marketPrices = marketAPIJson.marketData[itemHrid];
-      if (marketPrices && marketPrices[0]) {
-        price += numBooks * getWeightedMarketPrice(marketPrices);
+      const fairValue = runtime.api.getFairValue(itemHrid, 0);
+      if (fairValue > 0) {
+        price += numBooks * fairValue;
       } else {
         console.log("calculateSkill cannot find price of " + itemHrid);
       }
@@ -17530,35 +18411,23 @@
   }
   async function calculateEquipment(profile_shared_obj) {
     const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson) {
+    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
       return 0;
     }
     let obj = profile_shared_obj.profile;
-    let networthAsk = 0;
-    let networthBid = 0;
+    let networth = 0;
     for (const key in obj.wearableItemMap) {
-      let item = obj.wearableItemMap[key];
+      const item = obj.wearableItemMap[key];
       const enhanceLevel = obj.wearableItemMap[key].enhancementLevel;
       const itemHrid = obj.wearableItemMap[key].itemHrid;
-      const marketPrices = marketAPIJson.marketData[itemHrid];
-      if (enhanceLevel && enhanceLevel > 1) {
-        runtime.state.input_data.item_hrid = item.itemHrid;
-        runtime.state.input_data.stop_at = enhanceLevel;
-        const best = await runtime.api.findBestEnhanceStratWithPhiMirror(
-          runtime.state.input_data
-        );
-        let totalCost = best?.totalCost;
-        totalCost = totalCost ? Math.round(totalCost) : 0;
-        networthAsk += item.count * (totalCost > 0 ? totalCost : 0);
-        networthBid += item.count * (totalCost > 0 ? totalCost : 0);
-      } else if (marketPrices && marketPrices[0]) {
-        networthAsk += item.count * (marketPrices[0].a > 0 ? marketPrices[0].a : 0);
-        networthBid += item.count * (marketPrices[0].b > 0 ? marketPrices[0].b : 0);
+      const fairValue = runtime.api.getFairValue(itemHrid, enhanceLevel);
+      if (fairValue > 0) {
+        networth += item.count * fairValue;
       } else {
         console.log("calculateEquipment cannot find price of " + itemHrid);
       }
     }
-    return (networthAsk * 0.5 + networthBid * 0.5) / 1e6;
+    return networth / 1e6;
   }
   Object.assign(runtime.api, {
     getSelfBuildScores,
@@ -17811,7 +18680,9 @@
     let insertAfterElem = null;
     const amountSpan = tooltip.querySelectorAll("span")[1];
     if (amountSpan) {
-      amount = +runtime.api.getOriTextFromElement(amountSpan).split(": ")[1].replaceAll(runtime.config.THOUSAND_SEPERATOR, "");
+      amount = runtime.api.parseCompactNumber(
+        runtime.api.getOriTextFromElement(amountSpan).split(": ")[1]
+      );
       insertAfterElem = amountSpan.parentNode.nextSibling;
     } else {
       insertAfterElem = tooltip.querySelectorAll("span")[0].parentNode.nextSibling;
@@ -17820,15 +18691,18 @@
     let marketJson = null;
     let ask = null;
     let bid = null;
+    let fairValue = null;
     if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
-      marketJson = await fetchMarketJSON();
+      marketJson = await fetchMarketJSON2();
       if (!marketJson || !marketJson.marketData) {
         console.error("jsonObj null");
       }
       ask = marketJson?.marketData[itemHrid]?.[0]?.a ?? 0;
       bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
+      fairValue = runtime.api.getFairValue(itemHrid, 0);
       appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${ask && ask > 0 ? numberFormatter(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
+    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
+    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
     }
     if (runtime.settings.settingsMap.showConsumTips.isTrue) {
@@ -17900,22 +18774,22 @@
                                     <tr style="border-bottom: 1px solid ${runtime.config.SCRIPT_COLOR_TOOLTIP};">
                                         <td style="text-align: left;"><b>${runtime.config.isZH ? "合计" : "Total"}</b></td>
                                         <td style="text-align: center;"><b>${inputItems.reduce((sum, item) => sum + item.count, 0)}</b></td>
-                                        <td style="text-align: right;"><b>${numberFormatter(totalResourcesAskPricePerAction)}</b></td>
-                                        <td style="text-align: right;"><b>${numberFormatter(totalResourcesBidPricePerAction)}</b></td>
+                                        <td style="text-align: right;"><b>${numberFormatter2(totalResourcesAskPricePerAction)}</b></td>
+                                        <td style="text-align: right;"><b>${numberFormatter2(totalResourcesBidPricePerAction)}</b></td>
                                     </tr>`;
         for (const item of inputItems) {
           appendHTMLStr += `
                                     <tr>
                                         <td style="text-align: left;">${runtime.config.isZH ? item.zhName : item.name}</td>
                                         <td style="text-align: center;">${item.count}</td>
-                                        <td style="text-align: right;">${numberFormatter(item.perAskPrice)}</td>
-                                        <td style="text-align: right;">${numberFormatter(item.perBidPrice)}</td>
+                                        <td style="text-align: right;">${numberFormatter2(item.perAskPrice)}</td>
+                                        <td style="text-align: right;">${numberFormatter2(item.perBidPrice)}</td>
                                     </tr>`;
         }
         appendHTMLStr += `</table></div>`;
         if (upgradedFromItemHrid) {
           appendHTMLStr += `
-                <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${runtime.config.isZH ? upgradedFromItemZhName : upgradedFromItemName}: ${numberFormatter(upgradedFromItemAsk)} / ${numberFormatter(upgradedFromItemBid)}</div>
+                <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${runtime.config.isZH ? upgradedFromItemZhName : upgradedFromItemName}: ${numberFormatter2(upgradedFromItemAsk)} / ${numberFormatter2(upgradedFromItemBid)}</div>
                 `;
         }
       }
@@ -17954,11 +18828,11 @@
       actionPerHour *= 1 + (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
       itemPerHour *= 1 + (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
       const extraFreeItemPerHour = itemPerHour * teaBuffs.quantity / 100;
-      const bidAfterTax = bid * 0.98;
+      const bidAfterTax = runtime.api.getNetSellPrice(itemHrid, 0);
       const profitPerHour = itemPerHour * (bidAfterTax - totalResourcesAskPricePerAction / droprate) + extraFreeItemPerHour * bidAfterTax - drinksConsumedPerHourAskPrice;
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${runtime.config.isZH ? "生产利润(卖单价进、买单价出，包含销售税；不包括加工茶、社区增益、稀有掉落、袋子饮食增益；刷新网页更新人物数据)：" : "Production profit(Sell price in, bid price out, including sales tax; Not including processing tea, comm buffs, rare drops, pouch consumables buffs; Refresh page to update player data): "}</div>`;
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${baseTimePerActionSec.toFixed(2)}s ${runtime.config.isZH ? "基础速度" : "base speed,"} x${droprate} ${runtime.config.isZH ? "基础掉率" : "base drop rate,"} +${toolPercent}%${runtime.config.isZH ? "工具速度" : " tool speed,"} +${levelEffBuff}%${runtime.config.isZH ? "等级效率" : " level eff,"} +${houseEffBuff}%${runtime.config.isZH ? "房子效率" : " house eff,"} +${teaBuffs.efficiency}%${runtime.config.isZH ? "茶效率" : " tea eff,"} +${itemEffiBuff}%${runtime.config.isZH ? "装备效率" : " equipment eff,"} +${teaBuffs.quantity}%${runtime.config.isZH ? "茶额外数量" : " tea extra outcome,"} +${teaBuffs.lessResource}%${runtime.config.isZH ? "茶减少消耗" : " tea lower resource"}</div>`;
-      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${runtime.config.isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "}${numberFormatter(drinksConsumedPerHourAskPrice)}  / ${numberFormatter(drinksConsumedPerHourBidPrice)}</div>`;
+      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${runtime.config.isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "}${numberFormatter2(drinksConsumedPerHourAskPrice)}  / ${numberFormatter2(drinksConsumedPerHourBidPrice)}</div>`;
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${runtime.config.isZH ? "每小时动作" : "Actions per hour"} ${Number(
         actionPerHour
       ).toFixed(
@@ -17966,9 +18840,9 @@
       )}${runtime.config.isZH ? " 次" : " times"}, ${runtime.config.isZH ? "每小时生产" : "Production per hour"} ${Number(
         itemPerHour + extraFreeItemPerHour
       ).toFixed(1)}${runtime.config.isZH ? " 个" : " items"}</div>`;
-      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "利润: " : "Profit: "}${numberFormatter(
+      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "利润: " : "Profit: "}${numberFormatter2(
         profitPerHour / actionPerHour
-      )}${runtime.config.isZH ? "/动作" : "/action"}, ${numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
+      )}${runtime.config.isZH ? "/动作" : "/action"}, ${numberFormatter2(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${numberFormatter2(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
     }
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
     const tootip = insertAfterElem.closest(".MuiTooltip-popper");
@@ -17985,146 +18859,11 @@
     };
     setTimeout(fixOverflow, 100, tootip);
   }
-  function validateMarketJsonFetch(jsonStr, isSave) {
-    if (!jsonStr) {
-      console.error("validateMarketJson jsonStr is null");
-      return null;
-    }
-    let jsonObj = null;
-    try {
-      jsonObj = JSON.parse(jsonStr);
-    } catch (error) {
-      console.error("validateMarketJson failed to parse JSON:", error.message);
-    }
-    if (jsonObj && jsonObj.timestamp && jsonObj.marketData) {
-      jsonObj.marketData["/items/coin"] = { 0: { a: 1, b: 1 } };
-      jsonObj.marketData["/items/task_token"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/cowbell"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/small_treasure_chest"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/medium_treasure_chest"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/large_treasure_chest"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/basic_task_badge"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/advanced_task_badge"] = { 0: { a: 0, b: 0 } };
-      jsonObj.marketData["/items/expert_task_badge"] = { 0: { a: 0, b: 0 } };
-      if (isSave) {
-        console.log(jsonObj);
-        localStorage.setItem("MWITools_marketAPI_timestamp", Date.now());
-        localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
-      }
-      return jsonObj;
-    } else {
-      console.error("validateMarketJson invalid json structure");
-      return null;
-    }
+  async function fetchMarketJSON2(forceFetch = false) {
+    return runtime.api.fetchMarketJSON(forceFetch);
   }
-  async function fetchMarketJSON(forceFetch = false) {
-    if (!forceFetch && localStorage.getItem("MWITools_marketAPI_timestamp") && Date.now() - localStorage.getItem("MWITools_marketAPI_timestamp") < 36e5) {
-      return JSON.parse(localStorage.getItem("MWITools_marketAPI_json"));
-    }
-    const sendRequest = typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
-    if (typeof sendRequest != "function") {
-      console.error("fetchMarketJSON null GM xmlHttpRequest function");
-      if (!runtime.state.isUsingExpiredMarketJson) {
-        runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " Setting isUsingExpiredMarketJson to true:\n";
-        runtime.state.reasonForUsingExpiredMarketJson += "GM_xmlhttpRequest " + typeof GM_xmlhttpRequest + "\n";
-        runtime.state.reasonForUsingExpiredMarketJson += "GM.xmlHttpRequest " + typeof GM.xmlHttpRequest + "\n";
-      }
-      runtime.state.isUsingExpiredMarketJson = true;
-      const alertDiv2 = document.querySelector("div#script_api_fail_alert");
-      if (alertDiv2) {
-        alertDiv2.style.display = "block";
-      }
-      runtime.state.reasonForUsingExpiredMarketJson += "\nusing hard-coded backup version\n";
-      const jsonStr2 = runtime.data.MARKET_JSON_LOCAL_BACKUP;
-      return validateMarketJsonFetch(jsonStr2, false);
-    }
-    console.log("fetchMarketJSON fetch start");
-    runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch start \n";
-    const response = await sendRequest({
-      url: runtime.config.MARKET_API_URL,
-      method: "GET",
-      synchronous: true,
-      timeout: 5e3,
-      onload: (response2) => {
-        if (response2.status == 200) {
-          console.log("fetchMarketJSON fetch success 200");
-          runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch onload 200 \n";
-        } else {
-          console.error(
-            "fetchMarketJSON fetch onload with HTTP status failure " + response2.status
-          );
-          runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch onload NOT 200 \n";
-        }
-      },
-      onabort: () => {
-        console.error("fetchMarketJSON fetch onabort");
-        runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch onabort \n";
-      },
-      onerror: () => {
-        console.error("fetchMarketJSON fetch onerror");
-        runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch onerror \n";
-      },
-      ontimeout: () => {
-        console.error("fetchMarketJSON fetch ontimeout");
-        runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch ontimeout \n";
-      }
-    });
-    console.log(
-      "fetchMarketJSON fetch end with response status: " + response?.status
-    );
-    runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " fetch end with response status " + response?.status + "\n";
-    let jsonStr = response?.status === 200 ? response.responseText : null;
-    let jsonObj = validateMarketJsonFetch(jsonStr, true);
-    if (jsonObj) {
-      runtime.state.isUsingExpiredMarketJson = false;
-      runtime.state.reasonForUsingExpiredMarketJson = "";
-      const alertDiv2 = document.querySelector("div#script_api_fail_alert");
-      if (alertDiv2) {
-        alertDiv2.style.display = "none";
-      }
-      return jsonObj;
-    }
-    runtime.state.isUsingExpiredMarketJson = true;
-    runtime.state.reasonForUsingExpiredMarketJson += (/* @__PURE__ */ new Date()).toUTCString() + " Setting isUsingExpiredMarketJson to true:\n";
-    runtime.state.reasonForUsingExpiredMarketJson += "Failed fetch";
-    const alertDiv = document.querySelector("div#script_api_fail_alert");
-    if (alertDiv) {
-      alertDiv.style.display = "block";
-    }
-    if (localStorage.getItem("MWITools_marketAPI_json") && localStorage.getItem("MWITools_marketAPI_timestamp") && JSON.parse(runtime.data.MARKET_JSON_LOCAL_BACKUP).timestamp * 1e3 < localStorage.getItem("MWITools_marketAPI_timestamp")) {
-      console.error(
-        "fetchMarketJSON network error, using previously fetched version"
-      );
-      const jsonStr2 = localStorage.getItem("MWITools_marketAPI_json");
-      const jsonObj2 = validateMarketJsonFetch(jsonStr2, false);
-      if (jsonObj2) {
-        runtime.state.reasonForUsingExpiredMarketJson += "\nusing previously fetched version\n";
-        return jsonObj2;
-      }
-    }
-    runtime.state.reasonForUsingExpiredMarketJson += "\nusing hard-coded backup version\n";
-    return validateMarketJsonFetch(runtime.data.MARKET_JSON_LOCAL_BACKUP, false);
-  }
-  function numberFormatter(num, digits = 1) {
-    if (num === null || num === void 0) {
-      return null;
-    }
-    if (num < 0) {
-      return "-" + numberFormatter(-num);
-    }
-    const lookup = [
-      { value: 1, symbol: "" },
-      { value: 1e3, symbol: "k" },
-      { value: 1e6, symbol: "M" }
-    ];
-    if (!runtime.settings.settingsMap.displayCapMM.isTrue) {
-      lookup.push({ value: 1e9, symbol: "B" });
-    }
-    const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
-    var item = lookup.slice().reverse().find(function(item2) {
-      return num >= item2.value;
-    });
-    return item ? (num / item.value).toFixed(digits).replace(rx, "$1") + item.symbol : "0";
+  function numberFormatter2(num, digits = 1) {
+    return runtime.api.numberFormatter(num, digits);
   }
   function getActionHridFromItemName(name) {
     let newName = name.replace("Milk", "Cow");
@@ -18155,9 +18894,6 @@
     getHousesEffBuffByActionHrid,
     getTeaBuffsByActionHrid,
     handleTooltipItem,
-    validateMarketJsonFetch,
-    fetchMarketJSON,
-    numberFormatter,
     getActionHridFromItemName
   });
   Object.defineProperties(runtime.state, {
@@ -18436,11 +19172,11 @@
       const actualTimePerActionSec = baseTimePerActionSec / (1 + toolPercent / 100);
       let actionPerHour = 3600 / actualTimePerActionSec;
       const dropTable = runtime.state.initData_actionDetailMap[actionHrid2].dropTable;
-      let virtualItemBid = 0;
+      let virtualItemNetBid = 0;
       for (const drop of dropTable) {
         const bid = marketJson?.marketData[drop.itemHrid]?.[0].b;
         const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
-        virtualItemBid += bid * amount;
+        virtualItemNetBid += bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
       }
       let droprate = 1;
       let itemPerHour = actionPerHour * droprate;
@@ -18460,7 +19196,7 @@
       actionPerHour *= 1 + (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
       itemPerHour *= 1 + (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
       const extraFreeItemPerHour = itemPerHour * teaBuffs.quantity / 100;
-      const bidAfterTax = virtualItemBid * 0.98;
+      const bidAfterTax = virtualItemNetBid;
       const profitPerHour = itemPerHour * bidAfterTax + extraFreeItemPerHour * bidAfterTax - drinksConsumedPerHourAskPrice;
       let htmlStr = `<div id="totalProfit"  style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}${runtime.api.numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${runtime.api.numberFormatter(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
       panel.querySelector("div#expPerHour").insertAdjacentHTML("afterend", htmlStr);
@@ -18581,7 +19317,7 @@
         }
         if (marketJson.marketData[loot.itemHrid]) {
           totalPriceAsk += marketJson.marketData[loot.itemHrid][0].a * itemCount;
-          totalPriceAskBid += marketJson.marketData[loot.itemHrid][0].b * itemCount;
+          totalPriceAskBid += runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
         } else {
           console.log(
             "handleBattleSummary failed to read price of " + loot.itemHrid
@@ -19326,17 +20062,9 @@
     return elem.textContent;
   }
   async function handleItemTooltipWithEnhancementLevel(tooltip) {
-    if (!runtime.settings.settingsMap.enhanceSim.isTrue) {
-      return;
-    }
-    if (typeof math === "undefined") {
-      console.error(`handleItemTooltipWithEnhancementLevel no math lib`);
-      tooltip.querySelector(".ItemTooltipText_itemTooltipText__zFq3A").insertAdjacentHTML(
-        "beforeend",
-        `<div style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；" : "Enhancement sim Internet error"}</div>`
-      );
-      return;
-    }
+    const tooltipContent = tooltip.querySelector(
+      ".ItemTooltipText_itemTooltipText__zFq3A"
+    );
     const itemNameElems = tooltip.querySelectorAll(
       "div.ItemTooltipText_name__2JAHA span"
     );
@@ -19347,17 +20075,38 @@
     const enhancementLevel = Number(
       itemNameElems[1].textContent.replace("+", "")
     );
-    let itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+    const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
     if (!itemHrid || !runtime.state.initData_itemDetailMap[itemHrid]) {
       console.error(
         `handleItemTooltipWithEnhancementLevel invalid itemHrid ${itemName} ${itemHrid}`
       );
       return;
     }
+    let marketPriceHTML = "";
+    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+      await runtime.api.fetchMarketJSON();
+      const fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel);
+      const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
+      const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
+      marketPriceHTML = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}</div>
+      <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}</div>`;
+    }
+    if (!runtime.settings.settingsMap.enhanceSim.isTrue) {
+      tooltipContent.insertAdjacentHTML("beforeend", marketPriceHTML);
+      return;
+    }
+    if (typeof math === "undefined") {
+      console.error(`handleItemTooltipWithEnhancementLevel no math lib`);
+      tooltipContent.insertAdjacentHTML(
+        "beforeend",
+        `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；" : "Enhancement sim Internet error"}</div>`
+      );
+      return;
+    }
     input_data.item_hrid = itemHrid;
     input_data.stop_at = enhancementLevel;
     const best = await findBestEnhanceStratWithPhiMirror(input_data);
-    let appendHTMLStr = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"}</div>`;
+    let appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"}</div>`;
     if (best) {
       let needMatStr = "";
       if (best.costs.needMap) {
@@ -19365,7 +20114,7 @@
           needMatStr += `<div>${runtime.config.isZH ? runtime.data.ZHItemNames[runtime.state.initData_itemDetailMap[key].hrid] : runtime.state.initData_itemDetailMap[key].name} ${runtime.config.isZH ? "单价: " : "price per item: "}${runtime.api.numberFormatter(value)}<div>`;
         }
       }
-      appendHTMLStr = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};"><div>${runtime.config.isZH ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）：" : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "}</div><div>${runtime.config.isZH ? "总成本 " : "Total cost "}${runtime.api.numberFormatter(best.totalCost.toFixed(0))}</div>
+      appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};"><div>${runtime.config.isZH ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）：" : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "}</div><div>${runtime.config.isZH ? "总成本 " : "Total cost "}${runtime.api.numberFormatter(best.totalCost.toFixed(0))}</div>
         <div>${runtime.config.isZH ? "耗时 " : "Time spend "}${best.simResult.totalActionTimeStr}</div>
         ${best.protect_count > 0 ? `<div>${runtime.config.isZH ? "从 " : "Use protection from level "}` + best.protect_at + `${runtime.config.isZH ? " 级开始保护" : ""}</div>` : `<div>${runtime.config.isZH ? "不需要保护" : "No protection use"}</div>`}
         <div>${runtime.config.isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${runtime.config.isZH ? " 次" : " times"}</div>
@@ -19373,7 +20122,7 @@
         <div>${best.protect_count > 0 ? (runtime.config.isZH ? "保护单价: " : "Price per protection: ") + (runtime.config.isZH ? runtime.data.ZHItemNames[runtime.state.initData_itemDetailMap[best.costs.choiceOfProtection].hrid] : runtime.state.initData_itemDetailMap[best.costs.choiceOfProtection].name) + " " + runtime.api.numberFormatter(best.costs.minProtectionCost) : ""}
          </div>${needMatStr}</div>`;
     }
-    tooltip.querySelector(".ItemTooltipText_itemTooltipText__zFq3A").insertAdjacentHTML("beforeend", appendHTMLStr);
+    tooltipContent.insertAdjacentHTML("beforeend", appendHTMLStr);
   }
   async function findBestEnhanceStratWithPhiMirror(input_data2) {
     const price_data = await runtime.api.fetchMarketJSON();
@@ -19920,10 +20669,26 @@
       return;
     }
     label.click();
+    const clickAdjustmentButton = (direction) => {
+      const buttons = [...inputDiv.querySelectorAll("button")];
+      const target = buttons.find((button) => {
+        const label2 = `${button.textContent} ${button.getAttribute("aria-label") ?? ""} ${button.title ?? ""}`.trim().toLowerCase();
+        if (direction === "increase") {
+          return label2 === "+" || label2.includes("increase");
+        }
+        return label2 === "-" || label2 === "−" || label2.includes("decrease");
+      });
+      target?.click();
+      return Boolean(target);
+    };
     if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best buy") || label.parentElement.textContent.includes("购买")) {
-      inputDiv.querySelectorAll(".MarketplacePanel_buttonContainer__vJQud")[2]?.querySelector("div button")?.click();
+      if (!clickAdjustmentButton("increase")) {
+        console.error("handleMarketNewOrder cannot find increase price button");
+      }
     } else if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best sell") || label.parentElement.textContent.includes("出售")) {
-      inputDiv.querySelectorAll(".MarketplacePanel_buttonContainer__vJQud")[1]?.querySelector("div button")?.click();
+      if (!clickAdjustmentButton("decrease")) {
+        console.error("handleMarketNewOrder cannot find decrease price button");
+      }
     }
   }
   Object.assign(runtime.api, {
@@ -21539,7 +22304,18 @@
   runtime.onMessage("items_updated", () => {
     if (runtime.settings.settingsMap.checkEquipment.isTrue)
       runtime.api.checkEquipment();
+    if (runtime.settings.settingsMap.networth.isTrue)
+      runtime.api.scheduleNetworthRefresh();
   });
+  for (const messageType of [
+    "market_item_values_updated",
+    "market_listings_updated"
+  ]) {
+    runtime.onMessage(messageType, () => {
+      if (runtime.settings.settingsMap.networth.isTrue)
+        runtime.api.scheduleNetworthRefresh();
+    });
+  }
   runtime.onMessage("new_battle", (payload, message) => {
     GM_setValue("new_battle", message);
     if (runtime.settings.settingsMap.showDamage.isTrue)
@@ -21597,8 +22373,9 @@
   }
   function startGame() {
     loadCachedClientData();
+    runtime.api.loadMarketItemValuesFromStorage();
     runtime.api.hookWS();
-    const currentApiVersion = 2;
+    const currentApiVersion = 3;
     const storedApiVersion = localStorage.getItem(
       "MWITools_marketAPI_ApiVersion"
     );

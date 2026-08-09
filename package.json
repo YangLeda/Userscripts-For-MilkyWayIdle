@@ -1,6 +1,6 @@
 {
   "name": "mwitools-userscript",
-  "version": "25.15.0",
+  "version": "26.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -18,5 +18,8 @@
     "eslint": "10.8.1",
     "jsdom": "30.0.1",
     "prettier": "3.9.6"
+  },
+  "dependencies": {
+    "lz-string": "1.5.0"
   }
 }

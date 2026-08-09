@@ -4,6 +4,7 @@ import test from "node:test";
 import { runtime } from "../src/core/runtime.js";
 import "../src/data/translations.js";
 import "../src/core/state.js";
+import "../src/core/market.js";
 import "../src/core/message-state.js";
 import "../src/core/messages.js";
 
@@ -26,6 +27,51 @@ test("client data is available before message effects run", () => {
 
   assert.equal(observedName, "Coin");
   assert.equal(runtime.state.itemEnNameToHridMap.Coin, "/items/coin");
+});
+
+test("market state is updated before feature effects run", () => {
+  let observedValue = null;
+  runtime.onMessage("market_item_values_updated", () => {
+    observedValue = runtime.api.getFairValue("/items/milk", 0);
+  });
+
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "market_item_values_updated",
+      marketValuesVersion: "v2",
+      marketItemValues: { "/items/milk": { 0: 1015 } },
+    }),
+  );
+
+  assert.equal(runtime.state.marketValuesVersion, "v2");
+  assert.equal(observedValue, 1015);
+});
+
+test("orderbook bands and pegged listings update canonical state", () => {
+  runtime.api.applyGameMessage({
+    type: "market_item_order_books_updated",
+    itemHrid: "/items/milk",
+    orderBooks: { 0: { asks: [], bids: [] } },
+    priceBandMins: { 0: 900 },
+    priceBandMaxs: { 0: 1100 },
+  });
+  assert.deepEqual(runtime.api.getPriceBand("/items/milk", 0), {
+    minimum: 900,
+    maximum: 1100,
+  });
+
+  runtime.api.applyGameMessage({
+    type: "market_listings_updated",
+    marketListings: [
+      {
+        id: 1,
+        itemHrid: "/items/milk",
+        price: 1200,
+        workingPrice: 1100,
+      },
+    ],
+  });
+  assert.equal(runtime.state.initData_myMarketListings[0].workingPrice, 1100);
 });
 
 test("character, action and equipment messages update canonical state", () => {

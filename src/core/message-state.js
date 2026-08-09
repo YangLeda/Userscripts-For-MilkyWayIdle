@@ -17,15 +17,17 @@ function applyClientData(payload) {
 
 function applyCharacterData(payload) {
   runtime.state.initData_characterSkills = payload.characterSkills;
-  runtime.state.initData_characterItems = payload.characterItems;
+  runtime.state.initData_characterItems = payload.characterItems ?? [];
   runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
   runtime.state.initData_actionTypeDrinkSlotsMap =
     payload.actionTypeDrinkSlotsMap;
   runtime.state.initData_characterAbilities = payload.characterAbilities;
-  runtime.state.initData_myMarketListings = payload.myMarketListings;
-  runtime.state.initData_combatAbilities = payload.combatUnit.combatAbilities;
-  runtime.state.currentActionsHridList = [...payload.characterActions];
-  for (const item of payload.characterItems) {
+  runtime.state.initData_myMarketListings = payload.myMarketListings ?? [];
+  runtime.state.initData_combatAbilities =
+    payload.combatUnit?.combatAbilities ?? [];
+  runtime.state.currentActionsHridList = [...(payload.characterActions ?? [])];
+  runtime.state.currentEquipmentMap = {};
+  for (const item of payload.characterItems ?? []) {
     if (item.itemLocationHrid !== "/item_locations/inventory") {
       runtime.state.currentEquipmentMap[item.itemLocationHrid] = item;
     }
@@ -56,6 +58,21 @@ function applyActionCompleted(payload) {
 function applyItemsUpdated(payload) {
   if (!payload.endCharacterItems) return;
   for (const item of payload.endCharacterItems) {
+    const existingIndex = runtime.state.initData_characterItems?.findIndex(
+      (current) =>
+        (item.id != null && current.id === item.id) ||
+        (item.id == null &&
+          current.itemHrid === item.itemHrid &&
+          current.itemLocationHrid === item.itemLocationHrid &&
+          current.enhancementLevel === item.enhancementLevel),
+    );
+    if (existingIndex >= 0) {
+      if (item.count === 0)
+        runtime.state.initData_characterItems.splice(existingIndex, 1);
+      else runtime.state.initData_characterItems[existingIndex] = item;
+    } else if (item.count > 0) {
+      runtime.state.initData_characterItems?.push(item);
+    }
     if (item.itemLocationHrid === "/item_locations/inventory") continue;
     runtime.state.currentEquipmentMap[item.itemLocationHrid] =
       item.count === 0 ? null : item;
@@ -79,6 +96,15 @@ function applyGameMessage(payload) {
       break;
     case "items_updated":
       applyItemsUpdated(payload);
+      break;
+    case "market_item_values_updated":
+      runtime.api.applyMarketItemValues(payload);
+      break;
+    case "market_item_order_books_updated":
+      runtime.api.applyMarketOrderBooks(payload);
+      break;
+    case "market_listings_updated":
+      runtime.api.applyMarketListings(payload);
       break;
   }
 }

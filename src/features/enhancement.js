@@ -224,25 +224,9 @@ function getOriTextFromElement(elem) {
 
 /* 强化模拟器 */
 async function handleItemTooltipWithEnhancementLevel(tooltip) {
-  if (!runtime.settings.settingsMap.enhanceSim.isTrue) {
-    return;
-  }
-
-  if (typeof math === "undefined") {
-    console.error(`handleItemTooltipWithEnhancementLevel no math lib`);
-    tooltip
-      .querySelector(".ItemTooltipText_itemTooltipText__zFq3A")
-      .insertAdjacentHTML(
-        "beforeend",
-        `<div style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
-          runtime.config.isZH
-            ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；"
-            : "Enhancement sim Internet error"
-        }</div>`,
-      );
-    return;
-  }
-
+  const tooltipContent = tooltip.querySelector(
+    ".ItemTooltipText_itemTooltipText__zFq3A",
+  );
   const itemNameElems = tooltip.querySelectorAll(
     "div.ItemTooltipText_name__2JAHA span",
   );
@@ -253,11 +237,38 @@ async function handleItemTooltipWithEnhancementLevel(tooltip) {
   const enhancementLevel = Number(
     itemNameElems[1].textContent.replace("+", ""),
   );
-
-  let itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+  const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
   if (!itemHrid || !runtime.state.initData_itemDetailMap[itemHrid]) {
     console.error(
       `handleItemTooltipWithEnhancementLevel invalid itemHrid ${itemName} ${itemHrid}`,
+    );
+    return;
+  }
+
+  let marketPriceHTML = "";
+  if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+    await runtime.api.fetchMarketJSON();
+    const fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel);
+    const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
+    const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
+    marketPriceHTML = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}</div>
+      <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}</div>`;
+  }
+
+  if (!runtime.settings.settingsMap.enhanceSim.isTrue) {
+    tooltipContent.insertAdjacentHTML("beforeend", marketPriceHTML);
+    return;
+  }
+
+  if (typeof math === "undefined") {
+    console.error(`handleItemTooltipWithEnhancementLevel no math lib`);
+    tooltipContent.insertAdjacentHTML(
+      "beforeend",
+      `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
+        runtime.config.isZH
+          ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；"
+          : "Enhancement sim Internet error"
+      }</div>`,
     );
     return;
   }
@@ -266,7 +277,7 @@ async function handleItemTooltipWithEnhancementLevel(tooltip) {
   input_data.stop_at = enhancementLevel;
   const best = await findBestEnhanceStratWithPhiMirror(input_data);
 
-  let appendHTMLStr = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${
+  let appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${
     runtime.config.isZH
       ? "不支持模拟+1装备"
       : "Enhancement sim of +1 equipments not supported"
@@ -278,7 +289,7 @@ async function handleItemTooltipWithEnhancementLevel(tooltip) {
         needMatStr += `<div>${runtime.config.isZH ? runtime.data.ZHItemNames[runtime.state.initData_itemDetailMap[key].hrid] : runtime.state.initData_itemDetailMap[key].name} ${runtime.config.isZH ? "单价: " : "price per item: "}${runtime.api.numberFormatter(value)}<div>`;
       }
     }
-    appendHTMLStr = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};"><div>${
+    appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};"><div>${
       runtime.config.isZH
         ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）："
         : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "
@@ -319,9 +330,7 @@ async function handleItemTooltipWithEnhancementLevel(tooltip) {
          </div>${needMatStr}</div>`;
   }
 
-  tooltip
-    .querySelector(".ItemTooltipText_itemTooltipText__zFq3A")
-    .insertAdjacentHTML("beforeend", appendHTMLStr);
+  tooltipContent.insertAdjacentHTML("beforeend", appendHTMLStr);
 }
 
 async function findBestEnhanceStratWithPhiMirror(input_data) {

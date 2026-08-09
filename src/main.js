@@ -2,6 +2,7 @@ import { runtime } from "./core/runtime.js";
 import "./core/config.js";
 import "./data/translations.js";
 import "./core/state.js";
+import "./core/market.js";
 import "./core/message-state.js";
 import "./core/messages.js";
 import "./features/inventory.js";
@@ -35,9 +36,10 @@ function loadCachedClientData() {
 
 function startGame() {
   loadCachedClientData();
+  runtime.api.loadMarketItemValuesFromStorage();
   runtime.api.hookWS();
 
-  const currentApiVersion = 2;
+  const currentApiVersion = 3;
   const storedApiVersion = localStorage.getItem(
     "MWITools_marketAPI_ApiVersion",
   );

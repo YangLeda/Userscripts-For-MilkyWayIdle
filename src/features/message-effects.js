@@ -43,7 +43,19 @@ runtime.onMessage("battle_unit_fetched", (payload) => {
 runtime.onMessage("items_updated", () => {
   if (runtime.settings.settingsMap.checkEquipment.isTrue)
     runtime.api.checkEquipment();
+  if (runtime.settings.settingsMap.networth.isTrue)
+    runtime.api.scheduleNetworthRefresh();
 });
+
+for (const messageType of [
+  "market_item_values_updated",
+  "market_listings_updated",
+]) {
+  runtime.onMessage(messageType, () => {
+    if (runtime.settings.settingsMap.networth.isTrue)
+      runtime.api.scheduleNetworthRefresh();
+  });
+}
 
 runtime.onMessage("new_battle", (payload, message) => {
   GM_setValue("new_battle", message);

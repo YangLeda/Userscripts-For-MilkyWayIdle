@@ -298,10 +298,9 @@ async function handleTooltipItem(tooltip) {
   let insertAfterElem = null;
   const amountSpan = tooltip.querySelectorAll("span")[1];
   if (amountSpan) {
-    amount = +runtime.api
-      .getOriTextFromElement(amountSpan)
-      .split(": ")[1]
-      .replaceAll(runtime.config.THOUSAND_SEPERATOR, "");
+    amount = runtime.api.parseCompactNumber(
+      runtime.api.getOriTextFromElement(amountSpan).split(": ")[1],
+    );
     insertAfterElem = amountSpan.parentNode.nextSibling;
   } else {
     insertAfterElem =
@@ -312,6 +311,7 @@ async function handleTooltipItem(tooltip) {
   let marketJson = null;
   let ask = null;
   let bid = null;
+  let fairValue = null;
 
   // 物品市场价格
   if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
@@ -322,7 +322,9 @@ async function handleTooltipItem(tooltip) {
 
     ask = marketJson?.marketData[itemHrid]?.[0]?.a ?? 0;
     bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
+    fairValue = runtime.api.getFairValue(itemHrid, 0);
     appendHTMLStr += `
+    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
     <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
@@ -543,7 +545,7 @@ async function handleTooltipItem(tooltip) {
     const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
 
     // 出售市场税
-    const bidAfterTax = bid * 0.98;
+    const bidAfterTax = runtime.api.getNetSellPrice(itemHrid, 0);
 
     // 每小时利润
     const profitPerHour =
@@ -606,210 +608,12 @@ async function handleTooltipItem(tooltip) {
   setTimeout(fixOverflow, 100, tootip); // A delay is added because the game seems to reset the style if applied immediately.
 }
 
-function validateMarketJsonFetch(jsonStr, isSave) {
-  if (!jsonStr) {
-    console.error("validateMarketJson jsonStr is null");
-    return null;
-  }
-
-  let jsonObj = null;
-  try {
-    jsonObj = JSON.parse(jsonStr);
-  } catch (error) {
-    console.error("validateMarketJson failed to parse JSON:", error.message);
-  }
-
-  if (jsonObj && jsonObj.timestamp && jsonObj.marketData) {
-    // Add modifications to API data
-    jsonObj.marketData["/items/coin"] = { 0: { a: 1, b: 1 } };
-    jsonObj.marketData["/items/task_token"] = { 0: { a: 0, b: 0 } };
-    jsonObj.marketData["/items/cowbell"] = { 0: { a: 0, b: 0 } };
-
-    jsonObj.marketData["/items/small_treasure_chest"] = { 0: { a: 0, b: 0 } };
-    jsonObj.marketData["/items/medium_treasure_chest"] = { 0: { a: 0, b: 0 } };
-    jsonObj.marketData["/items/large_treasure_chest"] = { 0: { a: 0, b: 0 } };
-
-    jsonObj.marketData["/items/basic_task_badge"] = { 0: { a: 0, b: 0 } };
-    jsonObj.marketData["/items/advanced_task_badge"] = { 0: { a: 0, b: 0 } };
-    jsonObj.marketData["/items/expert_task_badge"] = { 0: { a: 0, b: 0 } };
-
-    if (isSave) {
-      console.log(jsonObj);
-      localStorage.setItem("MWITools_marketAPI_timestamp", Date.now());
-      localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
-    }
-
-    return jsonObj;
-  } else {
-    console.error("validateMarketJson invalid json structure");
-    return null;
-  }
-}
-
 async function fetchMarketJSON(forceFetch = false) {
-  // console.log(GM_xmlhttpRequest); // Tampermonkey
-  // console.log(GM.xmlHttpRequest); // Tampermonkey promise based, Greasemonkey 4.0+
-
-  // Has recently fetched
-  if (
-    !forceFetch &&
-    localStorage.getItem("MWITools_marketAPI_timestamp") &&
-    Date.now() - localStorage.getItem("MWITools_marketAPI_timestamp") < 3600000 // 1 hr
-  ) {
-    return JSON.parse(localStorage.getItem("MWITools_marketAPI_json"));
-  }
-
-  // Broswer does not support fetch
-  const sendRequest =
-    typeof GM.xmlHttpRequest === "function"
-      ? GM.xmlHttpRequest
-      : typeof GM_xmlhttpRequest === "function"
-        ? GM_xmlhttpRequest
-        : null;
-  if (typeof sendRequest != "function") {
-    console.error("fetchMarketJSON null GM xmlHttpRequest function");
-    if (!runtime.state.isUsingExpiredMarketJson) {
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        new Date().toUTCString() +
-        " Setting isUsingExpiredMarketJson to true:\n";
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        "GM_xmlhttpRequest " + typeof GM_xmlhttpRequest + "\n";
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        "GM.xmlHttpRequest " + typeof GM.xmlHttpRequest + "\n";
-    }
-    runtime.state.isUsingExpiredMarketJson = true;
-    const alertDiv = document.querySelector("div#script_api_fail_alert");
-    if (alertDiv) {
-      alertDiv.style.display = "block";
-    }
-    runtime.state.reasonForUsingExpiredMarketJson +=
-      "\nusing hard-coded backup version\n";
-
-    const jsonStr = runtime.data.MARKET_JSON_LOCAL_BACKUP;
-    return validateMarketJsonFetch(jsonStr, false);
-  }
-
-  // Start fetch
-  console.log("fetchMarketJSON fetch start");
-  runtime.state.reasonForUsingExpiredMarketJson +=
-    new Date().toUTCString() + " fetch start \n";
-  const response = await sendRequest({
-    url: runtime.config.MARKET_API_URL,
-    method: "GET",
-    synchronous: true,
-    timeout: 5000,
-    onload: (response) => {
-      if (response.status == 200) {
-        console.log("fetchMarketJSON fetch success 200");
-        runtime.state.reasonForUsingExpiredMarketJson +=
-          new Date().toUTCString() + " fetch onload 200 \n";
-      } else {
-        console.error(
-          "fetchMarketJSON fetch onload with HTTP status failure " +
-            response.status,
-        );
-        runtime.state.reasonForUsingExpiredMarketJson +=
-          new Date().toUTCString() + " fetch onload NOT 200 \n";
-      }
-    },
-    onabort: () => {
-      console.error("fetchMarketJSON fetch onabort");
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        new Date().toUTCString() + " fetch onabort \n";
-    },
-    onerror: () => {
-      console.error("fetchMarketJSON fetch onerror");
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        new Date().toUTCString() + " fetch onerror \n";
-    },
-    ontimeout: () => {
-      console.error("fetchMarketJSON fetch ontimeout");
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        new Date().toUTCString() + " fetch ontimeout \n";
-    },
-  });
-  console.log(
-    "fetchMarketJSON fetch end with response status: " + response?.status,
-  );
-  runtime.state.reasonForUsingExpiredMarketJson +=
-    new Date().toUTCString() +
-    " fetch end with response status " +
-    response?.status +
-    "\n";
-
-  let jsonStr = response?.status === 200 ? response.responseText : null;
-  let jsonObj = validateMarketJsonFetch(jsonStr, true);
-
-  if (jsonObj) {
-    runtime.state.isUsingExpiredMarketJson = false;
-    runtime.state.reasonForUsingExpiredMarketJson = "";
-    const alertDiv = document.querySelector("div#script_api_fail_alert");
-    if (alertDiv) {
-      alertDiv.style.display = "none";
-    }
-    return jsonObj;
-  }
-
-  // Fetch failed
-  runtime.state.isUsingExpiredMarketJson = true;
-  runtime.state.reasonForUsingExpiredMarketJson +=
-    new Date().toUTCString() + " Setting isUsingExpiredMarketJson to true:\n";
-  runtime.state.reasonForUsingExpiredMarketJson += "Failed fetch";
-  const alertDiv = document.querySelector("div#script_api_fail_alert");
-  if (alertDiv) {
-    alertDiv.style.display = "block";
-  }
-
-  // Try previously fetched version
-  if (
-    localStorage.getItem("MWITools_marketAPI_json") &&
-    localStorage.getItem("MWITools_marketAPI_timestamp") &&
-    JSON.parse(runtime.data.MARKET_JSON_LOCAL_BACKUP).timestamp * 1000 <
-      localStorage.getItem("MWITools_marketAPI_timestamp")
-  ) {
-    console.error(
-      "fetchMarketJSON network error, using previously fetched version",
-    );
-    const jsonStr = localStorage.getItem("MWITools_marketAPI_json");
-    const jsonObj = validateMarketJsonFetch(jsonStr, false);
-    if (jsonObj) {
-      runtime.state.reasonForUsingExpiredMarketJson +=
-        "\nusing previously fetched version\n";
-      return jsonObj;
-    }
-  }
-
-  // Use hard-coded backup version
-  runtime.state.reasonForUsingExpiredMarketJson +=
-    "\nusing hard-coded backup version\n";
-  return validateMarketJsonFetch(runtime.data.MARKET_JSON_LOCAL_BACKUP, false);
+  return runtime.api.fetchMarketJSON(forceFetch);
 }
 
 function numberFormatter(num, digits = 1) {
-  if (num === null || num === undefined) {
-    return null;
-  }
-  if (num < 0) {
-    return "-" + numberFormatter(-num);
-  }
-  const lookup = [
-    { value: 1, symbol: "" },
-    { value: 1e3, symbol: "k" },
-    { value: 1e6, symbol: "M" },
-  ];
-  if (!runtime.settings.settingsMap.displayCapMM.isTrue) {
-    lookup.push({ value: 1e9, symbol: "B" });
-  }
-  const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
-  var item = lookup
-    .slice()
-    .reverse()
-    .find(function (item) {
-      return num >= item.value;
-    });
-  return item
-    ? (num / item.value).toFixed(digits).replace(rx, "$1") + item.symbol
-    : "0";
+  return runtime.api.numberFormatter(num, digits);
 }
 
 function getActionHridFromItemName(name) {
@@ -842,9 +646,6 @@ Object.assign(runtime.api, {
   getHousesEffBuffByActionHrid,
   getTeaBuffsByActionHrid,
   handleTooltipItem,
-  validateMarketJsonFetch,
-  fetchMarketJSON,
-  numberFormatter,
   getActionHridFromItemName,
 });
 

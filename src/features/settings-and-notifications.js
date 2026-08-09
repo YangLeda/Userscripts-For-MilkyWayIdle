@@ -237,6 +237,22 @@ function handleMarketNewOrder(node) {
 
   label.click();
 
+  const clickAdjustmentButton = (direction) => {
+    const buttons = [...inputDiv.querySelectorAll("button")];
+    const target = buttons.find((button) => {
+      const label =
+        `${button.textContent} ${button.getAttribute("aria-label") ?? ""} ${button.title ?? ""}`
+          .trim()
+          .toLowerCase();
+      if (direction === "increase") {
+        return label === "+" || label.includes("increase");
+      }
+      return label === "-" || label === "−" || label.includes("decrease");
+    });
+    target?.click();
+    return Boolean(target);
+  };
+
   if (
     runtime.api
       .getOriTextFromElement(label.parentElement)
@@ -244,10 +260,9 @@ function handleMarketNewOrder(node) {
       .includes("best buy") ||
     label.parentElement.textContent.includes("购买")
   ) {
-    inputDiv
-      .querySelectorAll(".MarketplacePanel_buttonContainer__vJQud")[2]
-      ?.querySelector("div button")
-      ?.click();
+    if (!clickAdjustmentButton("increase")) {
+      console.error("handleMarketNewOrder cannot find increase price button");
+    }
   } else if (
     runtime.api
       .getOriTextFromElement(label.parentElement)
@@ -255,10 +270,9 @@ function handleMarketNewOrder(node) {
       .includes("best sell") ||
     label.parentElement.textContent.includes("出售")
   ) {
-    inputDiv
-      .querySelectorAll(".MarketplacePanel_buttonContainer__vJQud")[1]
-      ?.querySelector("div button")
-      ?.click();
+    if (!clickAdjustmentButton("decrease")) {
+      console.error("handleMarketNewOrder cannot find decrease price button");
+    }
   }
 }
 
