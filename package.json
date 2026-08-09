@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:test": "node scripts/build-test-userscript.mjs",
     "format": "prettier --write src scripts test eslint.config.js package.json",
     "format:check": "prettier --check src scripts test eslint.config.js package.json",
     "lint": "eslint src scripts test eslint.config.js",

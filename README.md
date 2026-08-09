@@ -8,6 +8,8 @@ MWITools displays action duration, market prices, quick action inputs, skill pro
 
 The installable userscript is the single file [`MWITools.js`](./MWITools.js). GreasyFork should continue syncing that root-level file; files under `src/` are development sources and are not loaded at runtime.
 
+The independently installable test build is [`MWITools-test.user.js`](./MWITools-test.user.js). It is named `MWITools 测试版`, only matches `test.milkywayidle.com`, and updates from <https://fishingidle.com/mwitools-test.user.js>. Disable the production script on the test site before enabling it to avoid running both copies together.
+
 Steam client users also need [`MWITools addon for Steam version.js`](./MWITools%20addon%20for%20Steam%20version.js).
 
 ## Development
@@ -17,6 +19,7 @@ Requirements: Node.js 22 and npm.
 ```bash
 npm ci
 npm run build
+npm run build:test
 ```
 
 Source code is organized by responsibility:
@@ -27,6 +30,8 @@ Source code is organized by responsibility:
 - `src/main.js`: page routing and startup order.
 
 `npm run build` bundles the modules as a readable UTF-8 IIFE, prepends `src/userscript-banner.txt`, and replaces the root `MWITools.js`. It does not minify or emit a source map.
+
+`npm run build:test` uses the same source and build settings to generate `MWITools-test.user.js` with isolated metadata and its deployment URL. Increment the test version in `scripts/userscript-build.mjs` before publishing a new test update.
 
 Before committing a change, run:
 
