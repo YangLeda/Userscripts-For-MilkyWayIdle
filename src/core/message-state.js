@@ -9,11 +9,92 @@ function applyClientData(payload) {
   runtime.state.initData_actionCategoryDetailMap =
     payload.actionCategoryDetailMap;
   runtime.state.initData_abilityDetailMap = payload.abilityDetailMap;
+  runtime.state.initData_shopItemDetailMap = payload.shopItemDetailMap;
+  runtime.state.initData_taskShopItemDetailMap = payload.taskShopItemDetailMap;
+  runtime.state.initData_labyrinthShopItemDetailMap =
+    payload.labyrinthShopItemDetailMap;
+  runtime.state.initData_openableLootDropMap = payload.openableLootDropMap;
+  runtime.state.initData_guildBuffDetailMap = payload.guildBuffDetailMap;
+  runtime.api.invalidateAssetValueCache?.();
 
   for (const [key, value] of Object.entries(
     runtime.state.initData_itemDetailMap,
   )) {
     runtime.state.itemEnNameToHridMap[value.name] = key;
+  }
+}
+
+const CHARACTER_GUILD_BUFF_KEYS = [
+  "characterGuildBuffMap",
+  "characterGuildBuffDict",
+  "characterGuildBuffs",
+  "characterGuildBuffLevelMap",
+  "characterGuildBuffLevelDict",
+];
+
+const FALLBACK_GUILD_BUFF_KEYS = [
+  "guildBuffLevelMap",
+  "guildBuffLevelDict",
+  "guildBuffLevels",
+  "guildBuffMap",
+  "guildBuffDict",
+];
+
+function normalizeGuildBuffLevels(candidate) {
+  if (!candidate || typeof candidate !== "object") return {};
+  const entries = Array.isArray(candidate)
+    ? candidate.map((record, index) => [
+        record?.guildBuffHrid ?? record?.hrid ?? String(index),
+        record,
+      ])
+    : Object.entries(candidate);
+  return Object.fromEntries(entries.filter(([guildBuffHrid]) => guildBuffHrid));
+}
+
+function applyGuildData(payload, markLoaded = false) {
+  const preferredCandidates = [];
+  const fallbackCandidates = [];
+  const pending = [{ value: payload, depth: 0 }];
+  const visited = new Set();
+  let scanned = 0;
+  while (pending.length && scanned < 400) {
+    const { value, depth } = pending.pop();
+    if (
+      !value ||
+      typeof value !== "object" ||
+      visited.has(value) ||
+      depth > 6
+    ) {
+      continue;
+    }
+    visited.add(value);
+    scanned += 1;
+    for (const key of CHARACTER_GUILD_BUFF_KEYS) {
+      if (value[key] && typeof value[key] === "object")
+        preferredCandidates.push(value[key]);
+    }
+    for (const key of FALLBACK_GUILD_BUFF_KEYS) {
+      if (value[key] && typeof value[key] === "object")
+        fallbackCandidates.push(value[key]);
+    }
+    for (const child of Object.values(value)) {
+      if (child && typeof child === "object")
+        pending.push({ value: child, depth: depth + 1 });
+    }
+  }
+
+  const candidates = [...fallbackCandidates, ...preferredCandidates];
+  if (candidates.length) {
+    runtime.state.guildBuffLevels = candidates.reduce(
+      (levels, candidate) => ({
+        ...levels,
+        ...normalizeGuildBuffLevels(candidate),
+      }),
+      runtime.state.guildBuffLevels ?? {},
+    );
+    runtime.state.guildDataLoaded = true;
+  } else if (markLoaded) {
+    runtime.state.guildDataLoaded = true;
   }
 }
 
@@ -34,6 +115,7 @@ function applyCharacterData(payload) {
       runtime.state.currentEquipmentMap[item.itemLocationHrid] = item;
     }
   }
+  applyGuildData(payload);
 }
 
 function applyActionsUpdated(payload) {
@@ -108,7 +190,10 @@ function applyGameMessage(payload) {
     case "market_listings_updated":
       runtime.api.applyMarketListings(payload);
       break;
+    case "guild_updated":
+      applyGuildData(payload, true);
+      break;
   }
 }
 
-Object.assign(runtime.api, { applyGameMessage });
+Object.assign(runtime.api, { applyGameMessage, applyGuildData });

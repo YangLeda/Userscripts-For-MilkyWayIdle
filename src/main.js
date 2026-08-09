@@ -3,6 +3,7 @@ import "./core/config.js";
 import "./data/translations.js";
 import "./core/state.js";
 import "./core/market.js";
+import "./core/asset-values.js";
 import "./core/message-state.js";
 import "./core/messages.js";
 import "./features/inventory.js";
@@ -30,6 +31,14 @@ function loadCachedClientData() {
   runtime.state.initData_actionCategoryDetailMap =
     clientData.actionCategoryDetailMap;
   runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
+  runtime.state.initData_shopItemDetailMap = clientData.shopItemDetailMap;
+  runtime.state.initData_taskShopItemDetailMap =
+    clientData.taskShopItemDetailMap;
+  runtime.state.initData_labyrinthShopItemDetailMap =
+    clientData.labyrinthShopItemDetailMap;
+  runtime.state.initData_openableLootDropMap = clientData.openableLootDropMap;
+  runtime.state.initData_guildBuffDetailMap = clientData.guildBuffDetailMap;
+  runtime.api.invalidateAssetValueCache();
   for (const [key, value] of Object.entries(
     runtime.state.initData_itemDetailMap,
   )) {

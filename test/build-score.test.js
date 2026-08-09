@@ -81,6 +81,7 @@ runtime.state.initData_houseRoomDetailMap = Object.fromEntries(
     {
       usableInActionTypeMap: {
         "/action_types/combat": combatHouseHrids.includes(houseHrid),
+        "/action_types/crafting": skillingHouseHrids.includes(houseHrid),
       },
       upgradeCostsMap: {
         1: [{ itemHrid: "/items/coin", count: 1 }],
@@ -192,11 +193,11 @@ test("equipment data separates combat, skilling, tools and dual-use gear", () =>
   );
 });
 
-test("combat houses are dynamic while all houses remain fixed assets", async () => {
+test("combat and skilling houses are dynamic while all houses remain fixed assets", async () => {
   const houseScores = await runtime.api.calculateHouseScores(
     runtime.state.initData_characterHouseRoomMap,
   );
-  assert.deepEqual(houseScores, { combat: 7, all: 17 });
+  assert.deepEqual(houseScores, { combat: 7, skilling: 10, all: 17 });
 
   const scores = await runtime.api.getSelfBuildScores();
   assert.deepEqual(scores.battle, {
@@ -206,10 +207,11 @@ test("combat houses are dynamic while all houses remain fixed assets", async () 
     total: 47,
   });
   assert.deepEqual(scores.skilling, {
+    house: 10,
     tools: 49,
     equipment: 50,
     available: true,
-    total: 99,
+    total: 109,
   });
   assert.deepEqual(scores.assets, { allHouses: 17, allAbilities: 0 });
 });
@@ -230,11 +232,15 @@ test("profile scores include tools and show unavailable values when hidden", asy
   };
   const publicScores = await runtime.api.getBuildScoreByProfile(publicProfile);
   assert.equal(publicScores.battle.total, 47);
-  assert.equal(publicScores.skilling.total, 99);
+  assert.equal(publicScores.skilling.total, 109);
 
   await runtime.api.showBuildScoreOnProfile(publicProfile);
   assert.match(document.body.textContent, /战斗着装评分：47\.0/);
-  assert.match(document.body.textContent, /生活着装评分：99\.0/);
+  assert.match(document.body.textContent, /生活着装评分：109/);
+  assert.match(
+    document.querySelector("#skillingScores_profile").textContent,
+    /房屋：10\.0/,
+  );
   assert.match(document.body.textContent, /工具：49\.0/);
 
   const hiddenProfile = {
@@ -260,12 +266,23 @@ test("profile scores include tools and show unavailable values when hidden", asy
     document.querySelector("#skillingScores_profile").textContent,
     /工具：-/,
   );
+  assert.match(
+    document.querySelector("#skillingScores_profile").textContent,
+    /房屋：10\.0/,
+  );
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
 
   runtime.config.isZH = false;
   await runtime.api.showBuildScoreOnProfile(publicProfile);
   assert.match(document.body.textContent, /Combat Gear Score: 47\.0/);
-  assert.match(document.body.textContent, /Skilling Gear Score: 99\.0/);
+  assert.match(document.body.textContent, /Skilling Gear Score: 109/);
   assert.match(document.body.textContent, /House: 7\.0/);
   assert.match(document.body.textContent, /Abilities: 0\.0/);
+});
+
+test("score formatting keeps one decimal through 100 and groups larger integers", () => {
+  assert.equal(runtime.api.formatScore(99.94), "99.9");
+  assert.equal(runtime.api.formatScore(100), "100.0");
+  assert.equal(runtime.api.formatScore(100.5), "101");
+  assert.equal(runtime.api.formatScore(5_190_829_858_634), "5,190,829,858,634");
 });

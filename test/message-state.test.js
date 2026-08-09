@@ -5,6 +5,7 @@ import { runtime } from "../src/core/runtime.js";
 import "../src/data/translations.js";
 import "../src/core/state.js";
 import "../src/core/market.js";
+import "../src/core/asset-values.js";
 import "../src/core/message-state.js";
 import "../src/core/messages.js";
 
@@ -156,4 +157,25 @@ test("character, action and equipment messages update canonical state", () => {
     runtime.state.currentEquipmentMap["/item_locations/main_hand"],
     null,
   );
+});
+
+test("guild buff levels update canonical state before feature effects", () => {
+  let observedLevel = null;
+  runtime.onMessage("guild_updated", () => {
+    observedLevel = runtime.state.guildBuffLevels["/guild_buffs/force_combat"];
+  });
+
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "guild_updated",
+      guild: {
+        characterGuildBuffLevelMap: {
+          "/guild_buffs/force_combat": { level: 7 },
+        },
+      },
+    }),
+  );
+
+  assert.deepEqual(observedLevel, { level: 7 });
+  assert.equal(runtime.state.guildDataLoaded, true);
 });

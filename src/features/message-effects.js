@@ -49,7 +49,9 @@ runtime.onMessage("items_updated", () => {
 
 for (const messageType of [
   "market_item_values_updated",
+  "market_item_order_books_updated",
   "market_listings_updated",
+  "guild_updated",
 ]) {
   runtime.onMessage(messageType, () => {
     if (runtime.settings.settingsMap.networth.isTrue)

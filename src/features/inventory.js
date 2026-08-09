@@ -4,6 +4,61 @@ let networthWatcherStarted = false;
 let guildCreditWatcherStarted = false;
 let networthRefreshTimer = null;
 
+function isTerminalMarketListing(listing) {
+  if (
+    listing?.isDone ||
+    listing?.isCancelled ||
+    listing?.isCanceled ||
+    listing?.isExpired
+  ) {
+    return true;
+  }
+  return /(cancel|complete|expire|closed|done)/i.test(
+    String(listing?.status ?? ""),
+  );
+}
+
+function calculateMarketListingValues(listings) {
+  const totals = { fair: 0, ask: 0, bid: 0 };
+  for (const listing of listings ?? []) {
+    const enhancementLevel = listing.enhancementLevel ?? 0;
+    const assetValue = runtime.api.getAssetValue(
+      listing.itemHrid,
+      enhancementLevel,
+    );
+    const askPrice = runtime.api.getAskPrice(
+      listing.itemHrid,
+      enhancementLevel,
+    );
+    const bidPrice = runtime.api.getBidPrice(
+      listing.itemHrid,
+      enhancementLevel,
+    );
+    const availableCoins = Math.max(0, Number(listing.coinsAvailable ?? 0));
+    const unclaimedCoins = Math.max(0, Number(listing.unclaimedCoinCount ?? 0));
+    const explicitCoins = availableCoins + unclaimedCoins;
+    totals.fair += explicitCoins;
+    totals.ask += explicitCoins;
+    totals.bid += explicitCoins;
+
+    const unclaimedItems = Math.max(0, Number(listing.unclaimedItemCount ?? 0));
+    totals.fair += unclaimedItems * assetValue;
+    totals.ask += unclaimedItems * askPrice;
+    totals.bid += unclaimedItems * bidPrice;
+
+    if (!listing.isSell || isTerminalMarketListing(listing)) continue;
+    const remainingQuantity = Math.max(
+      0,
+      Number(listing.orderQuantity ?? 0) - Number(listing.filledQuantity ?? 0),
+    );
+    const taxMultiplier = 1 - runtime.api.getMarketTaxRate(listing.itemHrid);
+    totals.fair += remainingQuantity * assetValue;
+    totals.ask += remainingQuantity * askPrice * taxMultiplier;
+    totals.bid += remainingQuantity * bidPrice * taxMultiplier;
+  }
+  return totals;
+}
+
 function scheduleNetworthRefresh() {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
   clearTimeout(networthRefreshTimer);
@@ -30,12 +85,13 @@ async function calculateNetworth() {
   let marketListingsFairValue = 0;
   let equippedFairValue = 0;
   let inventoryFairValue = 0;
+  let nonTradableTokenValue = 0;
 
   for (const item of runtime.state.initData_characterItems) {
     const enhanceLevel = item.enhancementLevel;
     const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
     const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
-    const fairValue = runtime.api.getFairValue(item.itemHrid, enhanceLevel);
+    const fairValue = runtime.api.getAssetValue(item.itemHrid, enhanceLevel);
     if (item.itemLocationHrid !== "/item_locations/inventory") {
       equippedNetworthAsk += item.count * askPrice;
       equippedNetworthBid += item.count * bidPrice;
@@ -43,42 +99,23 @@ async function calculateNetworth() {
     } else {
       inventoryNetworthAsk += item.count * askPrice;
       inventoryNetworthBid += item.count * bidPrice;
-      inventoryFairValue += item.count * fairValue;
+      if (runtime.api.isNonTradableTokenAsset(item.itemHrid)) {
+        nonTradableTokenValue += item.count * fairValue;
+      } else {
+        inventoryFairValue += item.count * fairValue;
+      }
     }
     if (!fairValue && !askPrice && !bidPrice) {
       console.log("calculateNetworth cannot find price of " + item.itemHrid);
     }
   }
 
-  for (const item of runtime.state.initData_myMarketListings) {
-    const quantity =
-      Number(item.orderQuantity ?? 0) - Number(item.filledQuantity ?? 0);
-    const enhancementLevel = item.enhancementLevel;
-    let askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
-    let bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
-    const fairValue = runtime.api.getFairValue(item.itemHrid, enhancementLevel);
-    if (item.isSell) {
-      const taxMultiplier = 1 - runtime.api.getMarketTaxRate(item.itemHrid);
-      askPrice *= taxMultiplier;
-      bidPrice *= taxMultiplier;
-      marketListingsNetworthAsk += quantity * askPrice;
-      marketListingsNetworthBid += quantity * bidPrice;
-      marketListingsFairValue += quantity * fairValue;
-      marketListingsNetworthAsk += Number(item.unclaimedCoinCount ?? 0);
-      marketListingsNetworthBid += Number(item.unclaimedCoinCount ?? 0);
-      marketListingsFairValue += Number(item.unclaimedCoinCount ?? 0);
-    } else {
-      marketListingsNetworthAsk += quantity * Number(item.price ?? 0);
-      marketListingsNetworthBid += quantity * Number(item.price ?? 0);
-      marketListingsNetworthAsk +=
-        Number(item.unclaimedItemCount ?? 0) * (askPrice > 0 ? askPrice : 0);
-      marketListingsNetworthBid +=
-        Number(item.unclaimedItemCount ?? 0) * (bidPrice > 0 ? bidPrice : 0);
-      marketListingsFairValue += quantity * Number(item.price ?? 0);
-      marketListingsFairValue +=
-        Number(item.unclaimedItemCount ?? 0) * fairValue;
-    }
-  }
+  const listingValues = calculateMarketListingValues(
+    runtime.state.initData_myMarketListings,
+  );
+  marketListingsFairValue = listingValues.fair;
+  marketListingsNetworthAsk = listingValues.ask;
+  marketListingsNetworthBid = listingValues.bid;
 
   networthAsk =
     equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
@@ -91,9 +128,12 @@ async function calculateNetworth() {
   // Some code of networth summery is by Stella.
   const addInventorySummery = async (invElem) => {
     const scores = await runtime.api.getSelfBuildScores();
+    const guildShrineValue = runtime.api.getGuildShrineValue();
     const totalNetworth =
       currentAssetsFairValue +
-      (scores.assets.allHouses + scores.assets.allAbilities) * 1000000;
+      (scores.assets.allHouses + scores.assets.allAbilities) * 1000000 +
+      nonTradableTokenValue +
+      (guildShrineValue ?? 0);
 
     const previousSummary = invElem.parentElement?.querySelector(
       "#script_inventory_summary",
@@ -116,11 +156,11 @@ async function calculateNetworth() {
                   runtime.config.isZH
                     ? "+ 战斗着装评分："
                     : "+ Combat Gear Score: "
-                }${scores.battle.total.toFixed(1)}</div>
+                }${runtime.api.formatScore(scores.battle.total)}</div>
                 <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${scores.battle.abilities.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.battle.equipment.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
+                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${runtime.api.formatScore(scores.battle.abilities)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.battle.equipment)}</div>
                 </div>
 
                 <!-- 生活着装评分 -->
@@ -128,15 +168,16 @@ async function calculateNetworth() {
                   runtime.config.isZH
                     ? "+ 生活着装评分："
                     : "+ Skilling Gear Score: "
-                }${scores.skilling.total.toFixed(1)}</div>
+                }${runtime.api.formatScore(scores.skilling.total)}</div>
                 <div id="skillingScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${scores.skilling.tools.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.skilling.equipment.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
+                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${runtime.api.formatScore(scores.skilling.tools)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.skilling.equipment)}</div>
                 </div>
 
-                <!-- 总NetWorth -->
+                <!-- 总资产价值 -->
                 <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总NetWorth：" : "+ Total NetWorth: "}${runtime.api.numberFormatter(totalNetworth)}
+                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${runtime.api.numberFormatter(totalNetworth)}
                 </div>
 
                 <div id="netWorthDetails" style="display: none; margin-left: 20px;">
@@ -157,6 +198,8 @@ async function calculateNetworth() {
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
                         <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(scores.assets.allHouses * 1000000)}</div>
                         <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(scores.assets.allAbilities * 1000000)}</div>
+                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${runtime.api.numberFormatter(nonTradableTokenValue)}</div>
+                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "-" : runtime.api.numberFormatter(guildShrineValue)}</div>
                     </div>
                 </div>
             </div>`,
@@ -189,14 +232,14 @@ async function calculateNetworth() {
       toggleScores.textContent =
         "↓ " +
         (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") +
-        scores.battle.total.toFixed(1);
+        runtime.api.formatScore(scores.battle.total);
     }
     if (wasSkillingScoreOpen) {
       skillingScoreDetails.style.display = "block";
       toggleSkillingScores.textContent =
         "↓ " +
         (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") +
-        scores.skilling.total.toFixed(1);
+        runtime.api.formatScore(scores.skilling.total);
     }
 
     toggleScores.addEventListener("click", () => {
@@ -205,7 +248,7 @@ async function calculateNetworth() {
       toggleScores.textContent =
         (isCollapsed ? "↓ " : "+ ") +
         (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") +
-        scores.battle.total.toFixed(1);
+        runtime.api.formatScore(scores.battle.total);
     });
 
     toggleSkillingScores.addEventListener("click", () => {
@@ -214,7 +257,7 @@ async function calculateNetworth() {
       toggleSkillingScores.textContent =
         (isCollapsed ? "↓ " : "+ ") +
         (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") +
-        scores.skilling.total.toFixed(1);
+        runtime.api.formatScore(scores.skilling.total);
     });
 
     toggleButton.addEventListener("click", () => {
@@ -222,7 +265,7 @@ async function calculateNetworth() {
       netWorthDetails.style.display = isCollapsed ? "block" : "none";
       toggleButton.textContent =
         (isCollapsed ? "↓ " : "+ ") +
-        (runtime.config.isZH ? "总NetWorth：" : "Total NetWorth: ") +
+        (runtime.config.isZH ? "总资产价值：" : "Total Asset Value: ") +
         runtime.api.numberFormatter(totalNetworth);
       currentAssets.style.display = isCollapsed ? "block" : "none";
       toggleCurrentAssets.textContent =
@@ -769,6 +812,7 @@ async function addGuildCreditConversionsSortButton() {
 
 Object.assign(runtime.api, {
   calculateNetworth,
+  calculateMarketListingValues,
   scheduleNetworthRefresh,
   addInvSortButton,
   addGuildCreditConversionsSortButton,

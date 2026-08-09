@@ -33,6 +33,16 @@ function isCombatHouse(house) {
   );
 }
 
+function isSkillingHouse(house) {
+  const usableInActionTypeMap =
+    runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid]
+      ?.usableInActionTypeMap;
+  return Object.entries(usableInActionTypeMap ?? {}).some(
+    ([actionTypeHrid, isUsable]) =>
+      actionTypeHrid !== "/action_types/combat" && Boolean(isUsable),
+  );
+}
+
 function createEmptyGearScores() {
   return {
     combatEquipment: 0,
@@ -77,15 +87,17 @@ function calculateGearScores(items) {
 
 async function calculateHouseScores(characterHouseRoomMap) {
   let combat = 0;
+  let skilling = 0;
   let all = 0;
 
   for (const house of Object.values(characterHouseRoomMap ?? {})) {
     const value = (await getHouseFullBuildPrice(house)) / SCORE_UNIT;
     all += value;
     if (isCombatHouse(house)) combat += value;
+    if (isSkillingHouse(house)) skilling += value;
   }
 
-  return { combat, all };
+  return { combat, skilling, all };
 }
 
 function createScoreResult({
@@ -103,11 +115,12 @@ function createScoreResult({
   battle.total = battle.house + battle.abilities + battle.equipment;
 
   const skilling = {
+    house: houseScores.skilling,
     tools: gearScores.skillingTools,
     equipment: gearScores.skillingEquipment,
     available: !equipmentHidden,
   };
-  skilling.total = skilling.tools + skilling.equipment;
+  skilling.total = skilling.house + skilling.tools + skilling.equipment;
 
   return {
     battle,
@@ -282,20 +295,21 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
     `<div id="script_profile_gear_scores" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
             <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${
               runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "
-            }${scores.battle.total.toFixed(1)}${hiddenText}</div>
+            }${runtime.api.formatScore(scores.battle.total)}${hiddenText}</div>
             <div id="buildScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? scores.battle.abilities.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.battle.equipment.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
+                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</div>
             </div>
             <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${
               runtime.config.isZH
                 ? "+ 生活着装评分："
                 : "+ Skilling Gear Score: "
-            }${hiddenValue ?? scores.skilling.total.toFixed(1)}${hiddenText}</div>
+            }${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</div>
             <div id="skillingScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? scores.skilling.tools.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.skilling.equipment.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
+                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</div>
             </div>
         </div>`,
   );
@@ -314,13 +328,13 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
     "toggleScores_profile",
     "buildScores_profile",
     runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ",
-    scores.battle.total.toFixed(1),
+    runtime.api.formatScore(scores.battle.total),
   );
   bindToggle(
     "toggleSkillingScores_profile",
     "skillingScores_profile",
     runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ",
-    hiddenValue ?? scores.skilling.total.toFixed(1),
+    hiddenValue ?? runtime.api.formatScore(scores.skilling.total),
   );
 }
 
@@ -424,6 +438,7 @@ Object.assign(runtime.api, {
   getWeightedMarketPrice,
   classifyEquippedItem,
   isCombatHouse,
+  isSkillingHouse,
   calculateGearScores,
   calculateHouseScores,
   calculateAbilityScore,

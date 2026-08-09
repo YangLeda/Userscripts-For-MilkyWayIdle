@@ -31,6 +31,16 @@ let initData_actionCategoryDetailMap = null;
 
 let initData_abilityDetailMap = null;
 
+let initData_shopItemDetailMap = null;
+
+let initData_taskShopItemDetailMap = null;
+
+let initData_labyrinthShopItemDetailMap = null;
+
+let initData_openableLootDropMap = null;
+
+let initData_guildBuffDetailMap = null;
+
 let initData_characterAbilities = null;
 
 let initData_myMarketListings = null;
@@ -48,6 +58,10 @@ const marketPriceBands = {};
 let currentActionsHridList = [];
 
 let currentEquipmentMap = {};
+
+let guildBuffLevels = {};
+
+let guildDataLoaded = false;
 
 Object.defineProperties(runtime.data, {
   MARKET_JSON_LOCAL_BACKUP: {
@@ -185,6 +199,51 @@ Object.defineProperties(runtime.state, {
       initData_abilityDetailMap = value;
     },
   },
+  initData_shopItemDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_shopItemDetailMap;
+    },
+    set(value) {
+      initData_shopItemDetailMap = value;
+    },
+  },
+  initData_taskShopItemDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_taskShopItemDetailMap;
+    },
+    set(value) {
+      initData_taskShopItemDetailMap = value;
+    },
+  },
+  initData_labyrinthShopItemDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_labyrinthShopItemDetailMap;
+    },
+    set(value) {
+      initData_labyrinthShopItemDetailMap = value;
+    },
+  },
+  initData_openableLootDropMap: {
+    enumerable: true,
+    get() {
+      return initData_openableLootDropMap;
+    },
+    set(value) {
+      initData_openableLootDropMap = value;
+    },
+  },
+  initData_guildBuffDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_guildBuffDetailMap;
+    },
+    set(value) {
+      initData_guildBuffDetailMap = value;
+    },
+  },
   initData_characterAbilities: {
     enumerable: true,
     get() {
@@ -258,6 +317,24 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       currentEquipmentMap = value;
+    },
+  },
+  guildBuffLevels: {
+    enumerable: true,
+    get() {
+      return guildBuffLevels;
+    },
+    set(value) {
+      guildBuffLevels = value ?? {};
+    },
+  },
+  guildDataLoaded: {
+    enumerable: true,
+    get() {
+      return guildDataLoaded;
+    },
+    set(value) {
+      guildDataLoaded = Boolean(value);
     },
   },
 });

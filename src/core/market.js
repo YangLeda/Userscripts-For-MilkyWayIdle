@@ -145,6 +145,23 @@ function numberFormatter(num, digits = 1) {
     : "0";
 }
 
+function formatScore(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) return "-";
+
+  const fixedValue =
+    numericValue > 100
+      ? Math.round(numericValue).toString()
+      : numericValue.toFixed(1);
+  const [integerPart, decimalPart] = fixedValue.split(".");
+  const groupedInteger = integerPart.replace(
+    /\B(?=(\d{3})+(?!\d))/g,
+    runtime.config.THOUSAND_SEPERATOR || ",",
+  );
+  if (decimalPart === undefined) return groupedInteger;
+  return `${groupedInteger}${runtime.config.DECIMAL_SEPERATOR || "."}${decimalPart}`;
+}
+
 function getPriceBand(itemHrid, enhancementLevel = 0) {
   const storedBand =
     runtime.state.marketPriceBands?.[itemHrid]?.[enhancementLevel];
@@ -190,6 +207,7 @@ function loadMarketItemValuesFromStorage() {
   if (!parsed) return false;
   runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
   runtime.state.marketItemValues = parsed.marketItemValues;
+  runtime.api.invalidateAssetValueCache?.();
   return true;
 }
 
@@ -219,6 +237,7 @@ function validateMarketJsonFetch(jsonValue, isSave = false) {
     jsonObj.marketData[itemHrid] = { 0: prices };
   }
   runtime.state.marketApiJson = jsonObj;
+  runtime.api.invalidateAssetValueCache?.();
   if (isSave) {
     localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
     localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
@@ -308,6 +327,7 @@ function applyMarketItemValues(payload) {
   if (!payload.marketItemValues) return;
   runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
   runtime.state.marketItemValues = payload.marketItemValues;
+  runtime.api.invalidateAssetValueCache?.();
 }
 
 function applyMarketOrderBooks(payload) {
@@ -321,6 +341,7 @@ function applyMarketOrderBooks(payload) {
       ...orderBookPayload.marketValues,
     };
   }
+  runtime.api.invalidateAssetValueCache?.();
   const minimums = orderBookPayload.priceBandMins ?? {};
   const maximums = orderBookPayload.priceBandMaxs ?? {};
   const levels = new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
@@ -381,6 +402,7 @@ Object.assign(runtime.api, {
   normalizeMarketPrice,
   parseCompactNumber,
   numberFormatter,
+  formatScore,
   getPriceBand,
   parseStoredMarketItemValues,
   loadMarketItemValuesFromStorage,

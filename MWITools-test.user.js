@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.0.2
+// @version      26.0.3
 // @description  [测试版] Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -16954,6 +16954,11 @@
   var initData_houseRoomDetailMap = null;
   var initData_actionCategoryDetailMap = null;
   var initData_abilityDetailMap = null;
+  var initData_shopItemDetailMap = null;
+  var initData_taskShopItemDetailMap = null;
+  var initData_labyrinthShopItemDetailMap = null;
+  var initData_openableLootDropMap = null;
+  var initData_guildBuffDetailMap = null;
   var initData_characterAbilities = null;
   var initData_myMarketListings = null;
   var marketApiJson = null;
@@ -16963,6 +16968,8 @@
   var marketPriceBands = {};
   var currentActionsHridList = [];
   var currentEquipmentMap = {};
+  var guildBuffLevels = {};
+  var guildDataLoaded = false;
   Object.defineProperties(runtime.data, {
     MARKET_JSON_LOCAL_BACKUP: {
       enumerable: true,
@@ -17098,6 +17105,51 @@
         initData_abilityDetailMap = value;
       }
     },
+    initData_shopItemDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_shopItemDetailMap;
+      },
+      set(value) {
+        initData_shopItemDetailMap = value;
+      }
+    },
+    initData_taskShopItemDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_taskShopItemDetailMap;
+      },
+      set(value) {
+        initData_taskShopItemDetailMap = value;
+      }
+    },
+    initData_labyrinthShopItemDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_labyrinthShopItemDetailMap;
+      },
+      set(value) {
+        initData_labyrinthShopItemDetailMap = value;
+      }
+    },
+    initData_openableLootDropMap: {
+      enumerable: true,
+      get() {
+        return initData_openableLootDropMap;
+      },
+      set(value) {
+        initData_openableLootDropMap = value;
+      }
+    },
+    initData_guildBuffDetailMap: {
+      enumerable: true,
+      get() {
+        return initData_guildBuffDetailMap;
+      },
+      set(value) {
+        initData_guildBuffDetailMap = value;
+      }
+    },
     initData_characterAbilities: {
       enumerable: true,
       get() {
@@ -17171,6 +17223,24 @@
       },
       set(value) {
         currentEquipmentMap = value;
+      }
+    },
+    guildBuffLevels: {
+      enumerable: true,
+      get() {
+        return guildBuffLevels;
+      },
+      set(value) {
+        guildBuffLevels = value ?? {};
+      }
+    },
+    guildDataLoaded: {
+      enumerable: true,
+      get() {
+        return guildDataLoaded;
+      },
+      set(value) {
+        guildDataLoaded = Boolean(value);
       }
     }
   });
@@ -17277,6 +17347,18 @@
     const trimZeros = /\.0+$|(\.[0-9]*[1-9])0+$/;
     return item ? (num / item.value).toFixed(digits).replace(trimZeros, "$1") + item.symbol : "0";
   }
+  function formatScore(value) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return "-";
+    const fixedValue = numericValue > 100 ? Math.round(numericValue).toString() : numericValue.toFixed(1);
+    const [integerPart, decimalPart] = fixedValue.split(".");
+    const groupedInteger = integerPart.replace(
+      /\B(?=(\d{3})+(?!\d))/g,
+      runtime.config.THOUSAND_SEPERATOR || ","
+    );
+    if (decimalPart === void 0) return groupedInteger;
+    return `${groupedInteger}${runtime.config.DECIMAL_SEPERATOR || "."}${decimalPart}`;
+  }
   function getPriceBand(itemHrid, enhancementLevel = 0) {
     const storedBand = runtime.state.marketPriceBands?.[itemHrid]?.[enhancementLevel];
     if (storedBand) return storedBand;
@@ -17318,6 +17400,7 @@
     if (!parsed) return false;
     runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
     runtime.state.marketItemValues = parsed.marketItemValues;
+    runtime.api.invalidateAssetValueCache?.();
     return true;
   }
   function validateMarketJsonFetch(jsonValue, isSave = false) {
@@ -17345,6 +17428,7 @@
       jsonObj.marketData[itemHrid] = { 0: prices };
     }
     runtime.state.marketApiJson = jsonObj;
+    runtime.api.invalidateAssetValueCache?.();
     if (isSave) {
       localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
       localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
@@ -17418,6 +17502,7 @@
     if (!payload.marketItemValues) return;
     runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
     runtime.state.marketItemValues = payload.marketItemValues;
+    runtime.api.invalidateAssetValueCache?.();
   }
   function applyMarketOrderBooks(payload) {
     const orderBookPayload = payload.marketItemOrderBooks ?? payload;
@@ -17430,6 +17515,7 @@
         ...orderBookPayload.marketValues
       };
     }
+    runtime.api.invalidateAssetValueCache?.();
     const minimums = orderBookPayload.priceBandMins ?? {};
     const maximums = orderBookPayload.priceBandMaxs ?? {};
     const levels = /* @__PURE__ */ new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
@@ -17480,6 +17566,7 @@
     normalizeMarketPrice,
     parseCompactNumber,
     numberFormatter,
+    formatScore,
     getPriceBand,
     parseStoredMarketItemValues,
     loadMarketItemValuesFromStorage,
@@ -17491,6 +17578,252 @@
     getListingWorkingPrice
   });
 
+  // src/core/asset-values.js
+  var SHOP_CURRENCY_HRIDS = /* @__PURE__ */ new Set([
+    "/items/chimerical_token",
+    "/items/sinister_token",
+    "/items/enchanted_token",
+    "/items/pirate_token",
+    "/items/task_token",
+    "/items/labyrinth_token"
+  ]);
+  var assetValueCache = /* @__PURE__ */ new Map();
+  var guildCreditHridCache = null;
+  function positiveNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : 0;
+  }
+  function entriesOfMap(value) {
+    if (Array.isArray(value)) {
+      return value.map((record, index) => [
+        record?.hrid ?? record?.itemHrid ?? record?.guildBuffHrid ?? String(index),
+        record
+      ]);
+    }
+    return Object.entries(value ?? {});
+  }
+  function invalidateAssetValueCache() {
+    assetValueCache.clear();
+    guildCreditHridCache = null;
+  }
+  function getItemDetails(itemHrid) {
+    return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
+  }
+  function getGuildCreditHrids() {
+    if (guildCreditHridCache) return guildCreditHridCache;
+    const result = /* @__PURE__ */ new Set();
+    for (const [, detail] of entriesOfMap(runtime.state.initData_itemDetailMap)) {
+      for (const conversion of detail?.guildCreditConversions ?? []) {
+        if (conversion?.creditItemHrid) result.add(conversion.creditItemHrid);
+      }
+    }
+    guildCreditHridCache = result;
+    return result;
+  }
+  function isNonTradableTokenAsset(itemHrid) {
+    return itemHrid === "/items/cowbell" || itemHrid === "/items/guild_token" || getGuildCreditHrids().has(itemHrid);
+  }
+  function getGuildCreditValue(creditItemHrid) {
+    let bestValue = Number.POSITIVE_INFINITY;
+    for (const [fallbackHrid, detail] of entriesOfMap(
+      runtime.state.initData_itemDetailMap
+    )) {
+      const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
+      if (!itemHrid || itemHrid === "/items/guild_token") continue;
+      const materialValue = runtime.api.getFairValue(itemHrid, 0);
+      if (!(materialValue > 0)) continue;
+      for (const conversion of detail?.guildCreditConversions ?? []) {
+        if (conversion?.creditItemHrid !== creditItemHrid) continue;
+        const itemCount = positiveNumber(conversion.itemCount);
+        const creditCount = positiveNumber(conversion.creditCount);
+        if (!itemCount || !creditCount) continue;
+        bestValue = Math.min(
+          bestValue,
+          materialValue * itemCount / creditCount
+        );
+      }
+    }
+    return Number.isFinite(bestValue) ? bestValue : 0;
+  }
+  function getGuildTokenValue(context) {
+    const detail = getItemDetails("/items/guild_token");
+    let bestValue = 0;
+    for (const conversion of detail?.guildCreditConversions ?? []) {
+      const creditItemHrid = conversion?.creditItemHrid;
+      const tokenCount = positiveNumber(
+        conversion?.guildTokenCount ?? conversion?.itemCount
+      );
+      const creditCount = positiveNumber(conversion?.creditCount);
+      if (!creditItemHrid || !tokenCount || !creditCount) continue;
+      const creditValue = getAssetValueInternal(creditItemHrid, 0, context);
+      if (!(creditValue > 0)) continue;
+      bestValue = Math.max(bestValue, creditValue * creditCount / tokenCount);
+    }
+    return bestValue;
+  }
+  function getDropRecords(itemHrid) {
+    const entry = runtime.state.initData_openableLootDropMap?.[itemHrid];
+    if (Array.isArray(entry)) return entry;
+    return entry?.drops ?? entry?.dropTable ?? entry?.items ?? [];
+  }
+  function getOpenableValue(itemHrid, context) {
+    const drops = getDropRecords(itemHrid);
+    if (!Array.isArray(drops) || !drops.length) return 0;
+    let total = 0;
+    for (const drop of drops) {
+      const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+      if (!dropItemHrid) continue;
+      const rawDropRate = Array.isArray(drop.dropRate) ? drop.dropRate[0] : drop.dropRate;
+      const dropRate = Number.isFinite(Number(rawDropRate)) ? Math.max(0, Number(rawDropRate)) : 1;
+      const minimum = Number(drop.minCount ?? drop.count ?? 1);
+      const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+      const expectedCount = dropRate * (minimum + maximum) * 0.5;
+      const value = getAssetValueInternal(
+        dropItemHrid,
+        drop.enhancementLevel ?? 0,
+        context
+      );
+      total += expectedCount * value;
+    }
+    return total;
+  }
+  function normalizeCostRecords(detail) {
+    const raw = detail?.costs ?? detail?.costItems ?? detail?.cost;
+    if (Array.isArray(raw)) return raw;
+    if (raw?.itemHrid || raw?.hrid) return [raw];
+    return Object.entries(raw ?? {}).map(([itemHrid, value]) => ({
+      itemHrid,
+      count: value?.count ?? value
+    }));
+  }
+  function normalizeRewardRecords(detail) {
+    const raw = detail?.itemRewards ?? detail?.rewards ?? detail?.rewardItems;
+    if (Array.isArray(raw)) return raw;
+    if (raw?.itemHrid || raw?.hrid) return [raw];
+    const itemHrid = detail?.itemHrid ?? detail?.rewardItemHrid ?? detail?.item?.itemHrid ?? runtime.state.itemEnNameToHridMap?.[detail?.name];
+    return itemHrid ? [
+      {
+        itemHrid,
+        count: detail?.outputCount ?? detail?.itemCount ?? detail?.rewardCount ?? 1,
+        enhancementLevel: detail?.enhancementLevel ?? 0
+      }
+    ] : [];
+  }
+  function getShopDetails() {
+    return [
+      runtime.state.initData_shopItemDetailMap,
+      runtime.state.initData_taskShopItemDetailMap,
+      runtime.state.initData_labyrinthShopItemDetailMap
+    ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
+  }
+  function getShopCurrencyValue(currencyItemHrid, context) {
+    let bestValue = 0;
+    for (const detail of getShopDetails()) {
+      const costs = normalizeCostRecords(detail);
+      const targetCost = costs.find(
+        (cost) => (cost?.itemHrid ?? cost?.hrid) === currencyItemHrid
+      );
+      const targetCount = positiveNumber(targetCost?.count);
+      if (!targetCount) continue;
+      let rewardValue = 0;
+      for (const reward of normalizeRewardRecords(detail)) {
+        const itemHrid = reward?.itemHrid ?? reward?.hrid;
+        if (!itemHrid) continue;
+        rewardValue += positiveNumber(reward.count ?? 1) * getAssetValueInternal(itemHrid, reward.enhancementLevel ?? 0, context);
+      }
+      let otherCostValue = 0;
+      for (const cost of costs) {
+        const itemHrid = cost?.itemHrid ?? cost?.hrid;
+        if (!itemHrid || itemHrid === currencyItemHrid) continue;
+        otherCostValue += positiveNumber(cost.count) * getAssetValueInternal(itemHrid, 0, context);
+      }
+      bestValue = Math.max(
+        bestValue,
+        Math.max(0, rewardValue - otherCostValue) / targetCount
+      );
+    }
+    return bestValue;
+  }
+  function getAssetValueInternal(itemHrid, enhancementLevel, context) {
+    if (!itemHrid) return 0;
+    const level = Number(enhancementLevel) || 0;
+    const cacheKey = `${itemHrid}:${level}`;
+    if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
+    if (context.has(cacheKey)) return 0;
+    const fairValue = runtime.api.getFairValue(itemHrid, level);
+    if (fairValue > 0) {
+      assetValueCache.set(cacheKey, fairValue);
+      return fairValue;
+    }
+    context.add(cacheKey);
+    let value = 0;
+    if (itemHrid === "/items/cowbell") {
+      value = getAssetValueInternal("/items/bag_of_10_cowbells", 0, context) / 10;
+    } else if (getGuildCreditHrids().has(itemHrid)) {
+      value = getGuildCreditValue(itemHrid);
+    } else if (itemHrid === "/items/guild_token") {
+      value = getGuildTokenValue(context);
+    } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
+      value = getShopCurrencyValue(itemHrid, context);
+    } else {
+      value = getOpenableValue(itemHrid, context);
+    }
+    context.delete(cacheKey);
+    const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
+    assetValueCache.set(cacheKey, normalizedValue);
+    return normalizedValue;
+  }
+  function getAssetValue(itemHrid, enhancementLevel = 0) {
+    return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set());
+  }
+  function getGuildBuffLevel(guildBuffHrid) {
+    const levels = runtime.state.guildBuffLevels;
+    const record = Array.isArray(levels) ? levels.find(
+      (value) => (value?.guildBuffHrid ?? value?.hrid) === guildBuffHrid
+    ) : levels?.[guildBuffHrid];
+    const level = Number(
+      typeof record === "object" ? record?.level ?? record?.currentLevel : record
+    );
+    return Number.isSafeInteger(level) && level > 0 ? level : 0;
+  }
+  function getGuildShrineValue() {
+    if (!runtime.state.guildDataLoaded) return null;
+    const details = entriesOfMap(runtime.state.initData_guildBuffDetailMap);
+    if (!details.length) return null;
+    let total = 0;
+    for (const [fallbackHrid, detail] of details) {
+      const guildBuffHrid = detail?.guildBuffHrid ?? detail?.hrid ?? fallbackHrid;
+      const levelCosts = detail?.levelCosts;
+      if (!guildBuffHrid || !levelCosts) continue;
+      const currentLevel = getGuildBuffLevel(guildBuffHrid);
+      for (let level = 1; level <= currentLevel; level += 1) {
+        const cost = levelCosts[level] ?? levelCosts[String(level)];
+        if (!cost) return null;
+        const guildTokenCount = positiveNumber(cost.guildTokenCost);
+        if (guildTokenCount) {
+          const tokenValue = getAssetValue("/items/guild_token", 0);
+          if (!(tokenValue > 0)) return null;
+          total += guildTokenCount * tokenValue;
+        }
+        for (const creditCost of cost.creditCosts ?? []) {
+          const count = positiveNumber(creditCost?.count);
+          if (!count) continue;
+          const creditValue = getAssetValue(creditCost.itemHrid, 0);
+          if (!(creditValue > 0)) return null;
+          total += count * creditValue;
+        }
+      }
+    }
+    return total;
+  }
+  Object.assign(runtime.api, {
+    getAssetValue,
+    getGuildShrineValue,
+    isNonTradableTokenAsset,
+    invalidateAssetValueCache
+  });
+
   // src/core/message-state.js
   function applyClientData(payload) {
     runtime.state.initData_actionDetailMap = payload.actionDetailMap;
@@ -17500,10 +17833,78 @@
     runtime.state.initData_houseRoomDetailMap = payload.houseRoomDetailMap;
     runtime.state.initData_actionCategoryDetailMap = payload.actionCategoryDetailMap;
     runtime.state.initData_abilityDetailMap = payload.abilityDetailMap;
+    runtime.state.initData_shopItemDetailMap = payload.shopItemDetailMap;
+    runtime.state.initData_taskShopItemDetailMap = payload.taskShopItemDetailMap;
+    runtime.state.initData_labyrinthShopItemDetailMap = payload.labyrinthShopItemDetailMap;
+    runtime.state.initData_openableLootDropMap = payload.openableLootDropMap;
+    runtime.state.initData_guildBuffDetailMap = payload.guildBuffDetailMap;
+    runtime.api.invalidateAssetValueCache?.();
     for (const [key, value] of Object.entries(
       runtime.state.initData_itemDetailMap
     )) {
       runtime.state.itemEnNameToHridMap[value.name] = key;
+    }
+  }
+  var CHARACTER_GUILD_BUFF_KEYS = [
+    "characterGuildBuffMap",
+    "characterGuildBuffDict",
+    "characterGuildBuffs",
+    "characterGuildBuffLevelMap",
+    "characterGuildBuffLevelDict"
+  ];
+  var FALLBACK_GUILD_BUFF_KEYS = [
+    "guildBuffLevelMap",
+    "guildBuffLevelDict",
+    "guildBuffLevels",
+    "guildBuffMap",
+    "guildBuffDict"
+  ];
+  function normalizeGuildBuffLevels(candidate) {
+    if (!candidate || typeof candidate !== "object") return {};
+    const entries = Array.isArray(candidate) ? candidate.map((record, index) => [
+      record?.guildBuffHrid ?? record?.hrid ?? String(index),
+      record
+    ]) : Object.entries(candidate);
+    return Object.fromEntries(entries.filter(([guildBuffHrid]) => guildBuffHrid));
+  }
+  function applyGuildData(payload, markLoaded = false) {
+    const preferredCandidates = [];
+    const fallbackCandidates = [];
+    const pending = [{ value: payload, depth: 0 }];
+    const visited = /* @__PURE__ */ new Set();
+    let scanned = 0;
+    while (pending.length && scanned < 400) {
+      const { value, depth } = pending.pop();
+      if (!value || typeof value !== "object" || visited.has(value) || depth > 6) {
+        continue;
+      }
+      visited.add(value);
+      scanned += 1;
+      for (const key of CHARACTER_GUILD_BUFF_KEYS) {
+        if (value[key] && typeof value[key] === "object")
+          preferredCandidates.push(value[key]);
+      }
+      for (const key of FALLBACK_GUILD_BUFF_KEYS) {
+        if (value[key] && typeof value[key] === "object")
+          fallbackCandidates.push(value[key]);
+      }
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object")
+          pending.push({ value: child, depth: depth + 1 });
+      }
+    }
+    const candidates = [...fallbackCandidates, ...preferredCandidates];
+    if (candidates.length) {
+      runtime.state.guildBuffLevels = candidates.reduce(
+        (levels, candidate) => ({
+          ...levels,
+          ...normalizeGuildBuffLevels(candidate)
+        }),
+        runtime.state.guildBuffLevels ?? {}
+      );
+      runtime.state.guildDataLoaded = true;
+    } else if (markLoaded) {
+      runtime.state.guildDataLoaded = true;
     }
   }
   function applyCharacterData(payload) {
@@ -17521,6 +17922,7 @@
         runtime.state.currentEquipmentMap[item.itemLocationHrid] = item;
       }
     }
+    applyGuildData(payload);
   }
   function applyActionsUpdated(payload) {
     for (const action of payload.endCharacterActions) {
@@ -17583,9 +17985,12 @@
       case "market_listings_updated":
         runtime.api.applyMarketListings(payload);
         break;
+      case "guild_updated":
+        applyGuildData(payload, true);
+        break;
     }
   }
-  Object.assign(runtime.api, { applyGameMessage });
+  Object.assign(runtime.api, { applyGameMessage, applyGuildData });
 
   // src/core/messages.js
   var GAME_SOCKET_HOSTS = [
@@ -17624,6 +18029,52 @@
   var networthWatcherStarted = false;
   var guildCreditWatcherStarted = false;
   var networthRefreshTimer = null;
+  function isTerminalMarketListing(listing) {
+    if (listing?.isDone || listing?.isCancelled || listing?.isCanceled || listing?.isExpired) {
+      return true;
+    }
+    return /(cancel|complete|expire|closed|done)/i.test(
+      String(listing?.status ?? "")
+    );
+  }
+  function calculateMarketListingValues(listings) {
+    const totals = { fair: 0, ask: 0, bid: 0 };
+    for (const listing of listings ?? []) {
+      const enhancementLevel = listing.enhancementLevel ?? 0;
+      const assetValue = runtime.api.getAssetValue(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const askPrice = runtime.api.getAskPrice(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const bidPrice = runtime.api.getBidPrice(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const availableCoins = Math.max(0, Number(listing.coinsAvailable ?? 0));
+      const unclaimedCoins = Math.max(0, Number(listing.unclaimedCoinCount ?? 0));
+      const explicitCoins = availableCoins + unclaimedCoins;
+      totals.fair += explicitCoins;
+      totals.ask += explicitCoins;
+      totals.bid += explicitCoins;
+      const unclaimedItems = Math.max(0, Number(listing.unclaimedItemCount ?? 0));
+      totals.fair += unclaimedItems * assetValue;
+      totals.ask += unclaimedItems * askPrice;
+      totals.bid += unclaimedItems * bidPrice;
+      if (!listing.isSell || isTerminalMarketListing(listing)) continue;
+      const remainingQuantity = Math.max(
+        0,
+        Number(listing.orderQuantity ?? 0) - Number(listing.filledQuantity ?? 0)
+      );
+      const taxMultiplier = 1 - runtime.api.getMarketTaxRate(listing.itemHrid);
+      totals.fair += remainingQuantity * assetValue;
+      totals.ask += remainingQuantity * askPrice * taxMultiplier;
+      totals.bid += remainingQuantity * bidPrice * taxMultiplier;
+    }
+    return totals;
+  }
   function scheduleNetworthRefresh() {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     clearTimeout(networthRefreshTimer);
@@ -17647,11 +18098,12 @@
     let marketListingsFairValue = 0;
     let equippedFairValue = 0;
     let inventoryFairValue = 0;
+    let nonTradableTokenValue = 0;
     for (const item of runtime.state.initData_characterItems) {
       const enhanceLevel = item.enhancementLevel;
       const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
       const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
-      const fairValue = runtime.api.getFairValue(item.itemHrid, enhanceLevel);
+      const fairValue = runtime.api.getAssetValue(item.itemHrid, enhanceLevel);
       if (item.itemLocationHrid !== "/item_locations/inventory") {
         equippedNetworthAsk += item.count * askPrice;
         equippedNetworthBid += item.count * bidPrice;
@@ -17659,43 +18111,29 @@
       } else {
         inventoryNetworthAsk += item.count * askPrice;
         inventoryNetworthBid += item.count * bidPrice;
-        inventoryFairValue += item.count * fairValue;
+        if (runtime.api.isNonTradableTokenAsset(item.itemHrid)) {
+          nonTradableTokenValue += item.count * fairValue;
+        } else {
+          inventoryFairValue += item.count * fairValue;
+        }
       }
       if (!fairValue && !askPrice && !bidPrice) {
         console.log("calculateNetworth cannot find price of " + item.itemHrid);
       }
     }
-    for (const item of runtime.state.initData_myMarketListings) {
-      const quantity = Number(item.orderQuantity ?? 0) - Number(item.filledQuantity ?? 0);
-      const enhancementLevel = item.enhancementLevel;
-      let askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
-      let bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
-      const fairValue = runtime.api.getFairValue(item.itemHrid, enhancementLevel);
-      if (item.isSell) {
-        const taxMultiplier = 1 - runtime.api.getMarketTaxRate(item.itemHrid);
-        askPrice *= taxMultiplier;
-        bidPrice *= taxMultiplier;
-        marketListingsNetworthAsk += quantity * askPrice;
-        marketListingsNetworthBid += quantity * bidPrice;
-        marketListingsFairValue += quantity * fairValue;
-        marketListingsNetworthAsk += Number(item.unclaimedCoinCount ?? 0);
-        marketListingsNetworthBid += Number(item.unclaimedCoinCount ?? 0);
-        marketListingsFairValue += Number(item.unclaimedCoinCount ?? 0);
-      } else {
-        marketListingsNetworthAsk += quantity * Number(item.price ?? 0);
-        marketListingsNetworthBid += quantity * Number(item.price ?? 0);
-        marketListingsNetworthAsk += Number(item.unclaimedItemCount ?? 0) * (askPrice > 0 ? askPrice : 0);
-        marketListingsNetworthBid += Number(item.unclaimedItemCount ?? 0) * (bidPrice > 0 ? bidPrice : 0);
-        marketListingsFairValue += quantity * Number(item.price ?? 0);
-        marketListingsFairValue += Number(item.unclaimedItemCount ?? 0) * fairValue;
-      }
-    }
+    const listingValues = calculateMarketListingValues(
+      runtime.state.initData_myMarketListings
+    );
+    marketListingsFairValue = listingValues.fair;
+    marketListingsNetworthAsk = listingValues.ask;
+    marketListingsNetworthBid = listingValues.bid;
     networthAsk = equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
     networthBid = equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
     const currentAssetsFairValue = equippedFairValue + inventoryFairValue + marketListingsFairValue;
     const addInventorySummery = async (invElem) => {
       const scores = await runtime.api.getSelfBuildScores();
-      const totalNetworth = currentAssetsFairValue + (scores.assets.allHouses + scores.assets.allAbilities) * 1e6;
+      const guildShrineValue = runtime.api.getGuildShrineValue();
+      const totalNetworth = currentAssetsFairValue + (scores.assets.allHouses + scores.assets.allAbilities) * 1e6 + nonTradableTokenValue + (guildShrineValue ?? 0);
       const previousSummary = invElem.parentElement?.querySelector(
         "#script_inventory_summary"
       );
@@ -17707,23 +18145,24 @@
         "beforebegin",
         `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
                 <!-- 战斗着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${scores.battle.total.toFixed(1)}</div>
+                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}</div>
                 <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${scores.battle.abilities.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.battle.equipment.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
+                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${runtime.api.formatScore(scores.battle.abilities)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.battle.equipment)}</div>
                 </div>
 
                 <!-- 生活着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${scores.skilling.total.toFixed(1)}</div>
+                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${runtime.api.formatScore(scores.skilling.total)}</div>
                 <div id="skillingScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${scores.skilling.tools.toFixed(1)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${scores.skilling.equipment.toFixed(1)}</div>
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
+                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${runtime.api.formatScore(scores.skilling.tools)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.skilling.equipment)}</div>
                 </div>
 
-                <!-- 总NetWorth -->
+                <!-- 总资产价值 -->
                 <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总NetWorth：" : "+ Total NetWorth: "}${runtime.api.numberFormatter(totalNetworth)}
+                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${runtime.api.numberFormatter(totalNetworth)}
                 </div>
 
                 <div id="netWorthDetails" style="display: none; margin-left: 20px;">
@@ -17744,6 +18183,8 @@
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
                         <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(scores.assets.allHouses * 1e6)}</div>
                         <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(scores.assets.allAbilities * 1e6)}</div>
+                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${runtime.api.numberFormatter(nonTradableTokenValue)}</div>
+                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "-" : runtime.api.numberFormatter(guildShrineValue)}</div>
                     </div>
                 </div>
             </div>`
@@ -17770,26 +18211,26 @@
       }
       if (wasCombatScoreOpen) {
         ScoreDetails.style.display = "block";
-        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + scores.battle.total.toFixed(1);
+        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
       }
       if (wasSkillingScoreOpen) {
         skillingScoreDetails.style.display = "block";
-        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + scores.skilling.total.toFixed(1);
+        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
       }
       toggleScores.addEventListener("click", () => {
         const isCollapsed = ScoreDetails.style.display === "none";
         ScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + scores.battle.total.toFixed(1);
+        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
       });
       toggleSkillingScores.addEventListener("click", () => {
         const isCollapsed = skillingScoreDetails.style.display === "none";
         skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + scores.skilling.total.toFixed(1);
+        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
       });
       toggleButton.addEventListener("click", () => {
         const isCollapsed = netWorthDetails.style.display === "none";
         netWorthDetails.style.display = isCollapsed ? "block" : "none";
-        toggleButton.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "总NetWorth：" : "Total NetWorth: ") + runtime.api.numberFormatter(totalNetworth);
+        toggleButton.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "总资产价值：" : "Total Asset Value: ") + runtime.api.numberFormatter(totalNetworth);
         currentAssets.style.display = isCollapsed ? "block" : "none";
         toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
         nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
@@ -18203,6 +18644,7 @@
   }
   Object.assign(runtime.api, {
     calculateNetworth,
+    calculateMarketListingValues,
     scheduleNetworthRefresh,
     addInvSortButton,
     addGuildCreditConversionsSortButton
@@ -18226,6 +18668,12 @@
   function isCombatHouse(house) {
     return Boolean(
       runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid]?.usableInActionTypeMap?.["/action_types/combat"]
+    );
+  }
+  function isSkillingHouse(house) {
+    const usableInActionTypeMap = runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid]?.usableInActionTypeMap;
+    return Object.entries(usableInActionTypeMap ?? {}).some(
+      ([actionTypeHrid, isUsable]) => actionTypeHrid !== "/action_types/combat" && Boolean(isUsable)
     );
   }
   function createEmptyGearScores() {
@@ -18261,13 +18709,15 @@
   }
   async function calculateHouseScores(characterHouseRoomMap) {
     let combat = 0;
+    let skilling = 0;
     let all = 0;
     for (const house of Object.values(characterHouseRoomMap ?? {})) {
       const value = await getHouseFullBuildPrice(house) / SCORE_UNIT;
       all += value;
       if (isCombatHouse(house)) combat += value;
+      if (isSkillingHouse(house)) skilling += value;
     }
-    return { combat, all };
+    return { combat, skilling, all };
   }
   function createScoreResult({
     houseScores,
@@ -18283,11 +18733,12 @@
     };
     battle.total = battle.house + battle.abilities + battle.equipment;
     const skilling = {
+      house: houseScores.skilling,
       tools: gearScores.skillingTools,
       equipment: gearScores.skillingEquipment,
       available: !equipmentHidden
     };
-    skilling.total = skilling.tools + skilling.equipment;
+    skilling.total = skilling.house + skilling.tools + skilling.equipment;
     return {
       battle,
       skilling,
@@ -18427,16 +18878,17 @@
     panel.insertAdjacentHTML(
       "beforeend",
       `<div id="script_profile_gear_scores" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${scores.battle.total.toFixed(1)}${hiddenText}</div>
+            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}${hiddenText}</div>
             <div id="buildScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${scores.battle.house.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? scores.battle.abilities.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.battle.equipment.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
+                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</div>
             </div>
-            <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${hiddenValue ?? scores.skilling.total.toFixed(1)}${hiddenText}</div>
+            <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</div>
             <div id="skillingScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? scores.skilling.tools.toFixed(1)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? scores.skilling.equipment.toFixed(1)}</div>
+                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
+                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</div>
+                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</div>
             </div>
         </div>`
     );
@@ -18453,13 +18905,13 @@
       "toggleScores_profile",
       "buildScores_profile",
       runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ",
-      scores.battle.total.toFixed(1)
+      runtime.api.formatScore(scores.battle.total)
     );
     bindToggle(
       "toggleSkillingScores_profile",
       "skillingScores_profile",
       runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ",
-      hiddenValue ?? scores.skilling.total.toFixed(1)
+      hiddenValue ?? runtime.api.formatScore(scores.skilling.total)
     );
   }
   async function getBuildScoreByProfile(profile_shared_obj) {
@@ -18550,6 +19002,7 @@
     getWeightedMarketPrice,
     classifyEquippedItem,
     isCombatHouse,
+    isSkillingHouse,
     calculateGearScores,
     calculateHouseScores,
     calculateAbilityScore,
@@ -22428,7 +22881,9 @@
   });
   for (const messageType of [
     "market_item_values_updated",
-    "market_listings_updated"
+    "market_item_order_books_updated",
+    "market_listings_updated",
+    "guild_updated"
   ]) {
     runtime.onMessage(messageType, () => {
       if (runtime.settings.settingsMap.networth.isTrue)
@@ -22486,6 +22941,12 @@
     runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
     runtime.state.initData_actionCategoryDetailMap = clientData.actionCategoryDetailMap;
     runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
+    runtime.state.initData_shopItemDetailMap = clientData.shopItemDetailMap;
+    runtime.state.initData_taskShopItemDetailMap = clientData.taskShopItemDetailMap;
+    runtime.state.initData_labyrinthShopItemDetailMap = clientData.labyrinthShopItemDetailMap;
+    runtime.state.initData_openableLootDropMap = clientData.openableLootDropMap;
+    runtime.state.initData_guildBuffDetailMap = clientData.guildBuffDetailMap;
+    runtime.api.invalidateAssetValueCache();
     for (const [key, value] of Object.entries(
       runtime.state.initData_itemDetailMap
     )) {

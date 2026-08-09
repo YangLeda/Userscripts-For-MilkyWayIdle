@@ -53,6 +53,8 @@ The build preserves the existing userscript matches, grants, external `@require`
 
 Marketplace values come from two sources: the environment-specific `marketplace.json` endpoint supplies executable ask/bid prices, while the game's `market_item_values_updated` websocket message supplies the server-tracked fair value. Test uses the `test.milkywayidle.com` endpoint and a 10-minute cache; production uses `www.milkywayidle.com` and a six-hour cache.
 
+Inventory asset totals use the server-tracked fair value first. Non-tradable currencies are valued from current game conversion and loot-table data: shop tokens use their best redemption, guild credits use their cheapest material conversion, guild tokens use their best credit route, and cowbells use one tenth of a cowbell bag. Cowbells and guild currencies are reported under fixed assets rather than inventory value.
+
 ## Mooneycalc Importer
 
 MWITools can import player information into:
