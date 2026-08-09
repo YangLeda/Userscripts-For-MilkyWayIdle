@@ -1,0 +1,192 @@
+import marketBackup from "../data/market-backup.json" with { type: "json" };
+import { runtime } from "./runtime.js";
+
+const MARKET_JSON_LOCAL_BACKUP = JSON.stringify(marketBackup);
+
+let isUsingExpiredMarketJson = false;
+
+let reasonForUsingExpiredMarketJson = "";
+
+let initData_characterSkills = null;
+
+let initData_characterItems = null;
+
+let initData_combatAbilities = null;
+
+let initData_characterHouseRoomMap = null;
+
+let initData_actionTypeDrinkSlotsMap = null;
+
+let initData_actionDetailMap = null;
+
+let initData_levelExperienceTable = null;
+
+let initData_itemDetailMap = null;
+
+let initData_actionCategoryDetailMap = null;
+
+let initData_abilityDetailMap = null;
+
+let initData_characterAbilities = null;
+
+let initData_myMarketListings = null;
+
+let currentActionsHridList = [];
+
+let currentEquipmentMap = {};
+
+Object.defineProperties(runtime.data, {
+  MARKET_JSON_LOCAL_BACKUP: {
+    enumerable: true,
+    get() {
+      return MARKET_JSON_LOCAL_BACKUP;
+    },
+  },
+});
+
+Object.defineProperties(runtime.state, {
+  isUsingExpiredMarketJson: {
+    enumerable: true,
+    get() {
+      return isUsingExpiredMarketJson;
+    },
+    set(value) {
+      isUsingExpiredMarketJson = value;
+    },
+  },
+  reasonForUsingExpiredMarketJson: {
+    enumerable: true,
+    get() {
+      return reasonForUsingExpiredMarketJson;
+    },
+    set(value) {
+      reasonForUsingExpiredMarketJson = value;
+    },
+  },
+  initData_characterSkills: {
+    enumerable: true,
+    get() {
+      return initData_characterSkills;
+    },
+    set(value) {
+      initData_characterSkills = value;
+    },
+  },
+  initData_characterItems: {
+    enumerable: true,
+    get() {
+      return initData_characterItems;
+    },
+    set(value) {
+      initData_characterItems = value;
+    },
+  },
+  initData_combatAbilities: {
+    enumerable: true,
+    get() {
+      return initData_combatAbilities;
+    },
+    set(value) {
+      initData_combatAbilities = value;
+    },
+  },
+  initData_characterHouseRoomMap: {
+    enumerable: true,
+    get() {
+      return initData_characterHouseRoomMap;
+    },
+    set(value) {
+      initData_characterHouseRoomMap = value;
+    },
+  },
+  initData_actionTypeDrinkSlotsMap: {
+    enumerable: true,
+    get() {
+      return initData_actionTypeDrinkSlotsMap;
+    },
+    set(value) {
+      initData_actionTypeDrinkSlotsMap = value;
+    },
+  },
+  initData_actionDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_actionDetailMap;
+    },
+    set(value) {
+      initData_actionDetailMap = value;
+    },
+  },
+  initData_levelExperienceTable: {
+    enumerable: true,
+    get() {
+      return initData_levelExperienceTable;
+    },
+    set(value) {
+      initData_levelExperienceTable = value;
+    },
+  },
+  initData_itemDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_itemDetailMap;
+    },
+    set(value) {
+      initData_itemDetailMap = value;
+    },
+  },
+  initData_actionCategoryDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_actionCategoryDetailMap;
+    },
+    set(value) {
+      initData_actionCategoryDetailMap = value;
+    },
+  },
+  initData_abilityDetailMap: {
+    enumerable: true,
+    get() {
+      return initData_abilityDetailMap;
+    },
+    set(value) {
+      initData_abilityDetailMap = value;
+    },
+  },
+  initData_characterAbilities: {
+    enumerable: true,
+    get() {
+      return initData_characterAbilities;
+    },
+    set(value) {
+      initData_characterAbilities = value;
+    },
+  },
+  initData_myMarketListings: {
+    enumerable: true,
+    get() {
+      return initData_myMarketListings;
+    },
+    set(value) {
+      initData_myMarketListings = value;
+    },
+  },
+  currentActionsHridList: {
+    enumerable: true,
+    get() {
+      return currentActionsHridList;
+    },
+    set(value) {
+      currentActionsHridList = value;
+    },
+  },
+  currentEquipmentMap: {
+    enumerable: true,
+    get() {
+      return currentEquipmentMap;
+    },
+    set(value) {
+      currentEquipmentMap = value;
+    },
+  },
+});

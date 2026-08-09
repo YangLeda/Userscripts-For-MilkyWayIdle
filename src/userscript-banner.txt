@@ -1,0 +1,46 @@
+// ==UserScript==
+// @name         MWITools
+// @namespace    http://tampermonkey.net/
+// @version      25.15
+// @description  Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
+// @author       bot7420, shykai
+// @license      CC-BY-NC-SA-4.0
+// @match        https://www.milkywayidle.com/*
+// @match        https://test.milkywayidle.com/*
+// @match        https://www.milkywayidlecn.com/*
+// @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
+// @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
+// @match        https://mooneycalc.netlify.app/*
+// @grant        GM_addStyle
+// @grant        GM.xmlHttpRequest
+// @grant        GM_xmlhttpRequest
+// @grant        GM_notification
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
+// @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js
+// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js
+// ==/UserScript==
+
+/*
+    Steam客户端玩家还需要额外安装兼容插件。
+
+    MilkyWayIdle Steam game client players should also install this script:
+    https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/refs/heads/main/MWITools%20addon%20for%20Steam%20version.js
+*/
+
+/*
+    【遇到MWITools插件有问题时的解决方法】
+
+    请先务必排查以下问题：
+    1. 你的MWITools插件已更新至最新版（greasyfork网站有可能被墙，请开梯子更新；或者到QQ群文件里下载后手动导入或复制粘贴代码）；
+    2. 你没有重复安装插件（有的人装了新版本插件，但还有个旧版本的没有删除，在同时运行；或者有的人在同一个浏览器里装了两个油猴类浏览器插件）；
+    3. 安装或更新完插件后，以及在游戏设置里切换过语言后，必须刷新游戏网页；
+    4. 请在电脑上、使用最新版本Chrome浏览器、使用最新版本TamperMonkey（油猴）插件尝试（作者精力有限，做不到逐个适配各种环境、为每个人定位环境问题，
+       遇到问题时请优先使用上述主流环境。如果你一定要使用旧版本或其它品牌的浏览器或油猴插件，遇到问题请优先自行摸索如何解决，作者很可能无法解决你的问题。
+       手机使用问题很多，作者不定位手机上问题。问问群友用什么浏览器好使，多换几个浏览器试试。苹果手机建议尝试focus浏览器。）。
+
+    如果仍有问题，请私聊作者具体问题是什么、复现问题的具体步骤、最好附带截图；
+    与网络有关的问题，右上角红字显示无法从API更新市场数据时，点击红字查看错误信息，截图发给作者；
+    报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
+*/

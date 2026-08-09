@@ -1,35 +1,55 @@
 # MWITools
 
-Tools for the game MilkyWayIdle.
+Tools for the game [Milky Way Idle](https://www.milkywayidle.com/). The userscript UI is primarily Chinese.
 
-This script is in Chinese. 本插件是中文的。
+MWITools displays action duration, market prices, quick action inputs, skill progress, net worth, combat summaries, map indexes, item levels, ability book requirements, marketplace filters, and integrations with third-party calculators.
 
-Shows total action time.
+## Install
 
-Shows market prices.
+The installable userscript is the single file [`MWITools.js`](./MWITools.js). GreasyFork should continue syncing that root-level file; files under `src/` are development sources and are not loaded at runtime.
 
-Shows action number quick inputs.
+Steam client users also need [`MWITools addon for Steam version.js`](./MWITools%20addon%20for%20Steam%20version.js).
 
-Shows how many actions are needed to reach a certain skill level.
+## Development
 
-Shows skill exp percentages.
+Requirements: Node.js 22 and npm.
 
-Shows total networth.
+```bash
+npm ci
+npm run build
+```
 
-Shows combat summary.
+Source code is organized by responsibility:
 
-Shows combat maps index.
+- `src/core/`: runtime context, settings-facing state, websocket interception, message reducer and dispatcher.
+- `src/data/`: translations and the bundled fallback market snapshot.
+- `src/features/`: inventory, actions, tooltips, marketplace, combat, settings and external-tool integrations.
+- `src/main.js`: page routing and startup order.
 
-Shows item level on item icons.
+`npm run build` bundles the modules as a readable UTF-8 IIFE, prepends `src/userscript-banner.txt`, and replaces the root `MWITools.js`. It does not minify or emit a source map.
 
-Shows how many ability books are needed to reach a certain level.
+Before committing a change, run:
 
-Shows market equipment filters.
+```bash
+npm run check
+```
 
-# Mooneycalc-Importer
+This checks formatting and lint rules, runs the state/settings/userscript smoke tests, rebuilds to a temporary directory, and verifies that the committed `MWITools.js` is current.
 
-For the game MilkyWayIdle.
-This script imports player info to the following websites with one click of a button:
-https://mooneycalc.vercel.app/
-https://mwisim.github.io/
-https://cowculator.info/
+## Release
+
+1. Update `@version` in `src/userscript-banner.txt` and the package version together.
+2. Run `npm run build`.
+3. Run `npm run check`.
+4. Commit both the modular source and generated `MWITools.js`.
+5. Confirm the GreasyFork sync URL still points to the root `MWITools.js` before syncing.
+
+The build preserves the existing userscript matches, grants, external `@require` libraries, storage keys and DOM selectors.
+
+## Mooneycalc Importer
+
+MWITools can import player information into:
+
+- <https://mooneycalc.vercel.app/>
+- <https://mwisim.github.io/>
+- <https://cowculator.info/>

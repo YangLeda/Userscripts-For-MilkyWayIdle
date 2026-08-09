@@ -1,0 +1,22 @@
+{
+  "name": "mwitools-userscript",
+  "version": "25.15.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "format": "prettier --write src scripts test eslint.config.js package.json",
+    "format:check": "prettier --check src scripts test eslint.config.js package.json",
+    "lint": "eslint src scripts test eslint.config.js",
+    "test": "node --test",
+    "verify:dist": "node scripts/verify-dist.mjs",
+    "check": "npm run format:check && npm run lint && npm test && npm run verify:dist"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "esbuild": "0.28.2",
+    "eslint": "10.8.1",
+    "jsdom": "30.0.1",
+    "prettier": "3.9.6"
+  }
+}
