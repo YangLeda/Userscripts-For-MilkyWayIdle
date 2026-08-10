@@ -32,14 +32,15 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_getValue",
     "// @grant        GM_setValue",
     "// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js",
-    "// @require      https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js",
-    "// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0/dist/chartjs-plugin-datalabels.min.js",
   ]) {
     assert.ok(
       output.includes(directive),
       `missing metadata directive: ${directive}`,
     );
   }
+  assert.doesNotMatch(output, /chart\.js|ChartDataLabels/);
+  assert.match(output, /VERSION = "1\.0\.50"/);
+  assert.match(output, /__MWI_DPS/);
 });
 
 test("generated userscript is standalone JavaScript", () => {
@@ -56,7 +57,8 @@ test("test userscript is independently installable and test-only", () => {
     testOutput,
     /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
   );
-  assert.match(testOutput, /^\/\/ @version\s+26\.0\.3$/m);
+  assert.match(testOutput, /^\/\/ @version\s+26\.0\.27$/m);
+  assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
   assert.match(
     testOutput,
     /^\/\/ @match\s+https:\/\/test\.milkywayidle\.com\/\*$/m,
@@ -64,11 +66,11 @@ test("test userscript is independently installable and test-only", () => {
   assert.doesNotMatch(testOutput, /^\/\/ @match\s+https:\/\/www\./m);
   assert.match(
     testOutput,
-    /^\/\/ @updateURL\s+https:\/\/fishingidle\.com\/mwitools-test\.user\.js$/m,
+    /^\/\/ @updateURL\s+https:\/\/milk\.43\.167\.210\.211\.sslip\.io\/scripts\/mwitools-test\.user\.js$/m,
   );
   assert.match(
     testOutput,
-    /^\/\/ @downloadURL\s+https:\/\/fishingidle\.com\/mwitools-test\.user\.js$/m,
+    /^\/\/ @downloadURL\s+https:\/\/milk\.43\.167\.210\.211\.sslip\.io\/scripts\/mwitools-test\.user\.js$/m,
   );
   assert.doesNotMatch(testOutput, /sourceMappingURL=/);
   assert.doesNotThrow(() => new vm.Script(testOutput));

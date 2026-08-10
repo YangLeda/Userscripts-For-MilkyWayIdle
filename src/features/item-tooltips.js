@@ -283,6 +283,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
+    runtime.api.hideProductionProfitPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
   }
@@ -363,232 +364,13 @@ async function handleTooltipItem(tooltip) {
     }
   }
 
-  // 生产利润计算
-  if (
-    runtime.settings.settingsMap.itemTooltip_profit.isTrue &&
-    marketJson &&
-    getActionHridFromItemName(itemName) &&
-    runtime.state.initData_actionDetailMap &&
-    runtime.state.initData_itemDetailMap
-  ) {
-    // 区分生产类动作和采集类动作
-    const isProduction =
-      runtime.state.initData_actionDetailMap[
-        getActionHridFromItemName(itemName)
-      ].inputItems &&
-      runtime.state.initData_actionDetailMap[
-        getActionHridFromItemName(itemName)
-      ].inputItems.length > 0;
-
-    const actionHrid = getActionHridFromItemName(itemName);
-    // 茶效率
-    const teaBuffs = getTeaBuffsByActionHrid(actionHrid);
-
-    // 原料信息
-    let inputItems = [];
-    let totalResourcesAskPricePerAction = 0;
-    let totalResourcesBidPricePerAction = 0;
-
-    if (isProduction) {
-      inputItems = JSON.parse(
-        JSON.stringify(
-          runtime.state.initData_actionDetailMap[actionHrid].inputItems,
-        ),
-      );
-      for (const item of inputItems) {
-        item.name = runtime.state.initData_itemDetailMap[item.itemHrid].name;
-        item.zhName = runtime.data.ZHItemNames[item.itemHrid];
-        item.perAskPrice = marketJson?.marketData[item.itemHrid]?.[0]?.a ?? 0;
-        item.perBidPrice = marketJson?.marketData[item.itemHrid]?.[0]?.b ?? 0;
-        totalResourcesAskPricePerAction += item.perAskPrice * item.count;
-        totalResourcesBidPricePerAction += item.perBidPrice * item.count;
-      }
-
-      // 茶减少原料消耗（对于升级物品，不影响上一级物品消耗）
-      const lessResourceBuff = teaBuffs.lessResource;
-      totalResourcesAskPricePerAction *= 1 - lessResourceBuff / 100;
-      totalResourcesBidPricePerAction *= 1 - lessResourceBuff / 100;
-
-      // 上级物品作为原料
-      const upgradedFromItemHrid =
-        runtime.state.initData_actionDetailMap[actionHrid]?.upgradeItemHrid;
-      let upgradedFromItemName = null;
-      let upgradedFromItemZhName = null;
-      let upgradedFromItemAsk = null;
-      let upgradedFromItemBid = null;
-      if (upgradedFromItemHrid) {
-        upgradedFromItemName =
-          runtime.state.initData_itemDetailMap[upgradedFromItemHrid].name;
-        upgradedFromItemZhName = runtime.data.ZHItemNames[upgradedFromItemHrid];
-        upgradedFromItemAsk +=
-          marketJson?.marketData[upgradedFromItemHrid]?.[0]?.a ?? 0;
-        upgradedFromItemBid +=
-          marketJson?.marketData[upgradedFromItemHrid]?.[0]?.b ?? 0;
-        totalResourcesAskPricePerAction += upgradedFromItemAsk;
-        totalResourcesBidPricePerAction += upgradedFromItemBid;
-      }
-
-      // 使用表格显示原料信息
-      appendHTMLStr += `
-                            <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">
-                                <table style="width:100%; border-collapse: collapse;">
-                                    <tr style="border-bottom: 1px solid ${runtime.config.SCRIPT_COLOR_TOOLTIP};">
-                                        <th style="text-align: left;">${runtime.config.isZH ? "原料" : "Material"}</th>
-                                        <th style="text-align: center;">${runtime.config.isZH ? "数量" : "Count"}</th>
-                                        <th style="text-align: right;">${runtime.config.isZH ? "出售价" : "Ask"}</th>
-                                        <th style="text-align: right;">${runtime.config.isZH ? "收购价" : "Bid"}</th>
-                                    </tr>
-                                    <tr style="border-bottom: 1px solid ${runtime.config.SCRIPT_COLOR_TOOLTIP};">
-                                        <td style="text-align: left;"><b>${runtime.config.isZH ? "合计" : "Total"}</b></td>
-                                        <td style="text-align: center;"><b>${inputItems.reduce((sum, item) => sum + item.count, 0)}</b></td>
-                                        <td style="text-align: right;"><b>${numberFormatter(totalResourcesAskPricePerAction)}</b></td>
-                                        <td style="text-align: right;"><b>${numberFormatter(totalResourcesBidPricePerAction)}</b></td>
-                                    </tr>`;
-
-      for (const item of inputItems) {
-        appendHTMLStr += `
-                                    <tr>
-                                        <td style="text-align: left;">${runtime.config.isZH ? item.zhName : item.name}</td>
-                                        <td style="text-align: center;">${item.count}</td>
-                                        <td style="text-align: right;">${numberFormatter(item.perAskPrice)}</td>
-                                        <td style="text-align: right;">${numberFormatter(item.perBidPrice)}</td>
-                                    </tr>`;
-      }
-      appendHTMLStr += `</table></div>`;
-
-      if (upgradedFromItemHrid) {
-        appendHTMLStr += `
-                <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;"> ${
-                  runtime.config.isZH
-                    ? upgradedFromItemZhName
-                    : upgradedFromItemName
-                }: ${numberFormatter(upgradedFromItemAsk)} / ${numberFormatter(upgradedFromItemBid)}</div>
-                `;
-      }
-    }
-
-    // 消耗饮料
-    let drinksConsumedPerHourAskPrice = 0;
-    let drinksConsumedPerHourBidPrice = 0;
-
-    const drinksList =
-      runtime.state.initData_actionTypeDrinkSlotsMap[
-        runtime.state.initData_actionDetailMap[actionHrid].type
-      ];
-    for (const drink of drinksList) {
-      if (!drink || !drink.itemHrid) {
-        continue;
-      }
-      drinksConsumedPerHourAskPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0].a ?? 0) * 12;
-      drinksConsumedPerHourBidPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0].b ?? 0) * 12;
-    }
-
-    // 每小时动作数（包含工具缩减动作时间）
-    const baseTimePerActionSec =
-      runtime.state.initData_actionDetailMap[actionHrid].baseTimeCost /
-      1000000000;
-    const toolPercent = getToolsSpeedBuffByActionHrid(actionHrid);
-    const actualTimePerActionSec =
-      baseTimePerActionSec / (1 + toolPercent / 100);
-
-    let actionPerHour = 3600 / actualTimePerActionSec;
-
-    // 每小时产品数
-    let droprate = null;
-    if (isProduction) {
-      droprate =
-        runtime.state.initData_actionDetailMap[actionHrid].outputItems[0].count;
-    } else {
-      droprate =
-        (runtime.state.initData_actionDetailMap[actionHrid].dropTable[0]
-          .minCount +
-          runtime.state.initData_actionDetailMap[actionHrid].dropTable[0]
-            .maxCount) /
-        2;
-    }
-    let itemPerHour = actionPerHour * droprate;
-
-    // 等级碾压提高效率（人物等级不及最低要求等级时，按最低要求等级计算）
-    const requiredLevel =
-      runtime.state.initData_actionDetailMap[actionHrid].levelRequirement.level;
-    let currentLevel = requiredLevel;
-    for (const skill of runtime.state.initData_characterSkills) {
-      if (
-        skill.skillHrid ===
-        runtime.state.initData_actionDetailMap[actionHrid].levelRequirement
-          .skillHrid
-      ) {
-        currentLevel = skill.level;
-        break;
-      }
-    }
-    const levelEffBuff =
-      currentLevel - requiredLevel > 0 ? currentLevel - requiredLevel : 0;
-
-    // 房子效率
-    const houseEffBuff = getHousesEffBuffByActionHrid(actionHrid);
-
-    // 特殊装备效率
-    const itemEffiBuff = Number(getItemEffiBuffByActionHrid(actionHrid));
-
-    // 总效率影响动作数/生产物品数
-    actionPerHour *=
-      1 +
-      (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
-    itemPerHour *=
-      1 +
-      (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
-
-    // 茶额外产品数量（不消耗原料）
-    const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
-
-    // 出售市场税
-    const bidAfterTax = runtime.api.getNetSellPrice(itemHrid, 0);
-
-    // 每小时利润
-    const profitPerHour =
-      itemPerHour * (bidAfterTax - totalResourcesAskPricePerAction / droprate) +
-      extraFreeItemPerHour * bidAfterTax -
-      drinksConsumedPerHourAskPrice;
-
-    appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-      runtime.config.isZH
-        ? "生产利润(卖单价进、买单价出，包含销售税；不包括加工茶、社区增益、稀有掉落、袋子饮食增益；刷新网页更新人物数据)："
-        : "Production profit(Sell price in, bid price out, including sales tax; Not including processing tea, comm buffs, rare drops, pouch consumables buffs; Refresh page to update player data): "
-    }</div>`;
-
-    appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${baseTimePerActionSec.toFixed(2)}s ${
-      runtime.config.isZH ? "基础速度" : "base speed,"
-    } x${droprate} ${runtime.config.isZH ? "基础掉率" : "base drop rate,"} +${toolPercent}%${runtime.config.isZH ? "工具速度" : " tool speed,"} +${levelEffBuff}%${
-      runtime.config.isZH ? "等级效率" : " level eff,"
-    } +${houseEffBuff}%${runtime.config.isZH ? "房子效率" : " house eff,"} +${teaBuffs.efficiency}%${runtime.config.isZH ? "茶效率" : " tea eff,"} +${itemEffiBuff}%${
-      runtime.config.isZH ? "装备效率" : " equipment eff,"
-    } +${teaBuffs.quantity}%${runtime.config.isZH ? "茶额外数量" : " tea extra outcome,"} +${teaBuffs.lessResource}%${
-      runtime.config.isZH ? "茶减少消耗" : " tea lower resource"
-    }</div>`;
-
-    appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-      runtime.config.isZH ? "每小时饮料消耗: " : "Drinks consumed per hour: "
-    }${numberFormatter(drinksConsumedPerHourAskPrice)}  / ${numberFormatter(drinksConsumedPerHourBidPrice)}</div>`;
-
-    appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${runtime.config.isZH ? "每小时动作" : "Actions per hour"} ${Number(
-      actionPerHour,
-    ).toFixed(
-      1,
-    )}${runtime.config.isZH ? " 次" : " times"}, ${runtime.config.isZH ? "每小时生产" : "Production per hour"} ${Number(
-      itemPerHour + extraFreeItemPerHour,
-    ).toFixed(1)}${runtime.config.isZH ? " 个" : " items"}</div>`;
-
-    appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "利润: " : "Profit: "}${numberFormatter(
-      profitPerHour / actionPerHour,
-    )}${runtime.config.isZH ? "/动作" : "/action"}, ${numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${numberFormatter(24 * profitPerHour)}${
-      runtime.config.isZH ? "/天" : "/day"
-    }</div>`;
-  }
-
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
+
+  if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
+    runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+  } else {
+    runtime.api.hideProductionProfitPanel?.();
+  }
 
   // Make sure the tooltip is fully visible in the viewport
   const tootip = insertAfterElem.closest(".MuiTooltip-popper");
@@ -679,20 +461,44 @@ Object.defineProperties(runtime.data, {
   },
 });
 
-runtime.registerStart("features/item-tooltips.js", () => {
-  GM_addStyle(`div.Header_actionName__31-L2 {
-    overflow: visible !important;
-    white-space: normal !important;
-    height: auto !important;
-  }`);
-
-  GM_addStyle(`span.NavigationBar_label__1uH-y {
-    width: 10px !important;
-  }`);
-
-  tooltipObserver.observe(document.body, {
-    attributes: false,
-    childList: true,
-    characterData: false,
-  });
+runtime.features.register({
+  id: "itemTooltip_prices",
+  setting: "itemTooltip_prices",
+  initialize({ scope }) {
+    const styles = [
+      GM_addStyle(`div.Header_actionName__31-L2 {
+        overflow: visible !important;
+        white-space: normal !important;
+        height: auto !important;
+      }`),
+      GM_addStyle(`span.NavigationBar_label__1uH-y {
+        width: 10px !important;
+      }`),
+    ];
+    let observing = false;
+    const attach = () => {
+      if (observing || !document.body) return;
+      tooltipObserver.observe(document.body, {
+        attributes: false,
+        childList: true,
+        characterData: false,
+      });
+      observing = true;
+    };
+    attach();
+    scope.interval(attach, 250);
+    scope.add(() => {
+      tooltipObserver.disconnect();
+      for (const style of styles) style?.remove?.();
+    });
+  },
 });
+
+for (const id of ["itemTooltip_profit", "showConsumTips"]) {
+  runtime.features.register({
+    id,
+    setting: id,
+    dependsOn: ["itemTooltip_prices"],
+    initialize() {},
+  });
+}

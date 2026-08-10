@@ -8,7 +8,7 @@ MWITools displays action duration, market prices, quick action inputs, skill pro
 
 The installable userscript is the single file [`MWITools.js`](./MWITools.js). GreasyFork should continue syncing that root-level file; files under `src/` are development sources and are not loaded at runtime.
 
-The independently installable test build is [`MWITools-test.user.js`](./MWITools-test.user.js). It is named `MWITools 测试版`, only matches `test.milkywayidle.com`, and updates from <https://fishingidle.com/mwitools-test.user.js>. Disable the production script on the test site before enabling it to avoid running both copies together.
+The independently installable test build is [`MWITools-test.user.js`](./MWITools-test.user.js). It is named `MWITools 测试版`, only matches `test.milkywayidle.com`, and updates from <https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js>. Disable the production script on the test site before enabling it to avoid running both copies together.
 
 Steam client users also need [`MWITools addon for Steam version.js`](./MWITools%20addon%20for%20Steam%20version.js).
 
@@ -48,6 +48,8 @@ This checks formatting and lint rules, runs the state/settings/userscript smoke 
 3. Run `npm run check`.
 4. Commit both the modular source and generated `MWITools.js`.
 5. Confirm the GreasyFork sync URL still points to the root `MWITools.js` before syncing.
+
+Important-update banners are controlled by [`release-manifest.json`](./release-manifest.json). Leave `importantVersion` unchanged for small releases. For an important release, set it to the new production version and update the bilingual message before merging to `main`; installed production scripts will then show a dismissible banner linking to the official Greasy Fork page. The independently hosted test userscript does not run this update check.
 
 The build preserves the existing userscript matches, grants, external `@require` libraries, storage keys and DOM selectors.
 

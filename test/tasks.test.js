@@ -1,0 +1,158 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { JSDOM } from "jsdom";
+
+const card = (title, progress, action = "前往") => `
+  <div class="RandomTask_randomTask__test">
+    <div class="RandomTask_name__test">${title}</div>
+    <div>进度: ${progress}</div>
+    <button>${action}</button>
+    <div class="mwi-task-insight">任务净利润 — 队列同动作 0</div>
+  </div>`;
+
+const dom = new JSDOM(
+  `<!doctype html><html><head></head><body>
+    <div class="TasksPanel_taskList__test">
+      <section class="mwi-task-toolbar">任务总览</section>
+      ${card("制作 - 已完成木板", "5 / 5", "领取")}
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 20")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 水马", "0 / 10")}
+      ${card("击败 - 地牢怪物", "0 / 10")}
+    </div>
+  </body></html>`,
+  { url: "https://test.milkywayidle.com/" },
+);
+globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
+globalThis.location = dom.window.location;
+globalThis.window = dom.window;
+localStorage.setItem("i18nextLng", "zh-CN");
+
+const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
+await import("../src/data/translations.js");
+await import("../src/core/state.js");
+await import("../src/core/action-projection.js");
+await import("../src/features/tasks.js");
+
+runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
+runtime.settings.settingsMap.taskIcons.isTrue = false;
+runtime.settings.settingsMap.taskAutoSort.isTrue = false;
+runtime.state.initData_actionCategoryDetailMap = {
+  "/action_categories/combat/smelly_planet": {
+    name: "Smelly Planet",
+    sortIndex: 1,
+  },
+  "/action_categories/combat/aqua_planet": {
+    name: "Aqua Planet",
+    sortIndex: 3,
+  },
+  "/action_categories/combat/dungeons": { name: "Dungeons", sortIndex: 12 },
+};
+runtime.state.initData_actionDetailMap = {
+  "/actions/crafting/done": {
+    hrid: "/actions/crafting/done",
+    name: "Done Lumber",
+    type: "/action_types/crafting",
+  },
+  "/actions/crafting/lumber": {
+    hrid: "/actions/crafting/lumber",
+    name: "Lumber",
+    type: "/action_types/crafting",
+  },
+  "/actions/milking/cow": {
+    hrid: "/actions/milking/cow",
+    name: "Cow",
+    type: "/action_types/milking",
+  },
+  "/actions/combat/fly": {
+    hrid: "/actions/combat/fly",
+    name: "Fly",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/smelly_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+  },
+  "/actions/combat/smelly_planet": {
+    hrid: "/actions/combat/smelly_planet",
+    name: "Smelly Planet",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/smelly_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 10 } },
+  },
+  "/actions/combat/aquahorse": {
+    hrid: "/actions/combat/aquahorse",
+    name: "Aquahorse",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/aqua_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+  },
+  "/actions/combat/aqua_planet": {
+    hrid: "/actions/combat/aqua_planet",
+    name: "Aqua Planet",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/aqua_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 10 } },
+  },
+  "/actions/combat/chimerical_den": {
+    hrid: "/actions/combat/chimerical_den",
+    name: "Chimerical Den",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 56,
+    combatZoneInfo: { isDungeon: true, fightInfo: { battlesPerBoss: 0 } },
+  },
+};
+runtime.state.characterQuests = [
+  { actionHrid: "/actions/crafting/done" },
+  { actionHrid: "/actions/crafting/lumber" },
+  { actionHrid: "/actions/milking/cow" },
+  { actionHrid: "/actions/combat/fly" },
+  { actionHrid: "/actions/combat/aquahorse" },
+  { actionHrid: "/actions/combat/chimerical_den" },
+];
+
+test("tasks use collapsible profession groups, pin completed cards, and nest combat locations", () => {
+  runtime.api.renderTasks();
+
+  const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
+  assert.deepEqual(
+    groups.map(
+      (group) => group.querySelector(".mwi-task-profession-title").textContent,
+    ),
+    ["已完成", "挤奶", "制作", "战斗"],
+  );
+  assert.equal(document.querySelector(".mwi-task-toolbar"), null);
+  assert.equal(document.querySelector(".mwi-task-insight"), null);
+  assert.match(
+    document.querySelector('[data-profession="completed"]').textContent,
+    /已完成木板/,
+  );
+  assert.doesNotMatch(
+    document.querySelector('[data-profession="crafting"]').textContent,
+    /已完成木板/,
+  );
+
+  const combatLocations = [
+    ...document.querySelectorAll(".mwi-task-combat-location-title"),
+  ].map((title) => title.textContent);
+  assert.deepEqual(combatLocations, [
+    "地图 1 · 臭臭星球 (1)",
+    "地图 3 · 海洋星球 (1)",
+    "地牢 · 奇幻洞穴 (1)",
+  ]);
+
+  const milking = document.querySelector('[data-profession="milking"]');
+  milking.querySelector(".mwi-task-profession-header").click();
+  assert.equal(
+    milking
+      .querySelector(".mwi-task-profession-header")
+      .getAttribute("aria-expanded"),
+    "false",
+  );
+  assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+  runtime.api.renderTasks();
+  assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+});

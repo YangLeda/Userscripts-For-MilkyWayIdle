@@ -40,6 +40,42 @@ const FALLBACK_GUILD_BUFF_KEYS = [
   "guildBuffDict",
 ];
 
+const ACTION_TYPE_BUFF_SOURCE_KEYS = [
+  "mooPassActionTypeBuffsMap",
+  "communityActionTypeBuffsMap",
+  "houseActionTypeBuffsMap",
+  "guildActionTypeBuffsMap",
+  "achievementActionTypeBuffsMap",
+  "consumableActionTypeBuffsMap",
+  "equipmentActionTypeBuffsMap",
+  "personalActionTypeBuffsMap",
+];
+
+function applyActionTypeBuffs(payload, reset = false) {
+  const nextSources = reset
+    ? {}
+    : { ...(runtime.state.actionTypeBuffSources ?? {}) };
+  let receivedSource = false;
+  for (const key of ACTION_TYPE_BUFF_SOURCE_KEYS) {
+    if (!Object.hasOwn(payload, key)) continue;
+    nextSources[key] = payload[key] ?? {};
+    receivedSource = true;
+  }
+
+  if (reset) {
+    runtime.state.actionTypeBuffSources = receivedSource ? nextSources : null;
+  } else if (receivedSource) {
+    runtime.state.actionTypeBuffSources = nextSources;
+  }
+
+  if (Object.hasOwn(payload, "equipmentTaskActionBuffs")) {
+    runtime.state.equipmentTaskActionBuffs =
+      payload.equipmentTaskActionBuffs ?? [];
+  } else if (reset) {
+    runtime.state.equipmentTaskActionBuffs = [];
+  }
+}
+
 function normalizeGuildBuffLevels(candidate) {
   if (!candidate || typeof candidate !== "object") return {};
   const entries = Array.isArray(candidate)
@@ -99,6 +135,12 @@ function applyGuildData(payload, markLoaded = false) {
 }
 
 function applyCharacterData(payload) {
+  runtime.state.currentCharacterId =
+    payload.character?.id ??
+    payload.character?.characterID ??
+    payload.characterID ??
+    payload.characterSkills?.[0]?.characterID ??
+    "";
   runtime.state.initData_characterSkills = payload.characterSkills;
   runtime.state.initData_characterItems = payload.characterItems ?? [];
   runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -109,6 +151,10 @@ function applyCharacterData(payload) {
   runtime.state.initData_combatAbilities =
     payload.combatUnit?.combatAbilities ?? [];
   runtime.state.currentActionsHridList = [...(payload.characterActions ?? [])];
+  runtime.state.characterQuests = (payload.characterQuests ?? []).map(
+    (quest, index) => ({ ...quest, _mwitoolsOriginalIndex: index }),
+  );
+  applyActionTypeBuffs(payload, true);
   runtime.state.currentEquipmentMap = {};
   for (const item of payload.characterItems ?? []) {
     if (item.itemLocationHrid !== "/item_locations/inventory") {
@@ -116,6 +162,114 @@ function applyCharacterData(payload) {
     }
   }
   applyGuildData(payload);
+  applyGuildSnapshot(payload);
+  applyGuildCharacters(payload);
+}
+
+function applySkillsUpdated(payload) {
+  const updates = payload.endCharacterSkills ?? payload.characterSkills ?? [];
+  if (!Array.isArray(updates) || !updates.length) return;
+  const skills = [...(runtime.state.initData_characterSkills ?? [])];
+  for (const update of updates) {
+    const index = skills.findIndex(
+      (skill) => skill.skillHrid === update.skillHrid,
+    );
+    if (index >= 0) skills[index] = { ...skills[index], ...update };
+    else skills.push(update);
+  }
+  runtime.state.initData_characterSkills = skills;
+}
+
+function getQuestId(quest) {
+  return quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId;
+}
+
+function applyQuestsUpdated(payload) {
+  const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
+  if (!Array.isArray(updates)) return;
+  const quests = [...runtime.state.characterQuests];
+  for (const update of updates) {
+    const id = getQuestId(update);
+    const index = quests.findIndex((quest) => getQuestId(quest) === id);
+    const removed =
+      update.isClaimed ||
+      update.claimed ||
+      update.isDeleted ||
+      update.deleted ||
+      String(update.status ?? "").includes("claimed");
+    if (removed) {
+      if (index >= 0) quests.splice(index, 1);
+      continue;
+    }
+    if (index >= 0) {
+      quests[index] = {
+        ...quests[index],
+        ...update,
+        _mwitoolsOriginalIndex: quests[index]._mwitoolsOriginalIndex,
+      };
+    } else {
+      quests.push({ ...update, _mwitoolsOriginalIndex: quests.length });
+    }
+  }
+  runtime.state.characterQuests = quests;
+}
+
+function findArray(payload, keys) {
+  for (const key of keys) {
+    if (Array.isArray(payload?.[key])) return payload[key];
+  }
+  for (const value of Object.values(payload ?? {})) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    for (const key of keys) {
+      if (Array.isArray(value[key])) return value[key];
+    }
+  }
+  return [];
+}
+
+function applyGuildSnapshot(payload) {
+  const guild = payload.guild ?? payload.endGuild ?? payload.guildData;
+  if (guild) runtime.state.guild = { ...(runtime.state.guild ?? {}), ...guild };
+  runtime.state.guildStateUpdatedAt = Date.now();
+}
+
+function applyGuildCharacters(payload) {
+  let characters = findArray(payload, [
+    "guildCharacters",
+    "endGuildCharacters",
+    "characters",
+    "members",
+  ]);
+  const characterMap =
+    payload.guildCharacterMap ?? payload.endGuildCharacterMap ?? null;
+  const sharableMap =
+    payload.guildSharableCharacterMap ??
+    payload.endGuildSharableCharacterMap ??
+    {};
+  if (!characters.length && characterMap && typeof characterMap === "object") {
+    characters = Object.entries(characterMap).map(([id, character]) => ({
+      ...sharableMap[id],
+      ...character,
+      characterID: character.characterID ?? Number(id),
+    }));
+  }
+  if (characters.length) runtime.state.guildCharacters = characters;
+  runtime.state.guildStateUpdatedAt = Date.now();
+}
+
+function applyLeaderboard(payload) {
+  const category = String(
+    payload.category ?? payload.leaderboardCategory ?? payload.typeHrid ?? "",
+  ).toLowerCase();
+  if (!category.includes("guild")) return;
+  const rows = findArray(payload, [
+    "leaderboard",
+    "leaderboardEntries",
+    "entries",
+    "rankings",
+    "guilds",
+  ]);
+  if (rows.length) runtime.state.guildLeaderboard = rows;
 }
 
 function applyActionsUpdated(payload) {
@@ -181,6 +335,12 @@ function applyGameMessage(payload) {
     case "items_updated":
       applyItemsUpdated(payload);
       break;
+    case "skills_updated":
+      applySkillsUpdated(payload);
+      break;
+    case "quests_updated":
+      applyQuestsUpdated(payload);
+      break;
     case "market_item_values_updated":
       runtime.api.applyMarketItemValues(payload);
       break;
@@ -192,8 +352,38 @@ function applyGameMessage(payload) {
       break;
     case "guild_updated":
       applyGuildData(payload, true);
+      applyGuildSnapshot(payload);
+      break;
+    case "house_rooms_updated":
+      runtime.state.initData_characterHouseRoomMap =
+        payload.characterHouseRoomMap ??
+        runtime.state.initData_characterHouseRoomMap;
+      applyActionTypeBuffs(payload);
+      break;
+    case "achievement_buffs_updated":
+    case "moo_pass_buffs_updated":
+    case "community_buffs_updated":
+    case "consumable_buffs_updated":
+    case "equipment_buffs_updated":
+    case "personal_buffs_updated":
+    case "guild_buffs_updated":
+      applyActionTypeBuffs(payload);
+      break;
+    case "guild_characters_updated":
+      applyGuildCharacters(payload);
+      break;
+    case "leaderboard_updated":
+      applyLeaderboard(payload);
       break;
   }
 }
 
-Object.assign(runtime.api, { applyGameMessage, applyGuildData });
+Object.assign(runtime.api, {
+  applyGameMessage,
+  applyGuildData,
+  applyQuestsUpdated,
+  applyGuildCharacters,
+  applyLeaderboard,
+  applyActionTypeBuffs,
+  applySkillsUpdated,
+});

@@ -3,24 +3,41 @@ import "./core/config.js";
 import "./data/translations.js";
 import "./core/state.js";
 import "./core/market.js";
+import "./core/action-projection.js";
+import "./core/procurement.js";
+import "./core/xp-history.js";
 import "./core/asset-values.js";
 import "./core/message-state.js";
 import "./core/messages.js";
 import "./features/inventory.js";
 import "./features/build-score.js";
+import "./features/production-profit-panel.js";
 import "./features/item-tooltips.js";
 import "./features/action-panel.js";
+import "./features/action-dashboard.js";
+import "./features/procurement.js";
+import "./features/tasks.js";
+import "./features/guild-xp.js";
 import "./features/game-widgets.js";
 import "./features/enhancement.js";
 import "./features/settings-and-notifications.js";
-import "./features/combat.js";
+import "./features/update-banner.js";
+import "./features/dps/index.js";
 import "./features/external-tools.js";
+import "./features/legacy-lifecycle.js";
 import "./features/message-effects.js";
 
 function loadCachedClientData() {
-  if (!localStorage.getItem("initClientData")) return;
+  const pageGlobal = globalThis.unsafeWindow ?? globalThis;
+  const localStorageUtil = pageGlobal.localStorageUtil;
+  if (
+    !localStorage.getItem("initClientData") ||
+    typeof localStorageUtil?.getInitClientData !== "function"
+  ) {
+    return false;
+  }
   const clientData = localStorageUtil.getInitClientData();
-  console.log(clientData);
+  if (!clientData?.actionDetailMap || !clientData?.itemDetailMap) return false;
   GM_setValue("init_client_data", JSON.stringify(clientData));
   runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
   runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
@@ -44,10 +61,21 @@ function loadCachedClientData() {
   )) {
     runtime.state.itemEnNameToHridMap[value.name] = key;
   }
+  return true;
 }
 
 function startGame() {
-  loadCachedClientData();
+  const clientDataLoaded = loadCachedClientData();
+  if (!clientDataLoaded) {
+    runtime.features.register({
+      id: "clientDataCache",
+      initialize({ scope }) {
+        const interval = scope.interval(() => {
+          if (loadCachedClientData()) clearInterval(interval);
+        }, 250);
+      },
+    });
+  }
   runtime.api.loadMarketItemValuesFromStorage();
   runtime.api.hookWS();
 

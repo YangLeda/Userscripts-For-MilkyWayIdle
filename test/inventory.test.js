@@ -62,7 +62,11 @@ test("networth rerenders update existing UI instead of duplicating it", async ()
   assert.equal(document.querySelectorAll("#script_api_fail_popout").length, 1);
   assert.match(
     document.querySelector("#script_current_assets").textContent,
-    /10k/,
+    /10K/,
+  );
+  assert.equal(
+    document.querySelector("#script_current_assets .mwi-number").title,
+    "10,000",
   );
   assert.match(
     document.querySelector("#toggleScores").textContent,
@@ -102,7 +106,7 @@ test("networth rerenders update existing UI instead of duplicating it", async ()
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /神龛：-/,
+    /神龛：—/,
   );
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
 });
@@ -230,7 +234,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   assert.match(
     document.querySelector("#currentAssets").textContent,
-    /库存价值：10\.4k/,
+    /库存价值：10\.4K/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,

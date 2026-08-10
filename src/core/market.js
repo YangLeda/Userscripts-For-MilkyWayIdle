@@ -124,25 +124,61 @@ function parseCompactNumber(value) {
   return Number(match[1]) * (multipliers[match[2]] ?? 1);
 }
 
-function numberFormatter(num, digits = 1) {
-  if (num === null || num === undefined) return null;
-  if (num < 0) return "-" + numberFormatter(-num, digits);
-  const lookup = [
-    { value: 1, symbol: "" },
-    { value: 1e3, symbol: "k" },
-    { value: 1e6, symbol: "M" },
-  ];
-  if (!runtime.settings.settingsMap?.displayCapMM?.isTrue) {
-    lookup.push({ value: 1e9, symbol: "B" }, { value: 1e12, symbol: "T" });
+function getNumberLocale() {
+  return runtime.config.isZH ? "zh-CN" : "en-US";
+}
+
+function formatExactNumber(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return new Intl.NumberFormat(getNumberLocale(), {
+    maximumFractionDigits: 20,
+    useGrouping: true,
+  }).format(number);
+}
+
+function numberFormatter(value, digits = 2) {
+  if (value === null || value === undefined || value === "") return "—";
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const absolute = Math.abs(number);
+  const maximumFractionDigits = Math.min(2, Math.max(0, Number(digits) || 0));
+  if (absolute < 1_000) {
+    return new Intl.NumberFormat(getNumberLocale(), {
+      maximumFractionDigits,
+      useGrouping: true,
+    }).format(number);
   }
-  const item = lookup
-    .slice()
-    .reverse()
-    .find(({ value }) => num >= value);
-  const trimZeros = /\.0+$|(\.[0-9]*[1-9])0+$/;
-  return item
-    ? (num / item.value).toFixed(digits).replace(trimZeros, "$1") + item.symbol
-    : "0";
+
+  const units = [
+    { value: 1e3, symbol: "K" },
+    { value: 1e6, symbol: "M" },
+    { value: 1e9, symbol: "B" },
+    { value: 1e12, symbol: "T" },
+  ];
+  let unit = [...units].reverse().find(({ value: size }) => absolute >= size);
+  let scaled = number / unit.value;
+  let rounded = Number(scaled.toFixed(maximumFractionDigits));
+  const index = units.indexOf(unit);
+  if (Math.abs(rounded) >= 1_000 && index < units.length - 1) {
+    unit = units[index + 1];
+    scaled = number / unit.value;
+    rounded = Number(scaled.toFixed(maximumFractionDigits));
+  }
+  return `${rounded.toLocaleString(getNumberLocale(), {
+    maximumFractionDigits,
+    useGrouping: false,
+  })}${unit.symbol}`;
+}
+
+function createFormattedNumber(value, options = {}) {
+  const element = document.createElement(options.tagName ?? "span");
+  element.className = options.className ?? "mwi-number";
+  element.textContent = numberFormatter(value, options.digits ?? 2);
+  element.title = formatExactNumber(value);
+  if (options.label) element.setAttribute("aria-label", options.label);
+  return element;
 }
 
 function formatScore(value) {
@@ -197,7 +233,8 @@ function parseStoredMarketItemValues(rawValue) {
 function loadMarketItemValuesFromStorage() {
   let parsed = null;
   try {
-    parsed = globalThis.localStorageUtil?.getMarketItemValues?.() ?? null;
+    const pageGlobal = globalThis.unsafeWindow ?? globalThis;
+    parsed = pageGlobal.localStorageUtil?.getMarketItemValues?.() ?? null;
   } catch (error) {
     console.error("Unable to read market values through the game cache", error);
   }
@@ -402,6 +439,8 @@ Object.assign(runtime.api, {
   normalizeMarketPrice,
   parseCompactNumber,
   numberFormatter,
+  formatExactNumber,
+  createFormattedNumber,
   formatScore,
   getPriceBand,
   parseStoredMarketItemValues,

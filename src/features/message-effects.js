@@ -9,14 +9,8 @@ runtime.onMessage("init_character_data", (payload, message) => {
   console.log(payload);
   GM_setValue("init_character_data", message);
   const settings = runtime.settings.settingsMap;
-  if (settings.totalActionTime.isTrue) runtime.api.showTotalActionTime();
-  runtime.api.waitForActionPanelParent();
-  if (settings.skillbook.isTrue) runtime.api.waitForItemDict();
-  if (settings.ThirdPartyLinks.isTrue) runtime.api.add3rdPartyLinks();
   if (settings.networth.isTrue) runtime.api.calculateNetworth();
   if (settings.checkEquipment.isTrue) runtime.api.checkEquipment();
-  if (settings.notifiEmptyAction.isTrue) runtime.api.notificate();
-  if (settings.fillMarketOrderPrice.isTrue) runtime.api.waitForMarketOrders();
 });
 
 runtime.onMessage("actions_updated", () => {
@@ -24,15 +18,6 @@ runtime.onMessage("actions_updated", () => {
   if (settings.checkEquipment.isTrue) runtime.api.checkEquipment();
   if (settings.notifiEmptyAction.isTrue)
     setTimeout(runtime.api.notificate, 1000);
-  if (
-    settings.showDamage.isTrue &&
-    (runtime.state.currentActionsHridList.length === 0 ||
-      !runtime.state.currentActionsHridList[0].actionHrid.startsWith(
-        "/actions/combat/",
-      ))
-  ) {
-    runtime.api.resetCombatState();
-  }
 });
 
 runtime.onMessage("battle_unit_fetched", (payload) => {
@@ -58,21 +43,6 @@ for (const messageType of [
       runtime.api.scheduleNetworthRefresh();
   });
 }
-
-runtime.onMessage("new_battle", (payload, message) => {
-  GM_setValue("new_battle", message);
-  if (runtime.settings.settingsMap.showDamage.isTrue)
-    runtime.api.handleNewBattle(payload);
-});
-
-runtime.onMessage("battle_updated", (payload) => {
-  if (
-    runtime.settings.settingsMap.showDamage.isTrue &&
-    runtime.state.monstersHP.length
-  ) {
-    runtime.api.handleBattleUpdated(payload);
-  }
-});
 
 runtime.onMessage("profile_shared", (payload) => {
   let stored = GM_getValue("profile_export_list", null);

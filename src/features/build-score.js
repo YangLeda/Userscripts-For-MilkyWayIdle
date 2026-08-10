@@ -71,7 +71,6 @@ function calculateGearScores(items) {
       item.enhancementLevel,
     );
     if (!(fairValue > 0)) {
-      console.log("calculateGearScores cannot find price of " + item.itemHrid);
       continue;
     }
 
@@ -193,10 +192,6 @@ async function getHouseFullBuildPrice(house) {
       const fairValue = runtime.api.getFairValue(item.itemHrid, 0);
       if (fairValue > 0) {
         cost += item.count * fairValue;
-      } else {
-        console.log(
-          "getHouseFullBuildPrice cannot find price of " + item.itemHrid,
-        );
       }
     }
   }
@@ -218,6 +213,12 @@ function getWeightedMarketPrice(marketPrices, ratio = 0.5) {
 
 // 技能价格计算
 async function calculateAbilityScore(isAll = false) {
+  const levelExperienceTable = runtime.state.initData_levelExperienceTable;
+  const abilities = isAll
+    ? runtime.state.initData_characterAbilities
+    : runtime.state.initData_combatAbilities;
+  if (!levelExperienceTable || !Array.isArray(abilities)) return 0;
+
   const marketAPIJson = await runtime.api.fetchMarketJSON();
   if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
     return 0;
@@ -233,16 +234,14 @@ async function calculateAbilityScore(isAll = false) {
     "minor_heal",
   ];
   const getNeedBooksToLevel = (targetLevel, abilityPerBookExp) => {
-    const needExp = runtime.state.initData_levelExperienceTable[targetLevel];
+    const needExp = levelExperienceTable[targetLevel];
+    if (!Number.isFinite(needExp)) return 0;
     let needBooks = needExp / abilityPerBookExp;
     needBooks += 1;
     return needBooks.toFixed(1);
   };
   // 技能净值
   let price = 0;
-  const abilities = isAll
-    ? runtime.state.initData_characterAbilities
-    : runtime.state.initData_combatAbilities;
   abilities.forEach((item) => {
     let numBooks = 0;
     if (exp_50_skill.some((skill) => item.abilityHrid.includes(skill))) {
@@ -254,8 +253,6 @@ async function calculateAbilityScore(isAll = false) {
     const fairValue = runtime.api.getFairValue(itemHrid, 0);
     if (fairValue > 0) {
       price += numBooks * fairValue;
-    } else {
-      console.log("calculateAbilityScore cannot find price of " + itemHrid);
     }
     // console.log(`技能:${itemHrid},价值${numBooks * (marketPrices[0].b > 0 ? marketPrices[0].b : 0)}`)
   });
@@ -412,8 +409,6 @@ async function calculateSkill(profile_shared_obj) {
     const fairValue = runtime.api.getFairValue(itemHrid, 0);
     if (fairValue > 0) {
       price += numBooks * fairValue;
-    } else {
-      console.log("calculateSkill cannot find price of " + itemHrid);
     }
     // console.log(`技能:${itemHrid},价值${numBooks * (marketPrices[0].b > 0 ? marketPrices[0].b : 0)}`)
   });

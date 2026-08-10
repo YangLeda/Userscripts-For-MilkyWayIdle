@@ -15,6 +15,12 @@ localStorage.setItem(
   JSON.stringify({
     legacyOrange: { id: "useOrangeAsMainColor", isTrue: true },
     legacyChinese: { id: "forceMWIToolsDisplayZH", isTrue: true },
+    legacyDps: { id: "showDamage", isTrue: false },
+    legacyDpsGraph: { id: "showDamageGraph", isTrue: true },
+    legacyDpsTransparency: {
+      id: "damageGraphTransparentBackground",
+      isTrue: true,
+    },
     removedOption: { id: "removed_option", isTrue: true },
   }),
 );
@@ -34,6 +40,78 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(runtime.config.SCRIPT_COLOR_MAIN, "orange");
   assert.equal(runtime.config.SCRIPT_COLOR_TOOLTIP, "#804600");
   assert.equal(runtime.settings.settingsMap.totalActionTime.isTrue, true);
+  assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
+  assert.equal(runtime.settings.settingsMap.showDamageGraph, undefined);
+  assert.equal(
+    runtime.settings.settingsMap.damageGraphTransparentBackground,
+    undefined,
+  );
+  const stored = JSON.parse(localStorage.getItem("MWITools_settings_v2"));
+  assert.equal(stored.version, 2);
+  assert.equal(stored.values.displayCapMM, false);
+  assert.equal(stored.values.showDamage, false);
+  assert.equal(stored.values.showDamageGraph, undefined);
+  assert.equal(stored.values.damageGraphTransparentBackground, undefined);
+  assert.equal(
+    Object.keys(stored.values).length,
+    Object.keys(runtime.settings.settingsMap).length,
+  );
+});
+
+test("setting changes persist the versioned and rollback-compatible shapes", async () => {
+  await runtime.settings.set("notifiEmptyAction", true);
+  assert.equal(
+    JSON.parse(localStorage.getItem("MWITools_settings_v2")).values
+      .notifiEmptyAction,
+    true,
+  );
+  assert.equal(
+    JSON.parse(localStorage.getItem("script_settingsMap")).notifiEmptyAction
+      .isTrue,
+    true,
+  );
+});
+
+test("card settings render every visible setting with nested children and search", async () => {
+  document.body.innerHTML =
+    '<div class="SettingsPanel_profileTab__test"></div>';
+  await runtime.features.enable("settingsUi");
+  const root = document.querySelector("#script_settings");
+  assert.equal(root.dataset.mwitoolsVersion, "2");
+  assert.equal(root.querySelectorAll(".mwi-settings-group").length, 9);
+  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 40);
+  assert.ok(root.querySelectorAll(".mwi-setting-child").length > 15);
+  const topLevelCards = root.querySelectorAll(
+    ".mwi-settings-grid > .mwi-setting-card",
+  );
+  assert.ok(topLevelCards.length > 20);
+  for (const card of topLevelCards) {
+    assert.equal(card.querySelectorAll(":scope > .mwi-setting-row").length, 1);
+    assert.ok(
+      card.querySelector(":scope > .mwi-setting-row > .mwi-setting-copy"),
+    );
+    assert.ok(
+      card.querySelector(":scope > .mwi-setting-row > .mwi-setting-toggle"),
+    );
+    assert.ok(card.querySelector(".mwi-setting-more"));
+  }
+  assert.match(
+    document.querySelector("#mwitools-settings-style").textContent,
+    /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
+  );
+
+  const search = root.querySelector(".mwi-settings-search");
+  search.value = "Idle members";
+  search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.deepEqual(
+    [...root.querySelectorAll(".mwi-settings-group")]
+      .filter((group) => !group.hidden)
+      .map(
+        (group) => group.querySelector(".mwi-settings-group-title").textContent,
+      ),
+    ["公会与排行榜"],
+  );
+  await runtime.features.disable("settingsUi");
 });
 
 test("market autofill selects semantic plus and minus buttons", () => {

@@ -2,8 +2,9 @@ import js from "@eslint/js";
 
 const userscriptGlobals = Object.fromEntries(
   [
-    "Chart",
-    "ChartDataLabels",
+    "Blob",
+    "CustomEvent",
+    "EventTarget",
     "GM",
     "GM_addStyle",
     "GM_getValue",
@@ -12,6 +13,9 @@ const userscriptGlobals = Object.fromEntries(
     "GM_xmlhttpRequest",
     "localStorageUtil",
     "math",
+    "Option",
+    "getComputedStyle",
+    "performance",
   ].map((name) => [name, "readonly"]),
 );
 
@@ -25,7 +29,7 @@ export default [
   },
   js.configs.recommended,
   {
-    files: ["src/**/*.js", "test/**/*.js"],
+    files: ["src/**/*.js", "test/**/*.js", "test-support/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
@@ -54,6 +58,7 @@ export default [
       "no-useless-assignment": "off",
       "no-useless-escape": "off",
       "no-unused-vars": "off",
+      "no-empty": ["error", { allowEmptyCatch: true }],
     },
   },
   {

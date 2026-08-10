@@ -63,6 +63,22 @@ let guildBuffLevels = {};
 
 let guildDataLoaded = false;
 
+let currentCharacterId = "";
+
+let characterQuests = [];
+
+let guild = null;
+
+let guildCharacters = [];
+
+let guildLeaderboard = [];
+
+let guildStateUpdatedAt = 0;
+
+let actionTypeBuffSources = null;
+
+let equipmentTaskActionBuffs = [];
+
 Object.defineProperties(runtime.data, {
   MARKET_JSON_LOCAL_BACKUP: {
     enumerable: true,
@@ -335,6 +351,78 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       guildDataLoaded = Boolean(value);
+    },
+  },
+  currentCharacterId: {
+    enumerable: true,
+    get() {
+      return currentCharacterId;
+    },
+    set(value) {
+      currentCharacterId = String(value ?? "");
+    },
+  },
+  characterQuests: {
+    enumerable: true,
+    get() {
+      return characterQuests;
+    },
+    set(value) {
+      characterQuests = Array.isArray(value) ? value : [];
+    },
+  },
+  guild: {
+    enumerable: true,
+    get() {
+      return guild;
+    },
+    set(value) {
+      guild = value ?? null;
+    },
+  },
+  guildCharacters: {
+    enumerable: true,
+    get() {
+      return guildCharacters;
+    },
+    set(value) {
+      guildCharacters = Array.isArray(value) ? value : [];
+    },
+  },
+  guildLeaderboard: {
+    enumerable: true,
+    get() {
+      return guildLeaderboard;
+    },
+    set(value) {
+      guildLeaderboard = Array.isArray(value) ? value : [];
+    },
+  },
+  guildStateUpdatedAt: {
+    enumerable: true,
+    get() {
+      return guildStateUpdatedAt;
+    },
+    set(value) {
+      guildStateUpdatedAt = Number(value) || Date.now();
+    },
+  },
+  actionTypeBuffSources: {
+    enumerable: true,
+    get() {
+      return actionTypeBuffSources;
+    },
+    set(value) {
+      actionTypeBuffSources = value && typeof value === "object" ? value : null;
+    },
+  },
+  equipmentTaskActionBuffs: {
+    enumerable: true,
+    get() {
+      return equipmentTaskActionBuffs;
+    },
+    set(value) {
+      equipmentTaskActionBuffs = Array.isArray(value) ? value : [];
     },
   },
 });

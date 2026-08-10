@@ -1,88 +1,379 @@
 import { runtime } from "../core/runtime.js";
 
-/* 脚本设置面板 */
-const waitForSetttins = () => {
-  const targetNode = document.querySelector(
-    "div.SettingsPanel_profileTab__214Bj",
+const SETTINGS_V2_KEY = "MWITools_settings_v2";
+const SETTINGS_STYLE_ID = "mwitools-settings-style";
+
+function persistSettings() {
+  const values = Object.fromEntries(
+    Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
+      id,
+      Boolean(setting.isTrue),
+    ]),
   );
-  if (targetNode) {
-    if (!targetNode.querySelector("#script_settings")) {
-      targetNode.insertAdjacentHTML(
-        "beforeend",
-        `<div id="script_settings"></div>`,
-      );
-      const insertElem = targetNode.querySelector("div#script_settings");
-      insertElem.insertAdjacentHTML(
-        "beforeend",
-        `<div style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}">${
-          runtime.config.isZH
-            ? "MWITools 设置 （刷新生效）："
-            : "MWITools Settings (refresh page to apply): "
-        }</div></br>`,
-      );
+  localStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values }));
 
-      for (const setting of Object.values(runtime.settings.settingsMap)) {
-        insertElem.insertAdjacentHTML(
-          "beforeend",
-          `<div style="float: left;"><input type="checkbox" id="${setting.id}" ${setting.isTrue ? "checked" : ""}></input>${
-            setting.desc
-          }</div></br>`,
-        );
-      }
+  // Keep the legacy shape current so users can safely roll back MWITools.
+  localStorage.setItem(
+    "script_settingsMap",
+    JSON.stringify(runtime.settings.settingsMap),
+  );
+}
 
-      insertElem.insertAdjacentHTML(
-        "beforeend",
-        `<div style="float: left;">${
-          runtime.config.isZH
-            ? "代码里搜索“自定义”可以手动修改字体颜色、强化模拟默认参数"
-            : `Search "Customization" in code to customize font colors and default enhancement simulation parameters.`
-        }</div></br>`,
-      );
-      insertElem.addEventListener("change", saveSettings);
-    }
-  }
-  setTimeout(waitForSetttins, 500);
-};
-
-function saveSettings() {
-  for (const checkbox of document.querySelectorAll(
-    "div#script_settings input",
-  )) {
-    runtime.settings.settingsMap[checkbox.id].isTrue = checkbox.checked;
-    localStorage.setItem(
-      "script_settingsMap",
-      JSON.stringify(runtime.settings.settingsMap),
-    );
-  }
+function applyVisualSettings() {
+  runtime.config.isZH =
+    runtime.settings.settingsMap.forceMWIToolsDisplayZH.isTrue ||
+    runtime.config.isZHInGameSetting;
+  runtime.config.SCRIPT_COLOR_MAIN = runtime.settings.settingsMap
+    .useOrangeAsMainColor.isTrue
+    ? "orange"
+    : "green";
+  runtime.config.SCRIPT_COLOR_TOOLTIP = runtime.settings.settingsMap
+    .useOrangeAsMainColor.isTrue
+    ? "#804600"
+    : "darkgreen";
 }
 
 function readSettings() {
-  const ls = localStorage.getItem("script_settingsMap");
-  if (ls) {
-    const lsObj = JSON.parse(ls);
-    for (const option of Object.values(lsObj)) {
-      if (runtime.settings.settingsMap.hasOwnProperty(option.id)) {
-        runtime.settings.settingsMap[option.id].isTrue = option.isTrue;
+  let loadedV2 = false;
+  try {
+    const storedV2 = JSON.parse(
+      localStorage.getItem(SETTINGS_V2_KEY) || "null",
+    );
+    if (storedV2?.version === 2 && storedV2.values) {
+      for (const [id, value] of Object.entries(storedV2.values)) {
+        if (runtime.settings.settingsMap[id]) {
+          runtime.settings.settingsMap[id].isTrue = Boolean(value);
+        }
       }
+      loadedV2 = true;
+    }
+  } catch (error) {
+    console.warn("[MWITools] Could not read v2 settings", error);
+  }
+
+  if (!loadedV2) {
+    try {
+      const legacy = JSON.parse(
+        localStorage.getItem("script_settingsMap") || "null",
+      );
+      for (const option of Object.values(legacy ?? {})) {
+        if (runtime.settings.settingsMap[option?.id]) {
+          runtime.settings.settingsMap[option.id].isTrue = Boolean(
+            option.isTrue,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("[MWITools] Could not migrate legacy settings", error);
     }
   }
 
-  if (runtime.settings.settingsMap.forceMWIToolsDisplayZH.isTrue) {
-    runtime.config.isZH = true; // For Traditional Chinese users.
+  // The old cap-at-M option conflicts with the unified K/M/B/T formatter.
+  runtime.settings.settingsMap.displayCapMM.isTrue = false;
+  applyVisualSettings();
+  persistSettings();
+}
+
+function addSettingsStyles() {
+  if (document.getElementById(SETTINGS_STYLE_ID)) return;
+  const styleHost = document.head ?? document.documentElement;
+  if (!styleHost) return;
+  const style = document.createElement("style");
+  style.id = SETTINGS_STYLE_ID;
+  style.textContent = `
+    #script_settings { width:100%; margin-top:14px; color:var(--color-text-primary,#eee); }
+    .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
+    .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
+    .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:.78rem; line-height:1.35; }
+    .mwi-settings-search { width:min(320px,100%); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(0,0,0,.2); color:inherit; padding:7px 9px; }
+    .mwi-settings-group { margin:0 0 10px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.13); overflow:hidden; }
+    .mwi-settings-group-head { padding:10px 13px 8px; border-bottom:1px solid rgba(255,255,255,.08); }
+    .mwi-settings-group-title { font-size:1rem; font-weight:700; }
+    .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:.75rem; margin-top:2px; line-height:1.35; }
+    .mwi-settings-grid { display:flex; flex-direction:column; padding:0 10px; }
+    .mwi-setting-card { min-width:0; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.075); transition:background .15s; }
+    .mwi-setting-card:last-child { border-bottom:0; }
+    .mwi-setting-card:hover { background:rgba(255,255,255,.025); }
+    .mwi-setting-card.mwi-setting-child { margin-top:5px; padding:6px 8px; border:1px solid rgba(255,255,255,.075); border-radius:5px; background:rgba(0,0,0,.12); }
+    .mwi-setting-card.mwi-setting-child:has(input:disabled) { opacity:.52; }
+    .mwi-setting-row { display:grid; min-height:42px; grid-template-columns:minmax(170px,.72fr) minmax(260px,1.5fr) auto 40px; align-items:center; gap:8px 14px; }
+    .mwi-setting-copy { display:contents; }
+    .mwi-setting-title-line { display:flex; min-width:0; grid-column:1; grid-row:1; align-items:center; gap:7px; text-align:left; }
+    .mwi-setting-title { min-width:0; font-size:.84rem; font-weight:650; line-height:1.25; }
+    .mwi-setting-summary { overflow:hidden; grid-column:2; grid-row:1; color:var(--color-text-secondary,#aaa); font-size:.71rem; line-height:1.3; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-setting-status { display:inline-flex; flex:0 0 auto; padding:1px 6px; border-radius:999px; font-size:.61rem; color:#aaa; background:rgba(255,255,255,.07); }
+    .mwi-setting-status[data-status="active"] { color:#87d7a0; background:rgba(70,170,100,.13); }
+    .mwi-setting-status[data-status="failed"] { color:#ff9a90; background:rgba(210,70,60,.14); }
+    .mwi-setting-status[data-status="waiting"] { color:#e3c56d; background:rgba(210,170,60,.13); }
+    .mwi-setting-toggle { position:relative; width:36px; height:20px; grid-column:4; grid-row:1; justify-self:end; }
+    .mwi-setting-toggle input { position:absolute; opacity:0; }
+    .mwi-setting-toggle span { position:absolute; inset:0; border-radius:999px; cursor:pointer; background:#555; transition:.16s; }
+    .mwi-setting-toggle span::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:.16s; }
+    .mwi-setting-toggle input:checked + span { background:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
+    .mwi-setting-toggle input:checked + span::after { transform:translateX(16px); }
+    .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:.68rem; color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
+    .mwi-setting-more summary { display:inline-block; cursor:pointer; color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); list-style-position:inside; }
+    .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
+    .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
+    .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
+    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
+  `;
+  styleHost.appendChild(style);
+}
+
+function localizedText(value) {
+  return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
+}
+
+function featureStatusForSetting(id) {
+  const featureStatus = runtime.features.getStatus(id);
+  if (featureStatus.status !== "unregistered") return featureStatus;
+  return {
+    id,
+    status: runtime.settings.get(id) ? "active" : "disabled",
+    error: null,
+  };
+}
+
+function statusLabel(status) {
+  const labels = runtime.config.isZH
+    ? {
+        active: "已启用",
+        disabled: "已关闭",
+        initializing: "正在启动",
+        waiting: "等待游戏数据",
+        failed: "启动失败",
+      }
+    : {
+        active: "Enabled",
+        disabled: "Disabled",
+        initializing: "Starting",
+        waiting: "Waiting for game data",
+        failed: "Failed to start",
+      };
+  return labels[status] ?? labels.disabled;
+}
+
+function getSettingDescendants(id) {
+  return Object.values(runtime.settings.catalog).filter((candidate) => {
+    let parent = candidate.parent;
+    while (parent) {
+      if (parent === id) return true;
+      parent = runtime.settings.catalog[parent]?.parent;
+    }
+    return false;
+  });
+}
+
+function areSettingParentsEnabled(definition) {
+  let parent = definition.parent;
+  while (parent) {
+    if (!runtime.settings.get(parent)) return false;
+    parent = runtime.settings.catalog[parent]?.parent;
+  }
+  return true;
+}
+
+function createSettingCard(definition, options = {}) {
+  const setting = runtime.settings.settingsMap[definition.id];
+  const children = Object.values(runtime.settings.catalog).filter(
+    (candidate) => candidate.parent === definition.id,
+  );
+  const descendants = getSettingDescendants(definition.id);
+  const card = document.createElement("article");
+  card.className = "mwi-setting-card";
+  if (options.child) card.classList.add("mwi-setting-child");
+  card.dataset.search = [
+    definition.title?.zh,
+    definition.title?.en,
+    definition.summary?.zh,
+    definition.summary?.en,
+    ...descendants.flatMap((child) => [
+      child.title?.zh,
+      child.title?.en,
+      child.summary?.zh,
+      child.summary?.en,
+    ]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const row = document.createElement("div");
+  row.className = "mwi-setting-row";
+  const copy = document.createElement("div");
+  copy.className = "mwi-setting-copy";
+  const title = document.createElement("div");
+  title.className = "mwi-setting-title";
+  title.textContent = localizedText(definition.title);
+  const summary = document.createElement("div");
+  summary.className = "mwi-setting-summary";
+  summary.textContent = localizedText(definition.summary);
+  const status = document.createElement("span");
+  status.className = "mwi-setting-status";
+  const setStatus = () => {
+    const current = featureStatusForSetting(definition.id);
+    status.dataset.status = current.status;
+    status.textContent = statusLabel(current.status);
+    if (current.error) status.title = current.error;
+    if (current.status === "failed") {
+      const retry = document.createElement("button");
+      retry.className = "mwi-setting-retry";
+      retry.type = "button";
+      retry.textContent = runtime.config.isZH ? "重试" : "Retry";
+      retry.addEventListener("click", () =>
+        runtime.features.restart(definition.id),
+      );
+      status.appendChild(retry);
+    }
+  };
+  setStatus();
+  const titleLine = document.createElement("div");
+  titleLine.className = "mwi-setting-title-line";
+  titleLine.append(title, status);
+  copy.append(titleLine, summary);
+
+  const toggle = document.createElement("label");
+  toggle.className = "mwi-setting-toggle";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = Boolean(setting.isTrue);
+  if (definition.parent) {
+    checkbox.disabled = !areSettingParentsEnabled(definition);
+  }
+  checkbox.setAttribute("aria-label", localizedText(definition.title));
+  const track = document.createElement("span");
+  toggle.append(checkbox, track);
+  if (definition.details || children.length) {
+    const details = document.createElement("details");
+    details.className = "mwi-setting-more";
+    const detailsSummary = document.createElement("summary");
+    detailsSummary.textContent = runtime.config.isZH
+      ? children.length
+        ? "详细说明与更多设置"
+        : "详细说明"
+      : children.length
+        ? "Details and more settings"
+        : "Details";
+    details.append(detailsSummary);
+    if (definition.details) {
+      const detailsCopy = document.createElement("p");
+      detailsCopy.textContent = localizedText(definition.details);
+      details.append(detailsCopy);
+    }
+    for (const child of children) {
+      details.append(createSettingCard(child, { child: true }));
+    }
+    copy.append(details);
+  }
+  row.append(copy, toggle);
+  card.append(row);
+
+  checkbox.addEventListener("change", async () => {
+    await runtime.settings.set(definition.id, checkbox.checked);
+    if (
+      definition.id === "forceMWIToolsDisplayZH" ||
+      definition.id === "useOrangeAsMainColor" ||
+      children.length
+    ) {
+      applyVisualSettings();
+      renderSettings(document.querySelector("#script_settings"));
+      return;
+    }
+    setStatus();
+  });
+
+  const stopStatusListener = runtime.features.onStatusChange((id) => {
+    if (id === definition.id) setStatus();
+  });
+  card._mwitoolsCleanup = stopStatusListener;
+  return card;
+}
+
+function renderSettings(root) {
+  if (!root) return;
+  for (const card of root.querySelectorAll(".mwi-setting-card")) {
+    card._mwitoolsCleanup?.();
+  }
+  root.replaceChildren();
+
+  const hero = document.createElement("div");
+  hero.className = "mwi-settings-hero";
+  const heroCopy = document.createElement("div");
+  const heading = document.createElement("div");
+  heading.className = "mwi-settings-title";
+  heading.textContent = "MWITools";
+  const subtitle = document.createElement("div");
+  subtitle.className = "mwi-settings-subtitle";
+  subtitle.textContent = runtime.config.isZH
+    ? "所有开关会立即生效。功能数据与公会经验只保存在当前设备。"
+    : "Changes apply immediately. Feature data and guild XP stay on this device.";
+  heroCopy.append(heading, subtitle);
+  const search = document.createElement("input");
+  search.className = "mwi-settings-search";
+  search.type = "search";
+  search.placeholder = runtime.config.isZH
+    ? "搜索功能或说明"
+    : "Search settings";
+  hero.append(heroCopy, search);
+  root.append(hero);
+
+  for (const [groupId, group] of Object.entries(runtime.settings.groups)) {
+    const definitions = Object.values(runtime.settings.catalog).filter(
+      (definition) =>
+        definition.group === groupId &&
+        !definition.parent &&
+        !definition.hidden &&
+        runtime.settings.settingsMap[definition.id],
+    );
+    if (!definitions.length) continue;
+    const section = document.createElement("section");
+    section.className = "mwi-settings-group";
+    const head = document.createElement("header");
+    head.className = "mwi-settings-group-head";
+    const groupTitle = document.createElement("div");
+    groupTitle.className = "mwi-settings-group-title";
+    groupTitle.textContent = localizedText(group.title);
+    const groupSummary = document.createElement("div");
+    groupSummary.className = "mwi-settings-group-summary";
+    groupSummary.textContent = localizedText(group.summary);
+    head.append(groupTitle, groupSummary);
+    const grid = document.createElement("div");
+    grid.className = "mwi-settings-grid";
+    for (const definition of definitions) {
+      grid.appendChild(createSettingCard(definition));
+    }
+    section.append(head, grid);
+    root.append(section);
   }
 
-  if (
-    runtime.settings.settingsMap.useOrangeAsMainColor.isTrue &&
-    runtime.config.SCRIPT_COLOR_MAIN === "green"
-  ) {
-    runtime.config.SCRIPT_COLOR_MAIN = "orange";
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    for (const card of root.querySelectorAll(".mwi-setting-card")) {
+      card.hidden = Boolean(query) && !card.dataset.search.includes(query);
+    }
+    for (const group of root.querySelectorAll(".mwi-settings-group")) {
+      group.hidden = ![...group.querySelectorAll(".mwi-setting-card")].some(
+        (card) => !card.hidden,
+      );
+    }
+  });
+}
+
+function ensureSettingsPanel() {
+  const target = document.querySelector(
+    'div[class*="SettingsPanel_profileTab"]',
+  );
+  if (!target) return;
+  let root = target.querySelector("#script_settings");
+  if (root?.dataset.mwitoolsVersion === "2") return;
+  if (!root) {
+    root = document.createElement("div");
+    root.id = "script_settings";
+    target.appendChild(root);
   }
-  if (
-    runtime.settings.settingsMap.useOrangeAsMainColor.isTrue &&
-    runtime.config.SCRIPT_COLOR_TOOLTIP === "darkgreen"
-  ) {
-    runtime.config.SCRIPT_COLOR_TOOLTIP = "#804600";
-  }
+  root.dataset.mwitoolsVersion = "2";
+  renderSettings(root);
 }
 
 /* 检查是否穿错生产/战斗装备 */
@@ -279,8 +570,7 @@ function handleMarketNewOrder(node) {
 /* 伤害统计 */
 
 Object.assign(runtime.api, {
-  waitForSetttins,
-  saveSettings,
+  persistSettings,
   readSettings,
   checkEquipment,
   hasItemHridInInv,
@@ -289,6 +579,23 @@ Object.assign(runtime.api, {
   handleMarketNewOrder,
 });
 
-runtime.registerStart("features/settings-and-notifications.js", () => {
-  waitForSetttins();
+runtime.features.register({
+  id: "settingsUi",
+  scope: "global",
+  initialize({ scope }) {
+    addSettingsStyles();
+    ensureSettingsPanel();
+    scope.interval(() => {
+      addSettingsStyles();
+      ensureSettingsPanel();
+    }, 500);
+    scope.add(() => {
+      const root = document.querySelector("#script_settings");
+      for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+        card._mwitoolsCleanup?.();
+      }
+      root?.remove();
+      document.getElementById(SETTINGS_STYLE_ID)?.remove();
+    });
+  },
 });

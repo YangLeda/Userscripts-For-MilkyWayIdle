@@ -41,20 +41,19 @@ function createUserscriptWindow(url) {
   };
   window.localStorageUtil = { getInitClientData: () => ({}) };
   window.math = {};
-  window.Chart = class {};
-  window.ChartDataLabels = {};
 
   return { calls, dom, window };
 }
 
-test("game route starts the bundled userscript without synchronous errors", () => {
+test("game route starts the bundled userscript without synchronous errors", async () => {
   const { calls, dom, window } = createUserscriptWindow(
     "https://www.milkywayidle.com/",
   );
   assert.doesNotThrow(() => window.eval(userscript));
+  for (let index = 0; index < 30; index += 1) await Promise.resolve();
   assert.equal(calls.requests, 1);
   assert.equal(calls.styles, 2);
-  assert.ok(calls.intervals >= 4);
+  assert.ok(calls.intervals >= 2);
   dom.window.close();
 });
 

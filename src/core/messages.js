@@ -18,8 +18,10 @@ function hookWS() {
   dataProperty.get = function hookedGet() {
     const socket = this.currentTarget;
     if (
-      !(socket instanceof WebSocket) ||
-      !GAME_SOCKET_HOSTS.some((host) => socket.url.includes(host))
+      !socket ||
+      (typeof socket.send !== "function" &&
+        typeof socket.addEventListener !== "function") ||
+      !GAME_SOCKET_HOSTS.some((host) => String(socket.url ?? "").includes(host))
     ) {
       return originalGet.call(this);
     }
@@ -37,9 +39,18 @@ function hookWS() {
  * order. Returning the original payload is required by the websocket hook.
  */
 function handleMessage(message) {
-  const payload = JSON.parse(message);
+  let payload;
+  try {
+    payload = JSON.parse(message);
+  } catch {
+    runtime.dispatchMessage({ type: "__non_json_message__" }, message);
+    return message;
+  }
   if (!payload?.type) return message;
   runtime.api.applyGameMessage(payload);
+  if (payload.type === "init_character_data") {
+    void runtime.features.handleCharacterData(payload);
+  }
   runtime.dispatchMessage(payload, message);
   return message;
 }

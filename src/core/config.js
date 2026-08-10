@@ -8,12 +8,23 @@ const DECIMAL_SEPERATOR = new Intl.NumberFormat()
   .replaceAll("1", "")
   .at(0);
 
-const isZHInGameSetting = localStorage
-  .getItem("i18nextLng")
-  ?.toLowerCase()
-  ?.startsWith("zh");
-// 获取游戏内设置语言
-let isZH = isZHInGameSetting;
+function getGameLanguage() {
+  const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
+  if (storedLanguage) return storedLanguage;
+  return (
+    globalThis.document?.documentElement?.lang ||
+    globalThis.navigator?.language ||
+    "en-US"
+  );
+}
+
+function isGameLanguageZH() {
+  return getGameLanguage().toLowerCase().startsWith("zh");
+}
+
+// i18nextLng is the language selected in the game. Read it dynamically so
+// action dialogs keep working after the player changes the game language.
+let isZH = isGameLanguageZH();
 // MWITools 本身显示的语言默认由游戏内设置语言决定
 
 /* 自定义插件字体颜色 */
@@ -51,8 +62,8 @@ let settingsMap = {
   actionPanel_totalTime: {
     id: "actionPanel_totalTime",
     desc: isZH
-      ? "动作面板显示：动作预计总耗时、到多少级还需做多少次、每小时经验"
-      : "Action panel: Estimated total time of the action, times needed to reach a target skill level, exp/hour.",
+      ? "动作面板显示：目标等级所需次数、预计耗时和每小时经验"
+      : "Action panel: Actions and time needed for a target level, plus XP/hour.",
     isTrue: true,
   },
   actionPanel_totalTime_quickInputs: {
@@ -233,22 +244,94 @@ let settingsMap = {
   showDamage: {
     id: "showDamage",
     desc: isZH
-      ? "战斗时，人物头像下方显示：伤害统计数字"
-      : "Bottom of player avatar during combat: DPS.",
+      ? "启用新版 DPS、HPS、承伤、战斗片段与历史统计"
+      : "Enable DPS, HPS, damage-taken, segment, and combat history tracking.",
     isTrue: true,
   },
-  showDamageGraph: {
-    id: "showDamageGraph",
-    desc: isZH
-      ? "战斗时，悬浮窗显示：伤害统计图表 [依赖上一项]"
-      : "Floating window during combat: DPS chart. [Depends on the previous selection]",
+  actionBarProfit: {
+    id: "actionBarProfit",
+    desc: isZH ? "动作栏显示净利润" : "Show net profit in the action bar.",
     isTrue: true,
   },
-  damageGraphTransparentBackground: {
-    id: "damageGraphTransparentBackground",
+  productionSummary: {
+    id: "productionSummary",
     desc: isZH
-      ? "伤害统计图表背景透明 [依赖上一项]"
-      : "DPS chart transparent and blur background. [Depends on the previous selection]",
+      ? "生产面板显示产出、库存和最大可做次数"
+      : "Show output, inventory, and maximum craftable count.",
+    isTrue: true,
+  },
+  productionProfit: {
+    id: "productionProfit",
+    desc: isZH ? "生产面板显示净利润" : "Show net profit in production panels.",
+    isTrue: true,
+  },
+  taskInsights: {
+    id: "taskInsights",
+    desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
+    isTrue: true,
+  },
+  taskMaterials: {
+    id: "taskMaterials",
+    desc: isZH
+      ? "任务显示现有材料可完成数量"
+      : "Show how much of a task your materials can complete.",
+    isTrue: true,
+  },
+  taskQueueProgress: {
+    id: "taskQueueProgress",
+    desc: isZH ? "任务显示队列进度" : "Show queued task progress.",
+    isTrue: true,
+  },
+  taskAutoSort: {
+    id: "taskAutoSort",
+    desc: isZH ? "自动整理任务顺序" : "Automatically organize tasks.",
+    isTrue: true,
+  },
+  taskIcons: {
+    id: "taskIcons",
+    desc: isZH ? "任务卡显示物品或怪物图标" : "Show item or monster task art.",
+    isTrue: true,
+  },
+  taskStatistics: {
+    id: "taskStatistics",
+    desc: isZH ? "任务页显示统计抽屉" : "Show the task summary drawer.",
+    isTrue: true,
+  },
+  taskClaimCollector: {
+    id: "taskClaimCollector",
+    desc: isZH ? "集中显示可领取奖励" : "Collect claim buttons at the top.",
+    isTrue: true,
+  },
+  taskMergeActions: {
+    id: "taskMergeActions",
+    desc: isZH ? "合并相同动作任务数量" : "Merge matching task quantities.",
+    isTrue: true,
+  },
+  guildXpTracking: {
+    id: "guildXpTracking",
+    desc: isZH ? "在本机记录公会经验" : "Track guild XP locally.",
+    isTrue: true,
+  },
+  guildOverview: {
+    id: "guildOverview",
+    desc: isZH ? "公会总览显示经验趋势" : "Show guild XP trends.",
+    isTrue: true,
+  },
+  guildMemberXp: {
+    id: "guildMemberXp",
+    desc: isZH ? "成员表显示每小时经验" : "Show XP rates for guild members.",
+    isTrue: true,
+  },
+  guildLeaderboardXp: {
+    id: "guildLeaderboardXp",
+    desc: isZH
+      ? "公会榜显示每小时经验"
+      : "Show XP rates on the guild leaderboard.",
+    isTrue: true,
+  },
+  guildIdleMembers: {
+    id: "guildIdleMembers",
+    desc: isZH ? "公会总览显示闲置成员" : "Show idle guild members.",
     isTrue: true,
   },
   forceMWIToolsDisplayZH: {
@@ -259,6 +342,470 @@ let settingsMap = {
     isTrue: false,
   },
 };
+
+const settingsGroups = {
+  general: {
+    title: { zh: "通用", en: "General" },
+    summary: {
+      zh: "控制 MWITools 的语言、外观、通知和常用入口。",
+      en: "Control MWITools language, appearance, notifications, and shortcuts.",
+    },
+  },
+  actionBar: {
+    title: { zh: "动作栏", en: "Action Bar" },
+    summary: {
+      zh: "在顶部查看当前动作还剩多少次、还需多久以及预计完成时间。",
+      en: "See the current action's remaining count, time left, and estimated finish time.",
+    },
+  },
+  production: {
+    title: { zh: "生产面板", en: "Production Panel" },
+    summary: {
+      zh: "输入次数后立即查看耗时、产出、库存上限和利润。",
+      en: "Preview time, output, inventory limits, and profit as you enter a quantity.",
+    },
+  },
+  inventory: {
+    title: { zh: "库存与资产", en: "Inventory & Assets" },
+    summary: {
+      zh: "整理库存，并按统一价格口径查看装备和总资产。",
+      en: "Organize inventory and value gear and assets with consistent pricing.",
+    },
+  },
+  market: {
+    title: { zh: "市场", en: "Marketplace" },
+    summary: {
+      zh: "显示市场价格、筛选装备，并减少重复下单操作。",
+      en: "Show market prices, filter equipment, and streamline order entry.",
+    },
+  },
+  tasks: {
+    title: { zh: "任务", en: "Tasks" },
+    summary: {
+      zh: "按专业整理任务；已完成任务置顶，战斗任务再按地图和地牢归类。",
+      en: "Group tasks by profession, pin completed tasks, and organize combat by zone or dungeon.",
+    },
+  },
+  combat: {
+    title: { zh: "战斗", en: "Combat" },
+    summary: {
+      zh: "查看战斗收益、实时伤害、地图编号和装备提醒。",
+      en: "Review combat rewards, live damage, zone numbers, and equipment warnings.",
+    },
+  },
+  guild: {
+    title: { zh: "公会与排行榜", en: "Guild & Leaderboard" },
+    summary: {
+      zh: "只在本机记录经验快照，展示公会进度和成员速率。",
+      en: "Store XP snapshots locally to show guild progress and member rates.",
+    },
+  },
+  tools: {
+    title: { zh: "外部工具", en: "External Tools" },
+    summary: {
+      zh: "连接战斗模拟器、计算器和第三方数据页面。",
+      en: "Connect combat simulators, calculators, and third-party data tools.",
+    },
+  },
+};
+
+const catalogRows = [
+  [
+    "forceMWIToolsDisplayZH",
+    "general",
+    "强制使用中文",
+    "Always use Chinese",
+    "无论游戏语言如何，都用中文显示 MWITools。",
+    "Display MWITools in Chinese regardless of the game language.",
+  ],
+  [
+    "useOrangeAsMainColor",
+    "general",
+    "使用橙色强调色",
+    "Use orange accents",
+    "让辅助信息更贴近游戏的暖色主题。",
+    "Use a warm accent color for MWITools information.",
+  ],
+  [
+    "notifiEmptyAction",
+    "general",
+    "空闲提醒",
+    "Idle notification",
+    "动作队列清空时发送浏览器通知；游戏页面需要保持打开。",
+    "Send a browser notification when the action queue becomes empty while the game is open.",
+  ],
+  [
+    "expPercentage",
+    "general",
+    "技能经验百分比",
+    "Skill XP percentage",
+    "在左侧技能进度条上显示当前等级的经验百分比。",
+    "Show progress through the current level on skill bars.",
+  ],
+  [
+    "totalActionTime",
+    "actionBar",
+    "当前动作时间",
+    "Current action timing",
+    "在顶部显示剩余次数、剩余时间和预计完成时刻。",
+    "Show remaining count, time remaining, and estimated completion time.",
+  ],
+  [
+    "actionQueue",
+    "actionBar",
+    "完整队列时间",
+    "Full queue timing",
+    "计算队列中每项动作的耗时、累计完成时刻和最终结束时间。",
+    "Calculate each queued action, cumulative completion times, and the final queue end time.",
+  ],
+  [
+    "actionPanel_totalTime",
+    "production",
+    "目标等级与经验",
+    "Target level & XP",
+    "输入目标等级，查看还需多少次、预计耗时和每小时经验。",
+    "Enter a target level to see required actions, estimated time, and XP/hour.",
+  ],
+  [
+    "productionSummary",
+    "production",
+    "产出与库存摘要",
+    "Output & inventory summary",
+    "实时显示总产出、当前拥有数量和按直接材料计算的最大可做次数。",
+    "Show total output, owned quantity, and the maximum craftable count from direct materials.",
+  ],
+  [
+    "productionProfit",
+    "production",
+    "生产净利润",
+    "Production net profit",
+    "显示每次、每小时、每天和本次输入数量对应的税后净利润。",
+    "Show after-tax net profit per action, hour, day, and entered quantity.",
+  ],
+  [
+    "actionPanel_foragingTotal",
+    "production",
+    "多产物采集收益",
+    "Multi-output gathering value",
+    "把同一采集动作的多个可能产物合并成期望收益。",
+    "Combine multiple possible gathering outputs into an expected value.",
+  ],
+  [
+    "networth",
+    "inventory",
+    "流动资产",
+    "Current assets",
+    "在页头显示装备、库存和市场订单的当前价值。",
+    "Show the current value of equipment, inventory, and market listings in the header.",
+  ],
+  [
+    "invWorth",
+    "inventory",
+    "总资产与着装评分",
+    "Assets & gear scores",
+    "在库存上方显示战斗评分、生活评分以及流动和固定资产明细。",
+    "Show combat and skilling scores plus current and fixed asset details above inventory.",
+  ],
+  [
+    "invSort",
+    "inventory",
+    "按价值整理库存",
+    "Sort inventory by value",
+    "可按服务器价值、卖价或买价整理库存，并显示整堆价值。",
+    "Sort inventory by server value, ask, or bid and show each stack value.",
+  ],
+  [
+    "profileBuildScore",
+    "inventory",
+    "人物着装评分",
+    "Profile gear scores",
+    "查看自己或他人的战斗与生活着装评分。",
+    "Show combat and skilling gear scores on character profiles.",
+  ],
+  [
+    "itemIconLevel",
+    "inventory",
+    "装备等级角标",
+    "Equipment level badges",
+    "在装备图标角落显示物品等级。",
+    "Show item level on equipment icons.",
+  ],
+  [
+    "showsKeyInfoInIcon",
+    "inventory",
+    "钥匙地图编号",
+    "Key zone numbers",
+    "在钥匙和碎片图标上显示对应战斗地图编号。",
+    "Show the related combat zone number on keys and fragments.",
+  ],
+  [
+    "itemTooltip_prices",
+    "market",
+    "悬浮价格",
+    "Tooltip prices",
+    "在物品悬浮窗显示服务器价值和当前买卖价格。",
+    "Show server value and current ask and bid prices in item tooltips.",
+  ],
+  [
+    "itemTooltip_profit",
+    "market",
+    "悬浮生产利润",
+    "Tooltip production profit",
+    "在可生产物品的悬浮窗显示材料成本和预计利润。",
+    "Show material cost and estimated profit for craftable items.",
+  ],
+  [
+    "showConsumTips",
+    "market",
+    "消耗品性价比",
+    "Consumable efficiency",
+    "显示回血回魔速度、单位回复成本和每天最多用量。",
+    "Show recovery rate, cost per recovery, and maximum daily use.",
+  ],
+  [
+    "marketFilter",
+    "market",
+    "装备筛选",
+    "Equipment filters",
+    "在市场按等级、战斗职业和装备部位筛选物品。",
+    "Filter marketplace equipment by level, combat class, and slot.",
+  ],
+  [
+    "fillMarketOrderPrice",
+    "market",
+    "自动填写订单价格",
+    "Auto-fill order prices",
+    "创建订单时按最小有效档位匹配或压过当前最优价格。",
+    "Fill the smallest valid price step that matches or improves the current best order.",
+  ],
+  [
+    "networkAlert",
+    "market",
+    "市场数据提醒",
+    "Market data warning",
+    "市场数据无法更新时显示提醒，并继续使用最近缓存。",
+    "Warn when market data cannot refresh and the latest cache is being used.",
+  ],
+  [
+    "taskInsights",
+    "tasks",
+    "按专业分组任务",
+    "Group tasks by profession",
+    "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
+    "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon.",
+  ],
+  [
+    "taskAutoSort",
+    "tasks",
+    "自动整理任务",
+    "Automatically organize tasks",
+    "在每个专业分组内部按等级和生产链整理任务。",
+    "Sort tasks within each profession by level and production chain.",
+  ],
+  [
+    "taskIcons",
+    "tasks",
+    "任务背景图标",
+    "Task artwork",
+    "用低透明度原生图标标识任务物品、怪物和副本。",
+    "Use subtle native item, monster, and dungeon artwork on task cards.",
+  ],
+  [
+    "taskMergeActions",
+    "tasks",
+    "合并相同任务动作",
+    "Merge matching task actions",
+    "打开动作时自动把多个相同任务的剩余数量合并到输入框。",
+    "Pre-fill the combined remaining quantity for matching active tasks.",
+  ],
+  [
+    "taskMapIndex",
+    "tasks",
+    "战斗任务地图编号",
+    "Combat task zone number",
+    "在战斗任务标题旁显示目标怪物所在地图编号。",
+    "Show the target monster's zone number on combat tasks.",
+  ],
+  [
+    "battlePanel",
+    "combat",
+    "战斗总结",
+    "Combat summary",
+    "战斗结束后查看遭遇次数、收益和经验速率。",
+    "Review encounter, revenue, and XP rates after combat.",
+  ],
+  [
+    "showDamage",
+    "combat",
+    "DPS / HPS / 承伤统计",
+    "DPS / HPS / Damage Taken",
+    "记录实时伤害、治疗、承伤、战斗片段和历史；详细显示选项在 DPS 面板内设置。",
+    "Track damage, healing, damage taken, segments, and history; configure display details in the DPS panel.",
+  ],
+  [
+    "mapIndex",
+    "combat",
+    "战斗地图编号",
+    "Combat zone numbers",
+    "在战斗地图选择页显示连续编号。",
+    "Show sequential numbers in the combat zone selector.",
+  ],
+  [
+    "checkEquipment",
+    "combat",
+    "错装提醒",
+    "Equipment warning",
+    "战斗穿生产装或生产漏穿仓库中的对应装备时发出提醒。",
+    "Warn about skilling gear in combat or useful unequipped gear while skilling.",
+  ],
+  [
+    "enhanceSim",
+    "combat",
+    "强化模拟",
+    "Enhancement simulator",
+    "在强化装备悬浮窗中估算成功次数、保护策略和总成本。",
+    "Estimate attempts, protection strategy, and total cost for enhanced equipment.",
+  ],
+  [
+    "guildXpTracking",
+    "guild",
+    "本地记录公会经验",
+    "Local guild XP tracking",
+    "被动保存服务器发来的经验快照；数据只留在本机，保留 30 天。",
+    "Passively store server XP snapshots on this device for 30 days.",
+  ],
+  [
+    "guildOverview",
+    "guild",
+    "公会经验总览",
+    "Guild XP overview",
+    "显示最近、1 小时和 24 小时速率、升级时间与 7 天趋势。",
+    "Show recent, hourly, and daily XP rates, time to level, and a seven-day trend.",
+  ],
+  [
+    "guildMemberXp",
+    "guild",
+    "成员经验速率",
+    "Member XP rates",
+    "在成员表增加最近和 24 小时 XP/h 两列。",
+    "Add recent and 24-hour XP/h columns to the member table.",
+  ],
+  [
+    "guildLeaderboardXp",
+    "guild",
+    "公会榜经验速率",
+    "Guild leaderboard XP rates",
+    "在全服公会榜显示本机采样得到的最近和 24 小时 XP/h。",
+    "Show locally sampled recent and 24-hour XP/h on the guild leaderboard.",
+  ],
+  [
+    "guildIdleMembers",
+    "guild",
+    "闲置成员",
+    "Idle members",
+    "在公会总览常显当前未进行动作的可见成员。",
+    "Always show visible guild members who are not currently performing an action.",
+  ],
+  [
+    "guildCreditConversionsSort",
+    "guild",
+    "公会信用兑换排序",
+    "Guild credit exchange sorting",
+    "按材料市场价值整理公会信用兑换选项。",
+    "Sort guild credit exchange options by material market value.",
+  ],
+  [
+    "ThirdPartyLinks",
+    "tools",
+    "第三方工具入口",
+    "External tool shortcuts",
+    "在左侧菜单提供模拟器、计算器和脚本设置入口。",
+    "Add sidebar shortcuts for simulators, calculators, and MWITools settings.",
+  ],
+  [
+    "skillbook",
+    "tools",
+    "技能书需求",
+    "Ability book requirements",
+    "在技能书词典中计算升到目标等级还需要多少本。",
+    "Calculate books needed to reach a target ability level in the item dictionary.",
+  ],
+];
+
+const settingsCatalog = Object.fromEntries(
+  catalogRows.map(([id, group, zhTitle, enTitle, zhSummary, enSummary]) => [
+    id,
+    {
+      id,
+      group,
+      title: { zh: zhTitle, en: enTitle },
+      summary: { zh: zhSummary, en: enSummary },
+      details: { zh: zhSummary, en: enSummary },
+    },
+  ]),
+);
+
+const settingParents = {
+  actionBarProfit: "totalActionTime",
+  actionQueue: "totalActionTime",
+  actionPanel_foragingTotal: "actionPanel_totalTime",
+  productionSummary: "actionPanel_totalTime",
+  productionProfit: "actionPanel_totalTime",
+  invWorth: "networth",
+  invSort: "networth",
+  showsKeyInfoInIcon: "itemIconLevel",
+  itemTooltip_profit: "itemTooltip_prices",
+  showConsumTips: "itemTooltip_prices",
+  taskMaterials: "taskInsights",
+  taskQueueProgress: "taskInsights",
+  taskAutoSort: "taskInsights",
+  taskIcons: "taskInsights",
+  taskStatistics: "taskInsights",
+  taskClaimCollector: "taskInsights",
+  taskMergeActions: "taskInsights",
+  guildOverview: "guildXpTracking",
+  guildMemberXp: "guildXpTracking",
+  guildLeaderboardXp: "guildXpTracking",
+  guildIdleMembers: "guildOverview",
+};
+
+for (const [id, parent] of Object.entries(settingParents)) {
+  if (settingsCatalog[id]) settingsCatalog[id].parent = parent;
+}
+
+settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
+
+const settingListeners = new Map();
+
+function getSetting(id) {
+  return settingsMap[id]?.isTrue;
+}
+
+async function setSetting(id, value, options = {}) {
+  if (!settingsMap[id]) return false;
+  const normalized = Boolean(value);
+  const previous = settingsMap[id].isTrue;
+  settingsMap[id].isTrue = normalized;
+  if (previous === normalized && !options.force) return true;
+
+  if (options.persist !== false) runtime.api.persistSettings?.();
+  for (const listener of settingListeners.get(id) ?? []) {
+    try {
+      listener(normalized, previous);
+    } catch (error) {
+      console.error(`[MWITools] Setting listener failed for ${id}`, error);
+    }
+  }
+  await runtime.features.syncSetting(id);
+  return true;
+}
+
+function onSettingChange(id, listener) {
+  const listeners = settingListeners.get(id) ?? new Set();
+  listeners.add(listener);
+  settingListeners.set(id, listeners);
+  return () => listeners.delete(listener);
+}
 
 Object.defineProperties(runtime.config, {
   THOUSAND_SEPERATOR: {
@@ -276,7 +823,13 @@ Object.defineProperties(runtime.config, {
   isZHInGameSetting: {
     enumerable: true,
     get() {
-      return isZHInGameSetting;
+      return isGameLanguageZH();
+    },
+  },
+  gameLanguage: {
+    enumerable: true,
+    get() {
+      return getGameLanguage();
     },
   },
   isZH: {
@@ -330,6 +883,24 @@ Object.defineProperties(runtime.settings, {
       settingsMap = value;
     },
   },
+  groups: {
+    enumerable: true,
+    get() {
+      return settingsGroups;
+    },
+  },
+  catalog: {
+    enumerable: true,
+    get() {
+      return settingsCatalog;
+    },
+  },
+});
+
+Object.assign(runtime.settings, {
+  get: getSetting,
+  set: setSetting,
+  onChange: onSettingChange,
 });
 
 runtime.registerStart("core/config.js", () => {

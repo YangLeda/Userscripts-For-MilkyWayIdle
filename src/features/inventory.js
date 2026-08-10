@@ -4,6 +4,10 @@ let networthWatcherStarted = false;
 let guildCreditWatcherStarted = false;
 let networthRefreshTimer = null;
 
+function numberHtml(value) {
+  return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+}
+
 function isTerminalMarketListing(listing) {
   if (
     listing?.isDone ||
@@ -105,9 +109,6 @@ async function calculateNetworth() {
         inventoryFairValue += item.count * fairValue;
       }
     }
-    if (!fairValue && !askPrice && !bidPrice) {
-      console.log("calculateNetworth cannot find price of " + item.itemHrid);
-    }
   }
 
   const listingValues = calculateMarketListingValues(
@@ -177,7 +178,7 @@ async function calculateNetworth() {
 
                 <!-- 总资产价值 -->
                 <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${runtime.api.numberFormatter(totalNetworth)}
+                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(totalNetworth)}
                 </div>
 
                 <div id="netWorthDetails" style="display: none; margin-left: 20px;">
@@ -186,9 +187,9 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
                     </div>
                     <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${runtime.api.numberFormatter(equippedFairValue)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${runtime.api.numberFormatter(inventoryFairValue)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${runtime.api.numberFormatter(marketListingsFairValue)}</div>
+                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(equippedFairValue)}</div>
+                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(inventoryFairValue)}</div>
+                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(marketListingsFairValue)}</div>
                     </div>
 
                     <!-- 非流动资产 -->
@@ -196,10 +197,10 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
                     </div>
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${runtime.api.numberFormatter(scores.assets.allHouses * 1000000)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${runtime.api.numberFormatter(scores.assets.allAbilities * 1000000)}</div>
-                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${runtime.api.numberFormatter(nonTradableTokenValue)}</div>
-                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "-" : runtime.api.numberFormatter(guildShrineValue)}</div>
+                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(scores.assets.allHouses * 1000000)}</div>
+                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(scores.assets.allAbilities * 1000000)}</div>
+                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(nonTradableTokenValue)}</div>
+                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "—" : numberHtml(guildShrineValue)}</div>
                     </div>
                 </div>
             </div>`,
@@ -263,10 +264,9 @@ async function calculateNetworth() {
     toggleButton.addEventListener("click", () => {
       const isCollapsed = netWorthDetails.style.display === "none";
       netWorthDetails.style.display = isCollapsed ? "block" : "none";
-      toggleButton.textContent =
-        (isCollapsed ? "↓ " : "+ ") +
-        (runtime.config.isZH ? "总资产价值：" : "Total Asset Value: ") +
-        runtime.api.numberFormatter(totalNetworth);
+      toggleButton.innerHTML = `${isCollapsed ? "↓ " : "+ "}${
+        runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "
+      }${numberHtml(totalNetworth)}`;
       currentAssets.style.display = isCollapsed ? "block" : "none";
       toggleCurrentAssets.textContent =
         (isCollapsed ? "↓ " : "+ ") +
@@ -297,9 +297,9 @@ async function calculateNetworth() {
   const waitForHeader = () => {
     const targetNode = document.querySelector("div.Header_totalLevel__8LY3Q");
     if (targetNode) {
-      const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${runtime.api.numberFormatter(
+      const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberHtml(
         currentAssetsFairValue,
-      )} (Ask/Bid: ${runtime.api.numberFormatter(networthAsk)} / ${runtime.api.numberFormatter(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
+      )} (Ask/Bid: ${numberHtml(networthAsk)} / ${numberHtml(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
         runtime.config.isZH
           ? "无法从API更新市场数据"
           : "Can't update market prices"

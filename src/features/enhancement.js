@@ -2,13 +2,18 @@ import { runtime } from "../core/runtime.js";
 
 /* 添加第三方网站链接 */
 function add3rdPartyLinks() {
+  if (!runtime.settings.get("ThirdPartyLinks")) return;
   const waitForNavi = () => {
     const targetNode = document.querySelector(
       "div.NavigationBar_minorNavigationLinks__dbxh7",
     );
     if (targetNode) {
+      if (targetNode.querySelector('[data-mwitools-external-link="true"]')) {
+        return;
+      }
       let div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH ? "插件设置" : "Script settings";
       div.addEventListener("click", () => {
@@ -22,6 +27,7 @@ function add3rdPartyLinks() {
       if (runtime.config.isZH) {
         div = document.createElement("div");
         div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+        div.dataset.mwitoolsExternalLink = "true";
         div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
         div.innerHTML = runtime.config.isZH ? "牛牛手册" : "牛牛手册";
         div.addEventListener("click", () => {
@@ -35,6 +41,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "利润计算 Mooneycalc"
@@ -46,6 +53,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "利润计算 Milkonomy"
@@ -57,6 +65,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "利润计算 Cowculator"
@@ -68,6 +77,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "强化模拟 Enhancelator"
@@ -79,6 +89,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "战斗榜 socko"
@@ -90,6 +101,7 @@ function add3rdPartyLinks() {
 
       div = document.createElement("div");
       div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+      div.dataset.mwitoolsExternalLink = "true";
       div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       div.innerHTML = runtime.config.isZH
         ? "战斗模拟 shykai"

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "importantVersion": "26.0",
+  "title": {
+    "zh": "MWITools 有重要更新",
+    "en": "Important MWITools update"
+  },
+  "message": {
+    "zh": "本次更新包含重要功能或兼容性修复，建议前往 Greasy Fork 更新。",
+    "en": "This release includes important features or compatibility fixes. Update on Greasy Fork."
+  },
+  "url": "https://greasyfork.org/zh-CN/scripts/494467-mwitools"
+}

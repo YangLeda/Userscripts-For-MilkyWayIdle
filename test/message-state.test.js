@@ -9,6 +9,44 @@ import "../src/core/asset-values.js";
 import "../src/core/message-state.js";
 import "../src/core/messages.js";
 
+test("wildcard message consumers receive each typed or non-JSON frame once", () => {
+  const received = [];
+  const unsubscribe = runtime.onMessage("*", (payload, rawMessage) => {
+    received.push([payload.type, rawMessage]);
+  });
+
+  runtime.api.handleMessage(JSON.stringify({ type: "dps_test_message" }));
+  runtime.api.handleMessage("server-non-json-ping");
+  unsubscribe();
+  runtime.api.handleMessage(JSON.stringify({ type: "dps_after_unsubscribe" }));
+
+  assert.deepEqual(received, [
+    ["dps_test_message", '{"type":"dps_test_message"}'],
+    ["__non_json_message__", "server-non-json-ping"],
+  ]);
+});
+
+test("the websocket hook accepts a cross-realm socket-shaped wrapper", () => {
+  const rawMessage = JSON.stringify({ type: "bridged_socket_message" });
+  let deliveries = 0;
+  const unsubscribe = runtime.onMessage("bridged_socket_message", () => {
+    deliveries += 1;
+  });
+  runtime.api.hookWS();
+  const event = new MessageEvent("message", { data: rawMessage });
+  Object.defineProperty(event, "currentTarget", {
+    value: {
+      url: "wss://api.milkywayidle.com/ws?characterId=1",
+      send() {},
+      addEventListener() {},
+    },
+  });
+
+  assert.equal(event.data, rawMessage);
+  assert.equal(deliveries, 1);
+  unsubscribe();
+});
+
 test("client data is available before message effects run", () => {
   let observedName = null;
   runtime.onMessage("init_client_data", () => {
@@ -159,6 +197,61 @@ test("character, action and equipment messages update canonical state", () => {
   );
 });
 
+test("authoritative action buffs and skill levels stay current", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    characterSkills: [
+      { skillHrid: "/skills/crafting", level: 100, experience: 1_000 },
+    ],
+    characterItems: [],
+    characterActions: [],
+    characterQuests: [],
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/efficiency", flatBoost: 0.1 },
+      ],
+    },
+    equipmentActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/efficiency", flatBoost: 0.2 },
+      ],
+    },
+    equipmentTaskActionBuffs: [
+      { typeHrid: "/buff_types/task_action_speed", flatBoost: 0.3 },
+    ],
+  });
+
+  runtime.api.applyGameMessage({
+    type: "community_buffs_updated",
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/efficiency", flatBoost: 0.15 },
+      ],
+    },
+  });
+  runtime.api.applyGameMessage({
+    type: "skills_updated",
+    endCharacterSkills: [
+      { skillHrid: "/skills/crafting", level: 101, experience: 2_000 },
+    ],
+  });
+
+  assert.equal(
+    runtime.state.actionTypeBuffSources.communityActionTypeBuffsMap[
+      "/action_types/crafting"
+    ][0].flatBoost,
+    0.15,
+  );
+  assert.equal(
+    runtime.state.actionTypeBuffSources.equipmentActionTypeBuffsMap[
+      "/action_types/crafting"
+    ][0].flatBoost,
+    0.2,
+  );
+  assert.equal(runtime.state.equipmentTaskActionBuffs[0].flatBoost, 0.3);
+  assert.equal(runtime.state.initData_characterSkills[0].level, 101);
+});
+
 test("guild buff levels update canonical state before feature effects", () => {
   let observedLevel = null;
   runtime.onMessage("guild_updated", () => {
@@ -178,4 +271,57 @@ test("guild buff levels update canonical state before feature effects", () => {
 
   assert.deepEqual(observedLevel, { level: 7 });
   assert.equal(runtime.state.guildDataLoaded, true);
+});
+
+test("quest updates merge in place and claimed quests are removed", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    characterID: "character-1",
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [],
+    characterQuests: [
+      { id: "q1", currentCount: 1 },
+      { id: "q2", currentCount: 2 },
+    ],
+  });
+  runtime.api.applyGameMessage({
+    type: "quests_updated",
+    endCharacterQuests: [
+      { id: "q1", currentCount: 4 },
+      { id: "q2", isClaimed: true },
+      { id: "q3", currentCount: 0 },
+    ],
+  });
+  assert.deepEqual(
+    runtime.state.characterQuests.map(({ id, currentCount }) => ({
+      id,
+      currentCount,
+    })),
+    [
+      { id: "q1", currentCount: 4 },
+      { id: "q3", currentCount: 0 },
+    ],
+  );
+});
+
+test("guild members and guild leaderboard use normalized state only for guild rows", () => {
+  runtime.api.applyGameMessage({
+    type: "guild_characters_updated",
+    guildCharacters: [{ id: "member-1", guildExperience: 100 }],
+  });
+  assert.equal(runtime.state.guildCharacters[0].id, "member-1");
+
+  runtime.api.applyGameMessage({
+    type: "leaderboard_updated",
+    category: "guild",
+    entries: [{ id: "guild-1", guildExperience: 1_000 }],
+  });
+  assert.equal(runtime.state.guildLeaderboard[0].id, "guild-1");
+  runtime.api.applyGameMessage({
+    type: "leaderboard_updated",
+    category: "skills",
+    entries: [{ id: "player-1" }],
+  });
+  assert.equal(runtime.state.guildLeaderboard[0].id, "guild-1");
 });

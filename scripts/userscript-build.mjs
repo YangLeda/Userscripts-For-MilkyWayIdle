@@ -31,7 +31,7 @@ export async function getTestBanner() {
       continue;
     }
     if (line.startsWith("// @version      ")) {
-      testLines.push("// @version      26.0.3");
+      testLines.push("// @version      26.0.27");
       continue;
     }
     if (line.startsWith("// @description  ")) {
@@ -44,10 +44,10 @@ export async function getTestBanner() {
       if (!insertedTestMatch) {
         testLines.push("// @match        https://test.milkywayidle.com/*");
         testLines.push(
-          "// @updateURL    https://fishingidle.com/mwitools-test.user.js",
+          "// @updateURL    https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js",
         );
         testLines.push(
-          "// @downloadURL  https://fishingidle.com/mwitools-test.user.js",
+          "// @downloadURL  https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js",
         );
         insertedTestMatch = true;
       }
@@ -72,6 +72,7 @@ export async function buildUserscript({ banner, outfile }) {
     sourcemap: false,
     legalComments: "inline",
     treeShaking: false,
+    loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
 }

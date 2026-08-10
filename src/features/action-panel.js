@@ -1,5 +1,26 @@
 import { runtime } from "../core/runtime.js";
 
+const ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
+const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
+const ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
+
+function addActionPanelStyles() {
+  if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = ACTION_PANEL_STYLE_ID;
+  style.textContent = `
+    .mwi-level-progress { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; line-height:1.35; }
+    .mwi-level-progress-row { display:flex; align-items:center; gap:6px; min-width:0; }
+    .mwi-level-progress-label { flex:0 0 auto; color:var(--color-text-secondary,#aaa); }
+    .mwi-target-level-input { width:48px!important; min-width:48px!important; height:23px!important; padding:1px 4px!important; border-radius:3px!important; font:inherit!important; text-align:center; }
+    .mwi-level-progress-result { min-width:0; margin-left:auto; text-align:right; font-weight:600; overflow-wrap:anywhere; }
+    .mwi-level-meta { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-native-level-stat { font:inherit; }
+    @media(max-width:520px){.mwi-level-progress-row{align-items:flex-start;flex-wrap:wrap}.mwi-level-progress-result{width:100%;text-align:left}}
+  `;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
 /* 动作面板 */
 const waitForActionPanelParent = () => {
   const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
@@ -34,148 +55,43 @@ const waitForActionPanelParent = () => {
 };
 
 async function handleActionPanel(panel) {
-  if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) {
+  if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return;
+  if (
+    panel.dataset.mwitoolsActionPanel === "true" &&
+    panel.querySelector("#mwi-level-progress") &&
+    panel.querySelectorAll(".mwi-native-level-stat").length === 4
+  )
     return;
-  }
+  panel.querySelector("#mwi-level-progress")?.remove();
+  panel
+    .querySelectorAll(".mwi-native-level-stat")
+    .forEach((element) => element.remove());
+  panel.dataset.mwitoolsActionPanel = "true";
+  addActionPanelStyles();
 
-  if (!panel.querySelector("div.SkillActionDetail_expGain__F5xHu")) {
-    return; // 不处理战斗ActionPanel
-  }
-  let actionName = runtime.api.getOriTextFromElement(
-    panel.querySelector("div.SkillActionDetail_name__3erHV"),
+  const expElement = panel.querySelector(
+    'div[class*="SkillActionDetail_expGain"]',
   );
-  if (runtime.config.isZHInGameSetting) {
-    actionName = runtime.api.getActionEnNameFromZhName(actionName);
-  }
+  const inputElem = panel.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  if (!expElement || !inputElem) return; // 不处理战斗 ActionPanel
+
+  const actionHrid = runtime.api.resolveProductionAction?.(panel);
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  const duration = runtime.api.getProductionPanelDuration?.(panel);
+  if (!detail || !Number.isFinite(duration) || duration <= 0) return;
 
   const exp = Number(
-    runtime.api
-      .getOriTextFromElement(
-        panel.querySelector("div.SkillActionDetail_expGain__F5xHu"),
-      )
+    String(runtime.api.getOriTextFromElement(expElement) ?? "")
       .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
       .replaceAll(runtime.config.DECIMAL_SEPERATOR, "."),
   );
+  if (!Number.isFinite(exp) || exp <= 0) return;
 
-  const elems = panel.querySelectorAll("div.SkillActionDetail_value__dQjYH");
-  const duration = Number(
-    runtime.api
-      .getOriTextFromElement(elems[elems.length - 2])
-      .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
-      .replaceAll(runtime.config.DECIMAL_SEPERATOR, ".")
-      .replace("s", ""),
-  );
-  const inputElem = panel.querySelector(
-    "div.SkillActionDetail_maxActionCountInput__1C0Pw input",
-  );
-
-  const actionHrid =
-    runtime.state.initData_actionDetailMap[
-      runtime.api.getActionHridFromItemName(actionName)
-    ].hrid;
-  const effBuff = 1 + getTotalEffiPercentage(actionHrid, false) / 100;
-
-  // 显示总时间
-  let hTMLStr = `<div id="showTotalTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${getTotalTimeStr(
-    inputElem.value,
-    duration,
-    effBuff,
-  )}</div>`;
-  const gatherDiv = inputElem.parentNode.parentNode.parentNode;
-  gatherDiv.insertAdjacentHTML("afterend", hTMLStr);
-  const showTotalTimeDiv = panel.querySelector("div#showTotalTime");
-
-  panel.addEventListener("click", function (evt) {
-    setTimeout(() => {
-      showTotalTimeDiv.textContent = getTotalTimeStr(
-        inputElem.value,
-        duration,
-        effBuff,
-      );
-    }, 50);
-  });
-  inputElem.addEventListener("keyup", function (evt) {
-    if (
-      inputElem.value.toLowerCase().includes("k") ||
-      inputElem.value.toLowerCase().includes("m")
-    ) {
-      reactInputTriggerHack(
-        inputElem,
-        inputElem.value
-          .toLowerCase()
-          .replaceAll("k", "000")
-          .replaceAll("m", "000000"),
-      );
-    }
-    showTotalTimeDiv.textContent = getTotalTimeStr(
-      inputElem.value,
-      duration,
-      effBuff,
-    );
-  });
-
-  let appendAfterElem = showTotalTimeDiv;
-
-  // 显示快捷按钮
-  if (runtime.settings.settingsMap.actionPanel_totalTime_quickInputs.isTrue) {
-    hTMLStr = `<div id="quickInputHourButtons" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left; display:flex;">${runtime.config.isZH ? "做 " : "Do "}</div>`;
-    showTotalTimeDiv.insertAdjacentHTML("afterend", hTMLStr);
-    const quickInputHourButtonsDiv = panel.querySelector(
-      "div#quickInputHourButtons",
-    );
-
-    const presetHours = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
-    for (const value of presetHours) {
-      const btn = document.createElement("button");
-      btn.className = "Button_button__1Fe9z Button_small__3fqC7";
-      btn.style.backgroundColor = "white";
-      btn.style.color = "black";
-      btn.style.padding = "1px 6px 1px 6px";
-      btn.style.margin = "1px";
-      btn.innerText = value === 0.5 ? 0.5 : runtime.api.numberFormatter(value);
-      btn.onclick = () => {
-        reactInputTriggerHack(
-          inputElem,
-          Math.round((value * 60 * 60 * effBuff) / duration),
-        );
-      };
-      quickInputHourButtonsDiv.append(btn);
-    }
-    quickInputHourButtonsDiv.append(
-      document.createTextNode(runtime.config.isZH ? " 小时" : " hours"),
-    );
-
-    hTMLStr = `<div id="quickInputCountButtons" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left; display:flex;">${runtime.config.isZH ? "做 " : "Do "}</div>`;
-    quickInputHourButtonsDiv.insertAdjacentHTML("afterend", hTMLStr);
-    const quickInputCountButtonsDiv = panel.querySelector(
-      "div#quickInputCountButtons",
-    );
-    const presetTimes = [10, 100, 300, 500, 1000, 2000];
-    for (const value of presetTimes) {
-      const btn = document.createElement("button");
-      btn.className = "Button_button__1Fe9z Button_small__3fqC7";
-      btn.style.backgroundColor = "white";
-      btn.style.color = "black";
-      btn.style.padding = "1px 6px 1px 6px";
-      btn.style.margin = "1px";
-      btn.innerText = runtime.api.numberFormatter(value);
-      btn.onclick = () => {
-        reactInputTriggerHack(inputElem, value);
-      };
-      quickInputCountButtonsDiv.append(btn);
-    }
-    quickInputCountButtonsDiv.append(
-      document.createTextNode(runtime.config.isZH ? " 次" : " times"),
-    );
-
-    appendAfterElem = quickInputCountButtonsDiv;
-  }
-
-  // 还有多久到多少技能等级
-  const skillHrid =
-    runtime.state.initData_actionDetailMap[
-      runtime.api.getActionHridFromItemName(actionName)
-    ].experienceGain.skillHrid;
+  const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
+  const effBuff = 1 + efficiencyDetails.total / 100;
+  const skillHrid = detail.experienceGain?.skillHrid;
   let currentExp = null;
   let currentLevel = null;
   for (const skill of runtime.state.initData_characterSkills) {
@@ -185,7 +101,7 @@ async function handleActionPanel(panel) {
       break;
     }
   }
-  if (currentExp && currentLevel) {
+  if (currentExp !== null && currentLevel !== null) {
     const calculateNeedToLevel = (
       currentLevel,
       targetLevel,
@@ -197,6 +113,13 @@ async function handleActionPanel(panel) {
       let needTotalNumOfActions = 0;
       for (let level = currentLevel; level < targetLevel; level++) {
         let needExpToNextLevel = null;
+        if (
+          !Number.isFinite(
+            runtime.state.initData_levelExperienceTable?.[level + 1],
+          )
+        ) {
+          return null;
+        }
         if (level === currentLevel) {
           needExpToNextLevel =
             runtime.state.initData_levelExperienceTable[level + 1] - currentExp;
@@ -205,10 +128,11 @@ async function handleActionPanel(panel) {
             runtime.state.initData_levelExperienceTable[level + 1] -
             runtime.state.initData_levelExperienceTable[level];
         }
-        const extraLevelEffBuff = (level - currentLevel) * 0.01; // 升级过程中，每升一级，额外多1%效率
-        const needNumOfActionsToNextLevel = Math.round(
-          needExpToNextLevel / exp,
-        );
+        const extraLevelEffBuff =
+          (level - currentLevel) *
+          (1 + Number(efficiencyDetails.skillLevelRatio || 0)) *
+          0.01;
+        const needNumOfActionsToNextLevel = Math.ceil(needExpToNextLevel / exp);
         needTotalNumOfActions += needNumOfActionsToNextLevel;
         needTotalTimeSec +=
           (needNumOfActionsToNextLevel / (effBuff + extraLevelEffBuff)) *
@@ -217,29 +141,75 @@ async function handleActionPanel(panel) {
       return { numOfActions: needTotalNumOfActions, timeSec: needTotalTimeSec };
     };
 
-    const need = calculateNeedToLevel(
-      currentLevel,
-      currentLevel + 1,
-      effBuff,
-      duration,
-      exp,
+    const maxLevel = Math.min(
+      200,
+      (runtime.state.initData_levelExperienceTable?.length ?? 201) - 1,
     );
-    hTMLStr = `<div id="tillLevel" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${
-      runtime.config.isZH ? "到 " : "To reach level "
-    }<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${
-      runtime.config.isZH ? " 级还需做 " : ", need to do "
-    }<span id="tillLevelNumber">${need.numOfActions}${runtime.config.isZH ? " 次" : " times "}[${runtime.api.timeReadable(need.timeSec)}]${
-      runtime.config.isZH
-        ? " (刷新网页更新当前等级)"
-        : " (Refresh page to update current level)"
-    }</span></div>`;
+    const levelCard = document.createElement("section");
+    levelCard.id = "mwi-level-progress";
+    levelCard.className = "mwi-level-progress";
+    const row = document.createElement("div");
+    row.className = "mwi-level-progress-row";
+    const label = document.createElement("span");
+    label.className = "mwi-level-progress-label";
+    label.textContent = runtime.config.isZH ? "目标等级" : "Target level";
+    const tillLevelInput = document.createElement("input");
+    tillLevelInput.id = "tillLevelInput";
+    tillLevelInput.type = "number";
+    tillLevelInput.value = String(currentLevel + 1);
+    tillLevelInput.min = String(currentLevel + 1);
+    tillLevelInput.max = String(maxLevel);
+    tillLevelInput.className = `${inputElem.className} mwi-target-level-input`;
+    const tillLevelNumber = document.createElement("span");
+    tillLevelNumber.id = "tillLevelNumber";
+    tillLevelNumber.className = "mwi-level-progress-result";
+    row.append(label, tillLevelInput, tillLevelNumber);
+    levelCard.append(row);
 
-    appendAfterElem.insertAdjacentHTML("afterend", hTMLStr);
-    const tillLevelInput = panel.querySelector("input#tillLevelInput");
-    const tillLevelNumber = panel.querySelector("span#tillLevelNumber");
-    tillLevelInput.onchange = () => {
+    const infoContainer = panel.querySelector(
+      'div[class*="SkillActionDetail_info"]',
+    );
+    const nativeLabel = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_label"]',
+    );
+    const nativeValue = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_value"]',
+    );
+    if (infoContainer && nativeLabel && nativeValue) {
+      const addNativeStat = (id, labelText, valueText) => {
+        const statLabel = document.createElement("div");
+        statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
+        statLabel.textContent = labelText;
+        const statValue = document.createElement("div");
+        statValue.id = id;
+        statValue.className = `${nativeValue.className} mwi-native-level-stat`;
+        statValue.textContent = valueText;
+        infoContainer.append(statLabel, statValue);
+      };
+      addNativeStat(
+        "expPerHour",
+        runtime.config.isZH ? "经验/小时" : "XP/hour",
+        runtime.api.numberFormatter(
+          Math.round((3600 / duration) * exp * effBuff),
+        ),
+      );
+      addNativeStat(
+        "currentEfficiency",
+        runtime.config.isZH ? "当前效率" : "Efficiency",
+        `+${Number((effBuff - 1) * 100).toFixed(1)}%`,
+      );
+    }
+
+    const anchor =
+      panel.querySelector("#mwi-production-summary") ??
+      panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
+      inputElem.parentElement;
+    anchor.insertAdjacentElement("afterend", levelCard);
+
+    let targetLevelEdited = false;
+    const updateTargetLevel = () => {
       const targetLevel = Number(tillLevelInput.value);
-      if (targetLevel > currentLevel && targetLevel <= 200) {
+      if (targetLevel > currentLevel && targetLevel <= maxLevel) {
         const need = calculateNeedToLevel(
           currentLevel,
           targetLevel,
@@ -247,55 +217,34 @@ async function handleActionPanel(panel) {
           duration,
           exp,
         );
-        tillLevelNumber.textContent = `${need.numOfActions}${runtime.config.isZH ? " 次" : " times "}[${runtime.api.timeReadable(need.timeSec)}]${
-          runtime.config.isZH
-            ? " (刷新网页更新当前等级)"
-            : " (Refresh page to update current level)"
-        }`;
+        if (need) {
+          tillLevelNumber.textContent = runtime.config.isZH
+            ? `还需 ${runtime.api.numberFormatter(need.numOfActions)} 次 · 预计 ${runtime.api.timeReadable(need.timeSec)}`
+            : `${runtime.api.numberFormatter(need.numOfActions)} actions · ${runtime.api.timeReadable(need.timeSec)}`;
+          if (targetLevelEdited) {
+            reactInputTriggerHack(inputElem, String(need.numOfActions));
+          }
+        }
       } else {
-        tillLevelNumber.textContent = "Error";
+        tillLevelNumber.textContent = runtime.config.isZH
+          ? `请输入 ${currentLevel + 1}–${maxLevel}`
+          : `Enter ${currentLevel + 1}–${maxLevel}`;
       }
     };
-    tillLevelInput.addEventListener("keyup", function (evt) {
-      const targetLevel = Number(tillLevelInput.value);
-      if (targetLevel > currentLevel && targetLevel <= 200) {
-        const need = calculateNeedToLevel(
-          currentLevel,
-          targetLevel,
-          effBuff,
-          duration,
-          exp,
-        );
-        tillLevelNumber.textContent = `${need.numOfActions}${runtime.config.isZH ? " 次" : " times "}[${runtime.api.timeReadable(need.timeSec)}]${
-          runtime.config.isZH
-            ? " (刷新网页更新当前等级)"
-            : " (Refresh page to update current level)"
-        }`;
-      } else {
-        tillLevelNumber.textContent = "Error";
-      }
+    tillLevelInput.addEventListener("input", () => {
+      targetLevelEdited = true;
+      updateTargetLevel();
     });
+    updateTargetLevel();
   }
-
-  // 显示每小时经验
-  panel
-    .querySelector("div#tillLevel")
-    .insertAdjacentHTML(
-      "afterend",
-      `<div id="expPerHour" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${runtime.config.isZH ? "每小时经验: " : "Exp/hour: "}${runtime.api.numberFormatter(
-        Math.round((3600 / duration) * exp * effBuff),
-      )} (+${Number((effBuff - 1) * 100).toFixed(1)}%${runtime.config.isZH ? "效率" : " eff"})</div>`,
-    );
 
   // 显示Foraging最后一个图综合收益
   if (
-    panel.querySelector("div.SkillActionDetail_dropTable__3ViVp").children
-      .length > 1 &&
+    (panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children
+      .length ?? 0) > 1 &&
     runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue
   ) {
     const marketJson = await runtime.api.fetchMarketJSON();
-    const actionHrid =
-      "/actions/foraging/" + actionName.toLowerCase().replaceAll(" ", "_");
 
     // 茶效率
     const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
@@ -313,9 +262,9 @@ async function handleActionPanel(panel) {
         continue;
       }
       drinksConsumedPerHourAskPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0].a ?? 0) * 12;
+        (marketJson?.marketData[drink.itemHrid]?.[0]?.a ?? 0) * 12;
       drinksConsumedPerHourBidPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0].b ?? 0) * 12;
+        (marketJson?.marketData[drink.itemHrid]?.[0]?.b ?? 0) * 12;
     }
 
     // 每小时动作数（包含工具缩减动作时间）
@@ -332,7 +281,7 @@ async function handleActionPanel(panel) {
       runtime.state.initData_actionDetailMap[actionHrid].dropTable;
     let virtualItemNetBid = 0;
     for (const drop of dropTable) {
-      const bid = marketJson?.marketData[drop.itemHrid]?.[0].b;
+      const bid = marketJson?.marketData[drop.itemHrid]?.[0]?.b ?? 0;
       const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
       virtualItemNetBid +=
         bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
@@ -340,38 +289,11 @@ async function handleActionPanel(panel) {
     let droprate = 1;
     let itemPerHour = actionPerHour * droprate;
 
-    // 等级碾压提高效率（人物等级不及最低要求等级时，按最低要求等级计算）
-    const requiredLevel =
-      runtime.state.initData_actionDetailMap[actionHrid].levelRequirement.level;
-    let currentLevel = requiredLevel;
-    for (const skill of runtime.state.initData_characterSkills) {
-      if (
-        skill.skillHrid ===
-        runtime.state.initData_actionDetailMap[actionHrid].levelRequirement
-          .skillHrid
-      ) {
-        currentLevel = skill.level;
-        break;
-      }
-    }
-    const levelEffBuff =
-      currentLevel - requiredLevel > 0 ? currentLevel - requiredLevel : 0;
-
-    // 房子效率
-    const houseEffBuff = runtime.api.getHousesEffBuffByActionHrid(actionHrid);
-
-    // 特殊装备效率
-    const itemEffiBuff = Number(
-      runtime.api.getItemEffiBuffByActionHrid(actionHrid),
-    );
+    const totalEffiBuff = getTotalEffiPercentage(actionHrid);
 
     // 总效率影响动作数/生产物品数
-    actionPerHour *=
-      1 +
-      (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
-    itemPerHour *=
-      1 +
-      (levelEffBuff + houseEffBuff + teaBuffs.efficiency + itemEffiBuff) / 100;
+    actionPerHour *= 1 + totalEffiBuff / 100;
+    itemPerHour *= 1 + totalEffiBuff / 100;
 
     // 茶额外产品数量（不消耗原料）
     const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
@@ -385,60 +307,149 @@ async function handleActionPanel(panel) {
       extraFreeItemPerHour * bidAfterTax -
       drinksConsumedPerHourAskPrice;
 
-    let htmlStr = `<div id="totalProfit"  style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${
+    const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${
       runtime.config.isZH ? "综合利润: " : "Overall profit: "
     }${runtime.api.numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${runtime.api.numberFormatter(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
     panel
-      .querySelector("div#expPerHour")
-      .insertAdjacentHTML("afterend", htmlStr);
+      .querySelector("#mwi-level-progress")
+      ?.insertAdjacentHTML("beforeend", htmlStr);
   }
 }
 
-function getTotalEffiPercentage(actionHrid, debug = false) {
-  if (debug) {
-    console.log("----- getTotalEffiPercentage " + actionHrid);
+function sumBuffValue(buffs, typeHrid) {
+  return (buffs ?? []).reduce(
+    (total, buff) => {
+      if (buff?.typeHrid !== typeHrid) return total;
+      total.ratioBoost += Number(buff.ratioBoost) || 0;
+      total.flatBoost += Number(buff.flatBoost) || 0;
+      return total;
+    },
+    { ratioBoost: 0, flatBoost: 0 },
+  );
+}
+
+function isTaskAction(actionHrid) {
+  return (runtime.state.characterQuests ?? []).some((quest) => {
+    if (quest?.actionHrid !== actionHrid) return false;
+    const status = String(quest.status ?? "").toLowerCase();
+    return !(
+      quest.isClaimed ||
+      quest.claimed ||
+      status.includes("claimed") ||
+      status.includes("completed")
+    );
+  });
+}
+
+function getAuthoritativeActionBuffs(actionHrid) {
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  const sources = runtime.state.actionTypeBuffSources;
+  if (!detail || !sources) return null;
+  const buffs = [];
+  for (const sourceMap of Object.values(sources)) {
+    const actionTypeBuffs = sourceMap?.[detail.type];
+    if (Array.isArray(actionTypeBuffs)) buffs.push(...actionTypeBuffs);
   }
-  // 等级碾压效率
-  const requiredLevel =
-    runtime.state.initData_actionDetailMap[actionHrid].levelRequirement.level;
-  let currentLevel = requiredLevel;
-  for (const skill of runtime.state.initData_characterSkills) {
-    if (
-      skill.skillHrid ===
-      runtime.state.initData_actionDetailMap[actionHrid].levelRequirement
-        .skillHrid
-    ) {
-      currentLevel = skill.level;
-      break;
+  if (isTaskAction(actionHrid)) {
+    buffs.push(...(runtime.state.equipmentTaskActionBuffs ?? []));
+  }
+  return buffs;
+}
+
+function supportsLevelEfficiency(detail) {
+  const actionFunction = String(detail?.function ?? "").toLowerCase();
+  if (actionFunction) {
+    return (
+      actionFunction.includes("gathering") ||
+      actionFunction.includes("production")
+    );
+  }
+  return Boolean(
+    detail?.levelRequirement && (detail?.dropTable || detail?.outputItems),
+  );
+}
+
+function getAuthoritativeEfficiency(actionHrid, buffs) {
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  const directEfficiency =
+    sumBuffValue(buffs, EFFICIENCY_BUFF_TYPE).flatBoost * 100;
+  let levelEfficiency = 0;
+  let boostedSkillLevel = null;
+  let requiredLevel = null;
+  let skillLevelRatio = 0;
+
+  if (supportsLevelEfficiency(detail) && detail?.levelRequirement) {
+    const skillHrid = detail.levelRequirement.skillHrid;
+    const skill = (runtime.state.initData_characterSkills ?? []).find(
+      (candidate) => candidate.skillHrid === skillHrid,
+    );
+    const baseSkillLevel = Number(skill?.level);
+    if (Number.isFinite(baseSkillLevel)) {
+      const skillName = String(skillHrid).split("/").pop();
+      const levelBuff = sumBuffValue(buffs, `/buff_types/${skillName}_level`);
+      skillLevelRatio = levelBuff.ratioBoost;
+      boostedSkillLevel =
+        (1 + levelBuff.ratioBoost) * baseSkillLevel + levelBuff.flatBoost;
+      requiredLevel =
+        Number(detail.levelRequirement.level || 0) +
+        sumBuffValue(buffs, ACTION_LEVEL_BUFF_TYPE).flatBoost;
+      levelEfficiency = Math.max(0, boostedSkillLevel - requiredLevel);
     }
   }
-  const levelEffBuff =
-    currentLevel - requiredLevel > 0 ? currentLevel - requiredLevel : 0;
-  if (debug) {
-    console.log("等级碾压 " + levelEffBuff);
+
+  return {
+    source: "game",
+    total: directEfficiency + levelEfficiency,
+    directEfficiency,
+    levelEfficiency,
+    boostedSkillLevel,
+    requiredLevel,
+    skillLevelRatio,
+  };
+}
+
+function getLegacyEfficiency(actionHrid) {
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!detail?.levelRequirement) {
+    return { source: "legacy", total: 0, levelEfficiency: 0 };
   }
-  // 房子效率
-  const houseEffBuff = runtime.api.getHousesEffBuffByActionHrid(actionHrid);
+  const requiredLevel = Number(detail.levelRequirement.level) || 0;
+  const currentLevel = Number(
+    (runtime.state.initData_characterSkills ?? []).find(
+      (skill) => skill.skillHrid === detail.levelRequirement.skillHrid,
+    )?.level ?? requiredLevel,
+  );
+  const levelEfficiency = Math.max(0, currentLevel - requiredLevel);
+  const houseEfficiency =
+    Number(runtime.api.getHousesEffBuffByActionHrid?.(actionHrid)) || 0;
+  const teaEfficiency =
+    Number(runtime.api.getTeaBuffsByActionHrid?.(actionHrid)?.efficiency) || 0;
+  const equipmentEfficiency =
+    Number(runtime.api.getItemEffiBuffByActionHrid?.(actionHrid)) || 0;
+  return {
+    source: "legacy",
+    total:
+      levelEfficiency + houseEfficiency + teaEfficiency + equipmentEfficiency,
+    levelEfficiency,
+    houseEfficiency,
+    teaEfficiency,
+    equipmentEfficiency,
+  };
+}
+
+function getActionEfficiencyDetails(actionHrid) {
+  const buffs = getAuthoritativeActionBuffs(actionHrid);
+  return buffs
+    ? getAuthoritativeEfficiency(actionHrid, buffs)
+    : getLegacyEfficiency(actionHrid);
+}
+
+function getTotalEffiPercentage(actionHrid, debug = false) {
+  const details = getActionEfficiencyDetails(actionHrid);
   if (debug) {
-    console.log("房子 " + houseEffBuff);
+    console.log("getTotalEffiPercentage", actionHrid, details);
   }
-  // 茶
-  const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
-  if (debug) {
-    console.log("茶 " + teaBuffs.efficiency);
-  }
-  // 特殊装备
-  const itemEffiBuff = runtime.api.getItemEffiBuffByActionHrid(actionHrid);
-  if (debug) {
-    console.log("特殊装备 " + itemEffiBuff);
-  }
-  // 总效率
-  const total =
-    levelEffBuff + houseEffBuff + teaBuffs.efficiency + Number(itemEffiBuff);
-  if (debug) {
-    console.log("总计 " + total);
-  }
-  return total;
+  return Number.isFinite(details.total) ? details.total : 0;
 }
 
 function getTotalTimeStr(input, duration, effBuff) {
@@ -453,11 +464,12 @@ function getTotalTimeStr(input, duration, effBuff) {
 }
 
 function reactInputTriggerHack(inputElem, value) {
-  let lastValue = inputElem.value;
+  const lastValue = inputElem.value;
   inputElem.value = value;
-  let event = new Event("input", { bubbles: true });
+  const EventConstructor = inputElem.ownerDocument?.defaultView?.Event ?? Event;
+  const event = new EventConstructor("input", { bubbles: true });
   event.simulated = true;
-  let tracker = inputElem._valueTracker;
+  const tracker = inputElem._valueTracker;
   if (tracker) {
     tracker.setValue(lastValue);
   }
@@ -488,8 +500,6 @@ const waitForProgressBar = () => {
       const insertParent = element.parentNode.parentNode.children[0];
       insertParent.insertBefore(span, insertParent.children[1]);
     });
-  } else {
-    setTimeout(waitForProgressBar, 200);
   }
 };
 
@@ -502,17 +512,75 @@ Object.assign(runtime.api, {
   waitForActionPanelParent,
   handleActionPanel,
   getTotalEffiPercentage,
+  getActionEfficiencyDetails,
   getTotalTimeStr,
   reactInputTriggerHack,
   waitForProgressBar,
   removeInsertedDivs,
 });
 
-runtime.registerStart("features/action-panel.js", () => {
-  if (runtime.settings.settingsMap.expPercentage.isTrue) {
-    window.setInterval(() => {
+runtime.features.register({
+  id: "expPercentage",
+  setting: "expPercentage",
+  initialize({ scope }) {
+    waitForProgressBar();
+    scope.interval(() => {
       removeInsertedDivs();
       waitForProgressBar();
     }, 1000);
-  }
+    scope.add(removeInsertedDivs);
+  },
+});
+
+runtime.features.register({
+  id: "actionPanel_totalTime",
+  setting: "actionPanel_totalTime",
+  scope: "character",
+  initialize({ scope }) {
+    let observed = null;
+    const attach = () => {
+      const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+      if (!target || observed === target) return;
+      observed = target;
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const added of mutation.addedNodes) {
+            const panel = added?.querySelector?.(
+              "div.SkillActionDetail_regularComponent__3oCgr",
+            );
+            if (
+              panel &&
+              (!panel.querySelector("#mwi-level-progress") ||
+                panel.querySelectorAll(".mwi-native-level-stat").length !== 4)
+            ) {
+              handleActionPanel(panel);
+            }
+          }
+        }
+      });
+      scope.observer(observer, target, { childList: true, subtree: true });
+      const openPanel = target.querySelector(
+        "div.SkillActionDetail_regularComponent__3oCgr",
+      );
+      if (
+        openPanel &&
+        (!openPanel.querySelector("#mwi-level-progress") ||
+          openPanel.querySelectorAll(".mwi-native-level-stat").length !== 4)
+      ) {
+        handleActionPanel(openPanel);
+      }
+    };
+    attach();
+    scope.interval(attach, 500);
+    scope.add(() => {
+      document
+        .querySelectorAll(
+          "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat",
+        )
+        .forEach((node) => node.remove());
+      document
+        .querySelectorAll('[data-mwitools-action-panel="true"]')
+        .forEach((panel) => delete panel.dataset.mwitoolsActionPanel);
+    });
+  },
 });

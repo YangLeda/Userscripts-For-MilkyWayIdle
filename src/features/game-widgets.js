@@ -175,6 +175,8 @@ async function handleBattleSummary(message) {
 
 /* 图标上显示装备等级 */
 function addItemLevels() {
+  const itemDetailMap = runtime.state.initData_itemDetailMap;
+  if (!itemDetailMap) return;
   const iconDivs = document.querySelectorAll(
     "div.Item_itemContainer__x7kH1 div.Item_item__2De2O.Item_clickable__3viV6",
   );
@@ -182,19 +184,21 @@ function addItemLevels() {
     if (div.querySelector("div.Item_name__2C42x")) {
       continue;
     }
-    const href = div.querySelector("use").getAttribute("href");
+    const href = div.querySelector("use")?.getAttribute("href");
+    if (!href?.includes("#")) continue;
     const hrefName = href.split("#")[1];
     const itemHrid = "/items/" + hrefName;
-    const itemLevel = runtime.state.initData_itemDetailMap[itemHrid]?.itemLevel;
+    let itemDetail;
+    try {
+      itemDetail = itemDetailMap[itemHrid];
+    } catch {
+      return;
+    }
+    const itemLevel = itemDetail?.itemLevel;
     const itemAbilityLevel =
-      runtime.state.initData_itemDetailMap[itemHrid]?.abilityBookDetail
-        ?.levelRequirements?.[0]?.level;
+      itemDetail?.abilityBookDetail?.levelRequirements?.[0]?.level;
 
-    if (
-      runtime.state.initData_itemDetailMap[itemHrid]?.equipmentDetail &&
-      itemLevel &&
-      itemLevel > 0
-    ) {
+    if (itemDetail?.equipmentDetail && itemLevel && itemLevel > 0) {
       if (!div.querySelector("div.script_itemLevel")) {
         div.style.position = "relative";
         div.insertAdjacentHTML(
@@ -203,17 +207,12 @@ function addItemLevels() {
         );
       }
       if (
-        !runtime.state.initData_itemDetailMap[
-          itemHrid
-        ]?.equipmentDetail?.type?.includes("_tool") &&
+        !itemDetail?.equipmentDetail?.type?.includes("_tool") &&
         div.parentElement.parentElement.parentElement.parentElement.className.includes(
           "MarketplacePanel_marketItems__D4k7e",
         )
       ) {
-        handleMarketItemFilter(
-          div,
-          runtime.state.initData_itemDetailMap[itemHrid],
-        );
+        handleMarketItemFilter(div, itemDetail);
       }
     } else if (itemAbilityLevel && itemAbilityLevel > 0) {
       if (!div.querySelector("div.script_itemLevel")) {
@@ -708,20 +707,66 @@ Object.defineProperties(runtime.state, {
   },
 });
 
-runtime.registerStart("features/game-widgets.js", () => {
-  if (runtime.settings.settingsMap.itemIconLevel.isTrue) {
-    setInterval(addItemLevels, 500);
-  }
+runtime.features.register({
+  id: "itemIconLevel",
+  setting: "itemIconLevel",
+  initialize({ scope }) {
+    addItemLevels();
+    scope.interval(addItemLevels, 500);
+    scope.add(() =>
+      document
+        .querySelectorAll(".script_itemLevel,.script_key")
+        .forEach((node) => node.remove()),
+    );
+  },
+});
 
-  if (runtime.settings.settingsMap.marketFilter.isTrue) {
-    setInterval(addMarketFilterButtons, 500);
-  }
+runtime.features.register({
+  id: "showsKeyInfoInIcon",
+  setting: "showsKeyInfoInIcon",
+  dependsOn: ["itemIconLevel"],
+  initialize() {
+    addItemLevels();
+    return () =>
+      document.querySelectorAll(".script_key").forEach((node) => node.remove());
+  },
+});
 
-  if (runtime.settings.settingsMap.taskMapIndex.isTrue) {
-    setInterval(handleTaskCard, 500);
-  }
+runtime.features.register({
+  id: "marketFilter",
+  setting: "marketFilter",
+  initialize({ scope }) {
+    addMarketFilterButtons();
+    scope.interval(addMarketFilterButtons, 500);
+    scope.add(() => document.querySelector("#script_filters")?.remove());
+  },
+});
 
-  if (runtime.settings.settingsMap.mapIndex.isTrue) {
-    setInterval(addIndexToMaps, 500);
-  }
+runtime.features.register({
+  id: "taskMapIndex",
+  setting: "taskMapIndex",
+  scope: "character",
+  initialize({ scope }) {
+    handleTaskCard();
+    scope.interval(handleTaskCard, 500);
+    scope.add(() =>
+      document
+        .querySelectorAll(".script_taskMapIndex")
+        .forEach((node) => node.remove()),
+    );
+  },
+});
+
+runtime.features.register({
+  id: "mapIndex",
+  setting: "mapIndex",
+  initialize({ scope }) {
+    addIndexToMaps();
+    scope.interval(addIndexToMaps, 500);
+    scope.add(() =>
+      document
+        .querySelectorAll(".script_mapIndex")
+        .forEach((node) => node.remove()),
+    );
+  },
 });
