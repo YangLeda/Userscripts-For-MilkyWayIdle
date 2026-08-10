@@ -67,7 +67,7 @@ test("test userscript is independently installable and test-only", () => {
     testOutput,
     /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
   );
-  assert.match(testOutput, /^\/\/ @version\s+26\.0\.27$/m);
+  assert.match(testOutput, /^\/\/ @version\s+26\.0\.28$/m);
   assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
   assert.match(
     testOutput,
