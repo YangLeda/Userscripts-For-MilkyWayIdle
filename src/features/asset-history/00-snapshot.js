@@ -85,10 +85,7 @@ export function calculateMarketListingValues(listings) {
 
 export async function getAssetSnapshot() {
   if (!Array.isArray(runtime.state.initData_characterItems)) return null;
-  const marketApiJson = await runtime.api.fetchMarketJSON();
-  if (!marketApiJson && !Object.keys(runtime.state.marketItemValues).length) {
-    return null;
-  }
+  if (!(await runtime.api.ensureMarketValueSource())) return null;
 
   let equipment = 0;
   let inventory = 0;

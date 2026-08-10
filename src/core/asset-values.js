@@ -237,6 +237,10 @@ function getAssetValueInternal(itemHrid, enhancementLevel, context) {
   }
   context.delete(cacheKey);
 
+  if (!(value > 0)) {
+    value = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+  }
+
   const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
   assetValueCache.set(cacheKey, normalizedValue);
   return normalizedValue;

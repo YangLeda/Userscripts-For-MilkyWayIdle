@@ -188,6 +188,7 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
     "/items/token": { fair: 30, ask: 0, bid: 0 },
   };
   runtime.api.fetchMarketJSON = async () => ({ marketData: {} });
+  runtime.api.ensureMarketValueSource = async () => true;
   runtime.api.getAssetValue = (item) => prices[item].fair;
   runtime.api.getAskPrice = (item) => prices[item].ask;
   runtime.api.getBidPrice = (item) => prices[item].bid;

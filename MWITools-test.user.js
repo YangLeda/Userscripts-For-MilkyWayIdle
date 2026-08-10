@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.5
+// @version      26.2.6
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -18411,11 +18411,14 @@
     if (!sendRequest) return Promise.resolve(null);
     return new Promise((resolve) => {
       let settled = false;
+      let watchdog;
       const finish = (response) => {
         if (settled) return;
         settled = true;
+        clearTimeout(watchdog);
         resolve(response);
       };
+      watchdog = setTimeout(() => finish(null), 5500);
       const options = {
         url: getMarketApiUrl(),
         method: "GET",
@@ -18433,6 +18436,15 @@
         finish(null);
       }
     });
+  }
+  function hasMarketValueSource() {
+    return Boolean(
+      runtime.state.marketApiJson || Object.keys(runtime.state.marketItemValues ?? {}).length
+    );
+  }
+  async function ensureMarketValueSource() {
+    if (hasMarketValueSource()) return true;
+    return Boolean(await fetchMarketJSON());
   }
   async function fetchMarketJSON(forceFetch = false) {
     const cacheTimestamp = Number(
@@ -18534,6 +18546,8 @@
     loadMarketItemValuesFromStorage,
     validateMarketJsonFetch,
     fetchMarketJSON,
+    hasMarketValueSource,
+    ensureMarketValueSource,
     applyMarketItemValues,
     applyMarketOrderBooks,
     applyMarketListings,
@@ -20353,6 +20367,9 @@
       value = getOpenableValue(itemHrid, context);
     }
     context.delete(cacheKey);
+    if (!(value > 0)) {
+      value = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+    }
     const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
     assetValueCache.set(cacheKey, normalizedValue);
     return normalizedValue;
@@ -20921,10 +20938,7 @@
     });
   }
   async function getHouseFullBuildPrice(house) {
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-      return 0;
-    }
+    if (!await runtime.api.ensureMarketValueSource()) return 0;
     let houseDetail = runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid];
     if (!houseDetail) {
       try {
@@ -20963,10 +20977,7 @@
     const levelExperienceTable = runtime.state.initData_levelExperienceTable;
     const abilities = isAll ? runtime.state.initData_characterAbilities : runtime.state.initData_combatAbilities;
     if (!levelExperienceTable || !Array.isArray(abilities)) return 0;
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-      return 0;
-    }
+    if (!await runtime.api.ensureMarketValueSource()) return 0;
     let exp_50_skill = [
       "poke",
       "scratch",
@@ -21092,10 +21103,7 @@
     });
   }
   async function calculateSkill(profile_shared_obj) {
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-      return 0;
-    }
+    if (!await runtime.api.ensureMarketValueSource()) return 0;
     let obj = profile_shared_obj.profile;
     let exp_50_skill = [
       "poke",
@@ -21130,10 +21138,8 @@
     return price /= 1e6;
   }
   async function calculateEquipment(profile_shared_obj) {
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
+    if (!await runtime.api.ensureMarketValueSource())
       return createEmptyGearScores();
-    }
     return calculateGearScores(
       Object.values(profile_shared_obj.profile.wearableItemMap ?? {})
     );
@@ -21228,10 +21234,7 @@
   }
   async function getAssetSnapshot() {
     if (!Array.isArray(runtime.state.initData_characterItems)) return null;
-    const marketApiJson2 = await runtime.api.fetchMarketJSON();
-    if (!marketApiJson2 && !Object.keys(runtime.state.marketItemValues).length) {
-      return null;
-    }
+    if (!await runtime.api.ensureMarketValueSource()) return null;
     let equipment = 0;
     let inventory = 0;
     let nonTradableTokens = 0;
@@ -21866,9 +21869,9 @@
     style.id = STYLE_ID;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
-    #${PANEL_ID} { box-sizing:border-box; width:100%; min-width:0; padding:12px 16px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
+    #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
-    .mwi-asset-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+    .mwi-asset-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
     .mwi-asset-card { min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.06); }
     .mwi-asset-card-label { color:#9fb4d1; font-size:.68rem; }
     .mwi-asset-card-value { overflow:hidden; margin-top:4px; font-size:1rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
@@ -21876,10 +21879,14 @@
     .is-positive { color:#65d394!important; } .is-negative { color:#ff7b75!important; } .is-neutral { color:inherit; }
     .mwi-asset-section { margin-top:10px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:#0c141f; overflow:hidden; }
     .mwi-asset-section-title { padding:9px 11px; border-bottom:1px solid rgba(255,255,255,.08); font-size:.84rem; font-weight:700; }
-    .mwi-asset-table-wrap { overflow-x:auto; }
-    .mwi-asset-table { width:100%; min-width:470px; border-collapse:collapse; font-size:.74rem; }
-    .mwi-asset-table th,.mwi-asset-table td { padding:7px 10px; border-bottom:1px solid rgba(255,255,255,.065); text-align:right; }
+    .mwi-asset-table-wrap { max-width:100%; overflow-x:hidden; }
+    .mwi-asset-table { width:100%; min-width:0; table-layout:fixed; border-collapse:collapse; font-size:.72rem; }
+    .mwi-asset-table th,.mwi-asset-table td { overflow:hidden; padding:7px 6px; border-bottom:1px solid rgba(255,255,255,.065); text-align:right; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-asset-table th { overflow-wrap:anywhere; white-space:normal; }
     .mwi-asset-table th:first-child,.mwi-asset-table td:first-child { text-align:left; }
+    .mwi-asset-table:not(.mwi-asset-history-table) th:first-child { width:18%; }
+    .mwi-asset-history-table th:first-child { width:28%; }
+    .mwi-asset-history-table th:last-child { width:38%; }
     .mwi-asset-table tr:last-child td { border-bottom:0; }
     .mwi-asset-table tr[data-key="total"] { font-weight:700; background:rgba(255,255,255,.035); }
     .mwi-asset-chart-controls { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; }
@@ -21899,7 +21906,6 @@
     .mwi-asset-edit-grid input { box-sizing:border-box; width:100%; border:1px solid rgba(255,255,255,.18); border-radius:4px; background:#101728; color:#eee; padding:6px; }
     .mwi-asset-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
     @media(max-width:760px){
-      .mwi-asset-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
       #${PANEL_ID} { padding:10px 8px 20px; }
       .mwi-asset-chart-box { height:280px; }
       .mwi-asset-edit-grid { grid-template-columns:1fr; }
@@ -22579,13 +22585,16 @@ ${preview}`
     .mwi-asset-rows { display: grid; gap: 5px; padding: 2px 9px 9px 23px; }
     .mwi-asset-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--color-text-secondary, #aeb5c0); }
     .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
-    [data-mwitools-inventory-category] { position: relative; }
+    .mwi-inventory-category-heading {
+      display: flex !important;
+      min-width: 0;
+      align-items: center;
+      gap: 8px;
+    }
     .mwi-inventory-category-value {
-      position: absolute;
-      z-index: 1;
-      top: 7px;
-      right: 34px;
-      max-width: 42%;
+      display: inline-flex;
+      max-width: min(48%, 150px);
+      align-items: center;
       overflow: hidden;
       padding: 2px 7px;
       border: 1px solid rgba(230, 181, 79, .22);
@@ -22618,56 +22627,66 @@ ${preview}`
     clearTimeout(inventoryRefreshTimer);
     inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
   }
-  function inventoryItemKey(itemHrid, enhancementLevel = 0) {
-    return `${itemHrid}#${Math.max(0, Number(enhancementLevel) || 0)}`;
+  var INVENTORY_CATEGORY_ALIASES = {
+    "/item_categories/currency": ["currency", "currencies", "货币"],
+    "/item_categories/loot": ["loot", "loots", "战利品"],
+    "/item_categories/scroll": ["scroll", "scrolls", "卷轴"],
+    "/item_categories/labyrinth": ["labyrinth", "迷宫"],
+    "/item_categories/dungeon_key": ["dungeon key", "dungeon keys", "地下城钥匙"],
+    "/item_categories/food": ["food", "foods", "食物"],
+    "/item_categories/drink": ["drink", "drinks", "饮料"],
+    "/item_categories/ability_book": ["ability book", "ability books", "技能书"],
+    "/item_categories/equipment": ["equipment", "装备"],
+    "/item_categories/resource": ["resource", "resources", "资源"]
+  };
+  function normalizeCategoryLabel(value) {
+    return String(value ?? "").replace(/^[+−-]\s*/, "").replace(/\s*\(\d+\)\s*$/, "").trim().toLowerCase();
+  }
+  function resolveInventoryCategoryHrid(grid, heading) {
+    const itemName2 = grid.querySelector('div[class*="Item_itemContainer"] svg[aria-label]')?.getAttribute("aria-label")?.trim();
+    if (itemName2) {
+      const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2 : itemName2;
+      const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
+      const categoryHrid = runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
+      if (categoryHrid) return categoryHrid;
+    }
+    const labels = [
+      runtime.api.getOriTextFromElement?.(heading),
+      heading.textContent
+    ].map(normalizeCategoryLabel);
+    return Object.entries(INVENTORY_CATEGORY_ALIASES).find(
+      ([, aliases]) => labels.some((label) => aliases.includes(label))
+    )?.[0];
   }
   function addInventoryCategoryValues(invElem) {
-    const inventoryCounts2 = /* @__PURE__ */ new Map();
+    const categoryValues = /* @__PURE__ */ new Map();
     for (const item of runtime.state.initData_characterItems ?? []) {
       if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
-      const key = inventoryItemKey(item.itemHrid, item.enhancementLevel);
-      inventoryCounts2.set(
-        key,
-        (inventoryCounts2.get(key) ?? 0) + Math.max(0, Number(item.count) || 0)
+      const categoryHrid = runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
+      if (!categoryHrid) continue;
+      const value = Math.max(0, Number(item.count) || 0) * runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel);
+      categoryValues.set(
+        categoryHrid,
+        (categoryValues.get(categoryHrid) ?? 0) + value
       );
     }
     for (const category of invElem.children) {
-      const heading = category.querySelector(
-        ':scope > button[class*="Inventory_categoryButton"],:scope > div[class*="Inventory_label"]'
+      const grid = category.matches?.('[class*="Inventory_itemGrid"]') ? category : category.querySelector(':scope > [class*="Inventory_itemGrid"]') ?? category;
+      const heading = grid.querySelector(
+        ':scope > [class*="Inventory_label"],:scope > button[class*="Inventory_categoryButton"]'
       );
       if (!heading) continue;
-      category.dataset.mwitoolsInventoryCategory = "true";
-      category.querySelector(":scope > .mwi-inventory-category-value")?.remove();
-      let total = 0;
-      let resolvedItems = 0;
-      const seen = /* @__PURE__ */ new Set();
-      for (const itemElement of category.querySelectorAll(
-        'div[class*="Item_itemContainer"]'
-      )) {
-        let itemName2 = itemElement.querySelector("svg[aria-label]")?.getAttribute("aria-label")?.trim();
-        if (!itemName2) continue;
-        if (runtime.config.isZHInGameSetting) {
-          itemName2 = runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2;
-        }
-        const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName2];
-        if (!itemHrid) continue;
-        const enhancementLevel = Number.parseInt(
-          itemElement.querySelector('[class*="Item_enhancementLevel"]')?.textContent?.replace(/\D/g, "") ?? "",
-          10
-        ) || 0;
-        const key = inventoryItemKey(itemHrid, enhancementLevel);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const count = inventoryCounts2.get(key) ?? 0;
-        total += count * runtime.api.getAssetValue(itemHrid, enhancementLevel);
-        resolvedItems += 1;
-      }
-      if (!resolvedItems) continue;
+      const categoryHrid = resolveInventoryCategoryHrid(grid, heading);
+      if (!categoryHrid) continue;
+      const total = categoryValues.get(categoryHrid) ?? 0;
+      grid.dataset.mwitoolsInventoryCategory = "true";
+      heading.classList.add("mwi-inventory-category-heading");
+      heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
       const value = document.createElement("span");
       value.className = "mwi-inventory-category-value";
       value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
-      value.textContent = runtime.api.numberFormatter(total);
-      category.appendChild(value);
+      value.textContent = `${runtime.config.isZH ? "价值" : "Value"} ${runtime.api.numberFormatter(total)}`;
+      heading.appendChild(value);
     }
   }
   async function calculateNetworth() {

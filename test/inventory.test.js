@@ -7,9 +7,12 @@ const dom = new JSDOM(
   `<!doctype html><body>
     <div class="Header_totalLevel__8LY3Q"></div>
     <section id="inventory-parent"><div class="Inventory_items__6SXv0">
-      <div class="Inventory_category__test">
-        <button class="Inventory_categoryButton__test">食物</button>
+      <div><div class="Inventory_itemGrid__test">
+        <div class="Inventory_label__test"><span class="Inventory_categoryButton__test">食物</span></div>
         <div class="Item_itemContainer__test"><svg aria-label="Milk"></svg></div>
+      </div></div>
+      <div><div class="Inventory_itemGrid__test">
+        <div class="Inventory_label__test"><span class="Inventory_categoryButton__test">+ 地下城钥匙 (1)</span></div>
       </div>
     </div></section>
   </body>`,
@@ -39,12 +42,31 @@ runtime.state.initData_characterItems = [
     enhancementLevel: 0,
     count: 10,
   },
+  {
+    id: 2,
+    itemHrid: "/items/test_dungeon_key",
+    itemLocationHrid: "/item_locations/inventory",
+    enhancementLevel: 0,
+    count: 2,
+  },
 ];
 runtime.state.initData_myMarketListings = [];
-runtime.state.marketItemValues = { "/items/milk": { 0: 1000 } };
+runtime.state.marketItemValues = {
+  "/items/milk": { 0: 1000 },
+  "/items/test_dungeon_key": { 0: 2500 },
+};
 runtime.state.marketApiJson = {
   timestamp: 1,
-  marketData: { "/items/milk": { 0: { a: 1100, b: 900 } } },
+  marketData: {
+    "/items/milk": { 0: { a: 1100, b: 900 } },
+    "/items/test_dungeon_key": { 0: { a: 2600, b: 2400 } },
+  },
+};
+runtime.state.initData_itemDetailMap = {
+  "/items/milk": { categoryHrid: "/item_categories/food" },
+  "/items/test_dungeon_key": {
+    categoryHrid: "/item_categories/dungeon_key",
+  },
 };
 runtime.state.itemEnNameToHridMap = { Milk: "/items/milk" };
 runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
@@ -68,12 +90,20 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.equal(document.querySelectorAll("#script_api_fail_popout").length, 0);
   assert.equal(
+    document.querySelectorAll(".mwi-inventory-category-value").length,
+    2,
+  );
+  assert.equal(
     document.querySelector(".mwi-inventory-category-value").textContent,
-    "10K",
+    "价值 10K",
   );
   assert.match(
     document.querySelector(".mwi-inventory-category-value").title,
     /分类价值: 10,000/,
+  );
+  assert.match(
+    [...document.querySelectorAll('[class*="Inventory_label"]')][1].textContent,
+    /地下城钥匙 \(1\).*价值 5K/,
   );
   assert.equal(
     document.querySelectorAll(".mwi-inventory-summary-grid .mwi-summary-card")

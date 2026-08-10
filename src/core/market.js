@@ -299,11 +299,14 @@ function requestMarketJson() {
 
   return new Promise((resolve) => {
     let settled = false;
+    let watchdog;
     const finish = (response) => {
       if (settled) return;
       settled = true;
+      clearTimeout(watchdog);
       resolve(response);
     };
+    watchdog = setTimeout(() => finish(null), 5_500);
     const options = {
       url: getMarketApiUrl(),
       method: "GET",
@@ -321,6 +324,18 @@ function requestMarketJson() {
       finish(null);
     }
   });
+}
+
+function hasMarketValueSource() {
+  return Boolean(
+    runtime.state.marketApiJson ||
+    Object.keys(runtime.state.marketItemValues ?? {}).length,
+  );
+}
+
+async function ensureMarketValueSource() {
+  if (hasMarketValueSource()) return true;
+  return Boolean(await fetchMarketJSON());
 }
 
 async function fetchMarketJSON(forceFetch = false) {
@@ -442,6 +457,8 @@ Object.assign(runtime.api, {
   loadMarketItemValuesFromStorage,
   validateMarketJsonFetch,
   fetchMarketJSON,
+  hasMarketValueSource,
+  ensureMarketValueSource,
   applyMarketItemValues,
   applyMarketOrderBooks,
   applyMarketListings,

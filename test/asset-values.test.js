@@ -63,6 +63,8 @@ runtime.state.initData_itemDetailMap = {
       },
     ],
   },
+  "/items/vendor_only": { sellPrice: 1234 },
+  "/items/task_crate": { sellPrice: 5 },
 };
 runtime.state.initData_shopItemDetailMap = {
   dungeon_reward: {
@@ -142,6 +144,11 @@ test("a direct server value wins over every derived route", () => {
   assert.equal(runtime.api.getAssetValue("/items/task_token"), 999);
   delete runtime.state.marketItemValues["/items/task_token"];
   runtime.api.invalidateAssetValueCache();
+});
+
+test("the game sell price is only the final fallback", () => {
+  assert.equal(runtime.api.getAssetValue("/items/vendor_only"), 1234);
+  assert.equal(runtime.api.getAssetValue("/items/task_crate"), 1200);
 });
 
 test("non-tradable token assets are classified separately", () => {

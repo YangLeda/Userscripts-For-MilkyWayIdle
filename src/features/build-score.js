@@ -168,10 +168,7 @@ async function getSelfBuildScores() {
 
 // 计算单个房子完整造价
 async function getHouseFullBuildPrice(house) {
-  const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-    return 0;
-  }
+  if (!(await runtime.api.ensureMarketValueSource())) return 0;
   let houseDetail =
     runtime.state.initData_houseRoomDetailMap?.[house.houseRoomHrid];
   if (!houseDetail) {
@@ -219,10 +216,7 @@ async function calculateAbilityScore(isAll = false) {
     : runtime.state.initData_combatAbilities;
   if (!levelExperienceTable || !Array.isArray(abilities)) return 0;
 
-  const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-    return 0;
-  }
+  if (!(await runtime.api.ensureMarketValueSource())) return 0;
   let exp_50_skill = [
     "poke",
     "scratch",
@@ -375,10 +369,7 @@ async function getBuildScoreByProfile(profile_shared_obj) {
 
 // 技能价格计算
 async function calculateSkill(profile_shared_obj) {
-  const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-    return 0;
-  }
+  if (!(await runtime.api.ensureMarketValueSource())) return 0;
   let obj = profile_shared_obj.profile;
   let exp_50_skill = [
     "poke",
@@ -418,10 +409,8 @@ async function calculateSkill(profile_shared_obj) {
 
 // 装备价格和战斗/生活分类计算
 async function calculateEquipment(profile_shared_obj) {
-  const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
+  if (!(await runtime.api.ensureMarketValueSource()))
     return createEmptyGearScores();
-  }
   return calculateGearScores(
     Object.values(profile_shared_obj.profile.wearableItemMap ?? {}),
   );

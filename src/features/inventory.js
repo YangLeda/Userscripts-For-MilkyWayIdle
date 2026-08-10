@@ -158,13 +158,16 @@ function addInventorySummaryStyles() {
     .mwi-asset-rows { display: grid; gap: 5px; padding: 2px 9px 9px 23px; }
     .mwi-asset-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--color-text-secondary, #aeb5c0); }
     .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
-    [data-mwitools-inventory-category] { position: relative; }
+    .mwi-inventory-category-heading {
+      display: flex !important;
+      min-width: 0;
+      align-items: center;
+      gap: 8px;
+    }
     .mwi-inventory-category-value {
-      position: absolute;
-      z-index: 1;
-      top: 7px;
-      right: 34px;
-      max-width: 42%;
+      display: inline-flex;
+      max-width: min(48%, 150px);
+      align-items: center;
       overflow: hidden;
       padding: 2px 7px;
       border: 1px solid rgba(230, 181, 79, .22);
@@ -200,66 +203,88 @@ function scheduleNetworthRefresh() {
   inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
 }
 
-function inventoryItemKey(itemHrid, enhancementLevel = 0) {
-  return `${itemHrid}#${Math.max(0, Number(enhancementLevel) || 0)}`;
+const INVENTORY_CATEGORY_ALIASES = {
+  "/item_categories/currency": ["currency", "currencies", "货币"],
+  "/item_categories/loot": ["loot", "loots", "战利品"],
+  "/item_categories/scroll": ["scroll", "scrolls", "卷轴"],
+  "/item_categories/labyrinth": ["labyrinth", "迷宫"],
+  "/item_categories/dungeon_key": ["dungeon key", "dungeon keys", "地下城钥匙"],
+  "/item_categories/food": ["food", "foods", "食物"],
+  "/item_categories/drink": ["drink", "drinks", "饮料"],
+  "/item_categories/ability_book": ["ability book", "ability books", "技能书"],
+  "/item_categories/equipment": ["equipment", "装备"],
+  "/item_categories/resource": ["resource", "resources", "资源"],
+};
+
+function normalizeCategoryLabel(value) {
+  return String(value ?? "")
+    .replace(/^[+−-]\s*/, "")
+    .replace(/\s*\(\d+\)\s*$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+function resolveInventoryCategoryHrid(grid, heading) {
+  const itemName = grid
+    .querySelector('div[class*="Item_itemContainer"] svg[aria-label]')
+    ?.getAttribute("aria-label")
+    ?.trim();
+  if (itemName) {
+    const englishName = runtime.config.isZHInGameSetting
+      ? (runtime.api.getItemEnNameFromZhName?.(itemName) ?? itemName)
+      : itemName;
+    const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
+    const categoryHrid =
+      runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
+    if (categoryHrid) return categoryHrid;
+  }
+
+  const labels = [
+    runtime.api.getOriTextFromElement?.(heading),
+    heading.textContent,
+  ].map(normalizeCategoryLabel);
+  return Object.entries(INVENTORY_CATEGORY_ALIASES).find(([, aliases]) =>
+    labels.some((label) => aliases.includes(label)),
+  )?.[0];
 }
 
 function addInventoryCategoryValues(invElem) {
-  const inventoryCounts = new Map();
+  const categoryValues = new Map();
   for (const item of runtime.state.initData_characterItems ?? []) {
     if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
-    const key = inventoryItemKey(item.itemHrid, item.enhancementLevel);
-    inventoryCounts.set(
-      key,
-      (inventoryCounts.get(key) ?? 0) + Math.max(0, Number(item.count) || 0),
+    const categoryHrid =
+      runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
+    if (!categoryHrid) continue;
+    const value =
+      Math.max(0, Number(item.count) || 0) *
+      runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel);
+    categoryValues.set(
+      categoryHrid,
+      (categoryValues.get(categoryHrid) ?? 0) + value,
     );
   }
 
   for (const category of invElem.children) {
-    const heading = category.querySelector(
-      ':scope > button[class*="Inventory_categoryButton"],:scope > div[class*="Inventory_label"]',
+    const grid = category.matches?.('[class*="Inventory_itemGrid"]')
+      ? category
+      : (category.querySelector(':scope > [class*="Inventory_itemGrid"]') ??
+        category);
+    const heading = grid.querySelector(
+      ':scope > [class*="Inventory_label"],:scope > button[class*="Inventory_categoryButton"]',
     );
     if (!heading) continue;
-    category.dataset.mwitoolsInventoryCategory = "true";
-    category.querySelector(":scope > .mwi-inventory-category-value")?.remove();
-
-    let total = 0;
-    let resolvedItems = 0;
-    const seen = new Set();
-    for (const itemElement of category.querySelectorAll(
-      'div[class*="Item_itemContainer"]',
-    )) {
-      let itemName = itemElement
-        .querySelector("svg[aria-label]")
-        ?.getAttribute("aria-label")
-        ?.trim();
-      if (!itemName) continue;
-      if (runtime.config.isZHInGameSetting) {
-        itemName = runtime.api.getItemEnNameFromZhName?.(itemName) ?? itemName;
-      }
-      const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName];
-      if (!itemHrid) continue;
-      const enhancementLevel =
-        Number.parseInt(
-          itemElement
-            .querySelector('[class*="Item_enhancementLevel"]')
-            ?.textContent?.replace(/\D/g, "") ?? "",
-          10,
-        ) || 0;
-      const key = inventoryItemKey(itemHrid, enhancementLevel);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const count = inventoryCounts.get(key) ?? 0;
-      total += count * runtime.api.getAssetValue(itemHrid, enhancementLevel);
-      resolvedItems += 1;
-    }
-    if (!resolvedItems) continue;
+    const categoryHrid = resolveInventoryCategoryHrid(grid, heading);
+    if (!categoryHrid) continue;
+    const total = categoryValues.get(categoryHrid) ?? 0;
+    grid.dataset.mwitoolsInventoryCategory = "true";
+    heading.classList.add("mwi-inventory-category-heading");
+    heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
 
     const value = document.createElement("span");
     value.className = "mwi-inventory-category-value";
     value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
-    value.textContent = runtime.api.numberFormatter(total);
-    category.appendChild(value);
+    value.textContent = `${runtime.config.isZH ? "价值" : "Value"} ${runtime.api.numberFormatter(total)}`;
+    heading.appendChild(value);
   }
 }
 

@@ -76,6 +76,14 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
     document.querySelector("#mwitools-asset-history-style").textContent,
     /#00c6ff/,
   );
+  assert.match(
+    document.querySelector("#mwitools-asset-history-style").textContent,
+    /overflow-y:auto/,
+  );
+  assert.doesNotMatch(
+    document.querySelector("#mwitools-asset-history-style").textContent,
+    /min-width:470px/,
+  );
 
   tab.click();
   assert.equal(nativeContent.hidden, true);
