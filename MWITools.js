@@ -18404,8 +18404,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal2 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal2.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error("Unable to read market values through the game cache", error);
     }
@@ -20003,7 +20003,7 @@
   function exposePublicApi() {
     const pageWindow2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
     const root = pageWindow2.MWITools ?? {};
-    const publicApi2 = {
+    const publicApi3 = {
       version: "1.0.0",
       apiVersion: 1,
       get ready() {
@@ -20024,9 +20024,9 @@
       on,
       off
     };
-    root.shopping = publicApi2;
+    root.shopping = publicApi3;
     pageWindow2.MWITools = root;
-    return publicApi2;
+    return publicApi3;
   }
   installMessageHandlers();
   var publicApi = exposePublicApi();
@@ -22714,6 +22714,101 @@ ${preview}`
       void refreshAssetSnapshot();
       return () => ui.destroy();
     }
+  });
+
+  // src/features/public-api.js
+  var PUBLIC_API_VERSION = 1;
+  var SCORE_SCHEMA_VERSION = 1;
+  var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
+  var pageGlobal = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var latestScores = null;
+  function finiteOrNull3(value) {
+    const number2 = Number(value);
+    return Number.isFinite(number2) ? number2 : null;
+  }
+  function cloneForConsumer(value) {
+    if (value === null || value === void 0) return value ?? null;
+    const serialized = JSON.stringify(value);
+    return pageGlobal.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
+  }
+  function createPublicScoreSnapshot(assetSnapshot) {
+    const scores = assetSnapshot?.scores;
+    if (!scores?.battle || !scores?.skilling) return null;
+    return {
+      schemaVersion: SCORE_SCHEMA_VERSION,
+      unit: "million_coins",
+      server: String(assetSnapshot.server ?? "production"),
+      characterId: String(assetSnapshot.characterId ?? ""),
+      calculatedAt: String(assetSnapshot.recordedAt ?? (/* @__PURE__ */ new Date()).toISOString()),
+      battle: {
+        total: finiteOrNull3(scores.battle.total),
+        house: finiteOrNull3(scores.battle.house),
+        abilities: finiteOrNull3(scores.battle.abilities),
+        equipment: finiteOrNull3(scores.battle.equipment)
+      },
+      skilling: {
+        total: finiteOrNull3(scores.skilling.total),
+        house: finiteOrNull3(scores.skilling.house),
+        tools: finiteOrNull3(scores.skilling.tools),
+        equipment: finiteOrNull3(scores.skilling.equipment),
+        available: scores.skilling.available !== false
+      }
+    };
+  }
+  function dispatchScoresUpdated() {
+    if (!latestScores || typeof pageGlobal.dispatchEvent !== "function") return;
+    const EventConstructor = pageGlobal.CustomEvent ?? globalThis.CustomEvent;
+    if (typeof EventConstructor !== "function") return;
+    pageGlobal.dispatchEvent(
+      new EventConstructor(SCORES_UPDATED_EVENT, {
+        detail: cloneForConsumer(latestScores)
+      })
+    );
+  }
+  function publishScoreSnapshot(assetSnapshot) {
+    const next = createPublicScoreSnapshot(assetSnapshot);
+    if (!next) return null;
+    latestScores = next;
+    dispatchScoresUpdated();
+    return cloneForConsumer(latestScores);
+  }
+  function getScores() {
+    return cloneForConsumer(latestScores);
+  }
+  async function refreshScores() {
+    const snapshot = await runtime.api.refreshAssetSnapshot?.();
+    if (!snapshot) return null;
+    if (!latestScores || latestScores.calculatedAt !== String(snapshot.recordedAt ?? "")) {
+      publishScoreSnapshot(snapshot);
+    }
+    return getScores();
+  }
+  var publicApi2 = {
+    name: "MWITools",
+    apiVersion: PUBLIC_API_VERSION,
+    events: Object.freeze({ scoresUpdated: SCORES_UPDATED_EVENT }),
+    get scores() {
+      return getScores();
+    },
+    getScores,
+    refreshScores
+  };
+  try {
+    Object.defineProperty(pageGlobal, "MWIToolsAPI", {
+      configurable: true,
+      enumerable: true,
+      value: publicApi2
+    });
+  } catch {
+    pageGlobal.MWIToolsAPI = publicApi2;
+  }
+  runtime.api.onAssetSnapshot?.(publishScoreSnapshot);
+  var existingSnapshot = runtime.api.getLatestAssetSnapshot?.();
+  if (existingSnapshot) publishScoreSnapshot(existingSnapshot);
+  Object.assign(runtime.api, {
+    createPublicScoreSnapshot,
+    getPublishedScores: getScores,
+    publishScoreSnapshot
   });
 
   // src/features/inventory.js
@@ -40008,8 +40103,8 @@ ${locks}` : ""}`;
 
   // src/main.js
   function loadCachedClientData() {
-    const pageGlobal = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal.localStorageUtil;
+    const pageGlobal2 = globalThis.unsafeWindow ?? globalThis;
+    const localStorageUtil = pageGlobal2.localStorageUtil;
     if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
       return false;
     }
