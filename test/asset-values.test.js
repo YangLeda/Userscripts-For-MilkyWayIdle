@@ -6,6 +6,12 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/asset-values.js");
 
+const assetSettings = {
+  includeCowbellsInAssets: false,
+  valueBackEquipmentWithProtectionMirror: false,
+};
+runtime.settings.get = (id) => assetSettings[id];
+
 runtime.state.itemEnNameToHridMap = {};
 runtime.state.marketApiJson = {
   timestamp: 1,
@@ -20,6 +26,8 @@ runtime.state.marketItemValues = {
   "/items/task_drop_a": { 0: 100 },
   "/items/task_drop_b": { 0: 200 },
   "/items/labyrinth_reward": { 0: 4000 },
+  "/items/test_cape": { 5: 50_000 },
+  "/items/test_sword": { 5: 40_000 },
 };
 runtime.state.initData_itemDetailMap = {
   "/items/material_cheap": {
@@ -65,6 +73,12 @@ runtime.state.initData_itemDetailMap = {
   },
   "/items/vendor_only": { sellPrice: 1234 },
   "/items/task_crate": { sellPrice: 5 },
+  "/items/test_cape": {
+    equipmentDetail: { equipmentSlotHrid: "/item_locations/back" },
+  },
+  "/items/test_sword": {
+    equipmentDetail: { equipmentSlotHrid: "/item_locations/main_hand" },
+  },
 };
 runtime.state.initData_shopItemDetailMap = {
   dungeon_reward: {
@@ -163,6 +177,40 @@ test("non-tradable token assets are classified separately", () => {
     runtime.api.isNonTradableTokenAsset("/items/labyrinth_token"),
     false,
   );
+});
+
+test("back equipment can use forced protection-mirror enhancement value", () => {
+  const originalPlanner = runtime.api.calculateEnhancementPlan;
+  let received = null;
+  runtime.api.calculateEnhancementPlan = (options) => {
+    received = options;
+    return { status: "complete", totalCost: 123_456 };
+  };
+
+  assetSettings.valueBackEquipmentWithProtectionMirror = false;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 50_000);
+
+  assetSettings.valueBackEquipmentWithProtectionMirror = true;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 123_456);
+  assert.equal(
+    received.forcedProtectionItemHrid,
+    "/items/mirror_of_protection",
+  );
+  assert.equal(received.allowPhilosopherMirror, false);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 40_000);
+  assert.equal(
+    runtime.api.isBackEquipment(
+      "/items/unknown_back_item",
+      "/item_locations/back",
+    ),
+    true,
+  );
+
+  assetSettings.valueBackEquipmentWithProtectionMirror = false;
+  runtime.api.calculateEnhancementPlan = originalPlanner;
+  runtime.api.invalidateAssetValueCache();
 });
 
 test("guild shrine value accumulates every purchased buff level", () => {

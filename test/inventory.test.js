@@ -198,7 +198,13 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     document.querySelector("#toggleCurrentAssets").textContent,
-    /流动资产/,
+    /流动资产\s*15K/,
+  );
+  assert.equal(
+    document
+      .querySelector("#toggleCurrentAssets")
+      .firstElementChild.classList.contains("mwi-summary-chevron"),
+    true,
   );
   assert.match(document.querySelector("#currentAssets").textContent, /装备：/);
   assert.match(document.querySelector("#currentAssets").textContent, /库存：/);
@@ -208,8 +214,15 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     document.querySelector("#toggleNonCurrentAssets").textContent,
-    /非流动资产/,
+    /非流动资产\s*30M/,
   );
+  assert.equal(
+    document
+      .querySelector("#toggleNonCurrentAssets")
+      .firstElementChild.classList.contains("mwi-summary-chevron"),
+    true,
+  );
+  assert.equal(document.querySelectorAll(".mwi-asset-subtotal").length, 2);
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
     /房屋：\s*10M/,
@@ -398,10 +411,21 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /不可交易代币：450/,
+    /不可交易代币：250/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
     /神龛：150/,
   );
+
+  await runtime.settings.set("includeCowbellsInAssets", true);
+  runtime.api.invalidateAssetValueCache();
+  await runtime.api.calculateNetworth();
+  await Promise.resolve();
+  assert.match(
+    document.querySelector("#nonCurrentAssets").textContent,
+    /不可交易代币：450/,
+  );
+
+  await runtime.settings.set("includeCowbellsInAssets", false);
 });

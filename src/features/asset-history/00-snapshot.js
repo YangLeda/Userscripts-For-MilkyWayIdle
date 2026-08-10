@@ -96,11 +96,18 @@ export async function getAssetSnapshot() {
   let inventoryBid = 0;
 
   for (const item of runtime.state.initData_characterItems) {
+    if (
+      item.itemHrid === "/items/cowbell" &&
+      !runtime.api.shouldIncludeCowbellsInAssets()
+    ) {
+      continue;
+    }
     const count = Math.max(0, Number(item.count ?? 0));
     const enhancementLevel = item.enhancementLevel ?? 0;
     const fairValue = runtime.api.getAssetValue(
       item.itemHrid,
       enhancementLevel,
+      { itemLocationHrid: item.itemLocationHrid },
     );
     const askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
     const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);

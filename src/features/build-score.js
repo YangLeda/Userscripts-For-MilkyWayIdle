@@ -66,10 +66,11 @@ function calculateGearScores(items) {
       continue;
     }
 
-    const fairValue = runtime.api.getFairValue(
-      item.itemHrid,
-      item.enhancementLevel,
-    );
+    const fairValue = runtime.api.getAssetValue
+      ? runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
+          itemLocationHrid: item.itemLocationHrid,
+        })
+      : runtime.api.getFairValue(item.itemHrid, item.enhancementLevel);
     if (!(fairValue > 0)) {
       continue;
     }

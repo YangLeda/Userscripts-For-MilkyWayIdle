@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.26
+// @version      26.2.27
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -892,6 +892,16 @@
       desc: isZH ? "仓库搜索栏下方显示：仓库和着装评分总结" : "Below inventory search bar: Inventory and gear score summary.",
       isTrue: true
     },
+    includeCowbellsInAssets: {
+      id: "includeCowbellsInAssets",
+      desc: isZH ? "总资产计入牛铃" : "Include cowbells in total assets.",
+      isTrue: false
+    },
+    valueBackEquipmentWithProtectionMirror: {
+      id: "valueBackEquipmentWithProtectionMirror",
+      desc: isZH ? "背部装备按保护之镜强化成本估值" : "Value back equipment using enhancement costs with Mirrors of Protection.",
+      isTrue: false
+    },
     invSort: {
       id: "invSort",
       desc: isZH ? "仓库显示：仓库物品排序" : "Inventory: Sort inventory items.",
@@ -1270,6 +1280,22 @@
       "Assets & gear scores",
       "在库存上方显示战斗评分、生活评分以及流动和固定资产明细。",
       "Show combat and skilling scores plus current and fixed asset details above inventory."
+    ],
+    [
+      "includeCowbellsInAssets",
+      "inventory",
+      "牛铃计入总资产",
+      "Include cowbells in assets",
+      "开启后，牛铃按市场折算价值计入不可交易代币和总资产；默认关闭。",
+      "Include cowbells at their market-derived value under non-tradable tokens and total assets. Off by default."
+    ],
+    [
+      "valueBackEquipmentWithProtectionMirror",
+      "inventory",
+      "背部装备按保护之镜估值",
+      "Value back equipment with protection mirrors",
+      "开启后，强化背部装备按使用保护之镜的期望强化成本估值；默认关闭。",
+      "Value enhanced back-slot equipment by its expected enhancement cost using Mirrors of Protection. Off by default."
     ],
     [
       "invSort",
@@ -20226,6 +20252,33 @@
   function getItemDetails(itemHrid) {
     return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
   }
+  function settingEnabled(id) {
+    return Boolean(
+      runtime.settings.get?.(id) ?? runtime.settings.settingsMap?.[id]?.isTrue
+    );
+  }
+  function shouldIncludeCowbellsInAssets() {
+    return settingEnabled("includeCowbellsInAssets");
+  }
+  function isBackEquipment(itemHrid, itemLocationHrid = "") {
+    if (itemLocationHrid === "/item_locations/back") return true;
+    if (/(?:^|_)cape(?:_refined)?$/.test(String(itemHrid).split("/").at(-1))) {
+      return true;
+    }
+    const detail = getItemDetails(itemHrid);
+    const equipment = detail?.equipmentDetail;
+    return [
+      detail?.itemLocationHrid,
+      detail?.equipmentSlotHrid,
+      detail?.slotHrid,
+      equipment?.itemLocationHrid,
+      equipment?.equipmentSlotHrid,
+      equipment?.slotHrid,
+      equipment?.equipmentTypeHrid,
+      equipment?.typeHrid,
+      equipment?.type
+    ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+  }
   function getGuildCreditHrids() {
     if (guildCreditHridCache) return guildCreditHridCache;
     const result = /* @__PURE__ */ new Set();
@@ -20362,12 +20415,26 @@
     }
     return bestValue;
   }
-  function getAssetValueInternal(itemHrid, enhancementLevel, context) {
+  function getAssetValueInternal(itemHrid, enhancementLevel, context, options = {}) {
     if (!itemHrid) return 0;
     const level = Number(enhancementLevel) || 0;
-    const cacheKey = `${itemHrid}:${level}`;
+    const useProtectionMirrorValue = level > 0 && settingEnabled("valueBackEquipmentWithProtectionMirror") && isBackEquipment(itemHrid, options.itemLocationHrid);
+    const cacheKey = `${itemHrid}:${level}:${useProtectionMirrorValue ? "protection-mirror" : "market"}`;
     if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
     if (context.has(cacheKey)) return 0;
+    if (useProtectionMirrorValue) {
+      const plan = runtime.api.calculateEnhancementPlan?.({
+        itemHrid,
+        targetLevel: level,
+        forcedProtectionItemHrid: "/items/mirror_of_protection",
+        allowPhilosopherMirror: false
+      });
+      if (plan?.status === "complete" && positiveNumber(plan.totalCost)) {
+        const value2 = positiveNumber(plan.totalCost);
+        assetValueCache.set(cacheKey, value2);
+        return value2;
+      }
+    }
     const fairValue = runtime.api.getFairValue(itemHrid, level);
     if (fairValue > 0) {
       assetValueCache.set(cacheKey, fairValue);
@@ -20394,8 +20461,8 @@
     assetValueCache.set(cacheKey, normalizedValue);
     return normalizedValue;
   }
-  function getAssetValue(itemHrid, enhancementLevel = 0) {
-    return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set());
+  function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
+    return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set(), options);
   }
   function getGuildBuffLevel(guildBuffHrid) {
     const levels = runtime.state.guildBuffLevels;
@@ -20440,9 +20507,27 @@
   Object.assign(runtime.api, {
     getAssetValue,
     getGuildShrineValue,
+    isBackEquipment,
     isNonTradableTokenAsset,
-    invalidateAssetValueCache
+    invalidateAssetValueCache,
+    shouldIncludeCowbellsInAssets
   });
+  function refreshConfiguredAssetValues() {
+    invalidateAssetValueCache();
+    if (runtime.api.scheduleNetworthRefresh) {
+      runtime.api.scheduleNetworthRefresh();
+    } else {
+      runtime.api.scheduleAssetSnapshotRefresh?.(0);
+    }
+  }
+  runtime.settings.onChange?.(
+    "includeCowbellsInAssets",
+    refreshConfiguredAssetValues
+  );
+  runtime.settings.onChange?.(
+    "valueBackEquipmentWithProtectionMirror",
+    refreshConfiguredAssetValues
+  );
 
   // src/core/message-state.js
   function applyClientData(payload) {
@@ -20878,10 +20963,9 @@
       if (!classification.isTool && !classification.isCombat && !classification.isSkilling) {
         continue;
       }
-      const fairValue = runtime.api.getFairValue(
-        item.itemHrid,
-        item.enhancementLevel
-      );
+      const fairValue = runtime.api.getAssetValue ? runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
+        itemLocationHrid: item.itemLocationHrid
+      }) : runtime.api.getFairValue(item.itemHrid, item.enhancementLevel);
       if (!(fairValue > 0)) {
         continue;
       }
@@ -21265,11 +21349,15 @@
     let inventoryAsk = 0;
     let inventoryBid = 0;
     for (const item of runtime.state.initData_characterItems) {
+      if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
+        continue;
+      }
       const count = Math.max(0, Number(item.count ?? 0));
       const enhancementLevel = item.enhancementLevel ?? 0;
       const fairValue = runtime.api.getAssetValue(
         item.itemHrid,
-        enhancementLevel
+        enhancementLevel,
+        { itemLocationHrid: item.itemLocationHrid }
       );
       const askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
       const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
@@ -22692,7 +22780,8 @@ ${preview}`
     .mwi-summary-chevron {
       width: 7px;
       height: 7px;
-      margin-left: auto;
+      margin: 0 2px 0 0;
+      flex: 0 0 7px;
       border-right: 1.5px solid rgba(255, 255, 255, .65);
       border-bottom: 1.5px solid rgba(255, 255, 255, .65);
       transform: rotate(45deg) translate(-2px, 2px);
@@ -22800,14 +22889,16 @@ ${preview}`
     }
     .mwi-asset-toggle:hover { background: rgba(255, 255, 255, .04); }
     .mwi-asset-toggle:focus-visible { outline: 1px solid rgb(var(--mwi-summary-accent)); outline-offset: -2px; }
-    .mwi-asset-dot {
-      width: 4px;
-      height: 4px;
-      flex: 0 0 4px;
-      border-radius: 50%;
-      background: rgb(var(--mwi-summary-accent));
+    .mwi-asset-toggle .mwi-summary-chevron { margin: 0 2px 0 0; }
+    .mwi-asset-subtotal {
+      min-width: 0;
+      margin-left: auto;
+      color: rgb(var(--mwi-summary-accent));
+      font-size: .66rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
     }
-    .mwi-asset-toggle .mwi-summary-chevron { margin-right: 2px; }
     .mwi-asset-rows {
       position: relative;
       display: grid;
@@ -22917,9 +23008,14 @@ ${preview}`
     const categoryValues = /* @__PURE__ */ new Map();
     for (const item of runtime.state.initData_characterItems ?? []) {
       if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+      if (item.itemHrid === "/items/cowbell" && !runtime.api.shouldIncludeCowbellsInAssets()) {
+        continue;
+      }
       const categoryHrid = runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
       if (!categoryHrid) continue;
-      const value = Math.max(0, Number(item.count) || 0) * runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel);
+      const value = Math.max(0, Number(item.count) || 0) * runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
+        itemLocationHrid: item.itemLocationHrid
+      });
       categoryValues.set(
         categoryHrid,
         (categoryValues.get(categoryHrid) ?? 0) + value
@@ -22964,11 +23060,11 @@ ${preview}`
         <div class="mwi-inventory-summary-grid">
           <section class="mwi-summary-card mwi-summary-card--combat">
             <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.battle.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="buildScores" style="display: none;" hidden>
               <div class="mwi-summary-stats">
@@ -22981,11 +23077,11 @@ ${preview}`
 
           <section class="mwi-summary-card mwi-summary-card--skilling">
             <button type="button" class="mwi-summary-toggle" id="toggleSkillingScores" aria-expanded="false" aria-controls="skillingScores">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.skilling.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="skillingScores" style="display: none;" hidden>
               <div class="mwi-summary-stats">
@@ -22998,16 +23094,16 @@ ${preview}`
 
           <section class="mwi-summary-card mwi-summary-card--assets">
             <button type="button" class="mwi-summary-toggle" id="toggleNetWorth" aria-expanded="false" aria-controls="netWorthDetails">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
                 <span class="mwi-summary-value">${numberHtml(values.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
               <div class="mwi-asset-groups">
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产" : "Liquid assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-summary-chevron" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产" : "Liquid assets"}</span><span class="mwi-asset-subtotal">${numberHtml(values.liquid)}</span></button>
                   <div class="mwi-asset-rows" id="currentAssets" style="display: none;" hidden>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "装备：" : "Equipment: "}</span>${numberHtml(values.equipment)}</div>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "库存：" : "Inventory: "}</span>${numberHtml(values.inventory)}</div>
@@ -23015,7 +23111,7 @@ ${preview}`
                   </div>
                 </section>
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产" : "Non-current assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-summary-chevron" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产" : "Non-current assets"}</span><span class="mwi-asset-subtotal">${numberHtml(values.fixed)}</span></button>
                   <div class="mwi-asset-rows" id="nonCurrentAssets" style="display: none;" hidden>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "房屋：" : "Houses: "}</span>${numberHtml(values.houses)}</div>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "技能：" : "Abilities: "}</span>${numberHtml(values.abilities)}</div>
@@ -30177,7 +30273,9 @@ ${locks}` : ""}`;
     successRateTable = runtime.state.initData_enhancementLevelSuccessRateTable,
     bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable,
     actionDetailMap = runtime.state.initData_actionDetailMap,
-    getFairValue: getFairValue2 = runtime.api.getFairValue
+    getFairValue: getFairValue2 = runtime.api.getFairValue,
+    forcedProtectionItemHrid = null,
+    allowPhilosopherMirror = true
   } = {}) {
     const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
     const baseItemHrid = itemHrid.endsWith("_refined") ? itemHrid.replace("_refined", "") : itemHrid;
@@ -30220,7 +30318,7 @@ ${locks}` : ""}`;
     const blessedTeaPrice = price("/items/blessed_tea", 0);
     if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
     if (hasMissingRequiredPrice) return unavailableResult([...missing]);
-    const protectionCandidates = [
+    const protectionCandidates = forcedProtectionItemHrid ? [forcedProtectionItemHrid] : [
       baseItemHrid,
       ...item.protectionItemHrids ?? [],
       "/items/mirror_of_protection"
@@ -30263,7 +30361,7 @@ ${locks}` : ""}`;
         };
       }
     }
-    if (philosopherMirrorPrice > 0) {
+    if (allowPhilosopherMirror && philosopherMirrorPrice > 0) {
       for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
         for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
           const flow = calculatePhilosopherEnhancementFlow({

@@ -41,6 +41,14 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(runtime.config.SCRIPT_COLOR_TOOLTIP, "#804600");
   assert.equal(runtime.settings.settingsMap.totalActionTime.isTrue, true);
   assert.equal(runtime.settings.settingsMap.assetHistory.isTrue, true);
+  assert.equal(
+    runtime.settings.settingsMap.includeCowbellsInAssets.isTrue,
+    false,
+  );
+  assert.equal(
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
+    false,
+  );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
   assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
@@ -83,7 +91,7 @@ test("card settings render every visible setting with nested children and search
   const root = document.querySelector("#script_settings");
   assert.equal(root.dataset.mwitoolsVersion, "2");
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 9);
-  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 42);
+  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 44);
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
   const topLevelCards = root.querySelectorAll(
     ".mwi-settings-grid > .mwi-setting-card",
@@ -103,6 +111,8 @@ test("card settings render every visible setting with nested children and search
     document.querySelector("#mwitools-settings-style").textContent,
     /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
   );
+  assert.match(root.textContent, /牛铃计入总资产/);
+  assert.match(root.textContent, /背部装备按保护之镜估值/);
 
   const search = root.querySelector(".mwi-settings-search");
   search.value = "Idle members";

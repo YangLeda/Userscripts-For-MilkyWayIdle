@@ -39,6 +39,36 @@ function getItemDetails(itemHrid) {
   return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
 }
 
+function settingEnabled(id) {
+  return Boolean(
+    runtime.settings.get?.(id) ?? runtime.settings.settingsMap?.[id]?.isTrue,
+  );
+}
+
+function shouldIncludeCowbellsInAssets() {
+  return settingEnabled("includeCowbellsInAssets");
+}
+
+function isBackEquipment(itemHrid, itemLocationHrid = "") {
+  if (itemLocationHrid === "/item_locations/back") return true;
+  if (/(?:^|_)cape(?:_refined)?$/.test(String(itemHrid).split("/").at(-1))) {
+    return true;
+  }
+  const detail = getItemDetails(itemHrid);
+  const equipment = detail?.equipmentDetail;
+  return [
+    detail?.itemLocationHrid,
+    detail?.equipmentSlotHrid,
+    detail?.slotHrid,
+    equipment?.itemLocationHrid,
+    equipment?.equipmentSlotHrid,
+    equipment?.slotHrid,
+    equipment?.equipmentTypeHrid,
+    equipment?.typeHrid,
+    equipment?.type,
+  ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+}
+
 function getGuildCreditHrids() {
   if (guildCreditHridCache) return guildCreditHridCache;
   const result = new Set();
@@ -209,12 +239,35 @@ function getShopCurrencyValue(currencyItemHrid, context) {
   return bestValue;
 }
 
-function getAssetValueInternal(itemHrid, enhancementLevel, context) {
+function getAssetValueInternal(
+  itemHrid,
+  enhancementLevel,
+  context,
+  options = {},
+) {
   if (!itemHrid) return 0;
   const level = Number(enhancementLevel) || 0;
-  const cacheKey = `${itemHrid}:${level}`;
+  const useProtectionMirrorValue =
+    level > 0 &&
+    settingEnabled("valueBackEquipmentWithProtectionMirror") &&
+    isBackEquipment(itemHrid, options.itemLocationHrid);
+  const cacheKey = `${itemHrid}:${level}:${useProtectionMirrorValue ? "protection-mirror" : "market"}`;
   if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
   if (context.has(cacheKey)) return 0;
+
+  if (useProtectionMirrorValue) {
+    const plan = runtime.api.calculateEnhancementPlan?.({
+      itemHrid,
+      targetLevel: level,
+      forcedProtectionItemHrid: "/items/mirror_of_protection",
+      allowPhilosopherMirror: false,
+    });
+    if (plan?.status === "complete" && positiveNumber(plan.totalCost)) {
+      const value = positiveNumber(plan.totalCost);
+      assetValueCache.set(cacheKey, value);
+      return value;
+    }
+  }
 
   const fairValue = runtime.api.getFairValue(itemHrid, level);
   if (fairValue > 0) {
@@ -246,8 +299,8 @@ function getAssetValueInternal(itemHrid, enhancementLevel, context) {
   return normalizedValue;
 }
 
-function getAssetValue(itemHrid, enhancementLevel = 0) {
-  return getAssetValueInternal(itemHrid, enhancementLevel, new Set());
+function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
+  return getAssetValueInternal(itemHrid, enhancementLevel, new Set(), options);
 }
 
 function getGuildBuffLevel(guildBuffHrid) {
@@ -300,6 +353,26 @@ function getGuildShrineValue() {
 Object.assign(runtime.api, {
   getAssetValue,
   getGuildShrineValue,
+  isBackEquipment,
   isNonTradableTokenAsset,
   invalidateAssetValueCache,
+  shouldIncludeCowbellsInAssets,
 });
+
+function refreshConfiguredAssetValues() {
+  invalidateAssetValueCache();
+  if (runtime.api.scheduleNetworthRefresh) {
+    runtime.api.scheduleNetworthRefresh();
+  } else {
+    runtime.api.scheduleAssetSnapshotRefresh?.(0);
+  }
+}
+
+runtime.settings.onChange?.(
+  "includeCowbellsInAssets",
+  refreshConfiguredAssetValues,
+);
+runtime.settings.onChange?.(
+  "valueBackEquipmentWithProtectionMirror",
+  refreshConfiguredAssetValues,
+);

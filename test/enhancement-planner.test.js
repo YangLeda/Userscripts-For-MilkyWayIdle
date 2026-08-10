@@ -185,6 +185,30 @@ test("planner chooses a normal plan when philosopher acquisition is expensive", 
   assert.ok(plan.totalSeconds > 0);
 });
 
+test("planner can force regular protection mirrors and disable philosopher synthesis", () => {
+  const values = prices();
+  const defaultPlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+  });
+  const mirrorPlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    forcedProtectionItemHrid: "/items/mirror_of_protection",
+    allowPhilosopherMirror: false,
+  });
+
+  assert.equal(mirrorPlan.status, "complete");
+  assert.equal(mirrorPlan.philosopherStart, null);
+  assert.ok(mirrorPlan.totalCost > defaultPlan.totalCost);
+});
+
 test("planner chooses philosopher protection and reports required enhancement inputs", () => {
   const values = prices({
     "/items/target": 1,

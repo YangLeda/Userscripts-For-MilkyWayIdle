@@ -100,6 +100,18 @@ let settingsMap = {
       : "Below inventory search bar: Inventory and gear score summary.",
     isTrue: true,
   },
+  includeCowbellsInAssets: {
+    id: "includeCowbellsInAssets",
+    desc: isZH ? "总资产计入牛铃" : "Include cowbells in total assets.",
+    isTrue: false,
+  },
+  valueBackEquipmentWithProtectionMirror: {
+    id: "valueBackEquipmentWithProtectionMirror",
+    desc: isZH
+      ? "背部装备按保护之镜强化成本估值"
+      : "Value back equipment using enhancement costs with Mirrors of Protection.",
+    isTrue: false,
+  },
   invSort: {
     id: "invSort",
     desc: isZH ? "仓库显示：仓库物品排序" : "Inventory: Sort inventory items.",
@@ -530,6 +542,22 @@ const catalogRows = [
     "Assets & gear scores",
     "在库存上方显示战斗评分、生活评分以及流动和固定资产明细。",
     "Show combat and skilling scores plus current and fixed asset details above inventory.",
+  ],
+  [
+    "includeCowbellsInAssets",
+    "inventory",
+    "牛铃计入总资产",
+    "Include cowbells in assets",
+    "开启后，牛铃按市场折算价值计入不可交易代币和总资产；默认关闭。",
+    "Include cowbells at their market-derived value under non-tradable tokens and total assets. Off by default.",
+  ],
+  [
+    "valueBackEquipmentWithProtectionMirror",
+    "inventory",
+    "背部装备按保护之镜估值",
+    "Value back equipment with protection mirrors",
+    "开启后，强化背部装备按使用保护之镜的期望强化成本估值；默认关闭。",
+    "Value enhanced back-slot equipment by its expected enhancement cost using Mirrors of Protection. Off by default.",
   ],
   [
     "invSort",

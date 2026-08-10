@@ -77,7 +77,8 @@ function addInventorySummaryStyles() {
     .mwi-summary-chevron {
       width: 7px;
       height: 7px;
-      margin-left: auto;
+      margin: 0 2px 0 0;
+      flex: 0 0 7px;
       border-right: 1.5px solid rgba(255, 255, 255, .65);
       border-bottom: 1.5px solid rgba(255, 255, 255, .65);
       transform: rotate(45deg) translate(-2px, 2px);
@@ -185,14 +186,16 @@ function addInventorySummaryStyles() {
     }
     .mwi-asset-toggle:hover { background: rgba(255, 255, 255, .04); }
     .mwi-asset-toggle:focus-visible { outline: 1px solid rgb(var(--mwi-summary-accent)); outline-offset: -2px; }
-    .mwi-asset-dot {
-      width: 4px;
-      height: 4px;
-      flex: 0 0 4px;
-      border-radius: 50%;
-      background: rgb(var(--mwi-summary-accent));
+    .mwi-asset-toggle .mwi-summary-chevron { margin: 0 2px 0 0; }
+    .mwi-asset-subtotal {
+      min-width: 0;
+      margin-left: auto;
+      color: rgb(var(--mwi-summary-accent));
+      font-size: .66rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
     }
-    .mwi-asset-toggle .mwi-summary-chevron { margin-right: 2px; }
     .mwi-asset-rows {
       position: relative;
       display: grid;
@@ -319,12 +322,20 @@ function addInventoryCategoryValues(invElem) {
   const categoryValues = new Map();
   for (const item of runtime.state.initData_characterItems ?? []) {
     if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+    if (
+      item.itemHrid === "/items/cowbell" &&
+      !runtime.api.shouldIncludeCowbellsInAssets()
+    ) {
+      continue;
+    }
     const categoryHrid =
       runtime.state.initData_itemDetailMap?.[item.itemHrid]?.categoryHrid;
     if (!categoryHrid) continue;
     const value =
       Math.max(0, Number(item.count) || 0) *
-      runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel);
+      runtime.api.getAssetValue(item.itemHrid, item.enhancementLevel, {
+        itemLocationHrid: item.itemLocationHrid,
+      });
     categoryValues.set(
       categoryHrid,
       (categoryValues.get(categoryHrid) ?? 0) + value,
@@ -383,11 +394,11 @@ async function calculateNetworth() {
         <div class="mwi-inventory-summary-grid">
           <section class="mwi-summary-card mwi-summary-card--combat">
             <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.battle.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="buildScores" style="display: none;" hidden>
               <div class="mwi-summary-stats">
@@ -400,11 +411,11 @@ async function calculateNetworth() {
 
           <section class="mwi-summary-card mwi-summary-card--skilling">
             <button type="button" class="mwi-summary-toggle" id="toggleSkillingScores" aria-expanded="false" aria-controls="skillingScores">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.skilling.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="skillingScores" style="display: none;" hidden>
               <div class="mwi-summary-stats">
@@ -417,16 +428,16 @@ async function calculateNetworth() {
 
           <section class="mwi-summary-card mwi-summary-card--assets">
             <button type="button" class="mwi-summary-toggle" id="toggleNetWorth" aria-expanded="false" aria-controls="netWorthDetails">
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
                 <span class="mwi-summary-value">${numberHtml(values.total)}</span>
               </span>
-              <span class="mwi-summary-chevron" aria-hidden="true"></span>
             </button>
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
               <div class="mwi-asset-groups">
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产" : "Liquid assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-summary-chevron" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产" : "Liquid assets"}</span><span class="mwi-asset-subtotal">${numberHtml(values.liquid)}</span></button>
                   <div class="mwi-asset-rows" id="currentAssets" style="display: none;" hidden>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "装备：" : "Equipment: "}</span>${numberHtml(values.equipment)}</div>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "库存：" : "Inventory: "}</span>${numberHtml(values.inventory)}</div>
@@ -434,7 +445,7 @@ async function calculateNetworth() {
                   </div>
                 </section>
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产" : "Non-current assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-summary-chevron" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产" : "Non-current assets"}</span><span class="mwi-asset-subtotal">${numberHtml(values.fixed)}</span></button>
                   <div class="mwi-asset-rows" id="nonCurrentAssets" style="display: none;" hidden>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "房屋：" : "Houses: "}</span>${numberHtml(values.houses)}</div>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "技能：" : "Abilities: "}</span>${numberHtml(values.abilities)}</div>

@@ -382,6 +382,8 @@ export function calculateEnhancementPlan({
     .initData_enhancementLevelTotalBonusMultiplierTable,
   actionDetailMap = runtime.state.initData_actionDetailMap,
   getFairValue = runtime.api.getFairValue,
+  forcedProtectionItemHrid = null,
+  allowPhilosopherMirror = true,
 } = {}) {
   const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
   const baseItemHrid = itemHrid.endsWith("_refined")
@@ -428,11 +430,13 @@ export function calculateEnhancementPlan({
   if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
   if (hasMissingRequiredPrice) return unavailableResult([...missing]);
 
-  const protectionCandidates = [
-    baseItemHrid,
-    ...(item.protectionItemHrids ?? []),
-    "/items/mirror_of_protection",
-  ];
+  const protectionCandidates = forcedProtectionItemHrid
+    ? [forcedProtectionItemHrid]
+    : [
+        baseItemHrid,
+        ...(item.protectionItemHrids ?? []),
+        "/items/mirror_of_protection",
+      ];
   let protectionPrice = 0;
   for (const candidate of new Set(protectionCandidates)) {
     const value = price(candidate, 0);
@@ -483,7 +487,7 @@ export function calculateEnhancementPlan({
     }
   }
 
-  if (philosopherMirrorPrice > 0) {
+  if (allowPhilosopherMirror && philosopherMirrorPrice > 0) {
     for (
       let philosopherStartLevel = 1;
       philosopherStartLevel < target;
