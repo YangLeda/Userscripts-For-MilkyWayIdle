@@ -24,6 +24,8 @@ function addStyles() {
     .mwi-enhancement-metric:last-child .mwi-enhancement-label,.mwi-enhancement-metric:last-child .mwi-enhancement-value { border-bottom:0; }
     .mwi-enhancement-label { min-width:0; color:var(--color-text-secondary,#aeb5c0); }
     .mwi-enhancement-value { justify-content:flex-end; color:#fff; font-weight:650; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .mwi-enhancement-protection .mwi-enhancement-label { display:none; }
+    .mwi-enhancement-protection .mwi-enhancement-value { grid-column:1/-1; justify-content:flex-start; white-space:normal; }
   `;
   document.head.append(style);
 }
@@ -75,19 +77,16 @@ function protectionUsage(plan) {
   if (!Number.isFinite(normal) || !Number.isFinite(mirror)) {
     return { text: "—", title: "" };
   }
-  if (mirror > 1e-8) {
-    return {
-      text: t(
-        `普通 ${compactNumber(normal, 1)} · 镜 ${compactNumber(mirror, 1)}`,
-        `Normal ${compactNumber(normal, 1)} · Mirror ${compactNumber(mirror, 1)}`,
-      ),
-      title: t(
-        `普通保护：${exactTitle(normal)}；贤者之镜：${exactTitle(mirror)}`,
-        `Regular protection: ${exactTitle(normal)}; Philosopher's Mirrors: ${exactTitle(mirror)}`,
-      ),
-    };
-  }
-  return { text: compactNumber(normal, 1), title: exactTitle(normal) };
+  return {
+    text: t(
+      `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
+      `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`,
+    ),
+    title: t(
+      `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
+      `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`,
+    ),
+  };
 }
 
 function renderPanel(panel, plan) {
@@ -115,6 +114,8 @@ function renderPanel(panel, plan) {
       : t("需要", "Need");
   const grid = document.createElement("div");
   grid.className = "mwi-enhancement-grid";
+  const protectionMetric = metric("", protection.text, null, protection.title);
+  protectionMetric.classList.add("mwi-enhancement-protection");
   grid.append(
     metric(
       t("总成本", "Total cost"),
@@ -127,12 +128,7 @@ function renderPanel(panel, plan) {
       plan?.totalSeconds,
     ),
     metric(t("开始保护", "Protect from"), normalStart),
-    metric(
-      t("保护次数", "Protection uses"),
-      protection.text,
-      null,
-      protection.title,
-    ),
+    protectionMetric,
     metric(t("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
     metric(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
     metric(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount),

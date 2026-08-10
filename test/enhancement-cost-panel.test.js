@@ -66,7 +66,7 @@ test("enhancement UI is a separate seven-row sibling", () => {
   assert.match(panel.textContent, /总成本/);
   assert.match(panel.textContent, /开始保护\+6/);
   assert.match(panel.textContent, /开始贤者保护\+10/);
-  assert.match(panel.textContent, /普通 7\.3 · 镜 1\.0/);
+  assert.match(panel.textContent, /普通保护 7\.3 次，贤者之镜 1\.0 次/);
   assert.match(panel.textContent, /需要 \+105\.5 个/);
   assert.match(panel.textContent, /需要 \+93\.3 个/);
 
@@ -145,8 +145,10 @@ test("English labels are synchronized", () => {
   const panel = showEnhancementCostPanel(anchor(), completePlan());
   assert.match(panel.textContent, /Total cost/);
   assert.match(panel.textContent, /Protect from/);
-  assert.match(panel.textContent, /Protection uses/);
-  assert.match(panel.textContent, /Normal 7\.3 · Mirror 1\.0/);
+  assert.match(
+    panel.textContent,
+    /Regular protection: 7\.3 uses; Philosopher's Mirror: 1\.0 uses/,
+  );
   assert.match(panel.textContent, /Philosopher's Mirror from/);
   runtime.config.isZH = true;
 });

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.24
+// @version      26.2.25
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
