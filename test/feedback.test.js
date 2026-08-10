@@ -84,3 +84,55 @@ test("feedback button sits below total level and UI remains a singleton", () => 
   assert.equal(document.querySelector("#mwitools-feedback-button"), null);
   assert.equal(document.querySelector("#mwitools-feedback-root"), null);
 });
+
+test("feedback quota failures replace the loading state with a visible error", async () => {
+  const scope = runtime.createCleanupScope();
+  const panel = new FeedbackPanel({
+    client: {
+      list: async () => {
+        throw new Error("network unavailable");
+      },
+    },
+    scope,
+  });
+
+  assert.equal(await panel.refresh(), false);
+  assert.match(
+    panel.root.querySelector(".mwi-feedback-quota").textContent,
+    /额度查询失败.*network unavailable/,
+  );
+  scope.cleanup();
+});
+
+test("successful feedback submission updates quota without waiting for list refresh", async () => {
+  const scope = runtime.createCleanupScope();
+  const never = new Promise(() => {});
+  const panel = new FeedbackPanel({
+    client: {
+      submit: async (value) => ({
+        id: "saved-feedback",
+        status: "pending",
+        title: value.title,
+        updatedAt: "2026-08-10T00:00:00.000Z",
+      }),
+      list: () => never,
+    },
+    scope,
+  });
+  panel.quota = { limit: 2, remaining: 2 };
+  panel.form.elements.title.value = "Saved quickly";
+  panel.form.elements.detail.value = "Details";
+
+  await panel.submit({ preventDefault() {} });
+
+  assert.match(panel.root.textContent, /Saved quickly/);
+  assert.match(
+    panel.root.querySelector(".mwi-feedback-quota").textContent,
+    /1\/2/,
+  );
+  assert.equal(
+    panel.form.querySelector(".mwi-feedback-submit").disabled,
+    false,
+  );
+  scope.cleanup();
+});

@@ -2,6 +2,7 @@ import { runtime } from "../../core/runtime.js";
 
 const API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
 const TOKEN_PREFIX = "MWITools_feedback_identity_v1";
+const REQUEST_TIMEOUT = 10_000;
 export const MAX_IMAGE_LINKS = 3;
 
 function t(zh, en) {
@@ -128,10 +129,13 @@ function request({ token, path, method = "GET", body }) {
   if (body && !(body instanceof globalThis.FormData))
     headers["Content-Type"] = "application/json";
   if (!requestFn) {
+    const controller = new globalThis.AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
     return globalThis
       .fetch(`${API_BASE}${path}`, {
         method,
         headers,
+        signal: controller.signal,
         body:
           body instanceof globalThis.FormData
             ? body
@@ -147,13 +151,24 @@ function request({ token, path, method = "GET", body }) {
           );
         }
         return response.json();
-      });
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") {
+          throw new Error(
+            t("意见反馈服务请求超时", "Feedback service request timed out"),
+          );
+        }
+        throw error;
+      })
+      .finally(() => clearTimeout(timeout));
   }
   return new Promise((resolve, reject) => {
     let settled = false;
+    let watchdog;
     const finish = (response) => {
       if (settled) return;
       settled = true;
+      clearTimeout(watchdog);
       const status = Number(response?.status) || 0;
       if (status < 200 || status >= 300) {
         const payload = parseResponse(response);
@@ -173,8 +188,14 @@ function request({ token, path, method = "GET", body }) {
     const fail = (message) => {
       if (settled) return;
       settled = true;
+      clearTimeout(watchdog);
       reject(new Error(message));
     };
+    watchdog = setTimeout(
+      () =>
+        fail(t("意见反馈服务请求超时", "Feedback service request timed out")),
+      REQUEST_TIMEOUT + 1_000,
+    );
     try {
       const result = requestFn({
         method,
@@ -187,7 +208,7 @@ function request({ token, path, method = "GET", body }) {
               ? JSON.stringify(body)
               : undefined,
         responseType: "text",
-        timeout: 20_000,
+        timeout: REQUEST_TIMEOUT,
         anonymous: false,
         onload: finish,
         onerror: () =>
@@ -255,23 +276,32 @@ export class FeedbackClient {
     this.token = getPrivateValue(this.storageKey) || createToken();
     setPrivateValue(this.storageKey, this.token);
     this.registered = false;
+    this.identityPromise = null;
   }
 
   async ensureIdentity() {
     if (this.registered) return;
-    const result = await request({
-      token: this.token,
-      path: "/identity",
-      method: "POST",
-      body: {
-        gameServer: this.server,
-        characterId: this.characterId,
-        characterName: this.characterName,
-        source: "mwitools-userscript",
-      },
-    });
-    this.registered = true;
-    return result;
+    if (!this.identityPromise) {
+      this.identityPromise = request({
+        token: this.token,
+        path: "/identity",
+        method: "POST",
+        body: {
+          gameServer: this.server,
+          characterId: this.characterId,
+          characterName: this.characterName,
+          source: "mwitools-userscript",
+        },
+      })
+        .then((result) => {
+          this.registered = true;
+          return result;
+        })
+        .finally(() => {
+          this.identityPromise = null;
+        });
+    }
+    return this.identityPromise;
   }
 
   async call(path, options = {}) {

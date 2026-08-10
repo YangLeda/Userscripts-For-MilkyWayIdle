@@ -33,9 +33,9 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_setValue",
     "// @connect      feedback.43.167.210.211.sslip.io",
     "// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js",
-    "// @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
-    "// @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js",
-    "// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js",
   ]) {
     assert.ok(
       output.includes(directive),
@@ -68,7 +68,7 @@ test("test userscript is independently installable and test-only", () => {
     testOutput,
     /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
   );
-  assert.match(testOutput, /^\/\/ @version\s+26\.2\.4$/m);
+  assert.match(testOutput, /^\/\/ @version\s+26\.2\.5$/m);
   assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
   assert.match(
     testOutput,

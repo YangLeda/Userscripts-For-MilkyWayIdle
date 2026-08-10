@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.4
+// @version      26.2.5
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -19,9 +19,9 @@
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
-// @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js
-// @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js
-// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js
 // ==/UserScript==
 
 /*
@@ -26860,6 +26860,7 @@ ${locks}` : ""}`;
   // src/features/feedback/client.js
   var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
+  var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
   function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -26967,9 +26968,12 @@ ${locks}` : ""}`;
     if (body && !(body instanceof globalThis.FormData))
       headers["Content-Type"] = "application/json";
     if (!requestFn) {
+      const controller = new globalThis.AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
       return globalThis.fetch(`${API_BASE}${path}`, {
         method,
         headers,
+        signal: controller.signal,
         body: body instanceof globalThis.FormData ? body : body ? JSON.stringify(body) : void 0
       }).then(async (response) => {
         if (!response.ok) {
@@ -26979,13 +26983,22 @@ ${locks}` : ""}`;
           );
         }
         return response.json();
-      });
+      }).catch((error) => {
+        if (error?.name === "AbortError") {
+          throw new Error(
+            t7("意见反馈服务请求超时", "Feedback service request timed out")
+          );
+        }
+        throw error;
+      }).finally(() => clearTimeout(timeout));
     }
     return new Promise((resolve, reject) => {
       let settled = false;
+      let watchdog;
       const finish = (response) => {
         if (settled) return;
         settled = true;
+        clearTimeout(watchdog);
         const status = Number(response?.status) || 0;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
@@ -27004,8 +27017,13 @@ ${locks}` : ""}`;
       const fail = (message) => {
         if (settled) return;
         settled = true;
+        clearTimeout(watchdog);
         reject(new Error(message));
       };
+      watchdog = setTimeout(
+        () => fail(t7("意见反馈服务请求超时", "Feedback service request timed out")),
+        REQUEST_TIMEOUT + 1e3
+      );
       try {
         const result = requestFn({
           method,
@@ -27013,7 +27031,7 @@ ${locks}` : ""}`;
           headers,
           data: body instanceof globalThis.FormData ? body : body ? JSON.stringify(body) : void 0,
           responseType: "text",
-          timeout: 2e4,
+          timeout: REQUEST_TIMEOUT,
           anonymous: false,
           onload: finish,
           onerror: () => fail(
@@ -27074,22 +27092,29 @@ ${locks}` : ""}`;
       this.token = getPrivateValue(this.storageKey) || createToken();
       setPrivateValue(this.storageKey, this.token);
       this.registered = false;
+      this.identityPromise = null;
     }
     async ensureIdentity() {
       if (this.registered) return;
-      const result = await request({
-        token: this.token,
-        path: "/identity",
-        method: "POST",
-        body: {
-          gameServer: this.server,
-          characterId: this.characterId,
-          characterName: this.characterName,
-          source: "mwitools-userscript"
-        }
-      });
-      this.registered = true;
-      return result;
+      if (!this.identityPromise) {
+        this.identityPromise = request({
+          token: this.token,
+          path: "/identity",
+          method: "POST",
+          body: {
+            gameServer: this.server,
+            characterId: this.characterId,
+            characterName: this.characterName,
+            source: "mwitools-userscript"
+          }
+        }).then((result) => {
+          this.registered = true;
+          return result;
+        }).finally(() => {
+          this.identityPromise = null;
+        });
+      }
+      return this.identityPromise;
     }
     async call(path, options = {}) {
       await this.ensureIdentity();
@@ -27322,6 +27347,7 @@ ${locks}` : ""}`;
       const error = this.form.querySelector(".mwi-feedback-error");
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
+      error.classList.remove("mwi-feedback-success");
       error.textContent = t8("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
@@ -27330,21 +27356,31 @@ ${locks}` : ""}`;
             t8("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
-        if (this.editing) {
-          await this.client.edit(this.editing.id, value);
-        } else {
-          await this.client.submit(value);
+        const editingId = this.editing?.id ?? null;
+        const saved = editingId ? await this.client.edit(editingId, value) : await this.client.submit(value);
+        if (!editingId && this.quota) {
+          this.quota = {
+            ...this.quota,
+            remaining: Math.max(0, Number(this.quota.remaining) - 1)
+          };
+        }
+        if (saved?.id) {
+          this.items = [
+            saved,
+            ...this.items.filter((item) => item.id !== saved.id)
+          ];
         }
         this.resetForm();
+        this.renderQuota();
         error.classList.add("mwi-feedback-success");
         error.textContent = t8("已保存反馈。", "Feedback saved.");
-        await this.refresh();
         this.showTab("mine");
+        void this.refresh();
       } catch (caught) {
         error.classList.remove("mwi-feedback-success");
         error.textContent = caught.message;
       } finally {
-        button.disabled = false;
+        button.disabled = !this.editing && this.quota?.remaining === 0;
       }
     }
     resetForm() {
@@ -27363,6 +27399,10 @@ ${locks}` : ""}`;
         this.quota = result.quota;
         this.setUnread(result.unread ?? 0);
         this.renderQuota();
+        this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
+          if (!node.classList.contains("mwi-feedback-success"))
+            node.textContent = "";
+        });
         if (this.currentDetailId && !this.root.hidden) {
           await this.openDetail(this.currentDetailId);
         } else {
@@ -27370,15 +27410,19 @@ ${locks}` : ""}`;
         }
         return true;
       } catch (error) {
+        this.renderQuota(error.message);
         this.root.querySelector(
           '[data-view="mine"] .mwi-feedback-error'
         ).textContent = error.message;
         return false;
       }
     }
-    renderQuota() {
+    renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = this.quota ? t8(
+      node.textContent = errorMessage ? t8(
+        `额度查询失败：${errorMessage}`,
+        `Quota check failed: ${errorMessage}`
+      ) : this.quota ? t8(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
       ) : t8("额度暂时不可用", "Quota unavailable");

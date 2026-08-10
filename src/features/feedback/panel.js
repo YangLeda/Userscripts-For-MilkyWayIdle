@@ -200,6 +200,7 @@ export class FeedbackPanel {
     const error = this.form.querySelector(".mwi-feedback-error");
     const button = this.form.querySelector(".mwi-feedback-submit");
     button.disabled = true;
+    error.classList.remove("mwi-feedback-success");
     error.textContent = t("正在提交…", "Submitting…");
     try {
       const value = this.formValue();
@@ -208,21 +209,33 @@ export class FeedbackPanel {
           t("请填写标题和详细说明。", "Enter a title and details."),
         );
       }
-      if (this.editing) {
-        await this.client.edit(this.editing.id, value);
-      } else {
-        await this.client.submit(value);
+      const editingId = this.editing?.id ?? null;
+      const saved = editingId
+        ? await this.client.edit(editingId, value)
+        : await this.client.submit(value);
+      if (!editingId && this.quota) {
+        this.quota = {
+          ...this.quota,
+          remaining: Math.max(0, Number(this.quota.remaining) - 1),
+        };
+      }
+      if (saved?.id) {
+        this.items = [
+          saved,
+          ...this.items.filter((item) => item.id !== saved.id),
+        ];
       }
       this.resetForm();
+      this.renderQuota();
       error.classList.add("mwi-feedback-success");
       error.textContent = t("已保存反馈。", "Feedback saved.");
-      await this.refresh();
       this.showTab("mine");
+      void this.refresh();
     } catch (caught) {
       error.classList.remove("mwi-feedback-success");
       error.textContent = caught.message;
     } finally {
-      button.disabled = false;
+      button.disabled = !this.editing && this.quota?.remaining === 0;
     }
   }
 
@@ -243,6 +256,10 @@ export class FeedbackPanel {
       this.quota = result.quota;
       this.setUnread(result.unread ?? 0);
       this.renderQuota();
+      this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
+        if (!node.classList.contains("mwi-feedback-success"))
+          node.textContent = "";
+      });
       if (this.currentDetailId && !this.root.hidden) {
         await this.openDetail(this.currentDetailId);
       } else {
@@ -250,6 +267,7 @@ export class FeedbackPanel {
       }
       return true;
     } catch (error) {
+      this.renderQuota(error.message);
       this.root.querySelector(
         '[data-view="mine"] .mwi-feedback-error',
       ).textContent = error.message;
@@ -257,14 +275,19 @@ export class FeedbackPanel {
     }
   }
 
-  renderQuota() {
+  renderQuota(errorMessage = "") {
     const node = this.form.querySelector(".mwi-feedback-quota");
-    node.textContent = this.quota
+    node.textContent = errorMessage
       ? t(
-          `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
-          `${this.quota.remaining}/${this.quota.limit} submissions left this week`,
+          `额度查询失败：${errorMessage}`,
+          `Quota check failed: ${errorMessage}`,
         )
-      : t("额度暂时不可用", "Quota unavailable");
+      : this.quota
+        ? t(
+            `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
+            `${this.quota.remaining}/${this.quota.limit} submissions left this week`,
+          )
+        : t("额度暂时不可用", "Quota unavailable");
     this.form.querySelector(".mwi-feedback-submit").disabled =
       !this.editing && this.quota?.remaining === 0;
   }
