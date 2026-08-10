@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.18
+// @version      26.2.19
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -29206,6 +29206,47 @@ ${locks}` : ""}`;
   });
 
   // src/features/enhancement.js
+  var THIRD_PARTY_LINKS = [
+    {
+      zh: "新战斗模拟 Stella",
+      en: "New combat sim Stella",
+      url: "https://mwisim.org/combat/setup"
+    },
+    {
+      zh: "利润网 Polokikiki",
+      en: "Profit site Polokikiki",
+      url: "https://polokikiki.github.io/Milkonomy/#/dashboard"
+    },
+    {
+      zh: "人才市场 Shiin",
+      en: "Talent market Shiin",
+      url: "https://greasyfork.org/zh-CN/scripts/559347-mwi-talent-market"
+    },
+    {
+      zh: "插件合集 Q7",
+      en: "Plugin collection Q7",
+      url: "https://js.nainai.eu.org/"
+    },
+    {
+      zh: "战斗模拟 shykai",
+      en: "Combat sim shykai",
+      url: "https://shykai.github.io/MWICombatSimulatorTest/dist/"
+    },
+    {
+      zh: "战斗榜 socko",
+      en: "Combat Tracker socko",
+      url: "https://sockosnewcombattracker.pages.dev/"
+    }
+  ];
+  function createMinorNavigationLink(label, onClick) {
+    const div = document.createElement("div");
+    div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
+    div.dataset.mwitoolsExternalLink = "true";
+    div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+    div.textContent = label;
+    div.addEventListener("click", onClick);
+    return div;
+  }
   function add3rdPartyLinks() {
     if (!runtime.settings.get("ThirdPartyLinks")) return;
     const waitForNavi = () => {
@@ -29216,89 +29257,36 @@ ${locks}` : ""}`;
         if (targetNode.querySelector('[data-mwitools-external-link="true"]')) {
           return;
         }
-        let div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "插件设置" : "Script settings";
-        div.addEventListener("click", () => {
-          const array = document.querySelectorAll(
-            ".NavigationBar_navigationLink__3eAHA"
-          );
-          array[array.length - 1]?.click();
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
+        const links = THIRD_PARTY_LINKS.map(
+          (link) => createMinorNavigationLink(
+            runtime.config.isZH ? link.zh : link.en,
+            () => window.open(link.url, "_blank")
+          )
+        );
         if (runtime.config.isZH) {
-          div = document.createElement("div");
-          div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-          div.dataset.mwitoolsExternalLink = "true";
-          div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-          div.innerHTML = runtime.config.isZH ? "牛牛手册" : "牛牛手册";
-          div.addEventListener("click", () => {
-            window.open(
-              "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe",
-              "_blank"
-            );
-          });
-          targetNode.insertAdjacentElement("afterbegin", div);
-        }
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "利润计算 Mooneycalc" : "Profit calc Mooneycalc";
-        div.addEventListener("click", () => {
-          window.open("https://mooneycalc.netlify.app/", "_blank");
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "利润计算 Milkonomy" : "Profit calc Milkonomy";
-        div.addEventListener("click", () => {
-          window.open("https://milkonomy.pages.dev/", "_blank");
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "利润计算 Cowculator" : "Profit calc Cowculator";
-        div.addEventListener("click", () => {
-          window.open("https://danthegoodman.github.io/cowculator/", "_blank");
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "强化模拟 Enhancelator" : "Enhancement sim Enhancelator";
-        div.addEventListener("click", () => {
-          window.open("https://doh-nuts.github.io/Enhancelator/", "_blank");
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "战斗榜 socko" : "Combat Tracker socko";
-        div.addEventListener("click", () => {
-          window.open("https://sockosnewcombattracker.pages.dev/", "_blank");
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
-        div = document.createElement("div");
-        div.setAttribute("class", "NavigationBar_minorNavigationLink__31K7Y");
-        div.dataset.mwitoolsExternalLink = "true";
-        div.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        div.innerHTML = runtime.config.isZH ? "战斗模拟 shykai" : "Combat sim shykai";
-        div.addEventListener("click", () => {
-          window.open(
-            "https://shykai.github.io/MWICombatSimulatorTest/dist/",
-            "_blank"
+          links.push(
+            createMinorNavigationLink("牛牛手册", () => {
+              window.open(
+                "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe",
+                "_blank"
+              );
+            })
           );
-        });
-        targetNode.insertAdjacentElement("afterbegin", div);
+        }
+        links.push(
+          createMinorNavigationLink(
+            runtime.config.isZH ? "插件设置" : "Script settings",
+            () => {
+              const array = document.querySelectorAll(
+                ".NavigationBar_navigationLink__3eAHA"
+              );
+              array[array.length - 1]?.click();
+            }
+          )
+        );
+        const fragment = document.createDocumentFragment();
+        links.forEach((link) => fragment.append(link));
+        targetNode.insertBefore(fragment, targetNode.firstChild);
       } else {
         setTimeout(add3rdPartyLinks, 200);
       }
