@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.28
+// @version      26.2.29
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -30683,6 +30683,7 @@ ${locks}` : ""}`;
 
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
+  var BACK_MIRROR_DEFAULT_MIGRATION_KEY = "MWITools_back_mirror_default_enabled_v1";
   var SETTINGS_STYLE_ID = "mwitools-settings-style";
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   function persistSettings() {
@@ -30737,6 +30738,10 @@ ${locks}` : ""}`;
       }
     }
     runtime.settings.settingsMap.displayCapMM.isTrue = false;
+    if (!localStorage.getItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY)) {
+      runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
+      localStorage.setItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY, "1");
+    }
     applyVisualSettings();
     persistSettings();
   }

@@ -1,6 +1,8 @@
 import { runtime } from "../core/runtime.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
+const BACK_MIRROR_DEFAULT_MIGRATION_KEY =
+  "MWITools_back_mirror_default_enabled_v1";
 const SETTINGS_STYLE_ID = "mwitools-settings-style";
 const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 
@@ -71,6 +73,12 @@ function readSettings() {
 
   // The old cap-at-M option conflicts with the unified K/M/B/T formatter.
   runtime.settings.settingsMap.displayCapMM.isTrue = false;
+  // 26.2.27 briefly shipped this new option as disabled. Enable it once for
+  // existing installs, then preserve every explicit choice made afterward.
+  if (!localStorage.getItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY)) {
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
+    localStorage.setItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY, "1");
+  }
   applyVisualSettings();
   persistSettings();
 }

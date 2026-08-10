@@ -83,6 +83,25 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   );
 });
 
+test("back mirror valuation migrates to enabled once and then preserves user choice", () => {
+  const migrationKey = "MWITools_back_mirror_default_enabled_v1";
+  localStorage.removeItem(migrationKey);
+  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+  runtime.api.readSettings();
+  assert.equal(
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
+    true,
+  );
+
+  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+  runtime.api.persistSettings();
+  runtime.api.readSettings();
+  assert.equal(
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
+    false,
+  );
+});
+
 test("card settings render every visible setting with nested children and search", async (t) => {
   document.body.innerHTML =
     '<div class="SettingsPanel_profileTab__test"></div>';
