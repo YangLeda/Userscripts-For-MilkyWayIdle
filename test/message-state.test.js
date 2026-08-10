@@ -182,6 +182,16 @@ test("character, action and equipment messages update canonical state", () => {
   assert.equal(runtime.state.currentActionsHridList[0].currentCount, 7);
 
   runtime.api.applyGameMessage({
+    type: "action_completed",
+    endCharacterAction: { id: "2", currentCount: 8 },
+  });
+  assert.equal(
+    runtime.state.currentActionsHridList[0].currentCount,
+    8,
+    "an omitted isDone flag must not reset the remaining-action estimate",
+  );
+
+  runtime.api.applyGameMessage({
     type: "items_updated",
     endCharacterItems: [
       {

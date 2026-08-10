@@ -42,6 +42,7 @@ await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
+await import("../src/core/message-state.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/settings-and-notifications.js");
 
@@ -161,6 +162,38 @@ test("the top action bar shows only current-action count, time left, and finish 
     true,
   );
   assert.equal(dom.window.getComputedStyle(dashboard).position, "absolute");
+});
+
+test("the top action estimate keeps the completed-cycle progress after the bar restarts", () => {
+  runtime.state.currentActionsHridList = [
+    {
+      id: 42,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  const active = document.querySelector('[class*="ProgressBar_active"]');
+  active.style.transform = "matrix(0.7, 0, 0, 1, 0, 0)";
+  runtime.api.renderActionDashboard();
+  assert.match(
+    document.querySelector("#mwi-action-dashboard").textContent,
+    /还需 53s/,
+  );
+
+  runtime.api.applyGameMessage({
+    type: "action_completed",
+    endCharacterAction: { id: 42, currentCount: 1 },
+  });
+  active.style.transform = "matrix(0, 0, 0, 1, 0, 0)";
+  runtime.api.renderActionDashboard();
+
+  const text = document.querySelector("#mwi-action-dashboard").textContent;
+  assert.match(text, /剩余 5/);
+  assert.match(text, /还需 50s/);
+  assert.doesNotMatch(text, /还需 1m/);
+  active.style.transform = "matrix(0.7, 0, 0, 1, 0, 0)";
 });
 
 test("material-limited infinite production shows a finite live remainder", () => {

@@ -296,11 +296,17 @@ function applyActionsUpdated(payload) {
 
 function applyActionCompleted(payload) {
   const action = payload.endCharacterAction;
-  if (action.isDone !== false) return;
+  if (!action || action.isDone === true) return;
   const currentAction = runtime.state.currentActionsHridList.find(
-    ({ id }) => id === action.id,
+    ({ id }) => String(id) === String(action.id),
   );
-  if (currentAction) currentAction.currentCount = action.currentCount;
+  if (!currentAction) return;
+  const currentCount = Number(
+    action.currentCount ?? action.completedCount ?? action.progressCount,
+  );
+  if (Number.isFinite(currentCount)) {
+    currentAction.currentCount = currentCount;
+  }
 }
 
 function applyItemsUpdated(payload) {
