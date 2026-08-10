@@ -157,7 +157,21 @@ for (const [classId, definition] of Object.entries(ClassSystem.definitions)) {
     ),
     classId + " 职业没有引用正确的游戏 Sprite",
   );
+  assert(
+    !/[\u3400-\u9fff]/.test(definition.label),
+    classId + " 职业在英文模式下仍显示中文",
+  );
 }
+assert(
+  ClassDebug.report().startsWith("=== MWI DPS Meter | Class Diagnostics"),
+  "职业调试报告没有跟随 DPS 英文设置",
+);
+assert(
+  ClassProbe.report().startsWith(
+    "=== MWI DPS Meter | Manual Full Incoming-Message Probe",
+  ),
+  "全量探针报告没有跟随 DPS 英文设置",
+);
 Settings.setLanguage("zh");
 assert(
   DamageSources.label("/abilities/sweep") === "横扫" &&

@@ -5,7 +5,14 @@ const TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
 
 export function questId(quest) {
   return String(
-    quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? "",
+    quest?.id ??
+      quest?.characterQuestID ??
+      quest?.characterQuestId ??
+      quest?.questID ??
+      quest?.questId ??
+      quest?.characterTaskID ??
+      quest?.characterTaskId ??
+      "",
   );
 }
 
@@ -47,17 +54,38 @@ export function readTaskNewState(storageKey) {
     return {
       known: new Set(Array.isArray(value?.known) ? value.known : []),
       fresh: new Set(Array.isArray(value?.fresh) ? value.fresh : []),
+      initialized:
+        value?.initialized === true ||
+        (Array.isArray(value?.known) && value.known.length > 0),
     };
   } catch {
-    return { known: new Set(), fresh: new Set() };
+    return { known: new Set(), fresh: new Set(), initialized: false };
   }
 }
 
 export function writeTaskNewState(storageKey, state) {
   localStorage.setItem(
     storageKey,
-    JSON.stringify({ known: [...state.known], fresh: [...state.fresh] }),
+    JSON.stringify({
+      initialized: state.initialized === true,
+      known: [...state.known],
+      fresh: [...state.fresh],
+    }),
   );
+}
+
+export function initializeQuestState(state, quests) {
+  const firstBaseline = state.initialized !== true;
+  const currentIds = new Set((quests ?? []).map(questId).filter(Boolean));
+  for (const id of currentIds) {
+    if (!firstBaseline && !state.known.has(id)) state.fresh.add(id);
+    state.known.add(id);
+  }
+  for (const id of [...state.fresh]) {
+    if (!currentIds.has(id)) state.fresh.delete(id);
+  }
+  state.initialized = true;
+  return state;
 }
 
 export function applyQuestUpdates(state, updates) {
@@ -107,13 +135,10 @@ runtime.features.register({
     const storageKey = taskNewStorageKey(characterId);
     const state = readTaskNewState(storageKey);
     const initial = runtime.state.characterQuests ?? [];
-    const currentIds = new Set(initial.map(questId).filter(Boolean));
-    // First install/character initialization is only a baseline. Persisted new
-    // markers are retained so a task received while the page was closed remains visible.
-    for (const id of currentIds) state.known.add(id);
-    for (const id of [...state.fresh]) {
-      if (!currentIds.has(id)) state.fresh.delete(id);
-    }
+    // Only the first-ever snapshot is a baseline. On later page loads, tasks
+    // absent from the persisted baseline are new even if they were received
+    // while the task page (or the whole game page) was closed.
+    initializeQuestState(state, initial);
     writeTaskNewState(storageKey, state);
 
     const markRead = (id) => {

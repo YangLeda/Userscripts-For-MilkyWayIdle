@@ -1,20 +1,20 @@
 import { feedbackContext, normalizeImageLinks } from "./client.js";
+import { runtime } from "../../core/runtime.js";
 
 const ROOT_ID = "mwitools-feedback-root";
 const BUTTON_ID = "mwitools-feedback-button";
 const STYLE_ID = "mwitools-feedback-style";
-const STATUS_LABELS = {
-  pending: "待处理",
-  processing: "处理中",
-  closed: "已结束",
-};
-
 function t(zh, en) {
-  const language =
-    globalThis.localStorage?.getItem("i18nextLng") ??
-    globalThis.document?.documentElement?.lang ??
-    "en";
-  return language.toLowerCase().startsWith("zh") ? zh : en;
+  return runtime.config.isZH ? zh : en;
+}
+
+function statusLabel(status) {
+  const labels = {
+    pending: ["待处理", "Pending"],
+    processing: ["处理中", "Processing"],
+    closed: ["已结束", "Closed"],
+  };
+  return labels[status] ? t(...labels[status]) : status;
 }
 
 function addStyles() {
@@ -70,8 +70,8 @@ export class FeedbackPanel {
     this.root.id = ROOT_ID;
     this.root.hidden = true;
     this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t("意见反馈", "Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t("意见反馈", "Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t("关闭", "Close")}">×</button></header>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t("关闭", "Close")}">×</button></header>
         <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
           <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
@@ -122,7 +122,7 @@ export class FeedbackPanel {
       button = document.createElement("button");
       button.type = "button";
       button.id = BUTTON_ID;
-      button.innerHTML = `<span>✉</span><span>${t("意见反馈", "Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+      button.innerHTML = `<span>✉</span><span>${t("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
       this.scope.event(button, "click", () => this.open());
     }
     if (
@@ -293,7 +293,7 @@ export class FeedbackPanel {
       const status = makeElement(
         "span",
         `mwi-feedback-status ${item.status}`,
-        STATUS_LABELS[item.status] ?? item.status,
+        statusLabel(item.status),
       );
       meta.append(status, document.createTextNode(formatTime(item.updatedAt)));
       card.append(title, meta);
@@ -324,7 +324,7 @@ export class FeedbackPanel {
       const meta = makeElement(
         "div",
         "mwi-feedback-card-meta",
-        `${STATUS_LABELS[item.status] ?? item.status} · ${formatTime(item.updatedAt)}`,
+        `${statusLabel(item.status)} · ${formatTime(item.updatedAt)}`,
       );
       detail.append(
         back,

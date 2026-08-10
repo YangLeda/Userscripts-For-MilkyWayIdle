@@ -13,6 +13,8 @@ import {
 } from "./10-combat-sources.js";
 import { Session } from "./20-session.js";
 
+const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
+
 // ─── 战斗历史与活动缓存 ───────────────────────────────────────────────────────
 const HistoryStore = (() => {
   const KEY = "kikimeter:history:v2",
@@ -195,6 +197,7 @@ const HistoryStore = (() => {
 const SegmentSelection = (() => {
   let selectedKey = "current";
   let cachedRevision = -1,
+    cachedLanguage = "",
     cachedOptions = [];
   const bus = new EventTarget();
   const fightKey = (id) => "fight:" + encodeURIComponent(String(id));
@@ -206,28 +209,29 @@ const SegmentSelection = (() => {
   function dateLabel(entry) {
     const d = new Date(entry.date || entry.startedAt || Date.now());
     const pad = (value) => String(value).padStart(2, "0");
+    const type = entry.type || "combat";
     const typeLabel =
-      { combat: "普通", labyrinth: "迷宫", trial: "试炼" }[
-        entry.type || "combat"
-      ] || "普通";
-    return (
-      typeLabel +
-      " " +
-      (entry.players || []).length +
-      "人 " +
-      (d.getMonth() + 1) +
-      "月" +
-      d.getDate() +
-      "日" +
-      pad(d.getHours()) +
-      ":" +
-      pad(d.getMinutes())
-    );
+      Settings.getLanguage() === "en"
+        ? { combat: "Combat", labyrinth: "Labyrinth", trial: "Trial" }[type] ||
+          "Combat"
+        : { combat: "普通", labyrinth: "迷宫", trial: "试炼" }[type] || "普通";
+    const count = (entry.players || []).length;
+    return Settings.getLanguage() === "en"
+      ? `${typeLabel} ${count} players ${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+      : `${typeLabel} ${count}人 ${d.getMonth() + 1}月${d.getDate()}日${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   function options() {
-    const revision = HistoryStore.getRevision();
-    if (revision === cachedRevision) return cachedOptions;
-    const out = [{ key: "current", label: "当前战斗", current: true }];
+    const revision = HistoryStore.getRevision(),
+      language = Settings.getLanguage();
+    if (revision === cachedRevision && language === cachedLanguage)
+      return cachedOptions;
+    const out = [
+      {
+        key: "current",
+        label: langText("当前战斗", "Current combat"),
+        current: true,
+      },
+    ];
     const ordered = HistoryStore.getAll()
       .map((entry, index) => ({ entry, index }))
       .sort((left, right) => {
@@ -267,7 +271,7 @@ const SegmentSelection = (() => {
           out.push({
             key: fragmentKey(id, index),
             label:
-              "↳ 重连片段 " +
+              langText("↳ 重连片段 ", "↳ Reconnect fragment ") +
               (index + 1) +
               " · " +
               formatDuration((Number(fragment.durationMs) || 0) / 1000),
@@ -280,6 +284,7 @@ const SegmentSelection = (() => {
         );
     });
     cachedRevision = revision;
+    cachedLanguage = language;
     cachedOptions = out;
     return cachedOptions;
   }
@@ -385,7 +390,9 @@ function buildSegmentMenu(picker) {
         });
       disclosure.type = "button";
       disclosure.textContent = expanded ? "▾" : "▸";
-      disclosure.title = expanded ? "收起重连片段" : "展开重连片段";
+      disclosure.title = expanded
+        ? langText("收起重连片段", "Collapse reconnect fragments")
+        : langText("展开重连片段", "Expand reconnect fragments");
       disclosure.addEventListener("click", (event) => {
         event.stopPropagation();
         expanded
@@ -452,72 +459,84 @@ function buildSegmentMenu(picker) {
       };
       const star = miniButton(
         item.entry.favorite === true ? "★" : "☆",
-        item.entry.favorite === true ? "取消收藏" : "收藏",
+        item.entry.favorite === true
+          ? langText("取消收藏", "Remove favorite")
+          : langText("收藏", "Favorite"),
         "#facc15",
         () => HistoryStore.setFavorite(id, item.entry.favorite !== true),
       );
       const rename =
         item.entry.favorite === true
-          ? miniButton("✎", "修改收藏名称", "#93c5fd", () => {
-              const defaultName =
-                item.entry.customName ||
-                String(item.label || "").replace(/^★\s*/, "");
-              const input = document.createElement("input");
-              input.type = "text";
-              input.value = defaultName;
-              input.maxLength = 40;
-              Object.assign(input.style, {
-                minWidth: "0",
-                height: "22px",
-                flex: "1",
-                boxSizing: "border-box",
-                padding: "2px 5px",
-                background: "#090909",
-                border: "1px solid #93c5fd",
-                borderRadius: "3px",
-                outline: "none",
-                color: "#fff",
-                font: "inherit",
-              });
-              let finished = false;
-              const finish = (save) => {
-                if (finished) return;
-                finished = true;
-                if (save) HistoryStore.rename(id, input.value);
-                notify();
-                buildSegmentMenu(picker);
-              };
-              input.addEventListener("mousedown", (event) =>
-                event.stopPropagation(),
-              );
-              input.addEventListener("click", (event) =>
-                event.stopPropagation(),
-              );
-              input.addEventListener("keydown", (event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  finish(true);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  finish(false);
-                }
-              });
-              input.addEventListener("blur", () => finish(true), {
-                once: true,
-              });
-              label.replaceWith(input);
-              input.focus();
-              input.select();
-              return false;
-            })
+          ? miniButton(
+              "✎",
+              langText("修改收藏名称", "Rename favorite"),
+              "#93c5fd",
+              () => {
+                const defaultName =
+                  item.entry.customName ||
+                  String(item.label || "").replace(/^★\s*/, "");
+                const input = document.createElement("input");
+                input.type = "text";
+                input.value = defaultName;
+                input.maxLength = 40;
+                Object.assign(input.style, {
+                  minWidth: "0",
+                  height: "22px",
+                  flex: "1",
+                  boxSizing: "border-box",
+                  padding: "2px 5px",
+                  background: "#090909",
+                  border: "1px solid #93c5fd",
+                  borderRadius: "3px",
+                  outline: "none",
+                  color: "#fff",
+                  font: "inherit",
+                });
+                let finished = false;
+                const finish = (save) => {
+                  if (finished) return;
+                  finished = true;
+                  if (save) HistoryStore.rename(id, input.value);
+                  notify();
+                  buildSegmentMenu(picker);
+                };
+                input.addEventListener("mousedown", (event) =>
+                  event.stopPropagation(),
+                );
+                input.addEventListener("click", (event) =>
+                  event.stopPropagation(),
+                );
+                input.addEventListener("keydown", (event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    finish(true);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    finish(false);
+                  }
+                });
+                input.addEventListener("blur", () => finish(true), {
+                  once: true,
+                });
+                label.replaceWith(input);
+                input.focus();
+                input.select();
+                return false;
+              },
+            )
           : null;
-      const remove = miniButton("✕", "删除记录", "#f87171", () => {
-        const selected = SegmentSelection.resolve();
-        if (selected.entry && HistoryStore.entryKey(selected.entry) === id)
-          SegmentSelection.select("current");
-        HistoryStore.remove(id);
-      });
+      const remove = miniButton(
+        "✕",
+        langText("删除记录", "Delete record"),
+        "#f87171",
+        () => {
+          const selected = SegmentSelection.resolve();
+          if (selected.entry && HistoryStore.entryKey(selected.entry) === id)
+            SegmentSelection.select("current");
+          HistoryStore.remove(id);
+        },
+      );
       if (rename) row.append(rename);
       row.append(star, remove);
     }
@@ -526,10 +545,10 @@ function buildSegmentMenu(picker) {
   const current = options.find((item) => item.current);
   if (current) addRecord(current);
   [
-    ["favorite", "收藏"],
-    ["combat", "普通"],
-    ["labyrinth", "迷宫"],
-    ["trial", "试炼"],
+    ["favorite", langText("收藏", "Favorites")],
+    ["combat", langText("普通", "Combat")],
+    ["labyrinth", langText("迷宫", "Labyrinth")],
+    ["trial", langText("试炼", "Trial")],
   ].forEach(([group, title]) => {
     const records = options.filter(
       (item) => !item.current && item.group === group,
@@ -551,7 +570,9 @@ function buildSegmentMenu(picker) {
     });
     heading.textContent =
       (collapsed ? "▸ " : "▾ ") + title + "（" + count + "）";
-    heading.title = collapsed ? "展开" + title : "折叠" + title;
+    heading.title = collapsed
+      ? langText(`展开${title}`, `Expand ${title}`)
+      : langText(`折叠${title}`, `Collapse ${title}`);
     heading.addEventListener("click", (event) => {
       event.stopPropagation();
       collapsed
@@ -757,7 +778,7 @@ const ViewData = (() => {
       names = Session.getAllPlayerNames();
     return {
       key: "current",
-      label: "当前战斗",
+      label: langText("当前战斗", "Current combat"),
       current: true,
       type: Session.getMeta().type || "combat",
       elapsed,

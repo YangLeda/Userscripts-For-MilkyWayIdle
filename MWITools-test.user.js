@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.1
+// @version      26.2.2
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -1089,7 +1089,7 @@
     },
     forceMWIToolsDisplayZH: {
       id: "forceMWIToolsDisplayZH",
-      desc: isZH ? "MWITools本身强制显示中文 MWITools always in Chinese" : "MWITools本身强制显示中文 MWITools always in Chinese",
+      desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
       isTrue: false
     }
   };
@@ -24225,7 +24225,9 @@ ${preview}`
     }
     host.classList.add("mwi-action-dashboard-host");
     root.style.position = "absolute";
-    const lastNativeChild = [...host.children].filter((element) => element !== root).at(-1);
+    const lastNativeChild = [...host.children].filter(
+      (element) => element !== root && element.id !== "script_item_warning"
+    ).at(-1);
     const hostRect = host.getBoundingClientRect();
     const childRect = lastNativeChild?.getBoundingClientRect();
     const left = Math.max(
@@ -26339,7 +26341,7 @@ ${locks}` : ""}`;
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]';
   function questId(quest) {
     return String(
-      quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? ""
+      quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? quest?.questID ?? quest?.questId ?? quest?.characterTaskID ?? quest?.characterTaskId ?? ""
     );
   }
   function isRemoved(quest) {
@@ -26365,17 +26367,35 @@ ${locks}` : ""}`;
       const value = JSON.parse(localStorage.getItem(storageKey) || "null");
       return {
         known: new Set(Array.isArray(value?.known) ? value.known : []),
-        fresh: new Set(Array.isArray(value?.fresh) ? value.fresh : [])
+        fresh: new Set(Array.isArray(value?.fresh) ? value.fresh : []),
+        initialized: value?.initialized === true || Array.isArray(value?.known) && value.known.length > 0
       };
     } catch {
-      return { known: /* @__PURE__ */ new Set(), fresh: /* @__PURE__ */ new Set() };
+      return { known: /* @__PURE__ */ new Set(), fresh: /* @__PURE__ */ new Set(), initialized: false };
     }
   }
   function writeTaskNewState(storageKey, state) {
     localStorage.setItem(
       storageKey,
-      JSON.stringify({ known: [...state.known], fresh: [...state.fresh] })
+      JSON.stringify({
+        initialized: state.initialized === true,
+        known: [...state.known],
+        fresh: [...state.fresh]
+      })
     );
+  }
+  function initializeQuestState(state, quests) {
+    const firstBaseline = state.initialized !== true;
+    const currentIds = new Set((quests ?? []).map(questId).filter(Boolean));
+    for (const id of currentIds) {
+      if (!firstBaseline && !state.known.has(id)) state.fresh.add(id);
+      state.known.add(id);
+    }
+    for (const id of [...state.fresh]) {
+      if (!currentIds.has(id)) state.fresh.delete(id);
+    }
+    state.initialized = true;
+    return state;
   }
   function applyQuestUpdates(state, updates) {
     for (const update of updates ?? []) {
@@ -26419,11 +26439,7 @@ ${locks}` : ""}`;
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       const initial = runtime.state.characterQuests ?? [];
-      const currentIds = new Set(initial.map(questId).filter(Boolean));
-      for (const id of currentIds) state.known.add(id);
-      for (const id of [...state.fresh]) {
-        if (!currentIds.has(id)) state.fresh.delete(id);
-      }
+      initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
       const markRead = (id) => {
         if (!state.fresh.delete(id)) return;
@@ -26564,6 +26580,73 @@ ${locks}` : ""}`;
   var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var MAX_IMAGE_LINKS = 3;
+  function t7(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  var SERVER_ERROR_LABELS = {
+    "Required text is missing": ["必填内容不能为空", "Required text is missing"],
+    "Bearer token required": [
+      "缺少反馈身份令牌",
+      "Feedback identity token is missing"
+    ],
+    "Invalid bearer token": [
+      "反馈身份令牌无效",
+      "Feedback identity token is invalid"
+    ],
+    "Identity is not registered": [
+      "反馈身份尚未注册",
+      "Feedback identity is not registered"
+    ],
+    "Invalid image link list": ["图片链接列表无效", "Invalid image link list"],
+    "Image links must be a list": [
+      "图片链接必须是列表",
+      "Image links must be a list"
+    ],
+    "At most 3 image links are allowed": [
+      "最多只能填写 3 个图片链接",
+      "At most 3 image links are allowed"
+    ],
+    "Image links must use http or https": [
+      "图片链接只支持 HTTP 或 HTTPS",
+      "Image links must use HTTP or HTTPS"
+    ],
+    "Feedback not found": ["未找到这条反馈", "Feedback not found"],
+    "This private identity belongs to another character": [
+      "当前反馈身份属于其他角色",
+      "This feedback identity belongs to another character"
+    ],
+    "Invalid feedback type": ["反馈类型无效", "Invalid feedback type"],
+    "Invalid context JSON": ["反馈环境信息无效", "Invalid feedback context"],
+    "Context must be an object": [
+      "反馈环境信息格式无效",
+      "Feedback context must be an object"
+    ],
+    "Weekly feedback limit reached": [
+      "本周反馈额度已用完",
+      "Weekly feedback limit reached"
+    ],
+    "Closed feedback cannot be edited": [
+      "已结束的反馈不能修改",
+      "Closed feedback cannot be edited"
+    ],
+    "Closed feedback cannot receive messages": [
+      "已结束的反馈不能继续留言",
+      "Closed feedback cannot receive messages"
+    ]
+  };
+  function localizeErrorDetail(detail) {
+    const value = String(detail ?? "").trim();
+    const labels = SERVER_ERROR_LABELS[value];
+    if (labels) return t7(...labels);
+    const limit = /^Text exceeds (\d+) characters$/.exec(value);
+    if (limit) {
+      return t7(
+        `内容不能超过 ${limit[1]} 个字符`,
+        `Text cannot exceed ${limit[1]} characters`
+      );
+    }
+    return value;
+  }
   function gameServer() {
     return String(globalThis.location?.hostname ?? "unknown");
   }
@@ -26610,7 +26693,9 @@ ${locks}` : ""}`;
       }).then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.detail || `HTTP ${response.status}`);
+          throw new Error(
+            localizeErrorDetail(payload.detail) || `HTTP ${response.status}`
+          );
         }
         return response.json();
       });
@@ -26624,7 +26709,10 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            payload?.detail || `反馈服务返回 HTTP ${status}`
+            localizeErrorDetail(payload?.detail) || t7(
+              `反馈服务返回 HTTP ${status}`,
+              `Feedback service returned HTTP ${status}`
+            )
           );
           error.status = status;
           reject(error);
@@ -26647,8 +26735,10 @@ ${locks}` : ""}`;
           timeout: 2e4,
           anonymous: false,
           onload: finish,
-          onerror: () => fail("无法连接意见反馈服务"),
-          ontimeout: () => fail("意见反馈服务请求超时")
+          onerror: () => fail(
+            t7("无法连接意见反馈服务", "Unable to reach the feedback service")
+          ),
+          ontimeout: () => fail(t7("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -26660,18 +26750,23 @@ ${locks}` : ""}`;
     const values = Array.isArray(value) ? value : String(value ?? "").split(/\r?\n/);
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
-      throw new Error("最多只能填写 3 个图片链接");
+      throw new Error(
+        t7("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+      );
     }
     for (const link of links) {
-      if (link.length > 2e3) throw new Error("图片链接过长");
+      if (link.length > 2e3)
+        throw new Error(t7("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error("图片链接格式不正确");
+        throw new Error(t7("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
-        throw new Error("图片链接只支持 HTTP 或 HTTPS");
+        throw new Error(
+          t7("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+        );
       }
     }
     return links;
@@ -26767,14 +26862,16 @@ ${locks}` : ""}`;
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID7 = "mwitools-feedback-style";
-  var STATUS_LABELS = {
-    pending: "待处理",
-    processing: "处理中",
-    closed: "已结束"
-  };
-  function t7(zh, en) {
-    const language = globalThis.localStorage?.getItem("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? "en";
-    return language.toLowerCase().startsWith("zh") ? zh : en;
+  function t8(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function statusLabel(status) {
+    const labels = {
+      pending: ["待处理", "Pending"],
+      processing: ["处理中", "Processing"],
+      closed: ["已结束", "Closed"]
+    };
+    return labels[status] ? t8(...labels[status]) : status;
   }
   function addStyles7() {
     if (document.getElementById(STYLE_ID7)) return;
@@ -26825,18 +26922,18 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t7("意见反馈", "Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t7("意见反馈", "Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t7("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t7("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t7("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t8("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t8("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t8("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t8("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t8("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t7("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t8("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t7("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t7("功能建议", "Feature request")}</option><option value="other">${t7("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t7("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t7("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t7("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t7("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t7("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t7("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t7("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t7("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t7("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t8("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t8("功能建议", "Feature request")}</option><option value="other">${t8("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t8("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t8("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t8("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t8("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t8("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t8("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t8("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t8("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t8("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -26878,7 +26975,7 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t7("意见反馈", "Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        button.innerHTML = `<span>✉</span><span>${t8("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
         this.scope.event(button, "click", () => this.open());
       }
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
@@ -26944,12 +27041,12 @@ ${locks}` : ""}`;
       const error = this.form.querySelector(".mwi-feedback-error");
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
-      error.textContent = t7("正在提交…", "Submitting…");
+      error.textContent = t8("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t7("请填写标题和详细说明。", "Enter a title and details.")
+            t8("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         if (this.editing) {
@@ -26959,7 +27056,7 @@ ${locks}` : ""}`;
         }
         this.resetForm();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t7("已保存反馈。", "Feedback saved.");
+        error.textContent = t8("已保存反馈。", "Feedback saved.");
         await this.refresh();
         this.showTab("mine");
       } catch (caught) {
@@ -26972,7 +27069,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t7(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t8(
         "提交",
         "Submit"
       );
@@ -27000,10 +27097,10 @@ ${locks}` : ""}`;
     }
     renderQuota() {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = this.quota ? t7(
+      node.textContent = this.quota ? t8(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t7("额度暂时不可用", "Quota unavailable");
+      ) : t8("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -27018,7 +27115,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t7("还没有提交过反馈。", "No feedback yet.")
+            t8("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -27030,7 +27127,7 @@ ${locks}` : ""}`;
         const status = makeElement(
           "span",
           `mwi-feedback-status ${item.status}`,
-          STATUS_LABELS[item.status] ?? item.status
+          statusLabel(item.status)
         );
         meta.append(status, document.createTextNode(formatTime(item.updatedAt)));
         card.append(title, meta);
@@ -27052,7 +27149,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t7("返回列表", "Back")}`
+          `← ${t8("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -27060,35 +27157,35 @@ ${locks}` : ""}`;
         const meta = makeElement(
           "div",
           "mwi-feedback-card-meta",
-          `${STATUS_LABELS[item.status] ?? item.status} · ${formatTime(item.updatedAt)}`
+          `${statusLabel(item.status)} · ${formatTime(item.updatedAt)}`
         );
         detail.append(
           back,
           title,
           meta,
-          this.textSection(t7("详细说明", "Details"), item.detail)
+          this.textSection(t8("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t7("复现步骤", "Steps to reproduce"),
+              t8("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t7("预期结果", "Expected result"),
+              t8("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t7("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t8("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t7("图片", "Image")} ${index + 1}：${url}`
+              `${t8("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -27099,7 +27196,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t7("留言", "Messages")));
+        messages.append(makeElement("h4", "", t8("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -27107,7 +27204,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t7("管理员", "Admin") : t7("我", "Me")
+              message.actor === "admin" ? t8("管理员", "Admin") : t8("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -27119,7 +27216,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t7("暂无留言", "No messages")
+              t8("暂无留言", "No messages")
             )
           );
         }
@@ -27127,7 +27224,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t7("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t8("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -27136,9 +27233,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t7("补充留言…", "Add a message…");
+          input.placeholder = t8("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t7("发送", "Send"));
+          const send = makeElement("button", "", t8("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -27159,7 +27256,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t7(
+              t8(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -27196,7 +27293,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t7(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t8(
         "保存修改",
         "Save changes"
       );
@@ -27261,7 +27358,7 @@ ${locks}` : ""}`;
   // src/features/guild-xp.js
   var STYLE_ID8 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -27377,7 +27474,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t8("待再次采样", "Awaiting another sample") : t8("样本不足", "Not enough data");
+      return waiting ? t9("待再次采样", "Awaiting another sample") : t9("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -27472,10 +27569,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t8("公会经验进度", "Guild XP progress");
+    title.textContent = t9("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t8("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t8("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t9("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t9("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -27490,16 +27587,16 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t8("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t9("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t8("最近 XP/h", "Recent XP/h"),
+        t9("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t8("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t8("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t9("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t9("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t8("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t8("样本不足", "Not enough data")
+        t9("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t9("样本不足", "Not enough data")
       )
     );
     card.append(head, grid, trendSvg(rates?.points ?? []));
@@ -27523,7 +27620,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t8("当前闲置", "Idle now")} (${idle.length}) · ${t8(
+      label.textContent = `${t9("当前闲置", "Idle now")} (${idle.length}) · ${t9(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -27542,8 +27639,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t8("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t8("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t9("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t9("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -27555,7 +27652,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t8("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t9("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -27657,10 +27754,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t8("最近 XP/h", "Recent XP/h")
+          textContent: t9("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t8("24 小时 XP/h", "24h XP/h")
+          textContent: t9("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -27784,6 +27881,9 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
+  function t10(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
   async function handleBattleSummary(message) {
     const marketJson = await runtime.api.fetchMarketJSON();
     let hasMarketJson = true;
@@ -28013,7 +28113,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">All</option>
+            <option value="1">${t10("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -28034,7 +28134,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">All</option>
+            <option value="1000">${t10("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -28055,33 +28155,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">All</option>
-                <option value="attack">Attack</option>
-                <option value="melee">Melee</option>
-                <option value="defense">Defense</option>
-                <option value="ranged">Ranged</option>
-                <option value="magic">Magic</option>
-                <option value="others">Others</option>
+                <option value="all">${t10("全部", "All")}</option>
+                <option value="attack">${t10("攻击", "Attack")}</option>
+                <option value="melee">${t10("近战", "Melee")}</option>
+                <option value="defense">${t10("防御", "Defense")}</option>
+                <option value="ranged">${t10("远程", "Ranged")}</option>
+                <option value="magic">${t10("魔法", "Magic")}</option>
+                <option value="others">${t10("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">All</option>
-                <option value="main_hand">Main Hand</option>
-                <option value="off_hand">Off Hand</option>
-                <option value="two_hand">Two Hand</option>
-                <option value="head">Head</option>
-                <option value="body">Body</option>
-                <option value="hands">Hands</option>
-                <option value="legs">Legs</option>
-                <option value="feet">Feet</option>
-                <option value="neck">Neck</option>
-                <option value="earrings">Earrings</option>
-                <option value="ring">Ring</option>
-                <option value="pouch">Pouch</option>
-                <option value="back">Back</option>
+                <option value="all">${t10("全部", "All")}</option>
+                <option value="main_hand">${t10("主手", "Main Hand")}</option>
+                <option value="off_hand">${t10("副手", "Off Hand")}</option>
+                <option value="two_hand">${t10("双手", "Two Hand")}</option>
+                <option value="head">${t10("头部", "Head")}</option>
+                <option value="body">${t10("身体", "Body")}</option>
+                <option value="hands">${t10("手部", "Hands")}</option>
+                <option value="legs">${t10("腿部", "Legs")}</option>
+                <option value="feet">${t10("脚部", "Feet")}</option>
+                <option value="neck">${t10("项链", "Neck")}</option>
+                <option value="earrings">${t10("耳饰", "Earrings")}</option>
+                <option value="ring">${t10("戒指", "Ring")}</option>
+                <option value="pouch">${t10("袋子", "Pouch")}</option>
+                <option value="back">${t10("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -28298,7 +28398,7 @@ ${locks}` : ""}`;
         );
         tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
       } else {
-        tillLevelNumber.textContent = "Error";
+        tillLevelNumber.textContent = t10("错误", "Error");
       }
     };
     tillLevelInput.addEventListener("keyup", function(evt) {
@@ -28312,7 +28412,7 @@ ${locks}` : ""}`;
         );
         tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
       } else {
-        tillLevelNumber.textContent = "Error";
+        tillLevelNumber.textContent = t10("错误", "Error");
       }
     });
   }
@@ -29164,7 +29264,7 @@ ${locks}` : ""}`;
       error: null
     };
   }
-  function statusLabel(status) {
+  function statusLabel2(status) {
     const labels = runtime.config.isZH ? {
       active: "已启用",
       disabled: "已关闭",
@@ -29234,7 +29334,7 @@ ${locks}` : ""}`;
     const setStatus = () => {
       const current = featureStatusForSetting(definition.id);
       status.dataset.status = current.status;
-      status.textContent = statusLabel(current.status);
+      status.textContent = statusLabel2(current.status);
       if (current.error) status.title = current.error;
       if (current.status === "failed") {
         const retry = document.createElement("button");
@@ -29426,7 +29526,7 @@ ${locks}` : ""}`;
     style.textContent = `
     .mwi-equipment-warning-host { position:relative!important; }
     @keyframes mwi-equipment-warning-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); } 50% { box-shadow:0 0 0 4px rgba(255,75,75,.16),0 2px 12px rgba(0,0,0,.5); } }
-    #script_item_warning { position:absolute; top:50%; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,190px); height:26px; align-items:center; gap:5px; padding:2px 8px; transform:translateY(-50%); border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.68rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
+    #script_item_warning { position:absolute; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,216px); height:22px; align-items:center; gap:5px; padding:1px 7px; border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.64rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
     .mwi-equipment-warning-icon { flex:0 0 auto; color:#ffb7b7; font-size:.78rem; }
     .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
     @media(prefers-reduced-motion:reduce) { #script_item_warning { animation:none; } }
@@ -29438,36 +29538,37 @@ ${locks}` : ""}`;
     document.querySelector("#script_item_warning")?.remove();
     document.querySelectorAll(".mwi-equipment-warning-host").forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
   }
-  function positionEquipmentWarning(warning, host) {
+  function positionEquipmentWarning(warning, host, communityBuffs) {
     const hostRect = host.getBoundingClientRect();
-    const dashboard = host.querySelector("#mwi-action-dashboard");
-    const nativeChildren = [...host.children].filter(
-      (element) => element !== warning && element !== dashboard
-    );
-    const anchorRect = dashboard?.getBoundingClientRect() ?? nativeChildren.at(-1)?.getBoundingClientRect();
-    const left = Math.max(
-      0,
-      (anchorRect?.right ?? hostRect.left) - hostRect.left + 6
-    );
+    const anchorRect = communityBuffs.getBoundingClientRect();
+    const left = Math.max(0, anchorRect.left - hostRect.left);
+    const top = Math.max(0, anchorRect.bottom - hostRect.top + 4);
     const viewportWidth = host.ownerDocument?.defaultView?.innerWidth ?? 0;
-    const availableInHost = Math.max(26, hostRect.width - left);
-    const availableInViewport = viewportWidth ? Math.max(26, viewportWidth - hostRect.left - left - 12) : availableInHost;
+    const availableInViewport = viewportWidth ? Math.max(26, viewportWidth - hostRect.left - left - 12) : anchorRect.width;
     warning.style.left = `${left}px`;
+    warning.style.top = `${top}px`;
     warning.style.setProperty(
       "--mwi-equipment-warning-space",
-      `${Math.min(190, availableInHost, availableInViewport)}px`
+      `${Math.min(216, anchorRect.width || 216, availableInViewport)}px`
     );
   }
   function checkEquipment() {
     const warningState = getEquipmentWarning();
-    const host = document.querySelector('div[class*="Header_actionName"]');
-    if (!warningState || !host) {
+    const host = document.querySelector('div[class*="Header_actionInfo"]');
+    const communityBuffs = host?.querySelector(
+      'div[class*="Header_communityBuffs"]'
+    );
+    if (!warningState || !host || !communityBuffs) {
       removeEquipmentWarning();
       return warningState;
     }
     addEquipmentWarningStyles();
+    document.querySelectorAll(".mwi-equipment-warning-host").forEach((element) => {
+      if (element !== host)
+        element.classList.remove("mwi-equipment-warning-host");
+    });
     host.classList.add("mwi-equipment-warning-host");
-    let warning = host.querySelector("#script_item_warning");
+    let warning = document.querySelector("#script_item_warning");
     if (!warning) {
       warning = document.createElement("div");
       warning.id = "script_item_warning";
@@ -29478,12 +29579,12 @@ ${locks}` : ""}`;
       const text = document.createElement("span");
       text.className = "mwi-equipment-warning-text";
       warning.append(icon, text);
-      host.appendChild(warning);
     }
+    if (warning.parentElement !== host) host.appendChild(warning);
     warning.dataset.code = warningState.code;
     warning.querySelector(".mwi-equipment-warning-text").textContent = warningState.text;
     warning.title = warningState.text;
-    positionEquipmentWarning(warning, host);
+    positionEquipmentWarning(warning, host, communityBuffs);
     return warningState;
   }
   function hasItemHridInInv(hrid) {
@@ -29608,7 +29709,7 @@ ${locks}` : ""}`;
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
   var STYLE_ID9 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t9(value) {
+  function t11(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -29732,8 +29833,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t9(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t9(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t11(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t11(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -30090,70 +30191,90 @@ ${locks}` : ""}`;
     const bus = new EventTarget();
     const definitions = {
       fire: {
-        label: "火法",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Fire Mage" : "火法";
+        },
         color: "#C41E3A",
         get icon() {
           return GameAssets.item("blazing_trident");
         }
       },
       nature: {
-        label: "自然法",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Nature Mage" : "自然法";
+        },
         color: "#00FF98",
         get icon() {
           return GameAssets.item("blooming_trident");
         }
       },
       water: {
-        label: "水法",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Water Mage" : "水法";
+        },
         color: "#3FC7EB",
         get icon() {
           return GameAssets.item("rippling_trident");
         }
       },
       sword: {
-        label: "剑",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Sword" : "剑";
+        },
         color: "#C69B6D",
         get icon() {
           return GameAssets.item("regal_sword");
         }
       },
       mace: {
-        label: "锤",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Mace" : "锤";
+        },
         color: "#A330C9",
         get icon() {
           return GameAssets.item("chaotic_flail");
         }
       },
       spear: {
-        label: "枪",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Spear" : "枪";
+        },
         color: "#FFF468",
         get icon() {
           return GameAssets.item("furious_spear");
         }
       },
       bow: {
-        label: "弓",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Bow" : "弓";
+        },
         color: "#AAD372",
         get icon() {
           return GameAssets.item("cursed_bow");
         }
       },
       crossbow: {
-        label: "弩",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Crossbow" : "弩";
+        },
         color: "#0070DD",
         get icon() {
           return GameAssets.item("sundering_crossbow");
         }
       },
       shield: {
-        label: "盾",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Shield" : "盾";
+        },
         color: "#F48CBA",
         get icon() {
           return GameAssets.item("griffin_bulwark");
         }
       },
       unknown: {
-        label: "未知",
+        get label() {
+          return Settings.getLanguage() === "en" ? "Unknown" : "未知";
+        },
         color: "#7f8c8d",
         get icon() {
           return GameAssets.skill("attack");
@@ -30542,6 +30663,23 @@ ${locks}` : ""}`;
       return JSON.parse(JSON.stringify(events));
     }
     function report() {
+      if (Settings.getLanguage() === "en") {
+        const output = events.map((event) => ({
+          ...event,
+          players: event.players.map((player) => ({
+            ...player,
+            detectedLabel: (ClassSystem.definitions[player.detectedClass] || ClassSystem.definitions.unknown).label
+          }))
+        }));
+        return [
+          `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+          `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
+          "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
+          `Recorded events: ${events.length}`,
+          "",
+          JSON.stringify(output, null, 2)
+        ].join("\n");
+      }
       const lines = [
         `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
@@ -31038,6 +31176,27 @@ ${locks}` : ""}`;
       return detail ? scanRelevant(detail) : null;
     }
     function report() {
+      if (Settings.getLanguage() === "en") {
+        const exportedState = JSON.parse(JSON.stringify(state));
+        if (exportedState.storageNotice) {
+          exportedState.storageNotice = "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
+        }
+        return [
+          `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+          `Generated at: ${(/* @__PURE__ */ new Date()).toLocaleString()}`,
+          `Capture started: ${state.startedAt || "Not started"}`,
+          `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
+          `Effective capture: ${(status().elapsedMs / 1e3).toFixed(1)} seconds`,
+          "Network policy: this probe does not call fetch, XHR, or WebSocket.send. It only reads data the game already received.",
+          "Scope: all incoming game WebSocket messages, user-selected targets, and character-panel DOM between start and stop. Chat bodies and credential fields are redacted.",
+          `Messages: ${state.fullMessages.length} | Message bodies: ${(captureChars / 1024 / 1024).toFixed(2)} MB | DOM snapshots: ${state.domSnapshots.length}`,
+          "",
+          JSON.stringify(exportedState, null, 2),
+          "",
+          "--- Initial-message class report ---",
+          ClassDebug.report()
+        ].join("\n");
+      }
       const lines = [
         `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
         "生成时间：" + (/* @__PURE__ */ new Date()).toLocaleString(),
@@ -31792,9 +31951,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t10 = 0;
-        playerKills.forEach((v) => t10 += v);
-        return t10;
+        let t12 = 0;
+        playerKills.forEach((v) => t12 += v);
+        return t12;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -32050,12 +32209,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t10) {
-      const low = t10.toLowerCase();
+    function looksLikeNoise(t12) {
+      const low = t12.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t10)) return true;
-      if (/^\d+%?$/.test(t10)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t10)) return true;
+      if (/^lv\.?\d+$/i.test(t12)) return true;
+      if (/^\d+%?$/.test(t12)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t12)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -32077,14 +32236,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t10) => t10 && !looksLikeNoise(t10) && !/^trial\s/i.test(t10));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t12) => t12 && !looksLikeNoise(t12) && !/^trial\s/i.test(t12));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t10, i) => {
-        resolved.set(String(i + offset), t10);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t12, i) => {
+        resolved.set(String(i + offset), t12);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -32152,7 +32311,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t10) => t10.length > 0)) {
+          if (texts.some((t12) => t12.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -32188,10 +32347,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t10 = c.textContent.trim();
-            if (t10.length >= 2 && t10.length <= 20 && !looksLikeNoise(t10)) {
+            const t12 = c.textContent.trim();
+            if (t12.length >= 2 && t12.length <= 20 && !looksLikeNoise(t12)) {
               nameLikeCount++;
-              texts.push(t10.slice(0, 20));
+              texts.push(t12.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -33668,11 +33827,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t10 = el2.textContent.trim();
-        if (!t10 || t10.length < 2 || t10.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t10);
+        const t12 = el2.textContent.trim();
+        if (!t12 || t12.length < 2 || t12.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t12);
         let cssEllipsis = false;
-        if (!literalEllipsis && t10.length <= 20 && !t10.includes(" ") && !looksLikeNoise(t10)) {
+        if (!literalEllipsis && t12.length <= 20 && !t12.includes(" ") && !looksLikeNoise(t12)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -33779,6 +33938,7 @@ ${locks}` : ""}`;
   })();
 
   // src/features/dps/30-history.js
+  var langText = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
   var HistoryStore = /* @__PURE__ */ (() => {
     const KEY = "kikimeter:history:v2", LEGACY_KEY = "kikimeter:history:v1", ACTIVE_KEY = "kikimeter:active:v2";
     const MAX_PER_TYPE = 10;
@@ -33950,7 +34110,7 @@ ${locks}` : ""}`;
   })();
   var SegmentSelection = (() => {
     let selectedKey = "current";
-    let cachedRevision = -1, cachedOptions = [];
+    let cachedRevision = -1, cachedLanguage = "", cachedOptions = [];
     const bus = new EventTarget();
     const fightKey = (id) => "fight:" + encodeURIComponent(String(id));
     const fragmentKey = (id, index) => "fragment:" + encodeURIComponent(String(id)) + ":" + index;
@@ -33960,13 +34120,22 @@ ${locks}` : ""}`;
     function dateLabel(entry) {
       const d = new Date(entry.date || entry.startedAt || Date.now());
       const pad = (value) => String(value).padStart(2, "0");
-      const typeLabel = { combat: "普通", labyrinth: "迷宫", trial: "试炼" }[entry.type || "combat"] || "普通";
-      return typeLabel + " " + (entry.players || []).length + "人 " + (d.getMonth() + 1) + "月" + d.getDate() + "日" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+      const type = entry.type || "combat";
+      const typeLabel = Settings.getLanguage() === "en" ? { combat: "Combat", labyrinth: "Labyrinth", trial: "Trial" }[type] || "Combat" : { combat: "普通", labyrinth: "迷宫", trial: "试炼" }[type] || "普通";
+      const count = (entry.players || []).length;
+      return Settings.getLanguage() === "en" ? `${typeLabel} ${count} players ${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` : `${typeLabel} ${count}人 ${d.getMonth() + 1}月${d.getDate()}日${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
     function options() {
-      const revision = HistoryStore.getRevision();
-      if (revision === cachedRevision) return cachedOptions;
-      const out = [{ key: "current", label: "当前战斗", current: true }];
+      const revision = HistoryStore.getRevision(), language = Settings.getLanguage();
+      if (revision === cachedRevision && language === cachedLanguage)
+        return cachedOptions;
+      const out = [
+        {
+          key: "current",
+          label: langText("当前战斗", "Current combat"),
+          current: true
+        }
+      ];
       const ordered = HistoryStore.getAll().map((entry, index) => ({ entry, index })).sort((left, right) => {
         const favoriteDiff = Number(right.entry.favorite === true) - Number(left.entry.favorite === true);
         if (favoriteDiff) return favoriteDiff;
@@ -33995,7 +34164,7 @@ ${locks}` : ""}`;
           parts.forEach(
             (fragment, index) => out.push({
               key: fragmentKey(id, index),
-              label: "↳ 重连片段 " + (index + 1) + " · " + formatDuration2((Number(fragment.durationMs) || 0) / 1e3),
+              label: langText("↳ 重连片段 ", "↳ Reconnect fragment ") + (index + 1) + " · " + formatDuration2((Number(fragment.durationMs) || 0) / 1e3),
               entry,
               fragment,
               fragmentIndex: index,
@@ -34005,6 +34174,7 @@ ${locks}` : ""}`;
           );
       });
       cachedRevision = revision;
+      cachedLanguage = language;
       cachedOptions = out;
       return cachedOptions;
     }
@@ -34104,7 +34274,7 @@ ${locks}` : ""}`;
         });
         disclosure.type = "button";
         disclosure.textContent = expanded ? "▾" : "▸";
-        disclosure.title = expanded ? "收起重连片段" : "展开重连片段";
+        disclosure.title = expanded ? langText("收起重连片段", "Collapse reconnect fragments") : langText("展开重连片段", "Expand reconnect fragments");
         disclosure.addEventListener("click", (event) => {
           event.stopPropagation();
           expanded ? picker._expandedEntries.delete(id) : picker._expandedEntries.add(id);
@@ -34169,69 +34339,79 @@ ${locks}` : ""}`;
         };
         const star = miniButton(
           item.entry.favorite === true ? "★" : "☆",
-          item.entry.favorite === true ? "取消收藏" : "收藏",
+          item.entry.favorite === true ? langText("取消收藏", "Remove favorite") : langText("收藏", "Favorite"),
           "#facc15",
           () => HistoryStore.setFavorite(id, item.entry.favorite !== true)
         );
-        const rename = item.entry.favorite === true ? miniButton("✎", "修改收藏名称", "#93c5fd", () => {
-          const defaultName = item.entry.customName || String(item.label || "").replace(/^★\s*/, "");
-          const input = document.createElement("input");
-          input.type = "text";
-          input.value = defaultName;
-          input.maxLength = 40;
-          Object.assign(input.style, {
-            minWidth: "0",
-            height: "22px",
-            flex: "1",
-            boxSizing: "border-box",
-            padding: "2px 5px",
-            background: "#090909",
-            border: "1px solid #93c5fd",
-            borderRadius: "3px",
-            outline: "none",
-            color: "#fff",
-            font: "inherit"
-          });
-          let finished = false;
-          const finish = (save) => {
-            if (finished) return;
-            finished = true;
-            if (save) HistoryStore.rename(id, input.value);
-            notify();
-            buildSegmentMenu(picker);
-          };
-          input.addEventListener(
-            "mousedown",
-            (event) => event.stopPropagation()
-          );
-          input.addEventListener(
-            "click",
-            (event) => event.stopPropagation()
-          );
-          input.addEventListener("keydown", (event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") {
-              event.preventDefault();
-              finish(true);
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              finish(false);
-            }
-          });
-          input.addEventListener("blur", () => finish(true), {
-            once: true
-          });
-          label.replaceWith(input);
-          input.focus();
-          input.select();
-          return false;
-        }) : null;
-        const remove = miniButton("✕", "删除记录", "#f87171", () => {
-          const selected = SegmentSelection.resolve();
-          if (selected.entry && HistoryStore.entryKey(selected.entry) === id)
-            SegmentSelection.select("current");
-          HistoryStore.remove(id);
-        });
+        const rename = item.entry.favorite === true ? miniButton(
+          "✎",
+          langText("修改收藏名称", "Rename favorite"),
+          "#93c5fd",
+          () => {
+            const defaultName = item.entry.customName || String(item.label || "").replace(/^★\s*/, "");
+            const input = document.createElement("input");
+            input.type = "text";
+            input.value = defaultName;
+            input.maxLength = 40;
+            Object.assign(input.style, {
+              minWidth: "0",
+              height: "22px",
+              flex: "1",
+              boxSizing: "border-box",
+              padding: "2px 5px",
+              background: "#090909",
+              border: "1px solid #93c5fd",
+              borderRadius: "3px",
+              outline: "none",
+              color: "#fff",
+              font: "inherit"
+            });
+            let finished = false;
+            const finish = (save) => {
+              if (finished) return;
+              finished = true;
+              if (save) HistoryStore.rename(id, input.value);
+              notify();
+              buildSegmentMenu(picker);
+            };
+            input.addEventListener(
+              "mousedown",
+              (event) => event.stopPropagation()
+            );
+            input.addEventListener(
+              "click",
+              (event) => event.stopPropagation()
+            );
+            input.addEventListener("keydown", (event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                finish(true);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                finish(false);
+              }
+            });
+            input.addEventListener("blur", () => finish(true), {
+              once: true
+            });
+            label.replaceWith(input);
+            input.focus();
+            input.select();
+            return false;
+          }
+        ) : null;
+        const remove = miniButton(
+          "✕",
+          langText("删除记录", "Delete record"),
+          "#f87171",
+          () => {
+            const selected = SegmentSelection.resolve();
+            if (selected.entry && HistoryStore.entryKey(selected.entry) === id)
+              SegmentSelection.select("current");
+            HistoryStore.remove(id);
+          }
+        );
         if (rename) row.append(rename);
         row.append(star, remove);
       }
@@ -34240,10 +34420,10 @@ ${locks}` : ""}`;
     const current = options.find((item) => item.current);
     if (current) addRecord(current);
     [
-      ["favorite", "收藏"],
-      ["combat", "普通"],
-      ["labyrinth", "迷宫"],
-      ["trial", "试炼"]
+      ["favorite", langText("收藏", "Favorites")],
+      ["combat", langText("普通", "Combat")],
+      ["labyrinth", langText("迷宫", "Labyrinth")],
+      ["trial", langText("试炼", "Trial")]
     ].forEach(([group, title]) => {
       const records = options.filter(
         (item) => !item.current && item.group === group
@@ -34263,7 +34443,7 @@ ${locks}` : ""}`;
         userSelect: "none"
       });
       heading.textContent = (collapsed ? "▸ " : "▾ ") + title + "（" + count + "）";
-      heading.title = collapsed ? "展开" + title : "折叠" + title;
+      heading.title = collapsed ? langText(`展开${title}`, `Expand ${title}`) : langText(`折叠${title}`, `Collapse ${title}`);
       heading.addEventListener("click", (event) => {
         event.stopPropagation();
         collapsed ? picker._collapsedGroups.delete(group) : picker._collapsedGroups.add(group);
@@ -34426,7 +34606,7 @@ ${locks}` : ""}`;
       const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames();
       return {
         key: "current",
-        label: "当前战斗",
+        label: langText("当前战斗", "Current combat"),
         current: true,
         type: Session.getMeta().type || "combat",
         elapsed,
@@ -34541,6 +34721,7 @@ ${locks}` : ""}`;
 
   // src/features/dps/50-graph-components.js
   var BOSS_COLOR = "#FF3F34";
+  var langText2 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
   function buildGraph() {
     const GRAPH_BUCKET_MS = 2e3;
     const canvas = document.createElement("canvas");
@@ -34885,7 +35066,7 @@ ${locks}` : ""}`;
     const select = document.createElement("select");
     select.id = "kikimeter-class-picker";
     select.dataset.kikimeter = "true";
-    select.append(new Option("自动识别", "auto"));
+    select.append(new Option(langText2("自动识别", "Auto-detect"), "auto"));
     Object.entries(ClassSystem.definitions).filter(([id]) => id !== "unknown").forEach(([id, d]) => select.append(new Option(d.label, id)));
     select.value = Settings.getClassOverride(name) || "auto";
     const r = anchor.getBoundingClientRect();
@@ -34912,7 +35093,7 @@ ${locks}` : ""}`;
   }
   var DamageBreakdownTooltip = /* @__PURE__ */ (() => {
     let popup = null, container = null, playerName = "", closeTimer = null, lastAnchor = null;
-    const langText = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
+    const langText4 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
     function cancelClose() {
       if (closeTimer !== null) clearTimeout(closeTimer);
       closeTimer = null;
@@ -34964,7 +35145,7 @@ ${locks}` : ""}`;
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       });
-      headerText.textContent = row.name + " · " + (row.breakdownTitle || langText("伤害构成", "Damage Breakdown"));
+      headerText.textContent = row.name + " · " + (row.breakdownTitle || langText4("伤害构成", "Damage Breakdown"));
       header.append(classIcon, headerText);
       popup.appendChild(header);
       const items = Array.isArray(row.breakdown) ? row.breakdown : [];
@@ -35039,7 +35220,7 @@ ${locks}` : ""}`;
           textAlign: "center",
           opacity: ".55"
         });
-        empty.textContent = row.breakdownEmpty || langText("暂无伤害来源", "No damage sources");
+        empty.textContent = row.breakdownEmpty || langText4("暂无伤害来源", "No damage sources");
         popup.appendChild(empty);
       }
       position(lastAnchor);
@@ -35130,7 +35311,7 @@ ${locks}` : ""}`;
       });
       rank.textContent = String(i + 1) + ".";
       const icon = iconElement(cls.icon, cls.label);
-      icon.title = cls.label + "｜点击选择职业";
+      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
       Object.assign(icon.style, {
         width: "19px",
         height: "19px",
@@ -35156,7 +35337,10 @@ ${locks}` : ""}`;
         fontVariantNumeric: "tabular-nums",
         textAlign: "right"
       });
-      stats.textContent = formatDamage(r.value) + "（" + formatRate(r.ps) + " " + (r.rateLabel || "DPS") + "，" + r.pct.toFixed(1) + "%）";
+      stats.textContent = langText2(
+        `${formatDamage(r.value)}（${formatRate(r.ps)} ${r.rateLabel || "DPS"}，${r.pct.toFixed(1)}%）`,
+        `${formatDamage(r.value)} (${formatRate(r.ps)} ${r.rateLabel || "DPS"}, ${r.pct.toFixed(1)}%)`
+      );
       if (Array.isArray(r.breakdown)) {
         line.title = r.breakdownHover || (Settings.getLanguage() === "en" ? "Hover to view damage breakdown" : "悬停查看伤害构成");
         line.addEventListener(
@@ -35175,13 +35359,32 @@ ${locks}` : ""}`;
         textAlign: "center",
         opacity: ".5"
       });
-      empty.textContent = "暂无战斗数据";
+      empty.textContent = langText2("暂无战斗数据", "No combat data");
       container.appendChild(empty);
     }
   }
 
   // src/features/dps/60-main-panel.js
   var KikiMeter = (() => {
+    const langText4 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
+    const localizeReason = (reason) => {
+      const labels = {
+        旧版记录: "Legacy record",
+        归档: "Archived",
+        断线续传: "Reconnect continuation",
+        进入下一层: "Entered next tier",
+        继续战斗: "Combat continued",
+        开始另一场战斗: "Another combat started",
+        手动结束: "Ended manually",
+        公会试炼阶段结束: "Guild Trial stage ended",
+        切换角色: "Character switched",
+        连接中断: "Connection interrupted",
+        页面关闭: "Page closed",
+        页面恢复: "Page resumed",
+        战斗: "Combat"
+      };
+      return Settings.getLanguage() === "en" ? labels[reason] || reason || "Combat" : reason || "战斗";
+    };
     const PANEL_LAYOUT_VERSION = 2, DEFAULT_PANEL_HEIGHT = 212, MIN_PANEL_HEIGHT = 180;
     let panelOpen = false, tabBtn = null, panel = null;
     let reinjector = null, throttleTimer = null;
@@ -35936,10 +36139,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t10 = c.textContent;
-        if (t10.includes("Combat Zones") || t10.includes("战斗区域") || t10.includes("戰鬥區域"))
+        const t12 = c.textContent;
+        if (t12.includes("Combat Zones") || t12.includes("战斗区域") || t12.includes("戰鬥區域"))
           return c;
-        if (t10.includes("Labyrinth") && t10.includes("Room") && t10.includes("Automation") || t10.includes("迷宫") && (t10.includes("房间") || t10.includes("自动化")) || t10.includes("迷宮") && (t10.includes("房間") || t10.includes("自動化")))
+        if (t12.includes("Labyrinth") && t12.includes("Room") && t12.includes("Automation") || t12.includes("迷宫") && (t12.includes("房间") || t12.includes("自动化")) || t12.includes("迷宮") && (t12.includes("房間") || t12.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -36042,7 +36245,10 @@ ${locks}` : ""}`;
           color: "rgba(255,255,255,.76)",
           marginBottom: "7px"
         });
-        hint.textContent = "全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。";
+        hint.textContent = langText4(
+          "全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。",
+          "The full probe passively records all incoming game messages after you start it until you stop it manually. It sends no requests. Chat content and credential fields are redacted; download the capture before refreshing the page."
+        );
         const probeStatus = ClassProbe.status();
         const probeButtons = el("div", {
           display: "flex",
@@ -36050,13 +36256,16 @@ ${locks}` : ""}`;
           marginBottom: "7px"
         });
         const startProbe = document.createElement("button");
-        startProbe.textContent = probeStatus.active ? "全量采集中…" : "开始全量采集";
+        startProbe.textContent = probeStatus.active ? langText4("全量采集中…", "Capturing…") : langText4("开始全量采集", "Start full capture");
         startProbe.disabled = probeStatus.active;
         const stopProbe = document.createElement("button");
-        stopProbe.textContent = "结束采集";
+        stopProbe.textContent = langText4("结束采集", "Stop capture");
         stopProbe.disabled = !probeStatus.active;
         const downloadProbe = document.createElement("button");
-        downloadProbe.textContent = "⬇ 下载全量MSG";
+        downloadProbe.textContent = langText4(
+          "⬇ 下载全量 MSG",
+          "⬇ Download full messages"
+        );
         downloadProbe.disabled = probeStatus.active || !probeStatus.startedAt;
         [startProbe, stopProbe, downloadProbe].forEach(
           (button) => Object.assign(button.style, {
@@ -36083,8 +36292,14 @@ ${locks}` : ""}`;
           event.preventDefault();
           if (downloadProbe.disabled) return;
           if (ClassProbe.download()) {
-            downloadProbe.textContent = "✓ 已下载";
-            setTimeout(() => downloadProbe.textContent = "⬇ 下载全量MSG", 1500);
+            downloadProbe.textContent = langText4("✓ 已下载", "✓ Downloaded");
+            setTimeout(
+              () => downloadProbe.textContent = langText4(
+                "⬇ 下载全量 MSG",
+                "⬇ Download full messages"
+              ),
+              1500
+            );
           }
         });
         probeButtons.append(startProbe, stopProbe, downloadProbe);
@@ -36101,12 +36316,18 @@ ${locks}` : ""}`;
           fontSize: "9px",
           lineHeight: "1.45"
         });
-        report.textContent = probeStatus.active ? "全量探针正在采集，已记录 " + probeStatus.messageCount + " 条消息，正文约 " + (probeStatus.captureChars / 1024 / 1024).toFixed(2) + " MB；点击“结束采集”才会停止。" : probeStatus.startedAt ? ClassProbe.report().slice(0, 6e3) : ClassDebug.report();
+        report.textContent = probeStatus.active ? langText4(
+          `全量探针正在采集，已记录 ${probeStatus.messageCount} 条消息，正文约 ${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB；点击“结束采集”才会停止。`,
+          `The full probe is capturing. ${probeStatus.messageCount} messages recorded (${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB). Click “Stop capture” to stop it.`
+        ) : probeStatus.startedAt ? ClassProbe.report().slice(0, 6e3) : ClassDebug.report();
         const buttons = el("div", { display: "flex", gap: "6px" });
         const copy = document.createElement("button");
-        copy.textContent = "📋 复制完整探针报告";
+        copy.textContent = langText4(
+          "📋 复制完整探针报告",
+          "📋 Copy full probe report"
+        );
         const clear = document.createElement("button");
-        clear.textContent = "清空报告";
+        clear.textContent = langText4("清空报告", "Clear report");
         [copy, clear].forEach(
           (button) => Object.assign(button.style, {
             flex: "1",
@@ -36122,8 +36343,14 @@ ${locks}` : ""}`;
         copy.addEventListener(
           "click",
           () => navigator.clipboard.writeText(ClassProbe.report()).then(() => {
-            copy.textContent = "✓ 已复制";
-            setTimeout(() => copy.textContent = "📋 复制完整探针报告", 1500);
+            copy.textContent = langText4("✓ 已复制", "✓ Copied");
+            setTimeout(
+              () => copy.textContent = langText4(
+                "📋 复制完整探针报告",
+                "📋 Copy full probe report"
+              ),
+              1500
+            );
           }).catch(() => {
           })
         );
@@ -36162,17 +36389,34 @@ ${locks}` : ""}`;
       const dateStr = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       const dur = formatDuration2(entry.durationSeconds);
       const total = entry.teamDamage;
-      let out = "=== KikiMeter 战斗记录｜" + dateStr + "｜" + dur + " ===\n";
-      out += "团队：" + formatRate(entry.teamDps || 0) + " DPS｜总伤害 " + formatDamage(total || 0);
-      if (entry.teamKills > 0) out += "｜击杀 " + entry.teamKills;
+      let out = langText4(
+        `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===
+`,
+        `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===
+`
+      );
+      out += langText4(
+        `团队：${formatRate(entry.teamDps || 0)} DPS｜总伤害 ${formatDamage(total || 0)}`,
+        `Team: ${formatRate(entry.teamDps || 0)} DPS | Total damage ${formatDamage(total || 0)}`
+      );
+      if (entry.teamKills > 0)
+        out += langText4(
+          `｜击杀 ${entry.teamKills}`,
+          ` | Kills ${entry.teamKills}`
+        );
       out += "\n";
       (entry.players || []).forEach((p) => {
         const pct = total > 0 ? (p.damage / total * 100).toFixed(0) : "0";
         const name = p.name.padEnd(12).slice(0, 12);
-        out += name + "：" + formatRate(p.dps || 0).padStart(6) + " DPS｜";
+        out += name + langText4("：", ": ") + formatRate(p.dps || 0).padStart(6) + langText4(" DPS｜", " DPS | ");
         out += formatDamage(p.damage).padStart(7) + " (" + pct + "%)";
-        if (p.kills > 0) out += "｜击杀 " + p.kills;
-        if (p.hps > 0.1) out += "｜HPS " + formatRate(p.hps);
+        if (p.kills > 0)
+          out += langText4(`｜击杀 ${p.kills}`, ` | Kills ${p.kills}`);
+        if (p.hps > 0.1)
+          out += langText4(
+            `｜HPS ${formatRate(p.hps)}`,
+            ` | HPS ${formatRate(p.hps)}`
+          );
         out += "\n";
       });
       return out;
@@ -36180,19 +36424,19 @@ ${locks}` : ""}`;
     function renderHistory(container) {
       container.innerHTML = "";
       const TYPES = [
-        { id: "combat", label: "普通战斗" },
-        { id: "trial", label: "公会试炼" },
-        { id: "labyrinth", label: "迷宫" }
+        { id: "combat", label: langText4("普通战斗", "Combat") },
+        { id: "trial", label: langText4("公会试炼", "Guild Trial") },
+        { id: "labyrinth", label: langText4("迷宫", "Labyrinth") }
       ];
       const filterRow = el("div", {
         display: "flex",
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t10) => {
+      TYPES.forEach((t12) => {
         const btn = document.createElement("button");
-        btn.textContent = t10.label;
-        const active = historyFilter === t10.id;
+        btn.textContent = t12.label;
+        const active = historyFilter === t12.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -36206,7 +36450,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t10.id;
+          historyFilter = t12.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -36219,7 +36463,10 @@ ${locks}` : ""}`;
           fontSize: "11px",
           padding: "6px 0"
         });
-        empty.textContent = "还没有保存的战斗记录。";
+        empty.textContent = langText4(
+          "还没有保存的战斗记录。",
+          "No saved combat records yet."
+        );
         container.appendChild(empty);
         return;
       }
@@ -36252,7 +36499,7 @@ ${locks}` : ""}`;
           padding: "0 2px"
         });
         copyEntryBtn.textContent = "📋";
-        copyEntryBtn.title = "复制这场战斗";
+        copyEntryBtn.title = langText4("复制这场战斗", "Copy this combat record");
         copyEntryBtn.addEventListener("click", (e) => {
           e.stopPropagation();
           navigator.clipboard.writeText(entryToText(entry)).catch(() => {
@@ -36269,13 +36516,19 @@ ${locks}` : ""}`;
           opacity: ".75",
           marginBottom: "3px"
         });
-        teamLine.textContent = "团队：" + formatRate(entry.teamDps || 0) + " DPS · " + formatDamage(entry.teamDamage || 0) + (entry.teamKills > 0 ? " · " + entry.teamKills + " 次击杀" : "") + " · " + ((entry.fragments || []).length || 1) + " 个片段";
+        teamLine.textContent = langText4(
+          `团队：${formatRate(entry.teamDps || 0)} DPS · ${formatDamage(entry.teamDamage || 0)}${entry.teamKills > 0 ? ` · ${entry.teamKills} 次击杀` : ""} · ${(entry.fragments || []).length || 1} 个片段`,
+          `Team: ${formatRate(entry.teamDps || 0)} DPS · ${formatDamage(entry.teamDamage || 0)}${entry.teamKills > 0 ? ` · ${entry.teamKills} kills` : ""} · ${(entry.fragments || []).length || 1} fragments`
+        );
         block.appendChild(teamLine);
         if ((entry.fragments || []).length > 1) {
           const details = document.createElement("details");
           details.dataset.kikimeter = "true";
           const summary = document.createElement("summary");
-          summary.textContent = "查看断线续传片段";
+          summary.textContent = langText4(
+            "查看断线续传片段",
+            "View reconnect fragments"
+          );
           summary.style.cursor = "pointer";
           details.appendChild(summary);
           entry.fragments.forEach((f, i) => {
@@ -36284,7 +36537,10 @@ ${locks}` : ""}`;
               opacity: ".65",
               paddingLeft: "9px"
             });
-            line.textContent = "片段 " + (i + 1) + "｜" + (f.reason || "战斗") + "｜" + formatDuration2((f.durationMs || 0) / 1e3) + "｜伤害 " + formatDamage(f.teamDamage || 0);
+            line.textContent = langText4(
+              `片段 ${i + 1}｜${f.reason || "战斗"}｜${formatDuration2((f.durationMs || 0) / 1e3)}｜伤害 ${formatDamage(f.teamDamage || 0)}`,
+              `Fragment ${i + 1} | ${localizeReason(f.reason)} | ${formatDuration2((f.durationMs || 0) / 1e3)} | Damage ${formatDamage(f.teamDamage || 0)}`
+            );
             details.appendChild(line);
           });
           block.appendChild(details);
@@ -36310,14 +36566,17 @@ ${locks}` : ""}`;
           const nameEl = el("span", { color: "#e8eaf6" });
           nameEl.textContent = p.name;
           const statsEl = el("span", { opacity: ".7", marginLeft: "auto" });
-          statsEl.textContent = formatRate(p.dps || 0) + "/秒 · " + formatDamage(p.damage || 0) + " (" + pct + "%)";
+          statsEl.textContent = formatRate(p.dps || 0) + langText4("/秒 · ", "/s · ") + formatDamage(p.damage || 0) + " (" + pct + "%)";
           pLine.append(icon, nameEl, statsEl);
           block.appendChild(pLine);
         });
         container.appendChild(block);
       });
       const clearBtn = document.createElement("button");
-      clearBtn.textContent = "清空" + (TYPES.find((t10) => t10.id === historyFilter) || {}).label + "记录";
+      clearBtn.textContent = langText4(
+        `清空${(TYPES.find((t12) => t12.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t12) => t12.id === historyFilter) || {}).label} records`
+      );
       Object.assign(clearBtn.style, {
         width: "100%",
         cursor: "pointer",
@@ -36349,10 +36608,29 @@ ${locks}` : ""}`;
 
   // src/features/dps/70-recount-compat.js
   var RecountPanel = /* @__PURE__ */ (() => {
+    const langText4 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
     const MODES = [
-      { id: "dmg", label: "造成伤害", value: "damage", perSecond: "dps" },
-      { id: "heal", label: "恢复量", value: "healing", perSecond: "hps" },
-      { id: "taken", label: "承受伤害", value: "taken", perSecond: "takenPs" }
+      {
+        id: "dmg",
+        zh: "造成伤害",
+        en: "Damage Done",
+        value: "damage",
+        perSecond: "dps"
+      },
+      {
+        id: "heal",
+        zh: "恢复量",
+        en: "Healing",
+        value: "healing",
+        perSecond: "hps"
+      },
+      {
+        id: "taken",
+        zh: "承受伤害",
+        en: "Damage Taken",
+        value: "taken",
+        perSecond: "takenPs"
+      }
     ];
     let root = null, listEl = null, titleEl = null, segmentSelect = null, modeIdx = 0, open = false, graphObj = null, graphWrap = null;
     const highlighted = /* @__PURE__ */ new Set();
@@ -36430,12 +36708,24 @@ ${locks}` : ""}`;
         });
         return b;
       };
-      btns.appendChild(mkBtn("⚔", "造成伤害", () => setMode(0)));
-      btns.appendChild(mkBtn("✚", "恢复量", () => setMode(1)));
-      btns.appendChild(mkBtn("🛡", "承受伤害", () => setMode(2)));
-      const graphBtn = mkBtn("📈", "显示或隐藏趋势图", () => toggleGraph());
+      btns.appendChild(
+        mkBtn("⚔", langText4("造成伤害", "Damage Done"), () => setMode(0))
+      );
+      btns.appendChild(
+        mkBtn("✚", langText4("恢复量", "Healing"), () => setMode(1))
+      );
+      btns.appendChild(
+        mkBtn("🛡", langText4("承受伤害", "Damage Taken"), () => setMode(2))
+      );
+      const graphBtn = mkBtn(
+        "📈",
+        langText4("显示或隐藏趋势图", "Show or hide trend graph"),
+        () => toggleGraph()
+      );
       btns.appendChild(graphBtn);
-      btns.appendChild(mkBtn("✕", "关闭", () => toggle(false)));
+      btns.appendChild(
+        mkBtn("✕", langText4("关闭", "Close"), () => toggle(false))
+      );
       header.append(titleEl, btns);
       root.appendChild(header);
       segmentSelect = buildSegmentPicker(() => {
@@ -36555,7 +36845,7 @@ ${locks}` : ""}`;
       if (graphObj && Settings.getRecountShowGraph())
         graphObj.render(view.graphPoints || []);
       const mode = MODES[modeIdx];
-      titleEl.textContent = mode.label;
+      titleEl.textContent = langText4(mode.zh, mode.en);
       const rows = (view.players || []).map((p) => ({
         n: p.name,
         v: Number(p[mode.value]) || 0,
@@ -36583,6 +36873,7 @@ ${locks}` : ""}`;
   })();
 
   // src/features/dps/90-application.js
+  var langText3 = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
   function start(scope) {
     installThemeFont();
     let currentPlayerNames = [];
@@ -36726,18 +37017,31 @@ ${locks}` : ""}`;
       const view = ViewData.get(), total = view.teamDamage;
       const d = /* @__PURE__ */ new Date();
       const dateStr = d.toLocaleDateString() + " " + d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      let out = "=== 银河奶牛DPS统计｜" + view.label + "｜" + dateStr + "｜" + formatDuration2(view.elapsed) + " ===\n";
-      out += "团队：" + formatRate(view.teamDps) + " DPS｜总伤害 " + formatDamage(total);
-      if (view.teamKills > 0) out += "｜击杀 " + view.teamKills;
+      let out = langText3(
+        `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration2(view.elapsed)} ===
+`,
+        `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration2(view.elapsed)} ===
+`
+      );
+      out += langText3(
+        `团队：${formatRate(view.teamDps)} DPS｜总伤害 ${formatDamage(total)}`,
+        `Team: ${formatRate(view.teamDps)} DPS | Total damage ${formatDamage(total)}`
+      );
+      if (view.teamKills > 0)
+        out += langText3(`｜击杀 ${view.teamKills}`, ` | Kills ${view.teamKills}`);
       out += "\n";
       view.players.forEach((p) => {
         const pct = total > 0 ? ((Number(p.damage) || 0) / total * 100).toFixed(0) : "0";
         const name = p.name.padEnd(12).slice(0, 12);
-        out += name + "：" + formatRate(p.dps || 0).padStart(6) + " DPS｜";
+        out += name + langText3("：", ": ") + formatRate(p.dps || 0).padStart(6) + langText3(" DPS｜", " DPS | ");
         out += formatDamage(Number(p.damage) || 0).padStart(7) + " (" + pct + "%)";
-        if (Number(p.kills) > 0) out += "｜击杀 " + p.kills;
+        if (Number(p.kills) > 0)
+          out += langText3(`｜击杀 ${p.kills}`, ` | Kills ${p.kills}`);
         if (Settings.getShowHealing() && Number(p.hps) > 0.1)
-          out += "｜HPS " + formatRate(p.hps);
+          out += langText3(
+            `｜HPS ${formatRate(p.hps)}`,
+            ` | HPS ${formatRate(p.hps)}`
+          );
         out += "\n";
       });
       return out;
@@ -36752,14 +37056,14 @@ ${locks}` : ""}`;
       onCopy: (btn) => {
         const compact = btn && btn.dataset.compactAction === "true", original = btn && btn.textContent;
         navigator.clipboard.writeText(buildClipboardText()).then(() => {
-          btn.textContent = compact ? "✓" : "✓ 已复制";
+          btn.textContent = compact ? "✓" : langText3("✓ 已复制", "✓ Copied");
           setTimeout(() => {
-            btn.textContent = original || "复制统计";
+            btn.textContent = original || langText3("复制统计", "Copy statistics");
           }, 2e3);
         }).catch(() => {
-          btn.textContent = compact ? "!" : "✗ 复制失败";
+          btn.textContent = compact ? "!" : langText3("✗ 复制失败", "✗ Copy failed");
           setTimeout(() => {
-            btn.textContent = original || "复制统计";
+            btn.textContent = original || langText3("复制统计", "Copy statistics");
           }, 2e3);
         });
       }

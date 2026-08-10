@@ -347,9 +347,7 @@ let settingsMap = {
   },
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
-    desc: isZH
-      ? "MWITools本身强制显示中文 MWITools always in Chinese"
-      : "MWITools本身强制显示中文 MWITools always in Chinese",
+    desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
     isTrue: false,
   },
 };

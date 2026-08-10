@@ -18,6 +18,7 @@ const { runtime } = await import("../src/core/runtime.js");
 const { FeedbackPanel } = await import("../src/features/feedback/panel.js");
 const { normalizeImageLinks } =
   await import("../src/features/feedback/client.js");
+runtime.config.isZH = true;
 
 test("feedback image links only accept up to three HTTP(S) URLs", () => {
   assert.deepEqual(
@@ -48,6 +49,7 @@ test("feedback button sits below total level and UI remains a singleton", () => 
   const second = panel.ensureButton();
   assert.equal(first, second);
   assert.equal(first.previousElementSibling.textContent, "总等级: 2178");
+  assert.match(first.textContent, /MWITools 意见反馈/);
   assert.equal(
     document.querySelectorAll("#mwitools-feedback-button").length,
     1,
@@ -59,6 +61,25 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     "https://tupian.li/",
   );
   assert.equal(document.querySelector('input[type="file"]'), null);
+  assert.equal(
+    document.querySelector(".mwi-feedback-head h2").textContent,
+    "MWITools 意见反馈",
+  );
+  runtime.config.isZH = false;
+  panel.items = [
+    {
+      id: "english-status",
+      status: "pending",
+      title: "English status",
+      updatedAt: "2026-08-10T00:00:00.000Z",
+    },
+  ];
+  panel.renderList();
+  assert.equal(
+    document.querySelector(".mwi-feedback-status").textContent,
+    "Pending",
+  );
+  runtime.config.isZH = true;
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-feedback-button"), null);
   assert.equal(document.querySelector("#mwitools-feedback-root"), null);

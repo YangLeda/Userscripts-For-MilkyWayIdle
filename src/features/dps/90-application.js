@@ -20,6 +20,8 @@ import { DamageBreakdownTooltip } from "./50-graph-components.js";
 import { KikiMeter } from "./60-main-panel.js";
 import "./70-recount-compat.js";
 
+const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
+
 function start(scope) {
   installThemeFont();
   let currentPlayerNames = [];
@@ -192,31 +194,35 @@ function start(scope) {
       d.toLocaleDateString() +
       " " +
       d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    let out =
-      "=== 银河奶牛DPS统计｜" +
-      view.label +
-      "｜" +
-      dateStr +
-      "｜" +
-      formatDuration(view.elapsed) +
-      " ===\n";
-    out +=
-      "团队：" +
-      formatRate(view.teamDps) +
-      " DPS｜总伤害 " +
-      formatDamage(total);
-    if (view.teamKills > 0) out += "｜击杀 " + view.teamKills;
+    let out = langText(
+      `=== 银河奶牛 DPS 统计｜${view.label}｜${dateStr}｜${formatDuration(view.elapsed)} ===\n`,
+      `=== MWI DPS Meter | ${view.label} | ${dateStr} | ${formatDuration(view.elapsed)} ===\n`,
+    );
+    out += langText(
+      `团队：${formatRate(view.teamDps)} DPS｜总伤害 ${formatDamage(total)}`,
+      `Team: ${formatRate(view.teamDps)} DPS | Total damage ${formatDamage(total)}`,
+    );
+    if (view.teamKills > 0)
+      out += langText(`｜击杀 ${view.teamKills}`, ` | Kills ${view.teamKills}`);
     out += "\n";
     view.players.forEach((p) => {
       const pct =
         total > 0 ? (((Number(p.damage) || 0) / total) * 100).toFixed(0) : "0";
       const name = p.name.padEnd(12).slice(0, 12);
-      out += name + "：" + formatRate(p.dps || 0).padStart(6) + " DPS｜";
+      out +=
+        name +
+        langText("：", ": ") +
+        formatRate(p.dps || 0).padStart(6) +
+        langText(" DPS｜", " DPS | ");
       out +=
         formatDamage(Number(p.damage) || 0).padStart(7) + " (" + pct + "%)";
-      if (Number(p.kills) > 0) out += "｜击杀 " + p.kills;
+      if (Number(p.kills) > 0)
+        out += langText(`｜击杀 ${p.kills}`, ` | Kills ${p.kills}`);
       if (Settings.getShowHealing() && Number(p.hps) > 0.1)
-        out += "｜HPS " + formatRate(p.hps);
+        out += langText(
+          `｜HPS ${formatRate(p.hps)}`,
+          ` | HPS ${formatRate(p.hps)}`,
+        );
       out += "\n";
     });
     return out;
@@ -236,15 +242,19 @@ function start(scope) {
       navigator.clipboard
         .writeText(buildClipboardText())
         .then(() => {
-          btn.textContent = compact ? "✓" : "✓ 已复制";
+          btn.textContent = compact ? "✓" : langText("✓ 已复制", "✓ Copied");
           setTimeout(() => {
-            btn.textContent = original || "复制统计";
+            btn.textContent =
+              original || langText("复制统计", "Copy statistics");
           }, 2000);
         })
         .catch(() => {
-          btn.textContent = compact ? "!" : "✗ 复制失败";
+          btn.textContent = compact
+            ? "!"
+            : langText("✗ 复制失败", "✗ Copy failed");
           setTimeout(() => {
-            btn.textContent = original || "复制统计";
+            btn.textContent =
+              original || langText("复制统计", "Copy statistics");
           }, 2000);
         });
     },

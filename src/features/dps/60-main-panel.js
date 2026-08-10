@@ -28,6 +28,27 @@ import {
 
 // ─── KikiMeter Panel ─────────────────────────────────────────────────────────
 const KikiMeter = (() => {
+  const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
+  const localizeReason = (reason) => {
+    const labels = {
+      旧版记录: "Legacy record",
+      归档: "Archived",
+      断线续传: "Reconnect continuation",
+      进入下一层: "Entered next tier",
+      继续战斗: "Combat continued",
+      开始另一场战斗: "Another combat started",
+      手动结束: "Ended manually",
+      公会试炼阶段结束: "Guild Trial stage ended",
+      切换角色: "Character switched",
+      连接中断: "Connection interrupted",
+      页面关闭: "Page closed",
+      页面恢复: "Page resumed",
+      战斗: "Combat",
+    };
+    return Settings.getLanguage() === "en"
+      ? labels[reason] || reason || "Combat"
+      : reason || "战斗";
+  };
   const PANEL_LAYOUT_VERSION = 2,
     DEFAULT_PANEL_HEIGHT = 212,
     MIN_PANEL_HEIGHT = 180;
@@ -1051,8 +1072,10 @@ const KikiMeter = (() => {
         color: "rgba(255,255,255,.76)",
         marginBottom: "7px",
       });
-      hint.textContent =
-        "全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。";
+      hint.textContent = langText(
+        "全量探针会从点击开始持续被动记录全部游戏入站消息，直到你手动结束；不会主动发送任何请求。聊天正文和凭证字段会脱敏，结束后请在刷新页面前下载。",
+        "The full probe passively records all incoming game messages after you start it until you stop it manually. It sends no requests. Chat content and credential fields are redacted; download the capture before refreshing the page.",
+      );
       const probeStatus = ClassProbe.status();
       const probeButtons = el("div", {
         display: "flex",
@@ -1061,14 +1084,17 @@ const KikiMeter = (() => {
       });
       const startProbe = document.createElement("button");
       startProbe.textContent = probeStatus.active
-        ? "全量采集中…"
-        : "开始全量采集";
+        ? langText("全量采集中…", "Capturing…")
+        : langText("开始全量采集", "Start full capture");
       startProbe.disabled = probeStatus.active;
       const stopProbe = document.createElement("button");
-      stopProbe.textContent = "结束采集";
+      stopProbe.textContent = langText("结束采集", "Stop capture");
       stopProbe.disabled = !probeStatus.active;
       const downloadProbe = document.createElement("button");
-      downloadProbe.textContent = "⬇ 下载全量MSG";
+      downloadProbe.textContent = langText(
+        "⬇ 下载全量 MSG",
+        "⬇ Download full messages",
+      );
       downloadProbe.disabled = probeStatus.active || !probeStatus.startedAt;
       [startProbe, stopProbe, downloadProbe].forEach((button) =>
         Object.assign(button.style, {
@@ -1097,8 +1123,15 @@ const KikiMeter = (() => {
         event.preventDefault();
         if (downloadProbe.disabled) return;
         if (ClassProbe.download()) {
-          downloadProbe.textContent = "✓ 已下载";
-          setTimeout(() => (downloadProbe.textContent = "⬇ 下载全量MSG"), 1500);
+          downloadProbe.textContent = langText("✓ 已下载", "✓ Downloaded");
+          setTimeout(
+            () =>
+              (downloadProbe.textContent = langText(
+                "⬇ 下载全量 MSG",
+                "⬇ Download full messages",
+              )),
+            1500,
+          );
         }
       });
       probeButtons.append(startProbe, stopProbe, downloadProbe);
@@ -1116,19 +1149,21 @@ const KikiMeter = (() => {
         lineHeight: "1.45",
       });
       report.textContent = probeStatus.active
-        ? "全量探针正在采集，已记录 " +
-          probeStatus.messageCount +
-          " 条消息，正文约 " +
-          (probeStatus.captureChars / 1024 / 1024).toFixed(2) +
-          " MB；点击“结束采集”才会停止。"
+        ? langText(
+            `全量探针正在采集，已记录 ${probeStatus.messageCount} 条消息，正文约 ${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB；点击“结束采集”才会停止。`,
+            `The full probe is capturing. ${probeStatus.messageCount} messages recorded (${(probeStatus.captureChars / 1024 / 1024).toFixed(2)} MB). Click “Stop capture” to stop it.`,
+          )
         : probeStatus.startedAt
           ? ClassProbe.report().slice(0, 6000)
           : ClassDebug.report();
       const buttons = el("div", { display: "flex", gap: "6px" });
       const copy = document.createElement("button");
-      copy.textContent = "📋 复制完整探针报告";
+      copy.textContent = langText(
+        "📋 复制完整探针报告",
+        "📋 Copy full probe report",
+      );
       const clear = document.createElement("button");
-      clear.textContent = "清空报告";
+      clear.textContent = langText("清空报告", "Clear report");
       [copy, clear].forEach((button) =>
         Object.assign(button.style, {
           flex: "1",
@@ -1145,8 +1180,15 @@ const KikiMeter = (() => {
         navigator.clipboard
           .writeText(ClassProbe.report())
           .then(() => {
-            copy.textContent = "✓ 已复制";
-            setTimeout(() => (copy.textContent = "📋 复制完整探针报告"), 1500);
+            copy.textContent = langText("✓ 已复制", "✓ Copied");
+            setTimeout(
+              () =>
+                (copy.textContent = langText(
+                  "📋 复制完整探针报告",
+                  "📋 Copy full probe report",
+                )),
+              1500,
+            );
           })
           .catch(() => {}),
       );
@@ -1238,21 +1280,36 @@ const KikiMeter = (() => {
       d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const dur = formatDuration(entry.durationSeconds);
     const total = entry.teamDamage;
-    let out = "=== KikiMeter 战斗记录｜" + dateStr + "｜" + dur + " ===\n";
-    out +=
-      "团队：" +
-      formatRate(entry.teamDps || 0) +
-      " DPS｜总伤害 " +
-      formatDamage(total || 0);
-    if (entry.teamKills > 0) out += "｜击杀 " + entry.teamKills;
+    let out = langText(
+      `=== KikiMeter 战斗记录｜${dateStr}｜${dur} ===\n`,
+      `=== KikiMeter Combat Record | ${dateStr} | ${dur} ===\n`,
+    );
+    out += langText(
+      `团队：${formatRate(entry.teamDps || 0)} DPS｜总伤害 ${formatDamage(total || 0)}`,
+      `Team: ${formatRate(entry.teamDps || 0)} DPS | Total damage ${formatDamage(total || 0)}`,
+    );
+    if (entry.teamKills > 0)
+      out += langText(
+        `｜击杀 ${entry.teamKills}`,
+        ` | Kills ${entry.teamKills}`,
+      );
     out += "\n";
     (entry.players || []).forEach((p) => {
       const pct = total > 0 ? ((p.damage / total) * 100).toFixed(0) : "0";
       const name = p.name.padEnd(12).slice(0, 12);
-      out += name + "：" + formatRate(p.dps || 0).padStart(6) + " DPS｜";
+      out +=
+        name +
+        langText("：", ": ") +
+        formatRate(p.dps || 0).padStart(6) +
+        langText(" DPS｜", " DPS | ");
       out += formatDamage(p.damage).padStart(7) + " (" + pct + "%)";
-      if (p.kills > 0) out += "｜击杀 " + p.kills;
-      if (p.hps > 0.1) out += "｜HPS " + formatRate(p.hps);
+      if (p.kills > 0)
+        out += langText(`｜击杀 ${p.kills}`, ` | Kills ${p.kills}`);
+      if (p.hps > 0.1)
+        out += langText(
+          `｜HPS ${formatRate(p.hps)}`,
+          ` | HPS ${formatRate(p.hps)}`,
+        );
       out += "\n";
     });
     return out;
@@ -1267,9 +1324,9 @@ const KikiMeter = (() => {
     // le monde ouvert (new_battle/battle_updated identiques), distingué
     // via labyrinth_updated.isActive pour le tag d'historique uniquement.
     const TYPES = [
-      { id: "combat", label: "普通战斗" },
-      { id: "trial", label: "公会试炼" },
-      { id: "labyrinth", label: "迷宫" },
+      { id: "combat", label: langText("普通战斗", "Combat") },
+      { id: "trial", label: langText("公会试炼", "Guild Trial") },
+      { id: "labyrinth", label: langText("迷宫", "Labyrinth") },
     ];
     const filterRow = el("div", {
       display: "flex",
@@ -1307,7 +1364,10 @@ const KikiMeter = (() => {
         fontSize: "11px",
         padding: "6px 0",
       });
-      empty.textContent = "还没有保存的战斗记录。";
+      empty.textContent = langText(
+        "还没有保存的战斗记录。",
+        "No saved combat records yet.",
+      );
       container.appendChild(empty);
       return;
     }
@@ -1350,7 +1410,7 @@ const KikiMeter = (() => {
         padding: "0 2px",
       });
       copyEntryBtn.textContent = "📋";
-      copyEntryBtn.title = "复制这场战斗";
+      copyEntryBtn.title = langText("复制这场战斗", "Copy this combat record");
       copyEntryBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         navigator.clipboard.writeText(entryToText(entry)).catch(() => {});
@@ -1368,22 +1428,20 @@ const KikiMeter = (() => {
         opacity: ".75",
         marginBottom: "3px",
       });
-      teamLine.textContent =
-        "团队：" +
-        formatRate(entry.teamDps || 0) +
-        " DPS · " +
-        formatDamage(entry.teamDamage || 0) +
-        (entry.teamKills > 0 ? " · " + entry.teamKills + " 次击杀" : "") +
-        " · " +
-        ((entry.fragments || []).length || 1) +
-        " 个片段";
+      teamLine.textContent = langText(
+        `团队：${formatRate(entry.teamDps || 0)} DPS · ${formatDamage(entry.teamDamage || 0)}${entry.teamKills > 0 ? ` · ${entry.teamKills} 次击杀` : ""} · ${(entry.fragments || []).length || 1} 个片段`,
+        `Team: ${formatRate(entry.teamDps || 0)} DPS · ${formatDamage(entry.teamDamage || 0)}${entry.teamKills > 0 ? ` · ${entry.teamKills} kills` : ""} · ${(entry.fragments || []).length || 1} fragments`,
+      );
       block.appendChild(teamLine);
 
       if ((entry.fragments || []).length > 1) {
         const details = document.createElement("details");
         details.dataset.kikimeter = "true";
         const summary = document.createElement("summary");
-        summary.textContent = "查看断线续传片段";
+        summary.textContent = langText(
+          "查看断线续传片段",
+          "View reconnect fragments",
+        );
         summary.style.cursor = "pointer";
         details.appendChild(summary);
         entry.fragments.forEach((f, i) => {
@@ -1392,15 +1450,10 @@ const KikiMeter = (() => {
             opacity: ".65",
             paddingLeft: "9px",
           });
-          line.textContent =
-            "片段 " +
-            (i + 1) +
-            "｜" +
-            (f.reason || "战斗") +
-            "｜" +
-            formatDuration((f.durationMs || 0) / 1000) +
-            "｜伤害 " +
-            formatDamage(f.teamDamage || 0);
+          line.textContent = langText(
+            `片段 ${i + 1}｜${f.reason || "战斗"}｜${formatDuration((f.durationMs || 0) / 1000)}｜伤害 ${formatDamage(f.teamDamage || 0)}`,
+            `Fragment ${i + 1} | ${localizeReason(f.reason)} | ${formatDuration((f.durationMs || 0) / 1000)} | Damage ${formatDamage(f.teamDamage || 0)}`,
+          );
           details.appendChild(line);
         });
         block.appendChild(details);
@@ -1433,7 +1486,7 @@ const KikiMeter = (() => {
         const statsEl = el("span", { opacity: ".7", marginLeft: "auto" });
         statsEl.textContent =
           formatRate(p.dps || 0) +
-          "/秒 · " +
+          langText("/秒 · ", "/s · ") +
           formatDamage(p.damage || 0) +
           " (" +
           pct +
@@ -1448,8 +1501,10 @@ const KikiMeter = (() => {
     // Bouton vider l'historique — ne touche QUE le type actuellement affiché,
     // pas les autres catégories.
     const clearBtn = document.createElement("button");
-    clearBtn.textContent =
-      "清空" + (TYPES.find((t) => t.id === historyFilter) || {}).label + "记录";
+    clearBtn.textContent = langText(
+      `清空${(TYPES.find((t) => t.id === historyFilter) || {}).label}记录`,
+      `Clear ${(TYPES.find((t) => t.id === historyFilter) || {}).label} records`,
+    );
     Object.assign(clearBtn.style, {
       width: "100%",
       cursor: "pointer",

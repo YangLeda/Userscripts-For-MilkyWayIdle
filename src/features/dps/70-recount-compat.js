@@ -20,10 +20,29 @@ import { KikiMeter } from "./60-main-panel.js";
 // S'ouvre automatiquement quand une vague arrive avec plus de 10 joueurs,
 // toggle manuel via le bouton 📊 du panneau principal.
 const RecountPanel = (() => {
+  const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
   const MODES = [
-    { id: "dmg", label: "造成伤害", value: "damage", perSecond: "dps" },
-    { id: "heal", label: "恢复量", value: "healing", perSecond: "hps" },
-    { id: "taken", label: "承受伤害", value: "taken", perSecond: "takenPs" },
+    {
+      id: "dmg",
+      zh: "造成伤害",
+      en: "Damage Done",
+      value: "damage",
+      perSecond: "dps",
+    },
+    {
+      id: "heal",
+      zh: "恢复量",
+      en: "Healing",
+      value: "healing",
+      perSecond: "hps",
+    },
+    {
+      id: "taken",
+      zh: "承受伤害",
+      en: "Damage Taken",
+      value: "taken",
+      perSecond: "takenPs",
+    },
   ];
   let root = null,
     listEl = null,
@@ -117,12 +136,24 @@ const RecountPanel = (() => {
       });
       return b;
     };
-    btns.appendChild(mkBtn("⚔", "造成伤害", () => setMode(0)));
-    btns.appendChild(mkBtn("✚", "恢复量", () => setMode(1)));
-    btns.appendChild(mkBtn("🛡", "承受伤害", () => setMode(2)));
-    const graphBtn = mkBtn("📈", "显示或隐藏趋势图", () => toggleGraph());
+    btns.appendChild(
+      mkBtn("⚔", langText("造成伤害", "Damage Done"), () => setMode(0)),
+    );
+    btns.appendChild(
+      mkBtn("✚", langText("恢复量", "Healing"), () => setMode(1)),
+    );
+    btns.appendChild(
+      mkBtn("🛡", langText("承受伤害", "Damage Taken"), () => setMode(2)),
+    );
+    const graphBtn = mkBtn(
+      "📈",
+      langText("显示或隐藏趋势图", "Show or hide trend graph"),
+      () => toggleGraph(),
+    );
     btns.appendChild(graphBtn);
-    btns.appendChild(mkBtn("✕", "关闭", () => toggle(false)));
+    btns.appendChild(
+      mkBtn("✕", langText("关闭", "Close"), () => toggle(false)),
+    );
     header.append(titleEl, btns);
     root.appendChild(header);
 
@@ -265,7 +296,7 @@ const RecountPanel = (() => {
     if (graphObj && Settings.getRecountShowGraph())
       graphObj.render(view.graphPoints || []);
     const mode = MODES[modeIdx];
-    titleEl.textContent = mode.label;
+    titleEl.textContent = langText(mode.zh, mode.en);
     const rows = (view.players || [])
       .map((p) => ({
         n: p.name,

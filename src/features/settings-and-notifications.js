@@ -473,7 +473,7 @@ function addEquipmentWarningStyles() {
   style.textContent = `
     .mwi-equipment-warning-host { position:relative!important; }
     @keyframes mwi-equipment-warning-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); } 50% { box-shadow:0 0 0 4px rgba(255,75,75,.16),0 2px 12px rgba(0,0,0,.5); } }
-    #script_item_warning { position:absolute; top:50%; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,190px); height:26px; align-items:center; gap:5px; padding:2px 8px; transform:translateY(-50%); border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.68rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
+    #script_item_warning { position:absolute; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,216px); height:22px; align-items:center; gap:5px; padding:1px 7px; border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.64rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
     .mwi-equipment-warning-icon { flex:0 0 auto; color:#ffb7b7; font-size:.78rem; }
     .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
     @media(prefers-reduced-motion:reduce) { #script_item_warning { animation:none; } }
@@ -489,43 +489,44 @@ function removeEquipmentWarning() {
     .forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
 }
 
-function positionEquipmentWarning(warning, host) {
+function positionEquipmentWarning(warning, host, communityBuffs) {
   const hostRect = host.getBoundingClientRect();
-  const dashboard = host.querySelector("#mwi-action-dashboard");
-  const nativeChildren = [...host.children].filter(
-    (element) => element !== warning && element !== dashboard,
-  );
-  const anchorRect =
-    dashboard?.getBoundingClientRect() ??
-    nativeChildren.at(-1)?.getBoundingClientRect();
-  const left = Math.max(
-    0,
-    (anchorRect?.right ?? hostRect.left) - hostRect.left + 6,
-  );
+  const anchorRect = communityBuffs.getBoundingClientRect();
+  const left = Math.max(0, anchorRect.left - hostRect.left);
+  const top = Math.max(0, anchorRect.bottom - hostRect.top + 4);
   const viewportWidth = host.ownerDocument?.defaultView?.innerWidth ?? 0;
-  const availableInHost = Math.max(26, hostRect.width - left);
   const availableInViewport = viewportWidth
     ? Math.max(26, viewportWidth - hostRect.left - left - 12)
-    : availableInHost;
+    : anchorRect.width;
   warning.style.left = `${left}px`;
+  warning.style.top = `${top}px`;
   warning.style.setProperty(
     "--mwi-equipment-warning-space",
-    `${Math.min(190, availableInHost, availableInViewport)}px`,
+    `${Math.min(216, anchorRect.width || 216, availableInViewport)}px`,
   );
 }
 
 /* 检查是否穿错生产/战斗装备 */
 function checkEquipment() {
   const warningState = getEquipmentWarning();
-  const host = document.querySelector('div[class*="Header_actionName"]');
-  if (!warningState || !host) {
+  const host = document.querySelector('div[class*="Header_actionInfo"]');
+  const communityBuffs = host?.querySelector(
+    'div[class*="Header_communityBuffs"]',
+  );
+  if (!warningState || !host || !communityBuffs) {
     removeEquipmentWarning();
     return warningState;
   }
 
   addEquipmentWarningStyles();
+  document
+    .querySelectorAll(".mwi-equipment-warning-host")
+    .forEach((element) => {
+      if (element !== host)
+        element.classList.remove("mwi-equipment-warning-host");
+    });
   host.classList.add("mwi-equipment-warning-host");
-  let warning = host.querySelector("#script_item_warning");
+  let warning = document.querySelector("#script_item_warning");
   if (!warning) {
     warning = document.createElement("div");
     warning.id = "script_item_warning";
@@ -536,13 +537,13 @@ function checkEquipment() {
     const text = document.createElement("span");
     text.className = "mwi-equipment-warning-text";
     warning.append(icon, text);
-    host.appendChild(warning);
   }
+  if (warning.parentElement !== host) host.appendChild(warning);
   warning.dataset.code = warningState.code;
   warning.querySelector(".mwi-equipment-warning-text").textContent =
     warningState.text;
   warning.title = warningState.text;
-  positionEquipmentWarning(warning, host);
+  positionEquipmentWarning(warning, host, communityBuffs);
   return warningState;
 }
 

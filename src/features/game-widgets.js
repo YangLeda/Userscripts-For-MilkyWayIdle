@@ -1,5 +1,9 @@
 import { runtime } from "../core/runtime.js";
 
+function t(zh, en) {
+  return runtime.config.isZH ? zh : en;
+}
+
 /* 战斗总结 */
 async function handleBattleSummary(message) {
   const marketJson = await runtime.api.fetchMarketJSON();
@@ -290,7 +294,7 @@ function addMarketFilterButtons() {
       "beforeend",
       `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">All</option>
+            <option value="1">${t("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -311,7 +315,7 @@ function addMarketFilterButtons() {
       "beforeend",
       `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">All</option>
+            <option value="1000">${t("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -332,33 +336,33 @@ function addMarketFilterButtons() {
       "beforeend",
       `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">All</option>
-                <option value="attack">Attack</option>
-                <option value="melee">Melee</option>
-                <option value="defense">Defense</option>
-                <option value="ranged">Ranged</option>
-                <option value="magic">Magic</option>
-                <option value="others">Others</option>
+                <option value="all">${t("全部", "All")}</option>
+                <option value="attack">${t("攻击", "Attack")}</option>
+                <option value="melee">${t("近战", "Melee")}</option>
+                <option value="defense">${t("防御", "Defense")}</option>
+                <option value="ranged">${t("远程", "Ranged")}</option>
+                <option value="magic">${t("魔法", "Magic")}</option>
+                <option value="others">${t("其他", "Others")}</option>
             </select>&emsp;</span>`,
     );
     filters.insertAdjacentHTML(
       "beforeend",
       `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">All</option>
-                <option value="main_hand">Main Hand</option>
-                <option value="off_hand">Off Hand</option>
-                <option value="two_hand">Two Hand</option>
-                <option value="head">Head</option>
-                <option value="body">Body</option>
-                <option value="hands">Hands</option>
-                <option value="legs">Legs</option>
-                <option value="feet">Feet</option>
-                <option value="neck">Neck</option>
-                <option value="earrings">Earrings</option>
-                <option value="ring">Ring</option>
-                <option value="pouch">Pouch</option>
-                <option value="back">Back</option>
+                <option value="all">${t("全部", "All")}</option>
+                <option value="main_hand">${t("主手", "Main Hand")}</option>
+                <option value="off_hand">${t("副手", "Off Hand")}</option>
+                <option value="two_hand">${t("双手", "Two Hand")}</option>
+                <option value="head">${t("头部", "Head")}</option>
+                <option value="body">${t("身体", "Body")}</option>
+                <option value="hands">${t("手部", "Hands")}</option>
+                <option value="legs">${t("腿部", "Legs")}</option>
+                <option value="feet">${t("脚部", "Feet")}</option>
+                <option value="neck">${t("项链", "Neck")}</option>
+                <option value="earrings">${t("耳饰", "Earrings")}</option>
+                <option value="ring">${t("戒指", "Ring")}</option>
+                <option value="pouch">${t("袋子", "Pouch")}</option>
+                <option value="back">${t("背部", "Back")}</option>
             </select>&emsp;</span>`,
     );
 
@@ -638,7 +642,7 @@ async function handleItemDict(panel) {
       );
       tillLevelNumber.textContent = `${numBooks} (${runtime.api.numberFormatter(numBooks * ask)} / ${runtime.api.numberFormatter(numBooks * bid)})`;
     } else {
-      tillLevelNumber.textContent = "Error";
+      tillLevelNumber.textContent = t("错误", "Error");
     }
   };
   tillLevelInput.addEventListener("keyup", function (evt) {
@@ -652,7 +656,7 @@ async function handleItemDict(panel) {
       );
       tillLevelNumber.textContent = `${numBooks} (${runtime.api.numberFormatter(numBooks * ask)} / ${runtime.api.numberFormatter(numBooks * bid)})`;
     } else {
-      tillLevelNumber.textContent = "Error";
+      tillLevelNumber.textContent = t("错误", "Error");
     }
   });
 }

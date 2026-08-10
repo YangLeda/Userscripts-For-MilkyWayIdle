@@ -5,12 +5,17 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM(
   `<!doctype html><html><head></head><body>
-    <div class="Header_currentAction__test">
-      <div class="Header_actionName__test"></div>
-      <div class="ProgressBar_progressBar__test" style="--duration:10">
-        <div class="ProgressBar_innerBar__test ProgressBar_active__test" style="transform:matrix(0.7, 0, 0, 1, 0, 0)"></div>
-        <div class="ProgressBar_text__test">10.00s</div>
+    <div class="Header_actionInfo__test">
+      <div class="Header_myActions__test">
+        <div class="Header_currentAction__test">
+          <div class="Header_actionName__test"></div>
+          <div class="ProgressBar_progressBar__test" style="--duration:10">
+            <div class="ProgressBar_innerBar__test ProgressBar_active__test" style="transform:matrix(0.7, 0, 0, 1, 0, 0)"></div>
+            <div class="ProgressBar_text__test">10.00s</div>
+          </div>
+        </div>
       </div>
+      <div class="Header_communityBuffs__test"></div>
     </div>
     <div class="Modal_modalContainer__test">
       <div class="SkillActionDetail_regularComponent__test">
@@ -159,7 +164,7 @@ test("material-limited infinite production shows a finite live remainder", () =>
   assert.match(dashboard.querySelector("span").title, /当前库存/);
 });
 
-test("equipment warnings reuse an absolute action-bar sibling without changing native content", () => {
+test("equipment warnings float below community buffs without moving action content", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   document.querySelector("#mwi-action-dashboard")?.remove();
   host.replaceChildren();
@@ -188,7 +193,11 @@ test("equipment warnings reuse an absolute action-bar sibling without changing n
 
   const warning = document.querySelector("#script_item_warning");
   assert.ok(warning);
-  assert.equal(warning.parentElement, host);
+  const warningHost = document.querySelector('div[class*="Header_actionInfo"]');
+  const communityBuffs = document.querySelector(
+    'div[class*="Header_communityBuffs"]',
+  );
+  assert.equal(warning.parentElement, warningHost);
   assert.match(warning.textContent, /未装备生活副手/);
   assert.equal(warning.title, "未装备生活副手");
   assert.equal(dom.window.getComputedStyle(warning).position, "absolute");
@@ -200,9 +209,21 @@ test("equipment warnings reuse an absolute action-bar sibling without changing n
     dom.window.getComputedStyle(warning).borderTopColor,
     "rgb(255, 91, 91)",
   );
-  assert.equal(warning.previousElementSibling.id, "mwi-action-dashboard");
+  assert.equal(warning.previousElementSibling, communityBuffs);
   assert.equal(nativeName.outerHTML, nativeMarkup);
   assert.equal(host.firstElementChild, nativeName);
+
+  const dashboardLeft = document.querySelector("#mwi-action-dashboard").style
+    .left;
+  for (let index = 0; index < 5; index += 1) {
+    runtime.api.checkEquipment();
+    runtime.api.renderActionDashboard();
+  }
+  assert.equal(
+    document.querySelector("#mwi-action-dashboard").style.left,
+    dashboardLeft,
+    "the warning must never become the dashboard's next positioning anchor",
+  );
 
   runtime.api.checkEquipment();
   assert.equal(document.querySelectorAll("#script_item_warning").length, 1);

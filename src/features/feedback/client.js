@@ -1,6 +1,78 @@
+import { runtime } from "../../core/runtime.js";
+
 const API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
 const TOKEN_PREFIX = "MWITools_feedback_identity_v1";
 export const MAX_IMAGE_LINKS = 3;
+
+function t(zh, en) {
+  return runtime.config.isZH ? zh : en;
+}
+
+const SERVER_ERROR_LABELS = {
+  "Required text is missing": ["必填内容不能为空", "Required text is missing"],
+  "Bearer token required": [
+    "缺少反馈身份令牌",
+    "Feedback identity token is missing",
+  ],
+  "Invalid bearer token": [
+    "反馈身份令牌无效",
+    "Feedback identity token is invalid",
+  ],
+  "Identity is not registered": [
+    "反馈身份尚未注册",
+    "Feedback identity is not registered",
+  ],
+  "Invalid image link list": ["图片链接列表无效", "Invalid image link list"],
+  "Image links must be a list": [
+    "图片链接必须是列表",
+    "Image links must be a list",
+  ],
+  "At most 3 image links are allowed": [
+    "最多只能填写 3 个图片链接",
+    "At most 3 image links are allowed",
+  ],
+  "Image links must use http or https": [
+    "图片链接只支持 HTTP 或 HTTPS",
+    "Image links must use HTTP or HTTPS",
+  ],
+  "Feedback not found": ["未找到这条反馈", "Feedback not found"],
+  "This private identity belongs to another character": [
+    "当前反馈身份属于其他角色",
+    "This feedback identity belongs to another character",
+  ],
+  "Invalid feedback type": ["反馈类型无效", "Invalid feedback type"],
+  "Invalid context JSON": ["反馈环境信息无效", "Invalid feedback context"],
+  "Context must be an object": [
+    "反馈环境信息格式无效",
+    "Feedback context must be an object",
+  ],
+  "Weekly feedback limit reached": [
+    "本周反馈额度已用完",
+    "Weekly feedback limit reached",
+  ],
+  "Closed feedback cannot be edited": [
+    "已结束的反馈不能修改",
+    "Closed feedback cannot be edited",
+  ],
+  "Closed feedback cannot receive messages": [
+    "已结束的反馈不能继续留言",
+    "Closed feedback cannot receive messages",
+  ],
+};
+
+function localizeErrorDetail(detail) {
+  const value = String(detail ?? "").trim();
+  const labels = SERVER_ERROR_LABELS[value];
+  if (labels) return t(...labels);
+  const limit = /^Text exceeds (\d+) characters$/.exec(value);
+  if (limit) {
+    return t(
+      `内容不能超过 ${limit[1]} 个字符`,
+      `Text cannot exceed ${limit[1]} characters`,
+    );
+  }
+  return value;
+}
 
 function gameServer() {
   return String(globalThis.location?.hostname ?? "unknown");
@@ -70,7 +142,9 @@ function request({ token, path, method = "GET", body }) {
       .then(async (response) => {
         if (!response.ok) {
           const payload = await response.json().catch(() => ({}));
-          throw new Error(payload.detail || `HTTP ${response.status}`);
+          throw new Error(
+            localizeErrorDetail(payload.detail) || `HTTP ${response.status}`,
+          );
         }
         return response.json();
       });
@@ -84,7 +158,11 @@ function request({ token, path, method = "GET", body }) {
       if (status < 200 || status >= 300) {
         const payload = parseResponse(response);
         const error = new Error(
-          payload?.detail || `反馈服务返回 HTTP ${status}`,
+          localizeErrorDetail(payload?.detail) ||
+            t(
+              `反馈服务返回 HTTP ${status}`,
+              `Feedback service returned HTTP ${status}`,
+            ),
         );
         error.status = status;
         reject(error);
@@ -112,8 +190,12 @@ function request({ token, path, method = "GET", body }) {
         timeout: 20_000,
         anonymous: false,
         onload: finish,
-        onerror: () => fail("无法连接意见反馈服务"),
-        ontimeout: () => fail("意见反馈服务请求超时"),
+        onerror: () =>
+          fail(
+            t("无法连接意见反馈服务", "Unable to reach the feedback service"),
+          ),
+        ontimeout: () =>
+          fail(t("意见反馈服务请求超时", "Feedback service request timed out")),
       });
       result?.then?.(finish).catch((error) => fail(error.message));
     } catch (error) {
@@ -128,18 +210,23 @@ export function normalizeImageLinks(value) {
     : String(value ?? "").split(/\r?\n/);
   const links = values.map((item) => String(item).trim()).filter(Boolean);
   if (links.length > MAX_IMAGE_LINKS) {
-    throw new Error("最多只能填写 3 个图片链接");
+    throw new Error(
+      t("最多只能填写 3 个图片链接", "At most 3 image links are allowed"),
+    );
   }
   for (const link of links) {
-    if (link.length > 2000) throw new Error("图片链接过长");
+    if (link.length > 2000)
+      throw new Error(t("图片链接过长", "The image link is too long"));
     let url;
     try {
       url = new URL(link);
     } catch {
-      throw new Error("图片链接格式不正确");
+      throw new Error(t("图片链接格式不正确", "Invalid image link format"));
     }
     if (!["http:", "https:"].includes(url.protocol)) {
-      throw new Error("图片链接只支持 HTTP 或 HTTPS");
+      throw new Error(
+        t("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS"),
+      );
     }
   }
   return links;

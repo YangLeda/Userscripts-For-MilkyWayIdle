@@ -6,70 +6,90 @@ const ClassSystem = (() => {
   const bus = new EventTarget();
   const definitions = {
     fire: {
-      label: "火法",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Fire Mage" : "火法";
+      },
       color: "#C41E3A",
       get icon() {
         return GameAssets.item("blazing_trident");
       },
     },
     nature: {
-      label: "自然法",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Nature Mage" : "自然法";
+      },
       color: "#00FF98",
       get icon() {
         return GameAssets.item("blooming_trident");
       },
     },
     water: {
-      label: "水法",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Water Mage" : "水法";
+      },
       color: "#3FC7EB",
       get icon() {
         return GameAssets.item("rippling_trident");
       },
     },
     sword: {
-      label: "剑",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Sword" : "剑";
+      },
       color: "#C69B6D",
       get icon() {
         return GameAssets.item("regal_sword");
       },
     },
     mace: {
-      label: "锤",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Mace" : "锤";
+      },
       color: "#A330C9",
       get icon() {
         return GameAssets.item("chaotic_flail");
       },
     },
     spear: {
-      label: "枪",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Spear" : "枪";
+      },
       color: "#FFF468",
       get icon() {
         return GameAssets.item("furious_spear");
       },
     },
     bow: {
-      label: "弓",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Bow" : "弓";
+      },
       color: "#AAD372",
       get icon() {
         return GameAssets.item("cursed_bow");
       },
     },
     crossbow: {
-      label: "弩",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Crossbow" : "弩";
+      },
       color: "#0070DD",
       get icon() {
         return GameAssets.item("sundering_crossbow");
       },
     },
     shield: {
-      label: "盾",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Shield" : "盾";
+      },
       color: "#F48CBA",
       get icon() {
         return GameAssets.item("griffin_bulwark");
       },
     },
     unknown: {
-      label: "未知",
+      get label() {
+        return Settings.getLanguage() === "en" ? "Unknown" : "未知";
+      },
       color: "#7f8c8d",
       get icon() {
         return GameAssets.skill("attack");
@@ -607,6 +627,26 @@ const ClassDebug = (() => {
     return JSON.parse(JSON.stringify(events));
   }
   function report() {
+    if (Settings.getLanguage() === "en") {
+      const output = events.map((event) => ({
+        ...event,
+        players: event.players.map((player) => ({
+          ...player,
+          detectedLabel: (
+            ClassSystem.definitions[player.detectedClass] ||
+            ClassSystem.definitions.unknown
+          ).label,
+        })),
+      }));
+      return [
+        `=== MWI DPS Meter | Class Diagnostics | ${VERSION} ===`,
+        `Generated at: ${new Date().toLocaleString()}`,
+        "Note: icons represent each class's signature weapon. The data below contains only class-identification fields.",
+        `Recorded events: ${events.length}`,
+        "",
+        JSON.stringify(output, null, 2),
+      ].join("\n");
+    }
     const lines = [
       `=== 银河奶牛DPS统计｜职业调试报告｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),
@@ -1235,6 +1275,28 @@ const ClassProbe = (() => {
     return detail ? scanRelevant(detail) : null;
   }
   function report() {
+    if (Settings.getLanguage() === "en") {
+      const exportedState = JSON.parse(JSON.stringify(state));
+      if (exportedState.storageNotice) {
+        exportedState.storageNotice =
+          "Full message bodies are kept only in this page's memory. Download them before refreshing or closing the page.";
+      }
+      return [
+        `=== MWI DPS Meter | Manual Full Incoming-Message Probe | ${VERSION} ===`,
+        `Generated at: ${new Date().toLocaleString()}`,
+        `Capture started: ${state.startedAt || "Not started"}`,
+        `Capture ended: ${state.endedAt || (active ? "In progress" : "None")}`,
+        `Effective capture: ${(status().elapsedMs / 1000).toFixed(1)} seconds`,
+        "Network policy: this probe does not call fetch, XHR, or WebSocket.send. It only reads data the game already received.",
+        "Scope: all incoming game WebSocket messages, user-selected targets, and character-panel DOM between start and stop. Chat bodies and credential fields are redacted.",
+        `Messages: ${state.fullMessages.length} | Message bodies: ${(captureChars / 1024 / 1024).toFixed(2)} MB | DOM snapshots: ${state.domSnapshots.length}`,
+        "",
+        JSON.stringify(exportedState, null, 2),
+        "",
+        "--- Initial-message class report ---",
+        ClassDebug.report(),
+      ].join("\n");
+    }
     const lines = [
       `=== 银河奶牛DPS统计｜手动全量入站消息探针｜${VERSION} ===`,
       "生成时间：" + new Date().toLocaleString(),

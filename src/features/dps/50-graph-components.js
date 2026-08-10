@@ -11,6 +11,7 @@ import { Session } from "./20-session.js";
 
 // ─── DPS Graph ────────────────────────────────────────────────────────────────
 const BOSS_COLOR = "#FF3F34";
+const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
 
 function buildGraph() {
   // Durée d'un bucket — DOIT correspondre à Session.BUCKET_MS (2000ms).
@@ -441,7 +442,7 @@ function openClassPicker(name, anchor, rerender) {
   const select = document.createElement("select");
   select.id = "kikimeter-class-picker";
   select.dataset.kikimeter = "true";
-  select.append(new Option("自动识别", "auto"));
+  select.append(new Option(langText("自动识别", "Auto-detect"), "auto"));
   Object.entries(ClassSystem.definitions)
     .filter(([id]) => id !== "unknown")
     .forEach(([id, d]) => select.append(new Option(d.label, id)));
@@ -719,7 +720,7 @@ function renderDetailsRows(container, rows, rerender) {
     });
     rank.textContent = String(i + 1) + ".";
     const icon = iconElement(cls.icon, cls.label);
-    icon.title = cls.label + "｜点击选择职业";
+    icon.title = `${cls.label}${langText("｜点击选择职业", " | Click to choose class")}`;
     Object.assign(icon.style, {
       width: "19px",
       height: "19px",
@@ -745,15 +746,10 @@ function renderDetailsRows(container, rows, rerender) {
       fontVariantNumeric: "tabular-nums",
       textAlign: "right",
     });
-    stats.textContent =
-      formatDamage(r.value) +
-      "（" +
-      formatRate(r.ps) +
-      " " +
-      (r.rateLabel || "DPS") +
-      "，" +
-      r.pct.toFixed(1) +
-      "%）";
+    stats.textContent = langText(
+      `${formatDamage(r.value)}（${formatRate(r.ps)} ${r.rateLabel || "DPS"}，${r.pct.toFixed(1)}%）`,
+      `${formatDamage(r.value)} (${formatRate(r.ps)} ${r.rateLabel || "DPS"}, ${r.pct.toFixed(1)}%)`,
+    );
     if (Array.isArray(r.breakdown)) {
       line.title =
         r.breakdownHover ||
@@ -775,7 +771,7 @@ function renderDetailsRows(container, rows, rerender) {
       textAlign: "center",
       opacity: ".5",
     });
-    empty.textContent = "暂无战斗数据";
+    empty.textContent = langText("暂无战斗数据", "No combat data");
     container.appendChild(empty);
   }
 }

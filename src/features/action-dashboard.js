@@ -123,7 +123,9 @@ function renderActionDashboard() {
   host.classList.add("mwi-action-dashboard-host");
   root.style.position = "absolute";
   const lastNativeChild = [...host.children]
-    .filter((element) => element !== root)
+    .filter(
+      (element) => element !== root && element.id !== "script_item_warning",
+    )
     .at(-1);
   const hostRect = host.getBoundingClientRect();
   const childRect = lastNativeChild?.getBoundingClientRect();
