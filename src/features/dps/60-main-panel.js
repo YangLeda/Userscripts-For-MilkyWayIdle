@@ -56,7 +56,8 @@ const KikiMeter = (() => {
     tabBtn = null,
     panel = null;
   let reinjector = null,
-    throttleTimer = null;
+    throttleTimer = null,
+    viewportHandler = null;
   let historyFilter = "combat";
   let titleEl,
     playersListEl,
@@ -78,6 +79,50 @@ const KikiMeter = (() => {
   let mainMode = Settings.getMainMode();
   if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
   let callbacks = {};
+
+  const isMobileViewport = () =>
+    Boolean(
+      window.matchMedia &&
+      window.matchMedia("(max-width:700px), (pointer:coarse)").matches,
+    );
+  const viewportBounds = () => {
+    const visualViewport = window.visualViewport;
+    const left = Number(visualViewport?.offsetLeft) || 0;
+    const top = Number(visualViewport?.offsetTop) || 0;
+    const width =
+      Number(visualViewport?.width) || Number(window.innerWidth) || 0;
+    const height =
+      Number(visualViewport?.height) || Number(window.innerHeight) || 0;
+    return {
+      left,
+      top,
+      width,
+      height,
+      right: left + width,
+      bottom: top + height,
+    };
+  };
+  const communityBuffRect = () =>
+    document
+      .querySelector('div[class*="Header_communityBuffs"]')
+      ?.getBoundingClientRect?.() ?? null;
+  const isStoredPosition = (value) =>
+    value &&
+    Number.isFinite(Number(value.left)) &&
+    Number.isFinite(Number(value.top));
+  function readResponsivePosition(value, mode) {
+    if (!value) return null;
+    if (value.mobile || value.desktop) return value[mode] ?? null;
+    return mode === "desktop" && isStoredPosition(value) ? value : null;
+  }
+  function writeResponsivePosition(value, mode, position) {
+    const responsive = value?.mobile || value?.desktop ? { ...value } : {};
+    if (isStoredPosition(value) && !responsive.desktop)
+      responsive.desktop = value;
+    responsive[mode] = position;
+    return responsive;
+  }
+  const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
 
   function refreshModeTabs() {
     [
@@ -348,14 +393,20 @@ const KikiMeter = (() => {
       Settings.setPanelLayoutVersion(PANEL_LAYOUT_VERSION);
     }
     const initialWidth = Math.max(
-      280,
-      Math.min(Number(savedSize.width) || 330, window.innerWidth - 16),
+      0,
+      Math.min(
+        Math.max(280, Number(savedSize.width) || 330),
+        viewportBounds().width - 8,
+      ),
     );
     const initialHeight = Math.max(
-      MIN_PANEL_HEIGHT,
+      0,
       Math.min(
-        Number(savedSize.height) || DEFAULT_PANEL_HEIGHT,
-        window.innerHeight - 16,
+        Math.max(
+          MIN_PANEL_HEIGHT,
+          Number(savedSize.height) || DEFAULT_PANEL_HEIGHT,
+        ),
+        viewportBounds().height - 8,
       ),
     );
     const panelAlpha = Settings.getPanelOpacity() / 100;
@@ -365,8 +416,8 @@ const KikiMeter = (() => {
       zIndex: "9999",
       width: initialWidth + "px",
       height: initialHeight + "px",
-      minWidth: "280px",
-      minHeight: MIN_PANEL_HEIGHT + "px",
+      minWidth: "min(280px, calc(100vw - 8px))",
+      minHeight: `min(${MIN_PANEL_HEIGHT}px, calc(100vh - 8px))`,
       maxWidth: "calc(100vw - 8px)",
       maxHeight: "calc(100vh - 8px)",
       boxSizing: "border-box",
@@ -389,6 +440,7 @@ const KikiMeter = (() => {
       justifyContent: "space-between",
       marginBottom: "7px",
       cursor: "move",
+      touchAction: "none",
       userSelect: "none",
       flexShrink: "0",
       paddingBottom: "5px",
@@ -563,8 +615,21 @@ const KikiMeter = (() => {
   function installWindowControls(root, titleRow) {
     let drag = null,
       resize = null;
-    const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
-    titleRow.addEventListener("mousedown", (event) => {
+    const mode = () => (isMobileViewport() ? "mobile" : "desktop");
+    const storeWindowState = () => {
+      const currentPosition = Settings.getRecountPos();
+      Settings.setRecountPos(
+        writeResponsivePosition(currentPosition, mode(), {
+          left: Number.parseFloat(root.style.left) || 0,
+          top: Number.parseFloat(root.style.top) || 0,
+        }),
+      );
+      Settings.setRecountSize({
+        width: root.offsetWidth,
+        height: root.offsetHeight,
+      });
+    };
+    titleRow.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || event.target.closest("button,input,select"))
         return;
       const rect = root.getBoundingClientRect();
@@ -573,7 +638,15 @@ const KikiMeter = (() => {
         top: rect.top + "px",
         right: "auto",
       });
-      drag = { dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+      drag = {
+        id: event.pointerId,
+        dx: event.clientX - rect.left,
+        dy: event.clientY - rect.top,
+      };
+      if (titleRow.setPointerCapture)
+        try {
+          titleRow.setPointerCapture(event.pointerId);
+        } catch (ignore) {}
       event.preventDefault();
     });
     const handles = {
@@ -594,49 +667,72 @@ const KikiMeter = (() => {
           height: "16px",
           zIndex: "4",
           cursor,
+          touchAction: "none",
         });
         handle.dataset.resizeCorner = direction;
-        handle.addEventListener("mousedown", (event) => {
+        handle.addEventListener("pointerdown", (event) => {
           if (event.button !== 0) return;
           const rect = root.getBoundingClientRect();
-          resize = { direction, sx: event.clientX, sy: event.clientY, rect };
+          resize = {
+            id: event.pointerId,
+            direction,
+            sx: event.clientX,
+            sy: event.clientY,
+            rect,
+          };
+          if (handle.setPointerCapture)
+            try {
+              handle.setPointerCapture(event.pointerId);
+            } catch (ignore) {}
           event.preventDefault();
           event.stopPropagation();
         });
         root.appendChild(handle);
       },
     );
-    window.addEventListener("mousemove", (event) => {
-      if (drag) {
+    window.addEventListener("pointermove", (event) => {
+      const bounds = viewportBounds();
+      if (drag && drag.id === event.pointerId) {
         const left = clamp(
           event.clientX - drag.dx,
-          0,
-          Math.max(0, window.innerWidth - root.offsetWidth),
+          bounds.left,
+          Math.max(bounds.left, bounds.right - root.offsetWidth),
         );
         const top = clamp(
           event.clientY - drag.dy,
-          0,
-          Math.max(0, window.innerHeight - root.offsetHeight),
+          bounds.top,
+          Math.max(bounds.top, bounds.bottom - root.offsetHeight),
         );
         root.style.left = left + "px";
         root.style.top = top + "px";
+        event.preventDefault();
         return;
       }
-      if (!resize) return;
+      if (!resize || resize.id !== event.pointerId) return;
       const dx = event.clientX - resize.sx,
         dy = event.clientY - resize.sy,
         r = resize.rect,
         d = resize.direction;
-      const maxWidth = Math.max(280, window.innerWidth - 8),
-        maxHeight = Math.max(MIN_PANEL_HEIGHT, window.innerHeight - 8);
+      const maxWidth = Math.max(0, bounds.width - 8),
+        maxHeight = Math.max(0, bounds.height - 8),
+        minWidth = Math.min(280, maxWidth),
+        minHeight = Math.min(MIN_PANEL_HEIGHT, maxHeight);
       let width = d.includes("w") ? r.width - dx : r.width + dx;
       let height = d.includes("n") ? r.height - dy : r.height + dy;
-      width = clamp(width, 280, maxWidth);
-      height = clamp(height, MIN_PANEL_HEIGHT, maxHeight);
+      width = clamp(width, minWidth, maxWidth);
+      height = clamp(height, minHeight, maxHeight);
       let left = d.includes("w") ? r.right - width : r.left,
         top = d.includes("n") ? r.bottom - height : r.top;
-      left = clamp(left, 0, Math.max(0, window.innerWidth - width));
-      top = clamp(top, 0, Math.max(0, window.innerHeight - height));
+      left = clamp(
+        left,
+        bounds.left,
+        Math.max(bounds.left, bounds.right - width),
+      );
+      top = clamp(
+        top,
+        bounds.top,
+        Math.max(bounds.top, bounds.bottom - height),
+      );
       Object.assign(root.style, {
         left: left + "px",
         top: top + "px",
@@ -644,18 +740,18 @@ const KikiMeter = (() => {
         width: width + "px",
         height: height + "px",
       });
+      event.preventDefault();
     });
-    window.addEventListener("mouseup", () => {
-      if (drag || resize) {
-        Settings.setRecountPos({ left: root.offsetLeft, top: root.offsetTop });
-        Settings.setRecountSize({
-          width: root.offsetWidth,
-          height: root.offsetHeight,
-        });
-      }
+    const finishPointerAction = (event) => {
+      const matchesDrag = drag && drag.id === event.pointerId;
+      const matchesResize = resize && resize.id === event.pointerId;
+      if (!matchesDrag && !matchesResize) return;
+      storeWindowState();
       drag = null;
       resize = null;
-    });
+    };
+    window.addEventListener("pointerup", finishPointerAction);
+    window.addEventListener("pointercancel", finishPointerAction);
   }
 
   function close() {
@@ -664,6 +760,53 @@ const KikiMeter = (() => {
     DamageBreakdownTooltip.close();
     if (panel) panel.style.display = "none";
     if (tabBtn) tabBtn.style.filter = "none";
+  }
+
+  function placePanel() {
+    if (!panel || !panelOpen) return;
+    const bounds = viewportBounds();
+    const rect = panel.getBoundingClientRect();
+    const width =
+      rect.width ||
+      panel.offsetWidth ||
+      Number.parseFloat(panel.style.width) ||
+      280;
+    const height =
+      rect.height ||
+      panel.offsetHeight ||
+      Number.parseFloat(panel.style.height) ||
+      MIN_PANEL_HEIGHT;
+    const mode = isMobileViewport() ? "mobile" : "desktop";
+    const saved = readResponsivePosition(Settings.getRecountPos(), mode);
+    let left;
+    let top;
+    if (isStoredPosition(saved)) {
+      left = Number(saved.left);
+      top = Number(saved.top);
+    } else if (mode === "mobile" && communityBuffRect()) {
+      const anchorRect = communityBuffRect();
+      left = anchorRect.right + 6;
+      top = anchorRect.top;
+    } else {
+      left = bounds.right - width - 12;
+      top = bounds.bottom - height - 12;
+    }
+    left = clamp(
+      left,
+      bounds.left + 4,
+      Math.max(bounds.left + 4, bounds.right - width - 4),
+    );
+    top = clamp(
+      top,
+      bounds.top + 4,
+      Math.max(bounds.top + 4, bounds.bottom - height - 4),
+    );
+    Object.assign(panel.style, {
+      display: "flex",
+      left: left + "px",
+      top: top + "px",
+      right: "auto",
+    });
   }
 
   function toggle(v, anchor) {
@@ -675,34 +818,7 @@ const KikiMeter = (() => {
     }
     panelOpen = true;
     panel.style.display = "flex";
-    const rect = panel.getBoundingClientRect(),
-      saved = Settings.getRecountPos();
-    let left, top;
-    if (
-      saved &&
-      Number.isFinite(Number(saved.left)) &&
-      Number.isFinite(Number(saved.top))
-    ) {
-      left = Number(saved.left);
-      top = Number(saved.top);
-    } else {
-      left = window.innerWidth - rect.width - 12;
-      top = window.innerHeight - rect.height - 12;
-    }
-    left = Math.max(
-      0,
-      Math.min(left, Math.max(0, window.innerWidth - rect.width)),
-    );
-    top = Math.max(
-      0,
-      Math.min(top, Math.max(0, window.innerHeight - rect.height)),
-    );
-    Object.assign(panel.style, {
-      display: "flex",
-      left: left + "px",
-      top: top + "px",
-      right: "auto",
-    });
+    placePanel();
     if (tabBtn) tabBtn.style.filter = "brightness(1.15)";
     return true;
   }
@@ -765,33 +881,60 @@ const KikiMeter = (() => {
     let drag = null,
       moved = false,
       edgeHideTimer = null;
-    const mobile = () =>
-      window.matchMedia &&
-      window.matchMedia("(max-width:700px), (pointer:coarse)").matches;
-    const defaultPos = () =>
-      mobile()
-        ? { left: 8, top: 8, edge: "" }
-        : { left: 130, top: 80, edge: "" };
-    const savedPos = () => Settings.getLauncherPos() || defaultPos();
-    const clamp = (value, min, max) => Math.max(min, Math.min(value, max));
+    const mode = () => (isMobileViewport() ? "mobile" : "desktop");
+    const defaultPos = (width = 54, height = 28) => {
+      const bounds = viewportBounds();
+      if (mode() === "mobile") {
+        const anchorRect = communityBuffRect();
+        if (anchorRect)
+          return {
+            left: anchorRect.right + 6,
+            top: anchorRect.top + Math.max(0, (anchorRect.height - height) / 2),
+            edge: "",
+          };
+        return { left: bounds.left + 8, top: bounds.top + 8, edge: "" };
+      }
+      return { left: bounds.left + 130, top: bounds.top + 80, edge: "" };
+    };
+    const savedPos = (width, height) =>
+      readResponsivePosition(Settings.getLauncherPos(), mode()) ||
+      defaultPos(width, height);
     const place = (reveal = false) => {
-      const saved = savedPos(),
-        width = btn.offsetWidth || 54,
-        height = btn.offsetHeight || 28;
+      const width = btn.offsetWidth || 54,
+        height = btn.offsetHeight || 28,
+        saved = savedPos(width, height),
+        bounds = viewportBounds();
       let left = Number(saved.left),
         top = Number(saved.top);
-      if (!Number.isFinite(left)) left = defaultPos().left;
-      if (!Number.isFinite(top)) top = defaultPos().top;
-      top = clamp(top, 0, Math.max(0, window.innerHeight - height));
-      if (saved.edge === "left") left = reveal ? 0 : -(width - 14);
+      if (!Number.isFinite(left)) left = defaultPos(width, height).left;
+      if (!Number.isFinite(top)) top = defaultPos(width, height).top;
+      top = clamp(
+        top,
+        bounds.top,
+        Math.max(bounds.top, bounds.bottom - height),
+      );
+      if (mode() === "mobile")
+        left = clamp(
+          left,
+          bounds.left,
+          Math.max(bounds.left, bounds.right - width),
+        );
+      else if (saved.edge === "left")
+        left = reveal ? bounds.left : bounds.left - (width - 14);
       else if (saved.edge === "right")
         left = reveal
-          ? Math.max(0, window.innerWidth - width)
-          : Math.max(0, window.innerWidth - 14);
-      else left = clamp(left, 0, Math.max(0, window.innerWidth - width));
+          ? Math.max(bounds.left, bounds.right - width)
+          : Math.max(bounds.left, bounds.right - 14);
+      else
+        left = clamp(
+          left,
+          bounds.left,
+          Math.max(bounds.left, bounds.right - width),
+        );
       Object.assign(btn.style, { left: left + "px", top: top + "px" });
     };
     const hideAtEdge = () => {
+      if (mode() === "mobile") return;
       if (edgeHideTimer !== null) clearTimeout(edgeHideTimer);
       edgeHideTimer = setTimeout(() => place(false), 350);
     };
@@ -832,16 +975,17 @@ const KikiMeter = (() => {
         moved = true;
       if (!moved) return;
       const width = btn.offsetWidth || 54,
-        height = btn.offsetHeight || 28;
+        height = btn.offsetHeight || 28,
+        bounds = viewportBounds();
       const left = clamp(
         event.clientX - drag.dx,
-        0,
-        Math.max(0, window.innerWidth - width),
+        bounds.left,
+        Math.max(bounds.left, bounds.right - width),
       );
       const top = clamp(
         event.clientY - drag.dy,
-        0,
-        Math.max(0, window.innerHeight - height),
+        bounds.top,
+        Math.max(bounds.top, bounds.bottom - height),
       );
       btn.style.transition = "none";
       Object.assign(btn.style, { left: left + "px", top: top + "px" });
@@ -850,15 +994,28 @@ const KikiMeter = (() => {
     const finishDrag = (event) => {
       if (!drag || drag.id !== event.pointerId) return;
       const width = btn.offsetWidth || 54,
-        rect = btn.getBoundingClientRect();
+        rect = btn.getBoundingClientRect(),
+        bounds = viewportBounds();
       let edge = "";
-      if (rect.left <= 24) edge = "left";
-      else if (rect.right >= window.innerWidth - 24) edge = "right";
-      Settings.setLauncherPos({
-        left: clamp(rect.left, 0, Math.max(0, window.innerWidth - width)),
-        top: rect.top,
-        edge,
-      });
+      if (mode() !== "mobile") {
+        if (rect.left <= bounds.left + 24) edge = "left";
+        else if (rect.right >= bounds.right - 24) edge = "right";
+      }
+      Settings.setLauncherPos(
+        writeResponsivePosition(Settings.getLauncherPos(), mode(), {
+          left: clamp(
+            rect.left,
+            bounds.left,
+            Math.max(bounds.left, bounds.right - width),
+          ),
+          top: clamp(
+            rect.top,
+            bounds.top,
+            Math.max(bounds.top, bounds.bottom - (btn.offsetHeight || 28)),
+          ),
+          edge,
+        }),
+      );
       drag = null;
       btn.style.transition = "filter .12s,left .16s ease";
       if (edge) hideAtEdge();
@@ -984,6 +1141,16 @@ const KikiMeter = (() => {
       }, 200);
     });
     reinjector.observe(document.body, { childList: true, subtree: true });
+    if (viewportHandler) {
+      window.removeEventListener("resize", viewportHandler);
+      window.visualViewport?.removeEventListener("resize", viewportHandler);
+    }
+    viewportHandler = () => {
+      tabBtn?._placeLauncher?.(false);
+      placePanel();
+    };
+    window.addEventListener("resize", viewportHandler);
+    window.visualViewport?.addEventListener("resize", viewportHandler);
   }
 
   function destroy() {
@@ -995,6 +1162,11 @@ const KikiMeter = (() => {
     if (reinjector) {
       reinjector.disconnect();
       reinjector = null;
+    }
+    if (viewportHandler) {
+      window.removeEventListener("resize", viewportHandler);
+      window.visualViewport?.removeEventListener("resize", viewportHandler);
+      viewportHandler = null;
     }
     document
       .querySelectorAll("#kikimeter-tab-btn")

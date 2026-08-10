@@ -54,7 +54,7 @@ test("generated userscript has a single valid metadata block", () => {
     output,
     /script_current_assets|script_api_fail_alert|script_api_fail_popout/,
   );
-  assert.match(output, /VERSION = "1\.0\.50"/);
+  assert.match(output, /VERSION = "1\.0\.51"/);
   assert.match(output, /__MWI_DPS/);
 });
 
@@ -72,7 +72,7 @@ test("test userscript is independently installable and test-only", () => {
     testOutput,
     /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
   );
-  assert.match(testOutput, /^\/\/ @version\s+26\.2\.33$/m);
+  assert.match(testOutput, /^\/\/ @version\s+26\.2\.34$/m);
   assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
   assert.match(
     testOutput,
@@ -93,7 +93,7 @@ test("test userscript is independently installable and test-only", () => {
 
 test("test metadata endpoint contains only the userscript header", () => {
   assert.equal(testMetadata.indexOf("// ==UserScript=="), 0);
-  assert.match(testMetadata, /^\/\/ @version\s+26\.2\.33$/m);
+  assert.match(testMetadata, /^\/\/ @version\s+26\.2\.34$/m);
   assert.match(testMetadata, /mwitools-test\.meta\.js/);
   assert.match(testMetadata, /mwitools-test\.user\.js/);
   assert.equal(testMetadata.trimEnd().endsWith("// ==/UserScript=="), true);

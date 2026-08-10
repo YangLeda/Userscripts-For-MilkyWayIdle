@@ -15,7 +15,7 @@ import trendIcon from "./assets/trend.png";
 
 const pageWindow = globalThis.unsafeWindow ?? globalThis;
 const MWI = (pageWindow.__MWI_DPS = pageWindow.__MWI_DPS || {});
-const VERSION = "1.0.50";
+const VERSION = "1.0.51";
 
 // Classe CSS du conteneur d'onglets du jeu. Si le jeu la change, modifier ici.
 const TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";

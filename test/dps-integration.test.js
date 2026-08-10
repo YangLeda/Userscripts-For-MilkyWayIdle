@@ -49,12 +49,35 @@ function installBrowserGlobals(dom) {
 
 test("DPS feature reuses settings and cleans repeated enable-disable cycles", async () => {
   const dom = new JSDOM(
-    "<!doctype html><html><head></head><body></body></html>",
+    '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div></body></html>',
     {
       url: "https://www.milkywayidle.com/",
     },
   );
   installBrowserGlobals(dom);
+  Object.defineProperties(window, {
+    innerWidth: { configurable: true, value: 390 },
+    innerHeight: { configurable: true, value: 844 },
+    matchMedia: {
+      configurable: true,
+      value: () => ({
+        matches: true,
+        addEventListener() {},
+        removeEventListener() {},
+      }),
+    },
+  });
+  const communityBuffs = document.querySelector(
+    'div[class*="Header_communityBuffs"]',
+  );
+  communityBuffs.getBoundingClientRect = () => ({
+    left: 8,
+    right: 96,
+    top: 10,
+    bottom: 38,
+    width: 88,
+    height: 28,
+  });
   localStorage.setItem(
     "kikimeter:settings:v4",
     JSON.stringify({ language: "en", panelOpacity: 70 }),
@@ -80,6 +103,65 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(window.__MWI_DPS.getLanguage(), "en");
   assert.equal(document.querySelectorAll("#kikimeter-panel").length, 1);
   assert.equal(document.querySelectorAll("#kikimeter-tab-btn").length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const installBoxMetrics = (element, width, height) => {
+    Object.defineProperties(element, {
+      offsetWidth: { configurable: true, get: () => width },
+      offsetHeight: { configurable: true, get: () => height },
+    });
+    element.getBoundingClientRect = () => {
+      const left = Number.parseFloat(element.style.left) || 0;
+      const top = Number.parseFloat(element.style.top) || 0;
+      return {
+        left,
+        right: left + width,
+        top,
+        bottom: top + height,
+        width,
+        height,
+      };
+    };
+  };
+  const pointerEvent = (type, options) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      clientX: options.clientX,
+      clientY: options.clientY,
+    });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    return event;
+  };
+  const launcher = document.querySelector("#kikimeter-tab-btn");
+  installBoxMetrics(launcher, 54, 28);
+  assert.equal(launcher.style.left, "102px");
+  assert.equal(launcher.style.top, "10px");
+
+  const dpsPanel = document.querySelector("#kikimeter-panel");
+  installBoxMetrics(dpsPanel, 330, 212);
+  launcher.click();
+  assert.equal(dpsPanel.style.display, "flex");
+  assert.ok(Number.parseFloat(dpsPanel.style.left) >= 4);
+  assert.ok(Number.parseFloat(dpsPanel.style.left) + 330 <= 386);
+
+  const titleRow = dpsPanel.firstElementChild;
+  const originalTop = Number.parseFloat(dpsPanel.style.top);
+  titleRow.dispatchEvent(
+    pointerEvent("pointerdown", {
+      clientX: Number.parseFloat(dpsPanel.style.left) + 20,
+      clientY: originalTop + 10,
+    }),
+  );
+  window.dispatchEvent(
+    pointerEvent("pointermove", { clientX: 100, clientY: 160 }),
+  );
+  window.dispatchEvent(
+    pointerEvent("pointerup", { clientX: 100, clientY: 160 }),
+  );
+  assert.ok(Number.parseFloat(dpsPanel.style.top) > originalTop);
+  assert.ok(Number.parseFloat(dpsPanel.style.top) + 212 <= 844);
 
   const player = {
     name: "集成甲",
