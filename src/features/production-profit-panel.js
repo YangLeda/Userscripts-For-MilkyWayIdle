@@ -157,6 +157,7 @@ function addStyles() {
     .mwi-profit-metric { min-width:0; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(255,255,255,.035); text-align:center; }
     .mwi-profit-metric-label { color:var(--color-text-secondary,#9da5b0); font-size:9px; }
     .mwi-profit-metric-value { margin-top:3px; color:#fff; font-size:12px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-metric-value.mwi-profit-metric-range { font-size:11px; letter-spacing:-.01em; }
     .mwi-profit-metric.profit { border-color:rgba(75,194,124,.24); background:rgba(55,160,97,.09); }
     .mwi-profit-metric.profit .mwi-profit-metric-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
@@ -200,6 +201,25 @@ function renderItemRow(item, type) {
 
 function renderMetric(label, value, profit = false, exactValue = null) {
   return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
+}
+
+// Render a pessimistic–optimistic profit range. The low value assumes
+// immediate market execution (buy at ask, sell at bid); the high value assumes
+// patient limit orders (buy at bid, sell at ask). Both are after tax.
+function renderRangeMetric(label, low, high) {
+  const bothMissing =
+    (low === null || low === undefined) &&
+    (high === null || high === undefined);
+  const valueText = bothMissing
+    ? "—"
+    : `${formatMoney(low)} ~ ${formatMoney(high)}`;
+  const lowTitle = exactNumberTitle(low);
+  const highTitle = exactNumberTitle(high);
+  const title =
+    lowTitle || highTitle
+      ? ` title="${t("悲观", "Pessimistic")}: ${lowTitle || "—"}&#10;${t("乐观", "Optimistic")}: ${highTitle || "—"}"`
+      : "";
+  return `<div class="mwi-profit-metric profit"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value mwi-profit-metric-range"${title}>${escapeHtml(valueText)}</div></div>`;
 }
 
 function statusInfo(projection) {
@@ -304,9 +324,9 @@ function renderPanel(panel, itemHrid, projection) {
       ${renderMetric(t("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
       ${renderMetric(t("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
       ${renderMetric(t("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
-      ${renderMetric(t("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
-      ${renderMetric(t("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
-      ${renderMetric(t("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
+      ${renderRangeMetric(t("净利润/动作", "Profit/action"), projection.netProfitPerAction, projection.optimistic?.netProfitPerAction)}
+      ${renderRangeMetric(t("净利润/小时", "Profit/hour"), projection.profitPerHour, projection.optimistic?.profitPerHour)}
+      ${renderRangeMetric(t("净利润/天", "Profit/day"), projection.profitPerHour === null ? null : projection.profitPerHour * 24, projection.optimistic?.profitPerHour == null ? null : projection.optimistic.profitPerHour * 24)}
       ${renderMetric(t("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber(projection.secondsPerAction, 3)}s` : "—")}
     </div>`,
   );

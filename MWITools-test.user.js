@@ -1251,8 +1251,8 @@
       "production",
       "生产净利润",
       "Production net profit",
-      "显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-      "Show after-tax net profit per action, hour, day, and entered quantity."
+      "显示每次、每小时、每天的税后净利润，并给出即时成交（悲观）到挂单成交（乐观）的利润区间。",
+      "Show after-tax net profit per action, hour, and day as a range from immediate execution (pessimistic) to limit orders (optimistic)."
     ],
     [
       "actionPanel_foragingTotal",
@@ -18292,6 +18292,9 @@
   function getNetSellPrice(itemHrid, enhancementLevel = 0) {
     return getBidPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
   }
+  function getNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+    return getAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
+  }
   function getMarketPriceIncrement(price) {
     const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
     const priceText = String(integerPrice);
@@ -18593,6 +18596,7 @@
     getFairValue,
     getMarketTaxRate,
     getNetSellPrice,
+    getNetSellPriceAtAsk,
     getMarketPriceIncrement,
     normalizeMarketPrice,
     parseCompactNumber,
@@ -18845,8 +18849,13 @@
       timingSource: "calculated"
     };
   }
-  function getPrice(itemHrid, kind) {
-    const value = kind === "sell" ? runtime.api.getNetSellPrice?.(itemHrid, 0) : runtime.api.getAskPrice?.(itemHrid, 0);
+  function getPrice(itemHrid, kind, optimistic = false) {
+    let value;
+    if (kind === "sell") {
+      value = optimistic ? runtime.api.getNetSellPriceAtAsk?.(itemHrid, 0) : runtime.api.getNetSellPrice?.(itemHrid, 0);
+    } else {
+      value = optimistic ? runtime.api.getBidPrice?.(itemHrid, 0) : runtime.api.getAskPrice?.(itemHrid, 0);
+    }
     return Number(value) > 0 ? Number(value) : null;
   }
   function expectedDropCount(drop) {
@@ -19040,6 +19049,19 @@
     const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : 0;
     const complete = missingPrices.length === 0 && secondsPerAction !== null;
     const netProfitPerAction = complete ? revenuePerAction - materialCostPerAction - teaCostPerAction : null;
+    const sumValue = (items, kind) => items.reduce((total, item) => {
+      const price = getPrice(item.itemHrid, kind, true);
+      return total + (price === null ? 0 : (item.effectiveCount ?? 0) * price);
+    }, 0);
+    const optimisticMaterialCostPerAction = sumValue(inputDetails, "buy");
+    const optimisticRevenuePerAction = sumValue(outputDetails, "sell") + sumValue(byproductOutputs, "sell");
+    let optimisticTeaCostPerHour = 0;
+    for (const drink of drinks) {
+      const price = getPrice(drink.itemHrid, "buy", true);
+      optimisticTeaCostPerHour += price === null ? 0 : price * drink.countPerHour;
+    }
+    const optimisticTeaCostPerAction = actionsPerHour ? optimisticTeaCostPerHour / actionsPerHour : 0;
+    const optimisticNetProfitPerAction = complete ? optimisticRevenuePerAction - optimisticMaterialCostPerAction - optimisticTeaCostPerAction : null;
     let totalSeconds = null;
     if (effectivelyInfinite) {
       totalSeconds = Infinity;
@@ -19093,6 +19115,15 @@
       netProfitPerAction,
       profitPerHour: netProfitPerAction === null || !actionsPerHour ? null : netProfitPerAction * actionsPerHour,
       totalProfit: netProfitPerAction === null || effectivelyInfinite ? null : netProfitPerAction * executableCount,
+      optimistic: {
+        materialCostPerAction: optimisticMaterialCostPerAction,
+        revenuePerAction: optimisticRevenuePerAction,
+        teaCostPerHour: optimisticTeaCostPerHour,
+        teaCostPerAction: optimisticTeaCostPerAction,
+        netProfitPerAction: optimisticNetProfitPerAction,
+        profitPerHour: optimisticNetProfitPerAction === null || !actionsPerHour ? null : optimisticNetProfitPerAction * actionsPerHour,
+        totalProfit: optimisticNetProfitPerAction === null || effectivelyInfinite ? null : optimisticNetProfitPerAction * executableCount
+      },
       missingPrices: [...new Set(missingPrices)],
       unpricedByproducts: [...new Set(unpricedByproducts)]
     };
@@ -23769,6 +23800,7 @@ ${preview}`
     .mwi-profit-metric { min-width:0; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(255,255,255,.035); text-align:center; }
     .mwi-profit-metric-label { color:var(--color-text-secondary,#9da5b0); font-size:9px; }
     .mwi-profit-metric-value { margin-top:3px; color:#fff; font-size:12px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-metric-value.mwi-profit-metric-range { font-size:11px; letter-spacing:-.01em; }
     .mwi-profit-metric.profit { border-color:rgba(75,194,124,.24); background:rgba(55,160,97,.09); }
     .mwi-profit-metric.profit .mwi-profit-metric-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
@@ -23810,6 +23842,14 @@ ${preview}`
   }
   function renderMetric(label, value, profit = false, exactValue = null) {
     return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
+  }
+  function renderRangeMetric(label, low, high) {
+    const bothMissing = (low === null || low === void 0) && (high === null || high === void 0);
+    const valueText = bothMissing ? "—" : `${formatMoney(low)} ~ ${formatMoney(high)}`;
+    const lowTitle = exactNumberTitle(low);
+    const highTitle = exactNumberTitle(high);
+    const title = lowTitle || highTitle ? ` title="${t3("悲观", "Pessimistic")}: ${lowTitle || "—"}&#10;${t3("乐观", "Optimistic")}: ${highTitle || "—"}"` : "";
+    return `<div class="mwi-profit-metric profit"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value mwi-profit-metric-range"${title}>${escapeHtml(valueText)}</div></div>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
@@ -23901,9 +23941,9 @@ ${preview}`
       ${renderMetric(t3("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
       ${renderMetric(t3("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
       ${renderMetric(t3("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
-      ${renderMetric(t3("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
-      ${renderMetric(t3("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
-      ${renderMetric(t3("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
+      ${renderRangeMetric(t3("净利润/动作", "Profit/action"), projection.netProfitPerAction, projection.optimistic?.netProfitPerAction)}
+      ${renderRangeMetric(t3("净利润/小时", "Profit/hour"), projection.profitPerHour, projection.optimistic?.profitPerHour)}
+      ${renderRangeMetric(t3("净利润/天", "Profit/day"), projection.profitPerHour === null ? null : projection.profitPerHour * 24, projection.optimistic?.profitPerHour == null ? null : projection.optimistic.profitPerHour * 24)}
       ${renderMetric(t3("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber2(projection.secondsPerAction, 3)}s` : "—")}
     </div>`
     );

@@ -260,11 +260,21 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
   };
 }
 
-function getPrice(itemHrid, kind) {
-  const value =
-    kind === "sell"
-      ? runtime.api.getNetSellPrice?.(itemHrid, 0)
+function getPrice(itemHrid, kind, optimistic = false) {
+  // Pessimistic (immediate execution): buy inputs at ask, sell outputs at the
+  // net bid. Optimistic (patient limit orders): buy inputs at bid, sell outputs
+  // at the net ask. The optimistic side is the reachable upper bound when the
+  // player is willing to wait for their own orders to fill.
+  let value;
+  if (kind === "sell") {
+    value = optimistic
+      ? runtime.api.getNetSellPriceAtAsk?.(itemHrid, 0)
+      : runtime.api.getNetSellPrice?.(itemHrid, 0);
+  } else {
+    value = optimistic
+      ? runtime.api.getBidPrice?.(itemHrid, 0)
       : runtime.api.getAskPrice?.(itemHrid, 0);
+  }
   return Number(value) > 0 ? Number(value) : null;
 }
 
@@ -493,6 +503,31 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   const netProfitPerAction = complete
     ? revenuePerAction - materialCostPerAction - teaCostPerAction
     : null;
+
+  // Optimistic bound: same quantities, priced as if every buy fills at bid and
+  // every sell fills at ask (patient limit orders). The pessimistic figures
+  // above stay the headline numbers; this only adds an upper bound.
+  const sumValue = (items, kind) =>
+    items.reduce((total, item) => {
+      const price = getPrice(item.itemHrid, kind, true);
+      return total + (price === null ? 0 : (item.effectiveCount ?? 0) * price);
+    }, 0);
+  const optimisticMaterialCostPerAction = sumValue(inputDetails, "buy");
+  const optimisticRevenuePerAction =
+    sumValue(outputDetails, "sell") + sumValue(byproductOutputs, "sell");
+  let optimisticTeaCostPerHour = 0;
+  for (const drink of drinks) {
+    const price = getPrice(drink.itemHrid, "buy", true);
+    optimisticTeaCostPerHour += price === null ? 0 : price * drink.countPerHour;
+  }
+  const optimisticTeaCostPerAction = actionsPerHour
+    ? optimisticTeaCostPerHour / actionsPerHour
+    : 0;
+  const optimisticNetProfitPerAction = complete
+    ? optimisticRevenuePerAction -
+      optimisticMaterialCostPerAction -
+      optimisticTeaCostPerAction
+    : null;
   let totalSeconds = null;
   if (effectivelyInfinite) {
     totalSeconds = Infinity;
@@ -562,6 +597,21 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       netProfitPerAction === null || effectivelyInfinite
         ? null
         : netProfitPerAction * executableCount,
+    optimistic: {
+      materialCostPerAction: optimisticMaterialCostPerAction,
+      revenuePerAction: optimisticRevenuePerAction,
+      teaCostPerHour: optimisticTeaCostPerHour,
+      teaCostPerAction: optimisticTeaCostPerAction,
+      netProfitPerAction: optimisticNetProfitPerAction,
+      profitPerHour:
+        optimisticNetProfitPerAction === null || !actionsPerHour
+          ? null
+          : optimisticNetProfitPerAction * actionsPerHour,
+      totalProfit:
+        optimisticNetProfitPerAction === null || effectivelyInfinite
+          ? null
+          : optimisticNetProfitPerAction * executableCount,
+    },
     missingPrices: [...new Set(missingPrices)],
     unpricedByproducts: [...new Set(unpricedByproducts)],
   };

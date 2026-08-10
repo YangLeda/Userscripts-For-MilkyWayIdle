@@ -89,6 +89,14 @@ function getNetSellPrice(itemHrid, enhancementLevel = 0) {
   );
 }
 
+// Net proceeds when selling into the ask via a patient limit order: the higher
+// ask price, still reduced by the same market tax. Used for optimistic profit.
+function getNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+  return (
+    getAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid))
+  );
+}
+
 function getMarketPriceIncrement(price) {
   const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
   const priceText = String(integerPrice);
@@ -445,6 +453,7 @@ Object.assign(runtime.api, {
   getFairValue,
   getMarketTaxRate,
   getNetSellPrice,
+  getNetSellPriceAtAsk,
   getMarketPriceIncrement,
   normalizeMarketPrice,
   parseCompactNumber,

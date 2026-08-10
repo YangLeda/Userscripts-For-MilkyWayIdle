@@ -53,8 +53,11 @@ runtime.api.getTeaBuffsByActionHrid = () => ({
   quantity: 0,
 });
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/output" ? 100 : 0;
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/output" ? 120 : 0;
 
 test("action projection shares duration, direct material capacity and net profit", () => {
   const result = runtime.api.projectAction("/actions/crafting/test", 5, {
@@ -68,6 +71,12 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.netProfitPerAction, 80);
   assert.equal(result.profitPerHour, 28_800);
   assert.equal(result.totalProfit, 400);
+  // Optimistic bound buys inputs at bid (8) and sells output at ask (120):
+  // 120 - 2*8 = 104 per action, strictly above the pessimistic 80.
+  assert.equal(result.optimistic.netProfitPerAction, 104);
+  assert.equal(result.optimistic.profitPerHour, 37_440);
+  assert.equal(result.optimistic.totalProfit, 520);
+  assert.ok(result.optimistic.netProfitPerAction >= result.netProfitPerAction);
 });
 
 test("missing prices stay incomplete instead of becoming zero-profit", () => {

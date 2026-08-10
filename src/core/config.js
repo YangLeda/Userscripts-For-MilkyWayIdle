@@ -515,8 +515,8 @@ const catalogRows = [
     "production",
     "生产净利润",
     "Production net profit",
-    "显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-    "Show after-tax net profit per action, hour, day, and entered quantity.",
+    "显示每次、每小时、每天的税后净利润，并给出即时成交（悲观）到挂单成交（乐观）的利润区间。",
+    "Show after-tax net profit per action, hour, and day as a range from immediate execution (pessimistic) to limit orders (optimistic).",
   ],
   [
     "actionPanel_foragingTotal",

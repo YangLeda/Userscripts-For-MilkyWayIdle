@@ -50,8 +50,11 @@ runtime.state.initData_actionTypeDrinkSlotsMap = {
 runtime.state.currentEquipmentMap = {};
 runtime.state.actionTypeBuffSources = {};
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/panel-output" ? 100 : 0;
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/panel-output" ? 120 : 0;
 runtime.api.getTotalEffiPercentage = () => 0;
 
 function nativeTooltip() {
@@ -77,8 +80,11 @@ test("profit UI is a separate sibling and leaves the native tooltip untouched", 
   const hourlyProfit = [...panel.querySelectorAll(".mwi-profit-metric")]
     .find((metric) => metric.textContent.includes("净利润/小时"))
     .querySelector(".mwi-profit-metric-value");
-  assert.equal(hourlyProfit.textContent, "28.8K");
-  assert.equal(hourlyProfit.title, "28,800");
+  // Pessimistic (buy ask / sell bid) ~ optimistic (buy bid / sell ask).
+  assert.equal(hourlyProfit.textContent, "28.8K ~ 37.4K");
+  // The title spells out both exact bounds.
+  assert.match(hourlyProfit.title, /悲观: 28,800/);
+  assert.match(hourlyProfit.title, /乐观: 37,440/);
   assert.equal(
     document.querySelectorAll("#mwitools-production-profit-panel").length,
     1,
