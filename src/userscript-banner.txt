@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.1
-// @description  Tools for MilkyWayIdle. Includes action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
+// @version      26.2
+// @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
@@ -20,6 +20,7 @@
 // @grant        GM_info
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
+// @connect      feedback.43.167.210.211.sslip.io
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js
 // @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js

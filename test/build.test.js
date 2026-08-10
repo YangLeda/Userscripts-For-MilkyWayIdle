@@ -16,7 +16,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.1$/m);
+  assert.match(output, /^\/\/ @version\s+26\.2$/m);
 
   for (const directive of [
     "// @match        https://www.milkywayidle.com/*",
@@ -31,6 +31,7 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_notification",
     "// @grant        GM_getValue",
     "// @grant        GM_setValue",
+    "// @connect      feedback.43.167.210.211.sslip.io",
     "// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js",
     "// @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
     "// @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js",
@@ -67,7 +68,7 @@ test("test userscript is independently installable and test-only", () => {
     testOutput,
     /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
   );
-  assert.match(testOutput, /^\/\/ @version\s+26\.1\.0$/m);
+  assert.match(testOutput, /^\/\/ @version\s+26\.2\.0$/m);
   assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
   assert.match(
     testOutput,

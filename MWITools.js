@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.1
-// @description  Tools for MilkyWayIdle. Includes action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
+// @version      26.2
+// @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
@@ -20,6 +20,7 @@
 // @grant        GM_info
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
+// @connect      feedback.43.167.210.211.sslip.io
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
 // @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js
 // @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js
@@ -884,6 +885,11 @@
       desc: isZH ? "库存页签显示：每日资产盈亏、历史图表和数据管理" : "Inventory tabs: Daily asset P/L, history charts, and data management.",
       isTrue: true
     },
+    feedback: {
+      id: "feedback",
+      desc: isZH ? "总等级下方显示意见反馈入口" : "Show the feedback entry below total level.",
+      isTrue: true
+    },
     invWorth: {
       id: "invWorth",
       desc: isZH ? "仓库搜索栏下方显示：仓库和着装评分总结" : "Below inventory search bar: Inventory and gear score summary.",
@@ -1012,6 +1018,16 @@
     taskInsights: {
       id: "taskInsights",
       desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
+      isTrue: true
+    },
+    taskNewBadge: {
+      id: "taskNewBadge",
+      desc: isZH ? "新领取任务显示高亮和新角标" : "Highlight newly received tasks.",
+      isTrue: true
+    },
+    inventoryMarketDoubleClick: {
+      id: "inventoryMarketDoubleClick",
+      desc: isZH ? "双击库存物品打开对应市场窗口（货币、战利品除外）" : "Double-click inventory items to open the market (except currencies and loot).",
       isTrue: true
     },
     taskMaterials: {
@@ -1147,6 +1163,14 @@
   };
   var catalogRows = [
     [
+      "feedback",
+      "general",
+      "意见反馈",
+      "Feedback",
+      "在总等级下方提交意见、截图并查看处理状态；每张截图最大 1MB。",
+      "Submit feedback and screenshots below total level and follow its status; images are limited to 1MB."
+    ],
+    [
       "forceMWIToolsDisplayZH",
       "general",
       "强制使用中文",
@@ -1235,6 +1259,14 @@
       "Show asset summary, component changes, history charts, and data management beside Loadouts."
     ],
     [
+      "inventoryMarketDoubleClick",
+      "inventory",
+      "双击打开市场",
+      "Double-click to market",
+      "双击库存物品打开对应市场窗口；货币和战利品不响应。",
+      "Double-click an inventory item to open it in the marketplace; currencies and loot are excluded."
+    ],
+    [
       "invWorth",
       "inventory",
       "总资产与着装评分",
@@ -1321,6 +1353,14 @@
       "Group tasks by profession",
       "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
       "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon."
+    ],
+    [
+      "taskNewBadge",
+      "tasks",
+      "新任务标记",
+      "New task badges",
+      "新领取任务显示黄色角标和高亮，点击任务卡后标记为已读。",
+      "Show a yellow badge and highlight on newly received tasks until the task card is clicked."
     ],
     [
       "taskAutoSort",
@@ -1487,6 +1527,7 @@
     taskStatistics: "taskInsights",
     taskClaimCollector: "taskInsights",
     taskMergeActions: "taskInsights",
+    taskNewBadge: "taskInsights",
     guildOverview: "guildXpTracking",
     guildMemberXp: "guildXpTracking",
     guildLeaderboardXp: "guildXpTracking",
@@ -19986,9 +20027,9 @@
   function openDatabase() {
     if (!globalThis.indexedDB) return Promise.resolve(null);
     return new Promise((resolve) => {
-      const request = globalThis.indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = () => {
-        const database = request.result;
+      const request2 = globalThis.indexedDB.open(DB_NAME, 1);
+      request2.onupgradeneeded = () => {
+        const database = request2.result;
         if (!database.objectStoreNames.contains(STORE_NAME)) {
           const store = database.createObjectStore(STORE_NAME, {
             keyPath: "key",
@@ -19997,8 +20038,8 @@
           store.createIndex("objectKey", "objectKey", { unique: false });
         }
       };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
+      request2.onsuccess = () => resolve(request2.result);
+      request2.onerror = () => resolve(null);
     });
   }
   function readFallback() {
@@ -20023,9 +20064,9 @@
     if (!database) return null;
     return new Promise((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readonly");
-      const request = transaction.objectStore(STORE_NAME).index("objectKey").getAll(objectKey2);
-      request.onsuccess = () => resolve(request.result ?? []);
-      request.onerror = () => resolve(null);
+      const request2 = transaction.objectStore(STORE_NAME).index("objectKey").getAll(objectKey2);
+      request2.onsuccess = () => resolve(request2.result ?? []);
+      request2.onerror = () => resolve(null);
     });
   }
   async function replaceIndexed(objectKey2, records) {
@@ -20034,9 +20075,9 @@
     return new Promise((resolve) => {
       const transaction = database.transaction(STORE_NAME, "readwrite");
       const store = transaction.objectStore(STORE_NAME);
-      const request = store.index("objectKey").openKeyCursor(globalThis.IDBKeyRange.only(objectKey2));
-      request.onsuccess = () => {
-        const cursor = request.result;
+      const request2 = store.index("objectKey").openKeyCursor(globalThis.IDBKeyRange.only(objectKey2));
+      request2.onsuccess = () => {
+        const cursor = request2.result;
         if (cursor) {
           store.delete(cursor.primaryKey);
           cursor.continue();
@@ -26296,10 +26337,1066 @@ ${locks}` : ""}`;
     restoreTaskOrder: renderTasks
   });
 
-  // src/features/guild-xp.js
-  var STYLE_ID6 = "mwitools-guild-xp-style";
-  var rateCache = /* @__PURE__ */ new Map();
+  // src/features/task-new-badge.js
+  var STYLE_ID6 = "mwitools-task-new-style";
+  var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]';
+  function questId(quest) {
+    return String(
+      quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? ""
+    );
+  }
+  function isRemoved(quest) {
+    return Boolean(
+      quest?.isClaimed || quest?.claimed || quest?.isDeleted || quest?.deleted || String(quest?.status ?? "").toLowerCase().includes("claimed")
+    );
+  }
+  function isCompleted(quest) {
+    if (isRemoved(quest)) return true;
+    const target = Number(
+      quest?.targetCount ?? quest?.requiredCount ?? quest?.goalCount
+    );
+    const current = Number(
+      quest?.currentCount ?? quest?.completedCount ?? quest?.progressCount
+    );
+    return Number.isFinite(target) && target > 0 && Number.isFinite(current) ? current >= target : Boolean(quest?.isCompleted || quest?.completed);
+  }
+  function taskNewStorageKey(characterId, server = globalThis.location?.hostname ?? "unknown") {
+    return `MWITools_task_new_v1:${server}:${String(characterId ?? "")}`;
+  }
+  function readTaskNewState(storageKey) {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      return {
+        known: new Set(Array.isArray(value?.known) ? value.known : []),
+        fresh: new Set(Array.isArray(value?.fresh) ? value.fresh : [])
+      };
+    } catch {
+      return { known: /* @__PURE__ */ new Set(), fresh: /* @__PURE__ */ new Set() };
+    }
+  }
+  function writeTaskNewState(storageKey, state) {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify({ known: [...state.known], fresh: [...state.fresh] })
+    );
+  }
+  function applyQuestUpdates(state, updates) {
+    for (const update of updates ?? []) {
+      const id = questId(update);
+      if (!id) continue;
+      if (isRemoved(update) || isCompleted(update)) {
+        state.fresh.delete(id);
+        state.known.delete(id);
+        continue;
+      }
+      if (!state.known.has(id)) state.fresh.add(id);
+      state.known.add(id);
+    }
+    return state;
+  }
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID6)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID6;
+    style.textContent = `
+    ${TASK_SELECTOR2}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
+    .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function cleanupDom() {
+    document.querySelectorAll(".mwi-task-new-badge").forEach((node) => node.remove());
+    document.querySelectorAll(".mwi-task-is-new").forEach((node) => {
+      node.classList.remove("mwi-task-is-new");
+      delete node.dataset.mwitoolsTaskNewWired;
+    });
+    document.getElementById(STYLE_ID6)?.remove();
+  }
+  runtime.features.register({
+    id: "taskNewBadge",
+    setting: "taskNewBadge",
+    scope: "character",
+    dependsOn: ["taskInsights"],
+    initialize({ scope, characterId }) {
+      addStyles6();
+      const storageKey = taskNewStorageKey(characterId);
+      const state = readTaskNewState(storageKey);
+      const initial = runtime.state.characterQuests ?? [];
+      const currentIds = new Set(initial.map(questId).filter(Boolean));
+      for (const id of currentIds) state.known.add(id);
+      for (const id of [...state.fresh]) {
+        if (!currentIds.has(id)) state.fresh.delete(id);
+      }
+      writeTaskNewState(storageKey, state);
+      const markRead = (id) => {
+        if (!state.fresh.delete(id)) return;
+        writeTaskNewState(storageKey, state);
+        render();
+      };
+      const render = () => {
+        const quests = runtime.state.characterQuests ?? [];
+        const activeIds = new Set(quests.map(questId).filter(Boolean));
+        let changed = false;
+        for (const id of [...state.fresh]) {
+          if (!activeIds.has(id)) {
+            state.fresh.delete(id);
+            state.known.delete(id);
+            changed = true;
+          }
+        }
+        if (changed) writeTaskNewState(storageKey, state);
+        const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
+        cards.forEach((card, index) => {
+          const task = quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
+          const id = questId(task);
+          const fresh = id && state.fresh.has(id) && !isCompleted(task);
+          card.classList.toggle("mwi-task-is-new", Boolean(fresh));
+          let badge = card.querySelector(":scope > .mwi-task-new-badge");
+          if (fresh && !badge) {
+            badge = document.createElement("span");
+            badge.className = "mwi-task-new-badge";
+            badge.textContent = runtime.config.isZH ? "新" : "NEW";
+            card.appendChild(badge);
+          } else if (!fresh) {
+            badge?.remove();
+          }
+        });
+      };
+      scope.add(
+        runtime.onMessage("quests_updated", (payload) => {
+          const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
+          applyQuestUpdates(state, updates);
+          const liveIds = new Set(
+            (runtime.state.characterQuests ?? []).map(questId)
+          );
+          for (const id of [...state.fresh]) {
+            if (!liveIds.has(id)) state.fresh.delete(id);
+          }
+          writeTaskNewState(storageKey, state);
+          render();
+        })
+      );
+      scope.event(
+        document,
+        "click",
+        (event) => {
+          const card = event.target?.closest?.(TASK_SELECTOR2);
+          if (!card) return;
+          const fallbackIndex = [
+            ...document.querySelectorAll(TASK_SELECTOR2)
+          ].indexOf(card);
+          const liveIndex = Number(
+            card.dataset.mwitoolsOriginalIndex ?? fallbackIndex
+          );
+          markRead(questId((runtime.state.characterQuests ?? [])[liveIndex]));
+        },
+        true
+      );
+      render();
+      scope.interval(render, 350);
+      scope.add(cleanupDom);
+    }
+  });
+  Object.assign(runtime.api, {
+    getNewTaskIds() {
+      const key = taskNewStorageKey(runtime.state.currentCharacterId);
+      return [...readTaskNewState(key).fresh];
+    }
+  });
+
+  // src/features/inventory-market-double-click.js
+  var INVENTORY_SELECTOR = 'div[class*="Inventory_items"]';
+  var ITEM_SELECTOR = 'div[class*="Item_itemContainer"]';
+  var EXCLUDED_CATEGORIES = /* @__PURE__ */ new Set([
+    "Currencies",
+    "Currency",
+    "Loots",
+    "Loot",
+    "货币",
+    "战利品"
+  ]);
+  function inventoryItemTarget(target) {
+    const item = target?.closest?.(ITEM_SELECTOR);
+    if (!item?.closest(INVENTORY_SELECTOR)) return null;
+    const category = item.closest(
+      'div:has(> button[class*="Inventory_categoryButton"],> div[class*="Inventory_label"])'
+    );
+    const categoryButton = category?.querySelector(
+      'button[class*="Inventory_categoryButton"]'
+    );
+    const categoryName = String(
+      runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? ""
+    ).trim();
+    if (EXCLUDED_CATEGORIES.has(categoryName)) return null;
+    const icon = item.querySelector("svg[aria-label]");
+    let itemName2 = icon?.getAttribute("aria-label")?.trim();
+    if (!itemName2) return null;
+    if (runtime.config.isZHInGameSetting) {
+      itemName2 = runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2;
+    }
+    const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName2];
+    if (!itemHrid || itemHrid === "/items/coin") return null;
+    const levelText = item.querySelector('[class*="Item_enhancementLevel"]')?.textContent ?? "";
+    const enhancementLevel = Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
+    return { itemHrid, enhancementLevel, categoryName };
+  }
+  runtime.features.register({
+    id: "inventoryMarketDoubleClick",
+    setting: "inventoryMarketDoubleClick",
+    scope: "character",
+    initialize({ scope }) {
+      scope.event(
+        document,
+        "dblclick",
+        (event) => {
+          if (event.button && event.button !== 0) return;
+          const target = inventoryItemTarget(event.target);
+          if (!target) return;
+          const open = runtime.api.openProcurementMarketplace;
+          if (typeof open !== "function") return;
+          event.preventDefault();
+          event.stopPropagation();
+          open(target.itemHrid, target.enhancementLevel);
+        },
+        true
+      );
+    }
+  });
+
+  // src/features/feedback/client.js
+  var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
+  var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
+  var MAX_ATTACHMENTS = 3;
+  var MAX_IMAGE_BYTES = 1024 * 1024;
+  var ACCEPTED_IMAGE_TYPES = /* @__PURE__ */ new Set([
+    "image/png",
+    "image/jpeg",
+    "image/webp"
+  ]);
+  function gameServer() {
+    return String(globalThis.location?.hostname ?? "unknown");
+  }
+  function encodeToken(bytes) {
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return globalThis.btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  }
+  function createToken() {
+    const bytes = new Uint8Array(32);
+    globalThis.crypto.getRandomValues(bytes);
+    return encodeToken(bytes);
+  }
+  function getPrivateValue(key) {
+    try {
+      return typeof GM_getValue === "function" ? GM_getValue(key, "") : "";
+    } catch {
+      return "";
+    }
+  }
+  function setPrivateValue(key, value) {
+    if (typeof GM_setValue === "function") GM_setValue(key, value);
+  }
+  function parseResponse(response) {
+    const text = response?.responseText ?? response?.response ?? "";
+    if (!text) return null;
+    if (typeof text === "object") return text;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { detail: String(text) };
+    }
+  }
+  function request({ token, path, method = "GET", body, responseType }) {
+    const requestFn = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
+    const headers = { Authorization: `Bearer ${token}` };
+    if (body && !(body instanceof globalThis.FormData))
+      headers["Content-Type"] = "application/json";
+    if (!requestFn) {
+      return globalThis.fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        body: body instanceof globalThis.FormData ? body : body ? JSON.stringify(body) : void 0
+      }).then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.detail || `HTTP ${response.status}`);
+        }
+        return responseType === "blob" ? response.blob() : response.json();
+      });
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (response) => {
+        if (settled) return;
+        settled = true;
+        const status = Number(response?.status) || 0;
+        if (status < 200 || status >= 300) {
+          const payload = parseResponse(response);
+          const error = new Error(
+            payload?.detail || `反馈服务返回 HTTP ${status}`
+          );
+          error.status = status;
+          reject(error);
+          return;
+        }
+        if (responseType === "blob") resolve(response.response);
+        else resolve(parseResponse(response));
+      };
+      const fail = (message) => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(message));
+      };
+      try {
+        const result = requestFn({
+          method,
+          url: `${API_BASE}${path}`,
+          headers,
+          data: body instanceof globalThis.FormData ? body : body ? JSON.stringify(body) : void 0,
+          responseType: responseType === "blob" ? "blob" : "text",
+          timeout: 2e4,
+          anonymous: false,
+          onload: finish,
+          onerror: () => fail("无法连接意见反馈服务"),
+          ontimeout: () => fail("意见反馈服务请求超时")
+        });
+        result?.then?.(finish).catch((error) => fail(error.message));
+      } catch (error) {
+        fail(error.message);
+      }
+    });
+  }
+  function validateImageFiles(files, existingCount = 0) {
+    const values = [...files ?? []];
+    if (existingCount + values.length > MAX_ATTACHMENTS) {
+      throw new Error("最多只能上传 3 张图片");
+    }
+    for (const file of values) {
+      if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
+        throw new Error("只支持 PNG、JPEG 和 WebP 图片");
+      }
+      if (file.size > MAX_IMAGE_BYTES) {
+        throw new Error("每张图片不能超过 1MB");
+      }
+    }
+    return values;
+  }
+  function appendFeedbackForm(form, value, files, keepAttachments = null) {
+    form.append("kind", value.type);
+    form.append("title", value.title);
+    form.append("detail", value.detail);
+    form.append("reproduction", value.reproduction ?? "");
+    form.append("expected", value.expected ?? "");
+    if (value.context) form.append("context", JSON.stringify(value.context));
+    if (keepAttachments)
+      form.append("keepAttachments", JSON.stringify(keepAttachments));
+    for (const file of files) form.append("images", file, file.name);
+    return form;
+  }
+  var FeedbackClient = class {
+    constructor({ characterId, characterName }) {
+      this.characterId = String(characterId);
+      this.characterName = String(characterName ?? "");
+      this.server = gameServer();
+      this.storageKey = `${TOKEN_PREFIX}:${this.server}:${this.characterId}`;
+      this.token = getPrivateValue(this.storageKey) || createToken();
+      setPrivateValue(this.storageKey, this.token);
+      this.registered = false;
+    }
+    async ensureIdentity() {
+      if (this.registered) return;
+      const result = await request({
+        token: this.token,
+        path: "/identity",
+        method: "POST",
+        body: {
+          gameServer: this.server,
+          characterId: this.characterId,
+          characterName: this.characterName,
+          source: "mwitools-userscript"
+        }
+      });
+      this.registered = true;
+      return result;
+    }
+    async call(path, options = {}) {
+      await this.ensureIdentity();
+      return request({ token: this.token, path, ...options });
+    }
+    quota() {
+      return this.call("/quota");
+    }
+    list() {
+      return this.call("/feedback");
+    }
+    detail(id) {
+      return this.call(`/feedback/${encodeURIComponent(id)}`);
+    }
+    submit(value, files = []) {
+      validateImageFiles(files);
+      return this.call("/feedback", {
+        method: "POST",
+        body: appendFeedbackForm(new globalThis.FormData(), value, files)
+      });
+    }
+    edit(id, value, files = [], keepAttachments = []) {
+      validateImageFiles(files, keepAttachments.length);
+      return this.call(`/feedback/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: appendFeedbackForm(
+          new globalThis.FormData(),
+          value,
+          files,
+          keepAttachments
+        )
+      });
+    }
+    reply(id, body) {
+      return this.call(`/feedback/${encodeURIComponent(id)}/messages`, {
+        method: "POST",
+        body: { body }
+      });
+    }
+    markRead(id) {
+      return this.call(`/feedback/${encodeURIComponent(id)}/seen`, {
+        method: "POST"
+      });
+    }
+    attachmentBlob(id, thumbnail = false) {
+      return this.call(
+        `/attachments/${encodeURIComponent(id)}${thumbnail ? "/thumbnail" : ""}`,
+        { responseType: "blob" }
+      );
+    }
+  };
+  function feedbackContext(client) {
+    const info = globalThis.GM_info?.script ?? {};
+    return {
+      scriptVersion: String(info.version ?? "unknown"),
+      gameServer: client.server,
+      characterId: client.characterId,
+      characterName: client.characterName,
+      browser: String(globalThis.navigator?.userAgent ?? "").slice(0, 500)
+    };
+  }
+
+  // src/features/feedback/panel.js
+  var ROOT_ID = "mwitools-feedback-root";
+  var BUTTON_ID = "mwitools-feedback-button";
+  var STYLE_ID7 = "mwitools-feedback-style";
+  var STATUS_LABELS = {
+    pending: "待处理",
+    processing: "处理中",
+    closed: "已结束"
+  };
   function t7(zh, en) {
+    return globalThis.document?.documentElement?.lang?.toLowerCase().startsWith("zh") ? zh : en;
+  }
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID7)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID7;
+    style.textContent = `
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;justify-content:center;gap:5px;width:100%;margin-top:3px;padding:3px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
+    #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
+    #${ROOT_ID}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID}[hidden]{display:none}
+    .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
+    .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
+    .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}.mwi-feedback-tab .mwi-feedback-badge{right:calc(50% - 52px);top:4px}
+    .mwi-feedback-body{min-height:360px;overflow:auto;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
+    .mwi-feedback-drop{grid-column:1/-1;padding:13px;border:1px dashed #53607f;border-radius:6px;background:#121827;text-align:center;color:#9fa9c0;font-size:12px}.mwi-feedback-drop[data-drag="true"]{border-color:#f2ad3e;background:rgba(242,173,62,.09)}.mwi-feedback-drop button{margin-left:6px}.mwi-feedback-previews{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.mwi-feedback-preview{position:relative;width:112px;height:82px;border:1px solid #3f4964;border-radius:5px;overflow:hidden;background:#0e121d}.mwi-feedback-preview img{width:100%;height:100%;object-fit:cover}.mwi-feedback-preview button{position:absolute;right:3px;top:3px;width:21px;height:21px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.72);color:white;cursor:pointer}
+    .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
+    .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}
+    @media(max-width:620px){#${ROOT_ID}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide,.mwi-feedback-drop{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function formatTime(value) {
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return String(value ?? "");
+    }
+  }
+  function makeElement(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== void 0) element.textContent = text;
+    return element;
+  }
+  var FeedbackPanel = class {
+    constructor({ client, scope }) {
+      this.client = client;
+      this.scope = scope;
+      this.files = [];
+      this.fileUrls = /* @__PURE__ */ new Map();
+      this.serverImageUrls = /* @__PURE__ */ new Set();
+      this.items = [];
+      this.unread = 0;
+      this.currentDetailId = null;
+      this.quota = null;
+      this.editing = null;
+      this.build();
+    }
+    build() {
+      addStyles7();
+      this.root = document.createElement("div");
+      this.root.id = ROOT_ID;
+      this.root.hidden = true;
+      this.root.innerHTML = `
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t7("意见反馈", "Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t7("意见反馈", "Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t7("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t7("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t7("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+        <div class="mwi-feedback-body">
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t7("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+            <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
+              <label class="mwi-feedback-field"><span>${t7("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t7("功能建议", "Feature request")}</option><option value="other">${t7("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t7("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t7("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t7("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t7("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <div class="mwi-feedback-drop"><span>${t7("拖放或粘贴截图，也可以", "Drop or paste screenshots, or")}</span><button type="button" data-pick>${t7("选择图片", "Choose images")}</button><div>${t7("PNG / JPEG / WebP，最多 3 张，每张不超过 1MB", "PNG / JPEG / WebP, up to 3 images, 1MB each")}</div><input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><div class="mwi-feedback-previews"></div></div>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t7("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t7("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+          </section>
+          <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
+        </div>
+      </section>`;
+      document.body.appendChild(this.root);
+      this.form = this.root.querySelector(".mwi-feedback-form");
+      this.fileInput = this.form.querySelector('input[type="file"]');
+      this.scope.event(
+        this.root.querySelector(".mwi-feedback-close"),
+        "click",
+        () => this.close()
+      );
+      this.scope.event(this.root, "click", (event) => {
+        if (event.target === this.root) this.close();
+      });
+      this.root.querySelectorAll("[data-tab]").forEach(
+        (button) => this.scope.event(
+          button,
+          "click",
+          () => this.showTab(button.dataset.tab)
+        )
+      );
+      this.scope.event(
+        this.form.elements.type,
+        "change",
+        () => this.toggleBugFields()
+      );
+      this.scope.event(this.form, "submit", (event) => this.submit(event));
+      this.scope.event(
+        this.form.querySelector("[data-pick]"),
+        "click",
+        () => this.fileInput.click()
+      );
+      this.scope.event(
+        this.fileInput,
+        "change",
+        () => this.addFiles(this.fileInput.files)
+      );
+      const drop = this.form.querySelector(".mwi-feedback-drop");
+      for (const name of ["dragenter", "dragover"]) {
+        this.scope.event(drop, name, (event) => {
+          event.preventDefault();
+          drop.dataset.drag = "true";
+        });
+      }
+      for (const name of ["dragleave", "drop"]) {
+        this.scope.event(drop, name, (event) => {
+          event.preventDefault();
+          drop.dataset.drag = "false";
+          if (name === "drop") this.addFiles(event.dataTransfer?.files);
+        });
+      }
+      this.scope.event(this.root, "paste", (event) => {
+        if (this.root.hidden) return;
+        const images = [...event.clipboardData?.files ?? []].filter(
+          (file) => ACCEPTED_IMAGE_TYPES.has(file.type)
+        );
+        if (images.length) {
+          event.preventDefault();
+          this.addFiles(images);
+        }
+      });
+      this.scope.event(document, "keydown", (event) => {
+        if (event.key === "Escape" && !this.root.hidden) this.close();
+      });
+      this.scope.add(() => this.destroy());
+      this.toggleBugFields();
+    }
+    ensureButton() {
+      const totalLevel = document.querySelector(
+        'div[class*="Header_totalLevel"]'
+      );
+      if (!totalLevel?.parentElement) return null;
+      let button = document.getElementById(BUTTON_ID);
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.id = BUTTON_ID;
+        button.innerHTML = `<span>✉</span><span>${t7("意见反馈", "Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        this.scope.event(button, "click", () => this.open());
+      }
+      if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
+        totalLevel.insertAdjacentElement("afterend", button);
+      }
+      return button;
+    }
+    setUnread(count) {
+      this.unread = Math.max(0, Number(count) || 0);
+      for (const badge of document.querySelectorAll(
+        `#${BUTTON_ID} .mwi-feedback-badge,#${ROOT_ID} .mwi-feedback-tab .mwi-feedback-badge`
+      )) {
+        badge.dataset.count = String(this.unread);
+        badge.textContent = String(this.unread);
+      }
+    }
+    async open() {
+      this.root.hidden = false;
+      await this.refresh();
+    }
+    close() {
+      this.root.hidden = true;
+    }
+    showTab(name) {
+      this.root.querySelectorAll("[data-tab]").forEach((button) => {
+        button.dataset.active = String(button.dataset.tab === name);
+      });
+      this.root.querySelectorAll("[data-view]").forEach((view) => {
+        view.hidden = view.dataset.view !== name;
+      });
+      if (name === "mine") this.renderList();
+    }
+    toggleBugFields() {
+      this.form.querySelector(".mwi-feedback-bug-fields").hidden = this.form.elements.type.value !== "bug";
+    }
+    addFiles(files) {
+      const error = this.form.querySelector(".mwi-feedback-error");
+      try {
+        const values = validateImageFiles(
+          files,
+          this.files.length + (this.editing?.attachments?.length ?? 0)
+        );
+        this.files.push(...values);
+        error.textContent = "";
+        this.renderPreviews();
+      } catch (caught) {
+        error.textContent = caught.message;
+      } finally {
+        this.fileInput.value = "";
+      }
+    }
+    renderPreviews() {
+      for (const value of this.fileUrls.values()) URL.revokeObjectURL(value);
+      this.fileUrls.clear();
+      const host = this.form.querySelector(".mwi-feedback-previews");
+      host.replaceChildren();
+      for (const attachment of this.editing?.attachments ?? []) {
+        const preview = this.previewNode(null, attachment.name, () => {
+          this.editing.attachments = this.editing.attachments.filter(
+            (item) => item.id !== attachment.id
+          );
+          this.renderPreviews();
+        });
+        host.append(preview);
+        this.loadAttachmentImage(
+          attachment.id,
+          preview.querySelector("img"),
+          true
+        );
+      }
+      this.files.forEach((file, index) => {
+        const url = URL.createObjectURL(file);
+        this.fileUrls.set(file, url);
+        host.append(
+          this.previewNode(url, file.name, () => {
+            this.files.splice(index, 1);
+            this.renderPreviews();
+          })
+        );
+      });
+    }
+    previewNode(src, name, remove) {
+      const box = makeElement("div", "mwi-feedback-preview");
+      const image = document.createElement("img");
+      image.alt = name;
+      if (src) image.src = src;
+      const button = makeElement("button", "", "×");
+      button.type = "button";
+      button.setAttribute("aria-label", t7("移除图片", "Remove image"));
+      button.addEventListener("click", remove, { once: true });
+      box.append(image, button);
+      return box;
+    }
+    formValue() {
+      return {
+        type: this.form.elements.type.value,
+        title: this.form.elements.title.value.trim(),
+        detail: this.form.elements.detail.value.trim(),
+        reproduction: this.form.elements.reproduction.value.trim(),
+        expected: this.form.elements.expected.value.trim(),
+        context: feedbackContext(this.client)
+      };
+    }
+    async submit(event) {
+      event.preventDefault();
+      const error = this.form.querySelector(".mwi-feedback-error");
+      const button = this.form.querySelector(".mwi-feedback-submit");
+      const value = this.formValue();
+      if (!value.title || !value.detail) {
+        error.textContent = t7(
+          "请填写标题和详细说明。",
+          "Enter a title and details."
+        );
+        return;
+      }
+      button.disabled = true;
+      error.textContent = t7("正在提交…", "Submitting…");
+      try {
+        if (this.editing) {
+          await this.client.edit(
+            this.editing.id,
+            value,
+            this.files,
+            this.editing.attachments.map((item) => item.id)
+          );
+        } else {
+          await this.client.submit(value, this.files);
+        }
+        this.resetForm();
+        error.classList.add("mwi-feedback-success");
+        error.textContent = t7("已保存反馈。", "Feedback saved.");
+        await this.refresh();
+        this.showTab("mine");
+      } catch (caught) {
+        error.classList.remove("mwi-feedback-success");
+        error.textContent = caught.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+    resetForm() {
+      this.form.reset();
+      this.files = [];
+      this.editing = null;
+      this.form.querySelector(".mwi-feedback-submit").textContent = t7(
+        "提交",
+        "Submit"
+      );
+      this.toggleBugFields();
+      this.renderPreviews();
+    }
+    async refresh() {
+      try {
+        const result = await this.client.list();
+        this.items = result.items ?? [];
+        this.quota = result.quota;
+        this.setUnread(result.unread ?? 0);
+        this.renderQuota();
+        if (this.currentDetailId && !this.root.hidden) {
+          await this.openDetail(this.currentDetailId);
+        } else {
+          this.renderList();
+        }
+        return true;
+      } catch (error) {
+        this.root.querySelector(
+          '[data-view="mine"] .mwi-feedback-error'
+        ).textContent = error.message;
+        return false;
+      }
+    }
+    renderQuota() {
+      const node = this.form.querySelector(".mwi-feedback-quota");
+      node.textContent = this.quota ? t7(
+        `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
+        `${this.quota.remaining}/${this.quota.limit} submissions left this week`
+      ) : t7("额度暂时不可用", "Quota unavailable");
+      this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
+    }
+    renderList() {
+      this.currentDetailId = null;
+      const host = this.root.querySelector(".mwi-feedback-list");
+      const detail = this.root.querySelector(".mwi-feedback-detail");
+      detail.hidden = true;
+      host.hidden = false;
+      host.replaceChildren();
+      if (!this.items.length) {
+        host.append(
+          makeElement(
+            "div",
+            "mwi-feedback-empty",
+            t7("还没有提交过反馈。", "No feedback yet.")
+          )
+        );
+        return;
+      }
+      for (const item of this.items) {
+        const card = makeElement("article", "mwi-feedback-card");
+        const title = makeElement("h3", "", item.title);
+        const meta = makeElement("div", "mwi-feedback-card-meta");
+        const status = makeElement(
+          "span",
+          `mwi-feedback-status ${item.status}`,
+          STATUS_LABELS[item.status] ?? item.status
+        );
+        meta.append(status, document.createTextNode(formatTime(item.updatedAt)));
+        card.append(title, meta);
+        card.addEventListener("click", () => this.openDetail(item.id), {
+          once: true
+        });
+        host.append(card);
+      }
+    }
+    async openDetail(id) {
+      const host = this.root.querySelector(".mwi-feedback-list");
+      const detail = this.root.querySelector(".mwi-feedback-detail");
+      try {
+        const item = await this.client.detail(id);
+        this.currentDetailId = id;
+        host.hidden = true;
+        detail.hidden = false;
+        detail.replaceChildren();
+        const back = makeElement(
+          "button",
+          "mwi-feedback-detail-back",
+          `← ${t7("返回列表", "Back")}`
+        );
+        back.type = "button";
+        back.addEventListener("click", () => this.renderList(), { once: true });
+        const title = makeElement("h3", "", item.title);
+        const meta = makeElement(
+          "div",
+          "mwi-feedback-card-meta",
+          `${STATUS_LABELS[item.status] ?? item.status} · ${formatTime(item.updatedAt)}`
+        );
+        detail.append(
+          back,
+          title,
+          meta,
+          this.textSection(t7("详细说明", "Details"), item.detail)
+        );
+        if (item.type === "bug") {
+          detail.append(
+            this.textSection(
+              t7("复现步骤", "Steps to reproduce"),
+              item.reproduction || "—"
+            ),
+            this.textSection(
+              t7("预期结果", "Expected result"),
+              item.expected || "—"
+            )
+          );
+        }
+        if (item.attachments?.length) {
+          const section = makeElement("section", "mwi-feedback-section");
+          section.append(makeElement("h4", "", t7("截图", "Screenshots")));
+          const gallery = makeElement("div", "mwi-feedback-previews");
+          for (const attachment of item.attachments) {
+            const preview = makeElement("button", "mwi-feedback-preview");
+            preview.type = "button";
+            const image = document.createElement("img");
+            image.alt = attachment.name;
+            preview.append(image);
+            this.loadAttachmentImage(attachment.id, image, true);
+            preview.addEventListener(
+              "click",
+              () => this.openFullImage(attachment.id),
+              { once: true }
+            );
+            gallery.append(preview);
+          }
+          section.append(gallery);
+          detail.append(section);
+        }
+        const messages = makeElement("section", "mwi-feedback-section");
+        messages.append(makeElement("h4", "", t7("留言", "Messages")));
+        const messageList = makeElement("div", "mwi-feedback-messages");
+        for (const message of item.messages ?? []) {
+          const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
+          box.append(
+            makeElement(
+              "strong",
+              "",
+              message.actor === "admin" ? t7("管理员", "Admin") : t7("我", "Me")
+            ),
+            makeElement("div", "mwi-feedback-copy", message.body),
+            makeElement("time", "", formatTime(message.createdAt))
+          );
+          messageList.append(box);
+        }
+        if (!messageList.childElementCount) {
+          messageList.append(
+            makeElement(
+              "div",
+              "mwi-feedback-card-meta",
+              t7("暂无留言", "No messages")
+            )
+          );
+        }
+        messages.append(messageList);
+        detail.append(messages);
+        if (item.status !== "closed") {
+          const actions = makeElement("div", "mwi-feedback-actions");
+          const edit = makeElement("button", "", t7("修改反馈", "Edit feedback"));
+          edit.type = "button";
+          edit.addEventListener("click", () => this.startEdit(item), {
+            once: true
+          });
+          actions.append(edit);
+          detail.append(actions);
+          const reply = makeElement("div", "mwi-feedback-reply");
+          const input = document.createElement("textarea");
+          input.placeholder = t7("补充留言…", "Add a message…");
+          input.maxLength = 8e3;
+          const send = makeElement("button", "", t7("发送", "Send"));
+          send.type = "button";
+          send.addEventListener("click", async () => {
+            if (!input.value.trim()) return;
+            send.disabled = true;
+            try {
+              await this.client.reply(item.id, input.value.trim());
+              await this.openDetail(item.id);
+            } catch (error) {
+              send.disabled = false;
+              input.setCustomValidity(error.message);
+              input.reportValidity();
+            }
+          });
+          reply.append(input, send);
+          detail.append(reply);
+        } else {
+          detail.append(
+            makeElement(
+              "div",
+              "mwi-feedback-notice",
+              t7(
+                "该反馈已结束，内容和留言已锁定。",
+                "This feedback is closed and locked."
+              )
+            )
+          );
+        }
+        await this.client.markRead(item.id).catch(() => {
+        });
+        if (item.unread) this.setUnread(this.unread - 1);
+      } catch (error) {
+        detail.hidden = false;
+        detail.replaceChildren(
+          makeElement("div", "mwi-feedback-error", error.message)
+        );
+      }
+    }
+    textSection(label, value) {
+      const section = makeElement("section", "mwi-feedback-section");
+      section.append(
+        makeElement("h4", "", label),
+        makeElement("div", "mwi-feedback-copy", value)
+      );
+      return section;
+    }
+    startEdit(item) {
+      this.editing = { ...item, attachments: [...item.attachments ?? []] };
+      this.files = [];
+      for (const name of [
+        "type",
+        "title",
+        "detail",
+        "reproduction",
+        "expected"
+      ]) {
+        this.form.elements[name].value = item[name] ?? "";
+      }
+      this.form.querySelector(".mwi-feedback-submit").textContent = t7(
+        "保存修改",
+        "Save changes"
+      );
+      this.toggleBugFields();
+      this.renderPreviews();
+      this.renderQuota();
+      this.showTab("submit");
+    }
+    async loadAttachmentImage(id, image, thumbnail) {
+      try {
+        const blob = await this.client.attachmentBlob(id, thumbnail);
+        const url = URL.createObjectURL(blob);
+        this.serverImageUrls.add(url);
+        image.src = url;
+      } catch {
+        image.alt = t7("图片加载失败", "Image failed to load");
+      }
+    }
+    async openFullImage(id) {
+      try {
+        const blob = await this.client.attachmentBlob(id, false);
+        const url = URL.createObjectURL(blob);
+        this.serverImageUrls.add(url);
+        globalThis.open(url, "_blank", "noopener");
+      } catch {
+      }
+    }
+    destroy() {
+      for (const value of this.fileUrls.values()) URL.revokeObjectURL(value);
+      for (const value of this.serverImageUrls) URL.revokeObjectURL(value);
+      this.fileUrls.clear();
+      this.serverImageUrls.clear();
+      document.getElementById(BUTTON_ID)?.remove();
+      this.root?.remove();
+      document.getElementById(STYLE_ID7)?.remove();
+    }
+  };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID7 };
+
+  // src/features/feedback/index.js
+  var activeClient = null;
+  runtime.features.register({
+    id: "feedback",
+    setting: "feedback",
+    scope: "character",
+    initialize({ scope, characterId }) {
+      const client = new FeedbackClient({
+        characterId,
+        characterName: runtime.state.currentCharacterName
+      });
+      activeClient = client;
+      const panel = new FeedbackPanel({ client, scope });
+      let disposed = false;
+      let failures = 0;
+      let timer = null;
+      const schedule = (delay) => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          if (disposed) return;
+          const ok = await panel.refresh();
+          failures = ok ? 0 : Math.min(failures + 1, 6);
+          schedule(ok ? 6e4 : Math.min(15 * 6e4, 6e4 * 2 ** failures));
+        }, delay);
+      };
+      const ensure = () => panel.ensureButton();
+      ensure();
+      scope.interval(ensure, 750);
+      schedule(1500);
+      scope.add(() => {
+        disposed = true;
+        clearTimeout(timer);
+        if (activeClient === client) activeClient = null;
+      });
+    }
+  });
+  runtime.api.feedback = {
+    submit: (...args) => activeClient?.submit(...args),
+    list: (...args) => activeClient?.list(...args),
+    detail: (...args) => activeClient?.detail(...args),
+    edit: (...args) => activeClient?.edit(...args),
+    reply: (...args) => activeClient?.reply(...args),
+    markRead: (...args) => activeClient?.markRead(...args),
+    quota: (...args) => activeClient?.quota(...args)
+  };
+
+  // src/features/guild-xp.js
+  var STYLE_ID8 = "mwitools-guild-xp-style";
+  var rateCache = /* @__PURE__ */ new Map();
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -26384,10 +27481,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID8;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -26415,7 +27512,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t7("待再次采样", "Awaiting another sample") : t7("样本不足", "Not enough data");
+      return waiting ? t8("待再次采样", "Awaiting another sample") : t8("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -26510,10 +27607,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t7("公会经验进度", "Guild XP progress");
+    title.textContent = t8("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t7("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t7("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t8("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t8("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -26528,16 +27625,16 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t7("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t8("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t7("最近 XP/h", "Recent XP/h"),
+        t8("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t7("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t7("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t8("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t8("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t7("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t7("样本不足", "Not enough data")
+        t8("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t8("样本不足", "Not enough data")
       )
     );
     card.append(head, grid, trendSvg(rates?.points ?? []));
@@ -26561,7 +27658,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t7("当前闲置", "Idle now")} (${idle.length}) · ${t7(
+      label.textContent = `${t8("当前闲置", "Idle now")} (${idle.length}) · ${t8(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -26580,8 +27677,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t7("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t7("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t8("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t8("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -26593,7 +27690,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t7("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t8("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -26695,10 +27792,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t7("最近 XP/h", "Recent XP/h")
+          textContent: t8("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t7("24 小时 XP/h", "24h XP/h")
+          textContent: t8("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -26776,7 +27873,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles6();
+      addStyles8();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -26791,7 +27888,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles6();
+        addStyles8();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -28642,14 +29739,14 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID7 = "mwitools-important-update-style";
+  var STYLE_ID9 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t8(value) {
+  function t9(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.1");
+    return String(globalThis.GM_info?.script?.version ?? "26.2");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -28692,8 +29789,8 @@ ${locks}` : ""}`;
     );
   }
   function requestManifest() {
-    const request = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
-    if (!request) {
+    const request2 = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
+    if (!request2) {
       return globalThis.fetch(MANIFEST_URL, { cache: "no-store" }).then((response) => {
         if (!response.ok)
           throw new Error(`Update manifest HTTP ${response.status}`);
@@ -28713,7 +29810,7 @@ ${locks}` : ""}`;
         }
       };
       try {
-        const result = request({
+        const result = request2({
           method: "GET",
           url: MANIFEST_URL,
           timeout: 5e3,
@@ -28735,10 +29832,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID9;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -28756,7 +29853,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles7();
+    addStyles9();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -28768,8 +29865,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t8(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t8(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t9(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t9(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -28799,7 +29896,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID7)?.remove();
+        document.getElementById(STYLE_ID9)?.remove();
       });
     }
   });
@@ -30828,9 +31925,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t9 = 0;
-        playerKills.forEach((v) => t9 += v);
-        return t9;
+        let t10 = 0;
+        playerKills.forEach((v) => t10 += v);
+        return t10;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -31086,12 +32183,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t9) {
-      const low = t9.toLowerCase();
+    function looksLikeNoise(t10) {
+      const low = t10.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t9)) return true;
-      if (/^\d+%?$/.test(t9)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t9)) return true;
+      if (/^lv\.?\d+$/i.test(t10)) return true;
+      if (/^\d+%?$/.test(t10)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t10)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -31113,14 +32210,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t9) => t9 && !looksLikeNoise(t9) && !/^trial\s/i.test(t9));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t10) => t10 && !looksLikeNoise(t10) && !/^trial\s/i.test(t10));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t9, i) => {
-        resolved.set(String(i + offset), t9);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t10, i) => {
+        resolved.set(String(i + offset), t10);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -31188,7 +32285,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t9) => t9.length > 0)) {
+          if (texts.some((t10) => t10.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -31224,10 +32321,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t9 = c.textContent.trim();
-            if (t9.length >= 2 && t9.length <= 20 && !looksLikeNoise(t9)) {
+            const t10 = c.textContent.trim();
+            if (t10.length >= 2 && t10.length <= 20 && !looksLikeNoise(t10)) {
               nameLikeCount++;
-              texts.push(t9.slice(0, 20));
+              texts.push(t10.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -32704,11 +33801,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t9 = el2.textContent.trim();
-        if (!t9 || t9.length < 2 || t9.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t9);
+        const t10 = el2.textContent.trim();
+        if (!t10 || t10.length < 2 || t10.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t10);
         let cssEllipsis = false;
-        if (!literalEllipsis && t9.length <= 20 && !t9.includes(" ") && !looksLikeNoise(t9)) {
+        if (!literalEllipsis && t10.length <= 20 && !t10.includes(" ") && !looksLikeNoise(t10)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -34972,10 +36069,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t9 = c.textContent;
-        if (t9.includes("Combat Zones") || t9.includes("战斗区域") || t9.includes("戰鬥區域"))
+        const t10 = c.textContent;
+        if (t10.includes("Combat Zones") || t10.includes("战斗区域") || t10.includes("戰鬥區域"))
           return c;
-        if (t9.includes("Labyrinth") && t9.includes("Room") && t9.includes("Automation") || t9.includes("迷宫") && (t9.includes("房间") || t9.includes("自动化")) || t9.includes("迷宮") && (t9.includes("房間") || t9.includes("自動化")))
+        if (t10.includes("Labyrinth") && t10.includes("Room") && t10.includes("Automation") || t10.includes("迷宫") && (t10.includes("房间") || t10.includes("自动化")) || t10.includes("迷宮") && (t10.includes("房間") || t10.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -35225,10 +36322,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t9) => {
+      TYPES.forEach((t10) => {
         const btn = document.createElement("button");
-        btn.textContent = t9.label;
-        const active = historyFilter === t9.id;
+        btn.textContent = t10.label;
+        const active = historyFilter === t10.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -35242,7 +36339,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t9.id;
+          historyFilter = t10.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -35353,7 +36450,7 @@ ${locks}` : ""}`;
         container.appendChild(block);
       });
       const clearBtn = document.createElement("button");
-      clearBtn.textContent = "清空" + (TYPES.find((t9) => t9.id === historyFilter) || {}).label + "记录";
+      clearBtn.textContent = "清空" + (TYPES.find((t10) => t10.id === historyFilter) || {}).label + "记录";
       Object.assign(clearBtn.style, {
         width: "100%",
         cursor: "pointer",

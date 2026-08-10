@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "importantVersion": "26.1",
+  "importantVersion": "26.2",
   "title": {
     "zh": "MWITools 有重要更新",
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "本次更新修复无限生产的原料限制与完成时间，改进生活装备提醒、盈亏数字和任务卡片布局，建议前往 Greasy Fork 更新。",
-    "en": "This update fixes material-limited infinite production and completion estimates, and improves equipment warnings, profit formatting, and task card layout. Update on Greasy Fork."
+    "zh": "新增游戏内意见反馈与截图、处理状态跟踪、新任务高亮，以及库存双击打开市场；建议前往 Greasy Fork 更新。",
+    "en": "Adds in-game feedback with screenshots and status tracking, new-task highlights, and double-click inventory marketplace access. Update on Greasy Fork."
   },
   "url": "https://greasyfork.org/zh-CN/scripts/494467-mwitools"
 }

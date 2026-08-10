@@ -86,6 +86,13 @@ let settingsMap = {
       : "Inventory tabs: Daily asset P/L, history charts, and data management.",
     isTrue: true,
   },
+  feedback: {
+    id: "feedback",
+    desc: isZH
+      ? "总等级下方显示意见反馈入口"
+      : "Show the feedback entry below total level.",
+    isTrue: true,
+  },
   invWorth: {
     id: "invWorth",
     desc: isZH
@@ -260,6 +267,20 @@ let settingsMap = {
     desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
     isTrue: true,
   },
+  taskNewBadge: {
+    id: "taskNewBadge",
+    desc: isZH
+      ? "新领取任务显示高亮和新角标"
+      : "Highlight newly received tasks.",
+    isTrue: true,
+  },
+  inventoryMarketDoubleClick: {
+    id: "inventoryMarketDoubleClick",
+    desc: isZH
+      ? "双击库存物品打开对应市场窗口（货币、战利品除外）"
+      : "Double-click inventory items to open the market (except currencies and loot).",
+    isTrue: true,
+  },
   taskMaterials: {
     id: "taskMaterials",
     desc: isZH
@@ -401,6 +422,14 @@ const settingsGroups = {
 
 const catalogRows = [
   [
+    "feedback",
+    "general",
+    "意见反馈",
+    "Feedback",
+    "在总等级下方提交意见、截图并查看处理状态；每张截图最大 1MB。",
+    "Submit feedback and screenshots below total level and follow its status; images are limited to 1MB.",
+  ],
+  [
     "forceMWIToolsDisplayZH",
     "general",
     "强制使用中文",
@@ -489,6 +518,14 @@ const catalogRows = [
     "Show asset summary, component changes, history charts, and data management beside Loadouts.",
   ],
   [
+    "inventoryMarketDoubleClick",
+    "inventory",
+    "双击打开市场",
+    "Double-click to market",
+    "双击库存物品打开对应市场窗口；货币和战利品不响应。",
+    "Double-click an inventory item to open it in the marketplace; currencies and loot are excluded.",
+  ],
+  [
     "invWorth",
     "inventory",
     "总资产与着装评分",
@@ -575,6 +612,14 @@ const catalogRows = [
     "Group tasks by profession",
     "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
     "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon.",
+  ],
+  [
+    "taskNewBadge",
+    "tasks",
+    "新任务标记",
+    "New task badges",
+    "新领取任务显示黄色角标和高亮，点击任务卡后标记为已读。",
+    "Show a yellow badge and highlight on newly received tasks until the task card is clicked.",
   ],
   [
     "taskAutoSort",
@@ -743,6 +788,7 @@ const settingParents = {
   taskStatistics: "taskInsights",
   taskClaimCollector: "taskInsights",
   taskMergeActions: "taskInsights",
+  taskNewBadge: "taskInsights",
   guildOverview: "guildXpTracking",
   guildMemberXp: "guildXpTracking",
   guildLeaderboardXp: "guildXpTracking",
