@@ -3,6 +3,10 @@ import { runtime } from "./runtime.js";
 function applyClientData(payload) {
   runtime.state.initData_actionDetailMap = payload.actionDetailMap;
   runtime.state.initData_levelExperienceTable = payload.levelExperienceTable;
+  runtime.state.initData_enhancementLevelSuccessRateTable =
+    payload.enhancementLevelSuccessRateTable;
+  runtime.state.initData_enhancementLevelTotalBonusMultiplierTable =
+    payload.enhancementLevelTotalBonusMultiplierTable;
   runtime.state.initData_itemDetailMap = payload.itemDetailMap;
   runtime.state.initData_itemLocationDetailMap = payload.itemLocationDetailMap;
   runtime.state.initData_houseRoomDetailMap = payload.houseRoomDetailMap;

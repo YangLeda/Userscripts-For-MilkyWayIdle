@@ -17808,6 +17808,8 @@
   var initData_actionTypeDrinkSlotsMap = null;
   var initData_actionDetailMap = null;
   var initData_levelExperienceTable = null;
+  var initData_enhancementLevelSuccessRateTable = null;
+  var initData_enhancementLevelTotalBonusMultiplierTable = null;
   var initData_itemDetailMap = null;
   var initData_itemLocationDetailMap = null;
   var initData_houseRoomDetailMap = null;
@@ -17908,6 +17910,24 @@
       },
       set(value) {
         initData_levelExperienceTable = value;
+      }
+    },
+    initData_enhancementLevelSuccessRateTable: {
+      enumerable: true,
+      get() {
+        return initData_enhancementLevelSuccessRateTable;
+      },
+      set(value) {
+        initData_enhancementLevelSuccessRateTable = value;
+      }
+    },
+    initData_enhancementLevelTotalBonusMultiplierTable: {
+      enumerable: true,
+      get() {
+        return initData_enhancementLevelTotalBonusMultiplierTable;
+      },
+      set(value) {
+        initData_enhancementLevelTotalBonusMultiplierTable = value;
       }
     },
     initData_itemDetailMap: {
@@ -20431,6 +20451,8 @@
   function applyClientData(payload) {
     runtime.state.initData_actionDetailMap = payload.actionDetailMap;
     runtime.state.initData_levelExperienceTable = payload.levelExperienceTable;
+    runtime.state.initData_enhancementLevelSuccessRateTable = payload.enhancementLevelSuccessRateTable;
+    runtime.state.initData_enhancementLevelTotalBonusMultiplierTable = payload.enhancementLevelTotalBonusMultiplierTable;
     runtime.state.initData_itemDetailMap = payload.itemDetailMap;
     runtime.state.initData_itemLocationDetailMap = payload.itemLocationDetailMap;
     runtime.state.initData_houseRoomDetailMap = payload.houseRoomDetailMap;
@@ -24025,6 +24047,7 @@ ${preview}`
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
     }
+    runtime.api.hideEnhancementCostPanel?.();
     const itemNameElem = itemNameElems[0];
     let itemName2 = runtime.api.getOriTextFromElement(itemNameElem);
     if (runtime.config.isZHInGameSetting) {
@@ -29826,6 +29849,747 @@ ${locks}` : ""}`;
     }
   });
 
+  // src/features/enhancement-planner.js
+  var ENHANCEMENT_PROFILE = Object.freeze({
+    playerLevel: 135,
+    houseLevel: 8,
+    tool: { hrid: "/items/celestial_enhancer", enhancementLevel: 12 },
+    top: { hrid: "/items/enhancers_top", enhancementLevel: 10 },
+    bottoms: { hrid: "/items/enhancers_bottoms", enhancementLevel: 10 },
+    gloves: { hrid: "/items/enchanted_gloves", enhancementLevel: 10 },
+    cape: { hrid: "/items/chance_cape_refined", enhancementLevel: 5 },
+    teas: ["/items/ultra_enhancing_tea", "/items/blessed_tea"],
+    ultraTeaLevel: 8,
+    ultraTeaSpeed: 0.06,
+    blessedChance: 0.01,
+    houseSpeedPerLevel: 0.01,
+    houseSuccessPerLevel: 5e-4,
+    baseActionSeconds: 12,
+    teaDurationSeconds: 300
+  });
+  var DEFAULT_SUCCESS_RATES = [
+    0.5,
+    0.45,
+    0.45,
+    0.4,
+    0.4,
+    0.4,
+    0.35,
+    0.35,
+    0.35,
+    0.35,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3,
+    0.3
+  ];
+  var DEFAULT_BONUS_MULTIPLIERS = [
+    0,
+    1,
+    2.1,
+    3.3,
+    4.6,
+    6,
+    7.5,
+    9.1,
+    10.8,
+    12.6,
+    14.5,
+    16.7,
+    19.2,
+    22,
+    25.1,
+    28.5,
+    32.2,
+    36.2,
+    40.5,
+    45.1,
+    50
+  ];
+  var EPSILON = 1e-9;
+  function finitePositive(value) {
+    const number2 = Number(value);
+    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+  }
+  function normalizedTable(source, fallback) {
+    if (!source) return fallback;
+    const values = Array.isArray(source) ? source : Object.keys(source).sort((left, right) => Number(left) - Number(right)).map((key) => source[key]);
+    return values.length ? values.map(Number) : fallback;
+  }
+  function successRateAt(table, level) {
+    const value = Number(table[level] ?? table.at(-1));
+    if (!Number.isFinite(value)) return 0;
+    return value > 1 ? value / 100 : value;
+  }
+  function solveLinearSystem(matrix, vector) {
+    const size = matrix.length;
+    const augmented = matrix.map((row, index) => [
+      ...row.map(Number),
+      Number(vector[index])
+    ]);
+    for (let column = 0; column < size; column++) {
+      let pivot = column;
+      for (let row = column + 1; row < size; row++) {
+        if (Math.abs(augmented[row][column]) > Math.abs(augmented[pivot][column])) {
+          pivot = row;
+        }
+      }
+      if (Math.abs(augmented[pivot][column]) < 1e-12) return null;
+      if (pivot !== column) {
+        [augmented[pivot], augmented[column]] = [
+          augmented[column],
+          augmented[pivot]
+        ];
+      }
+      const divisor = augmented[column][column];
+      for (let index = column; index <= size; index++) {
+        augmented[column][index] /= divisor;
+      }
+      for (let row = 0; row < size; row++) {
+        if (row === column) continue;
+        const factor = augmented[row][column];
+        if (Math.abs(factor) < 1e-15) continue;
+        for (let index = column; index <= size; index++) {
+          augmented[row][index] -= factor * augmented[column][index];
+        }
+      }
+    }
+    const result = augmented.map((row) => row[size]);
+    return result.every(Number.isFinite) ? result : null;
+  }
+  function equipmentStat(itemMap, bonusTable, equipment, stat) {
+    const detail = itemMap?.[equipment.hrid]?.equipmentDetail;
+    const base = Number(detail?.noncombatStats?.[stat]);
+    const perMultiplier = Number(
+      detail?.noncombatEnhancementBonuses?.[stat] ?? 0
+    );
+    const multiplier = Number(bonusTable[equipment.enhancementLevel]);
+    if (!Number.isFinite(base) || !Number.isFinite(multiplier)) return null;
+    return base + perMultiplier * multiplier;
+  }
+  function getEnhancementProfileStats({
+    itemLevel,
+    itemDetailMap = runtime.state.initData_itemDetailMap,
+    bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable
+  } = {}) {
+    const bonusTable = normalizedTable(
+      bonusMultiplierTable,
+      DEFAULT_BONUS_MULTIPLIERS
+    );
+    const toolSuccess = equipmentStat(
+      itemDetailMap,
+      bonusTable,
+      ENHANCEMENT_PROFILE.tool,
+      "enhancingSuccess"
+    );
+    const gloveSpeed = equipmentStat(
+      itemDetailMap,
+      bonusTable,
+      ENHANCEMENT_PROFILE.gloves,
+      "enhancingSpeed"
+    );
+    const topSpeed = equipmentStat(
+      itemDetailMap,
+      bonusTable,
+      ENHANCEMENT_PROFILE.top,
+      "enhancingSpeed"
+    );
+    const bottomsSpeed = equipmentStat(
+      itemDetailMap,
+      bonusTable,
+      ENHANCEMENT_PROFILE.bottoms,
+      "enhancingSpeed"
+    );
+    const capeSpeed = equipmentStat(
+      itemDetailMap,
+      bonusTable,
+      ENHANCEMENT_PROFILE.cape,
+      "enhancingSpeed"
+    );
+    const targetItemLevel = Number(itemLevel);
+    if (toolSuccess === null || topSpeed === null || bottomsSpeed === null || gloveSpeed === null || capeSpeed === null || !Number.isFinite(targetItemLevel) || targetItemLevel <= 0) {
+      return null;
+    }
+    const effectiveLevel = ENHANCEMENT_PROFILE.playerLevel + ENHANCEMENT_PROFILE.ultraTeaLevel;
+    const levelSuccess = effectiveLevel >= targetItemLevel ? (effectiveLevel - targetItemLevel) * 5e-4 : -0.5 * (1 - effectiveLevel / targetItemLevel);
+    const successBonus = levelSuccess + toolSuccess + ENHANCEMENT_PROFILE.houseLevel * ENHANCEMENT_PROFILE.houseSuccessPerLevel;
+    const speedBonus = gloveSpeed + topSpeed + bottomsSpeed + capeSpeed + ENHANCEMENT_PROFILE.houseLevel * ENHANCEMENT_PROFILE.houseSpeedPerLevel + ENHANCEMENT_PROFILE.ultraTeaSpeed + Math.max(0, effectiveLevel - targetItemLevel) * 0.01;
+    return {
+      effectiveLevel,
+      toolSuccess,
+      gloveSpeed,
+      topSpeed,
+      bottomsSpeed,
+      capeSpeed,
+      successBonus,
+      speedBonus,
+      blessedChance: ENHANCEMENT_PROFILE.blessedChance,
+      secondsPerAction: ENHANCEMENT_PROFILE.baseActionSeconds / (1 + speedBonus)
+    };
+  }
+  function addTransition(matrix, from, to, rate, targetLevel) {
+    if (rate <= 0 || to >= targetLevel) return;
+    matrix[to][from] -= rate;
+  }
+  function calculateNormalEnhancementFlow({
+    targetLevel,
+    protectLevel,
+    successRates = DEFAULT_SUCCESS_RATES,
+    successBonus,
+    blessedChance
+  }) {
+    if (targetLevel < 1) return null;
+    const matrix = Array.from(
+      { length: targetLevel },
+      (_, row) => Array.from(
+        { length: targetLevel },
+        (_2, column) => row === column ? 1 : 0
+      )
+    );
+    const source = Array(targetLevel).fill(0);
+    source[0] = 1;
+    const failRates = [];
+    for (let level = 0; level < targetLevel; level++) {
+      const success = Math.min(
+        1,
+        successRateAt(successRates, level) * (1 + successBonus)
+      );
+      const fail = Math.max(0, 1 - success);
+      failRates[level] = fail;
+      addTransition(
+        matrix,
+        level,
+        level + 1,
+        success * (1 - blessedChance),
+        targetLevel
+      );
+      addTransition(
+        matrix,
+        level,
+        level + 2,
+        success * blessedChance,
+        targetLevel
+      );
+      const failLevel = level >= protectLevel ? Math.max(0, level - 1) : 0;
+      addTransition(matrix, level, failLevel, fail, targetLevel);
+    }
+    const actionsByLevel = solveLinearSystem(matrix, source);
+    if (!actionsByLevel || actionsByLevel.some((value) => value < -EPSILON || !Number.isFinite(value))) {
+      return null;
+    }
+    const normalizedActions = actionsByLevel.map(
+      (value) => Math.abs(value) < EPSILON ? 0 : value
+    );
+    const protectionCount = normalizedActions.reduce(
+      (sum, actions, level) => sum + (level >= protectLevel ? actions * failRates[level] : 0),
+      0
+    );
+    return {
+      actionsByLevel: normalizedActions,
+      totalActions: normalizedActions.reduce((sum, value) => sum + value, 0),
+      protectionCount
+    };
+  }
+  function addProducedValue(matrix, targetLevel, producedLevel, actionLevel, value) {
+    if (value <= 0 || producedLevel <= 0) return;
+    const row = Math.min(targetLevel, producedLevel) - 1;
+    matrix[row][actionLevel] += value;
+  }
+  function calculatePhilosopherEnhancementFlow({
+    targetLevel,
+    protectLevel,
+    philosopherStartLevel,
+    successRates = DEFAULT_SUCCESS_RATES,
+    successBonus,
+    blessedChance
+  }) {
+    if (targetLevel <= 1 || philosopherStartLevel < 1 || philosopherStartLevel >= targetLevel) {
+      return null;
+    }
+    const matrix = Array.from(
+      { length: targetLevel },
+      () => Array(targetLevel).fill(0)
+    );
+    const source = Array(targetLevel).fill(0);
+    source[targetLevel - 1] = 1;
+    const failRates = [];
+    for (let level = 0; level < targetLevel; level++) {
+      const philosopher = level >= philosopherStartLevel;
+      if (level > 0) matrix[level - 1][level] -= 1;
+      if (philosopher) {
+        if (level - 1 > 0) matrix[level - 2][level] -= 1;
+        addProducedValue(
+          matrix,
+          targetLevel,
+          level + 1,
+          level,
+          level + 1 < targetLevel ? 1 - blessedChance : 1
+        );
+        if (level + 1 < targetLevel) {
+          addProducedValue(matrix, targetLevel, level + 2, level, blessedChance);
+        }
+        continue;
+      }
+      const success = Math.min(
+        1,
+        successRateAt(successRates, level) * (1 + successBonus)
+      );
+      const fail = Math.max(0, 1 - success);
+      failRates[level] = fail;
+      addProducedValue(
+        matrix,
+        targetLevel,
+        level + 1,
+        level,
+        success * (1 - blessedChance)
+      );
+      addProducedValue(
+        matrix,
+        targetLevel,
+        level + 2,
+        level,
+        success * blessedChance
+      );
+      const failLevel = level >= protectLevel ? level - 1 : 0;
+      if (failLevel > 0) matrix[failLevel - 1][level] += fail;
+    }
+    const actionsByLevel = solveLinearSystem(matrix, source);
+    if (!actionsByLevel || actionsByLevel.some((value) => value < -EPSILON || !Number.isFinite(value))) {
+      return null;
+    }
+    const normalizedActions = actionsByLevel.map(
+      (value) => Math.abs(value) < EPSILON ? 0 : value
+    );
+    let baseItemCount = normalizedActions[0] ?? 0;
+    let mirrorCount = 0;
+    let protectionCount = 0;
+    let baseInflows = 0;
+    for (let level = 0; level < targetLevel; level++) {
+      const actions = normalizedActions[level];
+      if (level >= philosopherStartLevel) {
+        mirrorCount += actions;
+        if (level === 1) baseItemCount += actions;
+      } else if (level >= protectLevel) {
+        protectionCount += actions * failRates[level];
+      } else {
+        baseInflows += actions * failRates[level];
+      }
+    }
+    baseItemCount -= baseInflows;
+    if (Math.abs(baseItemCount) < EPSILON) baseItemCount = 0;
+    const bCount = normalizedActions[philosopherStartLevel] ?? 0;
+    const aCount = bCount + (normalizedActions[philosopherStartLevel + 1] ?? 0);
+    return {
+      actionsByLevel: normalizedActions,
+      baseItemCount,
+      mirrorCount,
+      protectionCount,
+      totalActions: normalizedActions.reduce((sum, value) => sum + value, 0),
+      aCount,
+      bCount
+    };
+  }
+  function unavailableResult(missingMarketValues = []) {
+    return {
+      status: "unavailable",
+      totalCost: null,
+      totalSeconds: null,
+      normalProtectStart: null,
+      expectedProtectionCount: null,
+      philosopherStart: null,
+      aLevel: null,
+      aCount: null,
+      bLevel: null,
+      bCount: null,
+      missingMarketValues: [...new Set(missingMarketValues)]
+    };
+  }
+  function calculateEnhancementPlan({
+    itemHrid,
+    targetLevel,
+    itemDetailMap = runtime.state.initData_itemDetailMap,
+    successRateTable = runtime.state.initData_enhancementLevelSuccessRateTable,
+    bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable,
+    getFairValue: getFairValue2 = runtime.api.getFairValue
+  } = {}) {
+    const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+    const item = itemDetailMap?.[itemHrid];
+    if (!item?.enhancementCosts?.length || target < 1) return unavailableResult();
+    const stats = getEnhancementProfileStats({
+      itemLevel: item.itemLevel,
+      itemDetailMap,
+      bonusMultiplierTable
+    });
+    if (!stats) return unavailableResult();
+    const missing = /* @__PURE__ */ new Set();
+    const price = (hrid, level = 0) => {
+      if (hrid === "/items/coin") return 1;
+      const value = finitePositive(getFairValue2?.(hrid, level));
+      if (!value) missing.add(hrid);
+      return value;
+    };
+    const basePrice = price(itemHrid, 0);
+    let materialCostPerAction = 0;
+    let hasMissingRequiredPrice = !basePrice;
+    for (const cost of item.enhancementCosts) {
+      const unitPrice = price(cost.itemHrid, 0);
+      if (!unitPrice) hasMissingRequiredPrice = true;
+      materialCostPerAction += unitPrice * Number(cost.count || 0);
+    }
+    let teaPricePerUse = 0;
+    for (const teaHrid of ENHANCEMENT_PROFILE.teas) {
+      const unitPrice = price(teaHrid, 0);
+      if (!unitPrice) hasMissingRequiredPrice = true;
+      teaPricePerUse += unitPrice;
+    }
+    if (hasMissingRequiredPrice) return unavailableResult([...missing]);
+    const protectionCandidates = [
+      itemHrid,
+      ...item.protectionItemHrids ?? [],
+      "/items/mirror_of_protection"
+    ];
+    let protectionPrice = 0;
+    for (const candidate of new Set(protectionCandidates)) {
+      const value = price(candidate, 0);
+      if (value > 0 && (!protectionPrice || value < protectionPrice)) {
+        protectionPrice = value;
+      }
+    }
+    const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
+    const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
+    const teaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * teaPricePerUse;
+    const perActionCost = materialCostPerAction + teaCostPerAction;
+    let best = null;
+    for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
+      const flow = calculateNormalEnhancementFlow({
+        targetLevel: target,
+        protectLevel,
+        successRates,
+        successBonus: stats.successBonus,
+        blessedChance: stats.blessedChance
+      });
+      if (!flow) continue;
+      if (flow.protectionCount > EPSILON && !protectionPrice) continue;
+      const totalCost = basePrice + flow.totalActions * perActionCost + flow.protectionCount * protectionPrice;
+      if (!best || totalCost < best.totalCost) {
+        best = {
+          mode: "normal",
+          totalCost,
+          totalActions: flow.totalActions,
+          protectionCount: flow.protectionCount,
+          protectLevel,
+          philosopherStartLevel: null,
+          aCount: 0,
+          bCount: 0
+        };
+      }
+    }
+    if (philosopherMirrorPrice > 0) {
+      for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
+        for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
+          const flow = calculatePhilosopherEnhancementFlow({
+            targetLevel: target,
+            protectLevel,
+            philosopherStartLevel,
+            successRates,
+            successBonus: stats.successBonus,
+            blessedChance: stats.blessedChance
+          });
+          if (!flow || flow.baseItemCount < -EPSILON) continue;
+          if (flow.protectionCount > EPSILON && !protectionPrice) continue;
+          const totalCost = flow.baseItemCount * basePrice + flow.totalActions * perActionCost + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
+          if (!best || totalCost < best.totalCost) {
+            best = {
+              mode: "philosopher",
+              totalCost,
+              totalActions: flow.totalActions,
+              protectionCount: flow.protectionCount,
+              protectLevel,
+              philosopherStartLevel,
+              aCount: flow.aCount,
+              bCount: flow.bCount
+            };
+          }
+        }
+      }
+    }
+    if (!best) return unavailableResult([...missing]);
+    return {
+      status: "complete",
+      totalCost: best.totalCost,
+      totalSeconds: best.totalActions * stats.secondsPerAction,
+      normalProtectStart: best.protectionCount > EPSILON ? best.protectLevel : null,
+      expectedProtectionCount: best.protectionCount,
+      philosopherStart: best.philosopherStartLevel,
+      aLevel: best.philosopherStartLevel,
+      aCount: best.aCount,
+      bLevel: best.philosopherStartLevel === null ? null : best.philosopherStartLevel - 1,
+      bCount: best.bCount,
+      missingMarketValues: [...missing]
+    };
+  }
+  Object.assign(runtime.api, {
+    calculateEnhancementPlan,
+    calculateNormalEnhancementFlow,
+    calculatePhilosopherEnhancementFlow,
+    getEnhancementProfileStats
+  });
+
+  // src/features/enhancement-cost-panel.js
+  var PANEL_ID3 = "mwitools-enhancement-cost-panel";
+  var STYLE_ID9 = "mwitools-enhancement-cost-panel-style";
+  var VIEWPORT_MARGIN2 = 12;
+  var PANEL_GAP2 = 8;
+  var activePanel2 = null;
+  function t11(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID9)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID9;
+    style.textContent = `
+    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
+    #${PANEL_ID3} * { box-sizing:border-box; }
+    .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
+    .mwi-enhancement-metric { display:contents; }
+    .mwi-enhancement-label,.mwi-enhancement-value { min-height:27px; display:flex; align-items:center; padding:5px 9px; border-bottom:1px solid rgba(255,255,255,.075); }
+    .mwi-enhancement-metric:last-child .mwi-enhancement-label,.mwi-enhancement-metric:last-child .mwi-enhancement-value { border-bottom:0; }
+    .mwi-enhancement-label { min-width:0; color:var(--color-text-secondary,#aeb5c0); }
+    .mwi-enhancement-value { justify-content:flex-end; color:#fff; font-weight:650; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  `;
+    document.head.append(style);
+  }
+  function exactTitle(value) {
+    if (!Number.isFinite(Number(value))) return "";
+    return runtime.api.formatExactNumber?.(Number(value)) ?? String(value);
+  }
+  function compactNumber(value, digits = 1) {
+    if (!Number.isFinite(Number(value))) return "—";
+    if (Math.abs(Number(value)) >= 1e3) {
+      return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
+    }
+    return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits
+    }).format(Number(value));
+  }
+  function metric3(label, value, exactValue = null) {
+    const row = document.createElement("div");
+    row.className = "mwi-enhancement-metric";
+    const caption = document.createElement("div");
+    caption.className = "mwi-enhancement-label";
+    caption.textContent = label;
+    const content = document.createElement("div");
+    content.className = "mwi-enhancement-value";
+    content.textContent = value;
+    const title = exactTitle(exactValue);
+    if (title) content.title = title;
+    row.append(caption, content);
+    return row;
+  }
+  function renderPanel2(panel, plan) {
+    const complete = plan?.status === "complete";
+    const normalStart = complete ? plan.normalProtectStart === null ? t11("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t11("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? `A（+${plan.aLevel}）` : "A";
+    const bLabel = complete && plan.bLevel !== null ? `B（+${plan.bLevel}）` : "B";
+    const grid = document.createElement("div");
+    grid.className = "mwi-enhancement-grid";
+    grid.append(
+      metric3(
+        t11("总成本", "Total cost"),
+        complete ? compactNumber(plan.totalCost, 1) : "—",
+        plan?.totalCost
+      ),
+      metric3(
+        t11("耗时", "Time"),
+        complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
+        plan?.totalSeconds
+      ),
+      metric3(t11("开始保护", "Protect from"), normalStart),
+      metric3(
+        t11("保护次数", "Protection uses"),
+        complete ? compactNumber(plan.expectedProtectionCount, 1) : "—",
+        plan?.expectedProtectionCount
+      ),
+      metric3(t11("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(
+        aLabel,
+        complete ? compactNumber(plan.aCount, 1) : "—",
+        plan?.aCount
+      ),
+      metric3(
+        bLabel,
+        complete ? compactNumber(plan.bCount, 1) : "—",
+        plan?.bCount
+      )
+    );
+    panel.replaceChildren(grid);
+    panel.dataset.status = complete ? "complete" : "unavailable";
+  }
+  function positionPanel2() {
+    const state = activePanel2;
+    if (!state?.anchor?.isConnected || !state.panel?.isConnected) return;
+    const anchorRect = state.anchor.getBoundingClientRect();
+    const panelRect = state.panel.getBoundingClientRect();
+    const viewportWidth = Number(globalThis.innerWidth) || document.documentElement.clientWidth;
+    const viewportHeight = Number(globalThis.innerHeight) || document.documentElement.clientHeight;
+    const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN2;
+    const roomLeft = anchorRect.left - VIEWPORT_MARGIN2;
+    const roomBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN2;
+    const roomAbove = anchorRect.top - VIEWPORT_MARGIN2;
+    let placement = "right";
+    let left = anchorRect.right + PANEL_GAP2;
+    let top = anchorRect.top;
+    if (roomRight < panelRect.width + PANEL_GAP2 && roomLeft >= panelRect.width + PANEL_GAP2) {
+      placement = "left";
+      left = anchorRect.left - panelRect.width - PANEL_GAP2;
+    } else if (roomRight < panelRect.width + PANEL_GAP2 && roomLeft < panelRect.width + PANEL_GAP2) {
+      if (roomBelow >= panelRect.height + PANEL_GAP2 || roomBelow >= roomAbove) {
+        placement = "bottom";
+        left = anchorRect.left;
+        top = anchorRect.bottom + PANEL_GAP2;
+      } else {
+        placement = "top";
+        left = anchorRect.left;
+        top = anchorRect.top - panelRect.height - PANEL_GAP2;
+      }
+    }
+    left = Math.min(
+      Math.max(VIEWPORT_MARGIN2, left),
+      viewportWidth - panelRect.width - VIEWPORT_MARGIN2
+    );
+    top = Math.min(
+      Math.max(VIEWPORT_MARGIN2, top),
+      viewportHeight - panelRect.height - VIEWPORT_MARGIN2
+    );
+    state.panel.dataset.placement = placement;
+    state.panel.style.left = `${Math.round(left)}px`;
+    state.panel.style.top = `${Math.round(top)}px`;
+  }
+  function hideEnhancementCostPanel() {
+    const state = activePanel2;
+    if (!state) {
+      document.getElementById(PANEL_ID3)?.remove();
+      return;
+    }
+    state.mutationObserver?.disconnect();
+    state.resizeObserver?.disconnect();
+    globalThis.removeEventListener?.("resize", state.position);
+    globalThis.removeEventListener?.("scroll", state.position, true);
+    state.panel?.remove();
+    activePanel2 = null;
+  }
+  function showEnhancementCostPanel(anchor, plan = null) {
+    if (!anchor?.isConnected) {
+      hideEnhancementCostPanel();
+      return null;
+    }
+    if (activePanel2?.anchor === anchor && activePanel2.panel?.isConnected) {
+      renderPanel2(activePanel2.panel, plan);
+      activePanel2.position();
+      return activePanel2.panel;
+    }
+    hideEnhancementCostPanel();
+    addStyles9();
+    const panel = document.createElement("aside");
+    panel.id = PANEL_ID3;
+    panel.setAttribute("role", "status");
+    panel.setAttribute("aria-live", "polite");
+    renderPanel2(panel, plan);
+    anchor.insertAdjacentElement("afterend", panel);
+    const position = () => globalThis.requestAnimationFrame?.(positionPanel2) ?? positionPanel2();
+    const mutationObserver = new MutationObserver(() => {
+      if (!anchor.isConnected) hideEnhancementCostPanel();
+    });
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    const resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
+    resizeObserver?.observe(anchor);
+    resizeObserver?.observe(panel);
+    activePanel2 = {
+      anchor,
+      mutationObserver,
+      panel,
+      position,
+      resizeObserver
+    };
+    globalThis.addEventListener?.("resize", position);
+    globalThis.addEventListener?.("scroll", position, true);
+    position();
+    return panel;
+  }
+  var positionEnhancementCostPanel = positionPanel2;
+  Object.assign(runtime.api, {
+    hideEnhancementCostPanel,
+    positionEnhancementCostPanel,
+    showEnhancementCostPanel
+  });
+
+  // src/features/enhancement-tooltip.js
+  function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
+    if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue) return;
+    tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove();
+    const wrapper = document.createElement("div");
+    wrapper.dataset.mwitoolsEnhancementMarket = "true";
+    wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
+    const fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel);
+    const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
+    const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
+    const valueRow = document.createElement("div");
+    valueRow.textContent = `${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}`;
+    const priceRow = document.createElement("div");
+    priceRow.textContent = `${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}`;
+    wrapper.append(valueRow, priceRow);
+    tooltipContent.append(wrapper);
+  }
+  async function handleEnhancedItemTooltip(tooltip) {
+    const tooltipContent = tooltip?.querySelector(
+      ".ItemTooltipText_itemTooltipText__zFq3A"
+    );
+    const itemNameElements = tooltip?.querySelectorAll(
+      "div.ItemTooltipText_name__2JAHA span"
+    );
+    if (!tooltipContent || itemNameElements?.length < 2) {
+      hideEnhancementCostPanel();
+      return;
+    }
+    let itemName2 = runtime.api.getOriTextFromElement(itemNameElements[0]);
+    if (runtime.config.isZHInGameSetting) {
+      itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+    }
+    const enhancementLevel = Math.max(
+      0,
+      Math.floor(Number(itemNameElements[1].textContent.replace("+", "")) || 0)
+    );
+    const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+    if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
+      hideEnhancementCostPanel();
+      return;
+    }
+    if (runtime.settings.settingsMap.enhanceSim.isTrue) {
+      showEnhancementCostPanel(tooltip, null);
+    } else {
+      hideEnhancementCostPanel();
+    }
+    await runtime.api.fetchMarketJSON();
+    if (!tooltip.isConnected) return;
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
+    const plan = calculateEnhancementPlan({
+      itemHrid,
+      targetLevel: enhancementLevel
+    });
+    if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
+  }
+  runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
+
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
   var SETTINGS_STYLE_ID = "mwitools-settings-style";
@@ -30386,9 +31150,9 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID9 = "mwitools-important-update-style";
+  var STYLE_ID10 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t11(value) {
+  function t12(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -30479,10 +31243,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -30500,7 +31264,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles9();
+    addStyles10();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -30512,8 +31276,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t11(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t11(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t12(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t12(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -30543,7 +31307,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID9)?.remove();
+        document.getElementById(STYLE_ID10)?.remove();
       });
     }
   });
@@ -32630,9 +33394,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t12 = 0;
-        playerKills.forEach((v) => t12 += v);
-        return t12;
+        let t13 = 0;
+        playerKills.forEach((v) => t13 += v);
+        return t13;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -32888,12 +33652,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t12) {
-      const low = t12.toLowerCase();
+    function looksLikeNoise(t13) {
+      const low = t13.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t12)) return true;
-      if (/^\d+%?$/.test(t12)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t12)) return true;
+      if (/^lv\.?\d+$/i.test(t13)) return true;
+      if (/^\d+%?$/.test(t13)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t13)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -32915,14 +33679,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t12) => t12 && !looksLikeNoise(t12) && !/^trial\s/i.test(t12));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t13) => t13 && !looksLikeNoise(t13) && !/^trial\s/i.test(t13));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t12, i) => {
-        resolved.set(String(i + offset), t12);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t13, i) => {
+        resolved.set(String(i + offset), t13);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -32990,7 +33754,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t12) => t12.length > 0)) {
+          if (texts.some((t13) => t13.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -33026,10 +33790,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t12 = c.textContent.trim();
-            if (t12.length >= 2 && t12.length <= 20 && !looksLikeNoise(t12)) {
+            const t13 = c.textContent.trim();
+            if (t13.length >= 2 && t13.length <= 20 && !looksLikeNoise(t13)) {
               nameLikeCount++;
-              texts.push(t12.slice(0, 20));
+              texts.push(t13.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -34506,11 +35270,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t12 = el2.textContent.trim();
-        if (!t12 || t12.length < 2 || t12.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t12);
+        const t13 = el2.textContent.trim();
+        if (!t13 || t13.length < 2 || t13.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t13);
         let cssEllipsis = false;
-        if (!literalEllipsis && t12.length <= 20 && !t12.includes(" ") && !looksLikeNoise(t12)) {
+        if (!literalEllipsis && t13.length <= 20 && !t13.includes(" ") && !looksLikeNoise(t13)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -36818,10 +37582,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t12 = c.textContent;
-        if (t12.includes("Combat Zones") || t12.includes("战斗区域") || t12.includes("戰鬥區域"))
+        const t13 = c.textContent;
+        if (t13.includes("Combat Zones") || t13.includes("战斗区域") || t13.includes("戰鬥區域"))
           return c;
-        if (t12.includes("Labyrinth") && t12.includes("Room") && t12.includes("Automation") || t12.includes("迷宫") && (t12.includes("房间") || t12.includes("自动化")) || t12.includes("迷宮") && (t12.includes("房間") || t12.includes("自動化")))
+        if (t13.includes("Labyrinth") && t13.includes("Room") && t13.includes("Automation") || t13.includes("迷宫") && (t13.includes("房间") || t13.includes("自动化")) || t13.includes("迷宮") && (t13.includes("房間") || t13.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -37112,10 +37876,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t12) => {
+      TYPES.forEach((t13) => {
         const btn = document.createElement("button");
-        btn.textContent = t12.label;
-        const active = historyFilter === t12.id;
+        btn.textContent = t13.label;
+        const active = historyFilter === t13.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -37129,7 +37893,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t12.id;
+          historyFilter = t13.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -37253,8 +38017,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t12) => t12.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t12) => t12.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t13) => t13.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t13) => t13.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -39145,6 +39909,8 @@ ${locks}` : ""}`;
     GM_setValue("init_client_data", JSON.stringify(clientData));
     runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
     runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
+    runtime.state.initData_enhancementLevelSuccessRateTable = clientData.enhancementLevelSuccessRateTable;
+    runtime.state.initData_enhancementLevelTotalBonusMultiplierTable = clientData.enhancementLevelTotalBonusMultiplierTable;
     runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
     runtime.state.initData_itemLocationDetailMap = clientData.itemLocationDetailMap;
     runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;

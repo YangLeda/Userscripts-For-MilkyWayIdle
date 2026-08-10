@@ -24,6 +24,7 @@ import "./features/feedback/index.js";
 import "./features/guild-xp.js";
 import "./features/game-widgets.js";
 import "./features/enhancement.js";
+import "./features/enhancement-tooltip.js";
 import "./features/settings-and-notifications.js";
 import "./features/update-banner.js";
 import "./features/dps/index.js";
@@ -45,6 +46,10 @@ function loadCachedClientData() {
   GM_setValue("init_client_data", JSON.stringify(clientData));
   runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
   runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
+  runtime.state.initData_enhancementLevelSuccessRateTable =
+    clientData.enhancementLevelSuccessRateTable;
+  runtime.state.initData_enhancementLevelTotalBonusMultiplierTable =
+    clientData.enhancementLevelTotalBonusMultiplierTable;
   runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
   runtime.state.initData_itemLocationDetailMap =
     clientData.itemLocationDetailMap;

@@ -17,6 +17,10 @@ let initData_actionDetailMap = null;
 
 let initData_levelExperienceTable = null;
 
+let initData_enhancementLevelSuccessRateTable = null;
+
+let initData_enhancementLevelTotalBonusMultiplierTable = null;
+
 let initData_itemDetailMap = null;
 
 let initData_itemLocationDetailMap = null;
@@ -148,6 +152,24 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       initData_levelExperienceTable = value;
+    },
+  },
+  initData_enhancementLevelSuccessRateTable: {
+    enumerable: true,
+    get() {
+      return initData_enhancementLevelSuccessRateTable;
+    },
+    set(value) {
+      initData_enhancementLevelSuccessRateTable = value;
+    },
+  },
+  initData_enhancementLevelTotalBonusMultiplierTable: {
+    enumerable: true,
+    get() {
+      return initData_enhancementLevelTotalBonusMultiplierTable;
+    },
+    set(value) {
+      initData_enhancementLevelTotalBonusMultiplierTable = value;
     },
   },
   initData_itemDetailMap: {

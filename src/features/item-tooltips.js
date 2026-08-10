@@ -288,6 +288,8 @@ async function handleTooltipItem(tooltip) {
     return;
   }
 
+  runtime.api.hideEnhancementCostPanel?.();
+
   const itemNameElem = itemNameElems[0];
   let itemName = runtime.api.getOriTextFromElement(itemNameElem);
   if (runtime.config.isZHInGameSetting) {
