@@ -257,6 +257,13 @@ let settingsMap = {
       : "Enable DPS, HPS, damage-taken, segment, and combat history tracking.",
     isTrue: true,
   },
+  battleBuffs: {
+    id: "battleBuffs",
+    desc: isZH
+      ? "在战斗单位下方显示 Buff / Debuff 图标和倒计时"
+      : "Show buff and debuff icons with countdowns below combat units.",
+    isTrue: true,
+  },
   actionBarProfit: {
     id: "actionBarProfit",
     desc: isZH ? "动作栏显示净利润" : "Show net profit in the action bar.",
@@ -694,6 +701,14 @@ const catalogRows = [
     "DPS / HPS / Damage Taken",
     "记录实时伤害、治疗、承伤、战斗片段和历史；详细显示选项在 DPS 面板内设置。",
     "Track damage, healing, damage taken, segments, and history; configure display details in the DPS panel.",
+  ],
+  [
+    "battleBuffs",
+    "combat",
+    "战斗 Buff 显示",
+    "Battle buff display",
+    "在每个战斗单位下方显示增益和减益图标，带剩余时间倒计时环。",
+    "Show buff and debuff icons with countdown rings below each combat unit.",
   ],
   [
     "mapIndex",

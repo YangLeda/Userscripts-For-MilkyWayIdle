@@ -29,6 +29,7 @@ import "./features/enhancement-tooltip.js";
 import "./features/settings-and-notifications.js";
 import "./features/update-banner.js";
 import "./features/dps/index.js";
+import "./features/battle-buffs.js";
 import "./features/external-tools.js";
 import "./features/legacy-lifecycle.js";
 import "./features/message-effects.js";
