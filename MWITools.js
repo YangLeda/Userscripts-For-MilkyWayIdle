@@ -22427,6 +22427,192 @@ ${preview}`
   // src/features/inventory.js
   var guildCreditWatcherStarted = false;
   var inventoryRefreshTimer = null;
+  var INVENTORY_SUMMARY_STYLE_ID = "mwitools-inventory-summary-style";
+  function addInventorySummaryStyles() {
+    if (document.getElementById(INVENTORY_SUMMARY_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = INVENTORY_SUMMARY_STYLE_ID;
+    style.textContent = `
+    #script_inventory_summary {
+      margin: 4px 0 12px;
+      color: var(--color-text-primary, #f3f5f7);
+      font-size: .8125rem;
+      text-align: left;
+    }
+    .mwi-inventory-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(190px, 1fr));
+      gap: 8px;
+    }
+    .mwi-summary-card {
+      --mwi-summary-accent: 120, 174, 255;
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid rgba(var(--mwi-summary-accent), .25);
+      border-radius: 10px;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(var(--mwi-summary-accent), .14), transparent 48%),
+        linear-gradient(145deg, rgba(35, 39, 48, .88), rgba(17, 20, 27, .92));
+      box-shadow: 0 5px 16px rgba(0, 0, 0, .16), inset 0 1px rgba(255, 255, 255, .035);
+    }
+    .mwi-summary-card--combat { --mwi-summary-accent: 238, 115, 103; }
+    .mwi-summary-card--skilling { --mwi-summary-accent: 90, 200, 149; }
+    .mwi-summary-card--assets { --mwi-summary-accent: 230, 181, 79; }
+    .mwi-summary-toggle {
+      display: flex;
+      width: 100%;
+      min-height: 58px;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 11px;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background-color .16s ease;
+    }
+    .mwi-summary-toggle:hover { background: rgba(var(--mwi-summary-accent), .075); }
+    .mwi-summary-toggle:focus-visible {
+      outline: 2px solid rgba(var(--mwi-summary-accent), .72);
+      outline-offset: -3px;
+    }
+    .mwi-summary-icon {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      place-items: center;
+      border: 1px solid rgba(var(--mwi-summary-accent), .28);
+      border-radius: 9px;
+      background: rgba(var(--mwi-summary-accent), .12);
+      color: rgb(var(--mwi-summary-accent));
+      font-size: 1rem;
+      line-height: 1;
+      text-shadow: 0 0 12px rgba(var(--mwi-summary-accent), .35);
+    }
+    .mwi-summary-heading { display: grid; min-width: 0; gap: 2px; }
+    .mwi-summary-label {
+      overflow: hidden;
+      color: var(--color-text-secondary, #aeb5c0);
+      font-size: .69rem;
+      font-weight: 600;
+      letter-spacing: .035em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mwi-summary-value {
+      color: rgb(var(--mwi-summary-accent));
+      font-size: 1.02rem;
+      font-weight: 750;
+      line-height: 1.15;
+      letter-spacing: .01em;
+    }
+    .mwi-summary-chevron {
+      width: 7px;
+      height: 7px;
+      margin-left: auto;
+      border-right: 1.5px solid rgba(255, 255, 255, .65);
+      border-bottom: 1.5px solid rgba(255, 255, 255, .65);
+      transform: rotate(45deg) translate(-2px, 2px);
+      transition: transform .18s ease;
+    }
+    .mwi-summary-toggle[aria-expanded="true"] .mwi-summary-chevron {
+      transform: rotate(225deg) translate(-2px, 2px);
+    }
+    .mwi-summary-details {
+      border-top: 1px solid rgba(var(--mwi-summary-accent), .15);
+      animation: mwi-summary-reveal .16s ease-out;
+    }
+    .mwi-summary-stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      padding: 9px 10px 10px;
+    }
+    .mwi-summary-stat {
+      display: grid;
+      min-width: 0;
+      gap: 2px;
+      padding: 6px 7px;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, .04);
+    }
+    .mwi-summary-stat-label {
+      overflow: hidden;
+      color: var(--color-text-secondary, #9da6b2);
+      font-size: .66rem;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mwi-summary-stat-value { color: #f3f5f7; font-weight: 650; }
+    .mwi-asset-groups { display: grid; gap: 6px; padding: 8px; }
+    .mwi-asset-group {
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: 7px;
+      background: rgba(0, 0, 0, .12);
+    }
+    .mwi-asset-toggle {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 9px;
+      border: 0;
+      background: transparent;
+      color: var(--color-text-primary, #e8ebef);
+      font: inherit;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+    }
+    .mwi-asset-toggle:hover { background: rgba(255, 255, 255, .04); }
+    .mwi-asset-toggle:focus-visible { outline: 1px solid rgb(var(--mwi-summary-accent)); outline-offset: -2px; }
+    .mwi-asset-dot {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 6px;
+      border-radius: 50%;
+      background: rgb(var(--mwi-summary-accent));
+      box-shadow: 0 0 8px rgba(var(--mwi-summary-accent), .5);
+    }
+    .mwi-asset-toggle .mwi-summary-chevron { margin-right: 2px; }
+    .mwi-asset-rows { display: grid; gap: 5px; padding: 2px 9px 9px 23px; }
+    .mwi-asset-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; color: var(--color-text-secondary, #aeb5c0); }
+    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
+    [data-mwitools-inventory-category] { position: relative; }
+    .mwi-inventory-category-value {
+      position: absolute;
+      z-index: 1;
+      top: 7px;
+      right: 34px;
+      max-width: 42%;
+      overflow: hidden;
+      padding: 2px 7px;
+      border: 1px solid rgba(230, 181, 79, .22);
+      border-radius: 999px;
+      background: rgba(230, 181, 79, .09);
+      color: #e6c778;
+      font-size: .68rem;
+      font-weight: 650;
+      line-height: 1.25;
+      letter-spacing: .015em;
+      pointer-events: none;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    @keyframes mwi-summary-reveal {
+      from { opacity: 0; transform: translateY(-3px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 760px) {
+      .mwi-inventory-summary-grid { grid-template-columns: 1fr; }
+    }
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
   }
@@ -22435,10 +22621,63 @@ ${preview}`
     clearTimeout(inventoryRefreshTimer);
     inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
   }
+  function inventoryItemKey(itemHrid, enhancementLevel = 0) {
+    return `${itemHrid}#${Math.max(0, Number(enhancementLevel) || 0)}`;
+  }
+  function addInventoryCategoryValues(invElem) {
+    const inventoryCounts2 = /* @__PURE__ */ new Map();
+    for (const item of runtime.state.initData_characterItems ?? []) {
+      if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
+      const key = inventoryItemKey(item.itemHrid, item.enhancementLevel);
+      inventoryCounts2.set(
+        key,
+        (inventoryCounts2.get(key) ?? 0) + Math.max(0, Number(item.count) || 0)
+      );
+    }
+    for (const category of invElem.children) {
+      const heading = category.querySelector(
+        ':scope > button[class*="Inventory_categoryButton"],:scope > div[class*="Inventory_label"]'
+      );
+      if (!heading) continue;
+      category.dataset.mwitoolsInventoryCategory = "true";
+      category.querySelector(":scope > .mwi-inventory-category-value")?.remove();
+      let total = 0;
+      let resolvedItems = 0;
+      const seen = /* @__PURE__ */ new Set();
+      for (const itemElement of category.querySelectorAll(
+        'div[class*="Item_itemContainer"]'
+      )) {
+        let itemName2 = itemElement.querySelector("svg[aria-label]")?.getAttribute("aria-label")?.trim();
+        if (!itemName2) continue;
+        if (runtime.config.isZHInGameSetting) {
+          itemName2 = runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2;
+        }
+        const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName2];
+        if (!itemHrid) continue;
+        const enhancementLevel = Number.parseInt(
+          itemElement.querySelector('[class*="Item_enhancementLevel"]')?.textContent?.replace(/\D/g, "") ?? "",
+          10
+        ) || 0;
+        const key = inventoryItemKey(itemHrid, enhancementLevel);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const count = inventoryCounts2.get(key) ?? 0;
+        total += count * runtime.api.getAssetValue(itemHrid, enhancementLevel);
+        resolvedItems += 1;
+      }
+      if (!resolvedItems) continue;
+      const value = document.createElement("span");
+      value.className = "mwi-inventory-category-value";
+      value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
+      value.textContent = runtime.api.numberFormatter(total);
+      category.appendChild(value);
+    }
+  }
   async function calculateNetworth() {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     const snapshot = await runtime.api.refreshAssetSnapshot();
     if (!snapshot) return;
+    addInventorySummaryStyles();
     const addInventorySummary = (invElem) => {
       const { scores, values } = snapshot;
       const previousSummary = invElem.parentElement?.querySelector(
@@ -22450,51 +22689,77 @@ ${preview}`
       previousSummary?.remove();
       invElem.insertAdjacentHTML(
         "beforebegin",
-        `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-                <!-- 战斗着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}</div>
-                <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
-                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${runtime.api.formatScore(scores.battle.abilities)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.battle.equipment)}</div>
-                </div>
+        `<div id="script_inventory_summary">
+        <div class="mwi-inventory-summary-grid">
+          <section class="mwi-summary-card mwi-summary-card--combat">
+            <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
+              <span class="mwi-summary-icon" aria-hidden="true">⚔</span>
+              <span class="mwi-summary-heading">
+                <span class="mwi-summary-label">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
+                <span class="mwi-summary-value">${runtime.api.formatScore(scores.battle.total)}</span>
+              </span>
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="mwi-summary-details" id="buildScores" style="display: none;" hidden>
+              <div class="mwi-summary-stats">
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.house)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.abilities)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.equipment)}</span></div>
+              </div>
+            </div>
+          </section>
 
-                <!-- 生活着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${runtime.api.formatScore(scores.skilling.total)}</div>
-                <div id="skillingScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
-                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${runtime.api.formatScore(scores.skilling.tools)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.skilling.equipment)}</div>
-                </div>
+          <section class="mwi-summary-card mwi-summary-card--skilling">
+            <button type="button" class="mwi-summary-toggle" id="toggleSkillingScores" aria-expanded="false" aria-controls="skillingScores">
+              <span class="mwi-summary-icon" aria-hidden="true">✦</span>
+              <span class="mwi-summary-heading">
+                <span class="mwi-summary-label">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
+                <span class="mwi-summary-value">${runtime.api.formatScore(scores.skilling.total)}</span>
+              </span>
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="mwi-summary-details" id="skillingScores" style="display: none;" hidden>
+              <div class="mwi-summary-stats">
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.house)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.tools)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.equipment)}</span></div>
+              </div>
+            </div>
+          </section>
 
-                <!-- 总资产价值 -->
-                <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(values.total)}
-                </div>
-
-                <div id="netWorthDetails" style="display: none; margin-left: 20px;">
-                    <!-- 流动资产 -->
-                    <div style="cursor: pointer;" id="toggleCurrentAssets">
-                        ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
-                    </div>
-                    <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(values.equipment)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(values.inventory)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(values.marketListings)}</div>
-                    </div>
-
-                    <!-- 非流动资产 -->
-                    <div style="cursor: pointer;" id="toggleNonCurrentAssets">
-                        ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
-                    </div>
-                    <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(values.houses)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(values.abilities)}</div>
-                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(values.nonTradableTokens)}</div>
-                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${values.shrine === null ? "—" : numberHtml(values.shrine)}</div>
-                    </div>
-                </div>
-            </div>`
+          <section class="mwi-summary-card mwi-summary-card--assets">
+            <button type="button" class="mwi-summary-toggle" id="toggleNetWorth" aria-expanded="false" aria-controls="netWorthDetails">
+              <span class="mwi-summary-icon" aria-hidden="true">◇</span>
+              <span class="mwi-summary-heading">
+                <span class="mwi-summary-label">${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}</span>
+                <span class="mwi-summary-value">${numberHtml(values.total)}</span>
+              </span>
+              <span class="mwi-summary-chevron" aria-hidden="true"></span>
+            </button>
+            <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
+              <div class="mwi-asset-groups">
+                <section class="mwi-asset-group">
+                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产价值" : "Current assets value"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <div class="mwi-asset-rows" id="currentAssets" style="display: none;" hidden>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}</span>${numberHtml(values.equipment)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}</span>${numberHtml(values.inventory)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}</span>${numberHtml(values.marketListings)}</div>
+                  </div>
+                </section>
+                <section class="mwi-asset-group">
+                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产价值" : "Fixed assets value"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <div class="mwi-asset-rows" id="nonCurrentAssets" style="display: none;" hidden>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "房子价值：" : "Houses value: "}</span>${numberHtml(values.houses)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}</span>${numberHtml(values.abilities)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}</span>${numberHtml(values.nonTradableTokens)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "神龛：" : "Shrine: "}</span><span>${values.shrine === null ? "—" : numberHtml(values.shrine)}</span></div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>`
       );
       const summary = invElem.parentElement.querySelector(
         "#script_inventory_summary"
@@ -22511,47 +22776,43 @@ ${preview}`
         "#toggleNonCurrentAssets"
       );
       const nonCurrentAssets = summary.querySelector("#nonCurrentAssets");
+      const setExpanded = (button, panel, expanded) => {
+        button.setAttribute("aria-expanded", String(expanded));
+        panel.hidden = !expanded;
+        panel.style.display = expanded ? "block" : "none";
+      };
       if (wasNetworthOpen) {
-        netWorthDetails.style.display = "block";
-        currentAssets.style.display = "block";
-        nonCurrentAssets.style.display = "block";
+        setExpanded(toggleButton, netWorthDetails, true);
+        setExpanded(toggleCurrentAssets, currentAssets, true);
+        setExpanded(toggleNonCurrentAssets, nonCurrentAssets, true);
       }
       if (wasCombatScoreOpen) {
-        ScoreDetails.style.display = "block";
-        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
+        setExpanded(toggleScores, ScoreDetails, true);
       }
       if (wasSkillingScoreOpen) {
-        skillingScoreDetails.style.display = "block";
-        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
+        setExpanded(toggleSkillingScores, skillingScoreDetails, true);
       }
       toggleScores.addEventListener("click", () => {
         const isCollapsed = ScoreDetails.style.display === "none";
-        ScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
+        setExpanded(toggleScores, ScoreDetails, isCollapsed);
       });
       toggleSkillingScores.addEventListener("click", () => {
         const isCollapsed = skillingScoreDetails.style.display === "none";
-        skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
+        setExpanded(toggleSkillingScores, skillingScoreDetails, isCollapsed);
       });
       toggleButton.addEventListener("click", () => {
         const isCollapsed = netWorthDetails.style.display === "none";
-        netWorthDetails.style.display = isCollapsed ? "block" : "none";
-        toggleButton.innerHTML = `${isCollapsed ? "↓ " : "+ "}${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}${numberHtml(values.total)}`;
-        currentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
-        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
+        setExpanded(toggleButton, netWorthDetails, isCollapsed);
+        setExpanded(toggleCurrentAssets, currentAssets, isCollapsed);
+        setExpanded(toggleNonCurrentAssets, nonCurrentAssets, isCollapsed);
       });
       toggleCurrentAssets.addEventListener("click", () => {
         const isCollapsed = currentAssets.style.display === "none";
-        currentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
+        setExpanded(toggleCurrentAssets, currentAssets, isCollapsed);
       });
       toggleNonCurrentAssets.addEventListener("click", () => {
         const isCollapsed = nonCurrentAssets.style.display === "none";
-        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
+        setExpanded(toggleNonCurrentAssets, nonCurrentAssets, isCollapsed);
       });
     };
     const renderInventoryPanels = () => {
@@ -22560,6 +22821,7 @@ ${preview}`
         if (runtime.settings.settingsMap.invWorth.isTrue) {
           node.classList.add("script_buildScore_added");
           addInventorySummary(node);
+          addInventoryCategoryValues(node);
         }
         if (runtime.settings.settingsMap.invSort.isTrue) {
           if (!node.classList.contains("script_invSort_added")) {
@@ -22894,6 +23156,7 @@ ${preview}`
   Object.assign(runtime.api, {
     calculateNetworth,
     scheduleNetworthRefresh,
+    addInventoryCategoryValues,
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
@@ -25744,13 +26007,11 @@ ${locks}` : ""}`;
     .mwi-task-profession-count { min-width:22px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,.09); color:var(--color-text-secondary,#bbb); font-size:.68rem; text-align:center; }
     .mwi-task-profession-chevron { margin-left:auto; color:var(--color-text-secondary,#aaa); transition:transform .15s ease; }
     .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
-    .mwi-task-profession-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; margin-top:8px; }
-    .mwi-task-profession-body[hidden] { display:none; }
-    .mwi-task-profession-body[data-combat="true"] { display:block; }
-    .mwi-task-profession-body[data-combat="true"][hidden] { display:none; }
-    .mwi-task-combat-location + .mwi-task-combat-location { margin-top:10px; }
+    .mwi-task-profession-body { display:none; }
+    .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
     .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; right:5px; bottom:4px; width:58px; height:58px; opacity:.075; pointer-events:none; }
     .mwi-task-merged-note { margin-top:7px; padding:7px 9px; border-radius:5px; background:rgba(70,170,100,.12); color:#9bd7aa; font-size:.72rem; }
   `;
@@ -26054,11 +26315,17 @@ ${locks}` : ""}`;
   }
   function ungroupCards() {
     if (!taskListParent?.isConnected) return;
-    const cards = [...taskListParent.querySelectorAll(TASK_SELECTOR)].sort(
-      (left, right) => Number(left.dataset.mwitoolsOriginalIndex ?? 0) - Number(right.dataset.mwitoolsOriginalIndex ?? 0)
-    );
-    for (const card of cards) taskListParent.appendChild(card);
-    taskListParent.querySelectorAll(":scope > .mwi-task-profession-group").forEach((group) => group.remove());
+    taskListParent.querySelectorAll(
+      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location"
+    ).forEach((group) => group.remove());
+    taskListParent.querySelectorAll(`:scope > ${TASK_SELECTOR}`).forEach((card) => {
+      card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
+      delete card.dataset.mwitoolsOriginalOrder;
+      delete card.dataset.mwitoolsOriginalIndex;
+      delete card.dataset.mwitoolsCollapsed;
+      delete card.dataset.mwitoolsProfession;
+      delete card.dataset.mwitoolsLocation;
+    });
   }
   function orderedRows(cards, tasks) {
     const chains = productionDepth(tasks);
@@ -26121,13 +26388,12 @@ ${locks}` : ""}`;
       } else {
         collapsedProfessions.add(profession.key);
       }
-      updateGroupCollapsedState(group, profession);
+      renderTasks();
     });
     group.append(header, body);
     return group;
   }
-  function renderCombatGroups(body, rows) {
-    body.dataset.combat = "true";
+  function renderCombatGroups(parent, rows, nextOrder) {
     const locations = /* @__PURE__ */ new Map();
     for (const row of rows) {
       const location2 = combatLocationForCard(row.card, row.task);
@@ -26138,9 +26404,8 @@ ${locks}` : ""}`;
     const orderedLocations = [...locations.values()].sort(
       (left, right) => left.location.order - right.location.order || left.location.label.localeCompare(right.location.label)
     );
-    const desiredSections = [];
     for (const { location: location2, rows: locationRows } of orderedLocations) {
-      let section = body.querySelector(
+      let section = parent.querySelector(
         `:scope > .mwi-task-combat-location[data-location="${location2.key}"]`
       );
       if (!section) {
@@ -26149,31 +26414,19 @@ ${locks}` : ""}`;
         section.dataset.location = location2.key;
         const title = document.createElement("h4");
         title.className = "mwi-task-combat-location-title";
-        const cards2 = document.createElement("div");
-        cards2.className = "mwi-task-combat-location-body";
-        section.append(title, cards2);
+        section.append(title);
+        parent.appendChild(section);
       }
       section.querySelector(".mwi-task-combat-location-title").textContent = `${location2.label} (${locationRows.length})`;
-      const cards = section.querySelector(".mwi-task-combat-location-body");
-      const desiredCards = locationRows.map((row) => row.card);
-      const currentCards = [...cards.children];
-      if (currentCards.length !== desiredCards.length || currentCards.some((card, index) => card !== desiredCards[index])) {
-        cards.replaceChildren(...desiredCards);
+      section.style.order = String(nextOrder.value++);
+      for (const row of locationRows) {
+        row.card.style.order = String(nextOrder.value++);
+        row.card.dataset.mwitoolsLocation = location2.key;
       }
-      desiredSections.push(section);
-    }
-    const currentSections = [...body.children];
-    if (currentSections.length !== desiredSections.length || currentSections.some((section, index) => section !== desiredSections[index])) {
-      body.replaceChildren(...desiredSections);
     }
   }
-  function renderRegularGroup(body, rows) {
-    delete body.dataset.combat;
-    const desiredCards = rows.map((row) => row.card);
-    const currentCards = [...body.children];
-    if (currentCards.length !== desiredCards.length || currentCards.some((card, index) => card !== desiredCards[index])) {
-      body.replaceChildren(...desiredCards);
-    }
+  function renderRegularGroup(rows, nextOrder) {
+    for (const row of rows) row.card.style.order = String(nextOrder.value++);
   }
   function groupCards(cards, tasks) {
     if (!taskListParent) return;
@@ -26190,6 +26443,8 @@ ${locks}` : ""}`;
       ...customDefinitions
     ];
     const activeKeys = /* @__PURE__ */ new Set([COMPLETED_PROFESSION.key]);
+    const activeLocations = /* @__PURE__ */ new Set();
+    const nextOrder = { value: 1 };
     for (const profession of definitions) {
       const matching = rows.filter(
         (row) => row.profession.key === profession.key
@@ -26198,18 +26453,34 @@ ${locks}` : ""}`;
         continue;
       activeKeys.add(profession.key);
       const group = ensureProfessionGroup(taskListParent, profession);
+      if (!group.isConnected) taskListParent.appendChild(group);
       group.querySelector(".mwi-task-profession-title").textContent = runtime.config.isZH ? profession.zh : profession.en;
       group.querySelector(".mwi-task-profession-count").textContent = String(
         matching.length
       );
-      const body = group.querySelector(".mwi-task-profession-body");
-      if (profession.key === "combat") renderCombatGroups(body, matching);
-      else renderRegularGroup(body, matching);
+      group.style.order = String(nextOrder.value++);
       updateGroupCollapsedState(group, profession);
-      taskListParent.appendChild(group);
+      for (const row of matching) {
+        row.card.dataset.mwitoolsProfession = profession.key;
+        row.card.dataset.mwitoolsCollapsed = String(
+          collapsedProfessions.has(profession.key)
+        );
+      }
+      if (profession.key === "combat") {
+        renderCombatGroups(taskListParent, matching, nextOrder);
+        for (const row of matching) {
+          if (row.card.dataset.mwitoolsLocation)
+            activeLocations.add(row.card.dataset.mwitoolsLocation);
+        }
+      } else {
+        renderRegularGroup(matching, nextOrder);
+      }
     }
     taskListParent.querySelectorAll(":scope > .mwi-task-profession-group").forEach((group) => {
       if (!activeKeys.has(group.dataset.profession)) group.remove();
+    });
+    taskListParent.querySelectorAll(":scope > .mwi-task-combat-location").forEach((section) => {
+      if (!activeLocations.has(section.dataset.location)) section.remove();
     });
   }
   function wireMergeButtons(cards, tasks) {
@@ -26274,23 +26545,21 @@ ${locks}` : ""}`;
       }
       return;
     }
-    const observedParent = cards[0]?.closest(".mwi-task-profession-group")?.parentElement ?? cards[0]?.parentElement ?? null;
+    const observedParent = cards[0]?.parentElement ?? null;
     const enteredNewTaskPage = !taskListParent?.isConnected || observedParent && observedParent !== taskListParent;
     if (enteredNewTaskPage) {
+      ungroupCards();
       originalCards = [];
       taskListParent = observedParent;
     }
-    if (!originalCards.length || originalCards.some((card) => !card.isConnected)) {
-      if (!enteredNewTaskPage) ungroupCards();
-      cards = [...document.querySelectorAll(TASK_SELECTOR)];
-      taskListParent = cards[0]?.closest(".mwi-task-profession-group")?.parentElement ?? cards[0]?.parentElement ?? taskListParent;
-      originalCards = [...cards];
-      originalCards.forEach((card, index) => {
-        card.dataset.mwitoolsOriginalIndex = String(index);
-      });
-    } else if (!taskListParent) {
-      taskListParent = cards[0]?.closest(".mwi-task-profession-group")?.parentElement ?? cards[0]?.parentElement;
-    }
+    cards = cards.filter((card) => card.parentElement === taskListParent);
+    originalCards = [...cards];
+    originalCards.forEach((card, index) => {
+      if (!("mwitoolsOriginalOrder" in card.dataset))
+        card.dataset.mwitoolsOriginalOrder = card.style.order;
+      card.dataset.mwitoolsOriginalIndex = String(index);
+      delete card.dataset.mwitoolsLocation;
+    });
     const tasks = runtime.state.characterQuests ?? [];
     const cardTasks = cards.map(
       (card, index) => tasks[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {}

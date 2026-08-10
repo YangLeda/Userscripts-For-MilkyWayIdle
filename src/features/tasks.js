@@ -42,13 +42,11 @@ function addStyles() {
     .mwi-task-profession-count { min-width:22px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,.09); color:var(--color-text-secondary,#bbb); font-size:.68rem; text-align:center; }
     .mwi-task-profession-chevron { margin-left:auto; color:var(--color-text-secondary,#aaa); transition:transform .15s ease; }
     .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
-    .mwi-task-profession-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; margin-top:8px; }
-    .mwi-task-profession-body[hidden] { display:none; }
-    .mwi-task-profession-body[data-combat="true"] { display:block; }
-    .mwi-task-profession-body[data-combat="true"][hidden] { display:none; }
-    .mwi-task-combat-location + .mwi-task-combat-location { margin-top:10px; }
+    .mwi-task-profession-body { display:none; }
+    .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
     .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; right:5px; bottom:4px; width:58px; height:58px; opacity:.075; pointer-events:none; }
     .mwi-task-merged-note { margin-top:7px; padding:7px 9px; border-radius:5px; background:rgba(70,170,100,.12); color:#9bd7aa; font-size:.72rem; }
   `;
@@ -421,15 +419,21 @@ function productionDepth(tasks) {
 
 function ungroupCards() {
   if (!taskListParent?.isConnected) return;
-  const cards = [...taskListParent.querySelectorAll(TASK_SELECTOR)].sort(
-    (left, right) =>
-      Number(left.dataset.mwitoolsOriginalIndex ?? 0) -
-      Number(right.dataset.mwitoolsOriginalIndex ?? 0),
-  );
-  for (const card of cards) taskListParent.appendChild(card);
   taskListParent
-    .querySelectorAll(":scope > .mwi-task-profession-group")
+    .querySelectorAll(
+      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location",
+    )
     .forEach((group) => group.remove());
+  taskListParent
+    .querySelectorAll(`:scope > ${TASK_SELECTOR}`)
+    .forEach((card) => {
+      card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
+      delete card.dataset.mwitoolsOriginalOrder;
+      delete card.dataset.mwitoolsOriginalIndex;
+      delete card.dataset.mwitoolsCollapsed;
+      delete card.dataset.mwitoolsProfession;
+      delete card.dataset.mwitoolsLocation;
+    });
 }
 
 function orderedRows(cards, tasks) {
@@ -505,14 +509,13 @@ function ensureProfessionGroup(parent, profession) {
     } else {
       collapsedProfessions.add(profession.key);
     }
-    updateGroupCollapsedState(group, profession);
+    renderTasks();
   });
   group.append(header, body);
   return group;
 }
 
-function renderCombatGroups(body, rows) {
-  body.dataset.combat = "true";
+function renderCombatGroups(parent, rows, nextOrder) {
   const locations = new Map();
   for (const row of rows) {
     const location = combatLocationForCard(row.card, row.task);
@@ -525,9 +528,8 @@ function renderCombatGroups(body, rows) {
       left.location.order - right.location.order ||
       left.location.label.localeCompare(right.location.label),
   );
-  const desiredSections = [];
   for (const { location, rows: locationRows } of orderedLocations) {
-    let section = body.querySelector(
+    let section = parent.querySelector(
       `:scope > .mwi-task-combat-location[data-location="${location.key}"]`,
     );
     if (!section) {
@@ -536,42 +538,21 @@ function renderCombatGroups(body, rows) {
       section.dataset.location = location.key;
       const title = document.createElement("h4");
       title.className = "mwi-task-combat-location-title";
-      const cards = document.createElement("div");
-      cards.className = "mwi-task-combat-location-body";
-      section.append(title, cards);
+      section.append(title);
+      parent.appendChild(section);
     }
     section.querySelector(".mwi-task-combat-location-title").textContent =
       `${location.label} (${locationRows.length})`;
-    const cards = section.querySelector(".mwi-task-combat-location-body");
-    const desiredCards = locationRows.map((row) => row.card);
-    const currentCards = [...cards.children];
-    if (
-      currentCards.length !== desiredCards.length ||
-      currentCards.some((card, index) => card !== desiredCards[index])
-    ) {
-      cards.replaceChildren(...desiredCards);
+    section.style.order = String(nextOrder.value++);
+    for (const row of locationRows) {
+      row.card.style.order = String(nextOrder.value++);
+      row.card.dataset.mwitoolsLocation = location.key;
     }
-    desiredSections.push(section);
-  }
-  const currentSections = [...body.children];
-  if (
-    currentSections.length !== desiredSections.length ||
-    currentSections.some((section, index) => section !== desiredSections[index])
-  ) {
-    body.replaceChildren(...desiredSections);
   }
 }
 
-function renderRegularGroup(body, rows) {
-  delete body.dataset.combat;
-  const desiredCards = rows.map((row) => row.card);
-  const currentCards = [...body.children];
-  if (
-    currentCards.length !== desiredCards.length ||
-    currentCards.some((card, index) => card !== desiredCards[index])
-  ) {
-    body.replaceChildren(...desiredCards);
-  }
+function renderRegularGroup(rows, nextOrder) {
+  for (const row of rows) row.card.style.order = String(nextOrder.value++);
 }
 
 function groupCards(cards, tasks) {
@@ -596,6 +577,8 @@ function groupCards(cards, tasks) {
     ...customDefinitions,
   ];
   const activeKeys = new Set([COMPLETED_PROFESSION.key]);
+  const activeLocations = new Set();
+  const nextOrder = { value: 1 };
   for (const profession of definitions) {
     const matching = rows.filter(
       (row) => row.profession.key === profession.key,
@@ -604,6 +587,7 @@ function groupCards(cards, tasks) {
       continue;
     activeKeys.add(profession.key);
     const group = ensureProfessionGroup(taskListParent, profession);
+    if (!group.isConnected) taskListParent.appendChild(group);
     group.querySelector(".mwi-task-profession-title").textContent = runtime
       .config.isZH
       ? profession.zh
@@ -611,16 +595,33 @@ function groupCards(cards, tasks) {
     group.querySelector(".mwi-task-profession-count").textContent = String(
       matching.length,
     );
-    const body = group.querySelector(".mwi-task-profession-body");
-    if (profession.key === "combat") renderCombatGroups(body, matching);
-    else renderRegularGroup(body, matching);
+    group.style.order = String(nextOrder.value++);
     updateGroupCollapsedState(group, profession);
-    taskListParent.appendChild(group);
+    for (const row of matching) {
+      row.card.dataset.mwitoolsProfession = profession.key;
+      row.card.dataset.mwitoolsCollapsed = String(
+        collapsedProfessions.has(profession.key),
+      );
+    }
+    if (profession.key === "combat") {
+      renderCombatGroups(taskListParent, matching, nextOrder);
+      for (const row of matching) {
+        if (row.card.dataset.mwitoolsLocation)
+          activeLocations.add(row.card.dataset.mwitoolsLocation);
+      }
+    } else {
+      renderRegularGroup(matching, nextOrder);
+    }
   }
   taskListParent
     .querySelectorAll(":scope > .mwi-task-profession-group")
     .forEach((group) => {
       if (!activeKeys.has(group.dataset.profession)) group.remove();
+    });
+  taskListParent
+    .querySelectorAll(":scope > .mwi-task-combat-location")
+    .forEach((section) => {
+      if (!activeLocations.has(section.dataset.location)) section.remove();
     });
 }
 
@@ -693,36 +694,23 @@ function renderTasks() {
     }
     return;
   }
-  const observedParent =
-    cards[0]?.closest(".mwi-task-profession-group")?.parentElement ??
-    cards[0]?.parentElement ??
-    null;
+  const observedParent = cards[0]?.parentElement ?? null;
   const enteredNewTaskPage =
     !taskListParent?.isConnected ||
     (observedParent && observedParent !== taskListParent);
   if (enteredNewTaskPage) {
+    ungroupCards();
     originalCards = [];
     taskListParent = observedParent;
   }
-  if (
-    !originalCards.length ||
-    originalCards.some((card) => !card.isConnected)
-  ) {
-    if (!enteredNewTaskPage) ungroupCards();
-    cards = [...document.querySelectorAll(TASK_SELECTOR)];
-    taskListParent =
-      cards[0]?.closest(".mwi-task-profession-group")?.parentElement ??
-      cards[0]?.parentElement ??
-      taskListParent;
-    originalCards = [...cards];
-    originalCards.forEach((card, index) => {
-      card.dataset.mwitoolsOriginalIndex = String(index);
-    });
-  } else if (!taskListParent) {
-    taskListParent =
-      cards[0]?.closest(".mwi-task-profession-group")?.parentElement ??
-      cards[0]?.parentElement;
-  }
+  cards = cards.filter((card) => card.parentElement === taskListParent);
+  originalCards = [...cards];
+  originalCards.forEach((card, index) => {
+    if (!("mwitoolsOriginalOrder" in card.dataset))
+      card.dataset.mwitoolsOriginalOrder = card.style.order;
+    card.dataset.mwitoolsOriginalIndex = String(index);
+    delete card.dataset.mwitoolsLocation;
+  });
   const tasks = runtime.state.characterQuests ?? [];
   const cardTasks = cards.map(
     (card, index) =>

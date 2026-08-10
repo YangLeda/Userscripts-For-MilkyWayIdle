@@ -133,12 +133,24 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
   assert.equal(document.querySelector(".mwi-task-toolbar"), null);
   assert.equal(document.querySelector(".mwi-task-insight"), null);
   assert.match(
-    document.querySelector('[data-profession="completed"]').textContent,
+    document.querySelector(
+      `${TASK_SELECTOR}[data-mwitools-profession="completed"]`,
+    ).textContent,
     /已完成木板/,
   );
   assert.doesNotMatch(
-    document.querySelector('[data-profession="crafting"]').textContent,
+    document.querySelector(
+      `${TASK_SELECTOR}[data-mwitools-profession="crafting"]`,
+    ).textContent,
     /已完成木板/,
+  );
+
+  const taskList = document.querySelector('[class*="TasksPanel_taskList"]');
+  assert.ok(
+    [...taskList.querySelectorAll(TASK_SELECTOR)].every(
+      (taskCard) => taskCard.parentElement === taskList,
+    ),
+    "native React task cards must never be reparented",
   );
 
   const combatLocations = [
@@ -159,8 +171,32 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
     "false",
   );
   assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+  assert.equal(
+    document.querySelector(
+      `${TASK_SELECTOR}[data-mwitools-profession="milking"]`,
+    ).dataset.mwitoolsCollapsed,
+    "true",
+  );
   runtime.api.renderTasks();
   assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+});
+
+test("submitting a completed task can replace its card without parent mismatch", () => {
+  const taskList = document.querySelector('[class*="TasksPanel_taskList"]');
+  const submitted = taskList.querySelector(TASK_SELECTOR);
+  submitted.remove();
+  taskList.insertAdjacentHTML("afterbegin", card("制作 - 新领取木板", "0 / 5"));
+  runtime.state.characterQuests = [
+    { actionHrid: "/actions/crafting/lumber" },
+    ...runtime.state.characterQuests.slice(1),
+  ];
+
+  assert.doesNotThrow(() => runtime.api.renderTasks());
+  assert.ok(
+    [...taskList.querySelectorAll(TASK_SELECTOR)].every(
+      (taskCard) => taskCard.parentElement === taskList,
+    ),
+  );
 });
 
 test("re-entering a rebuilt task page never moves new cards into a detached page", () => {

@@ -6,7 +6,12 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM(
   `<!doctype html><body>
     <div class="Header_totalLevel__8LY3Q"></div>
-    <section id="inventory-parent"><div class="Inventory_items__6SXv0"></div></section>
+    <section id="inventory-parent"><div class="Inventory_items__6SXv0">
+      <div class="Inventory_category__test">
+        <button class="Inventory_categoryButton__test">食物</button>
+        <div class="Item_itemContainer__test"><svg aria-label="Milk"></svg></div>
+      </div>
+    </div></section>
   </body>`,
   { url: "https://test.milkywayidle.com/" },
 );
@@ -41,6 +46,7 @@ runtime.state.marketApiJson = {
   timestamp: 1,
   marketData: { "/items/milk": { 0: { a: 1100, b: 900 } } },
 };
+runtime.state.itemEnNameToHridMap = { Milk: "/items/milk" };
 runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
 runtime.api.getSelfBuildScores = async () => ({
   battle: { house: 1, abilities: 2, equipment: 3, total: 6 },
@@ -61,25 +67,42 @@ test("inventory asset summaries rerender without restoring the removed header UI
     1,
   );
   assert.equal(document.querySelectorAll("#script_api_fail_popout").length, 0);
+  assert.equal(
+    document.querySelector(".mwi-inventory-category-value").textContent,
+    "10K",
+  );
+  assert.match(
+    document.querySelector(".mwi-inventory-category-value").title,
+    /分类价值: 10,000/,
+  );
+  assert.equal(
+    document.querySelectorAll(".mwi-inventory-summary-grid .mwi-summary-card")
+      .length,
+    3,
+  );
+  assert.equal(
+    document.querySelector("#toggleScores").getAttribute("aria-expanded"),
+    "false",
+  );
   assert.match(
     document.querySelector("#toggleScores").textContent,
-    /战斗着装评分：6\.0/,
+    /战斗着装评分：\s*6\.0/,
   );
   assert.match(
     document.querySelector("#toggleSkillingScores").textContent,
-    /生活着装评分：10\.0/,
+    /生活着装评分：\s*10\.0/,
   );
   assert.match(
     document.querySelector("#buildScores").textContent,
-    /房屋：1\.0/,
+    /房屋：\s*1\.0/,
   );
   assert.match(
     document.querySelector("#skillingScores").textContent,
-    /房屋：1\.0/,
+    /房屋：\s*1\.0/,
   );
   assert.match(
     document.querySelector("#skillingScores").textContent,
-    /工具：4\.0/,
+    /工具：\s*4\.0/,
   );
   assert.match(
     document.querySelector("#toggleNetWorth").textContent,
@@ -87,21 +110,36 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /房子价值：10M/,
+    /房子价值：\s*10M/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /技能价值：20M/,
+    /技能价值：\s*20M/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /不可交易代币：0/,
+    /不可交易代币：\s*0/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /神龛：—/,
+    /神龛：\s*—/,
   );
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
+
+  document.querySelector("#toggleScores").click();
+  assert.equal(document.querySelector("#buildScores").hidden, false);
+  assert.equal(
+    document.querySelector("#toggleScores").getAttribute("aria-expanded"),
+    "true",
+  );
+
+  await runtime.api.calculateNetworth();
+  await Promise.resolve();
+  assert.equal(document.querySelector("#buildScores").hidden, false);
+  assert.equal(
+    document.querySelector("#toggleScores").getAttribute("aria-expanded"),
+    "true",
+  );
 });
 
 test("listing values use explicit balances and never infer buy reserves", () => {
