@@ -194,15 +194,29 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     document.querySelector("#toggleNetWorth").textContent,
-    /总资产价值/,
+    /总资产：/,
+  );
+  assert.match(
+    document.querySelector("#toggleCurrentAssets").textContent,
+    /流动资产/,
+  );
+  assert.match(document.querySelector("#currentAssets").textContent, /装备：/);
+  assert.match(document.querySelector("#currentAssets").textContent, /库存：/);
+  assert.match(
+    document.querySelector("#currentAssets").textContent,
+    /市场订单：/,
+  );
+  assert.match(
+    document.querySelector("#toggleNonCurrentAssets").textContent,
+    /非流动资产/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /房子价值：\s*10M/,
+    /房屋：\s*10M/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
-    /技能价值：\s*20M/,
+    /技能：\s*20M/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,
@@ -212,6 +226,10 @@ test("inventory asset summaries rerender without restoring the removed header UI
     document.querySelector("#nonCurrentAssets").textContent,
     /神龛：\s*—/,
   );
+  assert.doesNotMatch(
+    document.querySelector(".mwi-summary-card--assets").textContent,
+    /价值/,
+  );
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
 
   document.querySelector("#toggleScores").click();
@@ -220,6 +238,29 @@ test("inventory asset summaries rerender without restoring the removed header UI
     document.querySelector("#toggleScores").getAttribute("aria-expanded"),
     "true",
   );
+
+  runtime.config.isZH = false;
+  await runtime.api.calculateNetworth();
+  await Promise.resolve();
+  const englishAssets = document.querySelector(".mwi-summary-card--assets");
+  for (const label of [
+    "Total assets:",
+    "Liquid assets",
+    "Equipment:",
+    "Inventory:",
+    "Market orders:",
+    "Non-current assets",
+    "Houses:",
+    "Abilities:",
+    "Non-tradable tokens:",
+    "Shrine:",
+  ]) {
+    assert.match(englishAssets.textContent, new RegExp(label));
+  }
+  assert.doesNotMatch(englishAssets.textContent, /value/i);
+  runtime.config.isZH = true;
+  await runtime.api.calculateNetworth();
+  await Promise.resolve();
 
   await runtime.api.calculateNetworth();
   await Promise.resolve();
@@ -353,7 +394,7 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   assert.match(
     document.querySelector("#currentAssets").textContent,
-    /库存价值：10\.4K/,
+    /库存：10\.4K/,
   );
   assert.match(
     document.querySelector("#nonCurrentAssets").textContent,

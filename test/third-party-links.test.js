@@ -35,19 +35,15 @@ test("third-party navigation links use the requested sites and order", () => {
   assert.deepEqual(
     links.map((link) => link.textContent),
     [
-      "新战斗模拟 Stella",
-      "利润网 Polokikiki",
-      "人才市场 Shiin",
       "插件合集 Q7",
+      "利润网 Polokikiki",
       "战斗模拟 shykai",
+      "新战斗模拟 Stella",
       "战斗榜 socko",
+      "人才市场 Shiin",
       "牛牛手册",
       "插件设置",
     ],
-  );
-  assert.equal(
-    links.findIndex((link) => link.textContent === "插件合集 Q7") + 1,
-    links.findIndex((link) => link.textContent === "战斗模拟 shykai"),
   );
   assert.doesNotMatch(
     links.map((link) => link.textContent).join(" "),
@@ -56,12 +52,12 @@ test("third-party navigation links use the requested sites and order", () => {
   assert.deepEqual(
     THIRD_PARTY_LINKS.map(({ url }) => url),
     [
-      "https://mwisim.org/combat/setup",
-      "https://polokikiki.github.io/Milkonomy/#/dashboard",
-      "https://greasyfork.org/zh-CN/scripts/559347-mwi-talent-market",
       "https://js.nainai.eu.org/",
+      "https://polokikiki.github.io/Milkonomy/#/dashboard",
       "https://shykai.github.io/MWICombatSimulatorTest/dist/",
+      "https://mwisim.org/combat/setup",
       "https://sockosnewcombattracker.pages.dev/",
+      "https://greasyfork.org/zh-CN/scripts/559347-mwi-talent-market",
     ],
   );
 

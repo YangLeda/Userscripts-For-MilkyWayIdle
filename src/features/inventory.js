@@ -418,7 +418,7 @@ async function calculateNetworth() {
           <section class="mwi-summary-card mwi-summary-card--assets">
             <button type="button" class="mwi-summary-toggle" id="toggleNetWorth" aria-expanded="false" aria-controls="netWorthDetails">
               <span class="mwi-summary-heading">
-                <span class="mwi-summary-label">${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}</span>
+                <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
                 <span class="mwi-summary-value">${numberHtml(values.total)}</span>
               </span>
               <span class="mwi-summary-chevron" aria-hidden="true"></span>
@@ -426,19 +426,19 @@ async function calculateNetworth() {
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
               <div class="mwi-asset-groups">
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产价值" : "Current assets value"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleCurrentAssets" aria-expanded="false" aria-controls="currentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "流动资产" : "Liquid assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
                   <div class="mwi-asset-rows" id="currentAssets" style="display: none;" hidden>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}</span>${numberHtml(values.equipment)}</div>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}</span>${numberHtml(values.inventory)}</div>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}</span>${numberHtml(values.marketListings)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "装备：" : "Equipment: "}</span>${numberHtml(values.equipment)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "库存：" : "Inventory: "}</span>${numberHtml(values.inventory)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "市场订单：" : "Market orders: "}</span>${numberHtml(values.marketListings)}</div>
                   </div>
                 </section>
                 <section class="mwi-asset-group">
-                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产价值" : "Fixed assets value"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
+                  <button type="button" class="mwi-asset-toggle" id="toggleNonCurrentAssets" aria-expanded="false" aria-controls="nonCurrentAssets"><span class="mwi-asset-dot" aria-hidden="true"></span><span>${runtime.config.isZH ? "非流动资产" : "Non-current assets"}</span><span class="mwi-summary-chevron" aria-hidden="true"></span></button>
                   <div class="mwi-asset-rows" id="nonCurrentAssets" style="display: none;" hidden>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "房子价值：" : "Houses value: "}</span>${numberHtml(values.houses)}</div>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}</span>${numberHtml(values.abilities)}</div>
-                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}</span>${numberHtml(values.nonTradableTokens)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "房屋：" : "Houses: "}</span>${numberHtml(values.houses)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "技能：" : "Abilities: "}</span>${numberHtml(values.abilities)}</div>
+                    <div class="mwi-asset-row"><span>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable tokens: "}</span>${numberHtml(values.nonTradableTokens)}</div>
                     <div class="mwi-asset-row"><span>${runtime.config.isZH ? "神龛：" : "Shrine: "}</span><span>${values.shrine === null ? "—" : numberHtml(values.shrine)}</span></div>
                   </div>
                 </section>

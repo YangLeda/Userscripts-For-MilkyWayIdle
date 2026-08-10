@@ -2,9 +2,9 @@ import { runtime } from "../core/runtime.js";
 
 export const THIRD_PARTY_LINKS = [
   {
-    zh: "新战斗模拟 Stella",
-    en: "New combat sim Stella",
-    url: "https://mwisim.org/combat/setup",
+    zh: "插件合集 Q7",
+    en: "Plugin collection Q7",
+    url: "https://js.nainai.eu.org/",
   },
   {
     zh: "利润网 Polokikiki",
@@ -12,24 +12,24 @@ export const THIRD_PARTY_LINKS = [
     url: "https://polokikiki.github.io/Milkonomy/#/dashboard",
   },
   {
-    zh: "人才市场 Shiin",
-    en: "Talent market Shiin",
-    url: "https://greasyfork.org/zh-CN/scripts/559347-mwi-talent-market",
-  },
-  {
-    zh: "插件合集 Q7",
-    en: "Plugin collection Q7",
-    url: "https://js.nainai.eu.org/",
-  },
-  {
     zh: "战斗模拟 shykai",
     en: "Combat sim shykai",
     url: "https://shykai.github.io/MWICombatSimulatorTest/dist/",
   },
   {
+    zh: "新战斗模拟 Stella",
+    en: "New combat sim Stella",
+    url: "https://mwisim.org/combat/setup",
+  },
+  {
     zh: "战斗榜 socko",
     en: "Combat Tracker socko",
     url: "https://sockosnewcombattracker.pages.dev/",
+  },
+  {
+    zh: "人才市场 Shiin",
+    en: "Talent market Shiin",
+    url: "https://greasyfork.org/zh-CN/scripts/559347-mwi-talent-market",
   },
 ];
 
