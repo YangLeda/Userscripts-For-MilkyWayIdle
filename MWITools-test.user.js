@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.8
+// @version      26.2.9
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -22437,15 +22437,15 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      margin: 4px 0 12px;
+      margin: 3px 0 8px;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .8125rem;
+      font-size: .75rem;
       text-align: left;
     }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 6px;
+      gap: 3px;
     }
     .mwi-summary-card {
       --mwi-summary-accent: 120, 174, 255;
@@ -22453,7 +22453,7 @@ ${preview}`
       overflow: visible;
       border: 1px solid rgba(255, 255, 255, .08);
       border-left: 2px solid rgba(var(--mwi-summary-accent), .58);
-      border-radius: 7px;
+      border-radius: 5px;
       background: rgba(17, 20, 27, .72);
     }
     .mwi-summary-card--combat { --mwi-summary-accent: 238, 115, 103; }
@@ -22462,10 +22462,10 @@ ${preview}`
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      min-height: 46px;
+      min-height: 32px;
       align-items: center;
-      gap: 8px;
-      padding: 7px 10px;
+      gap: 6px;
+      padding: 3px 7px;
       border: 0;
       background: transparent;
       color: inherit;
@@ -22479,37 +22479,24 @@ ${preview}`
       outline: 2px solid rgba(var(--mwi-summary-accent), .72);
       outline-offset: -3px;
     }
-    .mwi-summary-icon {
-      display: grid;
-      width: 26px;
-      height: 26px;
-      flex: 0 0 26px;
-      place-items: center;
-      border: 1px solid rgba(var(--mwi-summary-accent), .24);
-      border-radius: 6px;
-      background: rgba(var(--mwi-summary-accent), .09);
-      color: rgb(var(--mwi-summary-accent));
-      font-size: .84rem;
-      line-height: 1;
-    }
     .mwi-summary-heading {
       display: flex;
       min-width: 0;
       flex: 1;
       align-items: baseline;
-      gap: 8px;
+      gap: 5px;
     }
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .72rem;
+      font-size: .65rem;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .94rem;
+      font-size: .78rem;
       font-weight: 750;
       line-height: 1.15;
       overflow-wrap: anywhere;
@@ -22527,8 +22514,7 @@ ${preview}`
       transform: rotate(225deg) translate(-2px, 2px);
     }
     .mwi-summary-details {
-      margin: 0 10px 7px 22px;
-      padding-top: 1px;
+      margin: 0 7px 3px 17px;
       animation: mwi-summary-reveal .16s ease-out;
     }
     .mwi-summary-stats {
@@ -22536,13 +22522,13 @@ ${preview}`
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 0;
-      padding: 1px 0 2px 22px;
+      padding: 0 0 1px 17px;
     }
     .mwi-summary-stats::before {
       position: absolute;
       top: 0;
-      bottom: 16px;
-      left: 7px;
+      bottom: 11px;
+      left: 5px;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .34);
       content: "";
@@ -22553,23 +22539,23 @@ ${preview}`
       min-width: 0;
       align-items: baseline;
       justify-content: space-between;
-      gap: 12px;
-      padding: 5px 7px;
+      gap: 8px;
+      padding: 2px 5px;
     }
     .mwi-summary-stat::before {
       position: absolute;
       top: 50%;
-      left: -15px;
-      width: 15px;
+      left: -12px;
+      width: 12px;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
     .mwi-summary-stat::after {
       position: absolute;
       top: calc(50% - 2px);
-      left: -17px;
-      width: 4px;
-      height: 4px;
+      left: -14px;
+      width: 3px;
+      height: 3px;
       border-radius: 50%;
       background: rgb(var(--mwi-summary-accent));
       content: "";
@@ -22577,15 +22563,15 @@ ${preview}`
     .mwi-summary-stat-label {
       overflow: hidden;
       color: var(--color-text-secondary, #9da6b2);
-      font-size: .66rem;
+      font-size: .6rem;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-weight: 650; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: .68rem; font-weight: 650; }
     .mwi-asset-groups {
       display: grid;
-      gap: 2px;
-      padding: 1px 0 2px 22px;
+      gap: 0;
+      padding: 0 0 1px 17px;
     }
     .mwi-asset-group {
       position: relative;
@@ -22593,9 +22579,9 @@ ${preview}`
     }
     .mwi-asset-group:not(:last-child)::after {
       position: absolute;
-      top: 15px;
-      bottom: -18px;
-      left: -15px;
+      top: 12px;
+      bottom: -13px;
+      left: -12px;
       border-left: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
@@ -22603,14 +22589,15 @@ ${preview}`
       position: relative;
       display: flex;
       width: 100%;
-      min-height: 30px;
+      min-height: 24px;
       align-items: center;
-      gap: 8px;
-      padding: 5px 7px;
+      gap: 6px;
+      padding: 2px 5px;
       border: 0;
       background: transparent;
       color: var(--color-text-primary, #e8ebef);
       font: inherit;
+      font-size: .68rem;
       font-weight: 600;
       text-align: left;
       cursor: pointer;
@@ -22618,17 +22605,17 @@ ${preview}`
     .mwi-asset-toggle::before {
       position: absolute;
       top: 50%;
-      left: -15px;
-      width: 15px;
+      left: -12px;
+      width: 12px;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
     .mwi-asset-toggle:hover { background: rgba(255, 255, 255, .04); }
     .mwi-asset-toggle:focus-visible { outline: 1px solid rgb(var(--mwi-summary-accent)); outline-offset: -2px; }
     .mwi-asset-dot {
-      width: 5px;
-      height: 5px;
-      flex: 0 0 5px;
+      width: 4px;
+      height: 4px;
+      flex: 0 0 4px;
       border-radius: 50%;
       background: rgb(var(--mwi-summary-accent));
     }
@@ -22637,14 +22624,14 @@ ${preview}`
       position: relative;
       display: grid;
       gap: 0;
-      margin-left: 12px;
-      padding: 0 7px 4px 20px;
+      margin-left: 9px;
+      padding: 0 5px 2px 16px;
     }
     .mwi-asset-rows::before {
       position: absolute;
       top: 0;
-      bottom: 14px;
-      left: 6px;
+      bottom: 9px;
+      left: 5px;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .25);
       content: "";
@@ -22654,15 +22641,16 @@ ${preview}`
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 10px;
-      padding: 4px 0;
+      gap: 8px;
+      padding: 2px 0;
       color: var(--color-text-secondary, #aeb5c0);
+      font-size: .64rem;
     }
     .mwi-asset-row::before {
       position: absolute;
       top: 50%;
-      left: -14px;
-      width: 14px;
+      left: -11px;
+      width: 11px;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
@@ -22788,7 +22776,6 @@ ${preview}`
         <div class="mwi-inventory-summary-grid">
           <section class="mwi-summary-card mwi-summary-card--combat">
             <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
-              <span class="mwi-summary-icon" aria-hidden="true">⚔</span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.battle.total)}</span>
@@ -22806,7 +22793,6 @@ ${preview}`
 
           <section class="mwi-summary-card mwi-summary-card--skilling">
             <button type="button" class="mwi-summary-toggle" id="toggleSkillingScores" aria-expanded="false" aria-controls="skillingScores">
-              <span class="mwi-summary-icon" aria-hidden="true">✦</span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
                 <span class="mwi-summary-value">${runtime.api.formatScore(scores.skilling.total)}</span>
@@ -22824,7 +22810,6 @@ ${preview}`
 
           <section class="mwi-summary-card mwi-summary-card--assets">
             <button type="button" class="mwi-summary-toggle" id="toggleNetWorth" aria-expanded="false" aria-controls="netWorthDetails">
-              <span class="mwi-summary-icon" aria-hidden="true">◇</span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}</span>
                 <span class="mwi-summary-value">${numberHtml(values.total)}</span>

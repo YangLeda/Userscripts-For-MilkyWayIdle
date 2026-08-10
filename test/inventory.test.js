@@ -110,6 +110,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
       .length,
     3,
   );
+  assert.equal(document.querySelectorAll(".mwi-summary-icon").length, 0);
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
   ).textContent;
