@@ -165,6 +165,14 @@ test("inventory asset summaries rerender without restoring the removed header UI
     summaryStyles,
     /\.mwi-inventory-summary-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
   );
+  assert.match(
+    summaryStyles,
+    /\.mwi-inventory-summary-grid\s*\{[^}]*gap:\s*\.125rem/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-summary-toggle\s*\{[^}]*min-height:\s*1\.5rem[^}]*padding:\s*\.0625rem \.3125rem/s,
+  );
   assert.match(summaryStyles, /\.mwi-summary-stats::before/);
   assert.match(summaryStyles, /\.mwi-summary-stat::before/);
   assert.match(summaryStyles, /\.mwi-asset-rows::before/);

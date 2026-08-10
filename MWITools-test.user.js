@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.32
+// @version      26.2.33
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -22818,15 +22818,15 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      margin: 3px 0 8px;
+      margin: .125rem 0 .375rem;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .75rem;
+      font-size: .7rem;
       text-align: left;
     }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 3px;
+      gap: .125rem;
     }
     .mwi-summary-card {
       --mwi-summary-accent: 120, 174, 255;
@@ -22834,7 +22834,7 @@ ${preview}`
       overflow: visible;
       border: 1px solid rgba(255, 255, 255, .08);
       border-left: 2px solid rgba(var(--mwi-summary-accent), .58);
-      border-radius: 5px;
+      border-radius: .25rem;
       background: rgba(17, 20, 27, .72);
     }
     .mwi-summary-card--combat { --mwi-summary-accent: 238, 115, 103; }
@@ -22843,10 +22843,10 @@ ${preview}`
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      min-height: 32px;
+      min-height: 1.5rem;
       align-items: center;
-      gap: 6px;
-      padding: 3px 7px;
+      gap: .25rem;
+      padding: .0625rem .3125rem;
       border: 0;
       background: transparent;
       color: inherit;
@@ -22865,28 +22865,28 @@ ${preview}`
       min-width: 0;
       flex: 1;
       align-items: baseline;
-      gap: 5px;
+      gap: .25rem;
     }
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .65rem;
+      font-size: .59rem;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .78rem;
+      font-size: .7rem;
       font-weight: 750;
-      line-height: 1.15;
+      line-height: 1.05;
       overflow-wrap: anywhere;
     }
     .mwi-summary-chevron {
-      width: 7px;
-      height: 7px;
-      margin: 0 2px 0 0;
-      flex: 0 0 7px;
+      width: .375rem;
+      height: .375rem;
+      margin: 0 .0625rem 0 0;
+      flex: 0 0 .375rem;
       border-right: 1.5px solid rgba(255, 255, 255, .65);
       border-bottom: 1.5px solid rgba(255, 255, 255, .65);
       transform: rotate(45deg) translate(-2px, 2px);
