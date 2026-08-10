@@ -110,6 +110,16 @@ test("inventory asset summaries rerender without restoring the removed header UI
       .length,
     3,
   );
+  const summaryStyles = document.querySelector(
+    "#mwitools-inventory-summary-style",
+  ).textContent;
+  assert.match(
+    summaryStyles,
+    /\.mwi-inventory-summary-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
+  );
+  assert.match(summaryStyles, /\.mwi-summary-stats::before/);
+  assert.match(summaryStyles, /\.mwi-summary-stat::before/);
+  assert.match(summaryStyles, /\.mwi-asset-rows::before/);
   assert.equal(
     document.querySelector("#toggleScores").getAttribute("aria-expanded"),
     "false",
