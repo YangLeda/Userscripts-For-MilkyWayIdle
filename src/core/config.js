@@ -110,7 +110,7 @@ let settingsMap = {
     desc: isZH
       ? "背部装备按保护之镜强化成本估值"
       : "Value back equipment using enhancement costs with Mirrors of Protection.",
-    isTrue: false,
+    isTrue: true,
   },
   invSort: {
     id: "invSort",
@@ -556,8 +556,8 @@ const catalogRows = [
     "inventory",
     "背部装备按保护之镜估值",
     "Value back equipment with protection mirrors",
-    "开启后，强化背部装备按使用保护之镜的期望强化成本估值；默认关闭。",
-    "Value enhanced back-slot equipment by its expected enhancement cost using Mirrors of Protection. Off by default.",
+    "强化背部装备按使用保护之镜的期望强化成本估值；默认开启。",
+    "Value enhanced back-slot equipment by its expected enhancement cost using Mirrors of Protection. On by default.",
   ],
   [
     "invSort",

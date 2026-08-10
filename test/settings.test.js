@@ -47,7 +47,7 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
-    false,
+    true,
   );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
