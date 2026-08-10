@@ -77,6 +77,31 @@ test("procurement owns a standalone three-tab shell outside global settings", as
   );
 });
 
+test("shopping drawer opens only from an explicit cart-handle click", () => {
+  const host = document.querySelector("#mwitools-procurement-host");
+  const handle = host.shadowRoot.querySelector(".handle");
+  const drawer = host.shadowRoot.querySelector(".drawer");
+
+  document.dispatchEvent(
+    new dom.window.MouseEvent("pointermove", {
+      bubbles: true,
+      clientX: window.innerWidth,
+    }),
+  );
+  assert.equal(drawer.dataset.open, "false");
+
+  handle.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true, clientY: 180 }),
+  );
+  handle.dispatchEvent(
+    new dom.window.MouseEvent("pointerup", { bubbles: true, clientY: 180 }),
+  );
+  assert.equal(drawer.dataset.open, "true");
+
+  host.shadowRoot.querySelector(".close").click();
+  assert.equal(drawer.dataset.open, "false");
+});
+
 test("production procurement augments the existing summary instead of creating another card", () => {
   document.body.insertAdjacentHTML(
     "beforeend",

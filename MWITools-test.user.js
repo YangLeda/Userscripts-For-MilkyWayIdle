@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.22
+// @version      26.2.23
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -25414,7 +25414,6 @@ ${preview}`
       title: ["界面与快捷键", "Interface & shortcut"],
       rows: [
         ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
-        ["edgeZoneWidth", "边缘感应宽度", "Edge hot-zone width", "number"],
         ["resetHandle", "重置把手位置", "Reset handle position", "button"],
         ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"]
       ]
@@ -25480,10 +25479,6 @@ ${preview}`
     nextItemShortcut: [
       "右键可清除已经录制的快捷键",
       "Right-click to clear the shortcut"
-    ],
-    edgeZoneWidth: [
-      "鼠标移到屏幕右边缘时展开",
-      "Open when the pointer reaches the right edge"
     ],
     resetHandle: ["恢复购物车图标的默认高度", "Restore the cart handle position"],
     resetDrawer: ["恢复悬浮购物车的默认宽度", "Restore the floating cart width"]
@@ -25700,14 +25695,6 @@ ${preview}`
     scope.event(document, "pointerdown", (event) => {
       if (!drawerOpen || event.composedPath().includes(shell)) return;
       drawerOpen = false;
-      renderShell();
-    });
-    scope.event(document, "pointermove", (event) => {
-      const edgeWidth = procurement.getSettings().edgeZoneWidth;
-      if (drawerOpen || window.matchMedia?.("(max-width:760px)").matches || !edgeWidth || event.clientX < window.innerWidth - edgeWidth) {
-        return;
-      }
-      drawerOpen = true;
       renderShell();
     });
     scope.add(() => {
@@ -30104,7 +30091,8 @@ ${locks}` : ""}`;
     philosopherStartLevel,
     successRates = DEFAULT_SUCCESS_RATES,
     successBonus,
-    blessedChance
+    blessedChance,
+    philosopherBlessedChance = 0
   }) {
     if (targetLevel <= 1 || philosopherStartLevel < 1 || philosopherStartLevel >= targetLevel) {
       return null;
@@ -30126,10 +30114,16 @@ ${locks}` : ""}`;
           targetLevel,
           level + 1,
           level,
-          level + 1 < targetLevel ? 1 - blessedChance : 1
+          level + 1 < targetLevel ? 1 - philosopherBlessedChance : 1
         );
         if (level + 1 < targetLevel) {
-          addProducedValue(matrix, targetLevel, level + 2, level, blessedChance);
+          addProducedValue(
+            matrix,
+            targetLevel,
+            level + 2,
+            level,
+            philosopherBlessedChance
+          );
         }
         continue;
       }
@@ -30199,6 +30193,8 @@ ${locks}` : ""}`;
       totalSeconds: null,
       normalProtectStart: null,
       expectedProtectionCount: null,
+      expectedNormalProtectionCount: null,
+      expectedPhilosopherMirrorCount: null,
       philosopherStart: null,
       aLevel: null,
       aCount: null,
@@ -30207,16 +30203,32 @@ ${locks}` : ""}`;
       missingMarketValues: [...new Set(missingMarketValues)]
     };
   }
+  function refinementInputs(itemHrid, baseItemHrid, actionDetailMap) {
+    if (itemHrid === baseItemHrid) return [];
+    const actions = actionDetailMap instanceof Map ? [...actionDetailMap.values()] : Object.values(actionDetailMap ?? {});
+    const action = actions.find(
+      (detail) => detail?.upgradeItemHrid === baseItemHrid && detail?.outputItems?.some((output) => output.itemHrid === itemHrid)
+    );
+    return action?.inputItems ?? null;
+  }
   function calculateEnhancementPlan({
     itemHrid,
     targetLevel,
     itemDetailMap = runtime.state.initData_itemDetailMap,
     successRateTable = runtime.state.initData_enhancementLevelSuccessRateTable,
     bonusMultiplierTable = runtime.state.initData_enhancementLevelTotalBonusMultiplierTable,
+    actionDetailMap = runtime.state.initData_actionDetailMap,
     getFairValue: getFairValue2 = runtime.api.getFairValue
   } = {}) {
     const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
-    const item = itemDetailMap?.[itemHrid];
+    const baseItemHrid = itemHrid.endsWith("_refined") ? itemHrid.replace("_refined", "") : itemHrid;
+    const item = itemDetailMap?.[baseItemHrid];
+    const refiningInputs = refinementInputs(
+      itemHrid,
+      baseItemHrid,
+      actionDetailMap
+    );
+    if (refiningInputs === null) return unavailableResult();
     if (!item?.enhancementCosts?.length || target < 1) return unavailableResult();
     const stats = getEnhancementProfileStats({
       itemLevel: item.itemLevel,
@@ -30231,7 +30243,7 @@ ${locks}` : ""}`;
       if (!value) missing.add(hrid);
       return value;
     };
-    const basePrice = price(itemHrid, 0);
+    const basePrice = price(baseItemHrid, 0);
     let materialCostPerAction = 0;
     let hasMissingRequiredPrice = !basePrice;
     for (const cost of item.enhancementCosts) {
@@ -30239,15 +30251,18 @@ ${locks}` : ""}`;
       if (!unitPrice) hasMissingRequiredPrice = true;
       materialCostPerAction += unitPrice * Number(cost.count || 0);
     }
-    let teaPricePerUse = 0;
-    for (const teaHrid of ENHANCEMENT_PROFILE.teas) {
-      const unitPrice = price(teaHrid, 0);
+    let refinementCost = 0;
+    for (const cost of refiningInputs) {
+      const unitPrice = price(cost.itemHrid, 0);
       if (!unitPrice) hasMissingRequiredPrice = true;
-      teaPricePerUse += unitPrice;
+      refinementCost += unitPrice * Number(cost.count || 0);
     }
+    const ultraTeaPrice = price("/items/ultra_enhancing_tea", 0);
+    const blessedTeaPrice = price("/items/blessed_tea", 0);
+    if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
     if (hasMissingRequiredPrice) return unavailableResult([...missing]);
     const protectionCandidates = [
-      itemHrid,
+      baseItemHrid,
       ...item.protectionItemHrids ?? [],
       "/items/mirror_of_protection"
     ];
@@ -30260,8 +30275,9 @@ ${locks}` : ""}`;
     }
     const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
     const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
-    const teaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * teaPricePerUse;
-    const perActionCost = materialCostPerAction + teaCostPerAction;
+    const ultraTeaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * ultraTeaPrice;
+    const blessedTeaCostPerNormalAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * blessedTeaPrice;
+    const normalActionCost = materialCostPerAction + ultraTeaCostPerAction + blessedTeaCostPerNormalAction;
     let best = null;
     for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
       const flow = calculateNormalEnhancementFlow({
@@ -30273,13 +30289,14 @@ ${locks}` : ""}`;
       });
       if (!flow) continue;
       if (flow.protectionCount > EPSILON && !protectionPrice) continue;
-      const totalCost = basePrice + flow.totalActions * perActionCost + flow.protectionCount * protectionPrice;
+      const totalCost = basePrice + flow.totalActions * normalActionCost + flow.protectionCount * protectionPrice;
       if (!best || totalCost < best.totalCost) {
         best = {
           mode: "normal",
           totalCost,
           totalActions: flow.totalActions,
           protectionCount: flow.protectionCount,
+          mirrorCount: 0,
           protectLevel,
           philosopherStartLevel: null,
           aCount: 0,
@@ -30296,17 +30313,19 @@ ${locks}` : ""}`;
             philosopherStartLevel,
             successRates,
             successBonus: stats.successBonus,
-            blessedChance: stats.blessedChance
+            blessedChance: stats.blessedChance,
+            philosopherBlessedChance: 0
           });
           if (!flow || flow.baseItemCount < -EPSILON) continue;
           if (flow.protectionCount > EPSILON && !protectionPrice) continue;
-          const totalCost = flow.baseItemCount * basePrice + flow.totalActions * perActionCost + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
+          const totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
           if (!best || totalCost < best.totalCost) {
             best = {
               mode: "philosopher",
               totalCost,
               totalActions: flow.totalActions,
               protectionCount: flow.protectionCount,
+              mirrorCount: flow.mirrorCount,
               protectLevel,
               philosopherStartLevel,
               aCount: flow.aCount,
@@ -30319,10 +30338,12 @@ ${locks}` : ""}`;
     if (!best) return unavailableResult([...missing]);
     return {
       status: "complete",
-      totalCost: best.totalCost,
+      totalCost: best.totalCost + refinementCost,
       totalSeconds: best.totalActions * stats.secondsPerAction,
       normalProtectStart: best.protectionCount > EPSILON ? best.protectLevel : null,
-      expectedProtectionCount: best.protectionCount,
+      expectedProtectionCount: best.mode === "philosopher" ? best.mirrorCount : best.protectionCount,
+      expectedNormalProtectionCount: best.protectionCount,
+      expectedPhilosopherMirrorCount: best.mirrorCount,
       philosopherStart: best.philosopherStartLevel,
       aLevel: best.philosopherStartLevel,
       aCount: best.aCount,
@@ -30377,6 +30398,13 @@ ${locks}` : ""}`;
       maximumFractionDigits: digits
     }).format(Number(value));
   }
+  function countWithUnit(value) {
+    const number2 = Number(value);
+    if (!Number.isFinite(number2)) return "—";
+    const rounded = Math.round(number2);
+    const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
+    return `${compactNumber(number2, digits)} ${t11("个", "pcs")}`;
+  }
   function metric3(label, value, exactValue = null) {
     const row = document.createElement("div");
     row.className = "mwi-enhancement-metric";
@@ -30395,8 +30423,8 @@ ${locks}` : ""}`;
     const complete = plan?.status === "complete";
     const normalStart = complete ? plan.normalProtectStart === null ? t11("不用", "None") : `+${plan.normalProtectStart}` : "—";
     const philosopherStart = complete ? plan.philosopherStart === null ? t11("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? `A（+${plan.aLevel}）` : "A";
-    const bLabel = complete && plan.bLevel !== null ? `B（+${plan.bLevel}）` : "B";
+    const aLabel = complete && plan.aLevel !== null ? t11(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t11("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t11(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t11("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     grid.append(
@@ -30417,16 +30445,8 @@ ${locks}` : ""}`;
         plan?.expectedProtectionCount
       ),
       metric3(t11("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
-      metric3(
-        aLabel,
-        complete ? compactNumber(plan.aCount, 1) : "—",
-        plan?.aCount
-      ),
-      metric3(
-        bLabel,
-        complete ? compactNumber(plan.bCount, 1) : "—",
-        plan?.bCount
-      )
+      metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
+      metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
     panel.replaceChildren(grid);
     panel.dataset.status = complete ? "complete" : "unavailable";

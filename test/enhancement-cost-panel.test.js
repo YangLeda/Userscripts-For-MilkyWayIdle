@@ -64,8 +64,8 @@ test("enhancement UI is a separate seven-row sibling", () => {
   assert.match(panel.textContent, /总成本/);
   assert.match(panel.textContent, /开始保护\+6/);
   assert.match(panel.textContent, /开始贤者保护\+10/);
-  assert.match(panel.textContent, /A（\+10）5\.5/);
-  assert.match(panel.textContent, /B（\+9）3\.3/);
+  assert.match(panel.textContent, /需要 \+105\.5 个/);
+  assert.match(panel.textContent, /需要 \+93\.3 个/);
 
   showEnhancementCostPanel(tooltip, completePlan());
   assert.equal(

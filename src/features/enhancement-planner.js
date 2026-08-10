@@ -278,6 +278,7 @@ export function calculatePhilosopherEnhancementFlow({
   successRates = DEFAULT_SUCCESS_RATES,
   successBonus,
   blessedChance,
+  philosopherBlessedChance = 0,
 }) {
   if (
     targetLevel <= 1 ||
@@ -304,10 +305,16 @@ export function calculatePhilosopherEnhancementFlow({
         targetLevel,
         level + 1,
         level,
-        level + 1 < targetLevel ? 1 - blessedChance : 1,
+        level + 1 < targetLevel ? 1 - philosopherBlessedChance : 1,
       );
       if (level + 1 < targetLevel) {
-        addProducedValue(matrix, targetLevel, level + 2, level, blessedChance);
+        addProducedValue(
+          matrix,
+          targetLevel,
+          level + 2,
+          level,
+          philosopherBlessedChance,
+        );
       }
       continue;
     }
@@ -385,6 +392,8 @@ function unavailableResult(missingMarketValues = []) {
     totalSeconds: null,
     normalProtectStart: null,
     expectedProtectionCount: null,
+    expectedNormalProtectionCount: null,
+    expectedPhilosopherMirrorCount: null,
     philosopherStart: null,
     aLevel: null,
     aCount: null,
@@ -394,6 +403,20 @@ function unavailableResult(missingMarketValues = []) {
   };
 }
 
+function refinementInputs(itemHrid, baseItemHrid, actionDetailMap) {
+  if (itemHrid === baseItemHrid) return [];
+  const actions =
+    actionDetailMap instanceof Map
+      ? [...actionDetailMap.values()]
+      : Object.values(actionDetailMap ?? {});
+  const action = actions.find(
+    (detail) =>
+      detail?.upgradeItemHrid === baseItemHrid &&
+      detail?.outputItems?.some((output) => output.itemHrid === itemHrid),
+  );
+  return action?.inputItems ?? null;
+}
+
 export function calculateEnhancementPlan({
   itemHrid,
   targetLevel,
@@ -401,10 +424,20 @@ export function calculateEnhancementPlan({
   successRateTable = runtime.state.initData_enhancementLevelSuccessRateTable,
   bonusMultiplierTable = runtime.state
     .initData_enhancementLevelTotalBonusMultiplierTable,
+  actionDetailMap = runtime.state.initData_actionDetailMap,
   getFairValue = runtime.api.getFairValue,
 } = {}) {
   const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
-  const item = itemDetailMap?.[itemHrid];
+  const baseItemHrid = itemHrid.endsWith("_refined")
+    ? itemHrid.replace("_refined", "")
+    : itemHrid;
+  const item = itemDetailMap?.[baseItemHrid];
+  const refiningInputs = refinementInputs(
+    itemHrid,
+    baseItemHrid,
+    actionDetailMap,
+  );
+  if (refiningInputs === null) return unavailableResult();
   if (!item?.enhancementCosts?.length || target < 1) return unavailableResult();
   const stats = getEnhancementProfileStats({
     itemLevel: item.itemLevel,
@@ -420,7 +453,7 @@ export function calculateEnhancementPlan({
     if (!value) missing.add(hrid);
     return value;
   };
-  const basePrice = price(itemHrid, 0);
+  const basePrice = price(baseItemHrid, 0);
   let materialCostPerAction = 0;
   let hasMissingRequiredPrice = !basePrice;
   for (const cost of item.enhancementCosts) {
@@ -428,16 +461,19 @@ export function calculateEnhancementPlan({
     if (!unitPrice) hasMissingRequiredPrice = true;
     materialCostPerAction += unitPrice * Number(cost.count || 0);
   }
-  let teaPricePerUse = 0;
-  for (const teaHrid of ENHANCEMENT_PROFILE.teas) {
-    const unitPrice = price(teaHrid, 0);
+  let refinementCost = 0;
+  for (const cost of refiningInputs) {
+    const unitPrice = price(cost.itemHrid, 0);
     if (!unitPrice) hasMissingRequiredPrice = true;
-    teaPricePerUse += unitPrice;
+    refinementCost += unitPrice * Number(cost.count || 0);
   }
+  const ultraTeaPrice = price("/items/ultra_enhancing_tea", 0);
+  const blessedTeaPrice = price("/items/blessed_tea", 0);
+  if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
   if (hasMissingRequiredPrice) return unavailableResult([...missing]);
 
   const protectionCandidates = [
-    itemHrid,
+    baseItemHrid,
     ...(item.protectionItemHrids ?? []),
     "/items/mirror_of_protection",
   ];
@@ -450,10 +486,16 @@ export function calculateEnhancementPlan({
   }
   const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
   const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
-  const teaCostPerAction =
+  const ultraTeaCostPerAction =
     (stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds) *
-    teaPricePerUse;
-  const perActionCost = materialCostPerAction + teaCostPerAction;
+    ultraTeaPrice;
+  const blessedTeaCostPerNormalAction =
+    (stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds) *
+    blessedTeaPrice;
+  const normalActionCost =
+    materialCostPerAction +
+    ultraTeaCostPerAction +
+    blessedTeaCostPerNormalAction;
   let best = null;
 
   for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
@@ -468,7 +510,7 @@ export function calculateEnhancementPlan({
     if (flow.protectionCount > EPSILON && !protectionPrice) continue;
     const totalCost =
       basePrice +
-      flow.totalActions * perActionCost +
+      flow.totalActions * normalActionCost +
       flow.protectionCount * protectionPrice;
     if (!best || totalCost < best.totalCost) {
       best = {
@@ -476,6 +518,7 @@ export function calculateEnhancementPlan({
         totalCost,
         totalActions: flow.totalActions,
         protectionCount: flow.protectionCount,
+        mirrorCount: 0,
         protectLevel,
         philosopherStartLevel: null,
         aCount: 0,
@@ -502,12 +545,15 @@ export function calculateEnhancementPlan({
           successRates,
           successBonus: stats.successBonus,
           blessedChance: stats.blessedChance,
+          philosopherBlessedChance: 0,
         });
         if (!flow || flow.baseItemCount < -EPSILON) continue;
         if (flow.protectionCount > EPSILON && !protectionPrice) continue;
         const totalCost =
           flow.baseItemCount * basePrice +
-          flow.totalActions * perActionCost +
+          flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) +
+          (flow.totalActions - flow.mirrorCount) *
+            blessedTeaCostPerNormalAction +
           flow.protectionCount * protectionPrice +
           flow.mirrorCount * philosopherMirrorPrice;
         if (!best || totalCost < best.totalCost) {
@@ -516,6 +562,7 @@ export function calculateEnhancementPlan({
             totalCost,
             totalActions: flow.totalActions,
             protectionCount: flow.protectionCount,
+            mirrorCount: flow.mirrorCount,
             protectLevel,
             philosopherStartLevel,
             aCount: flow.aCount,
@@ -529,11 +576,14 @@ export function calculateEnhancementPlan({
   if (!best) return unavailableResult([...missing]);
   return {
     status: "complete",
-    totalCost: best.totalCost,
+    totalCost: best.totalCost + refinementCost,
     totalSeconds: best.totalActions * stats.secondsPerAction,
     normalProtectStart:
       best.protectionCount > EPSILON ? best.protectLevel : null,
-    expectedProtectionCount: best.protectionCount,
+    expectedProtectionCount:
+      best.mode === "philosopher" ? best.mirrorCount : best.protectionCount,
+    expectedNormalProtectionCount: best.protectionCount,
+    expectedPhilosopherMirrorCount: best.mirrorCount,
     philosopherStart: best.philosopherStartLevel,
     aLevel: best.philosopherStartLevel,
     aCount: best.aCount,

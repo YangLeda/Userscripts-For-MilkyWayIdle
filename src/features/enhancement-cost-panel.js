@@ -46,6 +46,14 @@ function compactNumber(value, digits = 1) {
   }).format(Number(value));
 }
 
+function countWithUnit(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const rounded = Math.round(number);
+  const digits = Math.abs(number - rounded) < 1e-8 ? 0 : 1;
+  return `${compactNumber(number, digits)} ${t("个", "pcs")}`;
+}
+
 function metric(label, value, exactValue = null) {
   const row = document.createElement("div");
   row.className = "mwi-enhancement-metric";
@@ -74,9 +82,13 @@ function renderPanel(panel, plan) {
       : `+${plan.philosopherStart}`
     : "—";
   const aLabel =
-    complete && plan.aLevel !== null ? `A（+${plan.aLevel}）` : "A";
+    complete && plan.aLevel !== null
+      ? t(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`)
+      : t("需要", "Need");
   const bLabel =
-    complete && plan.bLevel !== null ? `B（+${plan.bLevel}）` : "B";
+    complete && plan.bLevel !== null
+      ? t(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`)
+      : t("需要", "Need");
   const grid = document.createElement("div");
   grid.className = "mwi-enhancement-grid";
   grid.append(
@@ -97,16 +109,8 @@ function renderPanel(panel, plan) {
       plan?.expectedProtectionCount,
     ),
     metric(t("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
-    metric(
-      aLabel,
-      complete ? compactNumber(plan.aCount, 1) : "—",
-      plan?.aCount,
-    ),
-    metric(
-      bLabel,
-      complete ? compactNumber(plan.bCount, 1) : "—",
-      plan?.bCount,
-    ),
+    metric(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
+    metric(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount),
   );
   panel.replaceChildren(grid);
   panel.dataset.status = complete ? "complete" : "unavailable";

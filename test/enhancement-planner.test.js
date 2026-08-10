@@ -52,6 +52,9 @@ function itemDetailMap(itemLevel = 100) {
       ],
       protectionItemHrids: ["/items/special_protection"],
     },
+    "/items/target_refined": {
+      itemLevel,
+    },
   };
 }
 
@@ -119,6 +122,37 @@ test("philosopher flow matches the reference material-flow solution", () => {
   assert.equal(flow.bCount, 1);
 });
 
+test("blessed tea applies while making inputs but not during mirror combinations", () => {
+  const withBlessedInputs = calculatePhilosopherEnhancementFlow({
+    targetLevel: 4,
+    protectLevel: 2,
+    philosopherStartLevel: 2,
+    successRates: [0.5, 0.5, 0.5, 0.5],
+    successBonus: 0,
+    blessedChance: 0.01,
+    philosopherBlessedChance: 0,
+  });
+  const withoutBlessedInputs = calculatePhilosopherEnhancementFlow({
+    targetLevel: 4,
+    protectLevel: 2,
+    philosopherStartLevel: 2,
+    successRates: [0.5, 0.5, 0.5, 0.5],
+    successBonus: 0,
+    blessedChance: 0,
+    philosopherBlessedChance: 0,
+  });
+
+  assert.ok(Math.abs(withBlessedInputs.aCount - 1.9804931181305079) < 1e-12);
+  assert.ok(Math.abs(withBlessedInputs.bCount - 0.9804931181305079) < 1e-12);
+  assert.equal(withBlessedInputs.mirrorCount, withBlessedInputs.aCount);
+  assert.equal(withoutBlessedInputs.aCount, 2);
+  assert.equal(withoutBlessedInputs.bCount, 1);
+  assert.notEqual(
+    withBlessedInputs.totalActions,
+    withoutBlessedInputs.totalActions,
+  );
+});
+
 test("planner chooses a normal plan when philosopher acquisition is expensive", () => {
   const values = prices();
   const plan = calculateEnhancementPlan({
@@ -137,7 +171,7 @@ test("planner chooses a normal plan when philosopher acquisition is expensive", 
   assert.ok(plan.totalSeconds > 0);
 });
 
-test("planner chooses philosopher protection and reports expected A/B inputs", () => {
+test("planner chooses philosopher protection and reports required enhancement inputs", () => {
   const values = prices({
     "/items/target": 1,
     "/items/material": 1,
@@ -161,6 +195,13 @@ test("planner chooses philosopher protection and reports expected A/B inputs", (
   assert.equal(plan.bLevel, 0);
   assert.ok(plan.aCount > plan.bCount);
   assert.ok(plan.bCount > 0);
+  assert.ok(Number.isFinite(plan.aCount));
+  assert.ok(Number.isFinite(plan.bCount));
+  assert.equal(
+    plan.expectedProtectionCount,
+    plan.expectedPhilosopherMirrorCount,
+  );
+  assert.ok(plan.expectedProtectionCount > 0);
   assert.equal(plan.normalProtectStart, null);
 });
 
@@ -200,6 +241,43 @@ test("missing required market value produces an unavailable result", () => {
   assert.equal(plan.status, "unavailable");
   assert.equal(plan.totalCost, null);
   assert.deepEqual(plan.missingMarketValues, ["/items/material"]);
+});
+
+test("refined gear uses the base enhancement plan plus one refining recipe", () => {
+  const values = prices({ "/items/refining_shard": 300 });
+  const actionDetailMap = {
+    "/actions/refine_target": {
+      upgradeItemHrid: "/items/target",
+      inputItems: [{ itemHrid: "/items/refining_shard", count: 100 }],
+      outputItems: [{ itemHrid: "/items/target_refined", count: 1 }],
+    },
+  };
+  const calls = [];
+  const options = {
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    actionDetailMap,
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => {
+      calls.push(hrid);
+      return values[hrid] ?? 0;
+    },
+  };
+  const base = calculateEnhancementPlan({
+    ...options,
+    itemHrid: "/items/target",
+  });
+  calls.length = 0;
+  const refined = calculateEnhancementPlan({
+    ...options,
+    itemHrid: "/items/target_refined",
+  });
+
+  assert.equal(refined.status, "complete");
+  assert.ok(Math.abs(refined.totalCost - base.totalCost - 30_000) < 1e-6);
+  assert.ok(calls.includes("/items/target"));
+  assert.ok(calls.includes("/items/refining_shard"));
+  assert.ok(!calls.includes("/items/target_refined"));
 });
 
 test("high enhancement targets remain finite without external math", () => {

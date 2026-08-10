@@ -444,7 +444,6 @@ const SETTING_SECTIONS = [
     title: ["界面与快捷键", "Interface & shortcut"],
     rows: [
       ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
-      ["edgeZoneWidth", "边缘感应宽度", "Edge hot-zone width", "number"],
       ["resetHandle", "重置把手位置", "Reset handle position", "button"],
       ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"],
     ],
@@ -511,10 +510,6 @@ const SETTING_DESCRIPTIONS = {
   nextItemShortcut: [
     "右键可清除已经录制的快捷键",
     "Right-click to clear the shortcut",
-  ],
-  edgeZoneWidth: [
-    "鼠标移到屏幕右边缘时展开",
-    "Open when the pointer reaches the right edge",
   ],
   resetHandle: ["恢复购物车图标的默认高度", "Restore the cart handle position"],
   resetDrawer: ["恢复悬浮购物车的默认宽度", "Restore the floating cart width"],
@@ -743,19 +738,6 @@ function createShell(scope) {
   scope.event(document, "pointerdown", (event) => {
     if (!drawerOpen || event.composedPath().includes(shell)) return;
     drawerOpen = false;
-    renderShell();
-  });
-  scope.event(document, "pointermove", (event) => {
-    const edgeWidth = procurement.getSettings().edgeZoneWidth;
-    if (
-      drawerOpen ||
-      window.matchMedia?.("(max-width:760px)").matches ||
-      !edgeWidth ||
-      event.clientX < window.innerWidth - edgeWidth
-    ) {
-      return;
-    }
-    drawerOpen = true;
     renderShell();
   });
   scope.add(() => {
