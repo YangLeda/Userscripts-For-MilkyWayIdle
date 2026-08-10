@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.2
+// @version      26.2.3
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -26050,8 +26050,8 @@ ${locks}` : ""}`;
     return { depths: cache, groups };
   }
   function ungroupCards() {
-    if (!taskListParent) return;
-    const cards = [...document.querySelectorAll(TASK_SELECTOR)].sort(
+    if (!taskListParent?.isConnected) return;
+    const cards = [...taskListParent.querySelectorAll(TASK_SELECTOR)].sort(
       (left, right) => Number(left.dataset.mwitoolsOriginalIndex ?? 0) - Number(right.dataset.mwitoolsOriginalIndex ?? 0)
     );
     for (const card of cards) taskListParent.appendChild(card);
@@ -26264,9 +26264,21 @@ ${locks}` : ""}`;
   }
   function renderTasks() {
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
-    if (!cards.length) return;
+    if (!cards.length) {
+      if (taskListParent && !taskListParent.isConnected) {
+        originalCards = [];
+        taskListParent = null;
+      }
+      return;
+    }
+    const observedParent = cards[0]?.closest(".mwi-task-profession-group")?.parentElement ?? cards[0]?.parentElement ?? null;
+    const enteredNewTaskPage = !taskListParent?.isConnected || observedParent && observedParent !== taskListParent;
+    if (enteredNewTaskPage) {
+      originalCards = [];
+      taskListParent = observedParent;
+    }
     if (!originalCards.length || originalCards.some((card) => !card.isConnected)) {
-      ungroupCards();
+      if (!enteredNewTaskPage) ungroupCards();
       cards = [...document.querySelectorAll(TASK_SELECTOR)];
       taskListParent = cards[0]?.closest(".mwi-task-profession-group")?.parentElement ?? cards[0]?.parentElement ?? taskListParent;
       originalCards = [...cards];

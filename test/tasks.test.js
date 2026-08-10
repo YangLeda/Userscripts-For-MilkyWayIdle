@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { JSDOM } from "jsdom";
 
+const TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
 const card = (title, progress, action = "前往") => `
   <div class="RandomTask_randomTask__test">
     <div class="RandomTask_name__test">${title}</div>
@@ -160,4 +161,35 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
   assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
   runtime.api.renderTasks();
   assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+});
+
+test("re-entering a rebuilt task page never moves new cards into a detached page", () => {
+  for (let visit = 0; visit < 3; visit += 1) {
+    document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="TasksPanel_taskList__visit${visit}">
+        ${card(`制作 - 木板 ${visit}`, "0 / 5")}
+        ${card(`挤奶 - 奶牛 ${visit}`, "0 / 20")}
+      </div>`,
+    );
+    runtime.state.characterQuests = [
+      { actionHrid: "/actions/crafting/lumber" },
+      { actionHrid: "/actions/milking/cow" },
+    ];
+
+    runtime.api.renderTasks();
+
+    const currentList = document.querySelector(
+      `.TasksPanel_taskList__visit${visit}`,
+    );
+    assert.ok(currentList?.isConnected);
+    assert.equal(currentList.querySelectorAll(TASK_SELECTOR).length, 2);
+    assert.deepEqual(
+      [...currentList.querySelectorAll(".mwi-task-profession-title")].map(
+        (title) => title.textContent,
+      ),
+      ["已完成", "挤奶", "制作"],
+    );
+  }
 });

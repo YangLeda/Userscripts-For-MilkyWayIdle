@@ -420,8 +420,8 @@ function productionDepth(tasks) {
 }
 
 function ungroupCards() {
-  if (!taskListParent) return;
-  const cards = [...document.querySelectorAll(TASK_SELECTOR)].sort(
+  if (!taskListParent?.isConnected) return;
+  const cards = [...taskListParent.querySelectorAll(TASK_SELECTOR)].sort(
     (left, right) =>
       Number(left.dataset.mwitoolsOriginalIndex ?? 0) -
       Number(right.dataset.mwitoolsOriginalIndex ?? 0),
@@ -686,12 +686,29 @@ function applyPendingMerge() {
 
 function renderTasks() {
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
-  if (!cards.length) return;
+  if (!cards.length) {
+    if (taskListParent && !taskListParent.isConnected) {
+      originalCards = [];
+      taskListParent = null;
+    }
+    return;
+  }
+  const observedParent =
+    cards[0]?.closest(".mwi-task-profession-group")?.parentElement ??
+    cards[0]?.parentElement ??
+    null;
+  const enteredNewTaskPage =
+    !taskListParent?.isConnected ||
+    (observedParent && observedParent !== taskListParent);
+  if (enteredNewTaskPage) {
+    originalCards = [];
+    taskListParent = observedParent;
+  }
   if (
     !originalCards.length ||
     originalCards.some((card) => !card.isConnected)
   ) {
-    ungroupCards();
+    if (!enteredNewTaskPage) ungroupCards();
     cards = [...document.querySelectorAll(TASK_SELECTOR)];
     taskListParent =
       cards[0]?.closest(".mwi-task-profession-group")?.parentElement ??
