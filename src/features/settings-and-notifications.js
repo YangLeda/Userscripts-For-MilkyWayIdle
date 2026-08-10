@@ -472,10 +472,12 @@ function addEquipmentWarningStyles() {
   style.id = EQUIPMENT_WARNING_STYLE_ID;
   style.textContent = `
     .mwi-equipment-warning-host { position:relative!important; }
-    #script_item_warning { position:absolute; top:50%; z-index:6; display:flex; box-sizing:border-box; min-width:26px; max-width:var(--mwi-equipment-warning-space,180px); height:24px; align-items:center; gap:5px; padding:2px 7px; transform:translateY(-50%); border:1px solid rgba(255,174,61,.55); border-radius:999px; background:rgba(74,42,12,.92); color:#ffc56e; box-shadow:0 2px 8px rgba(0,0,0,.22); font:inherit; font-size:.66rem; font-weight:650; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; }
-    .mwi-equipment-warning-icon { flex:0 0 auto; font-size:.72rem; }
+    @keyframes mwi-equipment-warning-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); } 50% { box-shadow:0 0 0 4px rgba(255,75,75,.16),0 2px 12px rgba(0,0,0,.5); } }
+    #script_item_warning { position:absolute; top:50%; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,190px); height:26px; align-items:center; gap:5px; padding:2px 8px; transform:translateY(-50%); border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.68rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
+    .mwi-equipment-warning-icon { flex:0 0 auto; color:#ffb7b7; font-size:.78rem; }
     .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
-    @media(max-width:680px) { #script_item_warning { width:26px; max-width:26px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
+    @media(prefers-reduced-motion:reduce) { #script_item_warning { animation:none; } }
+    @media(max-width:680px) { #script_item_warning { width:28px; max-width:28px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -508,7 +510,7 @@ function positionEquipmentWarning(warning, host) {
   warning.style.left = `${left}px`;
   warning.style.setProperty(
     "--mwi-equipment-warning-space",
-    `${Math.min(180, availableInHost, availableInViewport)}px`,
+    `${Math.min(190, availableInHost, availableInViewport)}px`,
   );
 }
 

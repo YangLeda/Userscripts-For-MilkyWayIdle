@@ -12,40 +12,26 @@ globalThis.window = dom.window;
 globalThis.location = dom.window.location;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.FormData = dom.window.FormData;
-globalThis.File = dom.window.File;
 globalThis.URL = dom.window.URL;
 
 const { runtime } = await import("../src/core/runtime.js");
 const { FeedbackPanel } = await import("../src/features/feedback/panel.js");
-const { MAX_IMAGE_BYTES, validateImageFiles } =
+const { normalizeImageLinks } =
   await import("../src/features/feedback/client.js");
 
-test("feedback screenshots enforce type, count, and the 1MB limit", () => {
-  assert.equal(
-    validateImageFiles([
-      { type: "image/png", size: MAX_IMAGE_BYTES, name: "valid.png" },
-    ]).length,
-    1,
+test("feedback image links only accept up to three HTTP(S) URLs", () => {
+  assert.deepEqual(
+    normalizeImageLinks(
+      " https://img.example/a.png\n\nhttp://img.example/b.webp ",
+    ),
+    ["https://img.example/a.png", "http://img.example/b.webp"],
   );
   assert.throws(
-    () =>
-      validateImageFiles([
-        {
-          type: "image/png",
-          size: MAX_IMAGE_BYTES + 1,
-          name: "large.png",
-        },
-      ]),
-    /1MB/,
+    () => normalizeImageLinks("https://a\nhttps://b\nhttps://c\nhttps://d"),
+    /3 个/,
   );
-  assert.throws(
-    () => validateImageFiles([{ type: "image/gif", size: 10 }]),
-    /PNG、JPEG 和 WebP/,
-  );
-  assert.throws(
-    () => validateImageFiles([{ type: "image/png", size: 10 }], 3),
-    /3 张/,
-  );
+  assert.throws(() => normalizeImageLinks("javascript:alert(1)"), /HTTP/);
+  assert.throws(() => normalizeImageLinks("not a url"), /格式/);
 });
 
 test("feedback button sits below total level and UI remains a singleton", () => {
@@ -67,6 +53,12 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     1,
   );
   assert.equal(document.querySelectorAll("#mwitools-feedback-root").length, 1);
+  assert.ok(document.querySelector('textarea[name="imageLinks"]'));
+  assert.equal(
+    document.querySelector(".mwi-feedback-image-help").href,
+    "https://tupian.li/",
+  );
+  assert.equal(document.querySelector('input[type="file"]'), null);
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-feedback-button"), null);
   assert.equal(document.querySelector("#mwitools-feedback-root"), null);

@@ -192,6 +192,15 @@ test("equipment warnings reuse an absolute action-bar sibling without changing n
   assert.match(warning.textContent, /未装备生活副手/);
   assert.equal(warning.title, "未装备生活副手");
   assert.equal(dom.window.getComputedStyle(warning).position, "absolute");
+  assert.equal(
+    dom.window.getComputedStyle(warning).color,
+    "rgb(255, 244, 244)",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(warning).borderTopColor,
+    "rgb(255, 91, 91)",
+  );
+  assert.equal(warning.previousElementSibling.id, "mwi-action-dashboard");
   assert.equal(nativeName.outerHTML, nativeMarkup);
   assert.equal(host.firstElementChild, nativeName);
 

@@ -426,8 +426,8 @@ const catalogRows = [
     "general",
     "意见反馈",
     "Feedback",
-    "在总等级下方提交意见、截图并查看处理状态；每张截图最大 1MB。",
-    "Submit feedback and screenshots below total level and follow its status; images are limited to 1MB.",
+    "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
+    "Submit feedback with external image links below total level and follow its status.",
   ],
   [
     "forceMWIToolsDisplayZH",

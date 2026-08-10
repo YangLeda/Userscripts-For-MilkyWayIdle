@@ -1,12 +1,6 @@
 const API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
 const TOKEN_PREFIX = "MWITools_feedback_identity_v1";
-export const MAX_ATTACHMENTS = 3;
-export const MAX_IMAGE_BYTES = 1024 * 1024;
-export const ACCEPTED_IMAGE_TYPES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-]);
+export const MAX_IMAGE_LINKS = 3;
 
 function gameServer() {
   return String(globalThis.location?.hostname ?? "unknown");
@@ -51,7 +45,7 @@ function parseResponse(response) {
   }
 }
 
-function request({ token, path, method = "GET", body, responseType }) {
+function request({ token, path, method = "GET", body }) {
   const requestFn =
     typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
       ? GM.xmlHttpRequest
@@ -78,7 +72,7 @@ function request({ token, path, method = "GET", body, responseType }) {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.detail || `HTTP ${response.status}`);
         }
-        return responseType === "blob" ? response.blob() : response.json();
+        return response.json();
       });
   }
   return new Promise((resolve, reject) => {
@@ -96,8 +90,7 @@ function request({ token, path, method = "GET", body, responseType }) {
         reject(error);
         return;
       }
-      if (responseType === "blob") resolve(response.response);
-      else resolve(parseResponse(response));
+      resolve(parseResponse(response));
     };
     const fail = (message) => {
       if (settled) return;
@@ -115,7 +108,7 @@ function request({ token, path, method = "GET", body, responseType }) {
             : body
               ? JSON.stringify(body)
               : undefined,
-        responseType: responseType === "blob" ? "blob" : "text",
+        responseType: "text",
         timeout: 20_000,
         anonymous: false,
         onload: finish,
@@ -129,32 +122,40 @@ function request({ token, path, method = "GET", body, responseType }) {
   });
 }
 
-export function validateImageFiles(files, existingCount = 0) {
-  const values = [...(files ?? [])];
-  if (existingCount + values.length > MAX_ATTACHMENTS) {
-    throw new Error("最多只能上传 3 张图片");
+export function normalizeImageLinks(value) {
+  const values = Array.isArray(value)
+    ? value
+    : String(value ?? "").split(/\r?\n/);
+  const links = values.map((item) => String(item).trim()).filter(Boolean);
+  if (links.length > MAX_IMAGE_LINKS) {
+    throw new Error("最多只能填写 3 个图片链接");
   }
-  for (const file of values) {
-    if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
-      throw new Error("只支持 PNG、JPEG 和 WebP 图片");
+  for (const link of links) {
+    if (link.length > 2000) throw new Error("图片链接过长");
+    let url;
+    try {
+      url = new URL(link);
+    } catch {
+      throw new Error("图片链接格式不正确");
     }
-    if (file.size > MAX_IMAGE_BYTES) {
-      throw new Error("每张图片不能超过 1MB");
+    if (!["http:", "https:"].includes(url.protocol)) {
+      throw new Error("图片链接只支持 HTTP 或 HTTPS");
     }
   }
-  return values;
+  return links;
 }
 
-function appendFeedbackForm(form, value, files, keepAttachments = null) {
+function appendFeedbackForm(form, value) {
   form.append("kind", value.type);
   form.append("title", value.title);
   form.append("detail", value.detail);
   form.append("reproduction", value.reproduction ?? "");
   form.append("expected", value.expected ?? "");
   if (value.context) form.append("context", JSON.stringify(value.context));
-  if (keepAttachments)
-    form.append("keepAttachments", JSON.stringify(keepAttachments));
-  for (const file of files) form.append("images", file, file.name);
+  form.append(
+    "imageLinks",
+    JSON.stringify(normalizeImageLinks(value.imageLinks)),
+  );
   return form;
 }
 
@@ -203,24 +204,17 @@ export class FeedbackClient {
     return this.call(`/feedback/${encodeURIComponent(id)}`);
   }
 
-  submit(value, files = []) {
-    validateImageFiles(files);
+  submit(value) {
     return this.call("/feedback", {
       method: "POST",
-      body: appendFeedbackForm(new globalThis.FormData(), value, files),
+      body: appendFeedbackForm(new globalThis.FormData(), value),
     });
   }
 
-  edit(id, value, files = [], keepAttachments = []) {
-    validateImageFiles(files, keepAttachments.length);
+  edit(id, value) {
     return this.call(`/feedback/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: appendFeedbackForm(
-        new globalThis.FormData(),
-        value,
-        files,
-        keepAttachments,
-      ),
+      body: appendFeedbackForm(new globalThis.FormData(), value),
     });
   }
 
@@ -235,13 +229,6 @@ export class FeedbackClient {
     return this.call(`/feedback/${encodeURIComponent(id)}/seen`, {
       method: "POST",
     });
-  }
-
-  attachmentBlob(id, thumbnail = false) {
-    return this.call(
-      `/attachments/${encodeURIComponent(id)}${thumbnail ? "/thumbnail" : ""}`,
-      { responseType: "blob" },
-    );
   }
 }
 

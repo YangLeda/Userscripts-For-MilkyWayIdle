@@ -1167,8 +1167,8 @@
       "general",
       "意见反馈",
       "Feedback",
-      "在总等级下方提交意见、截图并查看处理状态；每张截图最大 1MB。",
-      "Submit feedback and screenshots below total level and follow its status; images are limited to 1MB."
+      "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
+      "Submit feedback with external image links below total level and follow its status."
     ],
     [
       "forceMWIToolsDisplayZH",
@@ -26566,13 +26566,7 @@ ${locks}` : ""}`;
   // src/features/feedback/client.js
   var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
-  var MAX_ATTACHMENTS = 3;
-  var MAX_IMAGE_BYTES = 1024 * 1024;
-  var ACCEPTED_IMAGE_TYPES = /* @__PURE__ */ new Set([
-    "image/png",
-    "image/jpeg",
-    "image/webp"
-  ]);
+  var MAX_IMAGE_LINKS = 3;
   function gameServer() {
     return String(globalThis.location?.hostname ?? "unknown");
   }
@@ -26606,7 +26600,7 @@ ${locks}` : ""}`;
       return { detail: String(text) };
     }
   }
-  function request({ token, path, method = "GET", body, responseType }) {
+  function request({ token, path, method = "GET", body }) {
     const requestFn = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     const headers = { Authorization: `Bearer ${token}` };
     if (body && !(body instanceof globalThis.FormData))
@@ -26621,7 +26615,7 @@ ${locks}` : ""}`;
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload.detail || `HTTP ${response.status}`);
         }
-        return responseType === "blob" ? response.blob() : response.json();
+        return response.json();
       });
     }
     return new Promise((resolve, reject) => {
@@ -26639,8 +26633,7 @@ ${locks}` : ""}`;
           reject(error);
           return;
         }
-        if (responseType === "blob") resolve(response.response);
-        else resolve(parseResponse(response));
+        resolve(parseResponse(response));
       };
       const fail = (message) => {
         if (settled) return;
@@ -26653,7 +26646,7 @@ ${locks}` : ""}`;
           url: `${API_BASE}${path}`,
           headers,
           data: body instanceof globalThis.FormData ? body : body ? JSON.stringify(body) : void 0,
-          responseType: responseType === "blob" ? "blob" : "text",
+          responseType: "text",
           timeout: 2e4,
           anonymous: false,
           onload: finish,
@@ -26666,31 +26659,37 @@ ${locks}` : ""}`;
       }
     });
   }
-  function validateImageFiles(files, existingCount = 0) {
-    const values = [...files ?? []];
-    if (existingCount + values.length > MAX_ATTACHMENTS) {
-      throw new Error("最多只能上传 3 张图片");
+  function normalizeImageLinks(value) {
+    const values = Array.isArray(value) ? value : String(value ?? "").split(/\r?\n/);
+    const links = values.map((item) => String(item).trim()).filter(Boolean);
+    if (links.length > MAX_IMAGE_LINKS) {
+      throw new Error("最多只能填写 3 个图片链接");
     }
-    for (const file of values) {
-      if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
-        throw new Error("只支持 PNG、JPEG 和 WebP 图片");
+    for (const link of links) {
+      if (link.length > 2e3) throw new Error("图片链接过长");
+      let url;
+      try {
+        url = new URL(link);
+      } catch {
+        throw new Error("图片链接格式不正确");
       }
-      if (file.size > MAX_IMAGE_BYTES) {
-        throw new Error("每张图片不能超过 1MB");
+      if (!["http:", "https:"].includes(url.protocol)) {
+        throw new Error("图片链接只支持 HTTP 或 HTTPS");
       }
     }
-    return values;
+    return links;
   }
-  function appendFeedbackForm(form, value, files, keepAttachments = null) {
+  function appendFeedbackForm(form, value) {
     form.append("kind", value.type);
     form.append("title", value.title);
     form.append("detail", value.detail);
     form.append("reproduction", value.reproduction ?? "");
     form.append("expected", value.expected ?? "");
     if (value.context) form.append("context", JSON.stringify(value.context));
-    if (keepAttachments)
-      form.append("keepAttachments", JSON.stringify(keepAttachments));
-    for (const file of files) form.append("images", file, file.name);
+    form.append(
+      "imageLinks",
+      JSON.stringify(normalizeImageLinks(value.imageLinks))
+    );
     return form;
   }
   var FeedbackClient = class {
@@ -26732,23 +26731,16 @@ ${locks}` : ""}`;
     detail(id) {
       return this.call(`/feedback/${encodeURIComponent(id)}`);
     }
-    submit(value, files = []) {
-      validateImageFiles(files);
+    submit(value) {
       return this.call("/feedback", {
         method: "POST",
-        body: appendFeedbackForm(new globalThis.FormData(), value, files)
+        body: appendFeedbackForm(new globalThis.FormData(), value)
       });
     }
-    edit(id, value, files = [], keepAttachments = []) {
-      validateImageFiles(files, keepAttachments.length);
+    edit(id, value) {
       return this.call(`/feedback/${encodeURIComponent(id)}`, {
         method: "PUT",
-        body: appendFeedbackForm(
-          new globalThis.FormData(),
-          value,
-          files,
-          keepAttachments
-        )
+        body: appendFeedbackForm(new globalThis.FormData(), value)
       });
     }
     reply(id, body) {
@@ -26761,12 +26753,6 @@ ${locks}` : ""}`;
       return this.call(`/feedback/${encodeURIComponent(id)}/seen`, {
         method: "POST"
       });
-    }
-    attachmentBlob(id, thumbnail = false) {
-      return this.call(
-        `/attachments/${encodeURIComponent(id)}${thumbnail ? "/thumbnail" : ""}`,
-        { responseType: "blob" }
-      );
     }
   };
   function feedbackContext(client) {
@@ -26798,17 +26784,17 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID7;
     style.textContent = `
-    #${BUTTON_ID}{position:relative;display:flex;align-items:center;justify-content:center;gap:5px;width:100%;margin-top:3px;padding:3px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:3px auto 0;padding:3px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
     #${ROOT_ID}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
     .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
     .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}.mwi-feedback-tab .mwi-feedback-badge{right:calc(50% - 52px);top:4px}
     .mwi-feedback-body{min-height:360px;overflow:auto;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
-    .mwi-feedback-drop{grid-column:1/-1;padding:13px;border:1px dashed #53607f;border-radius:6px;background:#121827;text-align:center;color:#9fa9c0;font-size:12px}.mwi-feedback-drop[data-drag="true"]{border-color:#f2ad3e;background:rgba(242,173,62,.09)}.mwi-feedback-drop button{margin-left:6px}.mwi-feedback-previews{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.mwi-feedback-preview{position:relative;width:112px;height:82px;border:1px solid #3f4964;border-radius:5px;overflow:hidden;background:#0e121d}.mwi-feedback-preview img{width:100%;height:100%;object-fit:cover}.mwi-feedback-preview button{position:absolute;right:3px;top:3px;width:21px;height:21px;padding:0;border:0;border-radius:50%;background:rgba(0,0,0,.72);color:white;cursor:pointer}
+    .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
     .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}
-    @media(max-width:620px){#${ROOT_ID}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide,.mwi-feedback-drop{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+    @media(max-width:620px){#${ROOT_ID}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -26829,9 +26815,6 @@ ${locks}` : ""}`;
     constructor({ client, scope }) {
       this.client = client;
       this.scope = scope;
-      this.files = [];
-      this.fileUrls = /* @__PURE__ */ new Map();
-      this.serverImageUrls = /* @__PURE__ */ new Set();
       this.items = [];
       this.unread = 0;
       this.currentDetailId = null;
@@ -26855,7 +26838,7 @@ ${locks}` : ""}`;
               <label class="mwi-feedback-field"><span>${t7("标题", "Title")}</span><input name="title" maxlength="160" required></label>
               <label class="mwi-feedback-field is-wide"><span>${t7("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
               <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t7("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t7("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <div class="mwi-feedback-drop"><span>${t7("拖放或粘贴截图，也可以", "Drop or paste screenshots, or")}</span><button type="button" data-pick>${t7("选择图片", "Choose images")}</button><div>${t7("PNG / JPEG / WebP，最多 3 张，每张不超过 1MB", "PNG / JPEG / WebP, up to 3 images, 1MB each")}</div><input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><div class="mwi-feedback-previews"></div></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t7("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t7("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t7("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
             </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t7("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t7("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
@@ -26863,7 +26846,6 @@ ${locks}` : ""}`;
       </section>`;
       document.body.appendChild(this.root);
       this.form = this.root.querySelector(".mwi-feedback-form");
-      this.fileInput = this.form.querySelector('input[type="file"]');
       this.scope.event(
         this.root.querySelector(".mwi-feedback-close"),
         "click",
@@ -26885,40 +26867,6 @@ ${locks}` : ""}`;
         () => this.toggleBugFields()
       );
       this.scope.event(this.form, "submit", (event) => this.submit(event));
-      this.scope.event(
-        this.form.querySelector("[data-pick]"),
-        "click",
-        () => this.fileInput.click()
-      );
-      this.scope.event(
-        this.fileInput,
-        "change",
-        () => this.addFiles(this.fileInput.files)
-      );
-      const drop = this.form.querySelector(".mwi-feedback-drop");
-      for (const name of ["dragenter", "dragover"]) {
-        this.scope.event(drop, name, (event) => {
-          event.preventDefault();
-          drop.dataset.drag = "true";
-        });
-      }
-      for (const name of ["dragleave", "drop"]) {
-        this.scope.event(drop, name, (event) => {
-          event.preventDefault();
-          drop.dataset.drag = "false";
-          if (name === "drop") this.addFiles(event.dataTransfer?.files);
-        });
-      }
-      this.scope.event(this.root, "paste", (event) => {
-        if (this.root.hidden) return;
-        const images = [...event.clipboardData?.files ?? []].filter(
-          (file) => ACCEPTED_IMAGE_TYPES.has(file.type)
-        );
-        if (images.length) {
-          event.preventDefault();
-          this.addFiles(images);
-        }
-      });
       this.scope.event(document, "keydown", (event) => {
         if (event.key === "Escape" && !this.root.hidden) this.close();
       });
@@ -26926,9 +26874,7 @@ ${locks}` : ""}`;
       this.toggleBugFields();
     }
     ensureButton() {
-      const totalLevel = document.querySelector(
-        'div[class*="Header_totalLevel"]'
-      );
+      const totalLevel = this.findTotalLevel();
       if (!totalLevel?.parentElement) return null;
       let button = document.getElementById(BUTTON_ID);
       if (!button) {
@@ -26942,6 +26888,20 @@ ${locks}` : ""}`;
         totalLevel.insertAdjacentElement("afterend", button);
       }
       return button;
+    }
+    findTotalLevel() {
+      const direct = document.querySelector(
+        '[class*="Header_totalLevel"],[class*="totalLevel"]'
+      );
+      if (direct) return direct;
+      return [
+        ...document.querySelectorAll(
+          'header div,header span,[class*="Header"] div'
+        )
+      ].find((node) => {
+        const text = node.textContent?.trim() ?? "";
+        return text.length < 80 && /^(总等级|Total Level)\s*[:：]/i.test(text);
+      });
     }
     setUnread(count) {
       this.unread = Math.max(0, Number(count) || 0);
@@ -26971,64 +26931,6 @@ ${locks}` : ""}`;
     toggleBugFields() {
       this.form.querySelector(".mwi-feedback-bug-fields").hidden = this.form.elements.type.value !== "bug";
     }
-    addFiles(files) {
-      const error = this.form.querySelector(".mwi-feedback-error");
-      try {
-        const values = validateImageFiles(
-          files,
-          this.files.length + (this.editing?.attachments?.length ?? 0)
-        );
-        this.files.push(...values);
-        error.textContent = "";
-        this.renderPreviews();
-      } catch (caught) {
-        error.textContent = caught.message;
-      } finally {
-        this.fileInput.value = "";
-      }
-    }
-    renderPreviews() {
-      for (const value of this.fileUrls.values()) URL.revokeObjectURL(value);
-      this.fileUrls.clear();
-      const host = this.form.querySelector(".mwi-feedback-previews");
-      host.replaceChildren();
-      for (const attachment of this.editing?.attachments ?? []) {
-        const preview = this.previewNode(null, attachment.name, () => {
-          this.editing.attachments = this.editing.attachments.filter(
-            (item) => item.id !== attachment.id
-          );
-          this.renderPreviews();
-        });
-        host.append(preview);
-        this.loadAttachmentImage(
-          attachment.id,
-          preview.querySelector("img"),
-          true
-        );
-      }
-      this.files.forEach((file, index) => {
-        const url = URL.createObjectURL(file);
-        this.fileUrls.set(file, url);
-        host.append(
-          this.previewNode(url, file.name, () => {
-            this.files.splice(index, 1);
-            this.renderPreviews();
-          })
-        );
-      });
-    }
-    previewNode(src, name, remove) {
-      const box = makeElement("div", "mwi-feedback-preview");
-      const image = document.createElement("img");
-      image.alt = name;
-      if (src) image.src = src;
-      const button = makeElement("button", "", "×");
-      button.type = "button";
-      button.setAttribute("aria-label", t7("移除图片", "Remove image"));
-      button.addEventListener("click", remove, { once: true });
-      box.append(image, button);
-      return box;
-    }
     formValue() {
       return {
         type: this.form.elements.type.value,
@@ -27036,6 +26938,7 @@ ${locks}` : ""}`;
         detail: this.form.elements.detail.value.trim(),
         reproduction: this.form.elements.reproduction.value.trim(),
         expected: this.form.elements.expected.value.trim(),
+        imageLinks: normalizeImageLinks(this.form.elements.imageLinks.value),
         context: feedbackContext(this.client)
       };
     }
@@ -27043,26 +26946,19 @@ ${locks}` : ""}`;
       event.preventDefault();
       const error = this.form.querySelector(".mwi-feedback-error");
       const button = this.form.querySelector(".mwi-feedback-submit");
-      const value = this.formValue();
-      if (!value.title || !value.detail) {
-        error.textContent = t7(
-          "请填写标题和详细说明。",
-          "Enter a title and details."
-        );
-        return;
-      }
       button.disabled = true;
       error.textContent = t7("正在提交…", "Submitting…");
       try {
-        if (this.editing) {
-          await this.client.edit(
-            this.editing.id,
-            value,
-            this.files,
-            this.editing.attachments.map((item) => item.id)
+        const value = this.formValue();
+        if (!value.title || !value.detail) {
+          throw new Error(
+            t7("请填写标题和详细说明。", "Enter a title and details.")
           );
+        }
+        if (this.editing) {
+          await this.client.edit(this.editing.id, value);
         } else {
-          await this.client.submit(value, this.files);
+          await this.client.submit(value);
         }
         this.resetForm();
         error.classList.add("mwi-feedback-success");
@@ -27078,14 +26974,12 @@ ${locks}` : ""}`;
     }
     resetForm() {
       this.form.reset();
-      this.files = [];
       this.editing = null;
       this.form.querySelector(".mwi-feedback-submit").textContent = t7(
         "提交",
         "Submit"
       );
       this.toggleBugFields();
-      this.renderPreviews();
     }
     async refresh() {
       try {
@@ -27189,25 +27083,22 @@ ${locks}` : ""}`;
             )
           );
         }
-        if (item.attachments?.length) {
+        if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t7("截图", "Screenshots")));
-          const gallery = makeElement("div", "mwi-feedback-previews");
-          for (const attachment of item.attachments) {
-            const preview = makeElement("button", "mwi-feedback-preview");
-            preview.type = "button";
-            const image = document.createElement("img");
-            image.alt = attachment.name;
-            preview.append(image);
-            this.loadAttachmentImage(attachment.id, image, true);
-            preview.addEventListener(
-              "click",
-              () => this.openFullImage(attachment.id),
-              { once: true }
+          section.append(makeElement("h4", "", t7("图片链接", "Image links")));
+          const links = makeElement("div", "mwi-feedback-link-list");
+          for (const [index, url] of item.imageLinks.entries()) {
+            const link = makeElement(
+              "a",
+              "",
+              `${t7("图片", "Image")} ${index + 1}：${url}`
             );
-            gallery.append(preview);
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            links.append(link);
           }
-          section.append(gallery);
+          section.append(links);
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
@@ -27297,8 +27188,7 @@ ${locks}` : ""}`;
       return section;
     }
     startEdit(item) {
-      this.editing = { ...item, attachments: [...item.attachments ?? []] };
-      this.files = [];
+      this.editing = { ...item };
       for (const name of [
         "type",
         "title",
@@ -27308,39 +27198,16 @@ ${locks}` : ""}`;
       ]) {
         this.form.elements[name].value = item[name] ?? "";
       }
+      this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
       this.form.querySelector(".mwi-feedback-submit").textContent = t7(
         "保存修改",
         "Save changes"
       );
       this.toggleBugFields();
-      this.renderPreviews();
       this.renderQuota();
       this.showTab("submit");
     }
-    async loadAttachmentImage(id, image, thumbnail) {
-      try {
-        const blob = await this.client.attachmentBlob(id, thumbnail);
-        const url = URL.createObjectURL(blob);
-        this.serverImageUrls.add(url);
-        image.src = url;
-      } catch {
-        image.alt = t7("图片加载失败", "Image failed to load");
-      }
-    }
-    async openFullImage(id) {
-      try {
-        const blob = await this.client.attachmentBlob(id, false);
-        const url = URL.createObjectURL(blob);
-        this.serverImageUrls.add(url);
-        globalThis.open(url, "_blank", "noopener");
-      } catch {
-      }
-    }
     destroy() {
-      for (const value of this.fileUrls.values()) URL.revokeObjectURL(value);
-      for (const value of this.serverImageUrls) URL.revokeObjectURL(value);
-      this.fileUrls.clear();
-      this.serverImageUrls.clear();
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
       document.getElementById(STYLE_ID7)?.remove();
@@ -29561,10 +29428,12 @@ ${locks}` : ""}`;
     style.id = EQUIPMENT_WARNING_STYLE_ID;
     style.textContent = `
     .mwi-equipment-warning-host { position:relative!important; }
-    #script_item_warning { position:absolute; top:50%; z-index:6; display:flex; box-sizing:border-box; min-width:26px; max-width:var(--mwi-equipment-warning-space,180px); height:24px; align-items:center; gap:5px; padding:2px 7px; transform:translateY(-50%); border:1px solid rgba(255,174,61,.55); border-radius:999px; background:rgba(74,42,12,.92); color:#ffc56e; box-shadow:0 2px 8px rgba(0,0,0,.22); font:inherit; font-size:.66rem; font-weight:650; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; }
-    .mwi-equipment-warning-icon { flex:0 0 auto; font-size:.72rem; }
+    @keyframes mwi-equipment-warning-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); } 50% { box-shadow:0 0 0 4px rgba(255,75,75,.16),0 2px 12px rgba(0,0,0,.5); } }
+    #script_item_warning { position:absolute; top:50%; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,190px); height:26px; align-items:center; gap:5px; padding:2px 8px; transform:translateY(-50%); border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.68rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
+    .mwi-equipment-warning-icon { flex:0 0 auto; color:#ffb7b7; font-size:.78rem; }
     .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
-    @media(max-width:680px) { #script_item_warning { width:26px; max-width:26px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
+    @media(prefers-reduced-motion:reduce) { #script_item_warning { animation:none; } }
+    @media(max-width:680px) { #script_item_warning { width:28px; max-width:28px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -29589,7 +29458,7 @@ ${locks}` : ""}`;
     warning.style.left = `${left}px`;
     warning.style.setProperty(
       "--mwi-equipment-warning-space",
-      `${Math.min(180, availableInHost, availableInViewport)}px`
+      `${Math.min(190, availableInHost, availableInViewport)}px`
     );
   }
   function checkEquipment() {
