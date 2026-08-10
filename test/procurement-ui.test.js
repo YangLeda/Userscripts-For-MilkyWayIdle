@@ -132,6 +132,27 @@ test("sufficient materials keep their remaining quantity", () => {
   assert.match(badge.textContent, /^(余|Spare) /);
 });
 
+test("a manually opened marketplace does not show the shopping navigation bar", () => {
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/nail",
+    name: "Nail",
+    quantity: 2,
+  });
+  const panel = document.createElement("section");
+  panel.className = "MarketplacePanel_marketplacePanel__fixture";
+  panel.getClientRects = () => [{}];
+  document.body.append(panel);
+
+  runtime.api.updateProcurementMarketUi();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-market-nav"),
+    null,
+  );
+
+  panel.remove();
+  runtime.api.procurement.removeFromCart("/items/nail");
+});
+
 test("shopping item clicks resolve the game's legacy React root", () => {
   const calls = [];
   const gameRoot = document.createElement("div");
@@ -151,6 +172,53 @@ test("shopping item clicks resolve the game's legacy React root", () => {
   document.body.append(gameRoot);
   assert.equal(runtime.api.openProcurementMarketplace("/items/nail", 2), true);
   assert.deepEqual(calls, [["/items/nail", 2]]);
+  gameRoot.remove();
+});
+
+test("shopping item clicks prefer and force the game's floating market modal", () => {
+  const stateUpdates = [];
+  let misleadingCalls = 0;
+  const modalHost = {
+    state: { navTarget: "marketplace" },
+    handleGoToMarketplace() {},
+    handleCloseMarketplaceModal() {},
+    setState(update, callback) {
+      stateUpdates.push(update);
+      Object.assign(this.state, update);
+      callback?.();
+    },
+  };
+  const gameRoot = document.createElement("div");
+  gameRoot.id = "root";
+  gameRoot._reactRootContainer = {
+    current: {
+      stateNode: modalHost,
+      child: {
+        stateNode: {
+          openMarketplace() {
+            misleadingCalls += 1;
+          },
+        },
+      },
+    },
+  };
+  document.body.append(gameRoot);
+
+  assert.equal(runtime.api.openProcurementMarketplace("/items/board", 3), true);
+  assert.deepEqual(stateUpdates, [
+    {
+      navTarget: "milking",
+      showMarketplaceModal: false,
+    },
+    {
+      showMarketplaceModal: true,
+      marketViewOverrideData: {
+        itemHrid: "/items/board",
+        enhancementLevel: 3,
+      },
+    },
+  ]);
+  assert.equal(misleadingCalls, 0);
   gameRoot.remove();
 });
 
@@ -205,6 +273,8 @@ test("market shopping navigation renders item icons instead of name pills", () =
     name: "Cotton",
     quantity: 12,
   });
+  const modal = document.createElement("div");
+  modal.className = "MainPanel_marketplaceModal__fixture";
   const panel = document.createElement("section");
   panel.className = "MarketplacePanel_marketplacePanel__fixture";
   panel.innerHTML = `<div class="MarketplacePanel_currentItem__fixture"><svg><use href="/static/media/items_sprite.test.svg#cotton"></use></svg></div>`;
@@ -217,7 +287,8 @@ test("market shopping navigation renders item icons instead of name pills", () =
     width: 400,
     height: 460,
   });
-  document.body.append(panel);
+  modal.append(panel);
+  document.body.append(modal);
 
   runtime.api.updateProcurementMarketUi();
   const chip = document.querySelector(
@@ -228,7 +299,14 @@ test("market shopping navigation renders item icons instead of name pills", () =
   assert.doesNotMatch(chip.textContent, /Cotton|棉花/);
   assert.match(chip.title, /Cotton/);
 
-  panel.remove();
-  document.querySelector("#mwitools-procurement-market-nav")?.remove();
+  modal.remove();
+  const realNow = Date.now;
+  Date.now = () => realNow() + 3_000;
+  runtime.api.updateProcurementMarketUi();
+  Date.now = realNow;
+  assert.equal(
+    document.querySelector("#mwitools-procurement-market-nav"),
+    null,
+  );
   runtime.api.procurement.removeFromCart("/items/cotton");
 });

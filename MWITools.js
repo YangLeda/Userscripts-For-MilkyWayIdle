@@ -22925,6 +22925,19 @@ ${preview}`
       waitGuildCreditConversionsSelect();
     }
   }
+  function getInventorySortUnitValue(itemHrid, enhancementLevel = 0, order = "fair") {
+    const derivedValue = Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) || Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) || 0;
+    if (order === "ask") {
+      return Number(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) || derivedValue;
+    }
+    if (order === "bid") {
+      return Number(runtime.api.getBidPrice?.(itemHrid, enhancementLevel)) || derivedValue;
+    }
+    return derivedValue;
+  }
+  function isSortableInventoryCategory(typeName) {
+    return typeName !== "Equipment";
+  }
   async function addInvSortButton(invElem) {
     const price_data = await runtime.api.fetchMarketJSON();
     if (!price_data || !price_data.marketData) {
@@ -22970,8 +22983,7 @@ ${preview}`
         const typeName = runtime.api.getOriTextFromElement(
           typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0]
         );
-        const notNeedSortTypes = ["Loots", "Currencies", "Equipment"];
-        if (notNeedSortTypes.includes(typeName)) {
+        if (!isSortableInventoryCategory(typeName)) {
           continue;
         }
         typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
@@ -22984,15 +22996,9 @@ ${preview}`
           const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
           let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
           itemCount = runtime.api.parseCompactNumber(itemCount);
-          let askPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            askPrice = price_data.marketData[itemHrid][0].a;
-          let bidPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            bidPrice = price_data.marketData[itemHrid][0].b;
-          const itemAskmWorth = askPrice * itemCount;
-          const itemBidWorth = bidPrice * itemCount;
-          const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
+          const itemAskmWorth = getInventorySortUnitValue(itemHrid, 0, "ask") * itemCount;
+          const itemBidWorth = getInventorySortUnitValue(itemHrid, 0, "bid") * itemCount;
+          const itemFairWorth = getInventorySortUnitValue(itemHrid, 0, "fair") * itemCount;
           if (!itemElem.querySelector("#script_stack_price")) {
             itemElem.style.position = "relative";
             const priceElemHTML = `<div
@@ -23240,6 +23246,8 @@ ${preview}`
     calculateNetworth,
     scheduleNetworthRefresh,
     addInventoryCategoryValues,
+    getInventorySortUnitValue,
+    isSortableInventoryCategory,
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
@@ -24833,7 +24841,14 @@ ${preview}`
   var currentMarketTarget = "";
   var armedNextItem = "";
   var marketSessionDone = /* @__PURE__ */ new Map();
+  var marketSessionActive = false;
+  var marketSessionRequiresModal = false;
+  var marketSessionStartedAt = 0;
+  var marketSessionModalSeen = false;
+  var marketSessionHost = null;
+  var marketSessionRestoreNavTarget = "";
   var lastProductionSignature = "";
+  var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
   function t5(zh, en) {
@@ -25763,17 +25778,21 @@ ${locks}` : ""}`;
       }
     }
     const seen = /* @__PURE__ */ new Set();
+    let fallback = null;
     while (fibers.length && seen.size < 5e4) {
       const fiber = fibers.pop();
       if (!fiber || seen.has(fiber)) continue;
       seen.add(fiber);
       const host = fiber.stateNode;
+      if (typeof host?.handleGoToMarketplace === "function" && typeof host?.handleCloseMarketplaceModal === "function" && typeof host?.setState === "function") {
+        return { host, fn: host.handleGoToMarketplace, floating: true };
+      }
       const fn = host?.handleGoToMarketplace ?? host?.goToMarketplace ?? host?.openMarketplace;
-      if (typeof fn === "function") return { host, fn };
+      if (!fallback && typeof fn === "function") fallback = { host, fn };
       if (fiber.child) fibers.push(fiber.child);
       if (fiber.sibling) fibers.push(fiber.sibling);
     }
-    return null;
+    return fallback;
   }
   function openMarketplace(itemHrid, enhancementLevel = 0) {
     const resolved = resolveMarketplaceHandler();
@@ -25796,14 +25815,67 @@ ${locks}` : ""}`;
       [bareItemId]
     ];
     let lastError = null;
-    for (const args of argumentSets) {
+    if (resolved.floating) {
       try {
-        resolved.fn.call(resolved.host, ...args);
+        const restoreNavTarget = resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        const showFloatingModal = () => {
+          resolved.host.setState({
+            showMarketplaceModal: true,
+            marketViewOverrideData: {
+              itemHrid: currentMarketTarget,
+              enhancementLevel: level
+            }
+          });
+        };
+        if (restoreNavTarget) {
+          resolved.host.setState(
+            { navTarget: "milking", showMarketplaceModal: false },
+            showFloatingModal
+          );
+          setTimeout(() => {
+            if (marketSessionActive && currentMarketTarget === procurement.normalizeItemHrid(itemHrid) && resolved.host.state?.navTarget !== "marketplace") {
+              resolved.fn.call(resolved.host, currentMarketTarget, level);
+            }
+          }, 240);
+        } else {
+          showFloatingModal();
+        }
+        marketSessionActive = true;
+        marketSessionRequiresModal = true;
+        marketSessionStartedAt = Date.now();
+        marketSessionModalSeen = false;
+        marketSessionHost = resolved.host;
+        marketSessionRestoreNavTarget = restoreNavTarget;
+        marketSessionDone = /* @__PURE__ */ new Map();
         if (window.matchMedia?.("(max-width:760px)").matches) {
           drawerOpen = false;
           renderShell();
         }
-        setTimeout(() => updateMarketUi(true), 160);
+        for (const delay of [80, 240, 600, 1200]) {
+          setTimeout(() => updateMarketUi(true), delay);
+        }
+        return true;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    for (const args of argumentSets) {
+      try {
+        resolved.fn.call(resolved.host, ...args);
+        marketSessionActive = true;
+        marketSessionRequiresModal = false;
+        marketSessionStartedAt = Date.now();
+        marketSessionModalSeen = false;
+        marketSessionHost = null;
+        marketSessionRestoreNavTarget = "";
+        marketSessionDone = /* @__PURE__ */ new Map();
+        if (window.matchMedia?.("(max-width:760px)").matches) {
+          drawerOpen = false;
+          renderShell();
+        }
+        for (const delay of [80, 240, 600, 1200]) {
+          setTimeout(() => updateMarketUi(true), delay);
+        }
         return true;
       } catch (error) {
         lastError = error;
@@ -25818,11 +25890,14 @@ ${locks}` : ""}`;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
   function findMarketPanel() {
-    return [
+    const visible = [
       ...document.querySelectorAll(
         '[class*="MarketplacePanel_marketplacePanel"]'
       )
-    ].find((candidate) => candidate.getClientRects().length);
+    ].filter((candidate) => candidate.getClientRects().length);
+    return visible.find(
+      (candidate) => candidate.closest('[class*="MainPanel_marketplaceModal__"]')
+    ) ?? visible.at(0);
   }
   function detectMarketItem(panel) {
     const current = panel?.querySelector(
@@ -25832,10 +25907,25 @@ ${locks}` : ""}`;
     const fragment = href.split("#").at(-1);
     return fragment ? procurement.normalizeItemHrid(fragment) : "";
   }
-  function clearMarketUi() {
+  function clearMarketUi({ preserveSession = false } = {}) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-    marketSessionDone = /* @__PURE__ */ new Map();
+    if (!preserveSession) {
+      const restoreHost = marketSessionHost;
+      const restoreNavTarget = marketSessionRestoreNavTarget;
+      marketSessionActive = false;
+      marketSessionRequiresModal = false;
+      marketSessionStartedAt = 0;
+      marketSessionModalSeen = false;
+      marketSessionHost = null;
+      marketSessionRestoreNavTarget = "";
+      currentMarketTarget = "";
+      armedNextItem = "";
+      marketSessionDone = /* @__PURE__ */ new Map();
+      if (restoreNavTarget && typeof restoreHost?.setState === "function" && restoreHost.state?.navTarget !== restoreNavTarget) {
+        restoreHost.setState({ navTarget: restoreNavTarget });
+      }
+    }
   }
   function highlightMarketItems(panel, scroll = false) {
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
@@ -25886,7 +25976,7 @@ ${locks}` : ""}`;
     }
   }
   function renderMarketNav(panel) {
-    if (!procurement.getSettings().purchaseNavEnabled) {
+    if (!marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
@@ -25954,8 +26044,17 @@ ${locks}` : ""}`;
   function updateMarketUi(scroll = false) {
     const panel = findMarketPanel();
     if (!panel) {
-      clearMarketUi();
+      const waitingForModal = marketSessionActive && !marketSessionModalSeen && Date.now() - marketSessionStartedAt < MARKET_SESSION_OPEN_GRACE_MS;
+      clearMarketUi({ preserveSession: waitingForModal });
       return;
+    }
+    if (marketSessionActive && marketSessionRequiresModal && !panel.closest('[class*="MainPanel_marketplaceModal__"]')) {
+      const waitingForModal = !marketSessionModalSeen && Date.now() - marketSessionStartedAt < MARKET_SESSION_OPEN_GRACE_MS;
+      clearMarketUi({ preserveSession: waitingForModal });
+      if (waitingForModal) return;
+    }
+    if (panel.closest('[class*="MainPanel_marketplaceModal__"]')) {
+      marketSessionModalSeen = true;
     }
     highlightMarketItems(panel, scroll);
     prefillPurchaseModal();
@@ -26027,6 +26126,7 @@ ${locks}` : ""}`;
     );
     scope.add(
       procurement.on("all:fulfilled", () => {
+        clearMarketUi();
         if (procurement.getSettings().autoCollapseEnabled) {
           drawerOpen = false;
           renderShell();

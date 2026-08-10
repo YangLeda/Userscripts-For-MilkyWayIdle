@@ -77,6 +77,53 @@ runtime.api.getSelfBuildScores = async () => ({
   equipmentHidden: false,
 });
 
+test("inventory sorting uses derived values when an item has no order-book price", () => {
+  const originalGetAssetValue = runtime.api.getAssetValue;
+  const originalGetFairValue = runtime.api.getFairValue;
+  const originalGetAskPrice = runtime.api.getAskPrice;
+  const originalGetBidPrice = runtime.api.getBidPrice;
+  runtime.api.getAssetValue = () => 7_500;
+  runtime.api.getFairValue = () => 0;
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/derived", 0, "fair"),
+    7_500,
+  );
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/derived", 0, "ask"),
+    7_500,
+  );
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/derived", 0, "bid"),
+    7_500,
+  );
+
+  runtime.api.getAskPrice = () => 8_000;
+  runtime.api.getBidPrice = () => 7_000;
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/listed", 0, "ask"),
+    8_000,
+  );
+  assert.equal(
+    runtime.api.getInventorySortUnitValue("/items/listed", 0, "bid"),
+    7_000,
+  );
+
+  runtime.api.getAssetValue = originalGetAssetValue;
+  runtime.api.getFairValue = originalGetFairValue;
+  runtime.api.getAskPrice = originalGetAskPrice;
+  runtime.api.getBidPrice = originalGetBidPrice;
+});
+
+test("derived currency and loot categories participate in inventory sorting", () => {
+  assert.equal(runtime.api.isSortableInventoryCategory("Currencies"), true);
+  assert.equal(runtime.api.isSortableInventoryCategory("Loots"), true);
+  assert.equal(runtime.api.isSortableInventoryCategory("Food"), true);
+  assert.equal(runtime.api.isSortableInventoryCategory("Equipment"), false);
+});
+
 test("inventory asset summaries rerender without restoring the removed header UI", async () => {
   await runtime.api.calculateNetworth();
   await Promise.resolve();

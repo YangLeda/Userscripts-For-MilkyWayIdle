@@ -544,6 +544,34 @@ async function calculateNetworth() {
 
 /* 仓库物品排序 */
 // by daluo, bot7420
+function getInventorySortUnitValue(
+  itemHrid,
+  enhancementLevel = 0,
+  order = "fair",
+) {
+  const derivedValue =
+    Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) ||
+    Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) ||
+    0;
+  if (order === "ask") {
+    return (
+      Number(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) ||
+      derivedValue
+    );
+  }
+  if (order === "bid") {
+    return (
+      Number(runtime.api.getBidPrice?.(itemHrid, enhancementLevel)) ||
+      derivedValue
+    );
+  }
+  return derivedValue;
+}
+
+function isSortableInventoryCategory(typeName) {
+  return typeName !== "Equipment";
+}
+
 async function addInvSortButton(invElem) {
   const price_data = await runtime.api.fetchMarketJSON();
   if (!price_data || !price_data.marketData) {
@@ -602,8 +630,7 @@ async function addInvSortButton(invElem) {
       const typeName = runtime.api.getOriTextFromElement(
         typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0],
       );
-      const notNeedSortTypes = ["Loots", "Currencies", "Equipment"];
-      if (notNeedSortTypes.includes(typeName)) {
+      if (!isSortableInventoryCategory(typeName)) {
         continue;
       }
 
@@ -620,21 +647,12 @@ async function addInvSortButton(invElem) {
         const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
         let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
         itemCount = runtime.api.parseCompactNumber(itemCount);
-        let askPrice = 0;
-        if (
-          price_data.marketData[itemHrid] &&
-          price_data.marketData[itemHrid][0]
-        )
-          askPrice = price_data.marketData[itemHrid][0].a;
-        let bidPrice = 0;
-        if (
-          price_data.marketData[itemHrid] &&
-          price_data.marketData[itemHrid][0]
-        )
-          bidPrice = price_data.marketData[itemHrid][0].b;
-        const itemAskmWorth = askPrice * itemCount;
-        const itemBidWorth = bidPrice * itemCount;
-        const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
+        const itemAskmWorth =
+          getInventorySortUnitValue(itemHrid, 0, "ask") * itemCount;
+        const itemBidWorth =
+          getInventorySortUnitValue(itemHrid, 0, "bid") * itemCount;
+        const itemFairWorth =
+          getInventorySortUnitValue(itemHrid, 0, "fair") * itemCount;
 
         // 价格角标
         if (!itemElem.querySelector("#script_stack_price")) {
@@ -960,6 +978,8 @@ Object.assign(runtime.api, {
   calculateNetworth,
   scheduleNetworthRefresh,
   addInventoryCategoryValues,
+  getInventorySortUnitValue,
+  isSortableInventoryCategory,
   addInvSortButton,
   addGuildCreditConversionsSortButton,
 });
