@@ -20831,6 +20831,10 @@
         break;
       case "action_completed":
         applyActionCompleted(payload);
+        applyItemsUpdated(payload);
+        applySkillsUpdated(payload);
+        applyQuestsUpdated(payload);
+        applyCharacterAbilitiesUpdated(payload);
         break;
       case "items_updated":
         applyItemsUpdated(payload);

@@ -197,8 +197,13 @@ test("the top action estimate keeps the completed-cycle progress after the bar r
 });
 
 test("material-limited infinite production shows a finite live remainder", () => {
+  const logItem = runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/log",
+  );
+  logItem.count = 20;
   runtime.state.currentActionsHridList = [
     {
+      id: 51,
       actionHrid: "/actions/crafting/lumber",
       hasMaxCount: false,
       maxCount: 0,
@@ -212,6 +217,29 @@ test("material-limited infinite production shows a finite live remainder", () =>
   assert.match(dashboard.textContent, /还需 93s/);
   assert.doesNotMatch(dashboard.textContent, /∞/);
   assert.match(dashboard.querySelector("span").title, /当前库存/);
+
+  runtime.api.applyGameMessage({
+    type: "action_completed",
+    endCharacterAction: { id: 51, currentCount: 101 },
+    endCharacterItems: [
+      {
+        itemHrid: "/items/log",
+        itemLocationHrid: "/item_locations/inventory",
+        count: 18,
+      },
+    ],
+  });
+  const active = document.querySelector('[class*="ProgressBar_active"]');
+  active.style.transform = "matrix(0, 0, 0, 1, 0, 0)";
+  runtime.api.renderActionDashboard();
+
+  assert.match(dashboard.textContent, /剩余 9/);
+  assert.match(dashboard.textContent, /还需 90s/);
+  assert.doesNotMatch(dashboard.textContent, /还需 100s/);
+  runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/log",
+  ).count = 20;
+  active.style.transform = "matrix(0.7, 0, 0, 1, 0, 0)";
 });
 
 test("equipment warnings float below community buffs without moving action content", () => {

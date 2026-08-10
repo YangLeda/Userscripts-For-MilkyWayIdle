@@ -178,8 +178,22 @@ test("character, action and equipment messages update canonical state", () => {
   runtime.api.applyGameMessage({
     type: "action_completed",
     endCharacterAction: { id: 2, isDone: false, currentCount: 7 },
+    endCharacterItems: [
+      {
+        itemHrid: "/items/coin",
+        itemLocationHrid: "/item_locations/inventory",
+        count: 9,
+      },
+    ],
   });
   assert.equal(runtime.state.currentActionsHridList[0].currentCount, 7);
+  assert.equal(
+    runtime.state.initData_characterItems.find(
+      ({ itemHrid }) => itemHrid === "/items/coin",
+    ).count,
+    9,
+    "embedded action-completion inventory updates must reach canonical state",
+  );
 
   runtime.api.applyGameMessage({
     type: "action_completed",
