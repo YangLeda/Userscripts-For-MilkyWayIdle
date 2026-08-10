@@ -130,7 +130,6 @@ test("blessed tea applies while making inputs but not during mirror combinations
     successRates: [0.5, 0.5, 0.5, 0.5],
     successBonus: 0,
     blessedChance: 0.01,
-    philosopherBlessedChance: 0,
   });
   const withoutBlessedInputs = calculatePhilosopherEnhancementFlow({
     targetLevel: 4,
@@ -139,18 +138,33 @@ test("blessed tea applies while making inputs but not during mirror combinations
     successRates: [0.5, 0.5, 0.5, 0.5],
     successBonus: 0,
     blessedChance: 0,
-    philosopherBlessedChance: 0,
   });
 
-  assert.ok(Math.abs(withBlessedInputs.aCount - 1.9804931181305079) < 1e-12);
-  assert.ok(Math.abs(withBlessedInputs.bCount - 0.9804931181305079) < 1e-12);
-  assert.equal(withBlessedInputs.mirrorCount, withBlessedInputs.aCount);
+  assert.equal(withBlessedInputs.aCount, 2);
+  assert.equal(withBlessedInputs.bCount, 1);
+  assert.equal(withBlessedInputs.mirrorCount, 2);
   assert.equal(withoutBlessedInputs.aCount, 2);
   assert.equal(withoutBlessedInputs.bCount, 1);
   assert.notEqual(
     withBlessedInputs.totalActions,
     withoutBlessedInputs.totalActions,
   );
+});
+
+test("mirror input counts are integers and use one fewer mirror than inputs", () => {
+  const flow = calculatePhilosopherEnhancementFlow({
+    targetLevel: 20,
+    protectLevel: 6,
+    philosopherStartLevel: 12,
+    successRates: Array(20).fill(0.5),
+    successBonus: 0,
+    blessedChance: 0.01,
+  });
+
+  assert.equal(flow.aCount, 34);
+  assert.equal(flow.bCount, 21);
+  assert.equal(flow.mirrorCount, 54);
+  assert.equal(flow.mirrorCount, flow.aCount + flow.bCount - 1);
 });
 
 test("planner chooses a normal plan when philosopher acquisition is expensive", () => {
@@ -197,6 +211,12 @@ test("planner chooses philosopher protection and reports required enhancement in
   assert.ok(plan.bCount > 0);
   assert.ok(Number.isFinite(plan.aCount));
   assert.ok(Number.isFinite(plan.bCount));
+  assert.equal(Number.isInteger(plan.aCount), true);
+  assert.equal(Number.isInteger(plan.bCount), true);
+  assert.equal(
+    plan.expectedPhilosopherMirrorCount,
+    plan.aCount + plan.bCount - 1,
+  );
   assert.equal(
     plan.expectedProtectionCount,
     plan.expectedPhilosopherMirrorCount,

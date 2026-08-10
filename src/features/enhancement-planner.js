@@ -259,16 +259,26 @@ export function calculateNormalEnhancementFlow({
   };
 }
 
-function addProducedValue(
-  matrix,
-  targetLevel,
-  producedLevel,
-  actionLevel,
-  value,
-) {
-  if (value <= 0 || producedLevel <= 0) return;
-  const row = Math.min(targetLevel, producedLevel) - 1;
-  matrix[row][actionLevel] += value;
+function calculateMirrorRequirements(targetLevel, philosopherStartLevel) {
+  const requirements = Array(targetLevel + 1).fill(0);
+  const actionsByLevel = Array(targetLevel).fill(0);
+  requirements[targetLevel] = 1;
+
+  for (let level = targetLevel - 1; level >= philosopherStartLevel; level--) {
+    const actions = requirements[level + 1];
+    actionsByLevel[level] = actions;
+    requirements[level] += actions;
+    requirements[level - 1] += actions;
+  }
+
+  const aCount = requirements[philosopherStartLevel];
+  const bCount = requirements[philosopherStartLevel - 1];
+  return {
+    actionsByLevel,
+    aCount,
+    bCount,
+    mirrorCount: aCount + bCount - 1,
+  };
 }
 
 export function calculatePhilosopherEnhancementFlow({
@@ -278,7 +288,6 @@ export function calculatePhilosopherEnhancementFlow({
   successRates = DEFAULT_SUCCESS_RATES,
   successBonus,
   blessedChance,
-  philosopherBlessedChance = 0,
 }) {
   if (
     targetLevel <= 1 ||
@@ -287,101 +296,48 @@ export function calculatePhilosopherEnhancementFlow({
   ) {
     return null;
   }
-  const matrix = Array.from({ length: targetLevel }, () =>
-    Array(targetLevel).fill(0),
+  const mirror = calculateMirrorRequirements(
+    targetLevel,
+    philosopherStartLevel,
   );
-  const source = Array(targetLevel).fill(0);
-  source[targetLevel - 1] = 1;
-  const failRates = [];
+  const aFlow = calculateNormalEnhancementFlow({
+    targetLevel: philosopherStartLevel,
+    protectLevel,
+    successRates,
+    successBonus,
+    blessedChance,
+  });
+  const bFlow =
+    philosopherStartLevel > 1
+      ? calculateNormalEnhancementFlow({
+          targetLevel: philosopherStartLevel - 1,
+          protectLevel,
+          successRates,
+          successBonus,
+          blessedChance,
+        })
+      : { actionsByLevel: [], totalActions: 0, protectionCount: 0 };
+  if (!aFlow || !bFlow) return null;
 
-  for (let level = 0; level < targetLevel; level++) {
-    const philosopher = level >= philosopherStartLevel;
-    if (level > 0) matrix[level - 1][level] -= 1;
-
-    if (philosopher) {
-      if (level - 1 > 0) matrix[level - 2][level] -= 1;
-      addProducedValue(
-        matrix,
-        targetLevel,
-        level + 1,
-        level,
-        level + 1 < targetLevel ? 1 - philosopherBlessedChance : 1,
-      );
-      if (level + 1 < targetLevel) {
-        addProducedValue(
-          matrix,
-          targetLevel,
-          level + 2,
-          level,
-          philosopherBlessedChance,
-        );
-      }
-      continue;
-    }
-
-    const success = Math.min(
-      1,
-      successRateAt(successRates, level) * (1 + successBonus),
-    );
-    const fail = Math.max(0, 1 - success);
-    failRates[level] = fail;
-    addProducedValue(
-      matrix,
-      targetLevel,
-      level + 1,
-      level,
-      success * (1 - blessedChance),
-    );
-    addProducedValue(
-      matrix,
-      targetLevel,
-      level + 2,
-      level,
-      success * blessedChance,
-    );
-    const failLevel = level >= protectLevel ? level - 1 : 0;
-    if (failLevel > 0) matrix[failLevel - 1][level] += fail;
+  const actionsByLevel = [...mirror.actionsByLevel];
+  for (let level = 0; level < philosopherStartLevel; level++) {
+    actionsByLevel[level] =
+      mirror.aCount * (aFlow.actionsByLevel[level] ?? 0) +
+      mirror.bCount * (bFlow.actionsByLevel[level] ?? 0);
   }
-
-  const actionsByLevel = solveLinearSystem(matrix, source);
-  if (
-    !actionsByLevel ||
-    actionsByLevel.some((value) => value < -EPSILON || !Number.isFinite(value))
-  ) {
-    return null;
-  }
-  const normalizedActions = actionsByLevel.map((value) =>
-    Math.abs(value) < EPSILON ? 0 : value,
-  );
-  let baseItemCount = normalizedActions[0] ?? 0;
-  let mirrorCount = 0;
-  let protectionCount = 0;
-  let baseInflows = 0;
-
-  for (let level = 0; level < targetLevel; level++) {
-    const actions = normalizedActions[level];
-    if (level >= philosopherStartLevel) {
-      mirrorCount += actions;
-      if (level === 1) baseItemCount += actions;
-    } else if (level >= protectLevel) {
-      protectionCount += actions * failRates[level];
-    } else {
-      baseInflows += actions * failRates[level];
-    }
-  }
-  baseItemCount -= baseInflows;
-  if (Math.abs(baseItemCount) < EPSILON) baseItemCount = 0;
-
-  const bCount = normalizedActions[philosopherStartLevel] ?? 0;
-  const aCount = bCount + (normalizedActions[philosopherStartLevel + 1] ?? 0);
+  const normalActions =
+    mirror.aCount * aFlow.totalActions + mirror.bCount * bFlow.totalActions;
+  const protectionCount =
+    mirror.aCount * aFlow.protectionCount +
+    mirror.bCount * bFlow.protectionCount;
   return {
-    actionsByLevel: normalizedActions,
-    baseItemCount,
-    mirrorCount,
+    actionsByLevel,
+    baseItemCount: mirror.aCount + mirror.bCount,
+    mirrorCount: mirror.mirrorCount,
     protectionCount,
-    totalActions: normalizedActions.reduce((sum, value) => sum + value, 0),
-    aCount,
-    bCount,
+    totalActions: normalActions + mirror.mirrorCount,
+    aCount: mirror.aCount,
+    bCount: mirror.bCount,
   };
 }
 
@@ -545,7 +501,6 @@ export function calculateEnhancementPlan({
           successRates,
           successBonus: stats.successBonus,
           blessedChance: stats.blessedChance,
-          philosopherBlessedChance: 0,
         });
         if (!flow || flow.baseItemCount < -EPSILON) continue;
         if (flow.protectionCount > EPSILON && !protectionPrice) continue;
