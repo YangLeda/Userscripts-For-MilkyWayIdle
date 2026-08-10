@@ -21,7 +21,7 @@
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
-// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/mathjs-12.4.2.min.js
 // @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js
 // @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js
 // @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js

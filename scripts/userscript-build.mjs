@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -31,7 +31,7 @@ export async function getTestBanner() {
       continue;
     }
     if (line.startsWith("// @version      ")) {
-      testLines.push("// @version      26.2.6");
+      testLines.push("// @version      26.2.7");
       continue;
     }
     if (line.startsWith("// @description  ")) {
@@ -44,7 +44,7 @@ export async function getTestBanner() {
       if (!insertedTestMatch) {
         testLines.push("// @match        https://test.milkywayidle.com/*");
         testLines.push(
-          "// @updateURL    https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js",
+          "// @updateURL    https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.meta.js",
         );
         testLines.push(
           "// @downloadURL  https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js",
@@ -75,4 +75,15 @@ export async function buildUserscript({ banner, outfile }) {
     loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
+}
+
+export async function writeMetadataFile(banner, outfile) {
+  const endMarker = "// ==/UserScript==";
+  const end = banner.indexOf(endMarker);
+  if (end === -1) throw new Error("Userscript metadata block is incomplete");
+  await writeFile(
+    outfile,
+    `${banner.slice(0, end + endMarker.length)}\n`,
+    "utf8",
+  );
 }
