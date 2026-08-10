@@ -16,11 +16,11 @@ const STATUS_LABELS = {
 };
 
 function t(zh, en) {
-  return globalThis.document?.documentElement?.lang
-    ?.toLowerCase()
-    .startsWith("zh")
-    ? zh
-    : en;
+  const language =
+    globalThis.localStorage?.getItem("i18nextLng") ??
+    globalThis.document?.documentElement?.lang ??
+    "en";
+  return language.toLowerCase().startsWith("zh") ? zh : en;
 }
 
 function addStyles() {

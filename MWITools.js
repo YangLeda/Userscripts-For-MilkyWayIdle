@@ -26790,7 +26790,8 @@ ${locks}` : ""}`;
     closed: "已结束"
   };
   function t7(zh, en) {
-    return globalThis.document?.documentElement?.lang?.toLowerCase().startsWith("zh") ? zh : en;
+    const language = globalThis.localStorage?.getItem("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? "en";
+    return language.toLowerCase().startsWith("zh") ? zh : en;
   }
   function addStyles7() {
     if (document.getElementById(STYLE_ID7)) return;
