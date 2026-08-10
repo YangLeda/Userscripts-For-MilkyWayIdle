@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.0.28
+// @version      26.1.0
 // @description  [测试版] Tools for MilkyWayIdle. Includes action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -18260,7 +18260,7 @@
     }
     return `${rounded.toLocaleString(getNumberLocale(), {
       maximumFractionDigits,
-      useGrouping: false
+      useGrouping: true
     })}${unit.symbol}`;
   }
   function createFormattedNumber(value, options = {}) {
@@ -18794,6 +18794,7 @@
     const count = requestedCount === void 0 ? getActionCount(action) : Number(requestedCount);
     const infinite = count === Infinity || !Number.isFinite(count);
     const normalizedCount = infinite ? Infinity : Math.max(0, count);
+    const respectInventoryLimit = context.respectInventoryLimit ?? (requestedCount === void 0 && typeof actionOrHrid !== "string");
     if (!isPlayerDataReady()) {
       return {
         status: "waiting",
@@ -18801,6 +18802,9 @@
         detail,
         count: normalizedCount,
         infinite,
+        effectiveCount: normalizedCount,
+        effectivelyInfinite: infinite,
+        materialLimited: false,
         missing: ["playerData"],
         missingPrices: [],
         netProfitPerAction: null,
@@ -18818,6 +18822,9 @@
         detail,
         count: normalizedCount,
         infinite,
+        effectiveCount: normalizedCount,
+        effectivelyInfinite: infinite,
+        materialLimited: false,
         missing: ["playerData"],
         missingPrices: [],
         netProfitPerAction: null,
@@ -18842,6 +18849,9 @@
       }
     }
     if (!inputs.length) maxCraftable = Infinity;
+    const executableCount = respectInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
+    const effectivelyInfinite = !Number.isFinite(executableCount);
+    const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && (infinite || maxCraftable < normalizedCount);
     const missingPrices = [];
     const inputDetails = inputs.map((input) => {
       const effectiveCount = input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
@@ -18867,7 +18877,7 @@
         ...output,
         baseCount: output.count,
         effectiveCount,
-        expectedCount: effectiveCount * (infinite ? 1 : normalizedCount),
+        expectedCount: effectiveCount * (effectivelyInfinite ? 1 : executableCount),
         kind: "primary",
         owned: getInventoryCount(output.itemHrid),
         unitPrice,
@@ -18886,7 +18896,7 @@
         return {
           ...output,
           effectiveCount: output.count,
-          expectedCount: output.count * (infinite ? 1 : normalizedCount),
+          expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
           owned: getInventoryCount(output.itemHrid),
           unitPrice,
           valuePerAction: unitPrice === null ? null : output.count * unitPrice
@@ -18917,21 +18927,21 @@
     const complete = missingPrices.length === 0 && secondsPerAction !== null;
     const netProfitPerAction = complete ? revenuePerAction - materialCostPerAction - teaCostPerAction : null;
     let totalSeconds = null;
-    if (infinite) {
+    if (effectivelyInfinite) {
       totalSeconds = Infinity;
     } else if (secondsPerAction !== null) {
       const liveDuration = Number(context.durationPerAction);
       if (Number.isFinite(liveDuration) && liveDuration > 0) {
         const cycles = Math.max(
-          normalizedCount > 0 ? 1 : 0,
-          Math.round(normalizedCount / getEfficiencyMultiplier(actionHrid))
+          executableCount > 0 ? 1 : 0,
+          Math.round(executableCount / getEfficiencyMultiplier(actionHrid))
         );
         const currentCycleRemaining = Number(
           context.currentCycleRemainingSeconds
         );
         totalSeconds = cycles > 0 && Number.isFinite(currentCycleRemaining) && currentCycleRemaining >= 0 ? Math.min(liveDuration, currentCycleRemaining) + Math.max(0, cycles - 1) * liveDuration : cycles * liveDuration;
       } else {
-        totalSeconds = normalizedCount * secondsPerAction;
+        totalSeconds = executableCount * secondsPerAction;
       }
     }
     const now = Number(context.now ?? Date.now());
@@ -18942,6 +18952,10 @@
       detail,
       count: normalizedCount,
       infinite,
+      effectiveCount: executableCount,
+      effectivelyInfinite,
+      materialLimited,
+      respectsInventoryLimit: Boolean(respectInventoryLimit),
       secondsPerAction,
       totalSeconds,
       finishAt: Number.isFinite(totalSeconds) && totalSeconds !== null ? now + totalSeconds * 1e3 : null,
@@ -18964,7 +18978,7 @@
       revenuePerAction,
       netProfitPerAction,
       profitPerHour: netProfitPerAction === null || !actionsPerHour ? null : netProfitPerAction * actionsPerHour,
-      totalProfit: netProfitPerAction === null || infinite ? null : netProfitPerAction * normalizedCount,
+      totalProfit: netProfitPerAction === null || effectivelyInfinite ? null : netProfitPerAction * executableCount,
       missingPrices: [...new Set(missingPrices)],
       unpricedByproducts: [...new Set(unpricedByproducts)]
     };
@@ -18975,7 +18989,7 @@
     let hasInfinite = false;
     const items = [];
     for (const action of actions ?? []) {
-      const projection = projectAction(action, void 0, { now });
+      const projection = projectAction(action, void 0, { ...context, now });
       const startsAt = hasInfinite ? null : now + elapsed * 1e3;
       if (Number.isFinite(projection.totalSeconds) && !hasInfinite) {
         elapsed += projection.totalSeconds;
@@ -22097,29 +22111,27 @@ ${preview}`
         `较 ${comparison.gapDays} 天前（${comparison.date}）`,
         `vs ${comparison.gapDays} days ago (${comparison.date})`
       ) : t2("暂无历史对比", "No prior record");
-      const setText = (selector, value, className = "") => {
+      const setNumber = (selector, value, { signed = false, className = "" } = {}) => {
         const node = this.host.querySelector(selector);
-        node.textContent = value;
+        node.textContent = formatNumber(value, signed);
+        node.title = Number.isFinite(value) ? runtime.api.formatExactNumber(value) : "";
         node.className = `mwi-asset-card-value ${className}`.trim();
       };
-      setText("#mwi-asset-current-total", formatNumber(current.total));
-      setText(
-        "#mwi-asset-total-change",
-        formatNumber(totalChange, true),
-        valueClass(totalChange)
-      );
+      setNumber("#mwi-asset-current-total", current.total);
+      setNumber("#mwi-asset-total-change", totalChange, {
+        signed: true,
+        className: valueClass(totalChange)
+      });
       this.host.querySelector("#mwi-asset-compare-date").textContent = compareText;
-      setText(
-        "#mwi-asset-total-percent",
-        formatPercent(current.total, previous.total),
-        valueClass(totalChange)
-      );
+      setNumber("#mwi-asset-total-percent", null, {
+        className: valueClass(totalChange)
+      });
+      this.host.querySelector("#mwi-asset-total-percent").textContent = formatPercent(current.total, previous.total);
       const average = this.store.sevenDayAverage(dayKey, this.scopeKey);
-      setText(
-        "#mwi-asset-seven-average",
-        formatNumber(average, true),
-        valueClass(average)
-      );
+      setNumber("#mwi-asset-seven-average", average, {
+        signed: true,
+        className: valueClass(average)
+      });
       this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t2(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t2("变化", "Change");
       const body = this.host.querySelector("#mwi-asset-breakdown");
       body.replaceChildren(
@@ -22129,7 +22141,7 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -22142,7 +22154,8 @@ ${preview}`
       body.replaceChildren(
         ...entries.map(([dayKey, record]) => {
           const row = document.createElement("tr");
-          row.innerHTML = `<td>${dayKey}</td><td>${formatNumber(record?.values?.total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          const total = record?.values?.total;
+          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
           row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
           row.querySelector("[data-delete]").addEventListener("click", () => {
             if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
@@ -22863,7 +22876,19 @@ ${preview}`
     }).format(Number(value));
   }
   function formatMoney(value) {
+    if (value === null || value === void 0 || value === "") return "—";
     return Number.isFinite(Number(value)) ? formatNumber2(value, 1) : "—";
+  }
+  function exactNumberTitle(value) {
+    if (value === null || value === void 0 || value === "") return "";
+    if (!Number.isFinite(Number(value))) return "";
+    return escapeHtml(
+      runtime.api.formatExactNumber?.(Number(value)) ?? String(value)
+    );
+  }
+  function numberTitleAttribute(value) {
+    const title = exactNumberTitle(value);
+    return title ? ` title="${title}"` : "";
   }
   function formatPercent2(value) {
     return `${Number(value || 0) >= 0 ? "+" : ""}${formatNumber2(value, 1)}%`;
@@ -22978,16 +23003,16 @@ ${preview}`
       <div>${renderItemIcon(item.itemHrid, name)}</div>
       <div>
         <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml(kind)}</span>` : ""}${escapeHtml(name)}</div>
-        <div class="mwi-profit-item-meta">${escapeHtml(quantity)} · ${priceLabel} ${formatMoney(item.unitPrice)}</div>
+        <div class="mwi-profit-item-meta">${escapeHtml(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
       </div>
       <div class="mwi-profit-item-value">
-        <strong>${formatMoney(item.valuePerAction)}</strong>
+        <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
         <span>${t3("每动作", "per action")}</span>
       </div>
     </div>`;
   }
-  function renderMetric(label, value, profit = false) {
-    return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value">${escapeHtml(value)}</div></div>`;
+  function renderMetric(label, value, profit = false, exactValue = null) {
+    return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
@@ -23050,7 +23075,7 @@ ${preview}`
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t3("投入", "Inputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.materialCostPerAction)} / ${t3("动作", "action")}</span></div>
+        <div class="mwi-profit-card-title"><span>${t3("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t3("动作", "action")}</span></div>
         ${inputRows || `<div class="mwi-profit-no-tea">${t3("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
@@ -23063,11 +23088,11 @@ ${preview}`
           <div class="mwi-profit-stat"><span>${t3("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t3("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t3("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t3("茶费/小时", "Drinks/hour")}</span><strong>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t3("产出", "Outputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.revenuePerAction)} / ${t3("动作", "action")}</span></div>
+        <div class="mwi-profit-card-title"><span>${t3("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t3("动作", "action")}</span></div>
         ${outputRows || `<div class="mwi-profit-no-tea">${t3("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
@@ -23075,13 +23100,13 @@ ${preview}`
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-summary">
-      ${renderMetric(t3("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction))}
-      ${renderMetric(t3("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction))}
-      ${renderMetric(t3("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction))}
-      ${renderMetric(t3("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction))}
-      ${renderMetric(t3("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true)}
-      ${renderMetric(t3("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true)}
-      ${renderMetric(t3("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true)}
+      ${renderMetric(t3("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction), false, projection.materialCostPerAction)}
+      ${renderMetric(t3("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
+      ${renderMetric(t3("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
+      ${renderMetric(t3("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
+      ${renderMetric(t3("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
+      ${renderMetric(t3("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
+      ${renderMetric(t3("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
       ${renderMetric(t3("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber2(projection.secondsPerAction, 3)}s` : "—")}
     </div>`
     );
@@ -23840,7 +23865,8 @@ ${preview}`
       const extraFreeItemPerHour = itemPerHour * teaBuffs.quantity / 100;
       const bidAfterTax = virtualItemNetBid;
       const profitPerHour = itemPerHour * bidAfterTax + extraFreeItemPerHour * bidAfterTax - drinksConsumedPerHourAskPrice;
-      const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}${runtime.api.numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${runtime.api.numberFormatter(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
+      const profitPerDay = 24 * profitPerHour;
+      const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}<span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerHour)}">${runtime.api.numberFormatter(profitPerHour)}</span>${runtime.config.isZH ? "/小时" : "/hour"}, <span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerDay)}">${runtime.api.numberFormatter(profitPerDay)}</span>${runtime.config.isZH ? "/天" : "/day"}</div>`;
       panel.querySelector("#mwi-level-progress")?.insertAdjacentHTML("beforeend", htmlStr);
     }
   }
@@ -24172,10 +24198,18 @@ ${preview}`
     const primary = document.createElement("div");
     primary.className = "mwi-action-line";
     const remaining = document.createElement("span");
+    const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
+    const effectiveCount = projection.effectiveCount ?? projection.count;
     remaining.append(
       `${t4("剩余", "Remaining")} `,
-      projection.infinite ? "∞" : number(projection.count)
+      effectivelyInfinite ? "∞" : number(effectiveCount)
     );
+    if (projection.materialLimited) {
+      remaining.title = t4(
+        "已按当前库存中的可用原料计算",
+        "Limited by materials currently in inventory"
+      );
+    }
     const currentTime = document.createElement("span");
     currentTime.textContent = `${t4("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
@@ -25664,13 +25698,13 @@ ${locks}` : ""}`;
     .mwi-task-profession-count { min-width:22px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,.09); color:var(--color-text-secondary,#bbb); font-size:.68rem; text-align:center; }
     .mwi-task-profession-chevron { margin-left:auto; color:var(--color-text-secondary,#aaa); transition:transform .15s ease; }
     .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
-    .mwi-task-profession-body { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; margin-top:8px; }
+    .mwi-task-profession-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; margin-top:8px; }
     .mwi-task-profession-body[hidden] { display:none; }
     .mwi-task-profession-body[data-combat="true"] { display:block; }
     .mwi-task-profession-body[data-combat="true"][hidden] { display:none; }
     .mwi-task-combat-location + .mwi-task-combat-location { margin-top:10px; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
-    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
     .mwi-task-bg { position:absolute; right:5px; bottom:4px; width:58px; height:58px; opacity:.075; pointer-events:none; }
     .mwi-task-merged-note { margin-top:7px; padding:7px 9px; border-radius:5px; background:rgba(70,170,100,.12); color:#9bd7aa; font-size:.72rem; }
   `;
@@ -26251,6 +26285,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
+    addTaskStyles: addStyles5,
     taskActionHrid,
     taskRemaining,
     taskProjection,
@@ -28050,6 +28085,7 @@ ${locks}` : ""}`;
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
   var SETTINGS_STYLE_ID = "mwitools-settings-style";
+  var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   function persistSettings() {
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
@@ -28369,44 +28405,119 @@ ${locks}` : ""}`;
     root.dataset.mwitoolsVersion = "2";
     renderSettings(root);
   }
-  function checkEquipment() {
-    if (runtime.state.currentActionsHridList.length === 0) {
-      return;
-    }
-    const currentActionHrid = runtime.state.currentActionsHridList[0].actionHrid;
+  function getEquipmentWarning() {
+    const currentActionHrid = runtime.state.currentActionsHridList?.[0]?.actionHrid;
+    if (!currentActionHrid) return null;
     const hasHat = runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid === "/items/red_chefs_hat" ? true : false;
     const hasOffHand = runtime.state.currentEquipmentMap["/item_locations/off_hand"]?.itemHrid === "/items/eye_watch" ? true : false;
     const hasBoot = runtime.state.currentEquipmentMap["/item_locations/feet"]?.itemHrid === "/items/collectors_boots" ? true : false;
     const hasGlove = runtime.state.currentEquipmentMap["/item_locations/hands"]?.itemHrid === "/items/enchanted_gloves" ? true : false;
-    let warningStr = null;
     if (currentActionHrid.includes("/actions/combat/")) {
       if (hasHat || hasOffHand || hasBoot || hasGlove) {
-        warningStr = runtime.config.isZH ? "正穿着生产装备" : "Production equipment equipted";
+        return {
+          code: "skilling-gear-in-combat",
+          text: runtime.config.isZH ? "正在穿着生活装备" : "Skilling gear equipped in combat"
+        };
       }
     } else if (currentActionHrid.includes("/actions/cooking/") || currentActionHrid.includes("/actions/brewing/")) {
       if (!hasHat && hasItemHridInInv("/items/red_chefs_hat")) {
-        warningStr = runtime.config.isZH ? "没穿生产帽" : "Not wearing production hat";
+        return {
+          code: "missing-production-hat",
+          itemHrid: "/items/red_chefs_hat",
+          text: runtime.config.isZH ? "未装备生活帽" : "Skilling hat not equipped"
+        };
       }
     } else if (currentActionHrid.includes("/actions/cheesesmithing/") || currentActionHrid.includes("/actions/crafting/") || currentActionHrid.includes("/actions/tailoring/")) {
       if (!hasOffHand && hasItemHridInInv("/items/eye_watch")) {
-        warningStr = runtime.config.isZH ? "没穿生产副手" : "Not wearing production off-hand";
+        return {
+          code: "missing-production-off-hand",
+          itemHrid: "/items/eye_watch",
+          text: runtime.config.isZH ? "未装备生活副手" : "Skilling off-hand not equipped"
+        };
       }
     } else if (currentActionHrid.includes("/actions/milking/") || currentActionHrid.includes("/actions/foraging/") || currentActionHrid.includes("/actions/woodcutting/")) {
       if (!hasBoot && hasItemHridInInv("/items/collectors_boots")) {
-        warningStr = runtime.config.isZH ? "没穿生产鞋" : "Not wearing production boots";
+        return {
+          code: "missing-production-boots",
+          itemHrid: "/items/collectors_boots",
+          text: runtime.config.isZH ? "未装备生活鞋" : "Skilling boots not equipped"
+        };
       }
     } else if (currentActionHrid.includes("/actions/enhancing")) {
       if (!hasGlove && hasItemHridInInv("/items/enchanted_gloves")) {
-        warningStr = runtime.config.isZH ? "没穿强化手套" : "Not wearing enhancing gloves";
+        return {
+          code: "missing-enhancing-gloves",
+          itemHrid: "/items/enchanted_gloves",
+          text: runtime.config.isZH ? "未装备强化手套" : "Enhancing gloves not equipped"
+        };
       }
     }
-    document.body.querySelector("#script_item_warning")?.remove();
-    if (warningStr) {
-      document.body.insertAdjacentHTML(
-        "beforeend",
-        `<div id="script_item_warning" style="position: fixed; top: 1%; left: 30%; color: ${runtime.config.SCRIPT_COLOR_ALERT}; font-size: 1rem;">${warningStr}</div>`
-      );
+    return null;
+  }
+  function addEquipmentWarningStyles() {
+    if (document.getElementById(EQUIPMENT_WARNING_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = EQUIPMENT_WARNING_STYLE_ID;
+    style.textContent = `
+    .mwi-equipment-warning-host { position:relative!important; }
+    #script_item_warning { position:absolute; top:50%; z-index:6; display:flex; box-sizing:border-box; min-width:26px; max-width:var(--mwi-equipment-warning-space,180px); height:24px; align-items:center; gap:5px; padding:2px 7px; transform:translateY(-50%); border:1px solid rgba(255,174,61,.55); border-radius:999px; background:rgba(74,42,12,.92); color:#ffc56e; box-shadow:0 2px 8px rgba(0,0,0,.22); font:inherit; font-size:.66rem; font-weight:650; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; }
+    .mwi-equipment-warning-icon { flex:0 0 auto; font-size:.72rem; }
+    .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    @media(max-width:680px) { #script_item_warning { width:26px; max-width:26px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function removeEquipmentWarning() {
+    document.querySelector("#script_item_warning")?.remove();
+    document.querySelectorAll(".mwi-equipment-warning-host").forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
+  }
+  function positionEquipmentWarning(warning, host) {
+    const hostRect = host.getBoundingClientRect();
+    const dashboard = host.querySelector("#mwi-action-dashboard");
+    const nativeChildren = [...host.children].filter(
+      (element) => element !== warning && element !== dashboard
+    );
+    const anchorRect = dashboard?.getBoundingClientRect() ?? nativeChildren.at(-1)?.getBoundingClientRect();
+    const left = Math.max(
+      0,
+      (anchorRect?.right ?? hostRect.left) - hostRect.left + 6
+    );
+    const viewportWidth = host.ownerDocument?.defaultView?.innerWidth ?? 0;
+    const availableInHost = Math.max(26, hostRect.width - left);
+    const availableInViewport = viewportWidth ? Math.max(26, viewportWidth - hostRect.left - left - 12) : availableInHost;
+    warning.style.left = `${left}px`;
+    warning.style.setProperty(
+      "--mwi-equipment-warning-space",
+      `${Math.min(180, availableInHost, availableInViewport)}px`
+    );
+  }
+  function checkEquipment() {
+    const warningState = getEquipmentWarning();
+    const host = document.querySelector('div[class*="Header_actionName"]');
+    if (!warningState || !host) {
+      removeEquipmentWarning();
+      return warningState;
     }
+    addEquipmentWarningStyles();
+    host.classList.add("mwi-equipment-warning-host");
+    let warning = host.querySelector("#script_item_warning");
+    if (!warning) {
+      warning = document.createElement("div");
+      warning.id = "script_item_warning";
+      warning.setAttribute("role", "status");
+      const icon = document.createElement("span");
+      icon.className = "mwi-equipment-warning-icon";
+      icon.textContent = "⚠";
+      const text = document.createElement("span");
+      text.className = "mwi-equipment-warning-text";
+      warning.append(icon, text);
+      host.appendChild(warning);
+    }
+    warning.dataset.code = warningState.code;
+    warning.querySelector(".mwi-equipment-warning-text").textContent = warningState.text;
+    warning.title = warningState.text;
+    positionEquipmentWarning(warning, host);
+    return warningState;
   }
   function hasItemHridInInv(hrid) {
     let result = null;
@@ -28495,6 +28606,7 @@ ${locks}` : ""}`;
   Object.assign(runtime.api, {
     persistSettings,
     readSettings,
+    getEquipmentWarning,
     checkEquipment,
     hasItemHridInInv,
     notificate,
@@ -28534,7 +28646,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.0");
+    return String(globalThis.GM_info?.script?.version ?? "26.1");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -36899,11 +37011,14 @@ ${locks}` : ""}`;
     },
     checkEquipment: {
       scope: "character",
-      initialize() {
+      initialize({ scope }) {
         runtime.api.checkEquipment?.();
+        scope.interval(() => runtime.api.checkEquipment?.(), 500);
       },
       cleanup() {
         removeAll("#script_item_warning");
+        removeAll("#mwitools-equipment-warning-style");
+        document.querySelectorAll(".mwi-equipment-warning-host").forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
       }
     },
     actionPanel_totalTime_quickInputs: {

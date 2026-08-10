@@ -49,11 +49,16 @@ const adapters = {
   },
   checkEquipment: {
     scope: "character",
-    initialize() {
+    initialize({ scope }) {
       runtime.api.checkEquipment?.();
+      scope.interval(() => runtime.api.checkEquipment?.(), 500);
     },
     cleanup() {
       removeAll("#script_item_warning");
+      removeAll("#mwitools-equipment-warning-style");
+      document
+        .querySelectorAll(".mwi-equipment-warning-host")
+        .forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
     },
   },
   actionPanel_totalTime_quickInputs: {

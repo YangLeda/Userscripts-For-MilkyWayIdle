@@ -24,6 +24,7 @@ const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/data/translations.js");
 await import("../src/core/state.js");
+await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/features/production-profit-panel.js");
 
@@ -52,7 +53,6 @@ runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/panel-output" ? 100 : 0;
 runtime.api.getTotalEffiPercentage = () => 0;
-runtime.api.numberFormatter = (value) => String(Number(value).toFixed(1));
 
 function nativeTooltip() {
   return document.querySelector("#native-tooltip");
@@ -74,6 +74,11 @@ test("profit UI is a separate sibling and leaves the native tooltip untouched", 
   assert.match(panel.textContent, /当前玩家/);
   assert.match(panel.textContent, /产出/);
   assert.match(panel.textContent, /未使用茶饮/);
+  const hourlyProfit = [...panel.querySelectorAll(".mwi-profit-metric")]
+    .find((metric) => metric.textContent.includes("净利润/小时"))
+    .querySelector(".mwi-profit-metric-value");
+  assert.equal(hourlyProfit.textContent, "28.8K");
+  assert.equal(hourlyProfit.title, "28,800");
   assert.equal(
     document.querySelectorAll("#mwitools-production-profit-panel").length,
     1,

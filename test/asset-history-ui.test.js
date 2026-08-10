@@ -22,8 +22,16 @@ globalThis.clearInterval = (id) => intervals.delete(id);
 
 const { runtime } = await import("../src/core/runtime.js");
 runtime.config.isZH = true;
-runtime.api.numberFormatter = (value) => String(value);
-runtime.api.formatExactNumber = (value) => String(value);
+runtime.api.numberFormatter = (value) => {
+  const number = Number(value);
+  if (Math.abs(number) >= 1_000_000)
+    return `${Number((number / 1_000_000).toFixed(2))}M`;
+  return new Intl.NumberFormat("zh-CN", {
+    maximumFractionDigits: 2,
+  }).format(number);
+};
+runtime.api.formatExactNumber = (value) =>
+  new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 20 }).format(value);
 runtime.api.getLatestAssetSnapshot = () => null;
 const { AssetHistoryStore } =
   await import("../src/features/asset-history/10-store.js");
@@ -75,6 +83,16 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
     document.querySelector("#mwitools-asset-history-panel").hidden,
     false,
   );
+  ui.update({
+    values: {
+      total: 1_234_567,
+      equipment: 1_000_000,
+      inventory: 234_567,
+    },
+  });
+  const currentTotal = document.querySelector("#mwi-asset-current-total");
+  assert.equal(currentTotal.textContent, "1.23M");
+  assert.equal(currentTotal.title, "1,234,567");
   shell.querySelector("nav button").click();
   assert.equal(nativeContent.hidden, false);
   assert.equal(

@@ -16,21 +16,22 @@ await import("../src/core/config.js");
 await import("../src/features/update-banner.js");
 
 const manifest = {
-  importantVersion: "27.0",
+  importantVersion: "26.1",
   title: { zh: "重要更新", en: "Important update" },
   message: { zh: "请更新", en: "Please update" },
   url: "https://greasyfork.org/zh-CN/scripts/494467-mwitools",
 };
 
 test("version comparison distinguishes newer important releases", () => {
-  assert.equal(runtime.api.compareVersions("26.9", "27.0"), -1);
-  assert.equal(runtime.api.compareVersions("27.0", "27.0.0"), 0);
-  assert.equal(runtime.api.compareVersions("27.1", "27.0"), 1);
+  assert.equal(runtime.api.compareVersions("26.0", "26.1"), -1);
+  assert.equal(runtime.api.compareVersions("26.1", "26.1.0"), 0);
+  assert.equal(runtime.api.compareVersions("26.2", "26.1"), 1);
   assert.equal(runtime.api.shouldShowImportantUpdate(manifest, "26.0"), true);
-  assert.equal(runtime.api.shouldShowImportantUpdate(manifest, "27.0"), false);
+  assert.equal(runtime.api.shouldShowImportantUpdate(manifest, "26.1"), false);
 });
 
 test("important update banner links to Greasy Fork and remembers dismissal", () => {
+  globalThis.GM_info = { script: { version: "26.0" } };
   assert.equal(runtime.api.renderImportantUpdateBanner(manifest), true);
   const banner = document.querySelector("#mwitools-important-update-banner");
   assert.equal(
@@ -43,4 +44,5 @@ test("important update banner links to Greasy Fork and remembers dismissal", () 
     null,
   );
   assert.equal(runtime.api.shouldShowImportantUpdate(manifest, "26.0"), false);
+  delete globalThis.GM_info;
 });

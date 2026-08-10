@@ -38,6 +38,7 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/features/action-dashboard.js");
+await import("../src/features/settings-and-notifications.js");
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/lumber": {
@@ -138,6 +139,72 @@ test("the top action bar shows only current-action count, time left, and finish 
     true,
   );
   assert.equal(dom.window.getComputedStyle(dashboard).position, "absolute");
+});
+
+test("material-limited infinite production shows a finite live remainder", () => {
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: false,
+      maxCount: 0,
+      currentCount: 100,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.match(dashboard.textContent, /剩余 10/);
+  assert.match(dashboard.textContent, /还需 93s/);
+  assert.doesNotMatch(dashboard.textContent, /∞/);
+  assert.match(dashboard.querySelector("span").title, /当前库存/);
+});
+
+test("equipment warnings reuse an absolute action-bar sibling without changing native content", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  document.querySelector("#mwi-action-dashboard")?.remove();
+  host.replaceChildren();
+  const nativeName = document.createElement("span");
+  nativeName.className = "native-action-name";
+  nativeName.textContent = "木板";
+  host.append(nativeName);
+  const nativeMarkup = nativeName.outerHTML;
+
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  runtime.state.initData_characterItems.push({
+    itemHrid: "/items/eye_watch",
+    itemLocationHrid: "/item_locations/inventory",
+    count: 1,
+  });
+  runtime.state.currentEquipmentMap = {};
+  runtime.api.renderActionDashboard();
+  runtime.api.checkEquipment();
+
+  const warning = document.querySelector("#script_item_warning");
+  assert.ok(warning);
+  assert.equal(warning.parentElement, host);
+  assert.match(warning.textContent, /未装备生活副手/);
+  assert.equal(warning.title, "未装备生活副手");
+  assert.equal(dom.window.getComputedStyle(warning).position, "absolute");
+  assert.equal(nativeName.outerHTML, nativeMarkup);
+  assert.equal(host.firstElementChild, nativeName);
+
+  runtime.api.checkEquipment();
+  assert.equal(document.querySelectorAll("#script_item_warning").length, 1);
+  assert.equal(document.querySelector("#script_item_warning"), warning);
+
+  runtime.state.currentEquipmentMap = {
+    "/item_locations/off_hand": { itemHrid: "/items/eye_watch", count: 1 },
+  };
+  runtime.api.checkEquipment();
+  assert.equal(document.querySelector("#script_item_warning"), null);
+  assert.equal(nativeName.outerHTML, nativeMarkup);
 });
 
 test("every localized skilling action resolves to its canonical action HRID", () => {

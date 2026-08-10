@@ -33,7 +33,21 @@ function formatNumber(value, digits = 1) {
 }
 
 function formatMoney(value) {
+  if (value === null || value === undefined || value === "") return "—";
   return Number.isFinite(Number(value)) ? formatNumber(value, 1) : "—";
+}
+
+function exactNumberTitle(value) {
+  if (value === null || value === undefined || value === "") return "";
+  if (!Number.isFinite(Number(value))) return "";
+  return escapeHtml(
+    runtime.api.formatExactNumber?.(Number(value)) ?? String(value),
+  );
+}
+
+function numberTitleAttribute(value) {
+  const title = exactNumberTitle(value);
+  return title ? ` title="${title}"` : "";
 }
 
 function formatPercent(value) {
@@ -175,17 +189,17 @@ function renderItemRow(item, type) {
       <div>${renderItemIcon(item.itemHrid, name)}</div>
       <div>
         <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml(kind)}</span>` : ""}${escapeHtml(name)}</div>
-        <div class="mwi-profit-item-meta">${escapeHtml(quantity)} · ${priceLabel} ${formatMoney(item.unitPrice)}</div>
+        <div class="mwi-profit-item-meta">${escapeHtml(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
       </div>
       <div class="mwi-profit-item-value">
-        <strong>${formatMoney(item.valuePerAction)}</strong>
+        <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
         <span>${t("每动作", "per action")}</span>
       </div>
     </div>`;
 }
 
-function renderMetric(label, value, profit = false) {
-  return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value">${escapeHtml(value)}</div></div>`;
+function renderMetric(label, value, profit = false, exactValue = null) {
+  return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
 }
 
 function statusInfo(projection) {
@@ -260,7 +274,7 @@ function renderPanel(panel, itemHrid, projection) {
     "beforeend",
     `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t("投入", "Inputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.materialCostPerAction)} / ${t("动作", "action")}</span></div>
+        <div class="mwi-profit-card-title"><span>${t("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t("动作", "action")}</span></div>
         ${inputRows || `<div class="mwi-profit-no-tea">${t("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
@@ -273,11 +287,11 @@ function renderPanel(panel, itemHrid, projection) {
           <div class="mwi-profit-stat"><span>${t("动作速度", "Action speed")}</span><strong>${formatPercent(projection.speedPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t("综合效率", "Efficiency")}</span><strong>${formatPercent(projection.efficiencyPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t("动作/小时", "Actions/hour")}</span><strong>${formatNumber(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("茶费/小时", "Drinks/hour")}</span><strong>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t("产出", "Outputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.revenuePerAction)} / ${t("动作", "action")}</span></div>
+        <div class="mwi-profit-card-title"><span>${t("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t("动作", "action")}</span></div>
         ${outputRows || `<div class="mwi-profit-no-tea">${t("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`,
@@ -286,13 +300,13 @@ function renderPanel(panel, itemHrid, projection) {
   panel.insertAdjacentHTML(
     "beforeend",
     `<div class="mwi-profit-summary">
-      ${renderMetric(t("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction))}
-      ${renderMetric(t("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction))}
-      ${renderMetric(t("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction))}
-      ${renderMetric(t("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction))}
-      ${renderMetric(t("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true)}
-      ${renderMetric(t("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true)}
-      ${renderMetric(t("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true)}
+      ${renderMetric(t("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction), false, projection.materialCostPerAction)}
+      ${renderMetric(t("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
+      ${renderMetric(t("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
+      ${renderMetric(t("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
+      ${renderMetric(t("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
+      ${renderMetric(t("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
+      ${renderMetric(t("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
       ${renderMetric(t("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber(projection.secondsPerAction, 3)}s` : "—")}
     </div>`,
   );

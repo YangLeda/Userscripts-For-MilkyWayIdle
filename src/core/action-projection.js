@@ -339,6 +339,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       : Number(requestedCount);
   const infinite = count === Infinity || !Number.isFinite(count);
   const normalizedCount = infinite ? Infinity : Math.max(0, count);
+  const respectInventoryLimit =
+    context.respectInventoryLimit ??
+    (requestedCount === undefined && typeof actionOrHrid !== "string");
   if (!isPlayerDataReady()) {
     return {
       status: "waiting",
@@ -346,6 +349,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       detail,
       count: normalizedCount,
       infinite,
+      effectiveCount: normalizedCount,
+      effectivelyInfinite: infinite,
+      materialLimited: false,
       missing: ["playerData"],
       missingPrices: [],
       netProfitPerAction: null,
@@ -364,6 +370,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       detail,
       count: normalizedCount,
       infinite,
+      effectiveCount: normalizedCount,
+      effectivelyInfinite: infinite,
+      materialLimited: false,
       missing: ["playerData"],
       missingPrices: [],
       netProfitPerAction: null,
@@ -392,6 +401,16 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   }
   if (!inputs.length) maxCraftable = Infinity;
 
+  const executableCount = respectInventoryLimit
+    ? Math.min(normalizedCount, maxCraftable)
+    : normalizedCount;
+  const effectivelyInfinite = !Number.isFinite(executableCount);
+  const materialLimited =
+    respectInventoryLimit &&
+    inputs.length > 0 &&
+    Number.isFinite(maxCraftable) &&
+    (infinite || maxCraftable < normalizedCount);
+
   const missingPrices = [];
   const inputDetails = inputs.map((input) => {
     const effectiveCount =
@@ -419,7 +438,8 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       ...output,
       baseCount: output.count,
       effectiveCount,
-      expectedCount: effectiveCount * (infinite ? 1 : normalizedCount),
+      expectedCount:
+        effectiveCount * (effectivelyInfinite ? 1 : executableCount),
       kind: "primary",
       owned: getInventoryCount(output.itemHrid),
       unitPrice,
@@ -439,7 +459,8 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       return {
         ...output,
         effectiveCount: output.count,
-        expectedCount: output.count * (infinite ? 1 : normalizedCount),
+        expectedCount:
+          output.count * (effectivelyInfinite ? 1 : executableCount),
         owned: getInventoryCount(output.itemHrid),
         unitPrice,
         valuePerAction: unitPrice === null ? null : output.count * unitPrice,
@@ -473,14 +494,14 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     ? revenuePerAction - materialCostPerAction - teaCostPerAction
     : null;
   let totalSeconds = null;
-  if (infinite) {
+  if (effectivelyInfinite) {
     totalSeconds = Infinity;
   } else if (secondsPerAction !== null) {
     const liveDuration = Number(context.durationPerAction);
     if (Number.isFinite(liveDuration) && liveDuration > 0) {
       const cycles = Math.max(
-        normalizedCount > 0 ? 1 : 0,
-        Math.round(normalizedCount / getEfficiencyMultiplier(actionHrid)),
+        executableCount > 0 ? 1 : 0,
+        Math.round(executableCount / getEfficiencyMultiplier(actionHrid)),
       );
       const currentCycleRemaining = Number(
         context.currentCycleRemainingSeconds,
@@ -493,7 +514,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
             Math.max(0, cycles - 1) * liveDuration
           : cycles * liveDuration;
     } else {
-      totalSeconds = normalizedCount * secondsPerAction;
+      totalSeconds = executableCount * secondsPerAction;
     }
   }
   const now = Number(context.now ?? Date.now());
@@ -505,6 +526,10 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     detail,
     count: normalizedCount,
     infinite,
+    effectiveCount: executableCount,
+    effectivelyInfinite,
+    materialLimited,
+    respectsInventoryLimit: Boolean(respectInventoryLimit),
     secondsPerAction,
     totalSeconds,
     finishAt:
@@ -534,9 +559,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
         ? null
         : netProfitPerAction * actionsPerHour,
     totalProfit:
-      netProfitPerAction === null || infinite
+      netProfitPerAction === null || effectivelyInfinite
         ? null
-        : netProfitPerAction * normalizedCount,
+        : netProfitPerAction * executableCount,
     missingPrices: [...new Set(missingPrices)],
     unpricedByproducts: [...new Set(unpricedByproducts)],
   };
@@ -551,7 +576,7 @@ function projectQueue(
   let hasInfinite = false;
   const items = [];
   for (const action of actions ?? []) {
-    const projection = projectAction(action, undefined, { now });
+    const projection = projectAction(action, undefined, { ...context, now });
     const startsAt = hasInfinite ? null : now + elapsed * 1000;
     if (Number.isFinite(projection.totalSeconds) && !hasInfinite) {
       elapsed += projection.totalSeconds;

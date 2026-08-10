@@ -115,7 +115,12 @@ runtime.state.characterQuests = [
 ];
 
 test("tasks use collapsible profession groups, pin completed cards, and nest combat locations", () => {
+  runtime.api.addTaskStyles();
   runtime.api.renderTasks();
+
+  const styles = document.querySelector("#mwitools-task-style").textContent;
+  assert.match(styles, /repeat\(auto-fill,minmax\(min\(100%,320px\),1fr\)\)/);
+  assert.doesNotMatch(styles, /repeat\(auto-fit/);
 
   const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
   assert.deepEqual(

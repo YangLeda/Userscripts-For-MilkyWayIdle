@@ -379,30 +379,35 @@ class AssetHistoryPanel {
             `vs ${comparison.gapDays} days ago (${comparison.date})`,
           )
       : t("暂无历史对比", "No prior record");
-    const setText = (selector, value, className = "") => {
+    const setNumber = (
+      selector,
+      value,
+      { signed = false, className = "" } = {},
+    ) => {
       const node = this.host.querySelector(selector);
-      node.textContent = value;
+      node.textContent = formatNumber(value, signed);
+      node.title = Number.isFinite(value)
+        ? runtime.api.formatExactNumber(value)
+        : "";
       node.className = `mwi-asset-card-value ${className}`.trim();
     };
-    setText("#mwi-asset-current-total", formatNumber(current.total));
-    setText(
-      "#mwi-asset-total-change",
-      formatNumber(totalChange, true),
-      valueClass(totalChange),
-    );
+    setNumber("#mwi-asset-current-total", current.total);
+    setNumber("#mwi-asset-total-change", totalChange, {
+      signed: true,
+      className: valueClass(totalChange),
+    });
     this.host.querySelector("#mwi-asset-compare-date").textContent =
       compareText;
-    setText(
-      "#mwi-asset-total-percent",
-      formatPercent(current.total, previous.total),
-      valueClass(totalChange),
-    );
+    setNumber("#mwi-asset-total-percent", null, {
+      className: valueClass(totalChange),
+    });
+    this.host.querySelector("#mwi-asset-total-percent").textContent =
+      formatPercent(current.total, previous.total);
     const average = this.store.sevenDayAverage(dayKey, this.scopeKey);
-    setText(
-      "#mwi-asset-seven-average",
-      formatNumber(average, true),
-      valueClass(average),
-    );
+    setNumber("#mwi-asset-seven-average", average, {
+      signed: true,
+      className: valueClass(average),
+    });
     this.host.querySelector("#mwi-asset-change-heading").textContent =
       comparison
         ? t(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`)
@@ -419,7 +424,7 @@ class AssetHistoryPanel {
           Number.isFinite(currentValue) && Number.isFinite(previousValue)
             ? currentValue - previousValue
             : null;
-        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
         return row;
       }),
     );
@@ -433,7 +438,8 @@ class AssetHistoryPanel {
     body.replaceChildren(
       ...entries.map(([dayKey, record]) => {
         const row = document.createElement("tr");
-        row.innerHTML = `<td>${dayKey}</td><td>${formatNumber(record?.values?.total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
+        const total = record?.values?.total;
+        row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
         row
           .querySelector("[data-edit]")
           .addEventListener("click", () => this.openEditor(dayKey));

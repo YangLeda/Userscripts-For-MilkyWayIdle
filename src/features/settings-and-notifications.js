@@ -2,6 +2,7 @@ import { runtime } from "../core/runtime.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const SETTINGS_STYLE_ID = "mwitools-settings-style";
+const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 
 function persistSettings() {
   const values = Object.fromEntries(
@@ -376,12 +377,10 @@ function ensureSettingsPanel() {
   renderSettings(root);
 }
 
-/* 检查是否穿错生产/战斗装备 */
-function checkEquipment() {
-  if (runtime.state.currentActionsHridList.length === 0) {
-    return;
-  }
-  const currentActionHrid = runtime.state.currentActionsHridList[0].actionHrid;
+function getEquipmentWarning() {
+  const currentActionHrid =
+    runtime.state.currentActionsHridList?.[0]?.actionHrid;
+  if (!currentActionHrid) return null;
   const hasHat =
     runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid ===
     "/items/red_chefs_hat"
@@ -403,21 +402,27 @@ function checkEquipment() {
       ? true
       : false; // Enhancing
 
-  let warningStr = null;
   if (currentActionHrid.includes("/actions/combat/")) {
     if (hasHat || hasOffHand || hasBoot || hasGlove) {
-      warningStr = runtime.config.isZH
-        ? "正穿着生产装备"
-        : "Production equipment equipted";
+      return {
+        code: "skilling-gear-in-combat",
+        text: runtime.config.isZH
+          ? "正在穿着生活装备"
+          : "Skilling gear equipped in combat",
+      };
     }
   } else if (
     currentActionHrid.includes("/actions/cooking/") ||
     currentActionHrid.includes("/actions/brewing/")
   ) {
     if (!hasHat && hasItemHridInInv("/items/red_chefs_hat")) {
-      warningStr = runtime.config.isZH
-        ? "没穿生产帽"
-        : "Not wearing production hat";
+      return {
+        code: "missing-production-hat",
+        itemHrid: "/items/red_chefs_hat",
+        text: runtime.config.isZH
+          ? "未装备生活帽"
+          : "Skilling hat not equipped",
+      };
     }
   } else if (
     currentActionHrid.includes("/actions/cheesesmithing/") ||
@@ -425,9 +430,13 @@ function checkEquipment() {
     currentActionHrid.includes("/actions/tailoring/")
   ) {
     if (!hasOffHand && hasItemHridInInv("/items/eye_watch")) {
-      warningStr = runtime.config.isZH
-        ? "没穿生产副手"
-        : "Not wearing production off-hand";
+      return {
+        code: "missing-production-off-hand",
+        itemHrid: "/items/eye_watch",
+        text: runtime.config.isZH
+          ? "未装备生活副手"
+          : "Skilling off-hand not equipped",
+      };
     }
   } else if (
     currentActionHrid.includes("/actions/milking/") ||
@@ -435,25 +444,104 @@ function checkEquipment() {
     currentActionHrid.includes("/actions/woodcutting/")
   ) {
     if (!hasBoot && hasItemHridInInv("/items/collectors_boots")) {
-      warningStr = runtime.config.isZH
-        ? "没穿生产鞋"
-        : "Not wearing production boots";
+      return {
+        code: "missing-production-boots",
+        itemHrid: "/items/collectors_boots",
+        text: runtime.config.isZH
+          ? "未装备生活鞋"
+          : "Skilling boots not equipped",
+      };
     }
   } else if (currentActionHrid.includes("/actions/enhancing")) {
     if (!hasGlove && hasItemHridInInv("/items/enchanted_gloves")) {
-      warningStr = runtime.config.isZH
-        ? "没穿强化手套"
-        : "Not wearing enhancing gloves";
+      return {
+        code: "missing-enhancing-gloves",
+        itemHrid: "/items/enchanted_gloves",
+        text: runtime.config.isZH
+          ? "未装备强化手套"
+          : "Enhancing gloves not equipped",
+      };
     }
   }
+  return null;
+}
 
-  document.body.querySelector("#script_item_warning")?.remove();
-  if (warningStr) {
-    document.body.insertAdjacentHTML(
-      "beforeend",
-      `<div id="script_item_warning" style="position: fixed; top: 1%; left: 30%; color: ${runtime.config.SCRIPT_COLOR_ALERT}; font-size: 1rem;">${warningStr}</div>`,
-    );
+function addEquipmentWarningStyles() {
+  if (document.getElementById(EQUIPMENT_WARNING_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = EQUIPMENT_WARNING_STYLE_ID;
+  style.textContent = `
+    .mwi-equipment-warning-host { position:relative!important; }
+    #script_item_warning { position:absolute; top:50%; z-index:6; display:flex; box-sizing:border-box; min-width:26px; max-width:var(--mwi-equipment-warning-space,180px); height:24px; align-items:center; gap:5px; padding:2px 7px; transform:translateY(-50%); border:1px solid rgba(255,174,61,.55); border-radius:999px; background:rgba(74,42,12,.92); color:#ffc56e; box-shadow:0 2px 8px rgba(0,0,0,.22); font:inherit; font-size:.66rem; font-weight:650; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; }
+    .mwi-equipment-warning-icon { flex:0 0 auto; font-size:.72rem; }
+    .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    @media(max-width:680px) { #script_item_warning { width:26px; max-width:26px; justify-content:center; padding:2px; } .mwi-equipment-warning-text { display:none; } }
+  `;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
+function removeEquipmentWarning() {
+  document.querySelector("#script_item_warning")?.remove();
+  document
+    .querySelectorAll(".mwi-equipment-warning-host")
+    .forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
+}
+
+function positionEquipmentWarning(warning, host) {
+  const hostRect = host.getBoundingClientRect();
+  const dashboard = host.querySelector("#mwi-action-dashboard");
+  const nativeChildren = [...host.children].filter(
+    (element) => element !== warning && element !== dashboard,
+  );
+  const anchorRect =
+    dashboard?.getBoundingClientRect() ??
+    nativeChildren.at(-1)?.getBoundingClientRect();
+  const left = Math.max(
+    0,
+    (anchorRect?.right ?? hostRect.left) - hostRect.left + 6,
+  );
+  const viewportWidth = host.ownerDocument?.defaultView?.innerWidth ?? 0;
+  const availableInHost = Math.max(26, hostRect.width - left);
+  const availableInViewport = viewportWidth
+    ? Math.max(26, viewportWidth - hostRect.left - left - 12)
+    : availableInHost;
+  warning.style.left = `${left}px`;
+  warning.style.setProperty(
+    "--mwi-equipment-warning-space",
+    `${Math.min(180, availableInHost, availableInViewport)}px`,
+  );
+}
+
+/* 检查是否穿错生产/战斗装备 */
+function checkEquipment() {
+  const warningState = getEquipmentWarning();
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  if (!warningState || !host) {
+    removeEquipmentWarning();
+    return warningState;
   }
+
+  addEquipmentWarningStyles();
+  host.classList.add("mwi-equipment-warning-host");
+  let warning = host.querySelector("#script_item_warning");
+  if (!warning) {
+    warning = document.createElement("div");
+    warning.id = "script_item_warning";
+    warning.setAttribute("role", "status");
+    const icon = document.createElement("span");
+    icon.className = "mwi-equipment-warning-icon";
+    icon.textContent = "⚠";
+    const text = document.createElement("span");
+    text.className = "mwi-equipment-warning-text";
+    warning.append(icon, text);
+    host.appendChild(warning);
+  }
+  warning.dataset.code = warningState.code;
+  warning.querySelector(".mwi-equipment-warning-text").textContent =
+    warningState.text;
+  warning.title = warningState.text;
+  positionEquipmentWarning(warning, host);
+  return warningState;
 }
 
 function hasItemHridInInv(hrid) {
@@ -572,6 +660,7 @@ function handleMarketNewOrder(node) {
 Object.assign(runtime.api, {
   persistSettings,
   readSettings,
+  getEquipmentWarning,
   checkEquipment,
   hasItemHridInInv,
   notificate,

@@ -139,10 +139,19 @@ function renderActionDashboard() {
   const primary = document.createElement("div");
   primary.className = "mwi-action-line";
   const remaining = document.createElement("span");
+  const effectivelyInfinite =
+    projection.effectivelyInfinite ?? projection.infinite;
+  const effectiveCount = projection.effectiveCount ?? projection.count;
   remaining.append(
     `${t("剩余", "Remaining")} `,
-    projection.infinite ? "∞" : number(projection.count),
+    effectivelyInfinite ? "∞" : number(effectiveCount),
   );
+  if (projection.materialLimited) {
+    remaining.title = t(
+      "已按当前库存中的可用原料计算",
+      "Limited by materials currently in inventory",
+    );
+  }
   const currentTime = document.createElement("span");
   currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
     projection.totalSeconds,

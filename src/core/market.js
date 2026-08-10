@@ -168,7 +168,7 @@ function numberFormatter(value, digits = 2) {
   }
   return `${rounded.toLocaleString(getNumberLocale(), {
     maximumFractionDigits,
-    useGrouping: false,
+    useGrouping: true,
   })}${unit.symbol}`;
 }
 

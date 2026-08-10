@@ -25,6 +25,13 @@ runtime.state.initData_actionDetailMap = {
     inputItems: [{ itemHrid: "/items/input", count: 2 }],
     outputItems: [{ itemHrid: "/items/output", count: 1 }],
   },
+  "/actions/foraging/test": {
+    hrid: "/actions/foraging/test",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    inputItems: [],
+    outputItems: [{ itemHrid: "/items/output", count: 1 }],
+  },
 };
 runtime.state.initData_characterItems = [
   {
@@ -71,7 +78,11 @@ test("missing prices stay incomplete instead of becoming zero-profit", () => {
   assert.deepEqual(result.missingPrices, ["/items/output"]);
 });
 
-test("actions without a maximum count remain infinite in queue projections", () => {
+test("infinite production is capped by live material inventory", () => {
+  runtime.api.getAskPrice = (itemHrid) =>
+    itemHrid === "/items/input" ? 10 : 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/output" ? 100 : 0;
   const action = {
     actionHrid: "/actions/crafting/test",
     hasMaxCount: false,
@@ -80,10 +91,54 @@ test("actions without a maximum count remain infinite in queue projections", () 
   };
   const result = runtime.api.projectAction(action);
   assert.equal(result.infinite, true);
+  assert.equal(result.effectivelyInfinite, false);
+  assert.equal(result.materialLimited, true);
+  assert.equal(result.effectiveCount, 10);
+  assert.equal(result.totalSeconds, 100);
+  assert.equal(result.outputs[0].expectedCount, 10);
+  assert.equal(result.totalProfit, 800);
+
+  const queue = runtime.api.projectQueue(
+    [
+      action,
+      {
+        actionHrid: "/actions/crafting/test",
+        hasMaxCount: true,
+        maxCount: 1,
+        currentCount: 0,
+      },
+    ],
+    { now: 1_000 },
+  );
+  assert.equal(queue.hasInfinite, false);
+  assert.equal(queue.items[1].startsAt, 101_000);
+  assert.equal(queue.finishAt, 111_000);
+});
+
+test("infinite gathering without inputs remains effectively infinite", () => {
+  const action = {
+    actionHrid: "/actions/foraging/test",
+    hasMaxCount: false,
+  };
+  const result = runtime.api.projectAction(action);
+  assert.equal(result.infinite, true);
+  assert.equal(result.effectivelyInfinite, true);
+  assert.equal(result.materialLimited, false);
+  assert.equal(result.effectiveCount, Infinity);
   assert.equal(result.totalSeconds, Infinity);
+
   const queue = runtime.api.projectQueue([action], { now: 1_000 });
   assert.equal(queue.hasInfinite, true);
   assert.equal(queue.finishAt, null);
+});
+
+test("explicit planning counts are not capped by current inventory", () => {
+  const result = runtime.api.projectAction("/actions/crafting/test", 100);
+  assert.equal(result.respectsInventoryLimit, false);
+  assert.equal(result.maxCraftable, 10);
+  assert.equal(result.effectiveCount, 100);
+  assert.equal(result.totalSeconds, 1_000);
+  assert.equal(result.outputs[0].expectedCount, 100);
 });
 
 test("an open production panel uses the game's live duration and discrete efficiency rounding", () => {

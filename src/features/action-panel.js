@@ -306,10 +306,11 @@ async function handleActionPanel(panel) {
       itemPerHour * bidAfterTax +
       extraFreeItemPerHour * bidAfterTax -
       drinksConsumedPerHourAskPrice;
+    const profitPerDay = 24 * profitPerHour;
 
     const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${
       runtime.config.isZH ? "综合利润: " : "Overall profit: "
-    }${runtime.api.numberFormatter(profitPerHour)}${runtime.config.isZH ? "/小时" : "/hour"}, ${runtime.api.numberFormatter(24 * profitPerHour)}${runtime.config.isZH ? "/天" : "/day"}</div>`;
+    }<span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerHour)}">${runtime.api.numberFormatter(profitPerHour)}</span>${runtime.config.isZH ? "/小时" : "/hour"}, <span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerDay)}">${runtime.api.numberFormatter(profitPerDay)}</span>${runtime.config.isZH ? "/天" : "/day"}</div>`;
     panel
       .querySelector("#mwi-level-progress")
       ?.insertAdjacentHTML("beforeend", htmlStr);

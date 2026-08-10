@@ -24,7 +24,7 @@ test("unified numbers use K/M/B/T, promote rounded boundaries and keep exact tit
   assert.equal(runtime.api.numberFormatter(12_345_678_901), "12.35B");
   assert.equal(runtime.api.numberFormatter(999_999_999), "1B");
   assert.equal(runtime.api.numberFormatter(-1_250_000), "-1.25M");
-  assert.equal(runtime.api.numberFormatter(1_250_000_000_000_000), "1250T");
+  assert.equal(runtime.api.numberFormatter(1_250_000_000_000_000), "1,250T");
   assert.equal(runtime.api.formatExactNumber(12_345_678_901), "12,345,678,901");
   const element = runtime.api.createFormattedNumber(12_345_678_901);
   assert.equal(element.textContent, "12.35B");
