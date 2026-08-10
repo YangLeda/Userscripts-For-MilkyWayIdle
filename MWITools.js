@@ -30408,7 +30408,7 @@ ${locks}` : ""}`;
     const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
     return `${compactNumber(number2, digits)} ${t11("个", "pcs")}`;
   }
-  function metric3(label, value, exactValue = null) {
+  function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
     row.className = "mwi-enhancement-metric";
     const caption = document.createElement("div");
@@ -30417,13 +30417,34 @@ ${locks}` : ""}`;
     const content = document.createElement("div");
     content.className = "mwi-enhancement-value";
     content.textContent = value;
-    const title = exactTitle(exactValue);
+    const title = titleText || exactTitle(exactValue);
     if (title) content.title = title;
     row.append(caption, content);
     return row;
   }
+  function protectionUsage(plan) {
+    const normal = Number(plan?.expectedNormalProtectionCount);
+    const mirror = Number(plan?.expectedPhilosopherMirrorCount);
+    if (!Number.isFinite(normal) || !Number.isFinite(mirror)) {
+      return { text: "—", title: "" };
+    }
+    if (mirror > 1e-8) {
+      return {
+        text: t11(
+          `普通 ${compactNumber(normal, 1)} · 镜 ${compactNumber(mirror, 1)}`,
+          `Normal ${compactNumber(normal, 1)} · Mirror ${compactNumber(mirror, 1)}`
+        ),
+        title: t11(
+          `普通保护：${exactTitle(normal)}；贤者之镜：${exactTitle(mirror)}`,
+          `Regular protection: ${exactTitle(normal)}; Philosopher's Mirrors: ${exactTitle(mirror)}`
+        )
+      };
+    }
+    return { text: compactNumber(normal, 1), title: exactTitle(normal) };
+  }
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
+    const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
     const normalStart = complete ? plan.normalProtectStart === null ? t11("不用", "None") : `+${plan.normalProtectStart}` : "—";
     const philosopherStart = complete ? plan.philosopherStart === null ? t11("不用", "None") : `+${plan.philosopherStart}` : "—";
     const aLabel = complete && plan.aLevel !== null ? t11(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t11("需要", "Need");
@@ -30444,8 +30465,9 @@ ${locks}` : ""}`;
       metric3(t11("开始保护", "Protect from"), normalStart),
       metric3(
         t11("保护次数", "Protection uses"),
-        complete ? compactNumber(plan.expectedProtectionCount, 1) : "—",
-        plan?.expectedProtectionCount
+        protection.text,
+        null,
+        protection.title
       ),
       metric3(t11("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),

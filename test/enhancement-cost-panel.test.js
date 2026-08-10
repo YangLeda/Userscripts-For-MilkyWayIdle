@@ -44,6 +44,8 @@ function completePlan() {
     totalSeconds: 456,
     normalProtectStart: 6,
     expectedProtectionCount: 7.25,
+    expectedNormalProtectionCount: 7.25,
+    expectedPhilosopherMirrorCount: 1,
     philosopherStart: 10,
     aLevel: 10,
     aCount: 5.5,
@@ -64,6 +66,7 @@ test("enhancement UI is a separate seven-row sibling", () => {
   assert.match(panel.textContent, /总成本/);
   assert.match(panel.textContent, /开始保护\+6/);
   assert.match(panel.textContent, /开始贤者保护\+10/);
+  assert.match(panel.textContent, /普通 7\.3 · 镜 1\.0/);
   assert.match(panel.textContent, /需要 \+105\.5 个/);
   assert.match(panel.textContent, /需要 \+93\.3 个/);
 
@@ -87,6 +90,8 @@ test("unavailable and normal-only plans keep the same compact fields", () => {
   panel = showEnhancementCostPanel(anchor(), {
     ...completePlan(),
     normalProtectStart: null,
+    expectedNormalProtectionCount: 0,
+    expectedPhilosopherMirrorCount: 0,
     philosopherStart: null,
     aLevel: null,
     aCount: 0,
@@ -141,6 +146,7 @@ test("English labels are synchronized", () => {
   assert.match(panel.textContent, /Total cost/);
   assert.match(panel.textContent, /Protect from/);
   assert.match(panel.textContent, /Protection uses/);
+  assert.match(panel.textContent, /Normal 7\.3 · Mirror 1\.0/);
   assert.match(panel.textContent, /Philosopher's Mirror from/);
   runtime.config.isZH = true;
 });
