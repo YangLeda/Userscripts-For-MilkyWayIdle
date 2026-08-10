@@ -6,6 +6,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "build:test": "node scripts/build-test-userscript.mjs",
+    "build:min": "node scripts/build-min.mjs",
     "format": "prettier --write src scripts test test-support eslint.config.js package.json",
     "format:check": "prettier --check src scripts test test-support eslint.config.js package.json",
     "lint": "eslint src scripts test test-support eslint.config.js",

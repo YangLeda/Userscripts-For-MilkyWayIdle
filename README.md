@@ -29,9 +29,11 @@ Source code is organized by responsibility:
 - `src/features/`: inventory, actions, tooltips, marketplace, combat, settings and external-tool integrations.
 - `src/main.js`: page routing and startup order.
 
-`npm run build` bundles the modules as a readable UTF-8 IIFE, prepends `src/userscript-banner.txt`, and replaces the root `MWITools.js`. It does not minify or emit a source map.
+`npm run build` bundles the modules as a readable UTF-8 IIFE, prepends `src/userscript-banner.txt`, and replaces the root `MWITools.js` (which does not minify or emit a source map). It also generates `MWITools.min.user.js` in the same run so the two never drift apart.
 
 `npm run build:test` uses the same source and build settings to generate `MWITools-test.user.js` with isolated metadata and its deployment URL. Increment the test version in `scripts/userscript-build.mjs` before publishing a new test update.
+
+`MWITools.min.user.js` is a minified build (roughly 43% smaller) that keeps function names so console stack traces stay readable. It is produced by the main `npm run build` and can also be built on its own with `npm run build:min`. It is named `MWITools (min)` and matches the same sites as the production script, so disable the readable production script before enabling it to avoid running both. The canonical GreasyFork distribution remains the readable root `MWITools.js`; this build is an optional lower-bandwidth alternative.
 
 Before committing a change, run:
 

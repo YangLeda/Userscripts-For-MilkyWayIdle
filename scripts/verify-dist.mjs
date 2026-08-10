@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   buildUserscript,
+  getMinifiedBanner,
   getProductionBanner,
   getTestBanner,
   projectRoot,
@@ -23,11 +24,18 @@ try {
       filename: "MWITools-test.user.js",
       command: "npm run build:test",
     },
+    {
+      banner: await getMinifiedBanner(),
+      filename: "MWITools.min.user.js",
+      command: "npm run build:min",
+      minify: true,
+    },
   ]) {
     const tempOutput = path.join(tempDir, distribution.filename);
     await buildUserscript({
       banner: distribution.banner,
       outfile: tempOutput,
+      minify: distribution.minify ?? false,
     });
 
     const [committed, generated] = await Promise.all([

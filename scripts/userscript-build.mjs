@@ -59,7 +59,35 @@ export async function getTestBanner() {
   return testLines.join("\n");
 }
 
-export async function buildUserscript({ banner, outfile }) {
+export async function getMinifiedBanner() {
+  const productionBanner = await getProductionBanner();
+  const lines = productionBanner.split("\n");
+  const minifiedLines = [];
+
+  for (const line of lines) {
+    if (line.startsWith("// @name         ")) {
+      minifiedLines.push("// @name         MWITools (min)");
+      continue;
+    }
+    if (line.startsWith("// @namespace    ")) {
+      minifiedLines.push(
+        "// @namespace    https://fishingidle.com/mwitools-min",
+      );
+      continue;
+    }
+    if (line.startsWith("// @description  ")) {
+      minifiedLines.push(
+        line.replace("// @description  ", "// @description  [压缩版] "),
+      );
+      continue;
+    }
+    minifiedLines.push(line);
+  }
+
+  return minifiedLines.join("\n");
+}
+
+export async function buildUserscript({ banner, outfile, minify = false }) {
   await build({
     absWorkingDir: projectRoot,
     entryPoints: ["src/main.js"],
@@ -68,10 +96,13 @@ export async function buildUserscript({ banner, outfile }) {
     format: "iife",
     target: ["chrome100"],
     charset: "utf8",
-    minify: false,
+    minify,
+    // Keep function and class names even when minifying so console stack
+    // traces stay meaningful for a script that debugs against live game DOM.
+    keepNames: minify,
     sourcemap: false,
     legalComments: "inline",
-    treeShaking: false,
+    treeShaking: minify,
     loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
