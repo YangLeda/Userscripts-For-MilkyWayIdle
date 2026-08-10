@@ -35,18 +35,71 @@ runtime.api.formatExactNumber = (value) =>
 runtime.api.getLatestAssetSnapshot = () => null;
 const { AssetHistoryStore } =
   await import("../src/features/asset-history/10-store.js");
-const { createAssetHistoryUi } =
-  await import("../src/features/asset-history/30-panel.js");
+const {
+  ASSET_SHARE_TEMPLATE_COUNT,
+  buildAssetShareMessage,
+  createAssetHistoryUi,
+  pasteAssetShareToChat,
+} = await import("../src/features/asset-history/30-panel.js");
 
 function gameShell() {
   const shell = document.createElement("main");
   shell.innerHTML = `
-    <nav><button type="button">库存</button><button type="button" id="loadout">配装</button></nav>
+    <nav><button type="button">库存</button><button type="button" id="loadout">配装 <span>0</span></button></nav>
     <section class="Inventory_panel__test"><input placeholder="物品搜索"></section>
   `;
   document.body.appendChild(shell);
   return shell;
 }
+
+test("asset sharing provides separate Chinese and English profit/loss phrases", () => {
+  assert.ok(ASSET_SHARE_TEMPLATE_COUNT >= 10);
+  const pools = [];
+  for (const isZH of [true, false]) {
+    runtime.config.isZH = isZH;
+    const profitMessages = new Set(
+      Array.from({ length: ASSET_SHARE_TEMPLATE_COUNT }, (_, index) =>
+        buildAssetShareMessage(
+          { change: 234_567, percent: 12.5, gapDays: 1 },
+          index,
+        ),
+      ),
+    );
+    const lossMessages = new Set(
+      Array.from({ length: ASSET_SHARE_TEMPLATE_COUNT }, (_, index) =>
+        buildAssetShareMessage(
+          { change: -234_567, percent: -12.5, gapDays: 1 },
+          index,
+        ),
+      ),
+    );
+    assert.equal(profitMessages.size, ASSET_SHARE_TEMPLATE_COUNT);
+    assert.equal(lossMessages.size, ASSET_SHARE_TEMPLATE_COUNT);
+    assert.equal(
+      [...profitMessages].some((message) => lossMessages.has(message)),
+      false,
+    );
+    for (const message of [...profitMessages, ...lossMessages]) {
+      assert.match(message, /234,567/);
+      assert.match(message, /12\.50%/);
+    }
+    pools.push(profitMessages);
+  }
+  runtime.config.isZH = true;
+
+  document.body.replaceChildren();
+  const input = document.createElement("input");
+  input.className = "Chat_chatInput__test";
+  input.value = "old draft";
+  document.body.append(input);
+  const observedValues = [];
+  input.addEventListener("input", () => observedValues.push(input.value));
+  const message = [...pools[0]][0];
+  assert.equal(pasteAssetShareToChat(message), input);
+  assert.deepEqual(observedValues, ["", message]);
+  assert.equal(input.value, message);
+  assert.equal(document.activeElement, input);
+});
 
 test("盈亏 is a singleton native sibling and restores game content on tab switches", () => {
   document.body.replaceChildren();
@@ -75,6 +128,10 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   assert.match(
     document.querySelector("#mwitools-asset-history-style").textContent,
     /#00c6ff/,
+  );
+  assert.equal(
+    document.querySelector("#mwi-asset-share-chat").textContent,
+    "炫耀",
   );
   assert.match(
     document.querySelector("#mwitools-asset-history-style").textContent,

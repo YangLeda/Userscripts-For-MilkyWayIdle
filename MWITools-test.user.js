@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.15
+// @version      26.2.18
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -21834,6 +21834,7 @@
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
   var STYLE_ID = "mwitools-asset-history-style";
+  var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
     ["equipment", "装备", "Equipment"],
@@ -21863,6 +21864,130 @@
     if (!Number.isFinite(value) || value === 0) return "is-neutral";
     return value > 0 ? "is-positive" : "is-negative";
   }
+  function sharePeriod(gapDays) {
+    if (runtime.config.isZH) {
+      return gapDays === 1 ? "今天" : `近 ${gapDays} 天`;
+    }
+    return gapDays === 1 ? "Today" : `Over the last ${gapDays} days`;
+  }
+  function buildAssetShareMessage({ change, percent, gapDays = 1 }, templateIndex = Math.floor(Math.random() * ASSET_SHARE_TEMPLATE_COUNT)) {
+    if (!Number.isFinite(change) || !Number.isFinite(percent)) return "";
+    const period = sharePeriod(gapDays);
+    const amount = formatNumber(Math.abs(change));
+    const percentText = `${Math.abs(percent).toFixed(2)}%`;
+    const signedAmount = formatNumber(change, true);
+    const signedPercent = `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`;
+    const zhProfitTemplates = [
+      () => `📈 ${period}资产战报：赚了 ${amount}，总资产增长 ${percentText}。`,
+      () => `${period}的奶牛账本飘绿：进账 ${amount}，身家上涨 ${percentText}。`,
+      () => `汇报一下${period}战果：盈利 ${amount}，资产增加 ${percentText}。`,
+      () => `${period}收工报数：净赚 ${amount}，总资产提升 ${percentText}。`,
+      () => `财富成绩单更新：赚到 ${amount}，资产涨幅 ${percentText}。`,
+      () => `牛棚财报新鲜出炉：${period}盈利 ${amount}，身家增长 ${percentText}。`,
+      () => `${period}搬砖结算：收入 ${amount}，资产上涨 ${percentText}。`,
+      () => `小小炫耀一下：${period}赚了 ${amount}，总资产 +${percentText}。`,
+      () => `账本一翻，${period}多了 ${amount}，身家涨了 ${percentText}。`,
+      () => `🚀 财富进度向前：+${amount}，涨幅 +${percentText}。`,
+      () => `挤奶之余看了眼资产：${period}进账 ${amount}，总计增长 ${percentText}。`,
+      () => `MWITools 资产盘点：${period}盈利 +${amount}，变化 +${percentText}。`
+    ];
+    const zhLossTemplates = [
+      () => `📉 ${period}资产战报：亏了 ${amount}，总资产缩水 ${percentText}。`,
+      () => `${period}的奶牛账本飘红：损失 ${amount}，身家下降 ${percentText}。`,
+      () => `汇报一下${period}战况：亏损 ${amount}，资产减少 ${percentText}。`,
+      () => `${period}收工报数：净亏 ${amount}，总资产回落 ${percentText}。`,
+      () => `财富成绩单更新：少了 ${amount}，资产跌幅 ${percentText}。`,
+      () => `牛棚财报有点红：${period}亏损 ${amount}，身家缩水 ${percentText}。`,
+      () => `${period}搬砖结算：支出 ${amount}，资产下降 ${percentText}。`,
+      () => `今天不炫耀了：${period}亏了 ${amount}，总资产 -${percentText}。`,
+      () => `账本一翻，${period}少了 ${amount}，身家跌了 ${percentText}。`,
+      () => `🩹 财富进度回撤：−${amount}，跌幅 −${percentText}。`,
+      () => `挤奶之余看了眼资产：${period}损失 ${amount}，总计下降 ${percentText}。`,
+      () => `MWITools 资产盘点：${period}亏损 −${amount}，变化 −${percentText}。`
+    ];
+    const enProfitTemplates = [
+      () => `📈 Asset report: ${period} I gained ${amount}; total assets are up ${percentText}.`,
+      () => `${period}'s cow ledger is green: +${amount}, net worth up ${percentText}.`,
+      () => `The grind paid off: ${period} I made ${amount}, growing assets by ${percentText}.`,
+      () => `Closing the books ${period}: profit ${amount}, total wealth up ${percentText}.`,
+      () => `My wealth scorecard: +${amount}, with a ${percentText} gain ${period.toLowerCase()}.`,
+      () => `Fresh from the cowshed: ${period} brought ${amount}, net worth up ${percentText}.`,
+      () => `Tiny flex: I earned ${amount} ${period.toLowerCase()}, assets +${percentText}.`,
+      () => `Checked the books: ${period} added ${amount} to the pile, up ${percentText}.`,
+      () => `🚀 Wealth progress unlocked: +${amount} (+${percentText}) ${period.toLowerCase()}.`,
+      () => `Milk money report: ${period} profit ${amount}, portfolio growth ${percentText}.`,
+      () => `A green day in the galaxy: +${amount}, total assets climbed ${percentText}.`,
+      () => `MWITools flex: ${period} P/L +${amount}, asset change +${percentText}.`
+    ];
+    const enLossTemplates = [
+      () => `📉 Asset report: ${period} I lost ${amount}; total assets are down ${percentText}.`,
+      () => `${period}'s cow ledger took a hit: -${amount}, net worth down ${percentText}.`,
+      () => `Rough shift: ${period} cost me ${amount}, and assets slipped ${percentText}.`,
+      () => `Closing the books ${period}: loss ${amount}, total wealth down ${percentText}.`,
+      () => `My wealth scorecard: -${amount}, with a ${percentText} drop ${period.toLowerCase()}.`,
+      () => `The cowshed report is red: ${period} lost ${amount}, net worth down ${percentText}.`,
+      () => `Painful little update: I dropped ${amount}, and assets fell ${percentText}.`,
+      () => `Checked the books twice: ${period} erased ${amount}, down ${percentText}.`,
+      () => `🩹 Wealth progress setback: -${amount} (-${percentText}) ${period.toLowerCase()}.`,
+      () => `Spilled milk report: ${period} loss ${amount}, portfolio down ${percentText}.`,
+      () => `A red day in the galaxy: -${amount}, total assets fell ${percentText}.`,
+      () => `MWITools reality check: ${period} P/L -${amount}, asset change -${percentText}.`
+    ];
+    const neutralTemplates = runtime.config.isZH ? [
+      () => `${period}资产持平：盈亏 0，变化 ${signedPercent}。`,
+      () => `${period}的奶牛账本没动：资产变化 0（${signedPercent}）。`,
+      () => `财富成绩单：${period}盈亏 0，涨跌 ${signedPercent}。`,
+      () => `收工报数：${period}资产不增不减，变化 ${signedPercent}。`,
+      () => `账本平静：${period}盈亏 0，资产变化 ${signedPercent}。`,
+      () => `牛棚财报：${period}资产持平，盈亏 0（${signedPercent}）。`,
+      () => `${period}搬砖结算：收入支出相抵，变化 ${signedPercent}。`,
+      () => `今天低调一下：${period}盈亏 0，资产持平 ${signedPercent}。`,
+      () => `账本一翻：${period}没有盈亏，变化 ${signedPercent}。`,
+      () => `➖ 财富进度原地踏步：${signedAmount}（${signedPercent}）。`,
+      () => `挤奶之余看了眼资产：${period}盈亏 0，变化 ${signedPercent}。`,
+      () => `MWITools 资产盘点：${period}盈亏 ${signedAmount}，变化 ${signedPercent}。`
+    ] : [
+      () => `${period}'s asset report is flat: P/L 0, change ${signedPercent}.`,
+      () => `${period}'s cow ledger did not move: 0 P/L (${signedPercent}).`,
+      () => `Wealth scorecard: ${period} finished flat at ${signedPercent}.`,
+      () => `Closing the books ${period}: no gain or loss, change ${signedPercent}.`,
+      () => `Quiet ledger: ${period} P/L 0, asset change ${signedPercent}.`,
+      () => `Cowshed report: ${period} assets stayed flat at ${signedPercent}.`,
+      () => `${period}'s grind broke even: P/L 0, change ${signedPercent}.`,
+      () => `Keeping it low-key: ${period} assets stayed flat at ${signedPercent}.`,
+      () => `Checked the books: ${period} had no P/L, change ${signedPercent}.`,
+      () => `➖ Wealth progress held steady: ${signedAmount} (${signedPercent}).`,
+      () => `Paused milking to check: ${period} P/L 0, change ${signedPercent}.`,
+      () => `MWITools asset check: ${period} P/L ${signedAmount}, change ${signedPercent}.`
+    ];
+    const templates = change === 0 ? neutralTemplates : runtime.config.isZH ? change > 0 ? zhProfitTemplates : zhLossTemplates : change > 0 ? enProfitTemplates : enLossTemplates;
+    const normalizedIndex = ((Number(templateIndex) || 0) % templates.length + templates.length) % templates.length;
+    return templates[normalizedIndex]();
+  }
+  function pasteAssetShareToChat(message, root = document) {
+    const inputs = [
+      ...root.querySelectorAll(
+        'input[class*="Chat_chatInput"],input[placeholder*="输入消息"],input[placeholder*="message" i]'
+      )
+    ];
+    const input = inputs.find((candidate) => candidate.getClientRects().length > 0) ?? inputs.at(0);
+    if (!input || !message) return null;
+    const view = input.ownerDocument?.defaultView ?? window;
+    const setter = Object.getOwnPropertyDescriptor(
+      view.HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    const applyValue = (value) => {
+      if (setter) setter.call(input, value);
+      else input.value = value;
+      input.dispatchEvent(new view.Event("input", { bubbles: true }));
+    };
+    applyValue("");
+    applyValue(message);
+    input.focus();
+    input.setSelectionRange?.(message.length, message.length);
+    return input;
+  }
   function addStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -21871,6 +21996,8 @@
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
+    .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
+    .mwi-asset-share-status { min-width:0; color:var(--color-text-secondary,#aaa); font-size:.68rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-asset-summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
     .mwi-asset-card { min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.06); }
     .mwi-asset-card-label { color:#9fb4d1; font-size:.68rem; }
@@ -21920,7 +22047,7 @@
   }
   function findLoadoutTab() {
     return [...document.querySelectorAll("button")].find(
-      (button) => /^(配装|loadouts?)$/i.test(buttonLabel(button))
+      (button) => /^(配装|loadouts?)(?:\s*\d+)?$/i.test(buttonLabel(button))
     );
   }
   function looksLikeContent(node) {
@@ -21977,6 +22104,7 @@
     build() {
       this.host.innerHTML = `
       <p class="mwi-asset-disclaimer">${t2("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t2("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t2("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
       <div class="mwi-asset-summary">
         ${createCard(t2("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t2("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
@@ -22027,6 +22155,7 @@
       this.bind();
     }
     bind() {
+      this.host.querySelector("#mwi-asset-share-chat").addEventListener("click", () => this.shareToChat());
       this.host.querySelectorAll("[data-mode]").forEach((button) => {
         button.addEventListener("click", () => {
           this.mode = button.dataset.mode;
@@ -22107,6 +22236,23 @@ ${preview}`
       this.host.querySelector("[data-edit-cancel]").addEventListener("click", () => this.closeEditor());
       this.host.querySelector("[data-edit-save]").addEventListener("click", () => this.saveEditor());
     }
+    shareToChat() {
+      const status = this.host.querySelector(".mwi-asset-share-status");
+      const message = buildAssetShareMessage(this.shareStats ?? {});
+      if (!message) {
+        status.textContent = t2(
+          "暂无可对比的盈亏数据",
+          "No comparable P/L data yet"
+        );
+        return;
+      }
+      const input = pasteAssetShareToChat(message);
+      status.dataset.pasted = String(Boolean(input));
+      status.textContent = input ? t2("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t2(
+        "未找到聊天框，请先展开聊天",
+        "Chat input not found; open chat first"
+      );
+    }
     openEditor(dayKey) {
       const record = this.store.getRole(this.scopeKey).days[dayKey];
       const dialog = this.host.querySelector("#mwi-asset-edit-dialog");
@@ -22154,6 +22300,26 @@ ${preview}`
       const comparison = this.store.comparison(dayKey, this.scopeKey);
       const previous = comparison?.record?.values ?? {};
       const totalChange = Number.isFinite(current.total) && Number.isFinite(previous.total) ? current.total - previous.total : null;
+      const totalPercent = Number.isFinite(totalChange) && Number.isFinite(previous.total) && previous.total !== 0 ? totalChange / previous.total * 100 : null;
+      this.shareStats = comparison && Number.isFinite(totalPercent) ? {
+        change: totalChange,
+        percent: totalPercent,
+        gapDays: comparison.gapDays
+      } : null;
+      const shareButton = this.host.querySelector("#mwi-asset-share-chat");
+      const shareStatus = this.host.querySelector(".mwi-asset-share-status");
+      shareButton.disabled = !this.shareStats;
+      if (!this.shareStats) {
+        shareStatus.textContent = t2(
+          "需要至少两天的资产记录",
+          "At least two asset records are required"
+        );
+      } else if (shareStatus.dataset.pasted !== "true") {
+        shareStatus.textContent = t2(
+          "随机生成今日战报并放入聊天框",
+          "Generate a random report and paste it into chat"
+        );
+      }
       const compareText = comparison ? comparison.gapDays === 1 ? t2(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t2(
         `较 ${comparison.gapDays} 天前（${comparison.date}）`,
         `vs ${comparison.gapDays} days ago (${comparison.date})`
