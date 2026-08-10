@@ -1,5 +1,14 @@
 import { runtime } from "../core/runtime.js";
 
+function refreshAssets() {
+  const settings = runtime.settings.settingsMap;
+  if (settings.invWorth.isTrue || settings.invSort.isTrue) {
+    runtime.api.scheduleNetworthRefresh();
+  } else if (settings.assetHistory.isTrue) {
+    runtime.api.assetHistory.scheduleRefresh();
+  }
+}
+
 runtime.onMessage("init_client_data", (payload, message) => {
   console.log(payload);
   GM_setValue("init_client_data", message);
@@ -9,7 +18,7 @@ runtime.onMessage("init_character_data", (payload, message) => {
   console.log(payload);
   GM_setValue("init_character_data", message);
   const settings = runtime.settings.settingsMap;
-  if (settings.networth.isTrue) runtime.api.calculateNetworth();
+  refreshAssets();
   if (settings.checkEquipment.isTrue) runtime.api.checkEquipment();
 });
 
@@ -28,8 +37,7 @@ runtime.onMessage("battle_unit_fetched", (payload) => {
 runtime.onMessage("items_updated", () => {
   if (runtime.settings.settingsMap.checkEquipment.isTrue)
     runtime.api.checkEquipment();
-  if (runtime.settings.settingsMap.networth.isTrue)
-    runtime.api.scheduleNetworthRefresh();
+  refreshAssets();
 });
 
 for (const messageType of [
@@ -37,10 +45,12 @@ for (const messageType of [
   "market_item_order_books_updated",
   "market_listings_updated",
   "guild_updated",
+  "house_rooms_updated",
+  "abilities_updated",
+  "character_abilities_updated",
 ]) {
   runtime.onMessage(messageType, () => {
-    if (runtime.settings.settingsMap.networth.isTrue)
-      runtime.api.scheduleNetworthRefresh();
+    refreshAssets();
   });
 }
 

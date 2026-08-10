@@ -1,140 +1,25 @@
 import { runtime } from "../core/runtime.js";
 
-let networthWatcherStarted = false;
 let guildCreditWatcherStarted = false;
-let networthRefreshTimer = null;
+let inventoryRefreshTimer = null;
 
 function numberHtml(value) {
   return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
 }
 
-function isTerminalMarketListing(listing) {
-  if (
-    listing?.isDone ||
-    listing?.isCancelled ||
-    listing?.isCanceled ||
-    listing?.isExpired
-  ) {
-    return true;
-  }
-  return /(cancel|complete|expire|closed|done)/i.test(
-    String(listing?.status ?? ""),
-  );
-}
-
-function calculateMarketListingValues(listings) {
-  const totals = { fair: 0, ask: 0, bid: 0 };
-  for (const listing of listings ?? []) {
-    const enhancementLevel = listing.enhancementLevel ?? 0;
-    const assetValue = runtime.api.getAssetValue(
-      listing.itemHrid,
-      enhancementLevel,
-    );
-    const askPrice = runtime.api.getAskPrice(
-      listing.itemHrid,
-      enhancementLevel,
-    );
-    const bidPrice = runtime.api.getBidPrice(
-      listing.itemHrid,
-      enhancementLevel,
-    );
-    const availableCoins = Math.max(0, Number(listing.coinsAvailable ?? 0));
-    const unclaimedCoins = Math.max(0, Number(listing.unclaimedCoinCount ?? 0));
-    const explicitCoins = availableCoins + unclaimedCoins;
-    totals.fair += explicitCoins;
-    totals.ask += explicitCoins;
-    totals.bid += explicitCoins;
-
-    const unclaimedItems = Math.max(0, Number(listing.unclaimedItemCount ?? 0));
-    totals.fair += unclaimedItems * assetValue;
-    totals.ask += unclaimedItems * askPrice;
-    totals.bid += unclaimedItems * bidPrice;
-
-    if (!listing.isSell || isTerminalMarketListing(listing)) continue;
-    const remainingQuantity = Math.max(
-      0,
-      Number(listing.orderQuantity ?? 0) - Number(listing.filledQuantity ?? 0),
-    );
-    const taxMultiplier = 1 - runtime.api.getMarketTaxRate(listing.itemHrid);
-    totals.fair += remainingQuantity * assetValue;
-    totals.ask += remainingQuantity * askPrice * taxMultiplier;
-    totals.bid += remainingQuantity * bidPrice * taxMultiplier;
-  }
-  return totals;
-}
-
 function scheduleNetworthRefresh() {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
-  clearTimeout(networthRefreshTimer);
-  networthRefreshTimer = setTimeout(() => calculateNetworth(), 100);
+  clearTimeout(inventoryRefreshTimer);
+  inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
 }
 
-/* 计算Networth */
 async function calculateNetworth() {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
-  const marketAPIJson = await runtime.api.fetchMarketJSON();
-  if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-    console.error("calculateNetworth marketAPIJson is null");
-    return;
-  }
+  const snapshot = await runtime.api.refreshAssetSnapshot();
+  if (!snapshot) return;
 
-  let networthAsk = 0;
-  let networthBid = 0;
-  let marketListingsNetworthAsk = 0;
-  let marketListingsNetworthBid = 0;
-  let equippedNetworthAsk = 0;
-  let equippedNetworthBid = 0;
-  let inventoryNetworthAsk = 0;
-  let inventoryNetworthBid = 0;
-  let marketListingsFairValue = 0;
-  let equippedFairValue = 0;
-  let inventoryFairValue = 0;
-  let nonTradableTokenValue = 0;
-
-  for (const item of runtime.state.initData_characterItems) {
-    const enhanceLevel = item.enhancementLevel;
-    const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
-    const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
-    const fairValue = runtime.api.getAssetValue(item.itemHrid, enhanceLevel);
-    if (item.itemLocationHrid !== "/item_locations/inventory") {
-      equippedNetworthAsk += item.count * askPrice;
-      equippedNetworthBid += item.count * bidPrice;
-      equippedFairValue += item.count * fairValue;
-    } else {
-      inventoryNetworthAsk += item.count * askPrice;
-      inventoryNetworthBid += item.count * bidPrice;
-      if (runtime.api.isNonTradableTokenAsset(item.itemHrid)) {
-        nonTradableTokenValue += item.count * fairValue;
-      } else {
-        inventoryFairValue += item.count * fairValue;
-      }
-    }
-  }
-
-  const listingValues = calculateMarketListingValues(
-    runtime.state.initData_myMarketListings,
-  );
-  marketListingsFairValue = listingValues.fair;
-  marketListingsNetworthAsk = listingValues.ask;
-  marketListingsNetworthBid = listingValues.bid;
-
-  networthAsk =
-    equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
-  networthBid =
-    equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
-  const currentAssetsFairValue =
-    equippedFairValue + inventoryFairValue + marketListingsFairValue;
-
-  /* 仓库搜索栏下方显示人物总结 */
-  // Some code of networth summery is by Stella.
-  const addInventorySummery = async (invElem) => {
-    const scores = await runtime.api.getSelfBuildScores();
-    const guildShrineValue = runtime.api.getGuildShrineValue();
-    const totalNetworth =
-      currentAssetsFairValue +
-      (scores.assets.allHouses + scores.assets.allAbilities) * 1000000 +
-      nonTradableTokenValue +
-      (guildShrineValue ?? 0);
+  const addInventorySummary = (invElem) => {
+    const { scores, values } = snapshot;
 
     const previousSummary = invElem.parentElement?.querySelector(
       "#script_inventory_summary",
@@ -178,7 +63,7 @@ async function calculateNetworth() {
 
                 <!-- 总资产价值 -->
                 <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(totalNetworth)}
+                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(values.total)}
                 </div>
 
                 <div id="netWorthDetails" style="display: none; margin-left: 20px;">
@@ -187,9 +72,9 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
                     </div>
                     <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(equippedFairValue)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(inventoryFairValue)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(marketListingsFairValue)}</div>
+                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(values.equipment)}</div>
+                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(values.inventory)}</div>
+                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(values.marketListings)}</div>
                     </div>
 
                     <!-- 非流动资产 -->
@@ -197,10 +82,10 @@ async function calculateNetworth() {
                         ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
                     </div>
                     <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(scores.assets.allHouses * 1000000)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(scores.assets.allAbilities * 1000000)}</div>
-                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(nonTradableTokenValue)}</div>
-                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "—" : numberHtml(guildShrineValue)}</div>
+                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(values.houses)}</div>
+                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(values.abilities)}</div>
+                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(values.nonTradableTokens)}</div>
+                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${values.shrine === null ? "—" : numberHtml(values.shrine)}</div>
                     </div>
                 </div>
             </div>`,
@@ -266,7 +151,7 @@ async function calculateNetworth() {
       netWorthDetails.style.display = isCollapsed ? "block" : "none";
       toggleButton.innerHTML = `${isCollapsed ? "↓ " : "+ "}${
         runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "
-      }${numberHtml(totalNetworth)}`;
+      }${numberHtml(values.total)}`;
       currentAssets.style.display = isCollapsed ? "block" : "none";
       toggleCurrentAssets.textContent =
         (isCollapsed ? "↓ " : "+ ") +
@@ -294,73 +179,12 @@ async function calculateNetworth() {
     });
   };
 
-  const waitForHeader = () => {
-    const targetNode = document.querySelector("div.Header_totalLevel__8LY3Q");
-    if (targetNode) {
-      const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberHtml(
-        currentAssetsFairValue,
-      )} (Ask/Bid: ${numberHtml(networthAsk)} / ${numberHtml(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${
-        runtime.config.isZH
-          ? "无法从API更新市场数据"
-          : "Can't update market prices"
-      }</div>`}</div>`;
-      const currentHeader = document.querySelector("#script_current_assets");
-      if (currentHeader) currentHeader.outerHTML = headerHTML;
-      else targetNode.insertAdjacentHTML("afterend", headerHTML);
-
-      const alertDiv = document.querySelector("div#script_api_fail_alert");
-      if (alertDiv) {
-        alertDiv.style.cursor = "pointer";
-        alertDiv.addEventListener("click", () => {
-          showApiFailAlertPopup();
-        });
-
-        if (
-          runtime.state.isUsingExpiredMarketJson &&
-          runtime.settings.settingsMap.networkAlert.isTrue
-        ) {
-          alertDiv.style.display = "block";
-        } else {
-          alertDiv.style.display = "none";
-        }
-      }
-
-      if (!document.querySelector("#script_api_fail_popout")) {
-        document.body.insertAdjacentHTML(
-          "beforeend",
-          `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`,
-        );
-      }
-
-      const popout = document.querySelector("#script_api_fail_popout");
-      if (popout) {
-        popout.onclick = function () {
-          const popout = document.querySelector("#script_api_fail_popout");
-          popout.style.display =
-            popout.style.display === "block" ? "none" : "block";
-        };
-      }
-    } else {
-      setTimeout(waitForHeader, 200);
-    }
-  };
-  waitForHeader();
-
-  function showApiFailAlertPopup() {
-    console.log(runtime.state.reasonForUsingExpiredMarketJson);
-    const popout = document.querySelector("#script_api_fail_popout");
-    if (popout) {
-      popout.textContent = runtime.state.reasonForUsingExpiredMarketJson;
-      popout.style.display = "block";
-    }
-  }
-
   const renderInventoryPanels = () => {
     const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
     for (const node of targetNodes) {
       if (runtime.settings.settingsMap.invWorth.isTrue) {
         node.classList.add("script_buildScore_added");
-        addInventorySummery(node);
+        addInventorySummary(node);
       }
       if (runtime.settings.settingsMap.invSort.isTrue) {
         if (!node.classList.contains("script_invSort_added")) {
@@ -371,18 +195,6 @@ async function calculateNetworth() {
     }
   };
   renderInventoryPanels();
-
-  if (!networthWatcherStarted) {
-    networthWatcherStarted = true;
-    const waitForInv = () => {
-      const hasNewPanel = [
-        ...document.querySelectorAll("div.Inventory_items__6SXv0"),
-      ].some((node) => !node.classList.contains("script_buildScore_added"));
-      if (hasNewPanel) scheduleNetworthRefresh();
-      setTimeout(waitForInv, 1000);
-    };
-    waitForInv();
-  }
 
   const waitGuildCreditConversionsSelect = () => {
     if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
@@ -425,7 +237,7 @@ async function addInvSortButton(invElem) {
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-  const buttonsDiv = `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
+  const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     runtime.config.isZH ? "物品排序：" : "Sort items by: "
   }${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
   invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
@@ -812,7 +624,6 @@ async function addGuildCreditConversionsSortButton() {
 
 Object.assign(runtime.api, {
   calculateNetworth,
-  calculateMarketListingValues,
   scheduleNetworthRefresh,
   addInvSortButton,
   addGuildCreditConversionsSortButton,

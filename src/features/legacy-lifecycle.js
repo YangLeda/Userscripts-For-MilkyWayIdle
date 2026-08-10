@@ -5,37 +5,40 @@ function removeAll(selector) {
 }
 
 const adapters = {
-  networth: {
-    scope: "character",
-    initialize() {
-      runtime.api.calculateNetworth?.();
-    },
-    cleanup() {
-      removeAll(
-        "#script_current_assets,#script_inventory_summary,#script_api_fail_popout",
-      );
-    },
-  },
   invWorth: {
     scope: "character",
-    dependsOn: ["networth"],
-    initialize() {
+    initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
+      scope.interval(() => {
+        const needsRender = [
+          ...document.querySelectorAll("div.Inventory_items__6SXv0"),
+        ].some((node) => !node.classList.contains("script_buildScore_added"));
+        if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+      }, 500);
     },
     cleanup() {
       removeAll("#script_inventory_summary");
+      document
+        .querySelectorAll(".script_buildScore_added")
+        .forEach((node) => node.classList.remove("script_buildScore_added"));
     },
   },
   invSort: {
     scope: "character",
-    dependsOn: ["networth"],
-    initialize() {
+    initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
+      scope.interval(() => {
+        const needsRender = [
+          ...document.querySelectorAll("div.Inventory_items__6SXv0"),
+        ].some((node) => !node.classList.contains("script_invSort_added"));
+        if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+      }, 500);
     },
     cleanup() {
-      removeAll(
-        "#script_sortByFair_btn,#script_sortByAsk_btn,#script_sortByBid_btn,#script_sortByNone_btn,#script_stack_price",
-      );
+      removeAll("#script_inv_sort_controls,#script_stack_price");
+      document
+        .querySelectorAll(".script_invSort_added")
+        .forEach((node) => node.classList.remove("script_invSort_added"));
     },
   },
   actionQueue: {
@@ -73,7 +76,6 @@ for (const id of [
   "useOrangeAsMainColor",
   "guildCreditConversionsSort",
   "profileBuildScore",
-  "networkAlert",
   "battlePanel",
   "enhanceSim",
   "forceMWIToolsDisplayZH",

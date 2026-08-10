@@ -2,7 +2,7 @@
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
 // @version      26.0.27
-// @description  [测试版] Tools for MilkyWayIdle. Shows total action time. Shows market prices. Shows action number quick inputs. Shows how many actions are needed to reach certain skill level. Shows skill exp percentages. Shows total networth. Shows combat summary. Shows combat maps index. Shows item level on item icons. Shows how many ability books are needed to reach certain level. Shows market equipment filters.
+// @description  [测试版] Tools for MilkyWayIdle. Includes action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
 // @match        https://test.milkywayidle.com/*
@@ -18,6 +18,9 @@
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js
+// @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js
+// @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js
+// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js
 // ==/UserScript==
 
 /*
@@ -39,7 +42,6 @@
        手机使用问题很多，作者不定位手机上问题。问问群友用什么浏览器好使，多换几个浏览器试试。苹果手机建议尝试focus浏览器。）。
 
     如果仍有问题，请私聊作者具体问题是什么、复现问题的具体步骤、最好附带截图；
-    与网络有关的问题，右上角红字显示无法从API更新市场数据时，点击红字查看错误信息，截图发给作者；
     报错日志是定位问题的快速甚至唯一方法，请打开浏览器开发者工具查看终端，刷新游戏网页，复现遇到的问题，截图发给作者。
 */
 (() => {
@@ -843,7 +845,6 @@
   var isZH = isGameLanguageZH();
   var SCRIPT_COLOR_MAIN = "green";
   var SCRIPT_COLOR_TOOLTIP = "darkgreen";
-  var SCRIPT_COLOR_ALERT = "red";
   var settingsMap = {
     useOrangeAsMainColor: {
       id: "useOrangeAsMainColor",
@@ -875,19 +876,19 @@
       desc: isZH ? "动作面板显示：采摘综合图显示综合收益 [依赖上一项]" : "Action panel: Overall profit of the foraging maps with multiple outcomes. [Depends on the previous selection]",
       isTrue: true
     },
-    networth: {
-      id: "networth",
-      desc: isZH ? "右上角显示：按服务器市场价值计算的流动资产" : "Top right: Current assets valued with server market values.",
+    assetHistory: {
+      id: "assetHistory",
+      desc: isZH ? "库存页签显示：每日资产盈亏、历史图表和数据管理" : "Inventory tabs: Daily asset P/L, history charts, and data management.",
       isTrue: true
     },
     invWorth: {
       id: "invWorth",
-      desc: isZH ? "仓库搜索栏下方显示：仓库和着装评分总结 [依赖上一项]" : "Below inventory search bar: Inventory and gear score summary. [Depends on the previous selection]",
+      desc: isZH ? "仓库搜索栏下方显示：仓库和着装评分总结" : "Below inventory search bar: Inventory and gear score summary.",
       isTrue: true
     },
     invSort: {
       id: "invSort",
-      desc: isZH ? "仓库显示：仓库物品排序 [依赖上一项]" : "Inventory: Sort inventory items. [Depends on the previous selection]",
+      desc: isZH ? "仓库显示：仓库物品排序" : "Inventory: Sort inventory items.",
       isTrue: true
     },
     guildCreditConversionsSort: {
@@ -913,11 +914,6 @@
     showConsumTips: {
       id: "showConsumTips",
       desc: isZH ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量" : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
-      isTrue: true
-    },
-    networkAlert: {
-      id: "networkAlert",
-      desc: isZH ? "右上角显示：无法联网更新市场数据时，红字警告" : "Top right: Alert message when market price data can not be fetched.",
       isTrue: true
     },
     expPercentage: {
@@ -1228,12 +1224,12 @@
       "Combine multiple possible gathering outputs into an expected value."
     ],
     [
-      "networth",
+      "assetHistory",
       "inventory",
-      "流动资产",
-      "Current assets",
-      "在页头显示装备、库存和市场订单的当前价值。",
-      "Show the current value of equipment, inventory, and market listings in the header."
+      "每日资产盈亏",
+      "Daily asset P/L",
+      "在配装右侧显示资产摘要、分项变化、历史图表和数据管理。",
+      "Show asset summary, component changes, history charts, and data management beside Loadouts."
     ],
     [
       "invWorth",
@@ -1314,14 +1310,6 @@
       "Auto-fill order prices",
       "创建订单时按最小有效档位匹配或压过当前最优价格。",
       "Fill the smallest valid price step that matches or improves the current best order."
-    ],
-    [
-      "networkAlert",
-      "market",
-      "市场数据提醒",
-      "Market data warning",
-      "市场数据无法更新时显示提醒，并继续使用最近缓存。",
-      "Warn when market data cannot refresh and the latest cache is being used."
     ],
     [
       "taskInsights",
@@ -1486,8 +1474,6 @@
     actionPanel_foragingTotal: "actionPanel_totalTime",
     productionSummary: "actionPanel_totalTime",
     productionProfit: "actionPanel_totalTime",
-    invWorth: "networth",
-    invSort: "networth",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
@@ -1584,12 +1570,6 @@
       },
       set(value) {
         SCRIPT_COLOR_TOOLTIP = value;
-      }
-    },
-    SCRIPT_COLOR_ALERT: {
-      enumerable: true,
-      get() {
-        return SCRIPT_COLOR_ALERT;
       }
     },
     MARKET_API_URL: {
@@ -17777,8 +17757,6 @@
 
   // src/core/state.js
   var MARKET_JSON_LOCAL_BACKUP = JSON.stringify(market_backup_default);
-  var isUsingExpiredMarketJson = false;
-  var reasonForUsingExpiredMarketJson = "";
   var initData_characterSkills = null;
   var initData_characterItems = null;
   var initData_combatAbilities = null;
@@ -17808,6 +17786,7 @@
   var guildBuffLevels = {};
   var guildDataLoaded = false;
   var currentCharacterId = "";
+  var currentCharacterName = "";
   var characterQuests = [];
   var guild = null;
   var guildCharacters = [];
@@ -17824,24 +17803,6 @@
     }
   });
   Object.defineProperties(runtime.state, {
-    isUsingExpiredMarketJson: {
-      enumerable: true,
-      get() {
-        return isUsingExpiredMarketJson;
-      },
-      set(value) {
-        isUsingExpiredMarketJson = value;
-      }
-    },
-    reasonForUsingExpiredMarketJson: {
-      enumerable: true,
-      get() {
-        return reasonForUsingExpiredMarketJson;
-      },
-      set(value) {
-        reasonForUsingExpiredMarketJson = value;
-      }
-    },
     initData_characterSkills: {
       enumerable: true,
       get() {
@@ -18095,6 +18056,15 @@
       },
       set(value) {
         currentCharacterId = String(value ?? "");
+      }
+    },
+    currentCharacterName: {
+      enumerable: true,
+      get() {
+        return currentCharacterName;
+      },
+      set(value) {
+        currentCharacterName = String(value ?? "");
       }
     },
     characterQuests: {
@@ -18391,11 +18361,9 @@
     return jsonObj;
   }
   function setMarketFetchFailure(reason) {
-    runtime.state.isUsingExpiredMarketJson = true;
-    runtime.state.reasonForUsingExpiredMarketJson += `${(/* @__PURE__ */ new Date()).toUTCString()} ${reason}
-`;
-    const alert = document.querySelector?.("div#script_api_fail_alert");
-    if (alert) alert.style.display = "block";
+    console.warn(
+      `[MWITools] ${reason}; using cached market data when available.`
+    );
   }
   function requestMarketJson() {
     const sendRequest = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
@@ -18439,10 +18407,6 @@
       true
     );
     if (jsonObj) {
-      runtime.state.isUsingExpiredMarketJson = false;
-      runtime.state.reasonForUsingExpiredMarketJson = "";
-      const alert = document.querySelector?.("div#script_api_fail_alert");
-      if (alert) alert.style.display = "none";
       return jsonObj;
     }
     setMarketFetchFailure("market API fetch failed");
@@ -20502,6 +20466,7 @@
   }
   function applyCharacterData(payload) {
     runtime.state.currentCharacterId = payload.character?.id ?? payload.character?.characterID ?? payload.characterID ?? payload.characterSkills?.[0]?.characterID ?? "";
+    runtime.state.currentCharacterName = payload.character?.name ?? payload.characterName ?? payload.sharableCharacter?.name ?? payload.combatUnit?.name ?? "";
     runtime.state.initData_characterSkills = payload.characterSkills;
     runtime.state.initData_characterItems = payload.characterItems ?? [];
     runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -20649,6 +20614,22 @@
       runtime.state.currentEquipmentMap[item.itemLocationHrid] = item.count === 0 ? null : item;
     }
   }
+  function applyCharacterAbilitiesUpdated(payload) {
+    const updates = payload.endCharacterAbilities ?? payload.characterAbilities ?? payload.abilities;
+    if (!Array.isArray(updates)) return;
+    const current = [...runtime.state.initData_characterAbilities ?? []];
+    for (const update of updates) {
+      const id = update.id ?? update.characterAbilityID ?? update.abilityHrid;
+      const index = current.findIndex(
+        (ability) => (ability.id ?? ability.characterAbilityID ?? ability.abilityHrid) === id
+      );
+      if (update.isDeleted || update.deleted) {
+        if (index >= 0) current.splice(index, 1);
+      } else if (index >= 0) current[index] = { ...current[index], ...update };
+      else current.push(update);
+    }
+    runtime.state.initData_characterAbilities = current;
+  }
   function applyGameMessage(payload) {
     switch (payload.type) {
       case "init_client_data":
@@ -20688,6 +20669,10 @@
       case "house_rooms_updated":
         runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap ?? runtime.state.initData_characterHouseRoomMap;
         applyActionTypeBuffs(payload);
+        break;
+      case "abilities_updated":
+      case "character_abilities_updated":
+        applyCharacterAbilitiesUpdated(payload);
         break;
       case "achievement_buffs_updated":
       case "moo_pass_buffs_updated":
@@ -20757,631 +20742,6 @@
     return message;
   }
   Object.assign(runtime.api, { hookWS, handleMessage });
-
-  // src/features/inventory.js
-  var networthWatcherStarted = false;
-  var guildCreditWatcherStarted = false;
-  var networthRefreshTimer = null;
-  function numberHtml(value) {
-    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
-  }
-  function isTerminalMarketListing(listing) {
-    if (listing?.isDone || listing?.isCancelled || listing?.isCanceled || listing?.isExpired) {
-      return true;
-    }
-    return /(cancel|complete|expire|closed|done)/i.test(
-      String(listing?.status ?? "")
-    );
-  }
-  function calculateMarketListingValues(listings) {
-    const totals = { fair: 0, ask: 0, bid: 0 };
-    for (const listing of listings ?? []) {
-      const enhancementLevel = listing.enhancementLevel ?? 0;
-      const assetValue = runtime.api.getAssetValue(
-        listing.itemHrid,
-        enhancementLevel
-      );
-      const askPrice = runtime.api.getAskPrice(
-        listing.itemHrid,
-        enhancementLevel
-      );
-      const bidPrice = runtime.api.getBidPrice(
-        listing.itemHrid,
-        enhancementLevel
-      );
-      const availableCoins = Math.max(0, Number(listing.coinsAvailable ?? 0));
-      const unclaimedCoins = Math.max(0, Number(listing.unclaimedCoinCount ?? 0));
-      const explicitCoins = availableCoins + unclaimedCoins;
-      totals.fair += explicitCoins;
-      totals.ask += explicitCoins;
-      totals.bid += explicitCoins;
-      const unclaimedItems = Math.max(0, Number(listing.unclaimedItemCount ?? 0));
-      totals.fair += unclaimedItems * assetValue;
-      totals.ask += unclaimedItems * askPrice;
-      totals.bid += unclaimedItems * bidPrice;
-      if (!listing.isSell || isTerminalMarketListing(listing)) continue;
-      const remainingQuantity = Math.max(
-        0,
-        Number(listing.orderQuantity ?? 0) - Number(listing.filledQuantity ?? 0)
-      );
-      const taxMultiplier = 1 - runtime.api.getMarketTaxRate(listing.itemHrid);
-      totals.fair += remainingQuantity * assetValue;
-      totals.ask += remainingQuantity * askPrice * taxMultiplier;
-      totals.bid += remainingQuantity * bidPrice * taxMultiplier;
-    }
-    return totals;
-  }
-  function scheduleNetworthRefresh() {
-    if (!Array.isArray(runtime.state.initData_characterItems)) return;
-    clearTimeout(networthRefreshTimer);
-    networthRefreshTimer = setTimeout(() => calculateNetworth(), 100);
-  }
-  async function calculateNetworth() {
-    if (!Array.isArray(runtime.state.initData_characterItems)) return;
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    if (!marketAPIJson && !Object.keys(runtime.state.marketItemValues).length) {
-      console.error("calculateNetworth marketAPIJson is null");
-      return;
-    }
-    let networthAsk = 0;
-    let networthBid = 0;
-    let marketListingsNetworthAsk = 0;
-    let marketListingsNetworthBid = 0;
-    let equippedNetworthAsk = 0;
-    let equippedNetworthBid = 0;
-    let inventoryNetworthAsk = 0;
-    let inventoryNetworthBid = 0;
-    let marketListingsFairValue = 0;
-    let equippedFairValue = 0;
-    let inventoryFairValue = 0;
-    let nonTradableTokenValue = 0;
-    for (const item of runtime.state.initData_characterItems) {
-      const enhanceLevel = item.enhancementLevel;
-      const askPrice = runtime.api.getAskPrice(item.itemHrid, enhanceLevel);
-      const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhanceLevel);
-      const fairValue = runtime.api.getAssetValue(item.itemHrid, enhanceLevel);
-      if (item.itemLocationHrid !== "/item_locations/inventory") {
-        equippedNetworthAsk += item.count * askPrice;
-        equippedNetworthBid += item.count * bidPrice;
-        equippedFairValue += item.count * fairValue;
-      } else {
-        inventoryNetworthAsk += item.count * askPrice;
-        inventoryNetworthBid += item.count * bidPrice;
-        if (runtime.api.isNonTradableTokenAsset(item.itemHrid)) {
-          nonTradableTokenValue += item.count * fairValue;
-        } else {
-          inventoryFairValue += item.count * fairValue;
-        }
-      }
-    }
-    const listingValues = calculateMarketListingValues(
-      runtime.state.initData_myMarketListings
-    );
-    marketListingsFairValue = listingValues.fair;
-    marketListingsNetworthAsk = listingValues.ask;
-    marketListingsNetworthBid = listingValues.bid;
-    networthAsk = equippedNetworthAsk + inventoryNetworthAsk + marketListingsNetworthAsk;
-    networthBid = equippedNetworthBid + inventoryNetworthBid + marketListingsNetworthBid;
-    const currentAssetsFairValue = equippedFairValue + inventoryFairValue + marketListingsFairValue;
-    const addInventorySummery = async (invElem) => {
-      const scores = await runtime.api.getSelfBuildScores();
-      const guildShrineValue = runtime.api.getGuildShrineValue();
-      const totalNetworth = currentAssetsFairValue + (scores.assets.allHouses + scores.assets.allAbilities) * 1e6 + nonTradableTokenValue + (guildShrineValue ?? 0);
-      const previousSummary = invElem.parentElement?.querySelector(
-        "#script_inventory_summary"
-      );
-      const wasCombatScoreOpen = previousSummary?.querySelector("#buildScores")?.style.display === "block";
-      const wasSkillingScoreOpen = previousSummary?.querySelector("#skillingScores")?.style.display === "block";
-      const wasNetworthOpen = previousSummary?.querySelector("#netWorthDetails")?.style.display === "block";
-      previousSummary?.remove();
-      invElem.insertAdjacentHTML(
-        "beforebegin",
-        `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-                <!-- 战斗着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}</div>
-                <div id="buildScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
-                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${runtime.api.formatScore(scores.battle.abilities)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.battle.equipment)}</div>
-                </div>
-
-                <!-- 生活着装评分 -->
-                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${runtime.api.formatScore(scores.skilling.total)}</div>
-                <div id="skillingScores" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
-                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${runtime.api.formatScore(scores.skilling.tools)}</div>
-                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.skilling.equipment)}</div>
-                </div>
-
-                <!-- 总资产价值 -->
-                <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
-                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(totalNetworth)}
-                </div>
-
-                <div id="netWorthDetails" style="display: none; margin-left: 20px;">
-                    <!-- 流动资产 -->
-                    <div style="cursor: pointer;" id="toggleCurrentAssets">
-                        ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
-                    </div>
-                    <div id="currentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(equippedFairValue)}</div>
-                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(inventoryFairValue)}</div>
-                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(marketListingsFairValue)}</div>
-                    </div>
-
-                    <!-- 非流动资产 -->
-                    <div style="cursor: pointer;" id="toggleNonCurrentAssets">
-                        ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
-                    </div>
-                    <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
-                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(scores.assets.allHouses * 1e6)}</div>
-                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(scores.assets.allAbilities * 1e6)}</div>
-                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(nonTradableTokenValue)}</div>
-                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${guildShrineValue === null ? "—" : numberHtml(guildShrineValue)}</div>
-                    </div>
-                </div>
-            </div>`
-      );
-      const summary = invElem.parentElement.querySelector(
-        "#script_inventory_summary"
-      );
-      const toggleScores = summary.querySelector("#toggleScores");
-      const ScoreDetails = summary.querySelector("#buildScores");
-      const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
-      const skillingScoreDetails = summary.querySelector("#skillingScores");
-      const toggleButton = summary.querySelector("#toggleNetWorth");
-      const netWorthDetails = summary.querySelector("#netWorthDetails");
-      const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
-      const currentAssets = summary.querySelector("#currentAssets");
-      const toggleNonCurrentAssets = summary.querySelector(
-        "#toggleNonCurrentAssets"
-      );
-      const nonCurrentAssets = summary.querySelector("#nonCurrentAssets");
-      if (wasNetworthOpen) {
-        netWorthDetails.style.display = "block";
-        currentAssets.style.display = "block";
-        nonCurrentAssets.style.display = "block";
-      }
-      if (wasCombatScoreOpen) {
-        ScoreDetails.style.display = "block";
-        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
-      }
-      if (wasSkillingScoreOpen) {
-        skillingScoreDetails.style.display = "block";
-        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
-      }
-      toggleScores.addEventListener("click", () => {
-        const isCollapsed = ScoreDetails.style.display === "none";
-        ScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
-      });
-      toggleSkillingScores.addEventListener("click", () => {
-        const isCollapsed = skillingScoreDetails.style.display === "none";
-        skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
-        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
-      });
-      toggleButton.addEventListener("click", () => {
-        const isCollapsed = netWorthDetails.style.display === "none";
-        netWorthDetails.style.display = isCollapsed ? "block" : "none";
-        toggleButton.innerHTML = `${isCollapsed ? "↓ " : "+ "}${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}${numberHtml(totalNetworth)}`;
-        currentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
-        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
-      });
-      toggleCurrentAssets.addEventListener("click", () => {
-        const isCollapsed = currentAssets.style.display === "none";
-        currentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
-      });
-      toggleNonCurrentAssets.addEventListener("click", () => {
-        const isCollapsed = nonCurrentAssets.style.display === "none";
-        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
-        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
-      });
-    };
-    const waitForHeader = () => {
-      const targetNode = document.querySelector("div.Header_totalLevel__8LY3Q");
-      if (targetNode) {
-        const headerHTML = `<div id="script_current_assets" style="font-size: 0.875rem; font-weight: 500; color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-wrap: nowrap;">Current Assets: ${numberHtml(
-          currentAssetsFairValue
-        )} (Ask/Bid: ${numberHtml(networthAsk)} / ${numberHtml(networthBid)})${`<div id="script_api_fail_alert" style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "无法从API更新市场数据" : "Can't update market prices"}</div>`}</div>`;
-        const currentHeader = document.querySelector("#script_current_assets");
-        if (currentHeader) currentHeader.outerHTML = headerHTML;
-        else targetNode.insertAdjacentHTML("afterend", headerHTML);
-        const alertDiv = document.querySelector("div#script_api_fail_alert");
-        if (alertDiv) {
-          alertDiv.style.cursor = "pointer";
-          alertDiv.addEventListener("click", () => {
-            showApiFailAlertPopup();
-          });
-          if (runtime.state.isUsingExpiredMarketJson && runtime.settings.settingsMap.networkAlert.isTrue) {
-            alertDiv.style.display = "block";
-          } else {
-            alertDiv.style.display = "none";
-          }
-        }
-        if (!document.querySelector("#script_api_fail_popout")) {
-          document.body.insertAdjacentHTML(
-            "beforeend",
-            `<div id="script_api_fail_popout" style="display: none; position: absolute; top: 50px; left: 0; padding: 10px; background: white; border: 1px solid black; box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.2); border-radius: 8px; white-space: pre-wrap;"></div>`
-          );
-        }
-        const popout = document.querySelector("#script_api_fail_popout");
-        if (popout) {
-          popout.onclick = function() {
-            const popout2 = document.querySelector("#script_api_fail_popout");
-            popout2.style.display = popout2.style.display === "block" ? "none" : "block";
-          };
-        }
-      } else {
-        setTimeout(waitForHeader, 200);
-      }
-    };
-    waitForHeader();
-    function showApiFailAlertPopup() {
-      console.log(runtime.state.reasonForUsingExpiredMarketJson);
-      const popout = document.querySelector("#script_api_fail_popout");
-      if (popout) {
-        popout.textContent = runtime.state.reasonForUsingExpiredMarketJson;
-        popout.style.display = "block";
-      }
-    }
-    const renderInventoryPanels = () => {
-      const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
-      for (const node of targetNodes) {
-        if (runtime.settings.settingsMap.invWorth.isTrue) {
-          node.classList.add("script_buildScore_added");
-          addInventorySummery(node);
-        }
-        if (runtime.settings.settingsMap.invSort.isTrue) {
-          if (!node.classList.contains("script_invSort_added")) {
-            node.classList.add("script_invSort_added");
-            addInvSortButton(node);
-          }
-        }
-      }
-    };
-    renderInventoryPanels();
-    if (!networthWatcherStarted) {
-      networthWatcherStarted = true;
-      const waitForInv = () => {
-        const hasNewPanel = [
-          ...document.querySelectorAll("div.Inventory_items__6SXv0")
-        ].some((node) => !node.classList.contains("script_buildScore_added"));
-        if (hasNewPanel) scheduleNetworthRefresh();
-        setTimeout(waitForInv, 1e3);
-      };
-      waitForInv();
-    }
-    const waitGuildCreditConversionsSelect = () => {
-      if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
-        addGuildCreditConversionsSortButton();
-      setTimeout(waitGuildCreditConversionsSelect, 1e3);
-    };
-    if (!guildCreditWatcherStarted) {
-      guildCreditWatcherStarted = true;
-      waitGuildCreditConversionsSelect();
-    }
-  }
-  async function addInvSortButton(invElem) {
-    const price_data = await runtime.api.fetchMarketJSON();
-    if (!price_data || !price_data.marketData) {
-      console.error("addInvSortButton fetchMarketJSON null");
-      return;
-    }
-    const fairButton = `<button
-        id="script_sortByFair_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
-        ${runtime.config.isZH ? "市场价值" : "Market Value"}
-        </button>`;
-    const askButton = `<button
-        id="script_sortByAsk_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
-        ${runtime.config.isZH ? "出售价" : "Ask"}
-        </button>`;
-    const bidButton = `<button
-        id="script_sortByBid_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
-        ${runtime.config.isZH ? "收购价" : "Bid"}
-        </button>`;
-    const noneButton = `<button
-        id="script_sortByNone_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
-        ${runtime.config.isZH ? "无" : "None"}
-        </button>`;
-    const buttonsDiv = `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${runtime.config.isZH ? "物品排序：" : "Sort items by: "}${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
-    invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
-    invElem.parentElement.querySelector("button#script_sortByFair_btn").addEventListener("click", function() {
-      sortItemsBy("fair");
-    });
-    invElem.parentElement.querySelector("button#script_sortByAsk_btn").addEventListener("click", function(e) {
-      sortItemsBy("ask");
-    });
-    invElem.parentElement.querySelector("button#script_sortByBid_btn").addEventListener("click", function(e) {
-      sortItemsBy("bid");
-    });
-    invElem.parentElement.querySelector("button#script_sortByNone_btn").addEventListener("click", function(e) {
-      sortItemsBy("none");
-    });
-    const sortItemsBy = (order) => {
-      for (const typeDiv of invElem.children) {
-        const typeName = runtime.api.getOriTextFromElement(
-          typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0]
-        );
-        const notNeedSortTypes = ["Loots", "Currencies", "Equipment"];
-        if (notNeedSortTypes.includes(typeName)) {
-          continue;
-        }
-        typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
-        const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
-        for (const itemElem of itemElems) {
-          let itemName2 = itemElem.querySelector("svg").attributes["aria-label"].value;
-          if (runtime.config.isZHInGameSetting) {
-            itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
-          }
-          const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
-          let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
-          itemCount = runtime.api.parseCompactNumber(itemCount);
-          let askPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            askPrice = price_data.marketData[itemHrid][0].a;
-          let bidPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            bidPrice = price_data.marketData[itemHrid][0].b;
-          const itemAskmWorth = askPrice * itemCount;
-          const itemBidWorth = bidPrice * itemCount;
-          const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
-          if (!itemElem.querySelector("#script_stack_price")) {
-            itemElem.style.position = "relative";
-            const priceElemHTML = `<div
-                        id="script_stack_price"
-                        style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left;">
-                    </div>`;
-            itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
-          }
-          const priceElem = itemElem.querySelector("#script_stack_price");
-          if (order === "fair") {
-            itemElem.style.order = -itemFairWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
-          } else if (order === "ask") {
-            itemElem.style.order = -itemAskmWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
-          } else if (order === "bid") {
-            itemElem.style.order = -itemBidWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemBidWorth);
-          } else if (order === "none") {
-            itemElem.style.order = 0;
-            priceElem.textContent = "";
-          }
-        }
-      }
-    };
-  }
-  async function addGuildCreditConversionsSortButton() {
-    const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
-    if (!selectorContainer) {
-      return;
-    }
-    if (selectorContainer.querySelector("#script_itemSelector_sort_div")) {
-      return;
-    }
-    const price_data = await runtime.api.fetchMarketJSON();
-    if (!price_data || !price_data.marketData) {
-      return;
-    }
-    const bestCreditConversionMap = {};
-    for (const itemHrid in runtime.state.initData_itemDetailMap) {
-      if (runtime.state.initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
-        const conversions = runtime.state.initData_itemDetailMap[itemHrid].guildCreditConversions;
-        for (const conversion of conversions) {
-          const creditHrid = conversion.creditItemHrid;
-          let askPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            askPrice = price_data.marketData[itemHrid][0].a;
-          let bidPrice = 0;
-          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-            bidPrice = price_data.marketData[itemHrid][0].b;
-          if (askPrice === 0 && bidPrice === 0) continue;
-          const creditAskPrice = askPrice * conversion.itemCount / conversion.creditCount;
-          const creditBidPrice = bidPrice * conversion.itemCount / conversion.creditCount;
-          const enName = runtime.state.initData_itemDetailMap[itemHrid].name;
-          const zhName = runtime.data.ZHItemNames[itemHrid];
-          const displayName = runtime.config.isZHInGameSetting ? zhName || enName : enName;
-          if (!bestCreditConversionMap[creditHrid]) {
-            bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
-          }
-          if (askPrice > 0 && (!bestCreditConversionMap[creditHrid].ask || creditAskPrice < bestCreditConversionMap[creditHrid].ask.price)) {
-            bestCreditConversionMap[creditHrid].ask = {
-              name: displayName,
-              price: creditAskPrice
-            };
-          }
-          if (bidPrice > 0 && (!bestCreditConversionMap[creditHrid].bid || creditBidPrice < bestCreditConversionMap[creditHrid].bid.price)) {
-            bestCreditConversionMap[creditHrid].bid = {
-              name: displayName,
-              price: creditBidPrice
-            };
-          }
-        }
-      }
-    }
-    const inputContainer = selectorContainer.querySelector(
-      ".Input_inputContainer__22GnD"
-    );
-    if (!inputContainer) {
-      return;
-    }
-    const askButton = `<button
-        id="script_itemSelector_sortByAsk_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
-        ${runtime.config.isZH ? "出售价" : "Ask"}
-        </button>`;
-    const bidButton = `<button
-        id="script_itemSelector_sortByBid_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
-        ${runtime.config.isZH ? "收购价" : "Bid"}
-        </button>`;
-    const noneButton = `<button
-        id="script_itemSelector_sortByNone_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
-        ${runtime.config.isZH ? "无" : "None"}
-        </button>`;
-    const buttonsDiv = `<div id="script_itemSelector_sort_div" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; margin-left: 8px; display: inline;">${runtime.config.isZH ? "排序：" : "Sort: "}${askButton} ${bidButton} ${noneButton}</div>`;
-    inputContainer.insertAdjacentHTML("afterend", buttonsDiv);
-    const itemList = selectorContainer.querySelector(
-      ".ItemSelector_itemList__Qa5lq"
-    );
-    if (!itemList) {
-      return;
-    }
-    const sortItemsBy = (order) => {
-      const itemContainers = itemList.querySelectorAll(
-        ".ItemSelector_itemContainer__3olqe"
-      );
-      let targetCreditHrid = "";
-      let targetCreditName = "";
-      const exchangeModal = document.querySelector(
-        ".GuildPanel_exchangeModalContent__aQqyL"
-      );
-      if (exchangeModal) {
-        const creditIcon = exchangeModal.querySelector(
-          ".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg"
-        );
-        if (creditIcon) {
-          let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
-          if (creditAriaLabel) {
-            if (runtime.config.isZHInGameSetting) {
-              creditAriaLabel = runtime.api.getItemEnNameFromZhName(creditAriaLabel);
-            }
-            targetCreditHrid = runtime.state.itemEnNameToHridMap[creditAriaLabel];
-            targetCreditName = creditAriaLabel;
-          }
-        }
-      }
-      const priceList = [];
-      itemContainers.forEach((itemContainer) => {
-        const itemElem = itemContainer.querySelector(
-          ".Item_itemContainer__x7kH1"
-        );
-        if (!itemElem) return;
-        let itemName2 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
-        if (!itemName2) {
-          itemElem.style.order = 0;
-          const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
-          if (priceElem2) priceElem2.remove();
-          return;
-        }
-        if (runtime.config.isZHInGameSetting) {
-          itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
-        }
-        const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
-        let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
-        if (!itemCount) {
-          itemElem.style.order = 0;
-          const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
-          if (priceElem2) priceElem2.remove();
-          return;
-        }
-        itemCount = runtime.api.parseCompactNumber(itemCount);
-        let askPrice = 0;
-        if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-          askPrice = price_data.marketData[itemHrid][0].a;
-        let bidPrice = 0;
-        if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
-          bidPrice = price_data.marketData[itemHrid][0].b;
-        let creditValue = 0;
-        let creditAskPrice = 0;
-        let creditBidPrice = 0;
-        if (targetCreditHrid && runtime.state.initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
-          const conversions = runtime.state.initData_itemDetailMap[itemHrid].guildCreditConversions;
-          const matchedConversion = conversions.find(
-            (c) => c.creditItemHrid === targetCreditHrid
-          );
-          if (matchedConversion) {
-            creditValue = itemCount / matchedConversion.itemCount * matchedConversion.creditCount;
-            creditAskPrice = askPrice * itemCount / creditValue;
-            creditBidPrice = bidPrice * itemCount / creditValue;
-          }
-        }
-        if (targetCreditHrid && creditAskPrice > 0) {
-          priceList.push({
-            name: itemName2,
-            ask: creditAskPrice,
-            bid: creditBidPrice
-          });
-        }
-        if (!itemElem.querySelector("#script_itemSelector_price")) {
-          itemElem.style.position = "relative";
-          const priceElemHTML = `<div
-                    id="script_itemSelector_price"
-                    style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
-                </div>`;
-          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
-        }
-        const priceElem = itemElem.querySelector("#script_itemSelector_price");
-        if (!itemElem.querySelector("#script_itemSelector_credit")) {
-          const creditElemHTML = `<div
-                    id="script_itemSelector_credit"
-                    style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
-                </div>`;
-          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", creditElemHTML);
-        }
-        const creditElem = itemElem.querySelector("#script_itemSelector_credit");
-        if (order === "ask") {
-          const sortValue = creditAskPrice > 0 ? creditAskPrice : askPrice * itemCount;
-          itemContainer.style.order = Math.round(sortValue);
-          priceElem.textContent = runtime.api.numberFormatter(
-            creditValue > 0 ? creditValue : askPrice * itemCount
-          );
-          creditElem.textContent = runtime.api.numberFormatter(sortValue);
-        } else if (order === "bid") {
-          const sortValue = creditBidPrice > 0 ? creditBidPrice : bidPrice * itemCount;
-          itemContainer.style.order = Math.round(sortValue);
-          priceElem.textContent = runtime.api.numberFormatter(
-            creditValue > 0 ? creditValue : bidPrice * itemCount
-          );
-          creditElem.textContent = runtime.api.numberFormatter(sortValue);
-        } else if (order === "none") {
-          itemContainer.style.order = 0;
-          priceElem.textContent = "";
-          creditElem.textContent = "";
-        }
-      });
-      const bestItemSpan = selectorContainer.querySelector("#script_best_item");
-      if (order !== "none" && targetCreditHrid && bestCreditConversionMap[targetCreditHrid]) {
-        const best = bestCreditConversionMap[targetCreditHrid][order];
-        if (best) {
-          if (bestItemSpan) {
-            bestItemSpan.textContent = `${best.name} ${runtime.api.numberFormatter(best.price)}`;
-          } else {
-            const span = `<span id="script_best_item" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; margin-left: 8px;">${best.name} ${runtime.api.numberFormatter(best.price)}</span>`;
-            selectorContainer.querySelector("#script_itemSelector_sort_div").insertAdjacentHTML("beforeend", span);
-          }
-        } else if (bestItemSpan) {
-          bestItemSpan.remove();
-        }
-      } else if (bestItemSpan) {
-        bestItemSpan.remove();
-      }
-    };
-    selectorContainer.querySelector("button#script_itemSelector_sortByAsk_btn").addEventListener("click", function(e) {
-      sortItemsBy("ask");
-    });
-    selectorContainer.querySelector("button#script_itemSelector_sortByBid_btn").addEventListener("click", function(e) {
-      sortItemsBy("bid");
-    });
-    selectorContainer.querySelector("button#script_itemSelector_sortByNone_btn").addEventListener("click", function(e) {
-      sortItemsBy("none");
-    });
-  }
-  Object.assign(runtime.api, {
-    calculateNetworth,
-    calculateMarketListingValues,
-    scheduleNetworthRefresh,
-    addInvSortButton,
-    addGuildCreditConversionsSortButton
-  });
 
   // src/features/build-score.js
   var SCORE_UNIT = 1e6;
@@ -21740,19 +21100,1760 @@
     calculateEquipment
   });
 
+  // src/features/asset-history/00-snapshot.js
+  var ASSET_COMPONENT_KEYS = [
+    "equipment",
+    "inventory",
+    "marketListings",
+    "houses",
+    "abilities",
+    "nonTradableTokens",
+    "shrine"
+  ];
+  var snapshotListeners = /* @__PURE__ */ new Set();
+  var latestSnapshot = null;
+  var refreshPromise = null;
+  var refreshTimer = null;
+  function finiteOrNull(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const number2 = Number(value);
+    return Number.isFinite(number2) ? number2 : null;
+  }
+  function sumKnown(values) {
+    return values.reduce(
+      (total, value) => total + (Number.isFinite(value) ? value : 0),
+      0
+    );
+  }
+  function isTerminalMarketListing(listing) {
+    if (listing?.isDone || listing?.isCancelled || listing?.isCanceled || listing?.isExpired) {
+      return true;
+    }
+    return /(cancel|complete|expire|closed|done)/i.test(
+      String(listing?.status ?? "")
+    );
+  }
+  function calculateMarketListingValues(listings) {
+    const totals = { fair: 0, ask: 0, bid: 0 };
+    for (const listing of listings ?? []) {
+      const enhancementLevel = listing.enhancementLevel ?? 0;
+      const assetValue = runtime.api.getAssetValue(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const askPrice = runtime.api.getAskPrice(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const bidPrice = runtime.api.getBidPrice(
+        listing.itemHrid,
+        enhancementLevel
+      );
+      const availableCoins = Math.max(0, Number(listing.coinsAvailable ?? 0));
+      const unclaimedCoins = Math.max(0, Number(listing.unclaimedCoinCount ?? 0));
+      const explicitCoins = availableCoins + unclaimedCoins;
+      totals.fair += explicitCoins;
+      totals.ask += explicitCoins;
+      totals.bid += explicitCoins;
+      const unclaimedItems = Math.max(0, Number(listing.unclaimedItemCount ?? 0));
+      totals.fair += unclaimedItems * assetValue;
+      totals.ask += unclaimedItems * askPrice;
+      totals.bid += unclaimedItems * bidPrice;
+      if (!listing.isSell || isTerminalMarketListing(listing)) continue;
+      const remainingQuantity = Math.max(
+        0,
+        Number(listing.orderQuantity ?? 0) - Number(listing.filledQuantity ?? 0)
+      );
+      const taxMultiplier = 1 - runtime.api.getMarketTaxRate(listing.itemHrid);
+      totals.fair += remainingQuantity * assetValue * taxMultiplier;
+      totals.ask += remainingQuantity * askPrice * taxMultiplier;
+      totals.bid += remainingQuantity * bidPrice * taxMultiplier;
+    }
+    return totals;
+  }
+  async function getAssetSnapshot() {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return null;
+    const marketApiJson2 = await runtime.api.fetchMarketJSON();
+    if (!marketApiJson2 && !Object.keys(runtime.state.marketItemValues).length) {
+      return null;
+    }
+    let equipment = 0;
+    let inventory = 0;
+    let nonTradableTokens = 0;
+    let equipmentAsk = 0;
+    let equipmentBid = 0;
+    let inventoryAsk = 0;
+    let inventoryBid = 0;
+    for (const item of runtime.state.initData_characterItems) {
+      const count = Math.max(0, Number(item.count ?? 0));
+      const enhancementLevel = item.enhancementLevel ?? 0;
+      const fairValue = runtime.api.getAssetValue(
+        item.itemHrid,
+        enhancementLevel
+      );
+      const askPrice = runtime.api.getAskPrice(item.itemHrid, enhancementLevel);
+      const bidPrice = runtime.api.getBidPrice(item.itemHrid, enhancementLevel);
+      if (item.itemLocationHrid !== "/item_locations/inventory") {
+        equipment += count * fairValue;
+        equipmentAsk += count * askPrice;
+        equipmentBid += count * bidPrice;
+      } else if (runtime.api.isNonTradableTokenAsset(item.itemHrid)) {
+        nonTradableTokens += count * fairValue;
+      } else {
+        inventory += count * fairValue;
+        inventoryAsk += count * askPrice;
+        inventoryBid += count * bidPrice;
+      }
+    }
+    const listingValues = calculateMarketListingValues(
+      runtime.state.initData_myMarketListings
+    );
+    const scores = await runtime.api.getSelfBuildScores();
+    const shrine = finiteOrNull(runtime.api.getGuildShrineValue());
+    const values = {
+      equipment,
+      inventory,
+      marketListings: listingValues.fair,
+      houses: finiteOrNull(scores?.assets?.allHouses * 1e6),
+      abilities: finiteOrNull(scores?.assets?.allAbilities * 1e6),
+      nonTradableTokens,
+      shrine
+    };
+    values.liquid = sumKnown([
+      values.equipment,
+      values.inventory,
+      values.marketListings
+    ]);
+    values.fixed = sumKnown([
+      values.houses,
+      values.abilities,
+      values.nonTradableTokens,
+      values.shrine
+    ]);
+    values.total = values.liquid + values.fixed;
+    return {
+      schema: 1,
+      recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      server: runtime.api.getMarketEnvironment?.() ?? "production",
+      characterId: String(runtime.state.currentCharacterId ?? ""),
+      complete: ASSET_COMPONENT_KEYS.every((key) => Number.isFinite(values[key])),
+      values,
+      liquidation: {
+        ask: equipmentAsk + inventoryAsk + listingValues.ask,
+        bid: equipmentBid + inventoryBid + listingValues.bid
+      },
+      scores
+    };
+  }
+  function getLatestAssetSnapshot() {
+    return latestSnapshot;
+  }
+  function onAssetSnapshot(listener) {
+    snapshotListeners.add(listener);
+    return () => snapshotListeners.delete(listener);
+  }
+  async function refreshAssetSnapshot() {
+    if (refreshPromise) return refreshPromise;
+    refreshPromise = getAssetSnapshot().then((snapshot) => {
+      if (!snapshot) return null;
+      latestSnapshot = snapshot;
+      for (const listener of snapshotListeners) {
+        try {
+          listener(snapshot);
+        } catch (error) {
+          console.error("[MWITools] Asset snapshot listener failed", error);
+        }
+      }
+      return snapshot;
+    }).finally(() => {
+      refreshPromise = null;
+    });
+    return refreshPromise;
+  }
+  function scheduleAssetSnapshotRefresh(delay = 120) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => void refreshAssetSnapshot(), delay);
+  }
+  Object.assign(runtime.api, {
+    ASSET_COMPONENT_KEYS,
+    calculateMarketListingValues,
+    getAssetSnapshot,
+    getLatestAssetSnapshot,
+    onAssetSnapshot,
+    refreshAssetSnapshot,
+    scheduleAssetSnapshotRefresh
+  });
+
+  // src/features/asset-history/10-store.js
+  var ASSET_HISTORY_STORAGE_KEY = "MWITools_asset_history_v1";
+  var ASSET_HISTORY_BACKUP_MARKER = "__mwitools_asset_history_backup__";
+  var LEGACY_KEYS = {
+    total: "kbd_calc_data",
+    breakdown: "kbd_calc_breakdown_data",
+    tags: "kbd_calc_tags",
+    tagPrefs: "kbd_calc_tag_prefs",
+    tagPanel: "kbd_calc_tag_panel",
+    dataPanel: "kbd_calc_data_panel",
+    lastUpdate: "kbd_calc_last_update_at"
+  };
+  function safeParse(raw, fallback) {
+    try {
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  function createEmptyData() {
+    return {
+      version: 1,
+      roles: {},
+      migrations: { everydayProfit: {} },
+      legacy: {}
+    };
+  }
+  function finiteOrNull2(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const number2 = Number(value);
+    return Number.isFinite(number2) ? number2 : null;
+  }
+  function sumIfComplete(values, keys) {
+    const parts = keys.map((key) => finiteOrNull2(values[key]));
+    return parts.every(Number.isFinite) ? parts.reduce((total, value) => total + value, 0) : null;
+  }
+  function normalizeAssetValues(input = {}, options = {}) {
+    const values = Object.fromEntries(
+      ASSET_COMPONENT_KEYS.map((key) => [key, finiteOrNull2(input[key])])
+    );
+    values.liquid = sumIfComplete(values, [
+      "equipment",
+      "inventory",
+      "marketListings"
+    ]);
+    values.fixed = sumIfComplete(values, [
+      "houses",
+      "abilities",
+      "nonTradableTokens",
+      "shrine"
+    ]);
+    values.total = Number.isFinite(values.liquid) && Number.isFinite(values.fixed) ? values.liquid + values.fixed : options.preserveTotal ? finiteOrNull2(input.total) : null;
+    return values;
+  }
+  function getUtc8DayKey(date = /* @__PURE__ */ new Date()) {
+    return new Date(date.getTime() + 8 * 36e5).toISOString().slice(0, 10);
+  }
+  function parseDayKey(dayKey) {
+    const [year, month, day] = String(dayKey).split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  }
+  function dayGap(left, right) {
+    return Math.round((parseDayKey(right) - parseDayKey(left)) / 864e5);
+  }
+  function roleBucketFromLegacy(data, roleName, characterId) {
+    if (!data || typeof data !== "object") return {};
+    if (roleName && data[roleName]) return data[roleName];
+    if (characterId && data[characterId]) return data[characterId];
+    const roles = Object.keys(data);
+    return roles.length === 1 ? data[roles[0]] : {};
+  }
+  function legacyValues(total, breakdown = {}) {
+    return normalizeAssetValues(
+      {
+        equipment: breakdown.equip,
+        inventory: breakdown.inventory,
+        marketListings: breakdown.orders,
+        houses: breakdown.house,
+        abilities: breakdown.skill,
+        nonTradableTokens: null,
+        shrine: null,
+        total
+      },
+      { preserveTotal: true }
+    );
+  }
+  function mergeDays(base = {}, incoming = {}) {
+    return { ...base, ...incoming };
+  }
+  var AssetHistoryStore = class {
+    constructor(storage = globalThis.localStorage) {
+      this.storage = storage;
+      const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
+      this.data = loaded?.version === 1 ? loaded : createEmptyData();
+    }
+    save() {
+      this.storage?.setItem(ASSET_HISTORY_STORAGE_KEY, JSON.stringify(this.data));
+    }
+    scopeKey(characterId = runtime.state.currentCharacterId) {
+      const server = runtime.api.getMarketEnvironment?.() ?? "production";
+      return `${server}:${String(characterId ?? "")}`;
+    }
+    getRole(scopeKey = this.scopeKey()) {
+      this.data.roles[scopeKey] ??= { days: {} };
+      this.data.roles[scopeKey].days ??= {};
+      return this.data.roles[scopeKey];
+    }
+    list(scopeKey = this.scopeKey()) {
+      return Object.entries(this.getRole(scopeKey).days).sort(
+        ([a], [b]) => a.localeCompare(b)
+      );
+    }
+    record(snapshot, scopeKey = this.scopeKey(snapshot?.characterId)) {
+      if (!snapshot?.complete) return false;
+      const values = normalizeAssetValues(snapshot.values);
+      if (!Number.isFinite(values.total)) return false;
+      const dayKey = getUtc8DayKey(new Date(snapshot.recordedAt));
+      const role = this.getRole(scopeKey);
+      role.server = snapshot.server;
+      role.characterId = snapshot.characterId;
+      role.days[dayKey] = {
+        recordedAt: snapshot.recordedAt,
+        values
+      };
+      this.save();
+      return dayKey;
+    }
+    comparison(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
+      const entries = this.list(scopeKey).filter(([date2]) => date2 < dayKey);
+      if (!entries.length) return null;
+      const yesterday = new Date(parseDayKey(dayKey) - 864e5).toISOString().slice(0, 10);
+      const exact = entries.find(([date2]) => date2 === yesterday);
+      const [date, record] = exact ?? entries.at(-1);
+      return { date, record, gapDays: dayGap(date, dayKey) };
+    }
+    sevenDayAverage(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
+      const entries = this.list(scopeKey).filter(
+        ([date, record]) => date <= dayKey && Number.isFinite(record?.values?.total)
+      );
+      if (entries.length < 2) return null;
+      const currentIndex = entries.findLastIndex(([date]) => date <= dayKey);
+      const current = entries[currentIndex];
+      let baseline = entries[Math.max(0, currentIndex - 1)];
+      for (let index = currentIndex - 1; index >= 0; index -= 1) {
+        const candidate = entries[index];
+        baseline = candidate;
+        if (dayGap(candidate[0], current[0]) >= 7) break;
+      }
+      const gap = dayGap(baseline[0], current[0]);
+      if (gap <= 0) return null;
+      return (current[1].values.total - baseline[1].values.total) / gap;
+    }
+    updateDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
+      const values = normalizeAssetValues(componentValues);
+      if (!ASSET_COMPONENT_KEYS.every((key) => Number.isFinite(values[key]))) {
+        throw new TypeError("Every asset component needs a finite value");
+      }
+      this.getRole(scopeKey).days[dayKey] = {
+        recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        values,
+        edited: true
+      };
+      this.save();
+      return values;
+    }
+    deleteDay(dayKey, scopeKey = this.scopeKey()) {
+      const days = this.getRole(scopeKey).days;
+      if (!Object.hasOwn(days, dayKey)) return false;
+      delete days[dayKey];
+      this.save();
+      return true;
+    }
+    cleanupInvalid(scopeKey = this.scopeKey()) {
+      let removed = 0;
+      for (const [dayKey, record] of this.list(scopeKey)) {
+        if (!Number.isFinite(record?.values?.total)) {
+          delete this.getRole(scopeKey).days[dayKey];
+          removed += 1;
+        }
+      }
+      if (removed) this.save();
+      return removed;
+    }
+    detectAnomalies(scopeKey = this.scopeKey()) {
+      const entries = this.list(scopeKey).filter(
+        ([, record]) => Number.isFinite(record?.values?.total)
+      );
+      if (entries.length < 5) return [];
+      const changes = entries.slice(1).map(([date, record], index) => ({
+        date,
+        value: (record.values.total - entries[index][1].values.total) / Math.max(1, dayGap(entries[index][0], date))
+      }));
+      const mean = changes.reduce((total, change) => total + change.value, 0) / changes.length;
+      const deviation = Math.sqrt(
+        changes.reduce((total, change) => total + (change.value - mean) ** 2, 0) / changes.length
+      );
+      if (!(deviation > 0)) return [];
+      return changes.map((change) => ({
+        ...change,
+        zScore: (change.value - mean) / deviation
+      })).filter(({ zScore }) => Math.abs(zScore) >= 4);
+    }
+    migrateLegacy({ scopeKey = this.scopeKey(), roleName = "" } = {}) {
+      if (this.data.migrations.everydayProfit[scopeKey]) return false;
+      const characterId = scopeKey.split(":").at(-1);
+      const totalData = safeParse(this.storage?.getItem(LEGACY_KEYS.total), {});
+      const breakdownData = safeParse(
+        this.storage?.getItem(LEGACY_KEYS.breakdown),
+        {}
+      );
+      const totals = roleBucketFromLegacy(totalData, roleName, characterId);
+      const breakdowns = roleBucketFromLegacy(
+        breakdownData,
+        roleName,
+        characterId
+      );
+      const days = {};
+      for (const dayKey of /* @__PURE__ */ new Set([
+        ...Object.keys(totals ?? {}),
+        ...Object.keys(breakdowns ?? {})
+      ])) {
+        const values = legacyValues(totals?.[dayKey], breakdowns?.[dayKey]);
+        if (!Number.isFinite(values.total)) continue;
+        days[dayKey] = { recordedAt: `${dayKey}T15:59:59.999Z`, values };
+      }
+      const role = this.getRole(scopeKey);
+      role.days = { ...days, ...role.days };
+      role.legacyRoleName = roleName || null;
+      this.data.legacy = Object.fromEntries(
+        Object.entries(LEGACY_KEYS).filter(([name]) => name !== "total" && name !== "breakdown").map(([name, key]) => [
+          name,
+          safeParse(this.storage?.getItem(key), {})
+        ])
+      );
+      this.data.migrations.everydayProfit[scopeKey] = {
+        migratedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        importedDays: Object.keys(days).length
+      };
+      this.save();
+      return Object.keys(days).length;
+    }
+    exportBackup() {
+      return {
+        [ASSET_HISTORY_BACKUP_MARKER]: true,
+        schema: 1,
+        exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        data: this.data
+      };
+    }
+    importBackup(backup, { mode = "merge", scopeKey = this.scopeKey() } = {}) {
+      if (backup?.[ASSET_HISTORY_BACKUP_MARKER] === true) {
+        const incoming = backup.data?.roles?.[scopeKey]?.days ?? {};
+        const role = this.getRole(scopeKey);
+        role.days = mode === "replace" ? { ...incoming } : mergeDays(role.days, incoming);
+        this.data.legacy = {
+          ...this.data.legacy,
+          ...backup.data?.legacy ?? {}
+        };
+        this.save();
+        return Object.keys(incoming).length;
+      }
+      if (backup?.__everyday_profit_backup__ === true) {
+        const payload = backup.payload ?? {};
+        const totalData = payload[LEGACY_KEYS.total] ?? {};
+        const breakdownData = payload[LEGACY_KEYS.breakdown] ?? {};
+        const roleName = this.getRole(scopeKey).legacyRoleName ?? "";
+        const characterId = scopeKey.split(":").at(-1);
+        const totals = roleBucketFromLegacy(totalData, roleName, characterId);
+        const breakdowns = roleBucketFromLegacy(
+          breakdownData,
+          roleName,
+          characterId
+        );
+        const incoming = {};
+        for (const dayKey of /* @__PURE__ */ new Set([
+          ...Object.keys(totals),
+          ...Object.keys(breakdowns)
+        ])) {
+          const values = legacyValues(totals[dayKey], breakdowns[dayKey]);
+          if (Number.isFinite(values.total)) {
+            incoming[dayKey] = {
+              recordedAt: `${dayKey}T15:59:59.999Z`,
+              values
+            };
+          }
+        }
+        const role = this.getRole(scopeKey);
+        role.days = mode === "replace" ? incoming : mergeDays(role.days, incoming);
+        this.data.legacy.importedEverydayProfit = payload;
+        this.save();
+        return Object.keys(incoming).length;
+      }
+      throw new TypeError("Unsupported asset history backup");
+    }
+  };
+  var assetHistoryStore = new AssetHistoryStore();
+
+  // src/features/asset-history/20-chart.js
+  var COLORS = {
+    equipment: "#5bc0eb",
+    inventory: "#ffd166",
+    marketListings: "#8ecae6",
+    houses: "#ff6384",
+    abilities: "#a78bfa",
+    nonTradableTokens: "#80ed99",
+    shrine: "#f4a261"
+  };
+  var LABELS = {
+    equipment: ["装备", "Equipment"],
+    inventory: ["库存", "Inventory"],
+    marketListings: ["订单", "Market listings"],
+    houses: ["房屋", "Houses"],
+    abilities: ["技能", "Abilities"],
+    nonTradableTokens: ["不可交易代币", "Non-tradable tokens"],
+    shrine: ["神龛", "Shrine"]
+  };
+  function t(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function filterEntries(entries, range) {
+    if (!Number.isFinite(range) || !entries.length) return entries;
+    const lastDate = entries.at(-1)[0];
+    return entries.filter(([date]) => dayGap(date, lastDate) < range);
+  }
+  function normalizedChanges(entries, key) {
+    return entries.map(([date, record], index) => {
+      if (!index) return null;
+      const previous = entries[index - 1];
+      const currentValue = record?.values?.[key];
+      const previousValue = previous[1]?.values?.[key];
+      if (!Number.isFinite(currentValue) || !Number.isFinite(previousValue)) {
+        return null;
+      }
+      return (currentValue - previousValue) / Math.max(1, dayGap(previous[0], date));
+    });
+  }
+  function calendarAverage(entries, key, windowDays = 7) {
+    return entries.map(([date, record], index) => {
+      if (!index || !Number.isFinite(record?.values?.[key])) return null;
+      let baseline = entries[index - 1];
+      for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+        baseline = entries[candidate];
+        if (dayGap(baseline[0], date) >= windowDays) break;
+      }
+      const gap = dayGap(baseline[0], date);
+      const baselineValue = baseline[1]?.values?.[key];
+      if (!(gap > 0) || !Number.isFinite(baselineValue)) return null;
+      return (record.values[key] - baselineValue) / gap;
+    });
+  }
+  function formatTooltip(value) {
+    return runtime.api.formatExactNumber?.(value) ?? String(value);
+  }
+  var AssetHistoryChart = class {
+    constructor(canvas, fallback) {
+      this.canvas = canvas;
+      this.fallback = fallback;
+      this.instance = null;
+    }
+    destroy() {
+      this.instance?.destroy?.();
+      this.instance = null;
+    }
+    resetZoom() {
+      this.instance?.resetZoom?.();
+    }
+    render(entries, { mode = "total", range = null } = {}) {
+      const Chart = globalThis.Chart;
+      if (typeof Chart !== "function") {
+        this.destroy();
+        this.canvas.hidden = true;
+        this.fallback.hidden = false;
+        this.fallback.textContent = t(
+          "图表依赖未加载；资产数据与明细仍可正常使用。",
+          "Chart dependencies did not load; asset data is still available."
+        );
+        return;
+      }
+      this.canvas.hidden = false;
+      this.fallback.hidden = true;
+      const filtered = filterEntries(entries, range);
+      const labels = filtered.map(([date]) => date.slice(5));
+      let datasets;
+      let title;
+      if (mode === "profit") {
+        const profit = normalizedChanges(filtered, "total");
+        datasets = [
+          {
+            type: "bar",
+            label: t("每日盈亏", "Daily P/L"),
+            data: profit,
+            backgroundColor: profit.map(
+              (value) => value >= 0 ? "rgba(65,190,115,.58)" : "rgba(235,90,90,.58)"
+            ),
+            borderRadius: 3
+          },
+          {
+            type: "line",
+            label: t("7 日均线", "7-day average"),
+            data: calendarAverage(filtered, "total"),
+            borderColor: "#ffd369",
+            backgroundColor: "transparent",
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0.22,
+            spanGaps: true
+          }
+        ];
+        title = t("每日资产盈亏", "Daily asset P/L");
+      } else if (mode === "breakdown") {
+        datasets = ASSET_COMPONENT_KEYS.map((key) => ({
+          type: "line",
+          label: t(...LABELS[key]),
+          data: normalizedChanges(filtered, key),
+          borderColor: COLORS[key],
+          backgroundColor: COLORS[key],
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.2,
+          spanGaps: true
+        }));
+        title = t("分项每日变化", "Daily component changes");
+      } else {
+        datasets = [
+          {
+            type: "line",
+            label: t("总资产", "Total assets"),
+            data: filtered.map(([, record]) => record?.values?.total ?? null),
+            borderColor: "#4cc9f0",
+            backgroundColor: "rgba(76,201,240,.14)",
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 2,
+            tension: 0.2,
+            spanGaps: true
+          }
+        ];
+        title = t("总资产历史", "Total asset history");
+      }
+      this.destroy();
+      this.instance = new Chart(this.canvas.getContext("2d"), {
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          animation: false,
+          plugins: {
+            title: { display: true, text: title, color: "#eee" },
+            legend: { labels: { color: "#ddd", usePointStyle: true } },
+            tooltip: {
+              callbacks: {
+                label(context) {
+                  const value = context.raw;
+                  return `${context.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
+                }
+              }
+            },
+            zoom: {
+              pan: { enabled: true, mode: "x" },
+              zoom: {
+                wheel: { enabled: true },
+                pinch: { enabled: true },
+                drag: { enabled: true, modifierKey: "shift" },
+                mode: "x"
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { color: "#bbb", maxRotation: 0, autoSkip: true },
+              grid: { color: "rgba(255,255,255,.06)" }
+            },
+            y: {
+              ticks: {
+                color: "#bbb",
+                callback(value) {
+                  return runtime.api.numberFormatter?.(value) ?? value;
+                }
+              },
+              grid: { color: "rgba(255,255,255,.08)" }
+            }
+          }
+        }
+      });
+    }
+  };
+
+  // src/features/asset-history/30-panel.js
+  var TAB_ID = "mwitools-asset-history-tab";
+  var PANEL_ID = "mwitools-asset-history-panel";
+  var STYLE_ID = "mwitools-asset-history-style";
+  var ROWS = [
+    ["total", "总计", "Total"],
+    ["equipment", "装备", "Equipment"],
+    ["inventory", "库存", "Inventory"],
+    ["marketListings", "订单", "Market listings"],
+    ["houses", "房屋", "Houses"],
+    ["abilities", "技能", "Abilities"],
+    ["nonTradableTokens", "不可交易代币", "Non-tradable tokens"],
+    ["shrine", "神龛", "Shrine"]
+  ];
+  function t2(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function formatNumber(value, signed = false) {
+    if (!Number.isFinite(value)) return "—";
+    const formatted = runtime.api.numberFormatter?.(Math.abs(value)) ?? value;
+    if (!signed || value === 0) return String(formatted);
+    return `${value > 0 ? "+" : "−"}${formatted}`;
+  }
+  function formatPercent(current, previous) {
+    if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0)
+      return "—";
+    const value = (current - previous) / previous * 100;
+    return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+  }
+  function valueClass(value) {
+    if (!Number.isFinite(value) || value === 0) return "is-neutral";
+    return value > 0 ? "is-positive" : "is-negative";
+  }
+  function addStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    #${PANEL_ID} { box-sizing:border-box; width:100%; min-width:0; padding:12px 16px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
+    .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
+    .mwi-asset-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+    .mwi-asset-card { min-width:0; padding:10px 12px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:rgba(255,255,255,.06); }
+    .mwi-asset-card-label { color:#9fb4d1; font-size:.68rem; }
+    .mwi-asset-card-value { overflow:hidden; margin-top:4px; font-size:1rem; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-asset-card-meta { margin-top:3px; color:var(--color-text-secondary,#999); font-size:.63rem; }
+    .is-positive { color:#65d394!important; } .is-negative { color:#ff7b75!important; } .is-neutral { color:inherit; }
+    .mwi-asset-section { margin-top:10px; border:1px solid rgba(255,255,255,.08); border-radius:8px; background:#0c141f; overflow:hidden; }
+    .mwi-asset-section-title { padding:9px 11px; border-bottom:1px solid rgba(255,255,255,.08); font-size:.84rem; font-weight:700; }
+    .mwi-asset-table-wrap { overflow-x:auto; }
+    .mwi-asset-table { width:100%; min-width:470px; border-collapse:collapse; font-size:.74rem; }
+    .mwi-asset-table th,.mwi-asset-table td { padding:7px 10px; border-bottom:1px solid rgba(255,255,255,.065); text-align:right; }
+    .mwi-asset-table th:first-child,.mwi-asset-table td:first-child { text-align:left; }
+    .mwi-asset-table tr:last-child td { border-bottom:0; }
+    .mwi-asset-table tr[data-key="total"] { font-weight:700; background:rgba(255,255,255,.035); }
+    .mwi-asset-chart-controls { display:flex; flex-wrap:wrap; gap:6px; padding:9px 10px 0; }
+    .mwi-asset-chart-controls button,.mwi-asset-action { border:1px solid rgba(255,255,255,.13); border-radius:5px; background:rgba(255,255,255,.07); color:inherit; padding:5px 9px; cursor:pointer; font:inherit; }
+    .mwi-asset-chart-controls button:hover,.mwi-asset-action:hover { background:#3f4655; transform:translateY(-1px); }
+    .mwi-asset-chart-controls button[data-active="true"] { border-color:transparent; background:#00c6ff; color:#0b1522; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    .mwi-asset-chart-box { position:relative; height:330px; padding:8px 10px 12px; }
+    .mwi-asset-chart-fallback { display:grid; height:100%; place-items:center; color:var(--color-text-secondary,#aaa); font-size:.75rem; text-align:center; }
+    .mwi-asset-manager { padding:9px 11px 12px; }
+    .mwi-asset-manager summary { cursor:pointer; font-size:.8rem; font-weight:700; }
+    .mwi-asset-manager-actions { display:flex; flex-wrap:wrap; gap:6px; margin:9px 0; }
+    .mwi-asset-action.is-danger { color:#ff938c; }
+    .mwi-asset-history-table button { padding:3px 7px; font-size:.68rem; }
+    .mwi-asset-edit-dialog { width:min(520px,calc(100vw - 24px)); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:#182033; color:#eee; }
+    .mwi-asset-edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+    .mwi-asset-edit-grid label { display:grid; gap:3px; color:#bbb; font-size:.7rem; }
+    .mwi-asset-edit-grid input { box-sizing:border-box; width:100%; border:1px solid rgba(255,255,255,.18); border-radius:4px; background:#101728; color:#eee; padding:6px; }
+    .mwi-asset-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
+    @media(max-width:760px){
+      .mwi-asset-summary { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      #${PANEL_ID} { padding:10px 8px 20px; }
+      .mwi-asset-chart-box { height:280px; }
+      .mwi-asset-edit-grid { grid-template-columns:1fr; }
+    }
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function buttonLabel(button) {
+    return String(
+      runtime.api.getOriTextFromElement?.(button) ?? button?.textContent ?? ""
+    ).trim().toLowerCase();
+  }
+  function findLoadoutTab() {
+    return [...document.querySelectorAll("button")].find(
+      (button) => /^(配装|loadouts?)$/i.test(buttonLabel(button))
+    );
+  }
+  function looksLikeContent(node) {
+    if (!(node instanceof Element)) return false;
+    const className = String(node.className ?? "");
+    return Boolean(
+      node.querySelector("input,canvas") || /(Inventory|Equipment|Ability|Abilities|House|Loadout|Panel)_/i.test(
+        className
+      ) || node.querySelector(
+        '[class*="Inventory_"],[class*="Equipment_"],[class*="Ability"],[class*="House_"],[class*="Loadout"]'
+      )
+    );
+  }
+  function findPanelShell(tab) {
+    let navigationBranch = tab.parentElement;
+    for (let depth = 0; navigationBranch?.parentElement && depth < 8; depth += 1) {
+      const shell2 = navigationBranch.parentElement;
+      const siblings = [...shell2.children].filter(
+        (node) => node !== navigationBranch && node.id !== PANEL_ID
+      );
+      if (siblings.some(looksLikeContent)) {
+        return { shell: shell2, navigationBranch };
+      }
+      navigationBranch = shell2;
+    }
+    return null;
+  }
+  function createCard(label, valueId, metaId = "") {
+    return `<div class="mwi-asset-card"><div class="mwi-asset-card-label">${label}</div><div class="mwi-asset-card-value" id="${valueId}">—</div>${metaId ? `<div class="mwi-asset-card-meta" id="${metaId}"></div>` : ""}</div>`;
+  }
+  function downloadBackup(backup) {
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `MWITools-asset-history-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+  var AssetHistoryPanel = class {
+    constructor(host, store, scopeKey) {
+      this.host = host;
+      this.store = store;
+      this.scopeKey = scopeKey;
+      this.snapshot = null;
+      this.mode = "total";
+      this.range = 30;
+      this.build();
+    }
+    build() {
+      this.host.innerHTML = `
+      <p class="mwi-asset-disclaimer">${t2("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
+      <div class="mwi-asset-summary">
+        ${createCard(t2("当前总资产", "Current total assets"), "mwi-asset-current-total")}
+        ${createCard(t2("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t2("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
+        ${createCard(t2("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
+      </div>
+      <section class="mwi-asset-section">
+        <div class="mwi-asset-section-title">${t2("分项资产变化", "Asset changes by component")}</div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table"><thead><tr><th>${t2("项目", "Component")}</th><th>${t2("当前", "Current")}</th><th id="mwi-asset-change-heading">${t2("变化", "Change")}</th><th>${t2("比例", "Percentage")}</th></tr></thead><tbody id="mwi-asset-breakdown"></tbody></table></div>
+      </section>
+      <section class="mwi-asset-section">
+        <div class="mwi-asset-chart-controls">
+          <button type="button" data-mode="total">${t2("总资产", "Total assets")}</button>
+          <button type="button" data-mode="profit">${t2("每日盈亏", "Daily P/L")}</button>
+          <button type="button" data-mode="breakdown">${t2("分项变化", "Components")}</button>
+          <span style="flex:1"></span>
+          <button type="button" data-range="7">7${t2("天", "d")}</button>
+          <button type="button" data-range="15">15${t2("天", "d")}</button>
+          <button type="button" data-range="30">30${t2("天", "d")}</button>
+          <button type="button" data-range="all">${t2("全部", "All")}</button>
+          <button type="button" id="mwi-asset-reset-zoom">${t2("重置缩放", "Reset zoom")}</button>
+        </div>
+        <div class="mwi-asset-chart-box"><canvas id="mwi-asset-chart"></canvas><div class="mwi-asset-chart-fallback" hidden></div></div>
+      </section>
+      <section class="mwi-asset-section"><details class="mwi-asset-manager"><summary>${t2("数据管理与备份", "Data management & backup")}</summary>
+        <div class="mwi-asset-manager-actions">
+          <button type="button" class="mwi-asset-action" id="mwi-asset-export">${t2("导出备份", "Export backup")}</button>
+          <button type="button" class="mwi-asset-action" id="mwi-asset-import">${t2("导入备份", "Import backup")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-cleanup">${t2("清理无效记录", "Clean invalid records")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-anomalies">${t2("检测并删除异常", "Detect & delete anomalies")}</button>
+          <input type="file" id="mwi-asset-import-file" accept="application/json" hidden>
+        </div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table mwi-asset-history-table"><thead><tr><th>${t2("日期", "Date")}</th><th>${t2("总资产", "Total")}</th><th>${t2("操作", "Actions")}</th></tr></thead><tbody id="mwi-asset-history-rows"></tbody></table></div>
+      </details></section>
+      <dialog class="mwi-asset-edit-dialog" id="mwi-asset-edit-dialog"><h3>${t2("编辑分项资产", "Edit asset components")}</h3><div class="mwi-asset-edit-grid">${ASSET_COMPONENT_KEYS.map(
+        (key) => {
+          const row = ROWS.find(([candidate]) => candidate === key);
+          return `<label>${t2(row[1], row[2])}<input type="number" min="0" step="any" data-component="${key}"></label>`;
+        }
+      ).join(
+        ""
+      )}</div><div class="mwi-asset-edit-actions"><button type="button" class="mwi-asset-action" data-edit-cancel>${t2("取消", "Cancel")}</button><button type="button" class="mwi-asset-action" data-edit-save>${t2("保存", "Save")}</button></div></dialog>
+    `;
+      this.chart = new AssetHistoryChart(
+        this.host.querySelector("#mwi-asset-chart"),
+        this.host.querySelector(".mwi-asset-chart-fallback")
+      );
+      this.bind();
+    }
+    bind() {
+      this.host.querySelectorAll("[data-mode]").forEach((button) => {
+        button.addEventListener("click", () => {
+          this.mode = button.dataset.mode;
+          this.renderChart();
+        });
+      });
+      this.host.querySelectorAll("[data-range]").forEach((button) => {
+        button.addEventListener("click", () => {
+          this.range = button.dataset.range === "all" ? null : Number(button.dataset.range);
+          this.renderChart();
+        });
+      });
+      this.host.querySelector("#mwi-asset-reset-zoom").addEventListener("click", () => this.chart.resetZoom());
+      this.host.querySelector("#mwi-asset-export").addEventListener(
+        "click",
+        () => downloadBackup(this.store.exportBackup())
+      );
+      const fileInput = this.host.querySelector("#mwi-asset-import-file");
+      this.host.querySelector("#mwi-asset-import").addEventListener("click", () => fileInput.click());
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files?.[0];
+        if (!file) return;
+        try {
+          const backup = JSON.parse(await file.text());
+          const replace = globalThis.confirm?.(
+            t2(
+              "确定：替换当前角色历史；取消：合并导入。",
+              "OK: replace this character's history; Cancel: merge it."
+            )
+          );
+          this.store.importBackup(backup, {
+            mode: replace ? "replace" : "merge",
+            scopeKey: this.scopeKey
+          });
+          this.update(this.snapshot);
+        } catch (error) {
+          globalThis.alert?.(
+            `${t2("导入失败", "Import failed")}: ${error.message}`
+          );
+        } finally {
+          fileInput.value = "";
+        }
+      });
+      this.host.querySelector("#mwi-asset-cleanup").addEventListener("click", () => {
+        const removed = this.store.cleanupInvalid(this.scopeKey);
+        globalThis.alert?.(
+          t2(
+            `已删除 ${removed} 条无效记录。`,
+            `Removed ${removed} invalid records.`
+          )
+        );
+        this.update(this.snapshot);
+      });
+      this.host.querySelector("#mwi-asset-anomalies").addEventListener("click", () => {
+        const anomalies = this.store.detectAnomalies(this.scopeKey);
+        if (!anomalies.length) {
+          globalThis.alert?.(
+            t2("未发现明显异常。", "No clear anomalies found.")
+          );
+          return;
+        }
+        const preview = anomalies.map(({ date, zScore }) => `${date} (Z=${zScore.toFixed(1)})`).join("\n");
+        if (!globalThis.confirm?.(
+          t2(
+            `确认删除以下异常日期？
+${preview}`,
+            `Delete these anomalous dates?
+${preview}`
+          )
+        )) {
+          return;
+        }
+        anomalies.forEach(
+          ({ date }) => this.store.deleteDay(date, this.scopeKey)
+        );
+        this.update(this.snapshot);
+      });
+      this.host.querySelector("[data-edit-cancel]").addEventListener("click", () => this.closeEditor());
+      this.host.querySelector("[data-edit-save]").addEventListener("click", () => this.saveEditor());
+    }
+    openEditor(dayKey) {
+      const record = this.store.getRole(this.scopeKey).days[dayKey];
+      const dialog = this.host.querySelector("#mwi-asset-edit-dialog");
+      dialog.dataset.dayKey = dayKey;
+      for (const input of dialog.querySelectorAll("[data-component]")) {
+        const value = record?.values?.[input.dataset.component];
+        input.value = Number.isFinite(value) ? value : "";
+      }
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    }
+    closeEditor() {
+      const dialog = this.host.querySelector("#mwi-asset-edit-dialog");
+      if (typeof dialog.close === "function") dialog.close();
+      else dialog.removeAttribute("open");
+    }
+    saveEditor() {
+      const dialog = this.host.querySelector("#mwi-asset-edit-dialog");
+      const values = Object.fromEntries(
+        [...dialog.querySelectorAll("[data-component]")].map((input) => [
+          input.dataset.component,
+          Number(input.value)
+        ])
+      );
+      if (!ASSET_COMPONENT_KEYS.every(
+        (key) => Number.isFinite(values[key]) && values[key] >= 0
+      )) {
+        globalThis.alert?.(
+          t2(
+            "请为全部七个分项填写不小于零的数字。",
+            "Enter a non-negative number for all seven components."
+          )
+        );
+        return;
+      }
+      this.store.updateDay(dialog.dataset.dayKey, values, this.scopeKey);
+      this.closeEditor();
+      this.update(this.snapshot);
+    }
+    update(snapshot) {
+      this.snapshot = snapshot ?? this.snapshot;
+      const dayKey = getUtc8DayKey();
+      const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
+      const current = this.snapshot?.values ?? todayRecord?.values ?? {};
+      const comparison = this.store.comparison(dayKey, this.scopeKey);
+      const previous = comparison?.record?.values ?? {};
+      const totalChange = Number.isFinite(current.total) && Number.isFinite(previous.total) ? current.total - previous.total : null;
+      const compareText = comparison ? comparison.gapDays === 1 ? t2(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t2(
+        `较 ${comparison.gapDays} 天前（${comparison.date}）`,
+        `vs ${comparison.gapDays} days ago (${comparison.date})`
+      ) : t2("暂无历史对比", "No prior record");
+      const setText = (selector, value, className = "") => {
+        const node = this.host.querySelector(selector);
+        node.textContent = value;
+        node.className = `mwi-asset-card-value ${className}`.trim();
+      };
+      setText("#mwi-asset-current-total", formatNumber(current.total));
+      setText(
+        "#mwi-asset-total-change",
+        formatNumber(totalChange, true),
+        valueClass(totalChange)
+      );
+      this.host.querySelector("#mwi-asset-compare-date").textContent = compareText;
+      setText(
+        "#mwi-asset-total-percent",
+        formatPercent(current.total, previous.total),
+        valueClass(totalChange)
+      );
+      const average = this.store.sevenDayAverage(dayKey, this.scopeKey);
+      setText(
+        "#mwi-asset-seven-average",
+        formatNumber(average, true),
+        valueClass(average)
+      );
+      this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t2(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t2("变化", "Change");
+      const body = this.host.querySelector("#mwi-asset-breakdown");
+      body.replaceChildren(
+        ...ROWS.map(([key, zh, en]) => {
+          const row = document.createElement("tr");
+          row.dataset.key = key;
+          const currentValue = current[key];
+          const previousValue = previous[key];
+          const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
+          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          return row;
+        })
+      );
+      this.renderHistoryRows();
+      this.renderChart();
+    }
+    renderHistoryRows() {
+      const body = this.host.querySelector("#mwi-asset-history-rows");
+      const entries = this.store.list(this.scopeKey).slice().reverse();
+      body.replaceChildren(
+        ...entries.map(([dayKey, record]) => {
+          const row = document.createElement("tr");
+          row.innerHTML = `<td>${dayKey}</td><td>${formatNumber(record?.values?.total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
+          row.querySelector("[data-delete]").addEventListener("click", () => {
+            if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
+              this.store.deleteDay(dayKey, this.scopeKey);
+              this.update(this.snapshot);
+            }
+          });
+          return row;
+        })
+      );
+    }
+    renderChart() {
+      this.host.querySelectorAll("[data-mode]").forEach((button) => {
+        button.dataset.active = String(button.dataset.mode === this.mode);
+      });
+      this.host.querySelectorAll("[data-range]").forEach((button) => {
+        const range = button.dataset.range === "all" ? null : Number(button.dataset.range);
+        button.dataset.active = String(range === this.range);
+      });
+      this.chart.render(this.store.list(this.scopeKey), {
+        mode: this.mode,
+        range: this.range
+      });
+    }
+    destroy() {
+      this.chart.destroy();
+    }
+  };
+  function createAssetHistoryUi({ scope, store, scopeKey }) {
+    let active = false;
+    let tab = null;
+    let host = null;
+    let panel = null;
+    let shell2 = null;
+    let navigationBranch = null;
+    const hiddenNodes = /* @__PURE__ */ new Map();
+    const restoreNative = () => {
+      for (const [node, state] of hiddenNodes) {
+        node.hidden = state.hidden;
+        if (state.styleDisplay === null) node.style.removeProperty("display");
+        else node.style.display = state.styleDisplay;
+      }
+      hiddenNodes.clear();
+    };
+    const setActive = (next) => {
+      active = Boolean(next);
+      if (tab) {
+        tab.dataset.active = String(active);
+        tab.setAttribute("aria-selected", String(active));
+      }
+      if (host) host.hidden = !active;
+      if (!active) {
+        restoreNative();
+        return;
+      }
+      for (const node of [...shell2?.children ?? []]) {
+        if (node === navigationBranch || node === host || node.tagName === "STYLE")
+          continue;
+        if (!hiddenNodes.has(node)) {
+          hiddenNodes.set(node, {
+            hidden: node.hidden,
+            styleDisplay: node.style.display || null
+          });
+        }
+        node.hidden = true;
+        node.style.display = "none";
+      }
+      panel?.update(runtime.api.getLatestAssetSnapshot?.());
+    };
+    const teardownMount = () => {
+      setActive(false);
+      panel?.destroy();
+      panel = null;
+      tab?.remove();
+      host?.remove();
+      tab = null;
+      host = null;
+      shell2 = null;
+      navigationBranch = null;
+    };
+    const ensureMounted = () => {
+      if (tab?.isConnected && host?.isConnected) {
+        if (active) setActive(true);
+        return;
+      }
+      teardownMount();
+      const loadout = findLoadoutTab();
+      const found = loadout && findPanelShell(loadout);
+      if (!loadout || !found) return;
+      ({ shell: shell2, navigationBranch } = found);
+      tab = loadout.cloneNode(false);
+      tab.id = TAB_ID;
+      tab.type = "button";
+      tab.textContent = t2("盈亏", "P/L");
+      tab.dataset.active = "false";
+      tab.setAttribute("aria-selected", "false");
+      tab.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setActive(true);
+      });
+      loadout.insertAdjacentElement("afterend", tab);
+      host = document.createElement("section");
+      host.id = PANEL_ID;
+      host.hidden = true;
+      shell2.appendChild(host);
+      panel = new AssetHistoryPanel(host, store, scopeKey);
+      panel.update(runtime.api.getLatestAssetSnapshot?.());
+    };
+    addStyles();
+    ensureMounted();
+    scope.interval(ensureMounted, 500);
+    scope.event(
+      document,
+      "click",
+      (event) => {
+        if (!active || event.target.closest(`#${TAB_ID}`)) return;
+        const nativeButton = event.target.closest("button");
+        if (nativeButton && tab?.parentElement?.contains(nativeButton)) {
+          setActive(false);
+        }
+      },
+      true
+    );
+    return {
+      update(snapshot) {
+        panel?.update(snapshot);
+      },
+      destroy() {
+        teardownMount();
+        document.getElementById(STYLE_ID)?.remove();
+      }
+    };
+  }
+
+  // src/features/asset-history/index.js
+  function detectRoleName() {
+    if (runtime.state.currentCharacterName) {
+      return String(runtime.state.currentCharacterName).trim();
+    }
+    const candidate = [
+      ".CharacterName_name__1amXp span",
+      '[class*="CharacterName_name"] span',
+      '[data-testid="character-name"]'
+    ].map((selector) => document.querySelector(selector)).find(Boolean);
+    return String(candidate?.textContent ?? "").trim();
+  }
+  function currentScopeKey() {
+    return assetHistoryStore.scopeKey(runtime.state.currentCharacterId);
+  }
+  var assetHistoryApi = {
+    storageKey: "MWITools_asset_history_v1",
+    record(snapshot = getLatestAssetSnapshot(), scopeKey = currentScopeKey()) {
+      return assetHistoryStore.record(snapshot, scopeKey);
+    },
+    getHistory(scopeKey = currentScopeKey()) {
+      return assetHistoryStore.list(scopeKey);
+    },
+    getComparison(dayKey = getUtc8DayKey(), scopeKey = currentScopeKey()) {
+      return assetHistoryStore.comparison(dayKey, scopeKey);
+    },
+    getSevenDayAverage(dayKey = getUtc8DayKey(), scopeKey = currentScopeKey()) {
+      return assetHistoryStore.sevenDayAverage(dayKey, scopeKey);
+    },
+    updateDay(dayKey, values, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.updateDay(dayKey, values, scopeKey);
+    },
+    deleteDay(dayKey, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.deleteDay(dayKey, scopeKey);
+    },
+    cleanup(scopeKey = currentScopeKey()) {
+      return assetHistoryStore.cleanupInvalid(scopeKey);
+    },
+    detectAnomalies(scopeKey = currentScopeKey()) {
+      return assetHistoryStore.detectAnomalies(scopeKey);
+    },
+    exportBackup() {
+      return assetHistoryStore.exportBackup();
+    },
+    importBackup(backup, options = {}) {
+      return assetHistoryStore.importBackup(backup, {
+        scopeKey: currentScopeKey(),
+        ...options
+      });
+    },
+    migrateLegacy(options = {}) {
+      return assetHistoryStore.migrateLegacy({
+        scopeKey: currentScopeKey(),
+        roleName: detectRoleName(),
+        ...options
+      });
+    },
+    refresh: refreshAssetSnapshot,
+    scheduleRefresh: scheduleAssetSnapshotRefresh
+  };
+  runtime.api.assetHistory = assetHistoryApi;
+  runtime.features.register({
+    id: "assetHistory",
+    setting: "assetHistory",
+    scope: "character",
+    initialize({ scope, characterId }) {
+      const scopeKey = assetHistoryStore.scopeKey(characterId);
+      assetHistoryStore.migrateLegacy({
+        scopeKey,
+        roleName: detectRoleName()
+      });
+      const ui = createAssetHistoryUi({
+        scope,
+        store: assetHistoryStore,
+        scopeKey
+      });
+      const consume = (snapshot) => {
+        if (String(snapshot?.characterId ?? "") !== String(characterId)) return;
+        assetHistoryStore.record(snapshot, scopeKey);
+        ui.update(snapshot);
+      };
+      scope.add(onAssetSnapshot(consume));
+      const latest = getLatestAssetSnapshot();
+      if (latest) consume(latest);
+      void refreshAssetSnapshot();
+      return () => ui.destroy();
+    }
+  });
+
+  // src/features/inventory.js
+  var guildCreditWatcherStarted = false;
+  var inventoryRefreshTimer = null;
+  function numberHtml(value) {
+    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+  }
+  function scheduleNetworthRefresh() {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return;
+    clearTimeout(inventoryRefreshTimer);
+    inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
+  }
+  async function calculateNetworth() {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return;
+    const snapshot = await runtime.api.refreshAssetSnapshot();
+    if (!snapshot) return;
+    const addInventorySummary = (invElem) => {
+      const { scores, values } = snapshot;
+      const previousSummary = invElem.parentElement?.querySelector(
+        "#script_inventory_summary"
+      );
+      const wasCombatScoreOpen = previousSummary?.querySelector("#buildScores")?.style.display === "block";
+      const wasSkillingScoreOpen = previousSummary?.querySelector("#skillingScores")?.style.display === "block";
+      const wasNetworthOpen = previousSummary?.querySelector("#netWorthDetails")?.style.display === "block";
+      previousSummary?.remove();
+      invElem.insertAdjacentHTML(
+        "beforebegin",
+        `<div id="script_inventory_summary" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
+                <!-- 战斗着装评分 -->
+                <div style="cursor: pointer; font-weight: bold" id="toggleScores">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}</div>
+                <div id="buildScores" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
+                        <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${runtime.api.formatScore(scores.battle.abilities)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.battle.equipment)}</div>
+                </div>
+
+                <!-- 生活着装评分 -->
+                <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${runtime.api.formatScore(scores.skilling.total)}</div>
+                <div id="skillingScores" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
+                        <div>${runtime.config.isZH ? "工具：" : "Tools: "}${runtime.api.formatScore(scores.skilling.tools)}</div>
+                        <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${runtime.api.formatScore(scores.skilling.equipment)}</div>
+                </div>
+
+                <!-- 总资产价值 -->
+                <div style="cursor: pointer; font-weight: bold;" id="toggleNetWorth">
+                    ${runtime.config.isZH ? "+ 总资产价值：" : "+ Total Asset Value: "}${numberHtml(values.total)}
+                </div>
+
+                <div id="netWorthDetails" style="display: none; margin-left: 20px;">
+                    <!-- 流动资产 -->
+                    <div style="cursor: pointer;" id="toggleCurrentAssets">
+                        ${runtime.config.isZH ? "+ 流动资产价值" : "+ Current assets value"}
+                    </div>
+                    <div id="currentAssets" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "装备价值：" : "Equipment value: "}${numberHtml(values.equipment)}</div>
+                        <div>${runtime.config.isZH ? "库存价值：" : "Inventory value: "}${numberHtml(values.inventory)}</div>
+                        <div>${runtime.config.isZH ? "订单价值：" : "Market listing value: "}${numberHtml(values.marketListings)}</div>
+                    </div>
+
+                    <!-- 非流动资产 -->
+                    <div style="cursor: pointer;" id="toggleNonCurrentAssets">
+                        ${runtime.config.isZH ? "+ 非流动资产价值" : "+ Fixed assets value"}
+                    </div>
+                    <div id="nonCurrentAssets" style="display: none; margin-left: 20px;">
+                        <div>${runtime.config.isZH ? "房子价值：" : "Houses value: "}${numberHtml(values.houses)}</div>
+                        <div>${runtime.config.isZH ? "技能价值：" : "Abilities value: "}${numberHtml(values.abilities)}</div>
+                        <div>${runtime.config.isZH ? "不可交易代币：" : "Non-tradable Tokens: "}${numberHtml(values.nonTradableTokens)}</div>
+                        <div>${runtime.config.isZH ? "神龛：" : "Shrine: "}${values.shrine === null ? "—" : numberHtml(values.shrine)}</div>
+                    </div>
+                </div>
+            </div>`
+      );
+      const summary = invElem.parentElement.querySelector(
+        "#script_inventory_summary"
+      );
+      const toggleScores = summary.querySelector("#toggleScores");
+      const ScoreDetails = summary.querySelector("#buildScores");
+      const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
+      const skillingScoreDetails = summary.querySelector("#skillingScores");
+      const toggleButton = summary.querySelector("#toggleNetWorth");
+      const netWorthDetails = summary.querySelector("#netWorthDetails");
+      const toggleCurrentAssets = summary.querySelector("#toggleCurrentAssets");
+      const currentAssets = summary.querySelector("#currentAssets");
+      const toggleNonCurrentAssets = summary.querySelector(
+        "#toggleNonCurrentAssets"
+      );
+      const nonCurrentAssets = summary.querySelector("#nonCurrentAssets");
+      if (wasNetworthOpen) {
+        netWorthDetails.style.display = "block";
+        currentAssets.style.display = "block";
+        nonCurrentAssets.style.display = "block";
+      }
+      if (wasCombatScoreOpen) {
+        ScoreDetails.style.display = "block";
+        toggleScores.textContent = "↓ " + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
+      }
+      if (wasSkillingScoreOpen) {
+        skillingScoreDetails.style.display = "block";
+        toggleSkillingScores.textContent = "↓ " + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
+      }
+      toggleScores.addEventListener("click", () => {
+        const isCollapsed = ScoreDetails.style.display === "none";
+        ScoreDetails.style.display = isCollapsed ? "block" : "none";
+        toggleScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ") + runtime.api.formatScore(scores.battle.total);
+      });
+      toggleSkillingScores.addEventListener("click", () => {
+        const isCollapsed = skillingScoreDetails.style.display === "none";
+        skillingScoreDetails.style.display = isCollapsed ? "block" : "none";
+        toggleSkillingScores.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ") + runtime.api.formatScore(scores.skilling.total);
+      });
+      toggleButton.addEventListener("click", () => {
+        const isCollapsed = netWorthDetails.style.display === "none";
+        netWorthDetails.style.display = isCollapsed ? "block" : "none";
+        toggleButton.innerHTML = `${isCollapsed ? "↓ " : "+ "}${runtime.config.isZH ? "总资产价值：" : "Total Asset Value: "}${numberHtml(values.total)}`;
+        currentAssets.style.display = isCollapsed ? "block" : "none";
+        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
+        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
+        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
+      });
+      toggleCurrentAssets.addEventListener("click", () => {
+        const isCollapsed = currentAssets.style.display === "none";
+        currentAssets.style.display = isCollapsed ? "block" : "none";
+        toggleCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "流动资产价值" : "Current assets value");
+      });
+      toggleNonCurrentAssets.addEventListener("click", () => {
+        const isCollapsed = nonCurrentAssets.style.display === "none";
+        nonCurrentAssets.style.display = isCollapsed ? "block" : "none";
+        toggleNonCurrentAssets.textContent = (isCollapsed ? "↓ " : "+ ") + (runtime.config.isZH ? "非流动资产价值" : "Fixed assets value");
+      });
+    };
+    const renderInventoryPanels = () => {
+      const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
+      for (const node of targetNodes) {
+        if (runtime.settings.settingsMap.invWorth.isTrue) {
+          node.classList.add("script_buildScore_added");
+          addInventorySummary(node);
+        }
+        if (runtime.settings.settingsMap.invSort.isTrue) {
+          if (!node.classList.contains("script_invSort_added")) {
+            node.classList.add("script_invSort_added");
+            addInvSortButton(node);
+          }
+        }
+      }
+    };
+    renderInventoryPanels();
+    const waitGuildCreditConversionsSelect = () => {
+      if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
+        addGuildCreditConversionsSortButton();
+      setTimeout(waitGuildCreditConversionsSelect, 1e3);
+    };
+    if (!guildCreditWatcherStarted) {
+      guildCreditWatcherStarted = true;
+      waitGuildCreditConversionsSelect();
+    }
+  }
+  async function addInvSortButton(invElem) {
+    const price_data = await runtime.api.fetchMarketJSON();
+    if (!price_data || !price_data.marketData) {
+      console.error("addInvSortButton fetchMarketJSON null");
+      return;
+    }
+    const fairButton = `<button
+        id="script_sortByFair_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "市场价值" : "Market Value"}
+        </button>`;
+    const askButton = `<button
+        id="script_sortByAsk_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "出售价" : "Ask"}
+        </button>`;
+    const bidButton = `<button
+        id="script_sortByBid_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "收购价" : "Bid"}
+        </button>`;
+    const noneButton = `<button
+        id="script_sortByNone_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "无" : "None"}
+        </button>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${runtime.config.isZH ? "物品排序：" : "Sort items by: "}${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
+    invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+    invElem.parentElement.querySelector("button#script_sortByFair_btn").addEventListener("click", function() {
+      sortItemsBy("fair");
+    });
+    invElem.parentElement.querySelector("button#script_sortByAsk_btn").addEventListener("click", function(e) {
+      sortItemsBy("ask");
+    });
+    invElem.parentElement.querySelector("button#script_sortByBid_btn").addEventListener("click", function(e) {
+      sortItemsBy("bid");
+    });
+    invElem.parentElement.querySelector("button#script_sortByNone_btn").addEventListener("click", function(e) {
+      sortItemsBy("none");
+    });
+    const sortItemsBy = (order) => {
+      for (const typeDiv of invElem.children) {
+        const typeName = runtime.api.getOriTextFromElement(
+          typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0]
+        );
+        const notNeedSortTypes = ["Loots", "Currencies", "Equipment"];
+        if (notNeedSortTypes.includes(typeName)) {
+          continue;
+        }
+        typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
+        const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
+        for (const itemElem of itemElems) {
+          let itemName2 = itemElem.querySelector("svg").attributes["aria-label"].value;
+          if (runtime.config.isZHInGameSetting) {
+            itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+          }
+          const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+          let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
+          itemCount = runtime.api.parseCompactNumber(itemCount);
+          let askPrice = 0;
+          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+            askPrice = price_data.marketData[itemHrid][0].a;
+          let bidPrice = 0;
+          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+            bidPrice = price_data.marketData[itemHrid][0].b;
+          const itemAskmWorth = askPrice * itemCount;
+          const itemBidWorth = bidPrice * itemCount;
+          const itemFairWorth = runtime.api.getFairValue(itemHrid, 0) * itemCount;
+          if (!itemElem.querySelector("#script_stack_price")) {
+            itemElem.style.position = "relative";
+            const priceElemHTML = `<div
+                        id="script_stack_price"
+                        style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left;">
+                    </div>`;
+            itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+          }
+          const priceElem = itemElem.querySelector("#script_stack_price");
+          if (order === "fair") {
+            itemElem.style.order = -itemFairWorth;
+            priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
+          } else if (order === "ask") {
+            itemElem.style.order = -itemAskmWorth;
+            priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
+          } else if (order === "bid") {
+            itemElem.style.order = -itemBidWorth;
+            priceElem.textContent = runtime.api.numberFormatter(itemBidWorth);
+          } else if (order === "none") {
+            itemElem.style.order = 0;
+            priceElem.textContent = "";
+          }
+        }
+      }
+    };
+  }
+  async function addGuildCreditConversionsSortButton() {
+    const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
+    if (!selectorContainer) {
+      return;
+    }
+    if (selectorContainer.querySelector("#script_itemSelector_sort_div")) {
+      return;
+    }
+    const price_data = await runtime.api.fetchMarketJSON();
+    if (!price_data || !price_data.marketData) {
+      return;
+    }
+    const bestCreditConversionMap = {};
+    for (const itemHrid in runtime.state.initData_itemDetailMap) {
+      if (runtime.state.initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+        const conversions = runtime.state.initData_itemDetailMap[itemHrid].guildCreditConversions;
+        for (const conversion of conversions) {
+          const creditHrid = conversion.creditItemHrid;
+          let askPrice = 0;
+          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+            askPrice = price_data.marketData[itemHrid][0].a;
+          let bidPrice = 0;
+          if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+            bidPrice = price_data.marketData[itemHrid][0].b;
+          if (askPrice === 0 && bidPrice === 0) continue;
+          const creditAskPrice = askPrice * conversion.itemCount / conversion.creditCount;
+          const creditBidPrice = bidPrice * conversion.itemCount / conversion.creditCount;
+          const enName = runtime.state.initData_itemDetailMap[itemHrid].name;
+          const zhName = runtime.data.ZHItemNames[itemHrid];
+          const displayName = runtime.config.isZHInGameSetting ? zhName || enName : enName;
+          if (!bestCreditConversionMap[creditHrid]) {
+            bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
+          }
+          if (askPrice > 0 && (!bestCreditConversionMap[creditHrid].ask || creditAskPrice < bestCreditConversionMap[creditHrid].ask.price)) {
+            bestCreditConversionMap[creditHrid].ask = {
+              name: displayName,
+              price: creditAskPrice
+            };
+          }
+          if (bidPrice > 0 && (!bestCreditConversionMap[creditHrid].bid || creditBidPrice < bestCreditConversionMap[creditHrid].bid.price)) {
+            bestCreditConversionMap[creditHrid].bid = {
+              name: displayName,
+              price: creditBidPrice
+            };
+          }
+        }
+      }
+    }
+    const inputContainer = selectorContainer.querySelector(
+      ".Input_inputContainer__22GnD"
+    );
+    if (!inputContainer) {
+      return;
+    }
+    const askButton = `<button
+        id="script_itemSelector_sortByAsk_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+        ${runtime.config.isZH ? "出售价" : "Ask"}
+        </button>`;
+    const bidButton = `<button
+        id="script_itemSelector_sortByBid_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+        ${runtime.config.isZH ? "收购价" : "Bid"}
+        </button>`;
+    const noneButton = `<button
+        id="script_itemSelector_sortByNone_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black; font-size: 0.875rem; padding: 2px 6px;">
+        ${runtime.config.isZH ? "无" : "None"}
+        </button>`;
+    const buttonsDiv = `<div id="script_itemSelector_sort_div" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; margin-left: 8px; display: inline;">${runtime.config.isZH ? "排序：" : "Sort: "}${askButton} ${bidButton} ${noneButton}</div>`;
+    inputContainer.insertAdjacentHTML("afterend", buttonsDiv);
+    const itemList = selectorContainer.querySelector(
+      ".ItemSelector_itemList__Qa5lq"
+    );
+    if (!itemList) {
+      return;
+    }
+    const sortItemsBy = (order) => {
+      const itemContainers = itemList.querySelectorAll(
+        ".ItemSelector_itemContainer__3olqe"
+      );
+      let targetCreditHrid = "";
+      let targetCreditName = "";
+      const exchangeModal = document.querySelector(
+        ".GuildPanel_exchangeModalContent__aQqyL"
+      );
+      if (exchangeModal) {
+        const creditIcon = exchangeModal.querySelector(
+          ".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg"
+        );
+        if (creditIcon) {
+          let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+          if (creditAriaLabel) {
+            if (runtime.config.isZHInGameSetting) {
+              creditAriaLabel = runtime.api.getItemEnNameFromZhName(creditAriaLabel);
+            }
+            targetCreditHrid = runtime.state.itemEnNameToHridMap[creditAriaLabel];
+            targetCreditName = creditAriaLabel;
+          }
+        }
+      }
+      const priceList = [];
+      itemContainers.forEach((itemContainer) => {
+        const itemElem = itemContainer.querySelector(
+          ".Item_itemContainer__x7kH1"
+        );
+        if (!itemElem) return;
+        let itemName2 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+        if (!itemName2) {
+          itemElem.style.order = 0;
+          const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
+          if (priceElem2) priceElem2.remove();
+          return;
+        }
+        if (runtime.config.isZHInGameSetting) {
+          itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+        }
+        const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+        let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
+        if (!itemCount) {
+          itemElem.style.order = 0;
+          const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
+          if (priceElem2) priceElem2.remove();
+          return;
+        }
+        itemCount = runtime.api.parseCompactNumber(itemCount);
+        let askPrice = 0;
+        if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+          askPrice = price_data.marketData[itemHrid][0].a;
+        let bidPrice = 0;
+        if (price_data.marketData[itemHrid] && price_data.marketData[itemHrid][0])
+          bidPrice = price_data.marketData[itemHrid][0].b;
+        let creditValue = 0;
+        let creditAskPrice = 0;
+        let creditBidPrice = 0;
+        if (targetCreditHrid && runtime.state.initData_itemDetailMap[itemHrid]?.guildCreditConversions) {
+          const conversions = runtime.state.initData_itemDetailMap[itemHrid].guildCreditConversions;
+          const matchedConversion = conversions.find(
+            (c) => c.creditItemHrid === targetCreditHrid
+          );
+          if (matchedConversion) {
+            creditValue = itemCount / matchedConversion.itemCount * matchedConversion.creditCount;
+            creditAskPrice = askPrice * itemCount / creditValue;
+            creditBidPrice = bidPrice * itemCount / creditValue;
+          }
+        }
+        if (targetCreditHrid && creditAskPrice > 0) {
+          priceList.push({
+            name: itemName2,
+            ask: creditAskPrice,
+            bid: creditBidPrice
+          });
+        }
+        if (!itemElem.querySelector("#script_itemSelector_price")) {
+          itemElem.style.position = "relative";
+          const priceElemHTML = `<div
+                    id="script_itemSelector_price"
+                    style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
+                </div>`;
+          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+        }
+        const priceElem = itemElem.querySelector("#script_itemSelector_price");
+        if (!itemElem.querySelector("#script_itemSelector_credit")) {
+          const creditElemHTML = `<div
+                    id="script_itemSelector_credit"
+                    style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
+                </div>`;
+          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", creditElemHTML);
+        }
+        const creditElem = itemElem.querySelector("#script_itemSelector_credit");
+        if (order === "ask") {
+          const sortValue = creditAskPrice > 0 ? creditAskPrice : askPrice * itemCount;
+          itemContainer.style.order = Math.round(sortValue);
+          priceElem.textContent = runtime.api.numberFormatter(
+            creditValue > 0 ? creditValue : askPrice * itemCount
+          );
+          creditElem.textContent = runtime.api.numberFormatter(sortValue);
+        } else if (order === "bid") {
+          const sortValue = creditBidPrice > 0 ? creditBidPrice : bidPrice * itemCount;
+          itemContainer.style.order = Math.round(sortValue);
+          priceElem.textContent = runtime.api.numberFormatter(
+            creditValue > 0 ? creditValue : bidPrice * itemCount
+          );
+          creditElem.textContent = runtime.api.numberFormatter(sortValue);
+        } else if (order === "none") {
+          itemContainer.style.order = 0;
+          priceElem.textContent = "";
+          creditElem.textContent = "";
+        }
+      });
+      const bestItemSpan = selectorContainer.querySelector("#script_best_item");
+      if (order !== "none" && targetCreditHrid && bestCreditConversionMap[targetCreditHrid]) {
+        const best = bestCreditConversionMap[targetCreditHrid][order];
+        if (best) {
+          if (bestItemSpan) {
+            bestItemSpan.textContent = `${best.name} ${runtime.api.numberFormatter(best.price)}`;
+          } else {
+            const span = `<span id="script_best_item" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; margin-left: 8px;">${best.name} ${runtime.api.numberFormatter(best.price)}</span>`;
+            selectorContainer.querySelector("#script_itemSelector_sort_div").insertAdjacentHTML("beforeend", span);
+          }
+        } else if (bestItemSpan) {
+          bestItemSpan.remove();
+        }
+      } else if (bestItemSpan) {
+        bestItemSpan.remove();
+      }
+    };
+    selectorContainer.querySelector("button#script_itemSelector_sortByAsk_btn").addEventListener("click", function(e) {
+      sortItemsBy("ask");
+    });
+    selectorContainer.querySelector("button#script_itemSelector_sortByBid_btn").addEventListener("click", function(e) {
+      sortItemsBy("bid");
+    });
+    selectorContainer.querySelector("button#script_itemSelector_sortByNone_btn").addEventListener("click", function(e) {
+      sortItemsBy("none");
+    });
+  }
+  Object.assign(runtime.api, {
+    calculateNetworth,
+    scheduleNetworthRefresh,
+    addInvSortButton,
+    addGuildCreditConversionsSortButton
+  });
+
   // src/features/production-profit-panel.js
-  var PANEL_ID = "mwitools-production-profit-panel";
-  var STYLE_ID = "mwitools-production-profit-panel-style";
+  var PANEL_ID2 = "mwitools-production-profit-panel";
+  var STYLE_ID2 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN = 12;
   var PANEL_GAP = 10;
   var activePanel = null;
-  function t(zh, en) {
+  function t3(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function escapeHtml(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function formatNumber(value, digits = 1) {
+  function formatNumber2(value, digits = 1) {
     if (!Number.isFinite(Number(value))) return "—";
     if (Math.abs(Number(value)) >= 1e3) {
       return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
@@ -21762,10 +22863,10 @@
     }).format(Number(value));
   }
   function formatMoney(value) {
-    return Number.isFinite(Number(value)) ? formatNumber(value, 1) : "—";
+    return Number.isFinite(Number(value)) ? formatNumber2(value, 1) : "—";
   }
-  function formatPercent(value) {
-    return `${Number(value || 0) >= 0 ? "+" : ""}${formatNumber(value, 1)}%`;
+  function formatPercent2(value) {
+    return `${Number(value || 0) >= 0 ? "+" : ""}${formatNumber2(value, 1)}%`;
   }
   function itemName(itemHrid) {
     return (runtime.config.isZH ? runtime.data.ZHItemNames?.[itemHrid] : runtime.state.initData_itemDetailMap?.[itemHrid]?.name) ?? runtime.state.initData_itemDetailMap?.[itemHrid]?.name ?? itemHrid?.split("/").at(-1) ?? "—";
@@ -21800,13 +22901,13 @@
     const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
   }
-  function addStyles() {
-    if (document.getElementById(STYLE_ID)) return;
+  function addStyles2() {
+    if (document.getElementById(STYLE_ID2)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID;
+    style.id = STYLE_ID2;
     style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
-    #${PANEL_ID} * { box-sizing:border-box; }
+    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID2} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
     .mwi-profit-header-main { min-width:0; }
@@ -21854,7 +22955,7 @@
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
-    @media(max-width:760px){#${PANEL_ID}{max-height:70vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){#${PANEL_ID2}{max-height:70vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -21863,15 +22964,15 @@
     const isInput = type === "input";
     const baseCount = Number(item.baseCount ?? item.count) || 0;
     const effectiveCount = Number(item.effectiveCount ?? item.count) || 0;
-    let quantity = formatNumber(effectiveCount, 3);
+    let quantity = formatNumber2(effectiveCount, 3);
     if (Math.abs(baseCount - effectiveCount) > 1e-9) {
-      quantity = `${formatNumber(baseCount, 3)} → ${quantity}`;
+      quantity = `${formatNumber2(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t("前置", "Base");
-    if (item.kind === "essence") kind = t("精华", "Essence");
-    if (item.kind === "rare") kind = t("稀有", "Rare");
-    const priceLabel = isInput ? t("买价", "Ask") : t("税后卖价", "Net bid");
+    if (item.isUpgradeItem) kind = t3("前置", "Base");
+    if (item.kind === "essence") kind = t3("精华", "Essence");
+    if (item.kind === "rare") kind = t3("稀有", "Rare");
+    const priceLabel = isInput ? t3("买价", "Ask") : t3("税后卖价", "Net bid");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -21881,7 +22982,7 @@
       </div>
       <div class="mwi-profit-item-value">
         <strong>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t("每动作", "per action")}</span>
+        <span>${t3("每动作", "per action")}</span>
       </div>
     </div>`;
   }
@@ -21892,16 +22993,16 @@
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t("玩家数据未就绪", "Player data pending")
+        label: t3("玩家数据未就绪", "Player data pending")
       };
     }
     if (projection.status === "incomplete") {
-      return { className: "incomplete", label: t("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t3("无法计算", "Unavailable") };
     }
     if (projection.isPartial) {
-      return { className: "partial", label: t("部分计价", "Partial pricing") };
+      return { className: "partial", label: t3("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t("完整计价", "Fully priced") };
+    return { className: "complete", label: t3("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection) {
     const productName = itemName(itemHrid);
@@ -21913,14 +23014,14 @@
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t("当前玩家实时配置", "Current player configuration")}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t3("当前玩家实时配置", "Current player configuration")}</div>
       </div>
       <div class="mwi-profit-status ${status.className}">${escapeHtml(status.label)}</div>
     </header>`;
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t3("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -21933,68 +23034,68 @@
     const teaIcons = teas.length ? teas.map((tea) => {
       const name = itemName(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t3("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t("工匠", "Artisan")} −${formatNumber(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t3("工匠", "Artisan")} −${formatNumber2(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t("额外产量", "Extra output")} +${formatNumber(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t3("额外产量", "Extra output")} +${formatNumber2(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t("投入", "Inputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.materialCostPerAction)} / ${t("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t3("投入", "Inputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.materialCostPerAction)} / ${t3("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t3("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t3("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t("饮料浓度", "Drink strength")}</span><strong>×${formatNumber(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("动作速度", "Action speed")}</span><strong>${formatPercent(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("综合效率", "Efficiency")}</span><strong>${formatPercent(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("动作/小时", "Actions/hour")}</span><strong>${formatNumber(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("茶费/小时", "Drinks/hour")}</span><strong>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("饮料浓度", "Drink strength")}</span><strong>×${formatNumber2(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t3("茶费/小时", "Drinks/hour")}</span><strong>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t("产出", "Outputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.revenuePerAction)} / ${t("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t3("产出", "Outputs")}</span><span class="mwi-profit-card-total">${formatMoney(projection.revenuePerAction)} / ${t3("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t3("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-summary">
-      ${renderMetric(t("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction))}
-      ${renderMetric(t("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction))}
-      ${renderMetric(t("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction))}
-      ${renderMetric(t("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction))}
-      ${renderMetric(t("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true)}
-      ${renderMetric(t("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true)}
-      ${renderMetric(t("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true)}
-      ${renderMetric(t("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber(projection.secondsPerAction, 3)}s` : "—")}
+      ${renderMetric(t3("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction))}
+      ${renderMetric(t3("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction))}
+      ${renderMetric(t3("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction))}
+      ${renderMetric(t3("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction))}
+      ${renderMetric(t3("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true)}
+      ${renderMetric(t3("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true)}
+      ${renderMetric(t3("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true)}
+      ${renderMetric(t3("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber2(projection.secondsPerAction, 3)}s` : "—")}
     </div>`
     );
     if (projection.status === "incomplete") {
       const names = (projection.missingPrices ?? []).map(itemName).join("、");
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-warning">${t("缺少必需市场价格，利润暂不计算：", "Missing required market prices; profit is unavailable: ")}${escapeHtml(names || "—")}</div>`
+        `<div class="mwi-profit-warning">${t3("缺少必需市场价格，利润暂不计算：", "Missing required market prices; profit is unavailable: ")}${escapeHtml(names || "—")}</div>`
       );
     } else if (projection.unpricedByproducts?.length) {
       const names = projection.unpricedByproducts.map(itemName).join("、");
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-warning">${t("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`
+        `<div class="mwi-profit-warning">${t3("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`
       );
     }
   }
@@ -22053,7 +23154,7 @@
   function hideProductionProfitPanel() {
     const state = activePanel;
     if (!state) {
-      document.getElementById(PANEL_ID)?.remove();
+      document.getElementById(PANEL_ID2)?.remove();
       return;
     }
     state.mutationObserver?.disconnect();
@@ -22070,10 +23171,10 @@
       return null;
     }
     hideProductionProfitPanel();
-    addStyles();
+    addStyles2();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const panel = document.createElement("aside");
-    panel.id = PANEL_ID;
+    panel.id = PANEL_ID2;
     panel.setAttribute("role", "status");
     panel.setAttribute("aria-live", "polite");
     renderPanel(panel, itemHrid, projection);
@@ -22958,8 +24059,8 @@
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID2 = "mwitools-action-dashboard-style";
-  function t2(zh, en) {
+  var STYLE_ID3 = "mwitools-action-dashboard-style";
+  function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -22978,10 +24079,10 @@
   function number(value) {
     return runtime.api.createFormattedNumber(value);
   }
-  function addStyles2() {
-    if (document.getElementById(STYLE_ID2)) return;
+  function addStyles3() {
+    if (document.getElementById(STYLE_ID3)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID2;
+    style.id = STYLE_ID3;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
@@ -23072,15 +24173,15 @@
     primary.className = "mwi-action-line";
     const remaining = document.createElement("span");
     remaining.append(
-      `${t2("剩余", "Remaining")} `,
+      `${t4("剩余", "Remaining")} `,
       projection.infinite ? "∞" : number(projection.count)
     );
     const currentTime = document.createElement("span");
-    currentTime.textContent = `${t2("还需", "Time left")} ${formatDuration(
+    currentTime.textContent = `${t4("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
     const eta = document.createElement("strong");
-    eta.textContent = projection.finishAt ? `${t2("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t2("预计完成", "Finishes at")} —`;
+    eta.textContent = projection.finishAt ? `${t4("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t4("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
   }
@@ -23163,7 +24264,7 @@
     card.replaceChildren();
     const title = document.createElement("div");
     title.className = "mwi-production-card-title";
-    title.textContent = t2("本次生产摘要", "Production summary");
+    title.textContent = t4("本次生产摘要", "Production summary");
     const grid = document.createElement("div");
     grid.className = "mwi-production-metrics";
     const outputs = document.createElement("span");
@@ -23173,41 +24274,41 @@
       outputs.append(`${name} `, number(output.expectedCount));
     });
     grid.append(
-      metric(t2("预期总产出", "Output"), outputs),
+      metric(t4("预期总产出", "Output"), outputs),
       metric(
-        t2("当前拥有", "Owned"),
+        t4("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t2("库存最多可做", "Max craftable"),
+        t4("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number(projection.maxCraftable)
       ),
       metric(
-        t2("本次总耗时", "Duration"),
+        t4("本次总耗时", "Duration"),
         formatDuration(projection.totalSeconds)
       )
     );
     if (runtime.settings.get("productionProfit")) {
       grid.append(
         metric(
-          t2("每次净利润", "Per action"),
+          t4("每次净利润", "Per action"),
           number(projection.netProfitPerAction)
         ),
-        metric(t2("每小时净利润", "Per hour"), number(projection.profitPerHour)),
+        metric(t4("每小时净利润", "Per hour"), number(projection.profitPerHour)),
         metric(
-          t2("每天净利润", "Per day"),
+          t4("每天净利润", "Per day"),
           number(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
-        metric(t2("本次总净利润", "Total profit"), number(projection.totalProfit))
+        metric(t4("本次总净利润", "Total profit"), number(projection.totalProfit))
       );
     }
     card.append(title, grid);
     if (projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t2(
+      warning.textContent = t4(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -23227,7 +24328,7 @@
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles2();
+      addStyles3();
       renderActionDashboard();
       scope.interval(renderActionDashboard, 500);
       scope.add(() => {
@@ -23280,7 +24381,7 @@
   });
 
   // src/features/procurement.js
-  var STYLE_ID3 = "mwitools-procurement-style";
+  var STYLE_ID4 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -23295,14 +24396,14 @@
   var lastProductionSignature = "";
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t3(zh, en) {
+  function t5(zh, en) {
     return runtime.config.isZHInGameSetting ? zh : en;
   }
   function materialNoun(count) {
     if (runtime.config.isZHInGameSetting) return "种材料";
     return Number(count) === 1 ? "material" : "materials";
   }
-  function formatNumber2(value) {
+  function formatNumber3(value) {
     return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
   }
   function exactNumber(value) {
@@ -23311,10 +24412,10 @@
   function escapeHtml2(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles3() {
-    if (document.getElementById(STYLE_ID3)) return;
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID4)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -23444,7 +24545,7 @@
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t3(`缺 ${activeCount} 项`, `${activeCount} missing`) : t3("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t5(`缺 ${activeCount} 项`, `${activeCount} missing`) : t5("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
@@ -23460,7 +24561,7 @@
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t3(
+      empty.textContent = t5(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
@@ -23479,19 +24580,19 @@
         else unpriced += 1;
       }
       row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t3("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t3("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
+      <button class="star" data-active="${Boolean(item.starred)}" title="${t5("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
+      <button class="item-icon" title="${t5("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
       <button class="item-name" title="${escapeHtml2(item.name)}">${escapeHtml2(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t3("待购数量", "Quantity")}">
+        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t5("待购数量", "Quantity")}">
         <button class="step" data-step="1">＋</button>
       </div>
-      <button class="delete" title="${t3("删除", "Remove")}">×</button>
+      <button class="delete" title="${t5("删除", "Remove")}">×</button>
       <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t3("库存", "Stock")} ${formatNumber2(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber2(price)} · ${t3("计", "total")} ${formatNumber2(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t3("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
+        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t5("库存", "Stock")} ${formatNumber3(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
+        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber3(price)} · ${t5("计", "total")} ${formatNumber3(price * item.quantity)}` : "—"}</span>` : ""}
+        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t5("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
         procurement.setCartItemQuantity(
@@ -23538,8 +24639,8 @@
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    <span class="footer-total">${t3("补齐合计", "Total")}<strong title="${unpriced ? t3("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber2(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t3("项未估价", "unpriced")}</small>` : ""}</span>
-    <button class="clear">${t3("清空未收藏", "Clear")}</button>`;
+    <span class="footer-total">${t5("补齐合计", "Total")}<strong title="${unpriced ? t5("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber3(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t5("项未估价", "unpriced")}</small>` : ""}</span>
+    <button class="clear">${t5("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       procurement.clearCart();
     });
@@ -23568,7 +24669,7 @@
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t3(
+      empty.textContent = t5(
         "还没有制作计划。把生产缺料加入购物车时可以同时创建。",
         "No crafting plans yet. Create one when adding production materials."
       );
@@ -23580,13 +24681,13 @@
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t3("已完成", "Completed") : t3("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t5("已完成", "Completed") : t5("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
-      <div class="plan-meta"><span>${formatNumber2(plan.progress)} / ${formatNumber2(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t3("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t3("重新打开", "Reopen") : t3("完成", "Complete")}</button><button data-action="remove">${t3("删除", "Delete")}</button></div>`;
+      <div class="plan-meta"><span>${formatNumber3(plan.progress)} / ${formatNumber3(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
+      <div class="plan-actions"><button data-action="count">${t5("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t5("重新打开", "Reopen") : t5("完成", "Complete")}</button><button data-action="remove">${t5("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t3("输入新的目标次数", "Enter a new target count"),
+          t5("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
@@ -23603,7 +24704,7 @@
       body.append(row);
     }
     const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `<span>${t3("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t3("清空计划", "Clear plans")}</button>`;
+    footer.innerHTML = `<span>${t5("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t5("清空计划", "Clear plans")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
     });
@@ -23754,7 +24855,7 @@
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t3(...sectionDefinition.title);
+      heading.textContent = t5(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -23762,14 +24863,14 @@
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml2(t3(zh, en))}${description ? `<small>${escapeHtml2(t3(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml2(t5(zh, en))}${description ? `<small>${escapeHtml2(t5(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t3("开", "On") : t3("关", "Off");
+          state.textContent = settings2[id] ? t5("开", "On") : t5("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -23777,7 +24878,7 @@
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t3(zh, en));
+          control.setAttribute("aria-label", t5(zh, en));
           control.addEventListener(
             "click",
             () => procurement.setSetting(id, !settings2[id])
@@ -23785,10 +24886,10 @@
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t3("关闭", "Off")],
-            ["95", t3("标准 95%", "Standard 95%")],
-            ["99", t3("充足 99%", "Ample 99%")],
-            ["99.9", t3("极高 99.9%", "Full 99.9%")]
+            ["off", t5("关闭", "Off")],
+            ["95", t5("标准 95%", "Standard 95%")],
+            ["99", t5("充足 99%", "Ample 99%")],
+            ["99.9", t5("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -23804,7 +24905,7 @@
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t3("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t5("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -23814,7 +24915,7 @@
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t3("重置", "Reset");
+          control.textContent = t5("重置", "Reset");
           control.addEventListener("click", () => {
             procurement.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
@@ -23849,7 +24950,7 @@
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t3("请按快捷键…", "Press shortcut…");
+    button.textContent = t5("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -23885,11 +24986,11 @@
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t3("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t3("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t5("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t5("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t3("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t3("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t3("清单", "Cart")}</button><button class="tab" data-tab="plans">${t3("计划", "Plans")}</button><button class="tab" data-tab="settings">${t3("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t5("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t5("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t5("清单", "Cart")}</button><button class="tab" data-tab="plans">${t5("计划", "Plans")}</button><button class="tab" data-tab="settings">${t5("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -24049,11 +25150,11 @@
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t3("缺", "Need")} ${formatNumber2(material.shortage)}` : `${t3("余", "Spare")} ${formatNumber2(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t5("缺", "Need")} ${formatNumber3(material.shortage)}` : `${t5("余", "Spare")} ${formatNumber3(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t3("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t3("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t3("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t5("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t5("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t5("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
       }
@@ -24069,12 +25170,12 @@ ${locks}` : ""}`;
     );
     const summary = document.createElement("div");
     summary.className = "mwi-procurement-summary-line";
-    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t3("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t3("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t3("材料充足", "Materials ready")}</span>`;
+    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t5("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t5("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t5("材料充足", "Materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     add.disabled = addable.length === 0 && !chain?.stages?.length;
-    add.textContent = addable.length ? t3("加入购物清单", "Add to shopping list") : t3("已在清单中", "Already listed");
+    add.textContent = addable.length ? t5("加入购物清单", "Add to shopping list") : t5("已在清单中", "Already listed");
     add.addEventListener("click", () => {
       const selectedActions = new Set(
         [
@@ -24094,10 +25195,10 @@ ${locks}` : ""}`;
         );
       }
       showToast(
-        result.added ? t3(
+        result.added ? t5(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t3("没有新的缺料", "No new shortages")
+        ) : t5("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -24106,13 +25207,13 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t3("升级链", "Upgrade chain")} · ${chain.stages.length} ${t3("阶段", "stages")}${chain.cycle ? ` · ${t3("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t3("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t5("升级链", "Upgrade chain")} · ${chain.stages.length} ${t5("阶段", "stages")}${chain.cycle ? ` · ${t5("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t5("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
         const row = document.createElement("label");
         row.className = "mwi-procurement-chain-stage";
-        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml2(stage.actionHrid)}"><span>${escapeHtml2(stage.name)}</span><span>×${formatNumber2(stage.count)}</span>`;
+        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml2(stage.actionHrid)}"><span>${escapeHtml2(stage.name)}</span><span>×${formatNumber3(stage.count)}</span>`;
         list.append(row);
       }
       details.append(heading, list);
@@ -24191,10 +25292,10 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZHInGameSetting ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t3("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZHInGameSetting ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t5("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
-    add.textContent = t3("加入购物清单", "Add to shopping list");
+    add.textContent = t5("加入购物清单", "Add to shopping list");
     add.disabled = !materials.some((material) => material.addableShortage > 0);
     add.addEventListener("click", () => {
       procurement.addRequirementsToCart(materials, "housing");
@@ -24238,7 +25339,7 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t3(
+        t5(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
@@ -24272,7 +25373,7 @@ ${locks}` : ""}`;
       "[MWITools] Failed to open shopping item in marketplace",
       lastError
     );
-    showToast(t3("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t5("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -24370,7 +25471,7 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t3(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t5(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
     for (const item of rows) {
@@ -24379,10 +25480,10 @@ ${locks}` : ""}`;
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
       const itemName2 = procurement.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t3("已完成", "Completed") : exactNumber(item.quantity);
+      const quantity = item.done ? t5("已完成", "Completed") : exactNumber(item.quantity);
       chip.title = `${itemName2} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
-      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName2 })}</span><b>${item.done ? "✓" : formatNumber2(item.quantity)}</b>`;
+      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName2 })}</span><b>${item.done ? "✓" : formatNumber3(item.quantity)}</b>`;
       if (!item.done) {
         chip.addEventListener(
           "click",
@@ -24394,7 +25495,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t3("下一项 ›", "Next ›");
+    nextButton.textContent = t5("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -24476,10 +25577,10 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t3(
+          next ? t5(
             `${procurement.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
             `${procurement.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t3("购物清单已全部补齐", "Shopping list fulfilled")
+          ) : t5("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
@@ -24497,7 +25598,7 @@ ${locks}` : ""}`;
     id: "procurementAssistant",
     scope: "character",
     initialize({ scope, characterId }) {
-      addStyles3();
+      addStyles4();
       if (procurement.activeCharacterId !== characterId) {
         procurement.loadCharacterData(characterId);
       }
@@ -24511,7 +25612,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID3)?.remove();
+        document.getElementById(STYLE_ID4)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -24524,7 +25625,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/tasks.js
-  var STYLE_ID4 = "mwitools-task-style";
+  var STYLE_ID5 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
   var originalCards = [];
   var taskListParent = null;
@@ -24548,13 +25649,13 @@ ${locks}` : ""}`;
     en: "Completed",
     order: -1
   };
-  function t4(zh, en) {
+  function t6(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID4)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
     .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
@@ -24691,7 +25792,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t4("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t6("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -24753,7 +25854,7 @@ ${locks}` : ""}`;
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
       return {
         key: `dungeon-${detail.hrid}`,
-        label: `${t4("地牢", "Dungeon")} · ${name}`,
+        label: `${t6("地牢", "Dungeon")} · ${name}`,
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -24768,7 +25869,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t4("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t6("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -24776,13 +25877,13 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t4("地图", "Zone")} ${mapIndex}`,
+        label: `${t6("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "combat-unresolved",
-      label: t4("其他战斗", "Other combat"),
+      label: t6("其他战斗", "Other combat"),
       order: 99999
     };
   }
@@ -25078,7 +26179,7 @@ ${locks}` : ""}`;
       note.className = "mwi-task-merged-note";
       input.parentElement.insertAdjacentElement("afterend", note);
     }
-    note.textContent = t4(
+    note.textContent = t6(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -25113,7 +26214,7 @@ ${locks}` : ""}`;
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note"
     ).forEach((node) => node.remove());
     document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => delete node.dataset.mwitoolsMergeWired);
-    document.getElementById(STYLE_ID4)?.remove();
+    document.getElementById(STYLE_ID5)?.remove();
     originalCards = [];
     taskListParent = null;
     collapsedProfessions.clear();
@@ -25123,7 +26224,7 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles4();
+      addStyles5();
       renderTasks();
       scope.interval(renderTasks, 500);
       scope.add(cleanupTasks);
@@ -25158,9 +26259,9 @@ ${locks}` : ""}`;
   });
 
   // src/features/guild-xp.js
-  var STYLE_ID5 = "mwitools-guild-xp-style";
+  var STYLE_ID6 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
-  function t5(zh, en) {
+  function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -25245,10 +26346,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID5)) return;
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -25276,7 +26377,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t5("待再次采样", "Awaiting another sample") : t5("样本不足", "Not enough data");
+      return waiting ? t7("待再次采样", "Awaiting another sample") : t7("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -25371,10 +26472,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t5("公会经验进度", "Guild XP progress");
+    title.textContent = t7("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t5("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t5("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t7("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t7("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -25389,16 +26490,16 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t5("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t7("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t5("最近 XP/h", "Recent XP/h"),
+        t7("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t5("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t5("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t7("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t7("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t5("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t5("样本不足", "Not enough data")
+        t7("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t7("样本不足", "Not enough data")
       )
     );
     card.append(head, grid, trendSvg(rates?.points ?? []));
@@ -25422,7 +26523,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t5("当前闲置", "Idle now")} (${idle.length}) · ${t5(
+      label.textContent = `${t7("当前闲置", "Idle now")} (${idle.length}) · ${t7(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -25441,8 +26542,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t5("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t5("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t7("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t7("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -25454,7 +26555,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t5("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t7("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -25556,10 +26657,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t5("最近 XP/h", "Recent XP/h")
+          textContent: t7("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t5("24 小时 XP/h", "24h XP/h")
+          textContent: t7("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -25637,7 +26738,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles5();
+      addStyles6();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -25652,7 +26753,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles5();
+        addStyles6();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -27426,9 +28527,9 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID6 = "mwitools-important-update-style";
+  var STYLE_ID7 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t6(value) {
+  function t8(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -27519,10 +28620,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -27540,7 +28641,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles6();
+    addStyles7();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -27552,8 +28653,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t6(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t6(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t8(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t8(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -27583,7 +28684,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID6)?.remove();
+        document.getElementById(STYLE_ID7)?.remove();
       });
     }
   });
@@ -29612,9 +30713,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t7 = 0;
-        playerKills.forEach((v) => t7 += v);
-        return t7;
+        let t9 = 0;
+        playerKills.forEach((v) => t9 += v);
+        return t9;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -29870,12 +30971,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t7) {
-      const low = t7.toLowerCase();
+    function looksLikeNoise(t9) {
+      const low = t9.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t7)) return true;
-      if (/^\d+%?$/.test(t7)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t7)) return true;
+      if (/^lv\.?\d+$/i.test(t9)) return true;
+      if (/^\d+%?$/.test(t9)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t9)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -29897,14 +30998,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t7) => t7 && !looksLikeNoise(t7) && !/^trial\s/i.test(t7));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t9) => t9 && !looksLikeNoise(t9) && !/^trial\s/i.test(t9));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t7, i) => {
-        resolved.set(String(i + offset), t7);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t9, i) => {
+        resolved.set(String(i + offset), t9);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -29972,7 +31073,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t7) => t7.length > 0)) {
+          if (texts.some((t9) => t9.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -30008,10 +31109,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t7 = c.textContent.trim();
-            if (t7.length >= 2 && t7.length <= 20 && !looksLikeNoise(t7)) {
+            const t9 = c.textContent.trim();
+            if (t9.length >= 2 && t9.length <= 20 && !looksLikeNoise(t9)) {
               nameLikeCount++;
-              texts.push(t7.slice(0, 20));
+              texts.push(t9.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -31488,11 +32589,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t7 = el2.textContent.trim();
-        if (!t7 || t7.length < 2 || t7.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t7);
+        const t9 = el2.textContent.trim();
+        if (!t9 || t9.length < 2 || t9.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t9);
         let cssEllipsis = false;
-        if (!literalEllipsis && t7.length <= 20 && !t7.includes(" ") && !looksLikeNoise(t7)) {
+        if (!literalEllipsis && t9.length <= 20 && !t9.includes(" ") && !looksLikeNoise(t9)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -33756,10 +34857,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t7 = c.textContent;
-        if (t7.includes("Combat Zones") || t7.includes("战斗区域") || t7.includes("戰鬥區域"))
+        const t9 = c.textContent;
+        if (t9.includes("Combat Zones") || t9.includes("战斗区域") || t9.includes("戰鬥區域"))
           return c;
-        if (t7.includes("Labyrinth") && t7.includes("Room") && t7.includes("Automation") || t7.includes("迷宫") && (t7.includes("房间") || t7.includes("自动化")) || t7.includes("迷宮") && (t7.includes("房間") || t7.includes("自動化")))
+        if (t9.includes("Labyrinth") && t9.includes("Room") && t9.includes("Automation") || t9.includes("迷宫") && (t9.includes("房间") || t9.includes("自动化")) || t9.includes("迷宮") && (t9.includes("房間") || t9.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -34009,10 +35110,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t7) => {
+      TYPES.forEach((t9) => {
         const btn = document.createElement("button");
-        btn.textContent = t7.label;
-        const active = historyFilter === t7.id;
+        btn.textContent = t9.label;
+        const active = historyFilter === t9.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -34026,7 +35127,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t7.id;
+          historyFilter = t9.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -34137,7 +35238,7 @@ ${locks}` : ""}`;
         container.appendChild(block);
       });
       const clearBtn = document.createElement("button");
-      clearBtn.textContent = "清空" + (TYPES.find((t7) => t7.id === historyFilter) || {}).label + "记录";
+      clearBtn.textContent = "清空" + (TYPES.find((t9) => t9.id === historyFilter) || {}).label + "记录";
       Object.assign(clearBtn.style, {
         width: "100%",
         cursor: "pointer",
@@ -35758,37 +36859,36 @@ ${locks}` : ""}`;
     document.querySelectorAll(selector).forEach((node) => node.remove());
   }
   var adapters = {
-    networth: {
-      scope: "character",
-      initialize() {
-        runtime.api.calculateNetworth?.();
-      },
-      cleanup() {
-        removeAll(
-          "#script_current_assets,#script_inventory_summary,#script_api_fail_popout"
-        );
-      }
-    },
     invWorth: {
       scope: "character",
-      dependsOn: ["networth"],
-      initialize() {
+      initialize({ scope }) {
         runtime.api.scheduleNetworthRefresh?.();
+        scope.interval(() => {
+          const needsRender = [
+            ...document.querySelectorAll("div.Inventory_items__6SXv0")
+          ].some((node) => !node.classList.contains("script_buildScore_added"));
+          if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+        }, 500);
       },
       cleanup() {
         removeAll("#script_inventory_summary");
+        document.querySelectorAll(".script_buildScore_added").forEach((node) => node.classList.remove("script_buildScore_added"));
       }
     },
     invSort: {
       scope: "character",
-      dependsOn: ["networth"],
-      initialize() {
+      initialize({ scope }) {
         runtime.api.scheduleNetworthRefresh?.();
+        scope.interval(() => {
+          const needsRender = [
+            ...document.querySelectorAll("div.Inventory_items__6SXv0")
+          ].some((node) => !node.classList.contains("script_invSort_added"));
+          if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+        }, 500);
       },
       cleanup() {
-        removeAll(
-          "#script_sortByFair_btn,#script_sortByAsk_btn,#script_sortByBid_btn,#script_sortByNone_btn,#script_stack_price"
-        );
+        removeAll("#script_inv_sort_controls,#script_stack_price");
+        document.querySelectorAll(".script_invSort_added").forEach((node) => node.classList.remove("script_invSort_added"));
       }
     },
     actionQueue: {
@@ -35825,7 +36925,6 @@ ${locks}` : ""}`;
     "useOrangeAsMainColor",
     "guildCreditConversionsSort",
     "profileBuildScore",
-    "networkAlert",
     "battlePanel",
     "enhanceSim",
     "forceMWIToolsDisplayZH"
@@ -35894,6 +36993,14 @@ ${locks}` : ""}`;
   }
 
   // src/features/message-effects.js
+  function refreshAssets() {
+    const settings2 = runtime.settings.settingsMap;
+    if (settings2.invWorth.isTrue || settings2.invSort.isTrue) {
+      runtime.api.scheduleNetworthRefresh();
+    } else if (settings2.assetHistory.isTrue) {
+      runtime.api.assetHistory.scheduleRefresh();
+    }
+  }
   runtime.onMessage("init_client_data", (payload, message) => {
     console.log(payload);
     GM_setValue("init_client_data", message);
@@ -35902,7 +37009,7 @@ ${locks}` : ""}`;
     console.log(payload);
     GM_setValue("init_character_data", message);
     const settings2 = runtime.settings.settingsMap;
-    if (settings2.networth.isTrue) runtime.api.calculateNetworth();
+    refreshAssets();
     if (settings2.checkEquipment.isTrue) runtime.api.checkEquipment();
   });
   runtime.onMessage("actions_updated", () => {
@@ -35918,18 +37025,19 @@ ${locks}` : ""}`;
   runtime.onMessage("items_updated", () => {
     if (runtime.settings.settingsMap.checkEquipment.isTrue)
       runtime.api.checkEquipment();
-    if (runtime.settings.settingsMap.networth.isTrue)
-      runtime.api.scheduleNetworthRefresh();
+    refreshAssets();
   });
   for (const messageType of [
     "market_item_values_updated",
     "market_item_order_books_updated",
     "market_listings_updated",
-    "guild_updated"
+    "guild_updated",
+    "house_rooms_updated",
+    "abilities_updated",
+    "character_abilities_updated"
   ]) {
     runtime.onMessage(messageType, () => {
-      if (runtime.settings.settingsMap.networth.isTrue)
-        runtime.api.scheduleNetworthRefresh();
+      refreshAssets();
     });
   }
   runtime.onMessage("profile_shared", (payload) => {

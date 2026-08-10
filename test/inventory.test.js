@@ -23,6 +23,7 @@ await import("../src/core/config.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/asset-values.js");
+await import("../src/features/asset-history/00-snapshot.js");
 await import("../src/features/inventory.js");
 
 runtime.state.initData_characterItems = [
@@ -48,26 +49,18 @@ runtime.api.getSelfBuildScores = async () => ({
   equipmentHidden: false,
 });
 
-test("networth rerenders update existing UI instead of duplicating it", async () => {
+test("inventory asset summaries rerender without restoring the removed header UI", async () => {
   await runtime.api.calculateNetworth();
   await Promise.resolve();
   await runtime.api.calculateNetworth();
   await Promise.resolve();
 
-  assert.equal(document.querySelectorAll("#script_current_assets").length, 1);
+  assert.equal(document.querySelectorAll("#script_current_assets").length, 0);
   assert.equal(
     document.querySelectorAll("#script_inventory_summary").length,
     1,
   );
-  assert.equal(document.querySelectorAll("#script_api_fail_popout").length, 1);
-  assert.match(
-    document.querySelector("#script_current_assets").textContent,
-    /10K/,
-  );
-  assert.equal(
-    document.querySelector("#script_current_assets .mwi-number").title,
-    "10,000",
-  );
+  assert.equal(document.querySelectorAll("#script_api_fail_popout").length, 0);
   assert.match(
     document.querySelector("#toggleScores").textContent,
     /战斗着装评分：6\.0/,
@@ -146,7 +139,7 @@ test("listing values use explicit balances and never infer buy reserves", () => 
     },
   ]);
 
-  assert.deepEqual(totals, { fair: 16_190, ask: 16_960, bid: 14_820 });
+  assert.deepEqual(totals, { fair: 15_890, ask: 16_960, bid: 14_820 });
 });
 
 test("guild currencies move to fixed assets while task tokens stay inventory", async () => {

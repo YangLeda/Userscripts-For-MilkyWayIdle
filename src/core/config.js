@@ -35,7 +35,6 @@ let SCRIPT_COLOR_MAIN = "green";
 // 脚本主要字体颜色
 let SCRIPT_COLOR_TOOLTIP = "darkgreen";
 // 物品悬浮窗的字体颜色
-const SCRIPT_COLOR_ALERT = "red";
 
 let settingsMap = {
   useOrangeAsMainColor: {
@@ -80,25 +79,23 @@ let settingsMap = {
       : "Action panel: Overall profit of the foraging maps with multiple outcomes. [Depends on the previous selection]",
     isTrue: true,
   },
-  networth: {
-    id: "networth",
+  assetHistory: {
+    id: "assetHistory",
     desc: isZH
-      ? "右上角显示：按服务器市场价值计算的流动资产"
-      : "Top right: Current assets valued with server market values.",
+      ? "库存页签显示：每日资产盈亏、历史图表和数据管理"
+      : "Inventory tabs: Daily asset P/L, history charts, and data management.",
     isTrue: true,
   },
   invWorth: {
     id: "invWorth",
     desc: isZH
-      ? "仓库搜索栏下方显示：仓库和着装评分总结 [依赖上一项]"
-      : "Below inventory search bar: Inventory and gear score summary. [Depends on the previous selection]",
+      ? "仓库搜索栏下方显示：仓库和着装评分总结"
+      : "Below inventory search bar: Inventory and gear score summary.",
     isTrue: true,
   },
   invSort: {
     id: "invSort",
-    desc: isZH
-      ? "仓库显示：仓库物品排序 [依赖上一项]"
-      : "Inventory: Sort inventory items. [Depends on the previous selection]",
+    desc: isZH ? "仓库显示：仓库物品排序" : "Inventory: Sort inventory items.",
     isTrue: true,
   },
   guildCreditConversionsSort: {
@@ -134,13 +131,6 @@ let settingsMap = {
     desc: isZH
       ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量"
       : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
-    isTrue: true,
-  },
-  networkAlert: {
-    id: "networkAlert",
-    desc: isZH
-      ? "右上角显示：无法联网更新市场数据时，红字警告"
-      : "Top right: Alert message when market price data can not be fetched.",
     isTrue: true,
   },
   expPercentage: {
@@ -491,12 +481,12 @@ const catalogRows = [
     "Combine multiple possible gathering outputs into an expected value.",
   ],
   [
-    "networth",
+    "assetHistory",
     "inventory",
-    "流动资产",
-    "Current assets",
-    "在页头显示装备、库存和市场订单的当前价值。",
-    "Show the current value of equipment, inventory, and market listings in the header.",
+    "每日资产盈亏",
+    "Daily asset P/L",
+    "在配装右侧显示资产摘要、分项变化、历史图表和数据管理。",
+    "Show asset summary, component changes, history charts, and data management beside Loadouts.",
   ],
   [
     "invWorth",
@@ -577,14 +567,6 @@ const catalogRows = [
     "Auto-fill order prices",
     "创建订单时按最小有效档位匹配或压过当前最优价格。",
     "Fill the smallest valid price step that matches or improves the current best order.",
-  ],
-  [
-    "networkAlert",
-    "market",
-    "市场数据提醒",
-    "Market data warning",
-    "市场数据无法更新时显示提醒，并继续使用最近缓存。",
-    "Warn when market data cannot refresh and the latest cache is being used.",
   ],
   [
     "taskInsights",
@@ -751,8 +733,6 @@ const settingParents = {
   actionPanel_foragingTotal: "actionPanel_totalTime",
   productionSummary: "actionPanel_totalTime",
   productionProfit: "actionPanel_totalTime",
-  invWorth: "networth",
-  invSort: "networth",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
@@ -857,12 +837,6 @@ Object.defineProperties(runtime.config, {
     },
     set(value) {
       SCRIPT_COLOR_TOOLTIP = value;
-    },
-  },
-  SCRIPT_COLOR_ALERT: {
-    enumerable: true,
-    get() {
-      return SCRIPT_COLOR_ALERT;
     },
   },
   MARKET_API_URL: {

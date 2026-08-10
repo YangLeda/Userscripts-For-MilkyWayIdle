@@ -283,10 +283,9 @@ function validateMarketJsonFetch(jsonValue, isSave = false) {
 }
 
 function setMarketFetchFailure(reason) {
-  runtime.state.isUsingExpiredMarketJson = true;
-  runtime.state.reasonForUsingExpiredMarketJson += `${new Date().toUTCString()} ${reason}\n`;
-  const alert = document.querySelector?.("div#script_api_fail_alert");
-  if (alert) alert.style.display = "block";
+  console.warn(
+    `[MWITools] ${reason}; using cached market data when available.`,
+  );
 }
 
 function requestMarketJson() {
@@ -344,10 +343,6 @@ async function fetchMarketJSON(forceFetch = false) {
     true,
   );
   if (jsonObj) {
-    runtime.state.isUsingExpiredMarketJson = false;
-    runtime.state.reasonForUsingExpiredMarketJson = "";
-    const alert = document.querySelector?.("div#script_api_fail_alert");
-    if (alert) alert.style.display = "none";
     return jsonObj;
   }
 

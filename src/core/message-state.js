@@ -141,6 +141,12 @@ function applyCharacterData(payload) {
     payload.characterID ??
     payload.characterSkills?.[0]?.characterID ??
     "";
+  runtime.state.currentCharacterName =
+    payload.character?.name ??
+    payload.characterName ??
+    payload.sharableCharacter?.name ??
+    payload.combatUnit?.name ??
+    "";
   runtime.state.initData_characterSkills = payload.characterSkills;
   runtime.state.initData_characterItems = payload.characterItems ?? [];
   runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -317,6 +323,28 @@ function applyItemsUpdated(payload) {
   }
 }
 
+function applyCharacterAbilitiesUpdated(payload) {
+  const updates =
+    payload.endCharacterAbilities ??
+    payload.characterAbilities ??
+    payload.abilities;
+  if (!Array.isArray(updates)) return;
+  const current = [...(runtime.state.initData_characterAbilities ?? [])];
+  for (const update of updates) {
+    const id = update.id ?? update.characterAbilityID ?? update.abilityHrid;
+    const index = current.findIndex(
+      (ability) =>
+        (ability.id ?? ability.characterAbilityID ?? ability.abilityHrid) ===
+        id,
+    );
+    if (update.isDeleted || update.deleted) {
+      if (index >= 0) current.splice(index, 1);
+    } else if (index >= 0) current[index] = { ...current[index], ...update };
+    else current.push(update);
+  }
+  runtime.state.initData_characterAbilities = current;
+}
+
 /** Apply only shared game state; UI and persistence are feature effects. */
 function applyGameMessage(payload) {
   switch (payload.type) {
@@ -359,6 +387,10 @@ function applyGameMessage(payload) {
         payload.characterHouseRoomMap ??
         runtime.state.initData_characterHouseRoomMap;
       applyActionTypeBuffs(payload);
+      break;
+    case "abilities_updated":
+    case "character_abilities_updated":
+      applyCharacterAbilitiesUpdated(payload);
       break;
     case "achievement_buffs_updated":
     case "moo_pass_buffs_updated":

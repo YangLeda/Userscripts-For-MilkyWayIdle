@@ -3,10 +3,6 @@ import { runtime } from "./runtime.js";
 
 const MARKET_JSON_LOCAL_BACKUP = JSON.stringify(marketBackup);
 
-let isUsingExpiredMarketJson = false;
-
-let reasonForUsingExpiredMarketJson = "";
-
 let initData_characterSkills = null;
 
 let initData_characterItems = null;
@@ -65,6 +61,8 @@ let guildDataLoaded = false;
 
 let currentCharacterId = "";
 
+let currentCharacterName = "";
+
 let characterQuests = [];
 
 let guild = null;
@@ -89,24 +87,6 @@ Object.defineProperties(runtime.data, {
 });
 
 Object.defineProperties(runtime.state, {
-  isUsingExpiredMarketJson: {
-    enumerable: true,
-    get() {
-      return isUsingExpiredMarketJson;
-    },
-    set(value) {
-      isUsingExpiredMarketJson = value;
-    },
-  },
-  reasonForUsingExpiredMarketJson: {
-    enumerable: true,
-    get() {
-      return reasonForUsingExpiredMarketJson;
-    },
-    set(value) {
-      reasonForUsingExpiredMarketJson = value;
-    },
-  },
   initData_characterSkills: {
     enumerable: true,
     get() {
@@ -360,6 +340,15 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       currentCharacterId = String(value ?? "");
+    },
+  },
+  currentCharacterName: {
+    enumerable: true,
+    get() {
+      return currentCharacterName;
+    },
+    set(value) {
+      currentCharacterName = String(value ?? "");
     },
   },
   characterQuests: {

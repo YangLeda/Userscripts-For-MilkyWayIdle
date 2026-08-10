@@ -32,13 +32,23 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_getValue",
     "// @grant        GM_setValue",
     "// @require      https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.js",
+    "// @require      https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
+    "// @require      https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js",
+    "// @require      https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js",
   ]) {
     assert.ok(
       output.includes(directive),
       `missing metadata directive: ${directive}`,
     );
   }
-  assert.doesNotMatch(output, /chart\.js|ChartDataLabels/);
+  assert.doesNotMatch(
+    output,
+    /ChartDataLabels|chartjs-plugin-crosshair|dragscroll/,
+  );
+  assert.doesNotMatch(
+    output,
+    /script_current_assets|script_api_fail_alert|script_api_fail_popout/,
+  );
   assert.match(output, /VERSION = "1\.0\.50"/);
   assert.match(output, /__MWI_DPS/);
 });

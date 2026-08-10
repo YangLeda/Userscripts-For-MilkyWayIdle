@@ -40,6 +40,9 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(runtime.config.SCRIPT_COLOR_MAIN, "orange");
   assert.equal(runtime.config.SCRIPT_COLOR_TOOLTIP, "#804600");
   assert.equal(runtime.settings.settingsMap.totalActionTime.isTrue, true);
+  assert.equal(runtime.settings.settingsMap.assetHistory.isTrue, true);
+  assert.equal(runtime.settings.settingsMap.networth, undefined);
+  assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
   assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
   assert.equal(runtime.settings.settingsMap.showDamageGraph, undefined);
   assert.equal(
@@ -72,15 +75,16 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   );
 });
 
-test("card settings render every visible setting with nested children and search", async () => {
+test("card settings render every visible setting with nested children and search", async (t) => {
   document.body.innerHTML =
     '<div class="SettingsPanel_profileTab__test"></div>';
   await runtime.features.enable("settingsUi");
+  t.after(() => runtime.features.disable("settingsUi"));
   const root = document.querySelector("#script_settings");
   assert.equal(root.dataset.mwitoolsVersion, "2");
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 9);
-  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 40);
-  assert.ok(root.querySelectorAll(".mwi-setting-child").length > 15);
+  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 39);
+  assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
   const topLevelCards = root.querySelectorAll(
     ".mwi-settings-grid > .mwi-setting-card",
   );

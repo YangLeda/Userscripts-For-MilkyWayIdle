@@ -37,6 +37,7 @@ export default [
         ...userscriptGlobals,
         console: "readonly",
         document: "readonly",
+        Element: "readonly",
         Event: "readonly",
         localStorage: "readonly",
         location: "readonly",

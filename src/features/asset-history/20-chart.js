@@ -1,0 +1,207 @@
+import { runtime } from "../../core/runtime.js";
+import { ASSET_COMPONENT_KEYS } from "./00-snapshot.js";
+import { dayGap } from "./10-store.js";
+
+const COLORS = {
+  equipment: "#5bc0eb",
+  inventory: "#ffd166",
+  marketListings: "#8ecae6",
+  houses: "#ff6384",
+  abilities: "#a78bfa",
+  nonTradableTokens: "#80ed99",
+  shrine: "#f4a261",
+};
+
+const LABELS = {
+  equipment: ["装备", "Equipment"],
+  inventory: ["库存", "Inventory"],
+  marketListings: ["订单", "Market listings"],
+  houses: ["房屋", "Houses"],
+  abilities: ["技能", "Abilities"],
+  nonTradableTokens: ["不可交易代币", "Non-tradable tokens"],
+  shrine: ["神龛", "Shrine"],
+};
+
+function t(zh, en) {
+  return runtime.config.isZH ? zh : en;
+}
+
+function filterEntries(entries, range) {
+  if (!Number.isFinite(range) || !entries.length) return entries;
+  const lastDate = entries.at(-1)[0];
+  return entries.filter(([date]) => dayGap(date, lastDate) < range);
+}
+
+function normalizedChanges(entries, key) {
+  return entries.map(([date, record], index) => {
+    if (!index) return null;
+    const previous = entries[index - 1];
+    const currentValue = record?.values?.[key];
+    const previousValue = previous[1]?.values?.[key];
+    if (!Number.isFinite(currentValue) || !Number.isFinite(previousValue)) {
+      return null;
+    }
+    return (
+      (currentValue - previousValue) / Math.max(1, dayGap(previous[0], date))
+    );
+  });
+}
+
+function calendarAverage(entries, key, windowDays = 7) {
+  return entries.map(([date, record], index) => {
+    if (!index || !Number.isFinite(record?.values?.[key])) return null;
+    let baseline = entries[index - 1];
+    for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+      baseline = entries[candidate];
+      if (dayGap(baseline[0], date) >= windowDays) break;
+    }
+    const gap = dayGap(baseline[0], date);
+    const baselineValue = baseline[1]?.values?.[key];
+    if (!(gap > 0) || !Number.isFinite(baselineValue)) return null;
+    return (record.values[key] - baselineValue) / gap;
+  });
+}
+
+function formatTooltip(value) {
+  return runtime.api.formatExactNumber?.(value) ?? String(value);
+}
+
+export class AssetHistoryChart {
+  constructor(canvas, fallback) {
+    this.canvas = canvas;
+    this.fallback = fallback;
+    this.instance = null;
+  }
+
+  destroy() {
+    this.instance?.destroy?.();
+    this.instance = null;
+  }
+
+  resetZoom() {
+    this.instance?.resetZoom?.();
+  }
+
+  render(entries, { mode = "total", range = null } = {}) {
+    const Chart = globalThis.Chart;
+    if (typeof Chart !== "function") {
+      this.destroy();
+      this.canvas.hidden = true;
+      this.fallback.hidden = false;
+      this.fallback.textContent = t(
+        "图表依赖未加载；资产数据与明细仍可正常使用。",
+        "Chart dependencies did not load; asset data is still available.",
+      );
+      return;
+    }
+    this.canvas.hidden = false;
+    this.fallback.hidden = true;
+
+    const filtered = filterEntries(entries, range);
+    const labels = filtered.map(([date]) => date.slice(5));
+    let datasets;
+    let title;
+    if (mode === "profit") {
+      const profit = normalizedChanges(filtered, "total");
+      datasets = [
+        {
+          type: "bar",
+          label: t("每日盈亏", "Daily P/L"),
+          data: profit,
+          backgroundColor: profit.map((value) =>
+            value >= 0 ? "rgba(65,190,115,.58)" : "rgba(235,90,90,.58)",
+          ),
+          borderRadius: 3,
+        },
+        {
+          type: "line",
+          label: t("7 日均线", "7-day average"),
+          data: calendarAverage(filtered, "total"),
+          borderColor: "#ffd369",
+          backgroundColor: "transparent",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.22,
+          spanGaps: true,
+        },
+      ];
+      title = t("每日资产盈亏", "Daily asset P/L");
+    } else if (mode === "breakdown") {
+      datasets = ASSET_COMPONENT_KEYS.map((key) => ({
+        type: "line",
+        label: t(...LABELS[key]),
+        data: normalizedChanges(filtered, key),
+        borderColor: COLORS[key],
+        backgroundColor: COLORS[key],
+        borderWidth: 2,
+        pointRadius: 2,
+        tension: 0.2,
+        spanGaps: true,
+      }));
+      title = t("分项每日变化", "Daily component changes");
+    } else {
+      datasets = [
+        {
+          type: "line",
+          label: t("总资产", "Total assets"),
+          data: filtered.map(([, record]) => record?.values?.total ?? null),
+          borderColor: "#4cc9f0",
+          backgroundColor: "rgba(76,201,240,.14)",
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 2,
+          tension: 0.2,
+          spanGaps: true,
+        },
+      ];
+      title = t("总资产历史", "Total asset history");
+    }
+
+    this.destroy();
+    this.instance = new Chart(this.canvas.getContext("2d"), {
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        animation: false,
+        plugins: {
+          title: { display: true, text: title, color: "#eee" },
+          legend: { labels: { color: "#ddd", usePointStyle: true } },
+          tooltip: {
+            callbacks: {
+              label(context) {
+                const value = context.raw;
+                return `${context.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
+              },
+            },
+          },
+          zoom: {
+            pan: { enabled: true, mode: "x" },
+            zoom: {
+              wheel: { enabled: true },
+              pinch: { enabled: true },
+              drag: { enabled: true, modifierKey: "shift" },
+              mode: "x",
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: "#bbb", maxRotation: 0, autoSkip: true },
+            grid: { color: "rgba(255,255,255,.06)" },
+          },
+          y: {
+            ticks: {
+              color: "#bbb",
+              callback(value) {
+                return runtime.api.numberFormatter?.(value) ?? value;
+              },
+            },
+            grid: { color: "rgba(255,255,255,.08)" },
+          },
+        },
+      },
+    });
+  }
+}
