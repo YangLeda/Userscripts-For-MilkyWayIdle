@@ -225,6 +225,14 @@ function resolvePanelAction(panel) {
   return runtime.api.getActionHridFromItemName?.(name) ?? null;
 }
 
+function isProductionAction(actionHrid) {
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!detail) return false;
+  const actionType = String(detail.type ?? "");
+  if (actionType.includes("combat")) return false;
+  return Boolean(runtime.api.getExpectedOutputs?.(detail)?.length);
+}
+
 function metric(label, value) {
   const box = document.createElement("div");
   box.className = "mwi-production-metric";
@@ -244,9 +252,16 @@ function renderProductionPanel() {
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   );
   const panel = findActionPanel();
-  if (!input || !panel) return;
+  const existingCard = document.querySelector("#mwi-production-summary");
+  if (!input || !panel) {
+    existingCard?.remove();
+    return;
+  }
   const actionHrid = resolvePanelAction(panel);
-  if (!actionHrid) return;
+  if (!actionHrid || !isProductionAction(actionHrid)) {
+    existingCard?.remove();
+    return;
+  }
   const count = runtime.api.parseCompactNumber(input.value);
   const projection = runtime.api.projectAction(actionHrid, count, {
     durationPerAction: getProductionPanelDuration(panel),

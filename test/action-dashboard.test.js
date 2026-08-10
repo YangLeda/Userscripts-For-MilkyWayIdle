@@ -113,6 +113,23 @@ test("Chinese crafting dialogs render the production summary below the action co
   );
 });
 
+test("combat dialogs never render the production summary", () => {
+  runtime.state.initData_actionDetailMap["/actions/combat/hell_pit"] = {
+    hrid: "/actions/combat/hell_pit",
+    name: "Hell Pit",
+    type: "/action_types/combat",
+    baseTimeCost: 3_000_000_000,
+    dropTable: [{ itemHrid: "/items/log", count: 1 }],
+  };
+  runtime.data.ZHActionNames["/actions/combat/hell_pit"] = "地狱深渊";
+  document.querySelector('div[class*="SkillActionDetail_name"]').textContent =
+    "地狱深渊";
+
+  runtime.api.renderProductionPanel();
+
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+});
+
 test("the top action bar shows only current-action count, time left, and finish time", () => {
   runtime.state.currentActionsHridList = [
     {

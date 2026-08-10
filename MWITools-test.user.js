@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.9
+// @version      26.2.10
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -24648,6 +24648,13 @@ ${preview}`
     }
     return runtime.api.getActionHridFromItemName?.(name) ?? null;
   }
+  function isProductionAction(actionHrid) {
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!detail) return false;
+    const actionType = String(detail.type ?? "");
+    if (actionType.includes("combat")) return false;
+    return Boolean(runtime.api.getExpectedOutputs?.(detail)?.length);
+  }
   function metric(label, value) {
     const box = document.createElement("div");
     box.className = "mwi-production-metric";
@@ -24666,9 +24673,16 @@ ${preview}`
       'div[class*="SkillActionDetail_maxActionCountInput"] input'
     );
     const panel = findActionPanel();
-    if (!input || !panel) return;
+    const existingCard = document.querySelector("#mwi-production-summary");
+    if (!input || !panel) {
+      existingCard?.remove();
+      return;
+    }
     const actionHrid = resolvePanelAction(panel);
-    if (!actionHrid) return;
+    if (!actionHrid || !isProductionAction(actionHrid)) {
+      existingCard?.remove();
+      return;
+    }
     const count = runtime.api.parseCompactNumber(input.value);
     const projection = runtime.api.projectAction(actionHrid, count, {
       durationPerAction: getProductionPanelDuration(panel)
