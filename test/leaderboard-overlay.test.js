@@ -69,8 +69,14 @@ test("exports the standalone overlay API and formatting helpers", () => {
 test("renders top-100 ranking badges beside matching character names", async () => {
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
-    <div class="CharacterProfile_panel__test">
-      <span class="CharacterName_name__test" data-name="Bob">Bob</span>
+    <div class="Header_characterInfo__test">
+      <div class="Header_info__test">
+        <div class="Header_name__test">
+          <div class="CharacterName_characterName__test">
+            <span class="CharacterName_name__test" data-name="Bob">Bob</span>
+          </div>
+        </div>
+      </div>
     </div>
     <div><span class="CharacterName_name__test" data-name="Outside">Outside</span></div>
     <div class="LeaderboardPanel_row__test">
@@ -85,12 +91,12 @@ test("renders top-100 ranking badges beside matching character names", async () 
     milking: {
       receivedAt: "2026-08-11T00:00:00Z",
       rows: [
-        { characterName: " Alice ", rank: 4 },
+        { characterName: " Alice ", rank: 25 },
         { characterName: "Bob", rank: 51 },
         { characterName: "Outside", rank: 101 },
       ],
     },
-    magic: { rows: [{ characterName: "ALICE", rank: 25 }] },
+    magic: { rows: [{ characterName: "ALICE", rank: 4 }] },
   });
   await settle();
 
@@ -106,13 +112,14 @@ test("renders top-100 ranking badges beside matching character names", async () 
   );
   assert.equal(
     aliceBadges.querySelector("img").src,
-    "https://example.test/icons/milking.png",
+    "https://example.test/icons/magic.png",
   );
-  const bobBadges = document
-    .querySelector('[data-name="Bob"]')
-    .parentElement.querySelector("[data-mwi-leaderboard-badges]");
+  const bobName = document.querySelector('[data-name="Bob"]');
+  const bobBadges = document.querySelector(
+    ".Header_name__test > [data-mwi-leaderboard-badges]",
+  );
   assert.equal(bobBadges.dataset.mwiLeaderboardPlacement, "profile");
-  assert.equal(bobBadges.previousElementSibling.dataset.name, "Bob");
+  assert.equal(bobBadges.previousElementSibling, bobName.parentElement);
   assert.equal(
     document
       .querySelector('[data-name="Outside"]')

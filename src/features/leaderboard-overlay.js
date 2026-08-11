@@ -169,6 +169,17 @@ function createOverlay(options = {}) {
         });
       }
     }
+    const categoryIndex = new Map(
+      categoryOrder.map((category, position) => [category, position]),
+    );
+    for (const badges of index.values()) {
+      badges.sort(
+        (left, right) =>
+          left.rank - right.rank ||
+          (categoryIndex.get(left.category) ?? Number.MAX_SAFE_INTEGER) -
+            (categoryIndex.get(right.category) ?? Number.MAX_SAFE_INTEGER),
+      );
+    }
     state.nameIndex = index;
   }
 
@@ -185,9 +196,18 @@ function createOverlay(options = {}) {
     for (const nameElement of nameElements) {
       const host = nameElement.parentElement;
       if (!host) continue;
-      let container = host.querySelector(
-        `:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`,
+      const profileRoot = nameElement.closest(
+        '[class*="Header_characterInfo"],[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]',
       );
+      const profileNameBlock = profileRoot
+        ? nameElement.closest('[class*="Header_name"]')
+        : null;
+      const badgeMount = profileNameBlock || host;
+      let container =
+        badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) ||
+        (badgeMount === host
+          ? null
+          : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`));
       if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
         container?.remove();
         continue;
@@ -200,11 +220,7 @@ function createOverlay(options = {}) {
         container?.remove();
         continue;
       }
-      const profilePlacement = Boolean(
-        nameElement.closest(
-          '[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]',
-        ),
-      );
+      const profilePlacement = Boolean(profileRoot);
       const placement = profilePlacement ? "profile" : "inline";
       const signature = badgeSignature(badges);
       const previousPlacement =
@@ -214,15 +230,18 @@ function createOverlay(options = {}) {
         container.setAttribute(BADGE_CONTAINER_ATTRIBUTE, "");
       }
       container.dataset.mwiLeaderboardPlacement = placement;
-      if (
-        profilePlacement &&
-        container.previousElementSibling !== nameElement
-      ) {
-        nameElement.insertAdjacentElement("afterend", container);
-      } else if (
-        !profilePlacement &&
-        (!container.isConnected || previousPlacement === "profile")
-      ) {
+      if (profilePlacement) {
+        const profileName = profileNameBlock
+          ? nameElement.closest('[class*="CharacterName_characterName"]') ||
+            nameElement
+          : nameElement;
+        if (
+          container.parentElement !== badgeMount ||
+          container.previousElementSibling !== profileName
+        ) {
+          profileName.insertAdjacentElement("afterend", container);
+        }
+      } else if (!container.isConnected || previousPlacement === "profile") {
         host.append(container);
       }
       if (container.dataset.mwiLeaderboardSignature === signature) continue;
