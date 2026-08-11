@@ -931,6 +931,11 @@
       desc: isZH ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量" : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
       isTrue: true
     },
+    lootChestEstimate: {
+      id: "lootChestEstimate",
+      desc: isZH ? "战利品宝箱悬浮窗显示开箱期望价值；展开可设置估价方式" : "Show expected opening value for loot chests; expand to set the pricing.",
+      isTrue: true
+    },
     lootKeyFromFragments: {
       id: "lootKeyFromFragments",
       desc: isZH ? "开箱期望：按钥匙碎片自制成本计算钥匙" : "Loot estimate: value the key by its fragment crafting cost.",
@@ -1429,6 +1434,14 @@
       "Show recovery rate, cost per recovery, and maximum daily use."
     ],
     [
+      "lootChestEstimate",
+      "market",
+      "宝箱价值估算",
+      "Loot chest estimate",
+      "在战利品宝箱悬浮窗显示开箱期望价值；展开可设置钥匙来源与买卖方向。",
+      "Show expected opening value on loot chests; expand for key source and buy/sell sides."
+    ],
+    [
       "lootKeyFromFragments",
       "market",
       "钥匙按碎片自制",
@@ -1722,6 +1735,9 @@
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
+    lootKeyFromFragments: "lootChestEstimate",
+    lootBuyAtAsk: "lootChestEstimate",
+    lootSellAtAsk: "lootChestEstimate",
     taskMaterials: "taskInsights",
     taskQueueProgress: "taskInsights",
     taskAutoSort: "taskInsights",
@@ -13204,8 +13220,8 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-hint">${t5(
-        "可在 MWITools 设置的“市场”分组中调整钥匙来源与买卖方向。",
-        "Adjust key source and buy/sell sides in the Market group of MWITools settings."
+        "可在 MWITools 设置的“宝箱价值估算”中展开设置钥匙来源与买卖方向。",
+        "Expand “Loot chest estimate” in MWITools settings to set key source and buy/sell sides."
       )}</div>`
     );
     if (chest.missing.length) {
@@ -13683,12 +13699,13 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       }
     }
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
-    if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-      if (runtime.state.initData_openableLootDropMap?.[itemHrid]) {
-        runtime.api.showLootChestPanel?.(tooltip, itemHrid);
-      } else {
-        runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
-      }
+    const isOpenable = Boolean(
+      runtime.state.initData_openableLootDropMap?.[itemHrid]
+    );
+    if (isOpenable && runtime.settings.settingsMap.lootChestEstimate.isTrue) {
+      runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+    } else if (!isOpenable && runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
+      runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
     } else {
       runtime.api.hideProductionProfitPanel?.();
     }

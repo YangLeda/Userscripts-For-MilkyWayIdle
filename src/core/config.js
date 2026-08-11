@@ -152,6 +152,13 @@ let settingsMap = {
       : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
     isTrue: true,
   },
+  lootChestEstimate: {
+    id: "lootChestEstimate",
+    desc: isZH
+      ? "战利品宝箱悬浮窗显示开箱期望价值；展开可设置估价方式"
+      : "Show expected opening value for loot chests; expand to set the pricing.",
+    isTrue: true,
+  },
   lootKeyFromFragments: {
     id: "lootKeyFromFragments",
     desc: isZH
@@ -710,6 +717,14 @@ const catalogRows = [
     "Show recovery rate, cost per recovery, and maximum daily use.",
   ],
   [
+    "lootChestEstimate",
+    "market",
+    "宝箱价值估算",
+    "Loot chest estimate",
+    "在战利品宝箱悬浮窗显示开箱期望价值；展开可设置钥匙来源与买卖方向。",
+    "Show expected opening value on loot chests; expand for key source and buy/sell sides.",
+  ],
+  [
     "lootKeyFromFragments",
     "market",
     "钥匙按碎片自制",
@@ -1005,6 +1020,9 @@ const settingParents = {
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
+  lootKeyFromFragments: "lootChestEstimate",
+  lootBuyAtAsk: "lootChestEstimate",
+  lootSellAtAsk: "lootChestEstimate",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",

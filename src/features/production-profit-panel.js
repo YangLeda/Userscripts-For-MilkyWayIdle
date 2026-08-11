@@ -550,8 +550,8 @@ function renderLootChestPanel(panel, itemHrid, chest) {
   panel.insertAdjacentHTML(
     "beforeend",
     `<div class="mwi-profit-hint">${t(
-      "可在 MWITools 设置的“市场”分组中调整钥匙来源与买卖方向。",
-      "Adjust key source and buy/sell sides in the Market group of MWITools settings.",
+      "可在 MWITools 设置的“宝箱价值估算”中展开设置钥匙来源与买卖方向。",
+      "Expand “Loot chest estimate” in MWITools settings to set key source and buy/sell sides.",
     )}</div>`,
   );
 
