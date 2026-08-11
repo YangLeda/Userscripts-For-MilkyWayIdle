@@ -3,6 +3,7 @@ import { runtime } from "../core/runtime.js";
 const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
 const DETAIL_CLASS = "mwi-train-detail-modal";
+const ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
 const INPUT_SELECTOR =
   'div[class*="SkillActionDetail_maxActionCountInput"] input';
 const PANEL_SELECTOR =
@@ -67,6 +68,9 @@ function addStyles() {
     .mwi-train-detail-row{display:flex;align-items:center;gap:7px;padding:4px 0}.mwi-train-detail-row[data-current="true"]{color:#ffe27a}.mwi-train-detail-row>span:first-child{min-width:0;flex:1}.mwi-train-detail-count{flex:0 0 auto;color:#9fd9ff}.mwi-train-detail-terminal{color:#80df91}
     .mwi-train-detail-close{margin-top:12px}
     .mwi-train-toast{position:fixed;right:14px;top:14px;z-index:2147483200;max-width:min(380px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.97);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
+    #${ACTIVE_INDICATOR_ID}{position:fixed;top:max(8px,env(safe-area-inset-top));left:50%;z-index:2147483000;max-width:calc(100vw - 24px);transform:translateX(-50%);overflow:hidden;padding:7px 13px;border:1px solid rgba(245,180,70,.78);border-radius:999px;background:rgba(42,32,18,.96);color:#ffe8a3;font:700 12px/1.15 Roboto,Arial,sans-serif;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 5px 18px rgba(0,0,0,.48),0 0 8px rgba(245,180,70,.22);cursor:pointer}
+    #${ACTIVE_INDICATOR_ID}:hover{filter:brightness(1.14)}
+    #${ACTIVE_INDICATOR_ID}:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -118,6 +122,28 @@ function createButton(text, kind, handler) {
 
 function closeDetail() {
   document.querySelector(`.${DETAIL_CLASS}`)?.remove();
+}
+
+function renderActiveIndicator() {
+  let indicator = document.getElementById(ACTIVE_INDICATOR_ID);
+  if (!activeTrain) {
+    indicator?.remove();
+    return;
+  }
+  if (!indicator) {
+    indicator = document.createElement("button");
+    indicator.id = ACTIVE_INDICATOR_ID;
+    indicator.type = "button";
+    indicator.addEventListener("click", () =>
+      cancelTrain(t("用户取消", "Cancelled by user")),
+    );
+    document.body.appendChild(indicator);
+  }
+  const copy = runtime.config.isZH
+    ? `🚂 正在进行火车 (${activeTrain.index + 1}/${activeTrain.steps.length}) · 点击退出`
+    : `🚂 Train in progress (${activeTrain.index + 1}/${activeTrain.steps.length}) · Click to cancel`;
+  if (indicator.textContent !== copy) indicator.textContent = copy;
+  indicator.title = t("点击退出当前火车", "Click to cancel the current train");
 }
 
 export function showTrainDetail(plan, currentIndex = null) {
@@ -562,6 +588,7 @@ function advanceTrain() {
   }
   activeTrain.index += 1;
   activeTrain.readyActionHrid = "";
+  renderActiveIndicator();
   goToCurrentStep();
 }
 
@@ -699,6 +726,7 @@ export function startTrain(plan, options = {}) {
     navigateAction: options.navigateAction,
     navigateShop: options.navigateShop,
   };
+  renderActiveIndicator();
   goToCurrentStep();
   return true;
 }
@@ -710,6 +738,7 @@ export function cancelTrain(reason = "") {
   clearTimeout(activeTrain.timeout);
   activeTrain = null;
   closeDetail();
+  renderActiveIndicator();
   scheduleScan();
   if (reason) showToast(`${t("火车已停止：", "Train stopped: ")}${reason}`);
   return true;
@@ -722,6 +751,7 @@ export function finishTrain() {
   clearTimeout(activeTrain.timeout);
   activeTrain = null;
   closeDetail();
+  renderActiveIndicator();
   scheduleScan();
   showToast(t("火车已完成", "Train completed"));
   return true;
@@ -825,6 +855,7 @@ function renderControls(context) {
 
 function scan() {
   scanPending = false;
+  renderActiveIndicator();
   const context = panelContext();
   document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((controls) => {
     if (!context?.panel.contains(controls)) controls.remove();
@@ -848,6 +879,7 @@ function cleanup() {
   document
     .querySelectorAll(".mwi-train-toast")
     .forEach((node) => node.remove());
+  document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
   document.getElementById(STYLE_ID)?.remove();
   closeDetail();
   scanPending = false;

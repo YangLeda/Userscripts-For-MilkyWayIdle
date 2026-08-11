@@ -169,6 +169,36 @@ test("default train navigation accepts a GamePage instance without navTarget", (
   document.body.replaceChildren();
 });
 
+test("active train stays globally visible and can be cancelled from any page", () => {
+  document.body.innerHTML = '<main data-page="unrelated"></main>';
+  const plan = {
+    cycle: false,
+    truncated: false,
+    steps: [
+      {
+        kind: "craft",
+        actionHrid: "/actions/crafting/board",
+        outputHrid: "/items/board",
+        count: 1,
+      },
+      {
+        kind: "upgrade",
+        actionHrid: "/actions/crafting/final",
+        inputHrid: "/items/board",
+        outputHrid: "/items/final",
+        count: 1,
+      },
+    ],
+  };
+  assert.equal(train.startTrain(plan, { navigateAction: () => true }), true);
+  const indicator = document.querySelector("#mwi-train-active-indicator");
+  assert.match(indicator.textContent, /Train in progress \(1\/2\)/);
+  indicator.click();
+  assert.equal(train.getTrainState(), null);
+  assert.equal(document.querySelector("#mwi-train-active-indicator"), null);
+  document.body.replaceChildren();
+});
+
 test("skill navigation click is accepted while the target action panel mounts", () => {
   document.body.innerHTML = '<button data-target="crafting">Crafting</button>';
   let clicked = 0;

@@ -177,6 +177,10 @@ test("inventory asset summaries rerender without restoring the removed header UI
   ).textContent;
   assert.match(
     summaryStyles,
+    /#script_inventory_summary\s*\{[^}]*width:\s*calc\(100% \+ \.5rem\)[^}]*margin-inline:\s*-\.25rem/s,
+  );
+  assert.match(
+    summaryStyles,
     /\.mwi-inventory-summary-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
   );
   assert.match(
@@ -202,6 +206,14 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.match(
     summaryStyles,
     /\.mwi-asset-row\s*\{[^}]*padding:\s*0[^}]*font-size:\s*inherit/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-summary-stat-value\s*\{[^}]*font-weight:\s*400/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-asset-row \.mwi-number, \.mwi-asset-row > span:last-child\s*\{[^}]*font-weight:\s*400/s,
   );
   assert.equal(
     document

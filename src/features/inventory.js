@@ -18,6 +18,9 @@ function addInventorySummaryStyles() {
       font-size: var(--mwi-inventory-heading-font-size);
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
+      width: calc(100% + .5rem);
+      box-sizing: border-box;
+      margin-inline: -.25rem;
     }
     .mwi-inventory-summary-grid {
       display: grid;
@@ -149,7 +152,7 @@ function addInventorySummaryStyles() {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 400; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
@@ -240,7 +243,7 @@ function addInventorySummaryStyles() {
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
-    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
+    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 400; }
     .mwi-inventory-category-heading {
       display: flex !important;
       min-width: 0;

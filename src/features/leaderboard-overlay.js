@@ -193,7 +193,6 @@ function createOverlay(options = {}) {
           label: categoryLabels[category],
           rank,
           tier,
-          capturedAt: snapshot.receivedAt || snapshot.capturedAt || null,
         });
       }
     }
@@ -212,9 +211,7 @@ function createOverlay(options = {}) {
   }
 
   function badgeSignature(badges) {
-    return badges
-      .map((item) => `${item.category}:${item.rank}:${item.capturedAt || ""}`)
-      .join("|");
+    return badges.map((item) => `${item.category}:${item.rank}`).join("|");
   }
 
   function renderNameBadges() {
@@ -296,8 +293,8 @@ function createOverlay(options = {}) {
           badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
           const label = categoryLabel(item.label, item.category);
           badge.title = runtime.config.isZH
-            ? `${label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`
-            : `${label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            ? `${label}排行榜第 ${item.rank} 名`
+            : `${label} leaderboard rank #${item.rank}`;
           return badge;
         }),
       );

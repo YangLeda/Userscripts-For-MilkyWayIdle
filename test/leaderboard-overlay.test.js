@@ -467,11 +467,18 @@ test("leaderboard copy follows the MWITools language", async () => {
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>`;
   const overlay = create({ document });
   overlay.setRankings({
-    milking: { rows: [{ characterName: "Alice", rank: 3 }] },
+    milking: {
+      receivedAt: "2026-08-11T12:34:56.000Z",
+      rows: [{ characterName: "Alice", rank: 3 }],
+    },
   });
   await settle();
   assert.match(document.querySelector(".mwi-lb-badge").title, /Milking/);
   assert.match(document.querySelector(".mwi-lb-badge").title, /rank #3/);
+  assert.doesNotMatch(
+    document.querySelector(".mwi-lb-badge").title,
+    /\d{4}-\d{2}-\d{2}/,
+  );
   overlay.destroy();
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   runtime.config.isZH = true;

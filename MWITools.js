@@ -24265,8 +24265,7 @@ ${preview}`
             category,
             label: categoryLabels[category],
             rank,
-            tier,
-            capturedAt: snapshot.receivedAt || snapshot.capturedAt || null
+            tier
           });
         }
       }
@@ -24281,7 +24280,7 @@ ${preview}`
       state.nameIndex = index;
     }
     function badgeSignature(badges) {
-      return badges.map((item) => `${item.category}:${item.rank}:${item.capturedAt || ""}`).join("|");
+      return badges.map((item) => `${item.category}:${item.rank}`).join("|");
     }
     function renderNameBadges() {
       if (!state.showBadges) return;
@@ -24342,7 +24341,7 @@ ${preview}`
             const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
             badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
             const label = categoryLabel(item.label, item.category);
-            badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}` : `${label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名` : `${label} leaderboard rank #${item.rank}`;
             return badge;
           })
         );
@@ -25292,6 +25291,9 @@ ${preview}`
       font-size: var(--mwi-inventory-heading-font-size);
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
+      width: calc(100% + .5rem);
+      box-sizing: border-box;
+      margin-inline: -.25rem;
     }
     .mwi-inventory-summary-grid {
       display: grid;
@@ -25423,7 +25425,7 @@ ${preview}`
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 400; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
@@ -25514,7 +25516,7 @@ ${preview}`
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
-    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
+    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 400; }
     .mwi-inventory-category-heading {
       display: flex !important;
       min-width: 0;
@@ -30034,6 +30036,7 @@ ${locks}` : ""}`;
   var STYLE_ID8 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
   var DETAIL_CLASS = "mwi-train-detail-modal";
+  var ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
   var INPUT_SELECTOR = 'div[class*="SkillActionDetail_maxActionCountInput"] input';
   var PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var LOADOUT_SELECTOR = '[class*="SkillActionDetail_loadoutDropdown"]';
@@ -30088,6 +30091,9 @@ ${locks}` : ""}`;
     .mwi-train-detail-row{display:flex;align-items:center;gap:7px;padding:4px 0}.mwi-train-detail-row[data-current="true"]{color:#ffe27a}.mwi-train-detail-row>span:first-child{min-width:0;flex:1}.mwi-train-detail-count{flex:0 0 auto;color:#9fd9ff}.mwi-train-detail-terminal{color:#80df91}
     .mwi-train-detail-close{margin-top:12px}
     .mwi-train-toast{position:fixed;right:14px;top:14px;z-index:2147483200;max-width:min(380px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.97);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
+    #${ACTIVE_INDICATOR_ID}{position:fixed;top:max(8px,env(safe-area-inset-top));left:50%;z-index:2147483000;max-width:calc(100vw - 24px);transform:translateX(-50%);overflow:hidden;padding:7px 13px;border:1px solid rgba(245,180,70,.78);border-radius:999px;background:rgba(42,32,18,.96);color:#ffe8a3;font:700 12px/1.15 Roboto,Arial,sans-serif;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 5px 18px rgba(0,0,0,.48),0 0 8px rgba(245,180,70,.22);cursor:pointer}
+    #${ACTIVE_INDICATOR_ID}:hover{filter:brightness(1.14)}
+    #${ACTIVE_INDICATOR_ID}:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -30133,6 +30139,26 @@ ${locks}` : ""}`;
   }
   function closeDetail() {
     document.querySelector(`.${DETAIL_CLASS}`)?.remove();
+  }
+  function renderActiveIndicator() {
+    let indicator = document.getElementById(ACTIVE_INDICATOR_ID);
+    if (!activeTrain) {
+      indicator?.remove();
+      return;
+    }
+    if (!indicator) {
+      indicator = document.createElement("button");
+      indicator.id = ACTIVE_INDICATOR_ID;
+      indicator.type = "button";
+      indicator.addEventListener(
+        "click",
+        () => cancelTrain(t8("用户取消", "Cancelled by user"))
+      );
+      document.body.appendChild(indicator);
+    }
+    const copy = runtime.config.isZH ? `🚂 正在进行火车 (${activeTrain.index + 1}/${activeTrain.steps.length}) · 点击退出` : `🚂 Train in progress (${activeTrain.index + 1}/${activeTrain.steps.length}) · Click to cancel`;
+    if (indicator.textContent !== copy) indicator.textContent = copy;
+    indicator.title = t8("点击退出当前火车", "Click to cancel the current train");
   }
   function showTrainDetail(plan, currentIndex = null) {
     closeDetail();
@@ -30500,6 +30526,7 @@ ${locks}` : ""}`;
     }
     activeTrain.index += 1;
     activeTrain.readyActionHrid = "";
+    renderActiveIndicator();
     goToCurrentStep();
   }
   function notifyCurrentTrainStepQueued(context = panelContext()) {
@@ -30620,6 +30647,7 @@ ${locks}` : ""}`;
       navigateAction: options.navigateAction,
       navigateShop: options.navigateShop
     };
+    renderActiveIndicator();
     goToCurrentStep();
     return true;
   }
@@ -30630,6 +30658,7 @@ ${locks}` : ""}`;
     clearTimeout(activeTrain.timeout);
     activeTrain = null;
     closeDetail();
+    renderActiveIndicator();
     scheduleScan();
     if (reason) showToast2(`${t8("火车已停止：", "Train stopped: ")}${reason}`);
     return true;
@@ -30641,6 +30670,7 @@ ${locks}` : ""}`;
     clearTimeout(activeTrain.timeout);
     activeTrain = null;
     closeDetail();
+    renderActiveIndicator();
     scheduleScan();
     showToast2(t8("火车已完成", "Train completed"));
     return true;
@@ -30731,6 +30761,7 @@ ${locks}` : ""}`;
   }
   function scan() {
     scanPending = false;
+    renderActiveIndicator();
     const context = panelContext();
     document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((controls) => {
       if (!context?.panel.contains(controls)) controls.remove();
@@ -30748,6 +30779,7 @@ ${locks}` : ""}`;
     cancelTrain("");
     document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((node) => node.remove());
     document.querySelectorAll(".mwi-train-toast").forEach((node) => node.remove());
+    document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
     document.getElementById(STYLE_ID8)?.remove();
     closeDetail();
     scanPending = false;
