@@ -746,19 +746,169 @@ function createShell(scope) {
 }
 
 function resolveActionPanel() {
-  const input = document.querySelector(
-    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  const inputs = [
+    ...document.querySelectorAll(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ),
+  ]
+    .filter((input) => !isHiddenActionElement(input))
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) -
+        Number(Boolean(left.closest('[class*="Modal_modalContainer"]'))),
+    );
+  for (const input of inputs) {
+    const panel =
+      input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ??
+      input.closest('div[class*="SkillActionDetail_regularComponent"]') ??
+      input.parentElement;
+    if (!panel || isHiddenActionElement(panel)) continue;
+    const fiberContext = resolveActionFiberContext(panel);
+    const actionHrid =
+      fiberContext?.actionHrid ??
+      runtime.api.resolveProductionAction?.(panel) ??
+      (panel.closest?.(
+        '[class*="EnhancingPanel"], [class*="EnhancementPanel"], [class*="EnhancePanel"]',
+      )
+        ? "/actions/enhancing/enhance"
+        : null);
+    const count = runtime.api.parseCompactNumber?.(input.value);
+    if (!actionHrid || !Number.isFinite(count) || count <= 0) continue;
+    return {
+      panel,
+      input,
+      actionHrid,
+      actionFunction: resolveActionFunction(
+        panel,
+        actionHrid,
+        fiberContext?.actionFunction,
+      ),
+      count: Math.ceil(count),
+    };
+  }
+  return null;
+}
+
+function isHiddenActionElement(element) {
+  for (let node = element; node?.nodeType === 1; node = node.parentElement) {
+    const className = String(node.className ?? "");
+    if (
+      node.hidden ||
+      node.getAttribute?.("aria-hidden") === "true" ||
+      node.style?.display === "none" ||
+      node.style?.visibility === "hidden" ||
+      (/MainPanel_/.test(className) && /hidden/i.test(className))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveActionFiberContext(panel) {
+  let fiber = findReactFiber(panel);
+  for (let depth = 0; fiber && depth < 10; depth += 1) {
+    const actionDetail = fiber.memoizedProps?.actionDetail;
+    if (actionDetail?.hrid) {
+      return {
+        actionHrid: actionDetail.hrid,
+        actionFunction: actionDetail.function ?? "",
+      };
+    }
+    fiber = fiber.return;
+  }
+  return null;
+}
+
+function resolveActionFunction(panel, actionHrid, fiberFunction = "") {
+  if (fiberFunction) return fiberFunction;
+  if (
+    panel.closest?.(
+      '[class*="EnhancingPanel"], [class*="EnhancementPanel"], [class*="EnhancePanel"]',
+    ) ||
+    String(actionHrid).includes("/enhancing/")
+  ) {
+    return "/action_functions/enhancing";
+  }
+  if (String(actionHrid).includes("/alchemy/")) {
+    return "/action_functions/alchemy";
+  }
+  return "/action_functions/production";
+}
+
+function parseRequirementNumber(text) {
+  const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+  if (!tokens?.length) return null;
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function itemHridFromRequirement(element) {
+  const use = element?.querySelector("svg use");
+  const href =
+    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  const fragment = href.includes("#") ? href.split("#").at(-1) : href;
+  return procurement.normalizeItemHrid(fragment);
+}
+
+function calculateEnhancingRequirements(context) {
+  const requirementsRoot = context.panel.querySelector(
+    '[class*="SkillActionDetail_itemRequirements"]',
   );
-  if (!input) return null;
-  const panel =
-    input.closest('div[class*="SkillActionDetail_regularComponent"]') ??
-    input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ??
-    input.parentElement;
-  const actionHrid = runtime.api.resolveProductionAction?.(panel);
-  const count = runtime.api.parseCompactNumber?.(input.value);
-  if (!panel || !actionHrid || !Number.isFinite(count) || count <= 0)
+  if (!requirementsRoot) return null;
+  const itemElements = [
+    ...requirementsRoot.querySelectorAll(
+      ':scope > [class*="Item_itemContainer"]',
+    ),
+  ];
+  const inputElements = [
+    ...requirementsRoot.querySelectorAll(
+      ':scope > [class*="SkillActionDetail_inputCount"]',
+    ),
+  ];
+  if (!itemElements.length || inputElements.length !== itemElements.length) {
     return null;
-  return { panel, input, actionHrid, count: Math.ceil(count) };
+  }
+  const materials = itemElements.map((element, index) => {
+    const itemHrid = itemHridFromRequirement(element);
+    const perAction = parseRequirementNumber(inputElements[index].textContent);
+    if (!itemHrid || perAction === null || perAction <= 0) return null;
+    const enhancementLevel = 0;
+    const suggested = Math.ceil(perAction * context.count - 1e-9);
+    const owned = procurement.getInventoryCount(itemHrid, enhancementLevel);
+    const lockedDetails = procurement.getLockedDetails(
+      itemHrid,
+      enhancementLevel,
+    );
+    const effectiveOwned = Math.max(0, owned - lockedDetails.total);
+    const cartQuantity =
+      procurement.getCartItem(itemHrid, enhancementLevel)?.quantity ?? 0;
+    return {
+      itemHrid,
+      enhancementLevel,
+      name: procurement.resolveItemName(itemHrid),
+      perAction,
+      suggested,
+      owned,
+      locked: lockedDetails.total,
+      lockedByPlans: lockedDetails.byPlan,
+      effectiveOwned,
+      cartQuantity,
+      shortage: Math.max(0, suggested - effectiveOwned),
+      addableShortage: Math.max(0, suggested - effectiveOwned - cartQuantity),
+      purchasable: itemHrid !== "/items/coin",
+    };
+  });
+  if (materials.some((material) => !material)) return null;
+  return {
+    status: "complete",
+    actionHrid: context.actionHrid,
+    count: context.count,
+    materials,
+  };
 }
 
 function findMaterialHost(panel, itemHrid) {
@@ -801,16 +951,24 @@ function renderProductionProcurement() {
     return;
   }
   const settings = procurement.getSettings();
-  const direct = procurement.calculateRequirements(
-    context.actionHrid,
-    context.count,
-  );
+  const isEnhancing = context.actionFunction === "/action_functions/enhancing";
+  const direct = isEnhancing
+    ? calculateEnhancingRequirements(context)
+    : procurement.calculateRequirements(context.actionHrid, context.count);
+  if (!direct?.materials?.length) {
+    clearProductionUi();
+    return;
+  }
   const chain =
-    settings.upgradeChainEnabled && direct.detail?.upgradeItemHrid
+    !isEnhancing &&
+    settings.upgradeChainEnabled &&
+    direct.detail?.upgradeItemHrid
       ? procurement.calculateUpgradeChain(context.actionHrid, context.count)
       : null;
   const materials = chain?.leaves?.length ? chain.leaves : direct.materials;
   const signature = JSON.stringify([
+    isEnhancing ? "enhancing" : "production",
+    runtime.config.isZH,
     context.actionHrid,
     context.count,
     settings.badgesEnabled,
@@ -880,9 +1038,9 @@ function renderProductionProcurement() {
       : materials;
     const result = procurement.addRequirementsToCart(
       selectedMaterials,
-      "production",
+      isEnhancing ? "enhancing" : "production",
     );
-    if (settings.createPlansByDefault && result.added > 0) {
+    if (!isEnhancing && settings.createPlansByDefault && result.added > 0) {
       procurement.createPlan(
         context.actionHrid,
         context.count,
@@ -916,9 +1074,9 @@ function renderProductionProcurement() {
     details.append(heading, list);
     root.append(details);
   }
-  const existingSummary = context.panel.querySelector(
-    "#mwi-production-summary",
-  );
+  const existingSummary = isEnhancing
+    ? null
+    : context.panel.querySelector("#mwi-production-summary");
   if (existingSummary) existingSummary.append(root);
   else {
     const anchor =

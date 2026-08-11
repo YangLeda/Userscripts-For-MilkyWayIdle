@@ -45,7 +45,7 @@ const {
 function gameShell() {
   const shell = document.createElement("main");
   shell.innerHTML = `
-    <nav><button type="button">库存</button><button type="button" id="loadout">配装 <span>0</span></button></nav>
+    <nav><button type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">库存</button><button type="button" id="loadout" aria-selected="false">配装 <span>0</span></button></nav>
     <section class="Inventory_panel__test"><input placeholder="物品搜索"></section>
   `;
   document.body.appendChild(shell);
@@ -143,6 +143,14 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   );
 
   tab.click();
+  const inventoryTab = shell.querySelector("nav button");
+  assert.equal(tab.getAttribute("aria-selected"), "true");
+  assert.equal(inventoryTab.getAttribute("aria-selected"), "false");
+  assert.equal(inventoryTab.dataset.active, "false");
+  assert.equal(
+    inventoryTab.classList.contains("NavigationTabs_selected__test"),
+    false,
+  );
   assert.equal(nativeContent.hidden, true);
   assert.equal(
     document.querySelector("#mwitools-asset-history-panel").hidden,
@@ -158,7 +166,13 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   const currentTotal = document.querySelector("#mwi-asset-current-total");
   assert.equal(currentTotal.textContent, "1.23M");
   assert.equal(currentTotal.title, "1,234,567");
-  shell.querySelector("nav button").click();
+  inventoryTab.click();
+  assert.equal(inventoryTab.getAttribute("aria-selected"), "true");
+  assert.equal(inventoryTab.dataset.active, "true");
+  assert.equal(
+    inventoryTab.classList.contains("NavigationTabs_selected__test"),
+    true,
+  );
   assert.equal(nativeContent.hidden, false);
   assert.equal(
     document.querySelector("#mwitools-asset-history-panel").hidden,

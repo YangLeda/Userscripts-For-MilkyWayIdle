@@ -1031,6 +1031,16 @@
       desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
       isTrue: true
     },
+    semiAutoTrain: {
+      id: "semiAutoTrain",
+      desc: isZH ? "生产升级链显示半自动火车、逐站预填和本步加购" : "Show semi-automatic train navigation, step prefilling, and step shopping.",
+      isTrue: true
+    },
+    taskTrainPlanner: {
+      id: "taskTrainPlanner",
+      desc: isZH ? "任务页按升级链合并任务并规划火车（依赖半自动火车）" : "Plan task upgrade trains by chain (requires the semi-automatic train).",
+      isTrue: true
+    },
     taskNewBadge: {
       id: "taskNewBadge",
       desc: isZH ? "新领取任务置顶并显示高亮和新角标" : "Pin and highlight newly received tasks.",
@@ -1428,6 +1438,22 @@
       "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon."
     ],
     [
+      "semiAutoTrain",
+      "tasks",
+      "半自动火车",
+      "Semi-automatic train",
+      "沿制造与升级链逐站跳转、预填次数；点击游戏原生加入队列后前往下一站，并可把本步净缺料加入购物车。",
+      "Navigate production and upgrade chains, prefill counts, advance after the native queue action, and add each stop's net shortages to the cart."
+    ],
+    [
+      "taskTrainPlanner",
+      "tasks",
+      "任务火车规划",
+      "Task train planning",
+      "聚合同一升级链的未完成任务，在最高级任务卡生成火车计划；依赖半自动火车。",
+      "Combine unfinished tasks from the same upgrade chain and start the plan from its highest-level task; requires the semi-automatic train."
+    ],
+    [
       "taskNewBadge",
       "tasks",
       "新任务置顶与标记",
@@ -1665,6 +1691,7 @@
     taskClaimCollector: "taskInsights",
     taskMergeActions: "taskInsights",
     taskNewBadge: "taskInsights",
+    taskTrainPlanner: "semiAutoTrain",
     guildOverview: "guildXpTracking",
     guildMemberXp: "guildXpTracking",
     guildLeaderboardXp: "guildXpTracking",
@@ -18779,13 +18806,66 @@
       count: (Number(drop.dropRate ?? 1) || 0) * ((Number(drop.minCount ?? drop.count ?? 0) + Number(drop.maxCount ?? drop.count ?? 0)) / 2)
     }));
   }
+  function getProcessingProductMap() {
+    const result = /* @__PURE__ */ new Map();
+    for (const [actionHrid, detail] of Object.entries(
+      runtime.state.initData_actionDetailMap ?? {}
+    )) {
+      if (!/(?:fabric|lumber|cheese)$/.test(actionHrid)) continue;
+      const input = asArray(detail?.inputItems)[0];
+      const output = asArray(detail?.outputItems)[0];
+      const inputCount = Number(input?.count) || 0;
+      if (!input?.itemHrid || !output?.itemHrid || inputCount <= 0) continue;
+      result.set(input.itemHrid, {
+        itemHrid: output.itemHrid,
+        inputCount
+      });
+    }
+    if (!result.has("/items/rainbow_milk")) {
+      result.set("/items/rainbow_milk", {
+        itemHrid: "/items/rainbow_cheese",
+        inputCount: 2
+      });
+    }
+    return result;
+  }
+  function getEffectiveOutputs(detail, teaEffects) {
+    const quantityMultiplier = 1 + Math.max(0, teaEffects?.quantity ?? 0);
+    const processingRate = Math.min(
+      1,
+      Math.max(0, teaEffects?.upgradedProduct ?? 0)
+    );
+    const processingMap = processingRate > 0 ? getProcessingProductMap() : null;
+    const result = [];
+    for (const output of getExpectedOutputs(detail)) {
+      const processing = processingMap?.get(output.itemHrid);
+      const baseCount = Number(output.count) || 0;
+      const rawCount = baseCount * quantityMultiplier * (processing ? 1 - processingRate : 1);
+      if (rawCount > 0) {
+        result.push({ ...output, baseCount, count: rawCount });
+      }
+      if (processing) {
+        const processedCount = baseCount * quantityMultiplier * processingRate / processing.inputCount;
+        if (processedCount > 0) {
+          result.push({
+            itemHrid: processing.itemHrid,
+            baseCount: 0,
+            count: processedCount,
+            kind: "processed",
+            processedFromItemHrid: output.itemHrid
+          });
+        }
+      }
+    }
+    return result;
+  }
   function getDirectInputs(detail) {
     const inputs = asArray(detail?.inputItems).map((item) => ({
       itemHrid: item.itemHrid,
       count: Number(item.count) || 0,
-      isUpgradeItem: false
+      isUpgradeItem: item.itemHrid === detail?.upgradeItemHrid
     }));
-    if (detail?.upgradeItemHrid) {
+    if (detail?.upgradeItemHrid && !inputs.some((input) => input.itemHrid === detail.upgradeItemHrid)) {
       inputs.push({
         itemHrid: detail.upgradeItemHrid,
         count: 1,
@@ -19094,9 +19174,8 @@
     }
     const secondsPerAction = timing?.secondsPerAction ?? null;
     const inputs = getDirectInputs(detail);
-    const outputs = getExpectedOutputs(detail);
+    const outputs = getEffectiveOutputs(detail, teaEffects);
     const lessResource = teaEffects.lessResource;
-    const quantityBonus = teaEffects.quantity;
     let maxCraftable = Infinity;
     for (const input of inputs) {
       const effectiveCount = input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
@@ -19108,9 +19187,10 @@
       }
     }
     if (!inputs.length) maxCraftable = Infinity;
-    const executableCount = respectInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
+    const canApplyInventoryLimit = respectInventoryLimit && !(infinite && maxCraftable === 0);
+    const executableCount = canApplyInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
-    const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && (infinite || maxCraftable < normalizedCount);
+    const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
     const valuationMode = "fair";
     const optionalOutputs = getOptionalOutputs(actionHrid, detail);
     const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
@@ -19125,7 +19205,7 @@
         return total + (price === null ? 0 : effectiveCount * price);
       }, 0);
       const primaryRevenuePerAction = outputs.reduce((total, output) => {
-        const effectiveCount = output.count * (1 + quantityBonus);
+        const effectiveCount = output.count;
         const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
         if (priceInfo.value === null) missingPrices2.push(output.itemHrid);
         if (!priceInfo.complete && priceInfo.value !== null) {
@@ -19191,12 +19271,12 @@
       };
     });
     const outputDetails = outputs.map((output) => {
-      const effectiveCount = output.count * (1 + quantityBonus);
+      const effectiveCount = output.count;
       const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
       const unitPrice = priceInfo.value;
       return {
         ...output,
-        baseCount: output.count,
+        baseCount: output.baseCount ?? output.count,
         effectiveCount,
         expectedCount: effectiveCount * (effectivelyInfinite ? 1 : executableCount),
         kind: "primary",
@@ -19931,6 +20011,13 @@
       }))
     );
   }
+  function aggregateRequirements(requirementGroups) {
+    const materials = /* @__PURE__ */ new Map();
+    for (const group of requirementGroups ?? []) {
+      for (const material of group ?? []) mergeMaterial(materials, material);
+    }
+    return [...materials.values()];
+  }
   function setCartItemQuantity(itemHrid, quantity, enhancementLevel = 0) {
     const key = itemKey(itemHrid, enhancementLevel);
     const row = cart.get(key);
@@ -20276,6 +20363,7 @@
       getProducerAction,
       calculateUpgradeChain,
       selectUpgradeChainMaterials,
+      aggregateRequirements,
       getCartItems,
       getCartItem,
       addToCart,
@@ -20296,6 +20384,283 @@
       publicApi
     }
   });
+
+  // src/core/train-planning.js
+  var MAX_TRAIN_DEPTH = 50;
+  function positiveNumber(value) {
+    const number2 = Number(value);
+    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+  }
+  function normalizeItemHrid2(value) {
+    return runtime.api.procurement?.normalizeItemHrid?.(value) ?? String(value ?? "");
+  }
+  function primaryOutput(detail) {
+    const output = runtime.api.getExpectedOutputs?.(detail)?.[0];
+    const itemHrid = normalizeItemHrid2(output?.itemHrid);
+    return itemHrid ? { itemHrid, count: positiveNumber(output?.count) || 1 } : null;
+  }
+  function actionEntries() {
+    return Object.entries(runtime.state.initData_actionDetailMap ?? {});
+  }
+  function findUpgradeActionToItem(itemHrid) {
+    const target = normalizeItemHrid2(itemHrid);
+    for (const [fallbackHrid, detail] of actionEntries()) {
+      if (!detail?.upgradeItemHrid) continue;
+      const output = primaryOutput(detail);
+      if (output?.itemHrid !== target) continue;
+      return {
+        actionHrid: detail.hrid ?? fallbackHrid,
+        detail,
+        output,
+        inputHrid: normalizeItemHrid2(detail.upgradeItemHrid)
+      };
+    }
+    return null;
+  }
+  function findBaseActionForItem(itemHrid) {
+    const target = normalizeItemHrid2(itemHrid);
+    for (const [fallbackHrid, detail] of actionEntries()) {
+      if (detail?.upgradeItemHrid) continue;
+      const output = primaryOutput(detail);
+      if (output?.itemHrid !== target) continue;
+      return {
+        actionHrid: detail.hrid ?? fallbackHrid,
+        detail,
+        output
+      };
+    }
+    return null;
+  }
+  function inputCountFor(detail, itemHrid) {
+    const target = normalizeItemHrid2(itemHrid);
+    return (runtime.api.getDirectInputs?.(detail) ?? []).reduce(
+      (total, input) => normalizeItemHrid2(input?.itemHrid) === target ? total + positiveNumber(input?.count) : total,
+      0
+    );
+  }
+  function normalizeRows(value) {
+    if (Array.isArray(value)) return value;
+    if (value?.itemHrid || value?.hrid) return [value];
+    return Object.entries(value ?? {}).map(([itemHrid, count]) => ({
+      itemHrid,
+      count: count?.count ?? count
+    }));
+  }
+  function shopRewards(detail) {
+    const explicit = detail?.itemRewards ?? detail?.rewards ?? detail?.rewardItems;
+    if (explicit) return normalizeRows(explicit);
+    const itemHrid = detail?.itemHrid ?? detail?.rewardItemHrid ?? detail?.item?.itemHrid;
+    return itemHrid ? [
+      {
+        itemHrid,
+        count: detail?.outputCount ?? detail?.itemCount ?? detail?.rewardCount ?? 1
+      }
+    ] : [];
+  }
+  function findCoinShopOffer(itemHrid) {
+    const target = normalizeItemHrid2(itemHrid);
+    let best = null;
+    for (const [fallbackHrid, detail] of Object.entries(
+      runtime.state.initData_shopItemDetailMap ?? {}
+    )) {
+      const rewardCount = shopRewards(detail).reduce(
+        (total, reward) => normalizeItemHrid2(reward?.itemHrid ?? reward?.hrid) === target ? total + positiveNumber(reward?.count ?? 1) : total,
+        0
+      );
+      if (!rewardCount) continue;
+      const costs = normalizeRows(
+        detail?.costs ?? detail?.costItems ?? detail?.cost
+      ).filter((cost) => positiveNumber(cost?.count) > 0);
+      if (!costs.length || costs.some(
+        (cost) => normalizeItemHrid2(cost?.itemHrid ?? cost?.hrid) !== "/items/coin"
+      )) {
+        continue;
+      }
+      const coinCost = costs.reduce(
+        (total, cost) => total + positiveNumber(cost?.count),
+        0
+      );
+      const unitPrice = coinCost / rewardCount;
+      if (!unitPrice || best && best.unitPrice <= unitPrice) continue;
+      best = {
+        shopHrid: detail?.hrid ?? detail?.shopItemHrid ?? fallbackHrid,
+        itemHrid: target,
+        rewardCount,
+        unitPrice,
+        detail
+      };
+    }
+    return best;
+  }
+  function buildTrainChain(topItemHrid) {
+    const steps = [];
+    const visited = /* @__PURE__ */ new Set();
+    let current = normalizeItemHrid2(topItemHrid);
+    let cycle = false;
+    let truncated = false;
+    while (current) {
+      if (visited.has(current)) {
+        cycle = true;
+        break;
+      }
+      if (steps.length >= MAX_TRAIN_DEPTH) {
+        truncated = true;
+        break;
+      }
+      visited.add(current);
+      const upgrade = findUpgradeActionToItem(current);
+      if (!upgrade) break;
+      steps.unshift({
+        kind: "upgrade",
+        actionHrid: upgrade.actionHrid,
+        outputHrid: current,
+        outputCount: upgrade.output.count,
+        inputHrid: upgrade.inputHrid,
+        inputCount: inputCountFor(upgrade.detail, upgrade.inputHrid) || 1,
+        detail: upgrade.detail
+      });
+      current = upgrade.inputHrid;
+    }
+    if (current && steps.length) {
+      const base = findBaseActionForItem(current);
+      if (base) {
+        steps.unshift({
+          kind: "craft",
+          actionHrid: base.actionHrid,
+          outputHrid: current,
+          outputCount: base.output.count,
+          inputHrid: null,
+          inputCount: 0,
+          detail: base.detail
+        });
+      } else {
+        const offer = findCoinShopOffer(current);
+        if (offer) {
+          steps.unshift({
+            kind: "shop",
+            actionHrid: null,
+            outputHrid: current,
+            outputCount: 1,
+            inputHrid: null,
+            inputCount: 0,
+            shopHrid: offer.shopHrid,
+            shopOffer: offer,
+            detail: null
+          });
+        }
+      }
+    }
+    return { steps, cycle, truncated };
+  }
+  function demandCount(taskCounts, itemHrid) {
+    if (taskCounts instanceof Map)
+      return positiveNumber(taskCounts.get(itemHrid));
+    return positiveNumber(taskCounts?.[itemHrid]);
+  }
+  function planTrainCounts(chain, taskCounts = {}) {
+    const procurement2 = runtime.api.procurement;
+    const planned = chain.steps.map((step) => ({ ...step, count: 0 }));
+    let requiredByAbove = 0;
+    for (let index = planned.length - 1; index >= 0; index -= 1) {
+      const step = planned[index];
+      const inventory = positiveNumber(
+        procurement2?.getInventoryCount?.(step.outputHrid, 0)
+      );
+      const shortageUnits = Math.max(0, requiredByAbove - inventory);
+      const ownActions = Math.ceil(demandCount(taskCounts, step.outputHrid));
+      step.requiredByAbove = requiredByAbove;
+      step.inventory = inventory;
+      step.shortageUnits = shortageUnits;
+      step.count = step.kind === "shop" ? Math.max(ownActions, Math.ceil(shortageUnits)) : Math.max(
+        ownActions,
+        Math.ceil(shortageUnits / (positiveNumber(step.outputCount) || 1))
+      );
+      step.plannedOutput = step.count * (positiveNumber(step.outputCount) || 1);
+      requiredByAbove = step.inputHrid ? step.count * (positiveNumber(step.inputCount) || 1) : 0;
+    }
+    return { ...chain, steps: planned };
+  }
+  function applyShopPreference(plan, taskCounts = {}) {
+    const root = plan.steps[0];
+    if (root?.kind !== "craft" || demandCount(taskCounts, root.outputHrid) > 0 || root.count <= 0) {
+      return plan;
+    }
+    const offer = findCoinShopOffer(root.outputHrid);
+    if (!offer) return plan;
+    const askPrice = positiveNumber(
+      runtime.api.getAskPrice?.(root.outputHrid, 0)
+    );
+    if (askPrice && offer.unitPrice > askPrice) return plan;
+    return {
+      ...plan,
+      steps: [
+        {
+          ...root,
+          kind: "shop",
+          actionHrid: null,
+          outputCount: 1,
+          count: Math.ceil(root.shortageUnits),
+          plannedOutput: Math.ceil(root.shortageUnits),
+          shopHrid: offer.shopHrid,
+          shopOffer: offer,
+          detail: null
+        },
+        ...plan.steps.slice(1)
+      ]
+    };
+  }
+  function createTrainPlan(topItemHrid, taskCounts = {}, options = {}) {
+    const chain = buildTrainChain(topItemHrid);
+    const planned = planTrainCounts(chain, taskCounts);
+    return options.preferShop === false ? planned : applyShopPreference(planned, taskCounts);
+  }
+  function trainChainRoot(itemHrid) {
+    let current = normalizeItemHrid2(itemHrid);
+    const visited = /* @__PURE__ */ new Set();
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const upgrade = findUpgradeActionToItem(current);
+      if (!upgrade) break;
+      current = upgrade.inputHrid;
+    }
+    return current;
+  }
+  function trainChainDepth(itemHrid) {
+    let current = normalizeItemHrid2(itemHrid);
+    const visited = /* @__PURE__ */ new Set();
+    let depth = 0;
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      const upgrade = findUpgradeActionToItem(current);
+      if (!upgrade) break;
+      current = upgrade.inputHrid;
+      depth += 1;
+    }
+    if (depth) return depth;
+    return actionEntries().some(
+      ([, detail]) => normalizeItemHrid2(detail?.upgradeItemHrid) === current
+    ) ? 0 : -1;
+  }
+  function parseTrainCount(raw) {
+    const match = String(raw ?? "").trim().toLowerCase().match(/^(\d+(?:\.\d+)?)([kmb])?$/);
+    if (!match) return null;
+    const multiplier = { k: 1e3, m: 1e6, b: 1e9 }[match[2]] ?? 1;
+    const count = Math.floor(Number(match[1]) * multiplier);
+    return Number.isFinite(count) && count > 0 ? count : null;
+  }
+  var trainPlanning = {
+    findUpgradeActionToItem,
+    findBaseActionForItem,
+    findCoinShopOffer,
+    buildTrainChain,
+    planTrainCounts,
+    applyShopPreference,
+    createTrainPlan,
+    trainChainRoot,
+    trainChainDepth,
+    parseTrainCount
+  };
+  runtime.api.trainPlanning = trainPlanning;
 
   // src/core/xp-history.js
   var DB_NAME = "MWIToolsHistory";
@@ -20453,10 +20818,11 @@
     "/items/labyrinth_token"
   ]);
   var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
+  var MAX_ACQUISITION_DEPTH = 12;
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
-  function positiveNumber(value) {
+  function positiveNumber2(value) {
     const number2 = Number(value);
     return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
   }
@@ -20532,8 +20898,8 @@
       if (!(materialValue > 0)) continue;
       for (const conversion of detail?.guildCreditConversions ?? []) {
         if (conversion?.creditItemHrid !== creditItemHrid) continue;
-        const itemCount = positiveNumber(conversion.itemCount);
-        const creditCount = positiveNumber(conversion.creditCount);
+        const itemCount = positiveNumber2(conversion.itemCount);
+        const creditCount = positiveNumber2(conversion.creditCount);
         if (!itemCount || !creditCount) continue;
         bestValue = Math.min(
           bestValue,
@@ -20548,10 +20914,10 @@
     let bestValue = 0;
     for (const conversion of detail?.guildCreditConversions ?? []) {
       const creditItemHrid = conversion?.creditItemHrid;
-      const tokenCount = positiveNumber(
+      const tokenCount = positiveNumber2(
         conversion?.guildTokenCount ?? conversion?.itemCount
       );
-      const creditCount = positiveNumber(conversion?.creditCount);
+      const creditCount = positiveNumber2(conversion?.creditCount);
       if (!creditItemHrid || !tokenCount || !creditCount) continue;
       const creditValue = getAssetValueInternal(creditItemHrid, 0, context);
       if (!(creditValue > 0)) continue;
@@ -20584,7 +20950,14 @@
       );
       total += expectedCount * value;
     }
-    return total;
+    const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
+    if (!keyItemHrid) return total;
+    const keyValue = getAssetValueInternal(keyItemHrid, 0, context);
+    if (!(keyValue > 0)) return 0;
+    return Math.max(0, total - keyValue);
+  }
+  function isPersonalBuffScroll(itemHrid) {
+    return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
   }
   function normalizeCostRecords(detail) {
     const raw = detail?.costs ?? detail?.costItems ?? detail?.cost;
@@ -20617,6 +20990,10 @@
   }
   function acquisitionCostValue(itemHrid, enhancementLevel, context) {
     if (itemHrid === "/items/coin") return 1;
+    const acquisitionDepth = [...context].filter(
+      (key) => String(key).endsWith(":acquisition")
+    ).length;
+    if (acquisitionDepth >= MAX_ACQUISITION_DEPTH) return 0;
     return getAssetValueInternal(itemHrid, enhancementLevel, context, {
       forceAcquisitionValue: true
     });
@@ -20628,13 +21005,13 @@
       const matchingCount = rewards.reduce((total, reward) => {
         const rewardHrid = reward?.itemHrid ?? reward?.hrid;
         const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
-        return rewardHrid === itemHrid && rewardLevel === enhancementLevel ? total + positiveNumber(reward.count ?? 1) : total;
+        return rewardHrid === itemHrid && rewardLevel === enhancementLevel ? total + positiveNumber2(reward.count ?? 1) : total;
       }, 0);
       if (!matchingCount) continue;
       let totalCost = 0, complete = true;
       for (const cost of normalizeCostRecords(detail)) {
         const costHrid = cost?.itemHrid ?? cost?.hrid;
-        const count = positiveNumber(cost?.count);
+        const count = positiveNumber2(cost?.count);
         if (!costHrid || !count) continue;
         const unitValue = acquisitionCostValue(
           costHrid,
@@ -20662,7 +21039,7 @@
       const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
       const outputCount = outputs.reduce((total, output) => {
         const outputHrid = output?.itemHrid ?? output?.hrid;
-        return outputHrid === itemHrid ? total + positiveNumber(output.count ?? 1) : total;
+        return outputHrid === itemHrid ? total + positiveNumber2(output.count ?? 1) : total;
       }, 0);
       const baseItemHrid = action?.upgradeItemHrid;
       if (!outputCount || !baseItemHrid) continue;
@@ -20670,7 +21047,7 @@
       let totalCost = acquisitionCostValue(baseItemHrid, retainedLevel, context), complete = totalCost > 0;
       for (const cost of action.inputItems ?? []) {
         const costHrid = cost?.itemHrid ?? cost?.hrid;
-        const count = positiveNumber(cost?.count);
+        const count = positiveNumber2(cost?.count);
         if (!costHrid || !count) continue;
         const unitValue = acquisitionCostValue(
           costHrid,
@@ -20689,6 +21066,56 @@
     }
     return Number.isFinite(bestValue) ? bestValue : 0;
   }
+  function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
+    let bestValue = Number.POSITIVE_INFINITY;
+    for (const [, action] of entriesOfMap(
+      runtime.state.initData_actionDetailMap
+    )) {
+      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
+      const outputCount = outputs.reduce((total, output) => {
+        const outputHrid = output?.itemHrid ?? output?.hrid;
+        const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
+        return outputHrid === itemHrid && outputLevel === enhancementLevel ? total + positiveNumber2(output.count ?? 1) : total;
+      }, 0);
+      if (!outputCount) continue;
+      let totalCost = 0;
+      let complete = true;
+      const inputItems = action?.inputItems ?? [];
+      const upgradeItemHrid = action?.upgradeItemHrid;
+      const upgradeIncludedInInputs = inputItems.some(
+        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid
+      );
+      if (upgradeItemHrid && !upgradeIncludedInInputs) {
+        const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
+        const upgradeValue = acquisitionCostValue(
+          upgradeItemHrid,
+          retainedLevel,
+          context
+        );
+        if (!(upgradeValue > 0)) complete = false;
+        else totalCost += upgradeValue;
+      }
+      for (const input of inputItems) {
+        const inputHrid = input?.itemHrid ?? input?.hrid;
+        const count = positiveNumber2(input?.count);
+        if (!inputHrid || !count) continue;
+        const inputValue = acquisitionCostValue(
+          inputHrid,
+          Number(input?.enhancementLevel ?? 0) || 0,
+          context
+        );
+        if (!(inputValue > 0)) {
+          complete = false;
+          break;
+        }
+        totalCost += count * inputValue;
+      }
+      if (complete && totalCost > 0) {
+        bestValue = Math.min(bestValue, totalCost / outputCount);
+      }
+    }
+    return Number.isFinite(bestValue) ? bestValue : 0;
+  }
   function getEnhancedEquipmentCost(itemHrid, enhancementLevel, context, options = {}) {
     if (!(enhancementLevel > 0) || !isEquipment(itemHrid) || typeof runtime.api.calculateEnhancementPlan !== "function") {
       return 0;
@@ -20699,12 +21126,9 @@
       targetLevel: enhancementLevel,
       forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: !backEquipment,
-      getFairValue: (hrid, level = 0) => {
-        const marketValue = runtime.api.getFairValue(hrid, level);
-        return marketValue > 0 ? marketValue : acquisitionCostValue(hrid, level, context);
-      }
+      getFairValue: (hrid, level = 0) => acquisitionCostValue(hrid, level, context)
     });
-    return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
+    return plan?.status === "complete" ? positiveNumber2(plan.totalCost) : 0;
   }
   function getShopCurrencyValue(currencyItemHrid, context) {
     let bestValue = 0;
@@ -20713,19 +21137,19 @@
       const targetCost = costs.find(
         (cost) => (cost?.itemHrid ?? cost?.hrid) === currencyItemHrid
       );
-      const targetCount = positiveNumber(targetCost?.count);
+      const targetCount = positiveNumber2(targetCost?.count);
       if (!targetCount) continue;
       let rewardValue2 = 0;
       for (const reward of normalizeRewardRecords(detail)) {
         const itemHrid = reward?.itemHrid ?? reward?.hrid;
         if (!itemHrid) continue;
-        rewardValue2 += positiveNumber(reward.count ?? 1) * getAssetValueInternal(itemHrid, reward.enhancementLevel ?? 0, context);
+        rewardValue2 += positiveNumber2(reward.count ?? 1) * getAssetValueInternal(itemHrid, reward.enhancementLevel ?? 0, context);
       }
       let otherCostValue = 0;
       for (const cost of costs) {
         const itemHrid = cost?.itemHrid ?? cost?.hrid;
         if (!itemHrid || itemHrid === currencyItemHrid) continue;
-        otherCostValue += positiveNumber(cost.count) * getAssetValueInternal(itemHrid, 0, context);
+        otherCostValue += positiveNumber2(cost.count) * getAssetValueInternal(itemHrid, 0, context);
       }
       bestValue = Math.max(
         bestValue,
@@ -20782,6 +21206,10 @@
       assetValueCache.set(cacheKey, directFairValue);
       return directFairValue;
     }
+    if (directFairValue <= 0 && isPersonalBuffScroll(itemHrid)) {
+      assetValueCache.set(cacheKey, 0);
+      return 0;
+    }
     context.add(cacheKey);
     let value = 0;
     if (itemHrid === "/items/cowbell") {
@@ -20793,16 +21221,31 @@
     } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
       value = getShopCurrencyValue(itemHrid, context);
     } else {
-      value = Math.max(
-        !backEquipment || preferAcquisitionValue ? getShopAcquisitionValue(itemHrid, level, context) : 0,
-        getRefinedAcquisitionValue(itemHrid, level, context),
-        getOpenableValue(itemHrid, context)
-      );
+      if (preferAcquisitionValue) {
+        const candidates = [
+          directFairValue,
+          getShopAcquisitionValue(itemHrid, level, context),
+          getCraftedAcquisitionValue(itemHrid, level, context),
+          getRefinedAcquisitionValue(itemHrid, level, context)
+        ].filter((candidate) => candidate > 0);
+        value = candidates.length ? Math.min(...candidates) : 0;
+      } else {
+        value = Math.max(
+          !backEquipment ? getShopAcquisitionValue(itemHrid, level, context) : 0,
+          getRefinedAcquisitionValue(itemHrid, level, context),
+          getOpenableValue(itemHrid, context)
+        );
+      }
     }
     context.delete(cacheKey);
+    const keyedOpenable = Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) && getDropRecords(itemHrid).length > 0;
+    if (keyedOpenable && !(value > 0)) {
+      assetValueCache.set(cacheKey, 0);
+      return 0;
+    }
     if (!(value > 0)) value = directFairValue;
     if (!(value > 0)) {
-      value = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+      value = positiveNumber2(getItemDetails(itemHrid)?.sellPrice);
     }
     const normalizedValue = Number.isFinite(value) && value > 0 ? value : 0;
     assetValueCache.set(cacheKey, normalizedValue);
@@ -20813,16 +21256,16 @@
   }
   function directLiquidationValue(itemHrid, enhancementLevel, mode) {
     if (mode === "conservative") {
-      return positiveNumber(
+      return positiveNumber2(
         runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel)
       );
     }
     if (mode === "aggressive") {
-      return positiveNumber(
+      return positiveNumber2(
         runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
       );
     }
-    const fairValue = positiveNumber(
+    const fairValue = positiveNumber2(
       runtime.api.getFairValue?.(itemHrid, enhancementLevel)
     );
     if (!fairValue) return 0;
@@ -20830,7 +21273,7 @@
     return fairValue * Math.max(0, 1 - taxRate);
   }
   function liquidationResult(value, source, missingItemHrids = []) {
-    const normalizedValue = positiveNumber(value);
+    const normalizedValue = positiveNumber2(value);
     const missing = [...new Set(missingItemHrids.filter(Boolean))];
     return {
       value: normalizedValue,
@@ -20852,8 +21295,8 @@
       if (!itemHrid || itemHrid === "/items/guild_token") continue;
       for (const conversion of detail?.guildCreditConversions ?? []) {
         if (conversion?.creditItemHrid !== creditItemHrid) continue;
-        const itemCount = positiveNumber(conversion.itemCount);
-        const creditCount = positiveNumber(conversion.creditCount);
+        const itemCount = positiveNumber2(conversion.itemCount);
+        const creditCount = positiveNumber2(conversion.creditCount);
         if (!itemCount || !creditCount) continue;
         const material = getAssetLiquidationValueInternal(
           itemHrid,
@@ -20882,10 +21325,10 @@
     let bestResult = null;
     for (const conversion of detail?.guildCreditConversions ?? []) {
       const creditItemHrid = conversion?.creditItemHrid;
-      const tokenCount = positiveNumber(
+      const tokenCount = positiveNumber2(
         conversion?.guildTokenCount ?? conversion?.itemCount
       );
-      const creditCount = positiveNumber(conversion?.creditCount);
+      const creditCount = positiveNumber2(conversion?.creditCount);
       if (!creditItemHrid || !tokenCount || !creditCount) continue;
       const credit = getAssetLiquidationValueInternal(
         creditItemHrid,
@@ -20915,7 +21358,7 @@
       const targetCost = costs.find(
         (cost) => (cost?.itemHrid ?? cost?.hrid) === currencyItemHrid
       );
-      const targetCount = positiveNumber(targetCost?.count);
+      const targetCount = positiveNumber2(targetCost?.count);
       if (!targetCount) continue;
       const results = [];
       let rewardValue2 = 0;
@@ -20929,7 +21372,7 @@
           context
         );
         results.push(result);
-        rewardValue2 += positiveNumber(reward.count ?? 1) * result.value;
+        rewardValue2 += positiveNumber2(reward.count ?? 1) * result.value;
       }
       let otherCostValue = 0;
       for (const cost of costs) {
@@ -20942,7 +21385,7 @@
           context
         );
         results.push(result);
-        otherCostValue += positiveNumber(cost.count) * result.value;
+        otherCostValue += positiveNumber2(cost.count) * result.value;
       }
       const value = Math.max(0, rewardValue2 - otherCostValue) / targetCount;
       if (value > bestValue) {
@@ -20979,6 +21422,31 @@
       );
       results.push(result);
       total += dropRate * (minimum + maximum) * 0.5 * result.value;
+    }
+    const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
+    if (keyItemHrid) {
+      const keyResult = getAssetLiquidationValueInternal(
+        keyItemHrid,
+        0,
+        mode,
+        context
+      );
+      results.push(keyResult);
+      if (!(keyResult.value > 0)) {
+        return liquidationResult(0, "missing", [
+          ...mergeLiquidationMissing(results),
+          keyItemHrid
+        ]);
+      }
+      total = Math.max(0, total - keyResult.value);
+    }
+    if (!(total > 0) && results.every((result) => result.complete)) {
+      return {
+        value: 0,
+        complete: true,
+        source: "openable",
+        missingItemHrids: []
+      };
     }
     return liquidationResult(total, "openable", mergeLiquidationMissing(results));
   }
@@ -21023,8 +21491,9 @@
       result = getOpenableLiquidationValue(itemHrid, normalizedMode, context);
     }
     context.delete(cacheKey);
-    if (!(result.value > 0)) {
-      const sellPrice = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+    const keyedOpenable = Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) && getDropRecords(itemHrid).length > 0;
+    if (!(result.value > 0) && result.source === "missing" && !keyedOpenable) {
+      const sellPrice = positiveNumber2(getItemDetails(itemHrid)?.sellPrice);
       result = sellPrice ? liquidationResult(sellPrice, "sell-price") : liquidationResult(0, "missing", [...result.missingItemHrids, itemHrid]);
     }
     assetLiquidationCache.set(cacheKey, result);
@@ -21061,14 +21530,14 @@
       for (let level = 1; level <= currentLevel; level += 1) {
         const cost = levelCosts[level] ?? levelCosts[String(level)];
         if (!cost) return null;
-        const guildTokenCount = positiveNumber(cost.guildTokenCost);
+        const guildTokenCount = positiveNumber2(cost.guildTokenCost);
         if (guildTokenCount) {
           const tokenValue = getAssetValue("/items/guild_token", 0);
           if (!(tokenValue > 0)) return null;
           total += guildTokenCount * tokenValue;
         }
         for (const creditCost of cost.creditCosts ?? []) {
-          const count = positiveNumber(creditCost?.count);
+          const count = positiveNumber2(creditCost?.count);
           if (!count) continue;
           const creditValue = getAssetValue(creditCost.itemHrid, 0);
           if (!(creditValue > 0)) return null;
@@ -21867,17 +22336,14 @@
     if (options.dpsWasPresent ?? dpsWasPresentAtLoad) {
       duplicates.push("银河奶牛 DPS 统计 / Galaxy Cow DPS");
     }
-    if (target.kbd_calculateTotalNetworth || target.__everyday_profit_plus_interval__ || documentRef?.querySelector(".deltaNetworthDiv,#deltaNetworthChartModal")) {
+    if (target.kbd_calculateTotalNetworth || target.__everyday_profit_plus_interval__ || documentRef?.querySelector(
+      ".deltaNetworthDiv,#deltaNetworthChartModal,#refreshNetworthIcon,.epPrecisionHintActions,#everyday-profit-chartjs,#everyday-profit-zoom,#everyday-profit-crosshair"
+    )) {
       duplicates.push("Everyday Profit Plus Fixed");
     }
     return duplicates;
   }
-  function showDuplicateWarning(duplicates, {
-    documentRef = globalThis.document,
-    isZH: isZH2 = runtime.config.isZH,
-    durationMs = 5e3,
-    schedule = setTimeout
-  } = {}) {
+  function showDuplicateWarning(duplicates, { documentRef = globalThis.document, isZH: isZH2 = runtime.config.isZH } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
     let warning = documentRef.getElementById(WARNING_ID);
     if (!warning) {
@@ -21897,7 +22363,6 @@
       });
       warning.append(close, documentRef.createElement("div"));
       documentRef.body.append(warning);
-      schedule(() => warning.remove(), Math.min(5e3, durationMs));
     }
     const content = warning.lastElementChild;
     const names = duplicates.join(isZH2 ? "、" : ", ");
@@ -21909,16 +22374,17 @@
     initialize({ scope }) {
       if (warningShown) return;
       const detected = /* @__PURE__ */ new Set();
-      const scan = () => {
+      const scan2 = () => {
         if (warningDismissed) return;
         for (const name of detectDuplicateScripts()) detected.add(name);
         if (!detected.size) return;
         warningShown = true;
         showDuplicateWarning([...detected]);
       };
-      scan();
-      const interval = scope.interval(scan, 250);
-      scope.timeout(() => clearInterval(interval), 3e3);
+      scan2();
+      scope.interval(scan2, 1e3);
+      const observer = new MutationObserver(scan2);
+      scope.observer(observer, document.body, { childList: true, subtree: true });
       scope.add(() => document.getElementById(WARNING_ID)?.remove());
     }
   });
@@ -23188,6 +23654,7 @@ ${preview}`
     let shell2 = null;
     let navigationBranch = null;
     const hiddenNodes = /* @__PURE__ */ new Map();
+    const nativeTabStates = /* @__PURE__ */ new Map();
     const restoreNative = () => {
       for (const [node, state] of hiddenNodes) {
         node.hidden = state.hidden;
@@ -23195,6 +23662,44 @@ ${preview}`
         else node.style.display = state.styleDisplay;
       }
       hiddenNodes.clear();
+    };
+    const restoreNativeTabs = () => {
+      for (const [button, state] of nativeTabStates) {
+        if (!button.isConnected) continue;
+        if (state.className === null) button.removeAttribute("class");
+        else button.setAttribute("class", state.className);
+        for (const [name, value] of Object.entries(state.attributes)) {
+          if (value === null) button.removeAttribute(name);
+          else button.setAttribute(name, value);
+        }
+      }
+      nativeTabStates.clear();
+    };
+    const deactivateNativeTabs = () => {
+      for (const button of tab?.parentElement?.querySelectorAll("button") ?? []) {
+        if (button === tab) continue;
+        if (!nativeTabStates.has(button)) {
+          nativeTabStates.set(button, {
+            className: button.getAttribute("class"),
+            attributes: Object.fromEntries(
+              ["aria-selected", "data-active", "data-selected", "data-state"].map(
+                (name) => [name, button.getAttribute(name)]
+              )
+            )
+          });
+        }
+        button.setAttribute("aria-selected", "false");
+        if (button.hasAttribute("data-active")) button.dataset.active = "false";
+        if (button.hasAttribute("data-selected")) {
+          button.dataset.selected = "false";
+        }
+        if (button.hasAttribute("data-state")) button.dataset.state = "inactive";
+        for (const className of [...button.classList]) {
+          if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+            button.classList.remove(className);
+          }
+        }
+      }
     };
     const setActive = (next) => {
       active = Boolean(next);
@@ -23214,8 +23719,10 @@ ${preview}`
       }
       if (!active) {
         restoreNative();
+        restoreNativeTabs();
         return;
       }
+      deactivateNativeTabs();
       for (const node of [...shell2?.children ?? []]) {
         if (node === navigationBranch || node === host || node.tagName === "STYLE")
           continue;
@@ -23245,6 +23752,7 @@ ${preview}`
       host = null;
       shell2 = null;
       navigationBranch = null;
+      nativeTabStates.clear();
     };
     const mountNative = (loadout, found) => {
       mountMode = "native";
@@ -23253,7 +23761,14 @@ ${preview}`
       tab.id = TAB_ID;
       tab.type = "button";
       tab.textContent = t2("盈亏", "P/L");
+      for (const className of [...tab.classList]) {
+        if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+          tab.classList.remove(className);
+        }
+      }
       tab.dataset.active = "false";
+      if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
+      if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
       tab.setAttribute("aria-selected", "false");
       tab.addEventListener("click", (event) => {
         event.preventDefault();
@@ -24728,15 +25243,15 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      margin: .125rem 0 .375rem;
+      margin: .0625rem 0 .1875rem;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .7rem;
+      font-size: .72rem;
       text-align: left;
     }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: .125rem;
+      gap: .0625rem;
     }
     .mwi-summary-card {
       --mwi-summary-accent: 120, 174, 255;
@@ -24753,17 +25268,19 @@ ${preview}`
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      min-height: 1.5rem;
+      height: 1.125rem;
+      min-height: 0;
+      box-sizing: border-box;
       align-items: center;
-      gap: .25rem;
-      padding: .0625rem .3125rem;
+      gap: .1875rem;
+      padding: 0 .25rem;
       border: 0;
       background: transparent;
       color: inherit;
       font: inherit;
       text-align: left;
       cursor: pointer;
-      transition: background-color .16s ease;
+      transition: none;
     }
     .mwi-summary-toggle:hover { background: rgba(var(--mwi-summary-accent), .075); }
     .mwi-summary-toggle:focus-visible {
@@ -24775,19 +25292,19 @@ ${preview}`
       min-width: 0;
       flex: 1;
       align-items: baseline;
-      gap: .25rem;
+      gap: .1875rem;
     }
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .59rem;
+      font-size: .64rem;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .7rem;
+      font-size: .78rem;
       font-weight: 750;
       line-height: 1.05;
       overflow-wrap: anywhere;
@@ -25606,7 +26123,7 @@ ${preview}`
   function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function positiveNumber2(value) {
+  function positiveNumber3(value) {
     const number2 = Number(value);
     return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
   }
@@ -25658,7 +26175,7 @@ ${preview}`
     return {
       creditItemHrid,
       selectedItemHrid,
-      batchCount: Math.max(1, Math.floor(positiveNumber2(batchInput?.value) || 1))
+      batchCount: Math.max(1, Math.floor(positiveNumber3(batchInput?.value) || 1))
     };
   }
   function collectGuildCreditConversions(creditItemHrid) {
@@ -25669,8 +26186,8 @@ ${preview}`
       const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
       for (const conversion of detail?.guildCreditConversions ?? []) {
         if (conversion?.creditItemHrid !== creditItemHrid) continue;
-        const itemCount = positiveNumber2(conversion.itemCount);
-        const creditCount = positiveNumber2(conversion.creditCount);
+        const itemCount = positiveNumber3(conversion.itemCount);
+        const creditCount = positiveNumber3(conversion.creditCount);
         if (!itemCount || !creditCount) continue;
         result.push({ itemHrid, itemCount, creditCount, detail });
       }
@@ -25680,14 +26197,14 @@ ${preview}`
   function normalizeAsk(order) {
     if (Array.isArray(order)) {
       return {
-        price: positiveNumber2(order[0]),
-        quantity: positiveNumber2(order[1])
+        price: positiveNumber3(order[0]),
+        quantity: positiveNumber3(order[1])
       };
     }
-    const quantity = positiveNumber2(
-      order?.quantity ?? order?.count ?? positiveNumber2(order?.orderQuantity) - positiveNumber2(order?.filledQuantity)
+    const quantity = positiveNumber3(
+      order?.quantity ?? order?.count ?? positiveNumber3(order?.orderQuantity) - positiveNumber3(order?.filledQuantity)
     );
-    return { price: positiveNumber2(order?.price), quantity };
+    return { price: positiveNumber3(order?.price), quantity };
   }
   function quoteGuildCreditAsk(itemHrid, requiredItems) {
     const levelBook = runtime.state.marketOrderBooks?.[itemHrid]?.[0] ?? runtime.state.marketOrderBooks?.[itemHrid]?.["0"];
@@ -25703,7 +26220,7 @@ ${preview}`
       }
       return remaining <= 0 ? { available: true, totalCost, estimated: false } : { available: false, totalCost: 0, estimated: false };
     }
-    const askPrice = positiveNumber2(runtime.api.getAskPrice?.(itemHrid, 0));
+    const askPrice = positiveNumber3(runtime.api.getAskPrice?.(itemHrid, 0));
     return askPrice ? {
       available: true,
       totalCost: askPrice * requiredItems,
@@ -25713,7 +26230,7 @@ ${preview}`
   function evaluateGuildCreditConversion(conversion, targetCredits = 1) {
     const batches = Math.max(
       1,
-      Math.ceil(positiveNumber2(targetCredits) / conversion.creditCount)
+      Math.ceil(positiveNumber3(targetCredits) / conversion.creditCount)
     );
     const requiredItems = batches * conversion.itemCount;
     const producedCredits = batches * conversion.creditCount;
@@ -27267,7 +27784,17 @@ ${preview}`
   function formatDuration(seconds) {
     if (seconds === Infinity) return "∞";
     if (!Number.isFinite(seconds)) return "—";
-    return runtime.api.timeReadable?.(Math.max(0, seconds)) ?? `${seconds}s`;
+    const normalized = Math.max(0, Math.round(seconds));
+    if (normalized < 86400) {
+      return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+    }
+    const days = Math.floor(normalized / 86400);
+    const hours = Math.floor(normalized % 86400 / 3600);
+    const minutes = Math.floor(normalized % 3600 / 60);
+    const parts = [t6(`${days}天`, `${days}d`)];
+    if (hours > 0) parts.push(t6(`${hours}小时`, `${hours}h`));
+    if (minutes > 0) parts.push(t6(`${minutes}分`, `${minutes}m`));
+    return parts.join(" ");
   }
   function formatClock(timestamp) {
     if (!Number.isFinite(timestamp)) return "—";
@@ -27286,8 +27813,9 @@ ${preview}`
     style.id = STYLE_ID6;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
-    .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:5px 10px; color:#ffa500; }
+    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
@@ -27296,7 +27824,8 @@ ${preview}`
     .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:.6rem; line-height:1.2; }
     .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
-    @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:3px 8px}}
+    .mwi-max-action-button { margin-inline-start:4px; }
+    @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:2px 8px}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -27343,6 +27872,7 @@ ${preview}`
     return null;
   }
   function renderActionDashboard() {
+    addStyles4();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = runtime.state.currentActionsHridList ?? [];
     if (!host || !actions.length) {
@@ -27415,10 +27945,94 @@ ${preview}`
     root.append(primary);
   }
   function findActionPanel() {
-    const input = document.querySelector(
+    const candidates = [
+      ...document.querySelectorAll(
+        'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+      )
+    ];
+    const visible2 = candidates.filter((candidate) => {
+      for (let current = candidate; current; current = current.parentElement) {
+        if (current.hidden || current.getAttribute("aria-hidden") === "true") {
+          return false;
+        }
+        const style = current.ownerDocument?.defaultView?.getComputedStyle(current);
+        if (style?.display === "none" || style?.visibility === "hidden") {
+          return false;
+        }
+      }
+      return true;
+    });
+    return visible2.find(
+      (candidate) => String(candidate.className).includes("regularComponent")
+    ) ?? visible2.at(-1) ?? null;
+  }
+  function getCountInput(panel) {
+    return panel?.querySelector(
       'div[class*="SkillActionDetail_maxActionCountInput"] input'
     );
-    return input?.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input?.closest('div[class*="Modal_modalContainer"]')?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ?? input?.parentElement;
+  }
+  function findInfinityButton(panel, input) {
+    const container = input?.closest('div[class*="SkillActionDetail_actionContainer"]') ?? panel;
+    return [...container?.querySelectorAll("button") ?? []].find((button) => {
+      if (button.classList.contains("mwi-max-action-button")) return false;
+      const text = String(
+        runtime.api.getOriTextFromElement?.(button) ?? button.textContent ?? ""
+      ).trim();
+      return text === "∞" || /infinite|unlimited/i.test(button.title ?? "");
+    });
+  }
+  function setReactInputValue(input, value) {
+    if (typeof runtime.api.reactInputTriggerHack === "function") {
+      runtime.api.reactInputTriggerHack(input, value);
+      return;
+    }
+    const view = input.ownerDocument?.defaultView ?? window;
+    const previous = input.value;
+    const setter = Object.getOwnPropertyDescriptor(
+      view.HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    if (setter) setter.call(input, value);
+    else input.value = value;
+    input._valueTracker?.setValue(previous);
+    input.dispatchEvent(new view.Event("input", { bubbles: true }));
+  }
+  function syncMaxButton(panel, input, maxCraftable) {
+    let button = panel?.querySelector(".mwi-max-action-button");
+    const infinityButton = findInfinityButton(panel, input);
+    if (!input || !infinityButton) {
+      button?.remove();
+      return;
+    }
+    if (!button) {
+      button = infinityButton.cloneNode(false);
+      button.type = "button";
+      button.classList.add("mwi-max-action-button");
+      button.textContent = t6("最大", "Max");
+      button.addEventListener("click", () => {
+        const count = Number(button.dataset.maxCraftable);
+        if (!Number.isSafeInteger(count) || count <= 0) return;
+        const livePanel = button.closest(
+          'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+        );
+        const liveInput = getCountInput(livePanel) ?? input;
+        setReactInputValue(liveInput, String(count));
+        liveInput.dispatchEvent(
+          new (liveInput.ownerDocument?.defaultView?.Event ?? Event)("change", {
+            bubbles: true
+          })
+        );
+        renderProductionPanel();
+      });
+      infinityButton.insertAdjacentElement("afterend", button);
+    }
+    const enabled = Number.isSafeInteger(maxCraftable) && maxCraftable > 0;
+    button.disabled = !enabled;
+    button.dataset.maxCraftable = enabled ? String(maxCraftable) : "";
+    button.title = enabled ? t6(
+      `填入库存最多可做 ${maxCraftable} 次`,
+      `Use inventory maximum: ${maxCraftable}`
+    ) : t6("当前没有有限的可生产次数", "No finite production maximum");
   }
   function resolvePanelAction(panel) {
     const name = runtime.api.getOriTextFromElement?.(
@@ -27442,11 +28056,11 @@ ${preview}`
     for (const [actionHrid, detail] of Object.entries(actionMap)) {
       if (candidateNames.has(detail?.name)) return actionHrid;
     }
-    const localizedItem = gameUsesChinese ? Object.entries(runtime.data.ZHItemNames ?? {}).find(
+    const localizedItem2 = gameUsesChinese ? Object.entries(runtime.data.ZHItemNames ?? {}).find(
       ([, localizedName]) => localizedName === name
     ) : null;
-    if (localizedItem) {
-      const [itemHrid] = localizedItem;
+    if (localizedItem2) {
+      const [itemHrid] = localizedItem2;
       const outputAction = Object.entries(actionMap).find(
         ([, detail]) => runtime.api.getExpectedOutputs?.(detail).some((output) => output.itemHrid === itemHrid)
       );
@@ -27475,31 +28089,42 @@ ${preview}`
     return box;
   }
   function renderProductionPanel() {
-    const input = document.querySelector(
-      'div[class*="SkillActionDetail_maxActionCountInput"] input'
-    );
+    addStyles4();
     const panel = findActionPanel();
-    const existingCard = document.querySelector("#mwi-production-summary");
-    if (!input || !panel) {
-      existingCard?.remove();
+    const input = getCountInput(panel);
+    const existingCards = [
+      ...document.querySelectorAll("#mwi-production-summary")
+    ];
+    if (!panel) {
+      existingCards.forEach((card2) => card2.remove());
+      document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
       return;
     }
+    existingCards.filter((card2) => !panel.contains(card2)).forEach((card2) => card2.remove());
+    document.querySelectorAll(".mwi-max-action-button").forEach((button) => {
+      if (!panel.contains(button)) button.remove();
+    });
+    const existingCard = panel.querySelector("#mwi-production-summary");
     const actionHrid = resolvePanelAction(panel);
     if (!actionHrid || !isProductionAction(actionHrid)) {
       existingCard?.remove();
+      panel.querySelector(".mwi-max-action-button")?.remove();
       return;
     }
-    const count = runtime.api.parseCompactNumber(input.value);
+    const count = input ? runtime.api.parseCompactNumber(input.value) : Number.POSITIVE_INFINITY;
     const projection = runtime.api.projectAction(actionHrid, count, {
-      durationPerAction: getProductionPanelDuration(panel)
+      durationPerAction: getProductionPanelDuration(panel),
+      respectInventoryLimit: true
     });
+    syncMaxButton(panel, input, projection.maxCraftable);
     let card = panel.querySelector("#mwi-production-summary");
     if (!card) {
       card = document.createElement("section");
       card.id = "mwi-production-summary";
       card.className = "mwi-production-card";
-      const anchor = panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ?? input.parentElement;
-      anchor.insertAdjacentElement("afterend", card);
+      const anchor = panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ?? input?.parentElement ?? panel.querySelector('div[class*="SkillActionDetail_name"]');
+      if (anchor) anchor.insertAdjacentElement("afterend", card);
+      else panel.appendChild(card);
     }
     const extensions = [
       ...card.querySelectorAll('[data-mwitools-production-extension="true"]')
@@ -27517,7 +28142,10 @@ ${preview}`
       outputs.append(`${name} `, number(output.expectedCount));
     });
     grid.append(
-      metric(t6("预期总产出", "Output"), outputs),
+      metric(
+        projection.effectivelyInfinite ? t6("预期单次产出", "Output per action") : t6("预期总产出", "Total output"),
+        outputs
+      ),
       metric(
         t6("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
@@ -27544,7 +28172,10 @@ ${preview}`
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
-        metric(t6("本次总净利润", "Total profit"), number(projection.totalProfit))
+        metric(
+          t6("本次总净利润", "Total profit"),
+          projection.netProfitPerAction === null ? number(null) : projection.effectivelyInfinite ? "∞" : number(projection.totalProfit)
+        )
       );
     }
     card.append(title, grid);
@@ -27565,6 +28196,7 @@ ${preview}`
       (element) => element.classList.remove("mwi-action-dashboard-host")
     );
     document.querySelector("#mwi-production-summary")?.remove();
+    document.querySelector(".mwi-max-action-button")?.remove();
   }
   runtime.features.register({
     id: "totalActionTime",
@@ -28311,16 +28943,140 @@ ${preview}`
     renderShell();
   }
   function resolveActionPanel() {
-    const input = document.querySelector(
-      'div[class*="SkillActionDetail_maxActionCountInput"] input'
+    const inputs = [
+      ...document.querySelectorAll(
+        'div[class*="SkillActionDetail_maxActionCountInput"] input'
+      )
+    ].filter((input) => !isHiddenActionElement(input)).sort(
+      (left, right) => Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) - Number(Boolean(left.closest('[class*="Modal_modalContainer"]')))
     );
-    if (!input) return null;
-    const panel = input.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ?? input.parentElement;
-    const actionHrid = runtime.api.resolveProductionAction?.(panel);
-    const count = runtime.api.parseCompactNumber?.(input.value);
-    if (!panel || !actionHrid || !Number.isFinite(count) || count <= 0)
+    for (const input of inputs) {
+      const panel = input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ?? input.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input.parentElement;
+      if (!panel || isHiddenActionElement(panel)) continue;
+      const fiberContext = resolveActionFiberContext(panel);
+      const actionHrid = fiberContext?.actionHrid ?? runtime.api.resolveProductionAction?.(panel) ?? (panel.closest?.(
+        '[class*="EnhancingPanel"], [class*="EnhancementPanel"], [class*="EnhancePanel"]'
+      ) ? "/actions/enhancing/enhance" : null);
+      const count = runtime.api.parseCompactNumber?.(input.value);
+      if (!actionHrid || !Number.isFinite(count) || count <= 0) continue;
+      return {
+        panel,
+        input,
+        actionHrid,
+        actionFunction: resolveActionFunction(
+          panel,
+          actionHrid,
+          fiberContext?.actionFunction
+        ),
+        count: Math.ceil(count)
+      };
+    }
+    return null;
+  }
+  function isHiddenActionElement(element) {
+    for (let node = element; node?.nodeType === 1; node = node.parentElement) {
+      const className = String(node.className ?? "");
+      if (node.hidden || node.getAttribute?.("aria-hidden") === "true" || node.style?.display === "none" || node.style?.visibility === "hidden" || /MainPanel_/.test(className) && /hidden/i.test(className)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  function resolveActionFiberContext(panel) {
+    let fiber = findReactFiber(panel);
+    for (let depth = 0; fiber && depth < 10; depth += 1) {
+      const actionDetail = fiber.memoizedProps?.actionDetail;
+      if (actionDetail?.hrid) {
+        return {
+          actionHrid: actionDetail.hrid,
+          actionFunction: actionDetail.function ?? ""
+        };
+      }
+      fiber = fiber.return;
+    }
+    return null;
+  }
+  function resolveActionFunction(panel, actionHrid, fiberFunction = "") {
+    if (fiberFunction) return fiberFunction;
+    if (panel.closest?.(
+      '[class*="EnhancingPanel"], [class*="EnhancementPanel"], [class*="EnhancePanel"]'
+    ) || String(actionHrid).includes("/enhancing/")) {
+      return "/action_functions/enhancing";
+    }
+    if (String(actionHrid).includes("/alchemy/")) {
+      return "/action_functions/alchemy";
+    }
+    return "/action_functions/production";
+  }
+  function parseRequirementNumber(text) {
+    const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+    if (!tokens?.length) return null;
+    for (let index = tokens.length - 1; index >= 0; index -= 1) {
+      const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+      if (Number.isFinite(value) && value >= 0) return value;
+    }
+    return null;
+  }
+  function itemHridFromRequirement(element) {
+    const use = element?.querySelector("svg use");
+    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const fragment = href.includes("#") ? href.split("#").at(-1) : href;
+    return procurement.normalizeItemHrid(fragment);
+  }
+  function calculateEnhancingRequirements(context) {
+    const requirementsRoot = context.panel.querySelector(
+      '[class*="SkillActionDetail_itemRequirements"]'
+    );
+    if (!requirementsRoot) return null;
+    const itemElements = [
+      ...requirementsRoot.querySelectorAll(
+        ':scope > [class*="Item_itemContainer"]'
+      )
+    ];
+    const inputElements = [
+      ...requirementsRoot.querySelectorAll(
+        ':scope > [class*="SkillActionDetail_inputCount"]'
+      )
+    ];
+    if (!itemElements.length || inputElements.length !== itemElements.length) {
       return null;
-    return { panel, input, actionHrid, count: Math.ceil(count) };
+    }
+    const materials = itemElements.map((element, index) => {
+      const itemHrid = itemHridFromRequirement(element);
+      const perAction = parseRequirementNumber(inputElements[index].textContent);
+      if (!itemHrid || perAction === null || perAction <= 0) return null;
+      const enhancementLevel = 0;
+      const suggested = Math.ceil(perAction * context.count - 1e-9);
+      const owned = procurement.getInventoryCount(itemHrid, enhancementLevel);
+      const lockedDetails = procurement.getLockedDetails(
+        itemHrid,
+        enhancementLevel
+      );
+      const effectiveOwned = Math.max(0, owned - lockedDetails.total);
+      const cartQuantity = procurement.getCartItem(itemHrid, enhancementLevel)?.quantity ?? 0;
+      return {
+        itemHrid,
+        enhancementLevel,
+        name: procurement.resolveItemName(itemHrid),
+        perAction,
+        suggested,
+        owned,
+        locked: lockedDetails.total,
+        lockedByPlans: lockedDetails.byPlan,
+        effectiveOwned,
+        cartQuantity,
+        shortage: Math.max(0, suggested - effectiveOwned),
+        addableShortage: Math.max(0, suggested - effectiveOwned - cartQuantity),
+        purchasable: itemHrid !== "/items/coin"
+      };
+    });
+    if (materials.some((material) => !material)) return null;
+    return {
+      status: "complete",
+      actionHrid: context.actionHrid,
+      count: context.count,
+      materials
+    };
   }
   function findMaterialHost(panel, itemHrid) {
     const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
@@ -28351,13 +29107,17 @@ ${preview}`
       return;
     }
     const settings2 = procurement.getSettings();
-    const direct = procurement.calculateRequirements(
-      context.actionHrid,
-      context.count
-    );
-    const chain = settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement.calculateUpgradeChain(context.actionHrid, context.count) : null;
+    const isEnhancing = context.actionFunction === "/action_functions/enhancing";
+    const direct = isEnhancing ? calculateEnhancingRequirements(context) : procurement.calculateRequirements(context.actionHrid, context.count);
+    if (!direct?.materials?.length) {
+      clearProductionUi();
+      return;
+    }
+    const chain = !isEnhancing && settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement.calculateUpgradeChain(context.actionHrid, context.count) : null;
     const materials = chain?.leaves?.length ? chain.leaves : direct.materials;
     const signature = JSON.stringify([
+      isEnhancing ? "enhancing" : "production",
+      runtime.config.isZH,
       context.actionHrid,
       context.count,
       settings2.badgesEnabled,
@@ -28419,9 +29179,9 @@ ${locks}` : ""}`;
       const selectedMaterials = chain?.stages?.length ? procurement.selectUpgradeChainMaterials(chain, selectedActions) : materials;
       const result = procurement.addRequirementsToCart(
         selectedMaterials,
-        "production"
+        isEnhancing ? "enhancing" : "production"
       );
-      if (settings2.createPlansByDefault && result.added > 0) {
+      if (!isEnhancing && settings2.createPlansByDefault && result.added > 0) {
         procurement.createPlan(
           context.actionHrid,
           context.count,
@@ -28453,9 +29213,7 @@ ${locks}` : ""}`;
       details.append(heading, list);
       root.append(details);
     }
-    const existingSummary = context.panel.querySelector(
-      "#mwi-production-summary"
-    );
+    const existingSummary = isEnhancing ? null : context.panel.querySelector("#mwi-production-summary");
     if (existingSummary) existingSummary.append(root);
     else {
       const anchor = context.panel.querySelector(
@@ -28759,14 +29517,14 @@ ${locks}` : ""}`;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
   function findMarketPanel() {
-    const visible = [
+    const visible2 = [
       ...document.querySelectorAll(
         '[class*="MarketplacePanel_marketplacePanel"]'
       )
     ].filter((candidate) => candidate.getClientRects().length);
-    return visible.find(
+    return visible2.find(
       (candidate) => candidate.closest('[class*="MainPanel_marketplaceModal__"]')
-    ) ?? visible.at(0);
+    ) ?? visible2.at(0);
   }
   function detectMarketItem(panel) {
     const current = panel?.querySelector(
@@ -29033,8 +29791,621 @@ ${locks}` : ""}`;
     openProcurementMarketplace: openMarketplace
   });
 
+  // src/features/semi-auto-train.js
+  var STYLE_ID8 = "mwitools-semi-auto-train-style";
+  var CONTROL_CLASS = "mwi-train-controls";
+  var DETAIL_CLASS = "mwi-train-detail-modal";
+  var INPUT_SELECTOR = 'div[class*="SkillActionDetail_maxActionCountInput"] input';
+  var PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
+  var LOADOUT_SELECTOR = '[class*="SkillActionDetail_loadoutDropdown"]';
+  var BUTTONS_SELECTOR = '[class*="SkillActionDetail_buttonsContainer"]';
+  var TRAIN_TIMEOUT_MS = 6e4;
+  var activeTrain = null;
+  var scanPending = false;
+  function raf(callback) {
+    return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
+  }
+  function t8(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function visible(element) {
+    if (!element?.isConnected || element.hidden) return false;
+    const style = globalThis.getComputedStyle?.(element);
+    return style?.display !== "none" && style?.visibility !== "hidden";
+  }
+  function showToast2(message) {
+    document.querySelectorAll(".mwi-train-toast").forEach((node) => node.remove());
+    const toast = document.createElement("div");
+    toast.className = "mwi-train-toast";
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2600);
+  }
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID8;
+    style.textContent = `
+    .${CONTROL_CLASS}{display:flex;align-items:center;gap:4px;margin-left:auto}
+    .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
+    .mwi-train-button:hover{filter:brightness(1.16)}
+    .mwi-train-button:disabled{cursor:default;filter:none;opacity:.58}
+    .mwi-train-button[data-kind="cancel"]{border-color:rgba(235,144,144,.55);background:#5c2a2a}
+    .mwi-train-button[data-kind="cart"]{border-color:rgba(245,180,70,.65);background:#43351f}
+    .${DETAIL_CLASS}{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58)}
+    .${DETAIL_CLASS}>section{box-sizing:border-box;width:min(470px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:16px 20px;border:1px solid #90a6eb;border-radius:8px;background:#1c1c2c;color:#e8e8ef;box-shadow:0 5px 20px rgba(0,0,0,.55);font-size:13px}
+    .mwi-train-detail-title{margin-bottom:9px;padding-bottom:6px;border-bottom:1px solid #444;font-size:15px;font-weight:700}
+    .mwi-train-detail-row{display:flex;align-items:center;gap:7px;padding:4px 0}.mwi-train-detail-row[data-current="true"]{color:#ffe27a}.mwi-train-detail-row>span:first-child{min-width:0;flex:1}.mwi-train-detail-count{flex:0 0 auto;color:#9fd9ff}.mwi-train-detail-terminal{color:#80df91}
+    .mwi-train-detail-close{margin-top:12px}
+    .mwi-train-toast{position:fixed;right:14px;top:14px;z-index:2147483200;max-width:min(380px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.97);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function panelContext() {
+    for (const input of document.querySelectorAll(INPUT_SELECTOR)) {
+      if (!visible(input)) continue;
+      const panel = input.closest(PANEL_SELECTOR) ?? input.parentElement;
+      const actionHrid = runtime.api.resolveProductionAction?.(panel);
+      if (!panel || !actionHrid) continue;
+      return { panel, input, actionHrid };
+    }
+    return null;
+  }
+  function outputForAction(actionHrid) {
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid ?? "";
+  }
+  function localizedItem(itemHrid) {
+    return runtime.api.procurement?.resolveItemName?.(itemHrid) ?? itemHrid;
+  }
+  function localizeStep(step, index) {
+    const output = localizedItem(step.outputHrid);
+    if (step.kind === "shop") {
+      return `${index + 1}. ${t8("商店购买", "Buy from shop")}「${output}」`;
+    }
+    if (step.kind === "craft") {
+      return `${index + 1}. ${t8("制造", "Craft")}「${output}」`;
+    }
+    return `${index + 1}. ${t8("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
+  }
+  function createButton(text, kind, handler) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-train-button";
+    button.dataset.kind = kind;
+    button.textContent = text;
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      handler(event);
+    });
+    return button;
+  }
+  function closeDetail() {
+    document.querySelector(`.${DETAIL_CLASS}`)?.remove();
+  }
+  function showTrainDetail(plan, currentIndex = null) {
+    closeDetail();
+    const modal = document.createElement("div");
+    modal.className = DETAIL_CLASS;
+    const box = document.createElement("section");
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+    const title = document.createElement("div");
+    title.className = "mwi-train-detail-title";
+    title.textContent = t8("🚂 火车详情", "🚂 Train details");
+    box.appendChild(title);
+    plan.steps.forEach((step, index) => {
+      const row = document.createElement("div");
+      row.className = "mwi-train-detail-row";
+      row.dataset.current = String(index === currentIndex);
+      const label = document.createElement("span");
+      label.textContent = `${index === currentIndex ? "▶ " : "　"}${localizeStep(step, index)}`;
+      const count = document.createElement("span");
+      count.className = "mwi-train-detail-count";
+      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t8("保持当前次数", "Keep current count");
+      row.append(label, count);
+      if (index === plan.steps.length - 1) {
+        const terminal = document.createElement("span");
+        terminal.className = "mwi-train-detail-terminal";
+        terminal.textContent = t8("终点", "Final");
+        row.appendChild(terminal);
+      }
+      box.appendChild(row);
+    });
+    const close = createButton(t8("关闭", "Close"), "detail", closeDetail);
+    close.classList.add("mwi-train-detail-close");
+    box.appendChild(close);
+    modal.appendChild(box);
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) closeDetail();
+    });
+    document.body.appendChild(modal);
+    return modal;
+  }
+  function fiberKey(element) {
+    return Object.keys(element ?? {}).find(
+      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
+    );
+  }
+  function gameInstance() {
+    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
+    if (pageGlobal3.mwi?.game) return pageGlobal3.mwi.game;
+    const gamePage = document.querySelector(
+      '[class*="GamePage_gamePage"],[class^="GamePage"]'
+    );
+    const key = fiberKey(gamePage);
+    let fiber = key ? gamePage[key] : null;
+    while (fiber) {
+      if (fiber.stateNode?.state?.navTarget !== void 0) return fiber.stateNode;
+      fiber = fiber.return;
+    }
+    return null;
+  }
+  function navigateToTrainAction(actionHrid) {
+    const game = gameInstance();
+    if (!game) return false;
+    const invoke = () => {
+      for (const name of [
+        "handleGoToActionTypeDetail",
+        "handleClickActionTypeDetail",
+        "handleGoToActionType",
+        "handleSelectActionType",
+        "handleGoToActionDetail",
+        "handleSelectAction",
+        "handleClickAction",
+        "handleGoToAction"
+      ]) {
+        if (typeof game[name] !== "function") continue;
+        try {
+          game[name](actionHrid);
+          return true;
+        } catch {
+        }
+      }
+      return false;
+    };
+    const skill = String(actionHrid).match(/^\/actions\/([^/]+)\//)?.[1];
+    const navigation = [
+      ...document.querySelectorAll("button,a,[data-target]")
+    ].find((candidate) => {
+      const identity = [
+        candidate.getAttribute("data-target"),
+        candidate.getAttribute("href"),
+        candidate.getAttribute("aria-label"),
+        candidate.id
+      ].filter(Boolean).join(" ").toLowerCase();
+      return skill && identity.includes(skill);
+    });
+    if (navigation) {
+      navigation.click();
+      setTimeout(invoke, 150);
+      return true;
+    }
+    return invoke();
+  }
+  function navigateToTrainShop(step) {
+    const game = gameInstance();
+    if (!game || !step?.shopHrid) return false;
+    try {
+      if (game.state?.navTarget !== "shop") game.setState({ navTarget: "shop" });
+    } catch {
+      return false;
+    }
+    let attempts = 60;
+    const open = () => {
+      if (!activeTrain || attempts-- <= 0) return;
+      const panel = document.querySelector('[class*="ShopPanel_shopPanel"]');
+      const key = fiberKey(panel);
+      let fiber = key ? panel[key] : null;
+      let instance = null;
+      while (fiber) {
+        if (fiber.stateNode?.state?.shopItemHrid !== void 0) {
+          instance = fiber.stateNode;
+          break;
+        }
+        fiber = fiber.return;
+      }
+      if (!instance) {
+        raf(open);
+        return;
+      }
+      try {
+        instance.setState({
+          shopItemHrid: step.shopHrid,
+          shopItemQuantity: Math.max(1, Math.ceil(Number(step.count) || 1)),
+          shopItemQuantityError: null
+        });
+      } catch {
+        cancelTrain(t8("商店面板无法预填", "Could not prefill the shop"));
+      }
+    };
+    raf(open);
+    return true;
+  }
+  function setInput(input, value) {
+    if (!input || !Number.isFinite(value) || value <= 0) return false;
+    if (runtime.api.reactInputTriggerHack) {
+      runtime.api.reactInputTriggerHack(input, String(value));
+      return true;
+    }
+    const previous = input.value;
+    input.value = String(value);
+    input._valueTracker?.setValue(previous);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  function clearTrainListeners() {
+    if (!activeTrain) return;
+    if (activeTrain.queueButton && activeTrain.queueListener) {
+      activeTrain.queueButton.removeEventListener(
+        "click",
+        activeTrain.queueListener,
+        true
+      );
+    }
+    activeTrain.queueButton = null;
+    activeTrain.queueListener = null;
+    activeTrain.inventoryUnsubscribe?.();
+    activeTrain.inventoryUnsubscribe = null;
+  }
+  function resetTrainTimeout() {
+    if (!activeTrain) return;
+    clearTimeout(activeTrain.timeout);
+    if (activeTrain.index >= activeTrain.steps.length - 1) {
+      activeTrain.timeout = null;
+      return;
+    }
+    activeTrain.timeout = setTimeout(
+      () => cancelTrain(t8("等待下一站超时", "Timed out waiting for the next stop")),
+      TRAIN_TIMEOUT_MS
+    );
+  }
+  function queueButton(panel) {
+    return [...panel.querySelectorAll(`${BUTTONS_SELECTOR} button,button`)].find(
+      (button) => /添加到队列|add to queue/i.test(button.textContent ?? "")
+    );
+  }
+  function activeStepCount(context) {
+    const step = activeTrain?.steps?.[activeTrain.index];
+    if (!step) return null;
+    const entered = runtime.api.trainPlanning.parseTrainCount(
+      context?.input?.value
+    );
+    if (entered) step.count = entered;
+    return Number.isFinite(step.count) && step.count > 0 ? step.count : null;
+  }
+  function hasPlannedProducer(itemHrid) {
+    return activeTrain?.allOutputHrids?.has(itemHrid) ?? false;
+  }
+  function addCurrentTrainStepToCart(context = panelContext()) {
+    if (!activeTrain) return { ok: false, added: 0, skipped: 0 };
+    const currentIndex = activeTrain.index;
+    const current = activeTrain.steps[currentIndex];
+    if (current.kind === "shop") {
+      showToast2(
+        t8("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
+      );
+      return { ok: false, added: 0, skipped: 0 };
+    }
+    if (!activeStepCount(context)) {
+      showToast2(t8("请先填写本步次数", "Enter the action count first"));
+      return { ok: false, added: 0, skipped: 0 };
+    }
+    activeTrain.cartStepIndexes.add(currentIndex);
+    const groups = [...activeTrain.cartStepIndexes].map((index) => {
+      const step = activeTrain.steps[index];
+      const requirements = runtime.api.procurement.calculateRequirements(
+        step.actionHrid,
+        step.count,
+        { excludeActionHrids: /* @__PURE__ */ new Set() }
+      );
+      return requirements.materials.filter(
+        (material) => !(material.itemHrid === step.inputHrid && hasPlannedProducer(step.inputHrid))
+      );
+    });
+    const materials = runtime.api.procurement.aggregateRequirements(groups);
+    const result = runtime.api.procurement.addRequirementsToCart(
+      materials,
+      "train"
+    );
+    showToast2(
+      result.added ? t8(
+        `本步缺料已加入购物车（${result.added} 种）`,
+        `Added this stop's shortages (${result.added})`
+      ) : t8("本步没有新的缺料", "No new shortages for this stop")
+    );
+    scheduleScan();
+    return result;
+  }
+  function advanceTrain() {
+    if (!activeTrain) return;
+    clearTrainListeners();
+    if (activeTrain.index >= activeTrain.steps.length - 1) {
+      finishTrain();
+      return;
+    }
+    activeTrain.index += 1;
+    activeTrain.readyActionHrid = "";
+    goToCurrentStep();
+  }
+  function notifyCurrentTrainStepQueued(context = panelContext()) {
+    if (!activeTrain) return false;
+    activeStepCount(context);
+    setTimeout(advanceTrain, 0);
+    return true;
+  }
+  function wirePanel(context) {
+    if (!activeTrain) return;
+    const step = activeTrain.steps[activeTrain.index];
+    if (step.kind === "shop" || context.actionHrid !== step.actionHrid) return;
+    if (activeTrain.readyActionHrid !== step.actionHrid) {
+      activeTrain.readyActionHrid = step.actionHrid;
+      if (Number.isFinite(step.count) && step.count > 0) {
+        setTimeout(() => {
+          if (activeTrain?.steps?.[activeTrain.index] !== step) return;
+          const latest = panelContext();
+          if (latest?.actionHrid === step.actionHrid)
+            setInput(latest.input, step.count);
+        }, 100);
+      }
+      if (activeTrain.index === activeTrain.steps.length - 1 && !activeTrain.arrivalShown) {
+        activeTrain.arrivalShown = true;
+        showToast2(
+          t8(
+            "火车已到终点，请手动加入队列",
+            "Final stop reached; add it to the queue manually"
+          )
+        );
+      }
+    }
+    const button = queueButton(context.panel);
+    if (button && button !== activeTrain.queueButton) {
+      clearTrainListeners();
+      activeTrain.queueButton = button;
+      activeTrain.queueListener = () => notifyCurrentTrainStepQueued(context);
+      button.addEventListener("click", activeTrain.queueListener, true);
+    }
+    resetTrainTimeout();
+  }
+  function watchShopStep(step) {
+    if (!activeTrain || activeTrain.inventoryUnsubscribe) return;
+    const owned = runtime.api.procurement.getInventoryCount(step.outputHrid, 0);
+    const target = owned + Math.max(0, Number(step.count) || 0);
+    if (target <= owned) {
+      advanceTrain();
+      return;
+    }
+    activeTrain.inventoryUnsubscribe = runtime.api.procurement.on(
+      "inventory:change",
+      () => {
+        if (!activeTrain) return;
+        if (runtime.api.procurement.getInventoryCount(step.outputHrid, 0) < target) {
+          return;
+        }
+        advanceTrain();
+      }
+    );
+    showToast2(
+      t8(
+        `购买 ${step.count} 个「${localizedItem(step.outputHrid)}」后自动续站`,
+        `Buy ${step.count} ${localizedItem(step.outputHrid)} to continue automatically`
+      )
+    );
+    resetTrainTimeout();
+  }
+  function goToCurrentStep() {
+    if (!activeTrain) return;
+    const step = activeTrain.steps[activeTrain.index];
+    const navigated = step.kind === "shop" ? (activeTrain.navigateShop ?? navigateToTrainShop)(step) : (activeTrain.navigateAction ?? navigateToTrainAction)(step.actionHrid);
+    if (!navigated) {
+      cancelTrain(t8("无法打开下一站", "Could not open the next stop"));
+      return;
+    }
+    if (step.kind === "shop") watchShopStep(step);
+    resetTrainTimeout();
+    scheduleScan();
+  }
+  function startTrain(plan, options = {}) {
+    cancelTrain("");
+    if (plan?.cycle || plan?.truncated) {
+      showToast2(
+        plan.cycle ? t8(
+          "升级链存在循环，无法启动火车",
+          "The upgrade chain contains a cycle"
+        ) : t8(
+          "升级链过长，无法安全启动火车",
+          "The upgrade chain is too long to start safely"
+        )
+      );
+      return false;
+    }
+    const allSteps = (plan?.steps ?? []).map((step) => ({ ...step }));
+    const hasPlannedCounts = allSteps.some((step) => Number.isFinite(step.count));
+    const firstNeeded = allSteps.findIndex(
+      (step) => !Number.isFinite(step.count) || step.count > 0
+    );
+    const steps = hasPlannedCounts ? allSteps.slice(firstNeeded < 0 ? allSteps.length : firstNeeded) : allSteps;
+    if (!steps.length) {
+      showToast2(
+        t8("库存已经足够，无需开火车", "Inventory already covers this train")
+      );
+      return false;
+    }
+    activeTrain = {
+      ...plan,
+      steps,
+      index: 0,
+      cartStepIndexes: /* @__PURE__ */ new Set(),
+      allOutputHrids: new Set(allSteps.map((step) => step.outputHrid)),
+      queueButton: null,
+      queueListener: null,
+      inventoryUnsubscribe: null,
+      timeout: null,
+      readyActionHrid: "",
+      arrivalShown: false,
+      navigateAction: options.navigateAction,
+      navigateShop: options.navigateShop
+    };
+    goToCurrentStep();
+    return true;
+  }
+  function cancelTrain(reason = "") {
+    if (!activeTrain) return false;
+    clearTrainListeners();
+    clearTimeout(activeTrain.timeout);
+    activeTrain = null;
+    closeDetail();
+    scheduleScan();
+    if (reason) showToast2(`${t8("火车已停止：", "Train stopped: ")}${reason}`);
+    return true;
+  }
+  function finishTrain() {
+    if (!activeTrain) return false;
+    clearTrainListeners();
+    clearTimeout(activeTrain.timeout);
+    activeTrain = null;
+    closeDetail();
+    scheduleScan();
+    showToast2(t8("火车已完成", "Train completed"));
+    return true;
+  }
+  function getTrainState() {
+    if (!activeTrain) return null;
+    return {
+      index: activeTrain.index,
+      steps: activeTrain.steps.map((step) => ({ ...step })),
+      cartStepIndexes: [...activeTrain.cartStepIndexes]
+    };
+  }
+  function idlePlan(context) {
+    const outputHrid = outputForAction(context.actionHrid);
+    if (!outputHrid) return null;
+    const count = runtime.api.trainPlanning.parseTrainCount(context.input.value);
+    if (count) {
+      return runtime.api.trainPlanning.createTrainPlan(outputHrid, {
+        [outputHrid]: count
+      });
+    }
+    const chain = runtime.api.trainPlanning.buildTrainChain(outputHrid);
+    return {
+      ...chain,
+      steps: chain.steps.map((step) => ({ ...step, count: null }))
+    };
+  }
+  function controlsHost(context) {
+    return context.panel.querySelector(LOADOUT_SELECTOR) ?? context.panel.querySelector(BUTTONS_SELECTOR) ?? context.input.parentElement;
+  }
+  function renderControls(context) {
+    const host = controlsHost(context);
+    if (!host) return;
+    const runningStep = activeTrain?.steps?.[activeTrain.index];
+    const relevantRunningPanel = activeTrain && (runningStep?.kind === "shop" || context.actionHrid === runningStep?.actionHrid);
+    const plan = activeTrain ?? idlePlan(context);
+    const shouldShow = relevantRunningPanel || !activeTrain && plan?.steps?.length >= 2;
+    let controls = host.querySelector(`:scope > .${CONTROL_CLASS}`);
+    if (!shouldShow) {
+      controls?.remove();
+      return;
+    }
+    const signature = JSON.stringify([
+      Boolean(activeTrain),
+      activeTrain?.index ?? -1,
+      plan.steps.length,
+      runningStep?.kind ?? "",
+      context.actionHrid,
+      runtime.config.isZH
+    ]);
+    if (controls?.dataset.signature === signature) return;
+    controls?.remove();
+    controls = document.createElement("span");
+    controls.className = CONTROL_CLASS;
+    controls.dataset.signature = signature;
+    controls.appendChild(
+      createButton(
+        t8("📋 详情", "📋 Details"),
+        "detail",
+        () => showTrainDetail(plan, activeTrain?.index ?? null)
+      )
+    );
+    if (activeTrain) {
+      const cart2 = createButton(
+        runningStep.kind === "shop" ? t8("本步无需加购", "No cart items") : t8("🛒 本步加购", "🛒 Add step shortages"),
+        "cart",
+        () => addCurrentTrainStepToCart(context)
+      );
+      cart2.disabled = runningStep.kind === "shop";
+      controls.appendChild(cart2);
+      controls.appendChild(
+        createButton(
+          `🛑 ${t8("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
+          "cancel",
+          () => cancelTrain(t8("用户取消", "Cancelled by user"))
+        )
+      );
+    } else {
+      controls.appendChild(
+        createButton(
+          `🚂 ${t8("开始火车", "Start train")} (${plan.steps.length}${t8("步", " stops")})`,
+          "start",
+          () => startTrain(idlePlan(context))
+        )
+      );
+    }
+    host.appendChild(controls);
+  }
+  function scan() {
+    scanPending = false;
+    const context = panelContext();
+    document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((controls) => {
+      if (!context?.panel.contains(controls)) controls.remove();
+    });
+    if (!context) return;
+    if (activeTrain) wirePanel(context);
+    renderControls(context);
+  }
+  function scheduleScan() {
+    if (scanPending) return;
+    scanPending = true;
+    raf(scan);
+  }
+  function cleanup2() {
+    cancelTrain("");
+    document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((node) => node.remove());
+    document.querySelectorAll(".mwi-train-toast").forEach((node) => node.remove());
+    document.getElementById(STYLE_ID8)?.remove();
+    closeDetail();
+    scanPending = false;
+  }
+  runtime.features.register({
+    id: "semiAutoTrain",
+    setting: "semiAutoTrain",
+    scope: "character",
+    dependsOn: ["procurementAssistant"],
+    initialize({ scope }) {
+      addStyles6();
+      scan();
+      const observer = new MutationObserver(scheduleScan);
+      scope.observer(observer, document.body, { childList: true, subtree: true });
+      scope.interval(scan, 500);
+      scope.add(cleanup2);
+    }
+  });
+  Object.assign(runtime.api, {
+    semiAutoTrain: {
+      start: startTrain,
+      cancel: cancelTrain,
+      finish: finishTrain,
+      getState: getTrainState,
+      addCurrentStepToCart: addCurrentTrainStepToCart,
+      notifyQueued: notifyCurrentTrainStepQueued,
+      navigateToAction: navigateToTrainAction,
+      navigateToShop: navigateToTrainShop
+    }
+  });
+
   // src/features/tasks.js
-  var STYLE_ID8 = "mwitools-task-style";
+  var STYLE_ID9 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var originalCards = [];
   var taskListParent = null;
@@ -29076,7 +30447,7 @@ ${locks}` : ""}`;
     en: "New Tasks",
     order: -2
   };
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function taskId(task) {
@@ -29150,10 +30521,10 @@ ${locks}` : ""}`;
     const base = taskSpriteBases.get(kind);
     return base ? `${base}#${String(hrid ?? "").split("/").at(-1)}` : "";
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
     .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
@@ -29369,7 +30740,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t8("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t9("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -29431,7 +30802,7 @@ ${locks}` : ""}`;
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
       return {
         key: `dungeon-${detail.hrid}`,
-        label: `${t8("地牢", "Dungeon")} · ${name}`,
+        label: `${t9("地牢", "Dungeon")} · ${name}`,
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -29446,7 +30817,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t8("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t9("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -29454,13 +30825,13 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t8("地图", "Zone")} ${mapIndex}`,
+        label: `${t9("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "combat-unresolved",
-      label: t8("其他战斗", "Other combat"),
+      label: t9("其他战斗", "Other combat"),
       order: 99999
     };
   }
@@ -29468,7 +30839,7 @@ ${locks}` : ""}`;
     const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail?.hrid] : detail?.name) ?? detail?.name;
     return {
       key: `dungeon-${detail?.hrid}`,
-      label: name || t8("未知地牢", "Unknown dungeon"),
+      label: name || t9("未知地牢", "Unknown dungeon"),
       order: Number(detail?.sortIndex ?? 9999)
     };
   }
@@ -29483,7 +30854,7 @@ ${locks}` : ""}`;
       return [
         {
           key: "dungeon-unresolved",
-          label: t8("其他战斗", "Other combat"),
+          label: t9("其他战斗", "Other combat"),
           order: 99999
         }
       ];
@@ -29498,7 +30869,7 @@ ${locks}` : ""}`;
     return matches.length ? matches : [
       {
         key: "dungeon-unresolved",
-        label: t8("其他战斗", "Other combat"),
+        label: t9("其他战斗", "Other combat"),
         order: 99999
       }
     ];
@@ -29630,7 +31001,7 @@ ${locks}` : ""}`;
         const button = document.createElement("button");
         button.type = "button";
         button.dataset.mode = mode;
-        button.textContent = t8(zh, en);
+        button.textContent = t9(zh, en);
         button.addEventListener("click", () => {
           if (combatGroupMode === mode) return;
           combatGroupMode = mode;
@@ -30014,7 +31385,7 @@ ${locks}` : ""}`;
       note.className = "mwi-task-merged-note";
       input.parentElement.insertAdjacentElement("afterend", note);
     }
-    note.textContent = t8(
+    note.textContent = t9(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -30120,7 +31491,7 @@ ${locks}` : ""}`;
       delete node.dataset.mwitoolsMergeWired;
       delete node.dataset.mwitoolsResetWired;
     });
-    document.getElementById(STYLE_ID8)?.remove();
+    document.getElementById(STYLE_ID9)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
@@ -30140,7 +31511,7 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles6();
+      addStyles7();
       renderTasks();
       void loadTaskSpriteManifest().then(() => {
         lastTaskRenderSignature = "";
@@ -30171,7 +31542,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles6,
+    addTaskStyles: addStyles7,
     taskActionHrid,
     taskRemaining,
     taskProjection,
@@ -30179,9 +31550,191 @@ ${locks}` : ""}`;
     restoreTaskOrder: renderTasks
   });
 
-  // src/features/task-new-badge.js
-  var STYLE_ID9 = "mwitools-task-new-style";
+  // src/features/task-train-planner.js
+  var STYLE_ID10 = "mwitools-task-train-planner-style";
+  var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var ACTION_SELECTOR = '[class*="RandomTask_action"]';
+  function t10(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID10;
+    style.textContent = `
+    .${CONTROL_CLASS2}{flex:0 0 auto;margin-right:4px;white-space:nowrap}
+    button.${CONTROL_CLASS2}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
+    button.${CONTROL_CLASS2}:hover{filter:brightness(1.16)}
+    span.${CONTROL_CLASS2}{padding:0 8px;color:#8f96ad;font:italic 11px/28px Roboto,Arial,sans-serif;user-select:none}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function primaryOutput2(actionHrid) {
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid ?? "";
+  }
+  function taskActionHrid2(task) {
+    return runtime.api.taskActionHrid?.(task) ?? null;
+  }
+  function taskRemaining2(task) {
+    return runtime.api.taskRemaining?.(task) ?? 0;
+  }
+  function collectTaskTrainGroups(quests = []) {
+    const groups = /* @__PURE__ */ new Map();
+    const entries = quests.map((task, index) => {
+      const actionHrid = taskActionHrid2(task);
+      const remaining = taskRemaining2(task);
+      const outputHrid = actionHrid ? primaryOutput2(actionHrid) : "";
+      const depth = outputHrid ? runtime.api.trainPlanning.trainChainDepth(outputHrid) : -1;
+      const root = depth >= 0 ? runtime.api.trainPlanning.trainChainRoot(outputHrid) : "";
+      const entry = {
+        index,
+        task,
+        actionHrid,
+        outputHrid,
+        remaining,
+        depth,
+        root,
+        state: remaining <= 0 ? "done" : depth < 0 ? "isolated" : "planned"
+      };
+      if (entry.state === "planned") {
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(entry);
+      }
+      return entry;
+    });
+    for (const group of groups.values()) {
+      group.sort(
+        (left, right) => right.depth - left.depth || left.index - right.index
+      );
+      const chain = runtime.api.trainPlanning.buildTrainChain(
+        group[0].outputHrid
+      );
+      if (!chain.steps.length || chain.cycle || chain.truncated) {
+        for (const entry of group) entry.state = "isolated";
+        groups.delete(group[0].root);
+      } else {
+        group[0].state = "top";
+      }
+    }
+    return { entries, groups };
+  }
+  function createTaskTrainPlan(root, quests = runtime.state.characterQuests ?? []) {
+    const { groups } = collectTaskTrainGroups(quests);
+    const group = groups.get(root);
+    if (!group?.length) return null;
+    const taskCounts = {};
+    for (const entry of group) {
+      taskCounts[entry.outputHrid] = (taskCounts[entry.outputHrid] ?? 0) + entry.remaining;
+    }
+    return runtime.api.trainPlanning.createTrainPlan(
+      group[0].outputHrid,
+      taskCounts
+    );
+  }
+  function insertBeforeNavigation(action, control) {
+    const navigation = [...action.querySelectorAll("button")].find(
+      (button) => /^(前往|go)$/i.test(button.textContent?.trim() ?? "")
+    );
+    if (navigation) action.insertBefore(control, navigation);
+    else action.appendChild(control);
+  }
+  function plannerButton(entry, signature) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = CONTROL_CLASS2;
+    button.dataset.signature = signature;
+    button.textContent = t10("🚂 规划火车", "🚂 Plan train");
+    button.title = t10(
+      "合并同一升级链全部未完成任务并按最新库存重新规划",
+      "Combine all unfinished tasks in this upgrade chain and recalculate from current inventory"
+    );
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const plan = createTaskTrainPlan(entry.root);
+      if (!plan?.steps?.length) return;
+      runtime.api.semiAutoTrain?.start(plan);
+    });
+    return button;
+  }
+  function plannerLabel(text, title, signature) {
+    const label = document.createElement("span");
+    label.className = CONTROL_CLASS2;
+    label.dataset.signature = signature;
+    label.textContent = text;
+    label.title = title;
+    return label;
+  }
+  function render() {
+    const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
+    if (!cards.length) return;
+    const quests = runtime.state.characterQuests ?? [];
+    const { entries } = collectTaskTrainGroups(quests);
+    for (const card of cards) {
+      const fallbackIndex = cards.indexOf(card);
+      const index = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
+      const entry = entries[index];
+      const action = card.querySelector(ACTION_SELECTOR);
+      if (!action) continue;
+      const signature = entry ? [entry.state, entry.root, entry.remaining, runtime.config.isZH].join(
+        ":"
+      ) : "none";
+      const existing = action.querySelector(`.${CONTROL_CLASS2}`);
+      if (existing?.dataset.signature === signature) continue;
+      action.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
+      if (!entry || entry.state === "done") continue;
+      if (entry.state === "top") {
+        insertBeforeNavigation(action, plannerButton(entry, signature));
+      } else if (entry.state === "planned") {
+        insertBeforeNavigation(
+          action,
+          plannerLabel(
+            t10("已被规划", "Included in plan"),
+            t10(
+              "已由同一升级链的最高级任务统一规划",
+              "Included by the highest-level task in this upgrade chain"
+            ),
+            signature
+          )
+        );
+      } else if (entry.state === "isolated") {
+        insertBeforeNavigation(
+          action,
+          plannerLabel(
+            t10("无需火车", "No train needed"),
+            t10("该任务不属于升级链", "This task is not part of an upgrade chain"),
+            signature
+          )
+        );
+      }
+    }
+  }
+  function cleanup3() {
+    document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
+    document.getElementById(STYLE_ID10)?.remove();
+  }
+  runtime.features.register({
+    id: "taskTrainPlanner",
+    setting: "taskTrainPlanner",
+    scope: "character",
+    dependsOn: ["semiAutoTrain"],
+    initialize({ scope }) {
+      addStyles8();
+      render();
+      scope.interval(render, 500);
+      scope.add(cleanup3);
+    }
+  });
+  Object.assign(runtime.api, {
+    collectTaskTrainGroups,
+    createTaskTrainPlan
+  });
+
+  // src/features/task-new-badge.js
+  var STYLE_ID11 = "mwitools-task-new-style";
+  var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
     return String(
@@ -30255,12 +31808,12 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID11;
     style.textContent = `
-    ${TASK_SELECTOR2}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
+    ${TASK_SELECTOR3}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
     .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -30271,7 +31824,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID9)?.remove();
+    document.getElementById(STYLE_ID11)?.remove();
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -30279,14 +31832,14 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles7();
+      addStyles9();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       liveTaskNewStates.set(storageKey, state);
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
-      const render = () => {
+      const render2 = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
         let changed = false;
@@ -30298,7 +31851,7 @@ ${locks}` : ""}`;
           }
         }
         if (changed) writeTaskNewState(storageKey, state);
-        const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
+        const cards = [...document.querySelectorAll(TASK_SELECTOR3)];
         cards.forEach((card, index) => {
           const task = quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
           const id = questId(task);
@@ -30328,11 +31881,11 @@ ${locks}` : ""}`;
             if (!liveIds.has(id)) state.fresh.delete(id);
           }
           writeTaskNewState(storageKey, state);
-          render();
+          render2();
         })
       );
-      render();
-      scope.interval(render, 350);
+      render2();
+      scope.interval(render2, 350);
       scope.add(() => {
         if (liveTaskNewStates.get(storageKey) === state) {
           liveTaskNewStates.delete(storageKey);
@@ -30358,7 +31911,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-auto-return.js
-  var TASK_SELECTOR3 = '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var TASK_SELECTOR4 = '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]';
   var ACTION_DETAIL_SELECTOR = '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';
   var RETURN_TTL_MS = 3e4;
@@ -30378,7 +31931,7 @@ ${locks}` : ""}`;
   function captureTaskReturnContext(card, quests, now = Date.now()) {
     if (!card) return null;
     const index = Number(card.dataset.mwitoolsOriginalIndex);
-    const resolvedIndex = Number.isInteger(index) ? index : [...document.querySelectorAll(TASK_SELECTOR3)].indexOf(card);
+    const resolvedIndex = Number.isInteger(index) ? index : [...document.querySelectorAll(TASK_SELECTOR4)].indexOf(card);
     const task = quests?.[resolvedIndex];
     const scroller = scrollContainerFor(card);
     return {
@@ -30451,7 +32004,7 @@ ${locks}` : ""}`;
     return Boolean(taskButton);
   }
   function findTaskCard(context) {
-    const cards = [...document.querySelectorAll(TASK_SELECTOR3)];
+    const cards = [...document.querySelectorAll(TASK_SELECTOR4)];
     const quests = runtime.state.characterQuests ?? [];
     if (context.taskId) {
       const matched = cards.find((card, cardIndex) => {
@@ -30549,7 +32102,7 @@ ${locks}` : ""}`;
         (event) => {
           const button = event.target?.closest?.("button");
           if (!button) return;
-          const card = button.closest(TASK_SELECTOR3);
+          const card = button.closest(TASK_SELECTOR4);
           if (card && isGoButton(button)) {
             pending = captureTaskReturnContext(
               card,
@@ -30571,11 +32124,11 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID10 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID12 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var MARKET_SELECTOR = '[class*="MarketplacePanel_marketplacePanel"]';
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
-  function t9(zh, en) {
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function finite(value) {
@@ -30631,7 +32184,7 @@ ${locks}` : ""}`;
       totalBooks: unlockBooks + levelingBooks
     };
   }
-  function normalizeItemHrid2(value) {
+  function normalizeItemHrid3(value) {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     return raw.startsWith("/items/") ? raw : `/items/${raw.split("/").at(-1)}`;
@@ -30644,7 +32197,7 @@ ${locks}` : ""}`;
     for (const use of icons) {
       const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
       const fragment = href.split("#").at(-1);
-      const itemHrid = normalizeItemHrid2(fragment);
+      const itemHrid = normalizeItemHrid3(fragment);
       if (runtime.state.initData_itemDetailMap?.[itemHrid]) return itemHrid;
     }
     return "";
@@ -30663,7 +32216,7 @@ ${locks}` : ""}`;
     if (String(translated ?? "").startsWith("/abilities/")) {
       return String(translated).replace("/abilities/", "/items/");
     }
-    return normalizeItemHrid2(translated);
+    return normalizeItemHrid3(translated);
   }
   function resolveAbilityBookItem(root) {
     const itemHrid = itemHridFromIcon2(root) || itemHridFromTitle(root);
@@ -30712,10 +32265,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID12;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -30764,12 +32317,12 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-title",
-      t9("技能书计算器", "Ability book calculator")
+      t11("技能书计算器", "Ability book calculator")
     );
     const data = calculatorData(itemHrid);
     const input = panel.querySelector("input");
     const targetLabel = panel.querySelector(".mwi-book-target span");
-    targetLabel.textContent = t9("目标等级", "Target level");
+    targetLabel.textContent = t11("目标等级", "Target level");
     input.setAttribute("aria-label", targetLabel.textContent);
     if (!data.ready || !data.experienceGain || !data.maximumLevel) {
       panel.dataset.status = "waiting";
@@ -30777,7 +32330,7 @@ ${locks}` : ""}`;
       setPanelText(
         panel,
         ".mwi-book-state",
-        t9("等待角色与技能书数据", "Waiting for character and ability-book data")
+        t11("等待角色与技能书数据", "Waiting for character and ability-book data")
       );
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
@@ -30799,15 +32352,15 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-state",
-      data.isLearned ? t9(
+      data.isLearned ? t11(
         `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
         `Current Lv.${data.level} · total XP ${exact(data.experience)}`
-      ) : t9("当前：未学习", "Current: not learned")
+      ) : t11("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
-      t9(
+      t11(
         `每本增加 ${exact(data.experienceGain)} 经验`,
         `${exact(data.experienceGain)} XP per book`
       )
@@ -30823,19 +32376,19 @@ ${locks}` : ""}`;
     panel.dataset.status = requirement.status;
     let resultText;
     if (requirement.status === "invalid") {
-      resultText = t9(
+      resultText = t11(
         `目标等级必须为 1–${data.maximumLevel} 的整数`,
         `Target level must be an integer from 1 to ${data.maximumLevel}`
       );
     } else if (requirement.status === "reached") {
-      resultText = t9("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+      resultText = t11("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
     } else if (requirement.unlockBooks) {
-      resultText = t9(
+      resultText = t11(
         `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
         `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
       );
     } else {
-      resultText = t9(
+      resultText = t11(
         `升级还需 ${requirement.totalBooks} 本`,
         `${requirement.totalBooks} books needed to level`
       );
@@ -30845,10 +32398,10 @@ ${locks}` : ""}`;
     const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
     let costText = "";
     if (requirement.status !== "invalid") {
-      costText = books === 0 ? t9("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t9(
+      costText = books === 0 ? t11("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t11(
         `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低卖价 ${runtime.api.numberFormatter(ask)}/本）`,
         `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
-      ) : t9(
+      ) : t11(
         "参考购买成本：暂无卖价",
         "Reference purchase cost: no ask price"
       );
@@ -30857,8 +32410,8 @@ ${locks}` : ""}`;
   }
   function visiblePanels(selector) {
     const panels = [...document.querySelectorAll(selector)];
-    const visible = panels.filter((panel) => panel.getClientRects().length);
-    return visible.length ? visible : panels;
+    const visible2 = panels.filter((panel) => panel.getClientRects().length);
+    return visible2.length ? visible2 : panels;
   }
   function marketAnchor(panel) {
     return panel.querySelector(
@@ -30870,7 +32423,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles8();
+      addStyles10();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid, surface) => {
@@ -30936,7 +32489,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID10)?.remove();
+        document.getElementById(STYLE_ID12)?.remove();
       });
       refresh();
     }
@@ -30998,7 +32551,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t10(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -31055,10 +32608,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t10(...labels);
+    if (labels) return t12(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t10(
+      return t12(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -31122,7 +32675,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t10("意见反馈服务请求超时", "Feedback service request timed out")
+            t12("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -31139,7 +32692,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t10(
+            localizeErrorDetail(payload?.detail) || t12(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -31157,7 +32710,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t10("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t12("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -31171,9 +32724,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t10("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t12("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t10("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t12("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -31186,21 +32739,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t10("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t12("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t10("图片链接过长", "The image link is too long"));
+        throw new Error(t12("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t10("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t12("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t10("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t12("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -31303,8 +32856,8 @@ ${locks}` : ""}`;
   // src/features/feedback/panel.js
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID11 = "mwitools-feedback-style";
-  function t11(zh, en) {
+  var STYLE_ID13 = "mwitools-feedback-style";
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -31313,12 +32866,12 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t11(...labels[status]) : status;
+    return labels[status] ? t13(...labels[status]) : status;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID13;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
@@ -31359,23 +32912,23 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles9();
+      addStyles11();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t11("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t11("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t11("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t11("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t11("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t11("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t13("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t11("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t11("功能建议", "Feature request")}</option><option value="other">${t11("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t11("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t11("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t11("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t11("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t11("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t11("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t11("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t11("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t11("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t13("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t13("功能建议", "Feature request")}</option><option value="other">${t13("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t13("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t13("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t13("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t13("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t13("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t13("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t13("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t13("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t13("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -31417,7 +32970,7 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t11("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        button.innerHTML = `<span>✉</span><span>${t13("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
         this.scope.event(button, "click", () => this.open());
       }
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
@@ -31484,12 +33037,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t11("正在提交…", "Submitting…");
+      error.textContent = t13("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t11("请填写标题和详细说明。", "Enter a title and details.")
+            t13("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -31509,7 +33062,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t11("已保存反馈。", "Feedback saved.");
+        error.textContent = t13("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -31522,7 +33075,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t11(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t13(
         "提交",
         "Submit"
       );
@@ -31555,13 +33108,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t11(
+      node.textContent = errorMessage ? t13(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t11(
+      ) : this.quota ? t13(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t11("额度暂时不可用", "Quota unavailable");
+      ) : t13("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -31576,7 +33129,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t11("还没有提交过反馈。", "No feedback yet.")
+            t13("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -31610,7 +33163,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t11("返回列表", "Back")}`
+          `← ${t13("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -31624,29 +33177,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t11("详细说明", "Details"), item.detail)
+          this.textSection(t13("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t11("复现步骤", "Steps to reproduce"),
+              t13("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t11("预期结果", "Expected result"),
+              t13("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t11("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t13("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t11("图片", "Image")} ${index + 1}：${url}`
+              `${t13("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -31657,7 +33210,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t11("留言", "Messages")));
+        messages.append(makeElement("h4", "", t13("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -31665,7 +33218,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t11("管理员", "Admin") : t11("我", "Me")
+              message.actor === "admin" ? t13("管理员", "Admin") : t13("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -31677,7 +33230,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t11("暂无留言", "No messages")
+              t13("暂无留言", "No messages")
             )
           );
         }
@@ -31685,7 +33238,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t11("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t13("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -31694,9 +33247,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t11("补充留言…", "Add a message…");
+          input.placeholder = t13("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t11("发送", "Send"));
+          const send = makeElement("button", "", t13("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -31717,7 +33270,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t11(
+              t13(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -31754,7 +33307,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t11(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t13(
         "保存修改",
         "Save changes"
       );
@@ -31765,10 +33318,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID11)?.remove();
+      document.getElementById(STYLE_ID13)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID11 };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID13 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -31817,11 +33370,11 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID12 = "mwitools-guild-xp-style";
+  var STYLE_ID14 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
-  function t12(zh, en) {
+  function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -31940,10 +33493,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID14;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -31954,7 +33507,11 @@ ${locks}` : ""}`;
     .mwi-guild-xp-metric small { display:block; color:var(--color-text-secondary,#aaa); }
     .mwi-guild-xp-metric strong { display:block; margin-top:2px; color:#ffa500; }
     .mwi-guild-trend-label { margin-top:8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
-    .mwi-guild-trend { width:100%; height:58px; margin-top:8px; overflow:visible; }
+    .mwi-guild-trend { width:100%; height:180px; margin-top:8px; overflow:visible; }
+    .mwi-guild-trend-axis { stroke:rgba(255,255,255,.38); stroke-width:1; vector-effect:non-scaling-stroke; }
+    .mwi-guild-trend-grid { stroke:rgba(255,255,255,.1); stroke-width:1; vector-effect:non-scaling-stroke; }
+    .mwi-guild-trend-tick { fill:var(--color-text-secondary,#aaa); font-size:10px; }
+    .mwi-guild-trend-empty { fill:var(--color-text-secondary,#aaa); font-size:13px; text-anchor:middle; }
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
@@ -31984,7 +33541,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t12("待再次采样", "Awaiting another sample") : t12("样本不足", "Not enough data");
+      return waiting ? t14("待再次采样", "Awaiting another sample") : t14("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -32013,35 +33570,104 @@ ${locks}` : ""}`;
     }
     return rates;
   }
+  function svgElement(name, className = "") {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+    if (className) element.setAttribute("class", className);
+    return element;
+  }
+  function niceRateCeiling(value) {
+    if (!(value > 0)) return 1;
+    const rawStep = value / 4;
+    const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+    const normalized = rawStep / magnitude;
+    const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+    return factor * magnitude * 4;
+  }
+  function trendTimeLabel(timestamp, longSpan) {
+    return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+      ...longSpan ? { month: "numeric", day: "numeric" } : { hour: "2-digit", minute: "2-digit", hour12: false }
+    }).format(new Date(timestamp));
+  }
   function trendSvg(points) {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const width = 520;
+    const height = 180;
+    const plot = { left: 58, right: 12, top: 10, bottom: 30 };
+    const plotWidth = width - plot.left - plot.right;
+    const plotHeight = height - plot.top - plot.bottom;
+    const svg = svgElement("svg");
     svg.classList.add("mwi-guild-trend");
-    svg.setAttribute("viewBox", "0 0 400 58");
-    svg.setAttribute("preserveAspectRatio", "none");
-    const label = t12(
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+    const label = t14(
       "公会经验获取速度（XP/小时）",
       "Guild XP gain rate (XP/hour)"
     );
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", label);
-    const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+    const title = svgElement("title");
     title.textContent = label;
     svg.append(title);
     const recent = guildXpRatePoints(points);
-    if (recent.length < 2) return svg;
-    const minRate = Math.min(...recent.map((point) => point.rate));
-    const maxRate = Math.max(...recent.map((point) => point.rate));
+    if (recent.length < 2) {
+      const empty = svgElement("text", "mwi-guild-trend-empty");
+      empty.setAttribute("x", String(width / 2));
+      empty.setAttribute("y", String(height / 2));
+      empty.textContent = t14("样本不足", "Not enough data");
+      svg.append(empty);
+      return svg;
+    }
+    const yMax = niceRateCeiling(Math.max(...recent.map((point) => point.rate)));
     const minAt = recent[0].at;
     const maxAt = recent.at(-1).at;
-    const polyline = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "polyline"
-    );
+    const yAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-y");
+    yAxis.setAttribute("x1", String(plot.left));
+    yAxis.setAttribute("x2", String(plot.left));
+    yAxis.setAttribute("y1", String(plot.top));
+    yAxis.setAttribute("y2", String(plot.top + plotHeight));
+    const xAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-x");
+    xAxis.setAttribute("x1", String(plot.left));
+    xAxis.setAttribute("x2", String(plot.left + plotWidth));
+    xAxis.setAttribute("y1", String(plot.top + plotHeight));
+    xAxis.setAttribute("y2", String(plot.top + plotHeight));
+    for (let index = 0; index < 5; index += 1) {
+      const ratio = index / 4;
+      const y = plot.top + plotHeight - ratio * plotHeight;
+      const grid = svgElement("line", "mwi-guild-trend-grid");
+      grid.setAttribute("x1", String(plot.left));
+      grid.setAttribute("x2", String(plot.left + plotWidth));
+      grid.setAttribute("y1", String(y));
+      grid.setAttribute("y2", String(y));
+      const tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-y-tick");
+      tick.setAttribute("x", String(plot.left - 7));
+      tick.setAttribute("y", String(y + 3));
+      tick.setAttribute("text-anchor", "end");
+      tick.textContent = runtime.api.numberFormatter(yMax * ratio);
+      svg.append(grid, tick);
+    }
+    const longSpan = maxAt - minAt > 24 * HOUR_MS2;
+    for (let index = 0; index < 4; index += 1) {
+      const ratio = index / 3;
+      const x = plot.left + ratio * plotWidth;
+      const tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-x-tick");
+      tick.setAttribute("x", String(x));
+      tick.setAttribute("y", String(plot.top + plotHeight + 19));
+      tick.setAttribute(
+        "text-anchor",
+        index === 0 ? "start" : index === 3 ? "end" : "middle"
+      );
+      tick.textContent = trendTimeLabel(
+        minAt + ratio * (maxAt - minAt),
+        longSpan
+      );
+      svg.append(tick);
+    }
+    svg.append(yAxis, xAxis);
+    const polyline = svgElement("polyline");
     polyline.setAttribute(
       "points",
       recent.map((point) => {
-        const x = (point.at - minAt) / Math.max(1, maxAt - minAt) * 400;
-        const y = 54 - (point.rate - minRate) / Math.max(1, maxRate - minRate) * 50;
+        const x = plot.left + (point.at - minAt) / Math.max(1, maxAt - minAt) * plotWidth;
+        const y = plot.top + plotHeight - point.rate / yMax * plotHeight;
         return `${x},${y}`;
       }).join(" ")
     );
@@ -32100,10 +33726,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t12("公会经验进度", "Guild XP progress");
+    title.textContent = t14("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t12("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t12("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t14("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t14("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -32118,21 +33744,21 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t12("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t14("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t12("最近 XP/h", "Recent XP/h"),
+        t14("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t12("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t12("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t14("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t12("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t12("样本不足", "Not enough data")
+        t14("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t14("样本不足", "Not enough data")
       )
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t12(
+    trendLabel.textContent = t14(
       "最近 7 天经验获取速度（XP/小时）",
       "XP gain rate over the last 7 days (XP/hour)"
     );
@@ -32144,7 +33770,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t12("当前闲置", "Idle now")} (${idle.length}) · ${t12(
+      label.textContent = `${t14("当前闲置", "Idle now")} (${idle.length}) · ${t14(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -32166,8 +33792,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t12("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t12("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t14("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -32179,7 +33805,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t12("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t14("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -32281,10 +33907,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t12("最近 XP/h", "Recent XP/h")
+          textContent: t14("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t12("24 小时 XP/h", "24h XP/h")
+          textContent: t14("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -32362,7 +33988,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles10();
+      addStyles12();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -32377,7 +34003,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles10();
+        addStyles12();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -32413,7 +34039,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t13(zh, en) {
+  function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   async function handleBattleSummary(message) {
@@ -32645,7 +34271,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t13("全部", "All")}</option>
+            <option value="1">${t15("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -32666,7 +34292,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t13("全部", "All")}</option>
+            <option value="1000">${t15("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -32687,33 +34313,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t13("全部", "All")}</option>
-                <option value="attack">${t13("攻击", "Attack")}</option>
-                <option value="melee">${t13("近战", "Melee")}</option>
-                <option value="defense">${t13("防御", "Defense")}</option>
-                <option value="ranged">${t13("远程", "Ranged")}</option>
-                <option value="magic">${t13("魔法", "Magic")}</option>
-                <option value="others">${t13("其他", "Others")}</option>
+                <option value="all">${t15("全部", "All")}</option>
+                <option value="attack">${t15("攻击", "Attack")}</option>
+                <option value="melee">${t15("近战", "Melee")}</option>
+                <option value="defense">${t15("防御", "Defense")}</option>
+                <option value="ranged">${t15("远程", "Ranged")}</option>
+                <option value="magic">${t15("魔法", "Magic")}</option>
+                <option value="others">${t15("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t13("全部", "All")}</option>
-                <option value="main_hand">${t13("主手", "Main Hand")}</option>
-                <option value="off_hand">${t13("副手", "Off Hand")}</option>
-                <option value="two_hand">${t13("双手", "Two Hand")}</option>
-                <option value="head">${t13("头部", "Head")}</option>
-                <option value="body">${t13("身体", "Body")}</option>
-                <option value="hands">${t13("手部", "Hands")}</option>
-                <option value="legs">${t13("腿部", "Legs")}</option>
-                <option value="feet">${t13("脚部", "Feet")}</option>
-                <option value="neck">${t13("项链", "Neck")}</option>
-                <option value="earrings">${t13("耳饰", "Earrings")}</option>
-                <option value="ring">${t13("戒指", "Ring")}</option>
-                <option value="pouch">${t13("袋子", "Pouch")}</option>
-                <option value="back">${t13("背部", "Back")}</option>
+                <option value="all">${t15("全部", "All")}</option>
+                <option value="main_hand">${t15("主手", "Main Hand")}</option>
+                <option value="off_hand">${t15("副手", "Off Hand")}</option>
+                <option value="two_hand">${t15("双手", "Two Hand")}</option>
+                <option value="head">${t15("头部", "Head")}</option>
+                <option value="body">${t15("身体", "Body")}</option>
+                <option value="hands">${t15("手部", "Hands")}</option>
+                <option value="legs">${t15("腿部", "Legs")}</option>
+                <option value="feet">${t15("脚部", "Feet")}</option>
+                <option value="neck">${t15("项链", "Neck")}</option>
+                <option value="earrings">${t15("耳饰", "Earrings")}</option>
+                <option value="ring">${t15("戒指", "Ring")}</option>
+                <option value="pouch">${t15("袋子", "Pouch")}</option>
+                <option value="back">${t15("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -33596,17 +35222,17 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID13 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID15 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
-  function t14(zh, en) {
+  function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles13() {
+    if (document.getElementById(STYLE_ID15)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID15;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -33640,7 +35266,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number2)) return "—";
     const rounded = Math.round(number2);
     const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number2, digits)} ${t14("个", "pcs")}`;
+    return `${compactNumber(number2, digits)} ${t16("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -33663,11 +35289,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t14(
+      text: t16(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t14(
+      title: t16(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -33676,28 +35302,28 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t14("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t14("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t14(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t14("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t14(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t14("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t16("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t16("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t16(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t16("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t16(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t16("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t14("总成本", "Total cost"),
+        t16("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t14("耗时", "Time"),
+        t16("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t14("开始保护", "Protect from"), normalStart),
+      metric3(t16("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t14("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t16("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -33768,7 +35394,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles11();
+    addStyles13();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -34558,9 +36184,9 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID14 = "mwitools-important-update-style";
+  var STYLE_ID16 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t15(value) {
+  function t17(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -34651,10 +36277,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles12() {
-    if (document.getElementById(STYLE_ID14)) return;
+  function addStyles14() {
+    if (document.getElementById(STYLE_ID16)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID14;
+    style.id = STYLE_ID16;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -34672,7 +36298,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles12();
+    addStyles14();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -34684,8 +36310,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t15(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t15(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t17(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -34715,7 +36341,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID14)?.remove();
+        document.getElementById(STYLE_ID16)?.remove();
       });
     }
   });
@@ -34764,7 +36390,7 @@ ${locks}` : ""}`;
       );
       if (match) bases.set(match[2].toLowerCase(), match[1]);
     }
-    function scan(force = true) {
+    function scan2(force = true) {
       const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
       if (!force && (bases.size >= Object.keys(fallback).length || now - lastScanAt < SCAN_INTERVAL_MS)) {
         return;
@@ -34786,7 +36412,7 @@ ${locks}` : ""}`;
       }
     }
     function sprite(kind, id) {
-      scan(false);
+      scan2(false);
       const base = bases.get(kind) || "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
       return base + "#" + String(id || "").split("/").pop();
     }
@@ -34796,7 +36422,7 @@ ${locks}` : ""}`;
       item: (id) => sprite("items", id),
       misc: (id) => sprite("misc", id),
       avatar: (id) => sprite("avatars", id),
-      scan: () => scan(true)
+      scan: () => scan2(true)
     };
   })();
   var SKILL_MODE_ICONS = {
@@ -35817,10 +37443,10 @@ ${locks}` : ""}`;
       });
       return out;
     }
-    function mergeScan(target, scan) {
-      scan.paths.forEach((path) => addUnique(target.paths, path, 120));
-      scan.hrids.forEach((hrid) => addUnique(target.hrids, hrid, 40));
-      Object.entries(scan.values).forEach(([path, values]) => {
+    function mergeScan(target, scan2) {
+      scan2.paths.forEach((path) => addUnique(target.paths, path, 120));
+      scan2.hrids.forEach((hrid) => addUnique(target.hrids, hrid, 40));
+      Object.entries(scan2.values).forEach(([path, values]) => {
         if (!target.values[path]) target.values[path] = [];
         values.forEach((value) => addUnique(target.values[path], value));
       });
@@ -35912,10 +37538,10 @@ ${locks}` : ""}`;
         Object.keys(update).forEach(
           (key) => addUnique(player.fieldKeys, key, 80)
         );
-        const scan = scanRelevant(update);
-        mergeScan(player, scan);
-        scan.hrids.filter((value) => String(value).startsWith("/abilities/")).forEach((value) => addUnique(player.abilities, value, 30));
-        Object.entries(scan.values).forEach(([path, values]) => {
+        const scan2 = scanRelevant(update);
+        mergeScan(player, scan2);
+        scan2.hrids.filter((value) => String(value).startsWith("/abilities/")).forEach((value) => addUnique(player.abilities, value, 30));
+        Object.entries(scan2.values).forEach(([path, values]) => {
           if (/ability.*hrid/i.test(path))
             values.forEach(
               (value) => typeof value === "string" && addUnique(player.abilities, value, 30)
@@ -35940,7 +37566,7 @@ ${locks}` : ""}`;
     function recordRelated(type, payload) {
       if (!/(battle|combat|ability|equipment|character_stats)/i.test(type))
         return;
-      const scan = scanRelevant(payload);
+      const scan2 = scanRelevant(payload);
       if (!state.relatedMessages[type])
         state.relatedMessages[type] = {
           count: 0,
@@ -35950,7 +37576,7 @@ ${locks}` : ""}`;
         };
       const target = state.relatedMessages[type];
       target.count++;
-      mergeScan(target, scan);
+      mergeScan(target, scan2);
     }
     function record(type, payload) {
       if (type === "init_client_data") cacheClientData(payload);
@@ -36809,9 +38435,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t16 = 0;
-        playerKills.forEach((v) => t16 += v);
-        return t16;
+        let t18 = 0;
+        playerKills.forEach((v) => t18 += v);
+        return t18;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -37071,12 +38697,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t16) {
-      const low = t16.toLowerCase();
+    function looksLikeNoise(t18) {
+      const low = t18.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t16)) return true;
-      if (/^\d+%?$/.test(t16)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t16)) return true;
+      if (/^lv\.?\d+$/i.test(t18)) return true;
+      if (/^\d+%?$/.test(t18)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t18)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -37098,14 +38724,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t16) => t16 && !looksLikeNoise(t16) && !/^trial\s/i.test(t16));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t18) => t18 && !looksLikeNoise(t18) && !/^trial\s/i.test(t18));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t16, i) => {
-        resolved.set(String(i + offset), t16);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t18, i) => {
+        resolved.set(String(i + offset), t18);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -37173,7 +38799,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t16) => t16.length > 0)) {
+          if (texts.some((t18) => t18.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -37209,10 +38835,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t16 = c.textContent.trim();
-            if (t16.length >= 2 && t16.length <= 20 && !looksLikeNoise(t16)) {
+            const t18 = c.textContent.trim();
+            if (t18.length >= 2 && t18.length <= 20 && !looksLikeNoise(t18)) {
               nameLikeCount++;
-              texts.push(t16.slice(0, 20));
+              texts.push(t18.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -38804,11 +40430,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t16 = el2.textContent.trim();
-        if (!t16 || t16.length < 2 || t16.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t16);
+        const t18 = el2.textContent.trim();
+        if (!t18 || t18.length < 2 || t18.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t18);
         let cssEllipsis = false;
-        if (!literalEllipsis && t16.length <= 20 && !t16.includes(" ") && !looksLikeNoise(t16)) {
+        if (!literalEllipsis && t18.length <= 20 && !t18.includes(" ") && !looksLikeNoise(t18)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -39727,7 +41353,7 @@ ${locks}` : ""}`;
       else nice = 10;
       return nice * mag;
     }
-    function render(points) {
+    function render2(points) {
       canvas.style.display = "block";
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, CW, CH);
@@ -39848,7 +41474,7 @@ ${locks}` : ""}`;
       ctx.lineTo(PAD.left + DW, PAD.top + DH);
       ctx.stroke();
     }
-    return { canvas, render };
+    return { canvas, render: render2 };
   }
   function buildDetailsGraph() {
     const GRAPH_BUCKET_MS = 2e3, CSS_HEIGHT = 112, canvas = document.createElement("canvas");
@@ -39879,7 +41505,7 @@ ${locks}` : ""}`;
         return "-" + Math.round(seconds / 60) + (english ? "m" : "分");
       return "-" + Math.round(seconds) + (english ? "s" : "秒");
     }
-    function render(rawPoints) {
+    function render2(rawPoints) {
       const points = Array.isArray(rawPoints) ? rawPoints : [], english = Settings.getLanguage() === "en";
       const width = Math.max(
         240,
@@ -40035,7 +41661,7 @@ ${locks}` : ""}`;
       ctx.fillStyle = latest.isBoss ? "#ff817a" : "#f5d568";
       ctx.fillText(formatRate(smoothed[count - 1].dps) + " DPS", width - 9, 13);
     }
-    return { canvas, render };
+    return { canvas, render: render2 };
   }
   function openClassPicker(name, anchor, rerender) {
     const old = document.getElementById("kikimeter-class-picker");
@@ -40098,7 +41724,7 @@ ${locks}` : ""}`;
         top: top + "px"
       });
     }
-    function render(row) {
+    function render2(row) {
       if (!popup || !row) return;
       const scrollTop = popup.scrollTop;
       popup.innerHTML = "";
@@ -40227,12 +41853,12 @@ ${locks}` : ""}`;
         popup.addEventListener("mouseleave", scheduleClose);
         document.body.appendChild(popup);
       }
-      render(row);
+      render2(row);
     }
     function update(rows) {
       if (!popup) return false;
       const row = (rows || []).find((item) => item.name === playerName);
-      if (row && Array.isArray(row.breakdown)) render(row);
+      if (row && Array.isArray(row.breakdown)) render2(row);
       else close();
       return !!popup;
     }
@@ -41257,10 +42883,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t16 = c.textContent;
-        if (t16.includes("Combat Zones") || t16.includes("战斗区域") || t16.includes("戰鬥區域"))
+        const t18 = c.textContent;
+        if (t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
           return c;
-        if (t16.includes("Labyrinth") && t16.includes("Room") && t16.includes("Automation") || t16.includes("迷宫") && (t16.includes("房间") || t16.includes("自动化")) || t16.includes("迷宮") && (t16.includes("房間") || t16.includes("自動化")))
+        if (t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -41566,10 +43192,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t16) => {
+      TYPES.forEach((t18) => {
         const btn = document.createElement("button");
-        btn.textContent = t16.label;
-        const active = historyFilter === t16.id;
+        btn.textContent = t18.label;
+        const active = historyFilter === t18.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -41583,7 +43209,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t16.id;
+          historyFilter = t18.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -41707,8 +43333,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t16) => t16.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t16) => t16.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t18) => t18.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t18) => t18.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -41863,7 +43489,7 @@ ${locks}` : ""}`;
       root.appendChild(header);
       segmentSelect = buildSegmentPicker(() => {
         KikiMeter.refreshSegments();
-        render();
+        render2();
       });
       Object.assign(segmentSelect.style, {
         display: "block",
@@ -41962,17 +43588,17 @@ ${locks}` : ""}`;
     function setMode(i) {
       modeIdx = i;
       Settings.setRecountMode(MODES[i].id);
-      render();
+      render2();
     }
     function toggle(v) {
       build();
       open = v === void 0 ? !open : v;
       if (open) KikiMeter.close();
       root.style.display = open ? "block" : "none";
-      if (open) render();
+      if (open) render2();
       return open;
     }
-    function render(view = ViewData.get()) {
+    function render2(view = ViewData.get()) {
       if (!open || !root) return;
       refreshSegmentSelect(segmentSelect);
       if (graphObj && Settings.getRecountShowGraph())
@@ -41999,10 +43625,10 @@ ${locks}` : ""}`;
           breakdownTitle: mode.id === "taken" ? Settings.getLanguage() === "en" ? "Damage Taken Sources" : "承伤来源" : void 0,
           breakdownRateLabel: mode.id === "taken" ? "DTPS" : "DPS"
         })),
-        render
+        render2
       );
     }
-    return { toggle, render, isOpen: () => open };
+    return { toggle, render: render2, isOpen: () => open };
   })();
 
   // src/features/dps/90-application.js

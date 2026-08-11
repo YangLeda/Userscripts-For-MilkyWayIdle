@@ -220,3 +220,98 @@ test("guild trend converts cumulative XP samples into XP-per-hour points", () =>
     [150, 400],
   );
 });
+
+test("guild trend renders axes, readable ticks, grid lines, and bounded data", async () => {
+  guildMarkup();
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  runtime.state.guild = { id: "guild-chart", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [
+    { at: now - 3 * hour, xp: 100 },
+    { at: now - 2 * hour, xp: 250 },
+    { at: now - hour, xp: 650 },
+  ];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: 400,
+    hour: 400,
+    day: 300,
+    lastSampleAt: now,
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const svg = document.querySelector(".mwi-guild-trend");
+  assert.equal(svg.getAttribute("viewBox"), "0 0 520 180");
+  assert.equal(svg.getAttribute("preserveAspectRatio"), "xMidYMid meet");
+  assert.ok(svg.querySelector(".mwi-guild-axis-x"));
+  assert.ok(svg.querySelector(".mwi-guild-axis-y"));
+  assert.equal(svg.querySelectorAll(".mwi-guild-y-tick").length, 5);
+  assert.equal(svg.querySelectorAll(".mwi-guild-x-tick").length, 4);
+  assert.equal(svg.querySelectorAll(".mwi-guild-trend-grid").length, 5);
+  assert.ok(
+    [...svg.querySelectorAll(".mwi-guild-x-tick")].every((tick) =>
+      tick.textContent.includes(":"),
+    ),
+  );
+  const coordinates = svg
+    .querySelector("polyline")
+    .getAttribute("points")
+    .split(" ")
+    .map((point) => point.split(",").map(Number));
+  assert.ok(
+    coordinates.every(([x, y]) => x >= 58 && x <= 508 && y >= 10 && y <= 150),
+  );
+});
+
+test("guild trend switches long time spans to month-day ticks", async () => {
+  guildMarkup();
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  runtime.state.guild = { id: "guild-chart-long", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [
+    { at: now - 4 * day, xp: 100 },
+    { at: now - 2 * day, xp: 500 },
+    { at: now, xp: 1_300 },
+  ];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: 20,
+    hour: 20,
+    day: 20,
+    lastSampleAt: now,
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  assert.ok(
+    [...document.querySelectorAll(".mwi-guild-x-tick")].every(
+      (tick) =>
+        tick.textContent.includes("/") && !tick.textContent.includes(":"),
+    ),
+  );
+});
+
+test("guild trend shows an explicit sparse-sample message without axes", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-chart-sparse", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [{ at: Date.now(), xp: 100 }];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: null,
+    hour: null,
+    day: null,
+    lastSampleAt: Date.now(),
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const svg = document.querySelector(".mwi-guild-trend");
+  assert.equal(
+    svg.querySelector(".mwi-guild-trend-empty").textContent,
+    "样本不足",
+  );
+  assert.equal(svg.querySelector("polyline"), null);
+  assert.equal(svg.querySelector(".mwi-guild-axis-x"), null);
+  assert.equal(svg.querySelector(".mwi-guild-axis-y"), null);
+});

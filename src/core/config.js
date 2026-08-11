@@ -286,6 +286,20 @@ let settingsMap = {
     desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
     isTrue: true,
   },
+  semiAutoTrain: {
+    id: "semiAutoTrain",
+    desc: isZH
+      ? "生产升级链显示半自动火车、逐站预填和本步加购"
+      : "Show semi-automatic train navigation, step prefilling, and step shopping.",
+    isTrue: true,
+  },
+  taskTrainPlanner: {
+    id: "taskTrainPlanner",
+    desc: isZH
+      ? "任务页按升级链合并任务并规划火车（依赖半自动火车）"
+      : "Plan task upgrade trains by chain (requires the semi-automatic train).",
+    isTrue: true,
+  },
   taskNewBadge: {
     id: "taskNewBadge",
     desc: isZH
@@ -699,6 +713,22 @@ const catalogRows = [
     "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon.",
   ],
   [
+    "semiAutoTrain",
+    "tasks",
+    "半自动火车",
+    "Semi-automatic train",
+    "沿制造与升级链逐站跳转、预填次数；点击游戏原生加入队列后前往下一站，并可把本步净缺料加入购物车。",
+    "Navigate production and upgrade chains, prefill counts, advance after the native queue action, and add each stop's net shortages to the cart.",
+  ],
+  [
+    "taskTrainPlanner",
+    "tasks",
+    "任务火车规划",
+    "Task train planning",
+    "聚合同一升级链的未完成任务，在最高级任务卡生成火车计划；依赖半自动火车。",
+    "Combine unfinished tasks from the same upgrade chain and start the plan from its highest-level task; requires the semi-automatic train.",
+  ],
+  [
     "taskNewBadge",
     "tasks",
     "新任务置顶与标记",
@@ -938,6 +968,7 @@ const settingParents = {
   taskClaimCollector: "taskInsights",
   taskMergeActions: "taskInsights",
   taskNewBadge: "taskInsights",
+  taskTrainPlanner: "semiAutoTrain",
   guildOverview: "guildXpTracking",
   guildMemberXp: "guildXpTracking",
   guildLeaderboardXp: "guildXpTracking",

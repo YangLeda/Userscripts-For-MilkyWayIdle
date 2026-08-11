@@ -54,13 +54,74 @@ function getExpectedOutputs(detail) {
   }));
 }
 
+function getProcessingProductMap() {
+  const result = new Map();
+  for (const [actionHrid, detail] of Object.entries(
+    runtime.state.initData_actionDetailMap ?? {},
+  )) {
+    if (!/(?:fabric|lumber|cheese)$/.test(actionHrid)) continue;
+    const input = asArray(detail?.inputItems)[0];
+    const output = asArray(detail?.outputItems)[0];
+    const inputCount = Number(input?.count) || 0;
+    if (!input?.itemHrid || !output?.itemHrid || inputCount <= 0) continue;
+    result.set(input.itemHrid, {
+      itemHrid: output.itemHrid,
+      inputCount,
+    });
+  }
+  if (!result.has("/items/rainbow_milk")) {
+    result.set("/items/rainbow_milk", {
+      itemHrid: "/items/rainbow_cheese",
+      inputCount: 2,
+    });
+  }
+  return result;
+}
+
+function getEffectiveOutputs(detail, teaEffects) {
+  const quantityMultiplier = 1 + Math.max(0, teaEffects?.quantity ?? 0);
+  const processingRate = Math.min(
+    1,
+    Math.max(0, teaEffects?.upgradedProduct ?? 0),
+  );
+  const processingMap = processingRate > 0 ? getProcessingProductMap() : null;
+  const result = [];
+  for (const output of getExpectedOutputs(detail)) {
+    const processing = processingMap?.get(output.itemHrid);
+    const baseCount = Number(output.count) || 0;
+    const rawCount =
+      baseCount * quantityMultiplier * (processing ? 1 - processingRate : 1);
+    if (rawCount > 0) {
+      result.push({ ...output, baseCount, count: rawCount });
+    }
+    if (processing) {
+      const processedCount =
+        (baseCount * quantityMultiplier * processingRate) /
+        processing.inputCount;
+      if (processedCount > 0) {
+        result.push({
+          itemHrid: processing.itemHrid,
+          baseCount: 0,
+          count: processedCount,
+          kind: "processed",
+          processedFromItemHrid: output.itemHrid,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 function getDirectInputs(detail) {
   const inputs = asArray(detail?.inputItems).map((item) => ({
     itemHrid: item.itemHrid,
     count: Number(item.count) || 0,
-    isUpgradeItem: false,
+    isUpgradeItem: item.itemHrid === detail?.upgradeItemHrid,
   }));
-  if (detail?.upgradeItemHrid) {
+  if (
+    detail?.upgradeItemHrid &&
+    !inputs.some((input) => input.itemHrid === detail.upgradeItemHrid)
+  ) {
     inputs.push({
       itemHrid: detail.upgradeItemHrid,
       count: 1,
@@ -430,9 +491,8 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   const secondsPerAction = timing?.secondsPerAction ?? null;
   const inputs = getDirectInputs(detail);
-  const outputs = getExpectedOutputs(detail);
+  const outputs = getEffectiveOutputs(detail, teaEffects);
   const lessResource = teaEffects.lessResource;
-  const quantityBonus = teaEffects.quantity;
 
   let maxCraftable = Infinity;
   for (const input of inputs) {
@@ -447,7 +507,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   }
   if (!inputs.length) maxCraftable = Infinity;
 
-  const executableCount = respectInventoryLimit
+  const canApplyInventoryLimit =
+    respectInventoryLimit && !(infinite && maxCraftable === 0);
+  const executableCount = canApplyInventoryLimit
     ? Math.min(normalizedCount, maxCraftable)
     : normalizedCount;
   const effectivelyInfinite = !Number.isFinite(executableCount);
@@ -455,6 +517,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     respectInventoryLimit &&
     inputs.length > 0 &&
     Number.isFinite(maxCraftable) &&
+    maxCraftable > 0 &&
     (infinite || maxCraftable < normalizedCount);
 
   const valuationMode = "fair";
@@ -473,7 +536,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       return total + (price === null ? 0 : effectiveCount * price);
     }, 0);
     const primaryRevenuePerAction = outputs.reduce((total, output) => {
-      const effectiveCount = output.count * (1 + quantityBonus);
+      const effectiveCount = output.count;
       const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
       if (priceInfo.value === null) missingPrices.push(output.itemHrid);
       if (!priceInfo.complete && priceInfo.value !== null) {
@@ -558,12 +621,12 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     };
   });
   const outputDetails = outputs.map((output) => {
-    const effectiveCount = output.count * (1 + quantityBonus);
+    const effectiveCount = output.count;
     const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
     const unitPrice = priceInfo.value;
     return {
       ...output,
-      baseCount: output.count,
+      baseCount: output.baseCount ?? output.count,
       effectiveCount,
       expectedCount:
         effectiveCount * (effectivelyInfinite ? 1 : executableCount),

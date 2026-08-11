@@ -24,6 +24,7 @@ const dom = new JSDOM(
           <div class="SkillActionDetail_maxActionCountInput__test">
             <div><input value="5"></div>
           </div>
+          <button type="button" class="SkillActionDetail_infiniteButton__test">∞</button>
         </div>
       </div>
     </div>
@@ -125,6 +126,117 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     extension,
     "production refreshes must preserve extension DOM without collapsing it",
   );
+  document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  ).value = "5";
+});
+
+test("infinite production summaries use inventory capacity and expose a native-style max button", () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "∞";
+  runtime.api.renderProductionPanel();
+
+  const card = document.querySelector("#mwi-production-summary");
+  const maxButton = document.querySelector(".mwi-max-action-button");
+  const infinityButton = document.querySelector(
+    'button[class*="SkillActionDetail_infiniteButton"]',
+  );
+  assert.match(card.textContent, /预期总产出木板 10/);
+  assert.match(card.textContent, /本次总耗时60s/);
+  assert.match(card.textContent, /本次总净利润800/);
+  assert.ok(maxButton);
+  assert.equal(maxButton.textContent, "最大");
+  assert.equal(maxButton.classList.contains(infinityButton.classList[0]), true);
+  maxButton.click();
+  assert.equal(input.value, "10");
+
+  const logItem = runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/log",
+  );
+  logItem.count = 0;
+  input.value = "∞";
+  runtime.api.renderProductionPanel();
+  assert.match(card.textContent, /本次总耗时∞/);
+  assert.match(card.textContent, /本次总净利润∞/);
+  assert.equal(maxButton.disabled, true);
+  logItem.count = 20;
+  input.value = "5";
+});
+
+test("production durations over one day use whole days, hours, and minutes", () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  const logItem = runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/log",
+  );
+  logItem.count = 50_000;
+  input.value = "20000";
+  runtime.api.renderProductionPanel();
+  assert.match(
+    document.querySelector("#mwi-production-summary").textContent,
+    /本次总耗时1天 9小时 20分/,
+  );
+  assert.doesNotMatch(
+    document.querySelector("#mwi-production-summary").textContent,
+    /1\.4天/,
+  );
+  logItem.count = 20;
+  input.value = "5";
+});
+
+test("gathering dialogs without a count input still render expected outputs", () => {
+  const originalPanel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const modal = originalPanel.closest('div[class*="Modal_modalContainer"]');
+  const hiddenOldPanel = document.createElement("div");
+  hiddenOldPanel.style.display = "none";
+  hiddenOldPanel.append(originalPanel);
+  modal.append(hiddenOldPanel);
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_skillActionDetail__gathering";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__test">奶牛</div>
+    <div class="SkillActionDetail_actionContainer__test"></div>
+  `;
+  modal.append(panel);
+  runtime.state.initData_actionDetailMap["/actions/milking/cow"] = {
+    hrid: "/actions/milking/cow",
+    name: "Cow",
+    type: "/action_types/milking",
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      { itemHrid: "/items/milk", dropRate: 1, minCount: 1, maxCount: 3 },
+    ],
+  };
+  runtime.state.initData_itemDetailMap["/items/milk"] = {
+    hrid: "/items/milk",
+    name: "Milk",
+  };
+  runtime.data.ZHActionNames["/actions/milking/cow"] = "奶牛";
+  runtime.data.ZHItemNames["/items/milk"] = "牛奶";
+  const previousNetSell = runtime.api.getNetSellPrice;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/milk" ? 50 : previousNetSell(itemHrid);
+
+  runtime.api.renderProductionPanel();
+
+  const card = document.querySelector("#mwi-production-summary");
+  assert.ok(card);
+  assert.match(card.textContent, /预期单次产出牛奶 2/);
+  assert.match(card.textContent, /本次总耗时∞/);
+  assert.match(card.textContent, /每小时净利润/);
+  assert.equal(panel.contains(card), true);
+  assert.equal(hiddenOldPanel.querySelector("#mwi-production-summary"), null);
+  assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.api.getNetSellPrice = previousNetSell;
+  panel.remove();
+  modal.append(originalPanel);
+  hiddenOldPanel.remove();
 });
 
 test("combat dialogs never render the production summary", () => {
@@ -175,6 +287,11 @@ test("the top action bar shows only current-action count, time left, and finish 
     true,
   );
   assert.equal(dom.window.getComputedStyle(dashboard).position, "absolute");
+  const dashboardStyle = document.querySelector(
+    "#mwitools-action-dashboard-style",
+  ).textContent;
+  assert.match(dashboardStyle, /flex-wrap:wrap/);
+  assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
 });
 
 test("the top action estimate keeps the completed-cycle progress after the bar restarts", () => {

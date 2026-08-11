@@ -9,7 +9,17 @@ function t(zh, en) {
 function formatDuration(seconds) {
   if (seconds === Infinity) return "∞";
   if (!Number.isFinite(seconds)) return "—";
-  return runtime.api.timeReadable?.(Math.max(0, seconds)) ?? `${seconds}s`;
+  const normalized = Math.max(0, Math.round(seconds));
+  if (normalized < 86_400) {
+    return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+  }
+  const days = Math.floor(normalized / 86_400);
+  const hours = Math.floor((normalized % 86_400) / 3_600);
+  const minutes = Math.floor((normalized % 3_600) / 60);
+  const parts = [t(`${days}天`, `${days}d`)];
+  if (hours > 0) parts.push(t(`${hours}小时`, `${hours}h`));
+  if (minutes > 0) parts.push(t(`${minutes}分`, `${minutes}m`));
+  return parts.join(" ");
 }
 
 function formatClock(timestamp) {
@@ -31,8 +41,9 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
-    .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:5px 10px; color:#ffa500; }
+    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
@@ -41,7 +52,8 @@ function addStyles() {
     .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:.6rem; line-height:1.2; }
     .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
-    @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:3px 8px}}
+    .mwi-max-action-button { margin-inline-start:4px; }
+    @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:2px 8px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -109,6 +121,7 @@ function getProductionPanelDuration(panel) {
 }
 
 function renderActionDashboard() {
+  addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
   const actions = runtime.state.currentActionsHridList ?? [];
   if (!host || !actions.length) {
@@ -190,16 +203,106 @@ function renderActionDashboard() {
 }
 
 function findActionPanel() {
-  const input = document.querySelector(
+  const candidates = [
+    ...document.querySelectorAll(
+      'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+    ),
+  ];
+  const visible = candidates.filter((candidate) => {
+    for (let current = candidate; current; current = current.parentElement) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") {
+        return false;
+      }
+      const style =
+        current.ownerDocument?.defaultView?.getComputedStyle(current);
+      if (style?.display === "none" || style?.visibility === "hidden") {
+        return false;
+      }
+    }
+    return true;
+  });
+  return (
+    visible.find((candidate) =>
+      String(candidate.className).includes("regularComponent"),
+    ) ??
+    visible.at(-1) ??
+    null
+  );
+}
+
+function getCountInput(panel) {
+  return panel?.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   );
-  return (
-    input?.closest('div[class*="SkillActionDetail_regularComponent"]') ??
-    input
-      ?.closest('div[class*="Modal_modalContainer"]')
-      ?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ??
-    input?.parentElement
-  );
+}
+
+function findInfinityButton(panel, input) {
+  const container =
+    input?.closest('div[class*="SkillActionDetail_actionContainer"]') ?? panel;
+  return [...(container?.querySelectorAll("button") ?? [])].find((button) => {
+    if (button.classList.contains("mwi-max-action-button")) return false;
+    const text = String(
+      runtime.api.getOriTextFromElement?.(button) ?? button.textContent ?? "",
+    ).trim();
+    return text === "∞" || /infinite|unlimited/i.test(button.title ?? "");
+  });
+}
+
+function setReactInputValue(input, value) {
+  if (typeof runtime.api.reactInputTriggerHack === "function") {
+    runtime.api.reactInputTriggerHack(input, value);
+    return;
+  }
+  const view = input.ownerDocument?.defaultView ?? window;
+  const previous = input.value;
+  const setter = Object.getOwnPropertyDescriptor(
+    view.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  if (setter) setter.call(input, value);
+  else input.value = value;
+  input._valueTracker?.setValue(previous);
+  input.dispatchEvent(new view.Event("input", { bubbles: true }));
+}
+
+function syncMaxButton(panel, input, maxCraftable) {
+  let button = panel?.querySelector(".mwi-max-action-button");
+  const infinityButton = findInfinityButton(panel, input);
+  if (!input || !infinityButton) {
+    button?.remove();
+    return;
+  }
+  if (!button) {
+    button = infinityButton.cloneNode(false);
+    button.type = "button";
+    button.classList.add("mwi-max-action-button");
+    button.textContent = t("最大", "Max");
+    button.addEventListener("click", () => {
+      const count = Number(button.dataset.maxCraftable);
+      if (!Number.isSafeInteger(count) || count <= 0) return;
+      const livePanel = button.closest(
+        'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+      );
+      const liveInput = getCountInput(livePanel) ?? input;
+      setReactInputValue(liveInput, String(count));
+      liveInput.dispatchEvent(
+        new (liveInput.ownerDocument?.defaultView?.Event ?? Event)("change", {
+          bubbles: true,
+        }),
+      );
+      renderProductionPanel();
+    });
+    infinityButton.insertAdjacentElement("afterend", button);
+  }
+  const enabled = Number.isSafeInteger(maxCraftable) && maxCraftable > 0;
+  button.disabled = !enabled;
+  button.dataset.maxCraftable = enabled ? String(maxCraftable) : "";
+  button.title = enabled
+    ? t(
+        `填入库存最多可做 ${maxCraftable} 次`,
+        `Use inventory maximum: ${maxCraftable}`,
+      )
+    : t("当前没有有限的可生产次数", "No finite production maximum");
 }
 
 function resolvePanelAction(panel) {
@@ -271,24 +374,40 @@ function metric(label, value) {
 }
 
 function renderProductionPanel() {
-  const input = document.querySelector(
-    'div[class*="SkillActionDetail_maxActionCountInput"] input',
-  );
+  addStyles();
   const panel = findActionPanel();
-  const existingCard = document.querySelector("#mwi-production-summary");
-  if (!input || !panel) {
-    existingCard?.remove();
+  const input = getCountInput(panel);
+  const existingCards = [
+    ...document.querySelectorAll("#mwi-production-summary"),
+  ];
+  if (!panel) {
+    existingCards.forEach((card) => card.remove());
+    document
+      .querySelectorAll(".mwi-max-action-button")
+      .forEach((button) => button.remove());
     return;
   }
+  existingCards
+    .filter((card) => !panel.contains(card))
+    .forEach((card) => card.remove());
+  document.querySelectorAll(".mwi-max-action-button").forEach((button) => {
+    if (!panel.contains(button)) button.remove();
+  });
+  const existingCard = panel.querySelector("#mwi-production-summary");
   const actionHrid = resolvePanelAction(panel);
   if (!actionHrid || !isProductionAction(actionHrid)) {
     existingCard?.remove();
+    panel.querySelector(".mwi-max-action-button")?.remove();
     return;
   }
-  const count = runtime.api.parseCompactNumber(input.value);
+  const count = input
+    ? runtime.api.parseCompactNumber(input.value)
+    : Number.POSITIVE_INFINITY;
   const projection = runtime.api.projectAction(actionHrid, count, {
     durationPerAction: getProductionPanelDuration(panel),
+    respectInventoryLimit: true,
   });
+  syncMaxButton(panel, input, projection.maxCraftable);
   let card = panel.querySelector("#mwi-production-summary");
   if (!card) {
     card = document.createElement("section");
@@ -296,8 +415,10 @@ function renderProductionPanel() {
     card.className = "mwi-production-card";
     const anchor =
       panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
-      input.parentElement;
-    anchor.insertAdjacentElement("afterend", card);
+      input?.parentElement ??
+      panel.querySelector('div[class*="SkillActionDetail_name"]');
+    if (anchor) anchor.insertAdjacentElement("afterend", card);
+    else panel.appendChild(card);
   }
   const extensions = [
     ...card.querySelectorAll('[data-mwitools-production-extension="true"]'),
@@ -320,7 +441,12 @@ function renderProductionPanel() {
     outputs.append(`${name} `, number(output.expectedCount));
   });
   grid.append(
-    metric(t("预期总产出", "Output"), outputs),
+    metric(
+      projection.effectivelyInfinite
+        ? t("预期单次产出", "Output per action")
+        : t("预期总产出", "Total output"),
+      outputs,
+    ),
     metric(
       t("当前拥有", "Owned"),
       projection.outputs?.length
@@ -355,7 +481,14 @@ function renderProductionPanel() {
             : projection.profitPerHour * 24,
         ),
       ),
-      metric(t("本次总净利润", "Total profit"), number(projection.totalProfit)),
+      metric(
+        t("本次总净利润", "Total profit"),
+        projection.netProfitPerAction === null
+          ? number(null)
+          : projection.effectivelyInfinite
+            ? "∞"
+            : number(projection.totalProfit),
+      ),
     );
   }
   card.append(title, grid);
@@ -379,6 +512,7 @@ function removeActionUi() {
       element.classList.remove("mwi-action-dashboard-host"),
     );
   document.querySelector("#mwi-production-summary")?.remove();
+  document.querySelector(".mwi-max-action-button")?.remove();
 }
 
 runtime.features.register({

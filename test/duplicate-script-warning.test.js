@@ -41,17 +41,16 @@ test("detects only active standalone integrations", () => {
   );
 });
 
-test("warning is bilingual, closable, and capped at five seconds", () => {
-  let delay = null;
+test("warning is bilingual and remains until manually closed", () => {
+  let scheduled = false;
   const warning = showDuplicateWarning(["Everyday Profit Plus Fixed"], {
     documentRef: document,
     isZH: true,
-    durationMs: 60_000,
-    schedule: (_callback, milliseconds) => {
-      delay = milliseconds;
+    schedule: () => {
+      scheduled = true;
     },
   });
-  assert.equal(delay, 5_000);
+  assert.equal(scheduled, false);
   assert.match(warning.textContent, /建议在脚本管理器中停用或删除/);
   warning.querySelector("button").click();
   assert.equal(document.getElementById(warning.id), null);
@@ -59,9 +58,22 @@ test("warning is bilingual, closable, and capped at five seconds", () => {
   const capped = showDuplicateWarning(["MWI Market Mate"], {
     documentRef: document,
     isZH: false,
-    durationMs: 60_000,
-    schedule() {},
   });
   assert.match(capped.textContent, /Disable or remove/);
   capped.remove();
+});
+
+test("detects the current Everyday Profit Plus Fixed DOM markers", () => {
+  const chart = document.createElement("script");
+  chart.id = "everyday-profit-chartjs";
+  document.body.appendChild(chart);
+  assert.deepEqual(
+    detectDuplicateScripts({
+      pageWindow: {},
+      documentRef: document,
+      dpsWasPresent: false,
+    }),
+    ["Everyday Profit Plus Fixed"],
+  );
+  chart.remove();
 });

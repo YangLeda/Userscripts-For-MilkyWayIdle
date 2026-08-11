@@ -684,6 +684,14 @@ function addRequirementsToCart(materials, source = "material") {
   );
 }
 
+function aggregateRequirements(requirementGroups) {
+  const materials = new Map();
+  for (const group of requirementGroups ?? []) {
+    for (const material of group ?? []) mergeMaterial(materials, material);
+  }
+  return [...materials.values()];
+}
+
 function setCartItemQuantity(itemHrid, quantity, enhancementLevel = 0) {
   const key = itemKey(itemHrid, enhancementLevel);
   const row = cart.get(key);
@@ -1078,6 +1086,7 @@ Object.assign(runtime.api, {
     getProducerAction,
     calculateUpgradeChain,
     selectUpgradeChainMaterials,
+    aggregateRequirements,
     getCartItems,
     getCartItem,
     addToCart,

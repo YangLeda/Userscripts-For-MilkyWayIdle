@@ -183,6 +183,183 @@ test("openable values support expected drops, nesting and cycle guards", () => {
   assert.equal(runtime.api.getAssetValue("/items/cyclic_crate"), 0);
 });
 
+test("keyed dungeon chests subtract one dynamically declared key", () => {
+  const originalFairValue = runtime.api.getFairValue;
+  const originalNetSellPrice = runtime.api.getNetSellPrice;
+  const originalNetSellPriceAtAsk = runtime.api.getNetSellPriceAtAsk;
+  const originalTaxRate = runtime.api.getMarketTaxRate;
+  const chestHrids = [
+    "/items/chimerical_chest",
+    "/items/chimerical_refinement_chest",
+    "/items/sinister_chest",
+    "/items/sinister_refinement_chest",
+    "/items/enchanted_chest",
+    "/items/enchanted_refinement_chest",
+    "/items/pirate_chest",
+    "/items/pirate_refinement_chest",
+  ];
+  for (const chestHrid of chestHrids) {
+    runtime.state.initData_itemDetailMap[chestHrid] = {
+      sellPrice: 77,
+      openKeyItemHrid: "/items/dungeon_test_key",
+    };
+    runtime.state.initData_openableLootDropMap[chestHrid] = [
+      {
+        itemHrid: "/items/dungeon_test_loot",
+        dropRate: 1,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ];
+  }
+  runtime.state.initData_itemDetailMap["/items/keyless_refinement_chest"] = {};
+  runtime.state.initData_openableLootDropMap[
+    "/items/keyless_refinement_chest"
+  ] = [
+    {
+      itemHrid: "/items/dungeon_test_loot",
+      dropRate: 1,
+      minCount: 1,
+      maxCount: 1,
+    },
+  ];
+  runtime.state.initData_itemDetailMap["/items/outer_dungeon_chest"] = {};
+  runtime.state.initData_openableLootDropMap["/items/outer_dungeon_chest"] = [
+    {
+      itemHrid: chestHrids[0],
+      dropRate: 1,
+      minCount: 1,
+      maxCount: 1,
+    },
+  ];
+  const fairValues = {
+    "/items/dungeon_test_loot": 1_000,
+    "/items/dungeon_test_key": 200,
+  };
+  runtime.api.getFairValue = (itemHrid) => fairValues[itemHrid] ?? 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/dungeon_test_loot"
+      ? 700
+      : itemHrid === "/items/dungeon_test_key"
+        ? 100
+        : 0;
+  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+    itemHrid === "/items/dungeon_test_loot"
+      ? 1_300
+      : itemHrid === "/items/dungeon_test_key"
+        ? 300
+        : 0;
+  runtime.api.getMarketTaxRate = () => 0.1;
+  runtime.api.invalidateAssetValueCache();
+
+  for (const chestHrid of chestHrids) {
+    assert.equal(runtime.api.getAssetValue(chestHrid), 800);
+    assert.equal(
+      runtime.api.getAssetLiquidationValue(chestHrid, 0, "conservative").value,
+      600,
+    );
+    assert.equal(
+      runtime.api.getAssetLiquidationValue(chestHrid, 0, "fair").value,
+      720,
+    );
+    assert.equal(
+      runtime.api.getAssetLiquidationValue(chestHrid, 0, "aggressive").value,
+      1_000,
+    );
+  }
+  assert.equal(
+    runtime.api.getAssetValue("/items/keyless_refinement_chest"),
+    1_000,
+  );
+  assert.equal(runtime.api.getAssetValue("/items/outer_dungeon_chest"), 800);
+
+  fairValues["/items/dungeon_test_loot"] = 100;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/dungeon_test_loot"
+      ? 100
+      : itemHrid === "/items/dungeon_test_key"
+        ? 200
+        : 0;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
+  assert.deepEqual(
+    runtime.api.getAssetLiquidationValue(chestHrids[0], 0, "conservative"),
+    {
+      value: 0,
+      complete: true,
+      source: "openable",
+      missingItemHrids: [],
+    },
+  );
+
+  delete fairValues["/items/dungeon_test_key"];
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/dungeon_test_loot" ? 100 : 0;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
+  const incomplete = runtime.api.getAssetLiquidationValue(
+    chestHrids[0],
+    0,
+    "conservative",
+  );
+  assert.equal(incomplete.value, 0);
+  assert.equal(incomplete.complete, false);
+  assert.ok(incomplete.missingItemHrids.includes("/items/dungeon_test_key"));
+
+  Object.assign(runtime.api, {
+    getFairValue: originalFairValue,
+    getNetSellPrice: originalNetSellPrice,
+    getNetSellPriceAtAsk: originalNetSellPriceAtAsk,
+    getMarketTaxRate: originalTaxRate,
+  });
+  for (const chestHrid of [
+    ...chestHrids,
+    "/items/keyless_refinement_chest",
+    "/items/outer_dungeon_chest",
+  ]) {
+    delete runtime.state.initData_itemDetailMap[chestHrid];
+    delete runtime.state.initData_openableLootDropMap[chestHrid];
+  }
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("unpriced personal buff scrolls are zero while direct markets still win", () => {
+  const scrollHrid = "/items/test_action_speed_scroll";
+  const shopItemHrid = "/items/test_labyrinth_shop_item";
+  runtime.state.initData_itemDetailMap[scrollHrid] = {
+    scrollDetail: { personalBuffTypeHrid: "/buff_types/action_speed" },
+  };
+  runtime.state.initData_itemDetailMap[shopItemHrid] = {};
+  runtime.state.initData_labyrinthShopItemDetailMap.test_action_speed_scroll = {
+    itemHrid: scrollHrid,
+    cost: { itemHrid: "/items/labyrinth_token", count: 30 },
+    outputCount: 1,
+  };
+  runtime.state.initData_labyrinthShopItemDetailMap.test_labyrinth_shop_item = {
+    itemHrid: shopItemHrid,
+    cost: { itemHrid: "/items/labyrinth_token", count: 2 },
+    outputCount: 1,
+  };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(runtime.api.getAssetValue(scrollHrid), 0);
+  assert.equal(runtime.api.getAssetValue(scrollHrid) * 275, 0);
+  assert.equal(runtime.api.getAssetValue(shopItemHrid), 1_600);
+
+  runtime.state.marketItemValues[scrollHrid] = { 0: 291_000 };
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue(scrollHrid), 291_000);
+
+  delete runtime.state.marketItemValues[scrollHrid];
+  delete runtime.state.initData_itemDetailMap[scrollHrid];
+  delete runtime.state.initData_itemDetailMap[shopItemHrid];
+  delete runtime.state.initData_labyrinthShopItemDetailMap
+    .test_action_speed_scroll;
+  delete runtime.state.initData_labyrinthShopItemDetailMap
+    .test_labyrinth_shop_item;
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("output liquidation values recurse through openables for all valuation modes", () => {
   runtime.state.initData_openableLootDropMap["/items/large_artisans_crate"] = [
     {
@@ -340,6 +517,90 @@ test("enhanced equipment uses cost only outside the twenty-percent market band",
 
   runtime.api.calculateEnhancementPlan = originalPlanner;
   runtime.state.marketItemValues["/items/test_sword"] = { 5: 40_000 };
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("enhanced charms use the cheapest complete market, shop, or crafting chain", () => {
+  const originalPlanner = runtime.api.calculateEnhancementPlan;
+  const previousActions = runtime.state.initData_actionDetailMap;
+  const previousShop = runtime.state.initData_shopItemDetailMap;
+  const addedItemHrids = [
+    "/items/grandmaster_enhancing_charm",
+    "/items/master_enhancing_charm",
+    "/items/basic_enhancing_charm",
+    "/items/trainee_enhancing_charm",
+    "/items/enhancing_essence",
+  ];
+  runtime.state.initData_itemDetailMap = {
+    ...runtime.state.initData_itemDetailMap,
+    "/items/grandmaster_enhancing_charm": {
+      equipmentDetail: { equipmentSlotHrid: "/item_locations/charm" },
+    },
+    "/items/master_enhancing_charm": {},
+    "/items/basic_enhancing_charm": {},
+    "/items/trainee_enhancing_charm": {},
+    "/items/enhancing_essence": {},
+  };
+  runtime.state.marketItemValues = {
+    ...runtime.state.marketItemValues,
+    "/items/grandmaster_enhancing_charm": {
+      0: 5_000_000,
+      10: 12_000_000,
+    },
+    "/items/enhancing_essence": { 0: 100 },
+  };
+  runtime.state.initData_shopItemDetailMap = {
+    ...previousShop,
+    trainee_enhancing_charm: {
+      itemHrid: "/items/trainee_enhancing_charm",
+      costs: [{ itemHrid: "/items/coin", count: 250_000 }],
+    },
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...previousActions,
+    basic_enhancing_charm: {
+      inputItems: [{ itemHrid: "/items/enhancing_essence", count: 100 }],
+      outputItems: [{ itemHrid: "/items/basic_enhancing_charm", count: 1 }],
+    },
+    master_enhancing_charm: {
+      upgradeItemHrid: "/items/basic_enhancing_charm",
+      inputItems: [{ itemHrid: "/items/basic_enhancing_charm", count: 2 }],
+      outputItems: [{ itemHrid: "/items/master_enhancing_charm", count: 1 }],
+    },
+    grandmaster_enhancing_charm: {
+      upgradeItemHrid: "/items/master_enhancing_charm",
+      inputItems: [{ itemHrid: "/items/master_enhancing_charm", count: 2 }],
+      outputItems: [
+        { itemHrid: "/items/grandmaster_enhancing_charm", count: 1 },
+      ],
+    },
+  };
+  let quotedBase = 0;
+  let quotedMaterial = 0;
+  runtime.api.calculateEnhancementPlan = (options) => {
+    quotedBase = options.getFairValue("/items/grandmaster_enhancing_charm", 0);
+    quotedMaterial = options.getFairValue("/items/trainee_enhancing_charm", 0);
+    return {
+      status: "complete",
+      totalCost: quotedBase + quotedMaterial * 10,
+    };
+  };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(
+    runtime.api.getAssetValue("/items/grandmaster_enhancing_charm", 10),
+    2_540_000,
+  );
+  assert.equal(quotedBase, 40_000);
+  assert.equal(quotedMaterial, 250_000);
+
+  runtime.api.calculateEnhancementPlan = originalPlanner;
+  runtime.state.initData_actionDetailMap = previousActions;
+  runtime.state.initData_shopItemDetailMap = previousShop;
+  for (const itemHrid of addedItemHrids) {
+    delete runtime.state.initData_itemDetailMap[itemHrid];
+    delete runtime.state.marketItemValues[itemHrid];
+  }
   runtime.api.invalidateAssetValueCache();
 });
 

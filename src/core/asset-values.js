@@ -9,6 +9,7 @@ const SHOP_CURRENCY_HRIDS = new Set([
   "/items/labyrinth_token",
 ]);
 const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
+const MAX_ACQUISITION_DEPTH = 12;
 
 const assetValueCache = new Map();
 const assetLiquidationCache = new Map();
@@ -166,7 +167,15 @@ function getOpenableValue(itemHrid, context) {
     );
     total += expectedCount * value;
   }
-  return total;
+  const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
+  if (!keyItemHrid) return total;
+  const keyValue = getAssetValueInternal(keyItemHrid, 0, context);
+  if (!(keyValue > 0)) return 0;
+  return Math.max(0, total - keyValue);
+}
+
+function isPersonalBuffScroll(itemHrid) {
+  return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
 }
 
 function normalizeCostRecords(detail) {
@@ -213,6 +222,10 @@ function getShopDetails() {
 
 function acquisitionCostValue(itemHrid, enhancementLevel, context) {
   if (itemHrid === "/items/coin") return 1;
+  const acquisitionDepth = [...context].filter((key) =>
+    String(key).endsWith(":acquisition"),
+  ).length;
+  if (acquisitionDepth >= MAX_ACQUISITION_DEPTH) return 0;
   return getAssetValueInternal(itemHrid, enhancementLevel, context, {
     forceAcquisitionValue: true,
   });
@@ -298,6 +311,62 @@ function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
   return Number.isFinite(bestValue) ? bestValue : 0;
 }
 
+function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
+  let bestValue = Number.POSITIVE_INFINITY;
+  for (const [, action] of entriesOfMap(
+    runtime.state.initData_actionDetailMap,
+  )) {
+    const outputs = Array.isArray(action?.outputItems)
+      ? action.outputItems
+      : [];
+    const outputCount = outputs.reduce((total, output) => {
+      const outputHrid = output?.itemHrid ?? output?.hrid;
+      const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
+      return outputHrid === itemHrid && outputLevel === enhancementLevel
+        ? total + positiveNumber(output.count ?? 1)
+        : total;
+    }, 0);
+    if (!outputCount) continue;
+
+    let totalCost = 0;
+    let complete = true;
+    const inputItems = action?.inputItems ?? [];
+    const upgradeItemHrid = action?.upgradeItemHrid;
+    const upgradeIncludedInInputs = inputItems.some(
+      (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
+    );
+    if (upgradeItemHrid && !upgradeIncludedInInputs) {
+      const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
+      const upgradeValue = acquisitionCostValue(
+        upgradeItemHrid,
+        retainedLevel,
+        context,
+      );
+      if (!(upgradeValue > 0)) complete = false;
+      else totalCost += upgradeValue;
+    }
+    for (const input of inputItems) {
+      const inputHrid = input?.itemHrid ?? input?.hrid;
+      const count = positiveNumber(input?.count);
+      if (!inputHrid || !count) continue;
+      const inputValue = acquisitionCostValue(
+        inputHrid,
+        Number(input?.enhancementLevel ?? 0) || 0,
+        context,
+      );
+      if (!(inputValue > 0)) {
+        complete = false;
+        break;
+      }
+      totalCost += count * inputValue;
+    }
+    if (complete && totalCost > 0) {
+      bestValue = Math.min(bestValue, totalCost / outputCount);
+    }
+  }
+  return Number.isFinite(bestValue) ? bestValue : 0;
+}
+
 function getEnhancedEquipmentCost(
   itemHrid,
   enhancementLevel,
@@ -319,12 +388,8 @@ function getEnhancedEquipmentCost(
       ? "/items/mirror_of_protection"
       : null,
     allowPhilosopherMirror: !backEquipment,
-    getFairValue: (hrid, level = 0) => {
-      const marketValue = runtime.api.getFairValue(hrid, level);
-      return marketValue > 0
-        ? marketValue
-        : acquisitionCostValue(hrid, level, context);
-    },
+    getFairValue: (hrid, level = 0) =>
+      acquisitionCostValue(hrid, level, context),
   });
   return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
 }
@@ -443,6 +508,11 @@ function getAssetValueInternal(
     return directFairValue;
   }
 
+  if (directFairValue <= 0 && isPersonalBuffScroll(itemHrid)) {
+    assetValueCache.set(cacheKey, 0);
+    return 0;
+  }
+
   context.add(cacheKey);
   let value = 0;
   if (itemHrid === "/items/cowbell") {
@@ -454,16 +524,31 @@ function getAssetValueInternal(
   } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
     value = getShopCurrencyValue(itemHrid, context);
   } else {
-    value = Math.max(
-      !backEquipment || preferAcquisitionValue
-        ? getShopAcquisitionValue(itemHrid, level, context)
-        : 0,
-      getRefinedAcquisitionValue(itemHrid, level, context),
-      getOpenableValue(itemHrid, context),
-    );
+    if (preferAcquisitionValue) {
+      const candidates = [
+        directFairValue,
+        getShopAcquisitionValue(itemHrid, level, context),
+        getCraftedAcquisitionValue(itemHrid, level, context),
+        getRefinedAcquisitionValue(itemHrid, level, context),
+      ].filter((candidate) => candidate > 0);
+      value = candidates.length ? Math.min(...candidates) : 0;
+    } else {
+      value = Math.max(
+        !backEquipment ? getShopAcquisitionValue(itemHrid, level, context) : 0,
+        getRefinedAcquisitionValue(itemHrid, level, context),
+        getOpenableValue(itemHrid, context),
+      );
+    }
   }
   context.delete(cacheKey);
 
+  const keyedOpenable =
+    Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) &&
+    getDropRecords(itemHrid).length > 0;
+  if (keyedOpenable && !(value > 0)) {
+    assetValueCache.set(cacheKey, 0);
+    return 0;
+  }
   if (!(value > 0)) value = directFairValue;
   if (!(value > 0)) {
     value = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
@@ -659,6 +744,31 @@ function getOpenableLiquidationValue(itemHrid, mode, context) {
     results.push(result);
     total += dropRate * (minimum + maximum) * 0.5 * result.value;
   }
+  const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
+  if (keyItemHrid) {
+    const keyResult = getAssetLiquidationValueInternal(
+      keyItemHrid,
+      0,
+      mode,
+      context,
+    );
+    results.push(keyResult);
+    if (!(keyResult.value > 0)) {
+      return liquidationResult(0, "missing", [
+        ...mergeLiquidationMissing(results),
+        keyItemHrid,
+      ]);
+    }
+    total = Math.max(0, total - keyResult.value);
+  }
+  if (!(total > 0) && results.every((result) => result.complete)) {
+    return {
+      value: 0,
+      complete: true,
+      source: "openable",
+      missingItemHrids: [],
+    };
+  }
   return liquidationResult(total, "openable", mergeLiquidationMissing(results));
 }
 
@@ -713,7 +823,10 @@ function getAssetLiquidationValueInternal(
   }
   context.delete(cacheKey);
 
-  if (!(result.value > 0)) {
+  const keyedOpenable =
+    Boolean(getItemDetails(itemHrid)?.openKeyItemHrid) &&
+    getDropRecords(itemHrid).length > 0;
+  if (!(result.value > 0) && result.source === "missing" && !keyedOpenable) {
     const sellPrice = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
     result = sellPrice
       ? liquidationResult(sellPrice, "sell-price")

@@ -181,11 +181,19 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
-    /\.mwi-inventory-summary-grid\s*\{[^}]*gap:\s*\.125rem/s,
+    /\.mwi-inventory-summary-grid\s*\{[^}]*gap:\s*\.0625rem/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-toggle\s*\{[^}]*min-height:\s*1\.5rem[^}]*padding:\s*\.0625rem \.3125rem/s,
+    /\.mwi-summary-toggle\s*\{[^}]*height:\s*1\.125rem[^}]*min-height:\s*0[^}]*padding:\s*0 \.25rem/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-summary-label\s*\{[^}]*font-size:\s*\.64rem/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-summary-value\s*\{[^}]*font-size:\s*\.78rem/s,
   );
   assert.match(summaryStyles, /\.mwi-summary-stats::before/);
   assert.match(summaryStyles, /\.mwi-summary-stat::before/);

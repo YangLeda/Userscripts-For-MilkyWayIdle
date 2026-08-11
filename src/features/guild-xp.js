@@ -158,7 +158,11 @@ function addStyles() {
     .mwi-guild-xp-metric small { display:block; color:var(--color-text-secondary,#aaa); }
     .mwi-guild-xp-metric strong { display:block; margin-top:2px; color:#ffa500; }
     .mwi-guild-trend-label { margin-top:8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
-    .mwi-guild-trend { width:100%; height:58px; margin-top:8px; overflow:visible; }
+    .mwi-guild-trend { width:100%; height:180px; margin-top:8px; overflow:visible; }
+    .mwi-guild-trend-axis { stroke:rgba(255,255,255,.38); stroke-width:1; vector-effect:non-scaling-stroke; }
+    .mwi-guild-trend-grid { stroke:rgba(255,255,255,.1); stroke-width:1; vector-effect:non-scaling-stroke; }
+    .mwi-guild-trend-tick { fill:var(--color-text-secondary,#aaa); font-size:10px; }
+    .mwi-guild-trend-empty { fill:var(--color-text-secondary,#aaa); font-size:13px; text-anchor:middle; }
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
@@ -227,37 +231,116 @@ function guildXpRatePoints(points, now = Date.now()) {
   return rates;
 }
 
+function svgElement(name, className = "") {
+  const element = document.createElementNS("http://www.w3.org/2000/svg", name);
+  if (className) element.setAttribute("class", className);
+  return element;
+}
+
+function niceRateCeiling(value) {
+  if (!(value > 0)) return 1;
+  const rawStep = value / 4;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const factor =
+    normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return factor * magnitude * 4;
+}
+
+function trendTimeLabel(timestamp, longSpan) {
+  return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    ...(longSpan
+      ? { month: "numeric", day: "numeric" }
+      : { hour: "2-digit", minute: "2-digit", hour12: false }),
+  }).format(new Date(timestamp));
+}
+
 function trendSvg(points) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  const width = 520;
+  const height = 180;
+  const plot = { left: 58, right: 12, top: 10, bottom: 30 };
+  const plotWidth = width - plot.left - plot.right;
+  const plotHeight = height - plot.top - plot.bottom;
+  const svg = svgElement("svg");
   svg.classList.add("mwi-guild-trend");
-  svg.setAttribute("viewBox", "0 0 400 58");
-  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   const label = t(
     "公会经验获取速度（XP/小时）",
     "Guild XP gain rate (XP/hour)",
   );
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", label);
-  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  const title = svgElement("title");
   title.textContent = label;
   svg.append(title);
   const recent = guildXpRatePoints(points);
-  if (recent.length < 2) return svg;
-  const minRate = Math.min(...recent.map((point) => point.rate));
-  const maxRate = Math.max(...recent.map((point) => point.rate));
+  if (recent.length < 2) {
+    const empty = svgElement("text", "mwi-guild-trend-empty");
+    empty.setAttribute("x", String(width / 2));
+    empty.setAttribute("y", String(height / 2));
+    empty.textContent = t("样本不足", "Not enough data");
+    svg.append(empty);
+    return svg;
+  }
+  const yMax = niceRateCeiling(Math.max(...recent.map((point) => point.rate)));
   const minAt = recent[0].at;
   const maxAt = recent.at(-1).at;
-  const polyline = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "polyline",
-  );
+  const yAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-y");
+  yAxis.setAttribute("x1", String(plot.left));
+  yAxis.setAttribute("x2", String(plot.left));
+  yAxis.setAttribute("y1", String(plot.top));
+  yAxis.setAttribute("y2", String(plot.top + plotHeight));
+  const xAxis = svgElement("line", "mwi-guild-trend-axis mwi-guild-axis-x");
+  xAxis.setAttribute("x1", String(plot.left));
+  xAxis.setAttribute("x2", String(plot.left + plotWidth));
+  xAxis.setAttribute("y1", String(plot.top + plotHeight));
+  xAxis.setAttribute("y2", String(plot.top + plotHeight));
+
+  for (let index = 0; index < 5; index += 1) {
+    const ratio = index / 4;
+    const y = plot.top + plotHeight - ratio * plotHeight;
+    const grid = svgElement("line", "mwi-guild-trend-grid");
+    grid.setAttribute("x1", String(plot.left));
+    grid.setAttribute("x2", String(plot.left + plotWidth));
+    grid.setAttribute("y1", String(y));
+    grid.setAttribute("y2", String(y));
+    const tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-y-tick");
+    tick.setAttribute("x", String(plot.left - 7));
+    tick.setAttribute("y", String(y + 3));
+    tick.setAttribute("text-anchor", "end");
+    tick.textContent = runtime.api.numberFormatter(yMax * ratio);
+    svg.append(grid, tick);
+  }
+
+  const longSpan = maxAt - minAt > 24 * HOUR_MS;
+  for (let index = 0; index < 4; index += 1) {
+    const ratio = index / 3;
+    const x = plot.left + ratio * plotWidth;
+    const tick = svgElement("text", "mwi-guild-trend-tick mwi-guild-x-tick");
+    tick.setAttribute("x", String(x));
+    tick.setAttribute("y", String(plot.top + plotHeight + 19));
+    tick.setAttribute(
+      "text-anchor",
+      index === 0 ? "start" : index === 3 ? "end" : "middle",
+    );
+    tick.textContent = trendTimeLabel(
+      minAt + ratio * (maxAt - minAt),
+      longSpan,
+    );
+    svg.append(tick);
+  }
+
+  svg.append(yAxis, xAxis);
+  const polyline = svgElement("polyline");
   polyline.setAttribute(
     "points",
     recent
       .map((point) => {
-        const x = ((point.at - minAt) / Math.max(1, maxAt - minAt)) * 400;
-        const y =
-          54 - ((point.rate - minRate) / Math.max(1, maxRate - minRate)) * 50;
+        const x =
+          plot.left +
+          ((point.at - minAt) / Math.max(1, maxAt - minAt)) * plotWidth;
+        const y = plot.top + plotHeight - (point.rate / yMax) * plotHeight;
         return `${x},${y}`;
       })
       .join(" "),

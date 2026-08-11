@@ -19,7 +19,9 @@ function detectDuplicateScripts(options = {}) {
   if (
     target.kbd_calculateTotalNetworth ||
     target.__everyday_profit_plus_interval__ ||
-    documentRef?.querySelector(".deltaNetworthDiv,#deltaNetworthChartModal")
+    documentRef?.querySelector(
+      ".deltaNetworthDiv,#deltaNetworthChartModal,#refreshNetworthIcon,.epPrecisionHintActions,#everyday-profit-chartjs,#everyday-profit-zoom,#everyday-profit-crosshair",
+    )
   ) {
     duplicates.push("Everyday Profit Plus Fixed");
   }
@@ -28,12 +30,7 @@ function detectDuplicateScripts(options = {}) {
 
 function showDuplicateWarning(
   duplicates,
-  {
-    documentRef = globalThis.document,
-    isZH = runtime.config.isZH,
-    durationMs = 5_000,
-    schedule = setTimeout,
-  } = {},
+  { documentRef = globalThis.document, isZH = runtime.config.isZH } = {},
 ) {
   if (!duplicates.length || !documentRef?.body) return null;
   let warning = documentRef.getElementById(WARNING_ID);
@@ -56,7 +53,6 @@ function showDuplicateWarning(
     });
     warning.append(close, documentRef.createElement("div"));
     documentRef.body.append(warning);
-    schedule(() => warning.remove(), Math.min(5_000, durationMs));
   }
   const content = warning.lastElementChild;
   const names = duplicates.join(isZH ? "、" : ", ");
@@ -79,8 +75,9 @@ runtime.features.register({
       showDuplicateWarning([...detected]);
     };
     scan();
-    const interval = scope.interval(scan, 250);
-    scope.timeout(() => clearInterval(interval), 3_000);
+    scope.interval(scan, 1_000);
+    const observer = new MutationObserver(scan);
+    scope.observer(observer, document.body, { childList: true, subtree: true });
     scope.add(() => document.getElementById(WARNING_ID)?.remove());
   },
 });

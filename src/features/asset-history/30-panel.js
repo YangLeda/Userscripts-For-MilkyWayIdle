@@ -745,6 +745,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   let shell = null;
   let navigationBranch = null;
   const hiddenNodes = new Map();
+  const nativeTabStates = new Map();
 
   const restoreNative = () => {
     for (const [node, state] of hiddenNodes) {
@@ -753,6 +754,46 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       else node.style.display = state.styleDisplay;
     }
     hiddenNodes.clear();
+  };
+
+  const restoreNativeTabs = () => {
+    for (const [button, state] of nativeTabStates) {
+      if (!button.isConnected) continue;
+      if (state.className === null) button.removeAttribute("class");
+      else button.setAttribute("class", state.className);
+      for (const [name, value] of Object.entries(state.attributes)) {
+        if (value === null) button.removeAttribute(name);
+        else button.setAttribute(name, value);
+      }
+    }
+    nativeTabStates.clear();
+  };
+
+  const deactivateNativeTabs = () => {
+    for (const button of tab?.parentElement?.querySelectorAll("button") ?? []) {
+      if (button === tab) continue;
+      if (!nativeTabStates.has(button)) {
+        nativeTabStates.set(button, {
+          className: button.getAttribute("class"),
+          attributes: Object.fromEntries(
+            ["aria-selected", "data-active", "data-selected", "data-state"].map(
+              (name) => [name, button.getAttribute(name)],
+            ),
+          ),
+        });
+      }
+      button.setAttribute("aria-selected", "false");
+      if (button.hasAttribute("data-active")) button.dataset.active = "false";
+      if (button.hasAttribute("data-selected")) {
+        button.dataset.selected = "false";
+      }
+      if (button.hasAttribute("data-state")) button.dataset.state = "inactive";
+      for (const className of [...button.classList]) {
+        if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+          button.classList.remove(className);
+        }
+      }
+    }
   };
 
   const setActive = (next) => {
@@ -773,8 +814,10 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     }
     if (!active) {
       restoreNative();
+      restoreNativeTabs();
       return;
     }
+    deactivateNativeTabs();
     for (const node of [...(shell?.children ?? [])]) {
       if (
         node === navigationBranch ||
@@ -809,6 +852,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     host = null;
     shell = null;
     navigationBranch = null;
+    nativeTabStates.clear();
   };
 
   const mountNative = (loadout, found) => {
@@ -818,7 +862,14 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     tab.id = TAB_ID;
     tab.type = "button";
     tab.textContent = t("盈亏", "P/L");
+    for (const className of [...tab.classList]) {
+      if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+        tab.classList.remove(className);
+      }
+    }
     tab.dataset.active = "false";
+    if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
+    if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
     tab.setAttribute("aria-selected", "false");
     tab.addEventListener("click", (event) => {
       event.preventDefault();

@@ -11,15 +11,15 @@ function addInventorySummaryStyles() {
   style.id = INVENTORY_SUMMARY_STYLE_ID;
   style.textContent = `
     #script_inventory_summary {
-      margin: .125rem 0 .375rem;
+      margin: .0625rem 0 .1875rem;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .7rem;
+      font-size: .72rem;
       text-align: left;
     }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: .125rem;
+      gap: .0625rem;
     }
     .mwi-summary-card {
       --mwi-summary-accent: 120, 174, 255;
@@ -36,17 +36,19 @@ function addInventorySummaryStyles() {
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      min-height: 1.5rem;
+      height: 1.125rem;
+      min-height: 0;
+      box-sizing: border-box;
       align-items: center;
-      gap: .25rem;
-      padding: .0625rem .3125rem;
+      gap: .1875rem;
+      padding: 0 .25rem;
       border: 0;
       background: transparent;
       color: inherit;
       font: inherit;
       text-align: left;
       cursor: pointer;
-      transition: background-color .16s ease;
+      transition: none;
     }
     .mwi-summary-toggle:hover { background: rgba(var(--mwi-summary-accent), .075); }
     .mwi-summary-toggle:focus-visible {
@@ -58,19 +60,19 @@ function addInventorySummaryStyles() {
       min-width: 0;
       flex: 1;
       align-items: baseline;
-      gap: .25rem;
+      gap: .1875rem;
     }
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .59rem;
+      font-size: .64rem;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .7rem;
+      font-size: .78rem;
       font-weight: 750;
       line-height: 1.05;
       overflow-wrap: anywhere;

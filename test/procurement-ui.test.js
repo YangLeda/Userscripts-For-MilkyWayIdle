@@ -32,6 +32,8 @@ runtime.config.isZH = false;
 runtime.state.initData_itemDetailMap = {
   "/items/nail": { name: "Nail" },
   "/items/board": { name: "Board" },
+  "/items/astral_enhancer": { name: "Astral Enhancer" },
+  "/items/protection_mirror": { name: "Protection Mirror" },
   "/items/coin": { name: "Coin" },
 };
 runtime.state.initData_actionDetailMap = {
@@ -155,6 +157,140 @@ test("sufficient materials keep their remaining quantity", () => {
   const badge = document.querySelector(".mwi-procurement-badge");
   assert.equal(badge.dataset.state, "ready");
   assert.match(badge.textContent, /^(余|Spare) /);
+});
+
+test("enhancing procurement uses the visible panel, live count, and net shortages", async () => {
+  const productionPanel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  productionPanel.hidden = true;
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/protection_mirror",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 3,
+    },
+    {
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1_000,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.state.initData_actionDetailMap["/actions/crafting/reserve"] = {
+    hrid: "/actions/crafting/reserve",
+    name: "Reserve fixture",
+    inputItems: [],
+    outputItems: [],
+  };
+  const reservePlan = runtime.api.procurement.createPlan(
+    "/actions/crafting/reserve",
+    1,
+    [
+      {
+        itemHrid: "/items/protection_mirror",
+        enhancementLevel: 0,
+        suggested: 1,
+        purchasable: true,
+      },
+    ],
+  );
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/protection_mirror",
+    name: "Protection Mirror",
+    quantity: 1,
+    source: "manual",
+  });
+
+  const wrapper = document.createElement("section");
+  wrapper.className = "EnhancingPanel_panel__fixture";
+  wrapper.innerHTML = `
+    <div class="SkillActionDetail_skillActionDetail__fixture">
+      <div class="SkillActionDetail_itemRequirements__fixture">
+        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
+        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
+        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
+        <span class="SkillActionDetail_inputCount__fixture">3 / 2</span>
+        <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
+        <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
+      </div>
+      <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
+      <div class="SkillActionDetail_actionContainer__fixture"></div>
+    </div>`;
+  const panel = wrapper.firstElementChild;
+  Object.defineProperty(panel, "__reactFiber$fixture", {
+    value: {
+      memoizedProps: {
+        actionDetail: {
+          hrid: "/actions/enhancing/enhance",
+          function: "/action_functions/enhancing",
+        },
+      },
+    },
+  });
+  document.body.append(wrapper);
+
+  runtime.api.renderProductionProcurement();
+  let summary = panel.querySelector("#mwitools-procurement-production");
+  assert.ok(summary, "the summary must be mounted on the visible panel");
+  assert.equal(
+    productionPanel.querySelector("#mwitools-procurement-production"),
+    null,
+  );
+  assert.match(summary.textContent, /Missing 2 materials/);
+
+  summary.querySelector("button").click();
+  await Promise.resolve();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    4,
+    "6 required - (3 owned - 1 locked) - 1 already listed = 3 newly added",
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").source,
+    "enhancing",
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/astral_enhancer").quantity,
+    3,
+  );
+  assert.equal(runtime.api.procurement.getCartItem("/items/coin"), null);
+
+  summary = panel.querySelector("#mwitools-procurement-production");
+  assert.equal(summary.querySelector("button").disabled, true);
+  assert.match(summary.querySelector("button").textContent, /Already listed/);
+  summary.querySelector("button").click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    4,
+  );
+
+  summary.remove();
+  runtime.api.renderProductionProcurement();
+  assert.ok(
+    panel.querySelector("#mwitools-procurement-production"),
+    "the enhancement summary must be restored after a panel redraw",
+  );
+
+  runtime.config.isZH = true;
+  runtime.api.renderProductionProcurement();
+  assert.match(
+    panel.querySelector("#mwitools-procurement-production").textContent,
+    /已在清单中/,
+  );
+  runtime.config.isZH = false;
+
+  panel.querySelector('[class*="SkillActionDetail_inputCount"]').remove();
+  runtime.api.renderProductionProcurement();
+  assert.equal(panel.querySelector("#mwitools-procurement-production"), null);
+
+  wrapper.remove();
+  productionPanel.hidden = false;
+  runtime.api.procurement.removePlan(reservePlan.id);
+  runtime.api.procurement.clearCart({ includeStarred: true });
 });
 
 test("house materials use DOM requirements and add only net shortages", async () => {
