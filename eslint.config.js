@@ -65,7 +65,7 @@ export default [
   {
     files: ["scripts/**/*.mjs", "eslint.config.js"],
     languageOptions: {
-      globals: { process: "readonly" },
+      globals: { process: "readonly", console: "readonly" },
     },
   },
 ];

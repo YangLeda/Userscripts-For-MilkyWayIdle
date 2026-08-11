@@ -1,7 +1,9 @@
-import marketBackup from "../data/market-backup.json" with { type: "json" };
+import marketBackup from "../data/market-backup.js";
 import { runtime } from "./runtime.js";
 
-const MARKET_JSON_LOCAL_BACKUP = JSON.stringify(marketBackup);
+// market-backup.js already exports the snapshot as a compact JSON string, which
+// keeps the bundler from inlining it as a large multi-line object literal.
+const MARKET_JSON_LOCAL_BACKUP = marketBackup;
 
 let initData_characterSkills = null;
 
