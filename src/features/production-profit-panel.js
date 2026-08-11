@@ -650,7 +650,15 @@ function mountPanel(anchor, panel, extraState = {}) {
     pinned,
     ...extraState,
   };
+  // Position while the anchor tooltip is still in the DOM, then, for a pinned
+  // panel, reparent it to <body>. The panel is inserted next to the tooltip,
+  // which lives in a React portal; when the mouse leaves, React unmounts that
+  // subtree and would take the panel with it. Moving to <body> detaches it from
+  // the tooltip's lifecycle so it stays put until closed explicitly.
   position();
+  if (pinned && document.body && panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
   return panel;
 }
 

@@ -13299,6 +13299,9 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       ...extraState
     };
     position();
+    if (pinned && document.body && panel.parentElement !== document.body) {
+      document.body.appendChild(panel);
+    }
     return panel;
   }
   function createPanelElement() {

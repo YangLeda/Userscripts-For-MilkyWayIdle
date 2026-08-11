@@ -236,3 +236,24 @@ test("the close button dismisses a pinned panel", () => {
     null,
   );
 });
+
+test("a pinned panel survives its anchor tooltip being removed", () => {
+  // The hover tooltip lives in a React portal that gets unmounted on mouseout.
+  // A pinned panel must detach from it (reparent to body) and stay alive.
+  const holder = document.createElement("div");
+  holder.className = "MuiTooltip-popper";
+  document.body.appendChild(holder);
+  runtime.api.showLootChestPanel(holder, "/items/locked_chest", {
+    pinned: true,
+  });
+  const panel = document.querySelector("#mwitools-production-profit-panel");
+  assert.ok(panel);
+  assert.equal(panel.parentElement, document.body);
+  // Simulate React unmounting the tooltip subtree.
+  holder.remove();
+  assert.ok(
+    document.querySelector("#mwitools-production-profit-panel"),
+    "pinned panel stays after the tooltip is removed",
+  );
+  runtime.api.hideProductionProfitPanel();
+});
