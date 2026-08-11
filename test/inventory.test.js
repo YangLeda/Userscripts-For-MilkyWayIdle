@@ -175,10 +175,8 @@ test("inventory asset summaries rerender without restoring the removed header UI
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
   ).textContent;
-  assert.match(
-    summaryStyles,
-    /#script_inventory_summary\s*\{[^}]*width:\s*calc\(100% \+ \.5rem\)[^}]*margin-inline:\s*-\.25rem/s,
-  );
+  assert.doesNotMatch(summaryStyles, /width:\s*calc\(100% \+ \.5rem\)/);
+  assert.doesNotMatch(summaryStyles, /margin-inline:\s*-\.25rem/);
   assert.match(
     summaryStyles,
     /\.mwi-inventory-summary-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/s,
@@ -186,6 +184,10 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.match(
     summaryStyles,
     /\.mwi-inventory-summary-grid\s*\{[^}]*gap:\s*\.0625rem/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-summary-card\s*\{[^}]*border:\s*0[^}]*border-left:\s*2px solid rgba\(var\(--mwi-summary-accent\), \.75\)[^}]*border-radius:\s*0[^}]*background:\s*transparent/s,
   );
   assert.match(
     summaryStyles,
@@ -201,11 +203,19 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
+    /\.mwi-summary-stat\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*0 \.25rem/s,
+  );
+  assert.match(
+    summaryStyles,
     /\.mwi-asset-toggle\s*\{[^}]*min-height:\s*0[^}]*padding:\s*0 \.25rem[^}]*font-size:\s*inherit/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-asset-row\s*\{[^}]*padding:\s*0[^}]*font-size:\s*inherit/s,
+    /\.mwi-asset-row\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*0[^}]*font-size:\s*inherit/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-asset-subtotal\s*\{[^}]*margin-left:\s*6px/s,
   );
   assert.match(
     summaryStyles,

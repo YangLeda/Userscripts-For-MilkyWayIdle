@@ -149,27 +149,40 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
-    .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
-    .mwi-task-profession-header:hover { background:rgba(255,255,255,.055); }
+    [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
+    [class*="RandomTask_randomTask"] { min-width:0 !important; }
+    [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
+    [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
+    [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
+    .mwi-task-profession-group { --mwi-task-group-accent:120,174,255; grid-column:1/-1; min-width:0; }
+    .mwi-task-profession-group[data-profession="new"] { --mwi-task-group-accent:230,181,79; }
+    .mwi-task-profession-group[data-profession="completed"] { --mwi-task-group-accent:90,200,149; }
+    .mwi-task-profession-group[data-profession="combat"] { --mwi-task-group-accent:238,115,103; }
+    .mwi-task-profession-header { display:flex; width:100%; min-height:32px; box-sizing:border-box; align-items:center; gap:7px; padding:5px 9px; border:0; border-left:3px solid rgba(var(--mwi-task-group-accent),.78); border-radius:0; background:transparent; color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
+    .mwi-task-profession-header:hover { background:rgba(var(--mwi-task-group-accent),.075); }
+    .mwi-task-profession-header:focus-visible { outline:2px solid rgba(var(--mwi-task-group-accent),.72); outline-offset:-3px; }
     .mwi-task-profession-title { font-weight:650; }
-    .mwi-task-profession-count { min-width:22px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,.09); color:var(--color-text-secondary,#bbb); font-size:.68rem; text-align:center; }
-    .mwi-task-profession-chevron { margin-left:auto; color:var(--color-text-secondary,#aaa); transition:transform .15s ease; }
+    .mwi-task-profession-count { min-width:1.25rem; padding:0; border:0; background:transparent; color:rgba(var(--mwi-task-group-accent),.95); font-size:.68rem; font-weight:700; text-align:center; }
+    .mwi-task-profession-chevron { margin-left:auto; color:rgba(var(--mwi-task-group-accent),.9); transition:transform .15s ease; }
     .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
     .mwi-task-profession-body { display:none; }
     .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
-    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
-    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:1px solid rgba(255,255,255,.11); border-left:2px solid rgba(183,126,255,.72); border-radius:5px; background:rgba(70,42,100,.18); color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
+    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:0; border-left:2px solid rgba(183,126,255,.78); border-radius:0; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-task-dungeon-header:hover { background:rgba(183,126,255,.07); }
+    .mwi-task-dungeon-header:focus-visible { outline:2px solid rgba(183,126,255,.62); outline-offset:-3px; }
     .mwi-task-dungeon-header span:last-child { margin-left:auto; transition:transform .15s ease; }
     .mwi-task-dungeon-header[aria-expanded="false"] span:last-child { transform:rotate(-90deg); }
-    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
     .mwi-task-combat-mode { display:flex; width:max-content; gap:2px; margin:4px 0 8px; padding:2px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(0,0,0,.18); }
     .mwi-task-combat-mode button { padding:3px 10px; border:0; border-radius:4px; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-combat-mode button[aria-pressed="true"] { background:${runtime.config.SCRIPT_COLOR_MAIN}; color:#18130a; font-weight:700; }
     ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
     ${TASK_SELECTOR}[data-mwitools-dungeon-source="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:0; left:50%; width:30%; height:100%; opacity:.3; pointer-events:none; }
+    .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
+    .mwi-task-bg.mwi-task-bg--monster { left:42%; }
+    .mwi-task-bg.mwi-task-bg--dungeon { left:68%; }
     .mwi-task-bg svg { width:100%; height:100%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
     [data-mwitools-task-mirror="true"] { position:relative; }
@@ -294,18 +307,7 @@ function itemHridFromDisplayName(name) {
   );
 }
 
-function monsterHridForCard(card, task) {
-  const direct = nestedValue(task, ["monsterHrid", "targetMonsterHrid"]);
-  if (direct) return String(direct);
-  const actionHrid = String(taskActionHrid(task) ?? "");
-  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-  if (
-    actionHrid.startsWith("/actions/combat/") &&
-    !detail?.combatZoneInfo?.isDungeon &&
-    detail?.combatZoneInfo?.fightInfo?.battlesPerBoss !== 10
-  ) {
-    return actionHrid.replace("/actions/combat/", "/monsters/");
-  }
+function namedMonsterHridForCard(card) {
   const monsterName = targetNameFromCard(card)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
@@ -324,6 +326,55 @@ function monsterHridForCard(card, task) {
         runtime.data.ZHActionNames?.[candidate.hrid] === monsterName),
   );
   return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
+}
+
+function normalizeMonsterHrid(value) {
+  if (typeof value !== "string") return "";
+  if (value.startsWith("/monsters/")) return value;
+  if (!value.startsWith("/actions/combat/")) return "";
+  const candidate = value.replace("/actions/combat/", "/monsters/");
+  return Object.hasOwn(runtime.data.ZHOthersDic ?? {}, candidate)
+    ? candidate
+    : "";
+}
+
+function fightMonsterHrids(value, result = new Set(), visited = new Set()) {
+  if (!value || visited.has(value)) return result;
+  if (typeof value === "string") {
+    const normalized = normalizeMonsterHrid(value);
+    if (normalized) result.add(normalized);
+    return result;
+  }
+  if (typeof value !== "object") return result;
+  visited.add(value);
+  for (const child of Object.values(value)) {
+    fightMonsterHrids(child, result, visited);
+  }
+  return result;
+}
+
+function monsterHridForCard(card, task) {
+  // The rendered title is the task's authoritative target. Action HRIDs may
+  // identify a whole zone or dungeon and must not be treated as monster IDs.
+  const named = namedMonsterHridForCard(card);
+  if (named) return named;
+
+  const direct = normalizeMonsterHrid(
+    nestedValue(task, [
+      "monsterHrid",
+      "targetMonsterHrid",
+      "combatMonsterHrid",
+    ]),
+  );
+  if (direct) return direct;
+
+  const actionHrid = String(taskActionHrid(task) ?? "");
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  const fightCandidates = [
+    ...fightMonsterHrids(detail?.combatZoneInfo?.fightInfo),
+  ];
+  if (fightCandidates.length === 1) return fightCandidates[0];
+  return normalizeMonsterHrid(actionHrid) || null;
 }
 
 export function taskArtworkForCard(card, task) {
@@ -379,6 +430,26 @@ function decorateCard(card, task) {
   background.appendChild(svg);
   card.style.position = "relative";
   card.appendChild(background);
+}
+
+function addDungeonArtwork(card, actionHrid) {
+  card.querySelector(":scope > .mwi-task-bg--dungeon")?.remove();
+  const monster = card.querySelector(":scope > .mwi-task-bg");
+  monster?.classList.add("mwi-task-bg--monster");
+  const href = taskSpriteHref("actions", actionHrid);
+  if (!href) return;
+  const background = document.createElement("div");
+  background.className = "mwi-task-bg mwi-task-bg--dungeon";
+  background.dataset.spriteHref = href;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "100%");
+  svg.setAttribute("height", "100%");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", href);
+  svg.append(use);
+  background.append(svg);
+  card.append(background);
 }
 
 function visibleTaskTitle(card) {
@@ -555,6 +626,7 @@ function dungeonLocation(detail) {
       : detail?.name) ?? detail?.name;
   return {
     key: `dungeon-${detail?.hrid}`,
+    actionHrid: detail?.hrid ?? "",
     label: name || t("未知地牢", "Unknown dungeon"),
     order: Number(detail?.sortIndex ?? 9999),
   };
@@ -873,7 +945,7 @@ function ensureProfessionGroup(parent, profession) {
   return group;
 }
 
-function mirrorTaskCard(source) {
+function mirrorTaskCard(source, location) {
   const mirror = source.cloneNode(true);
   mirror.dataset.mwitoolsTaskMirror = "true";
   mirror.removeAttribute("id");
@@ -881,6 +953,7 @@ function mirrorTaskCard(source) {
   mirror.style.display = "";
   delete mirror.dataset.mwitoolsDungeonSource;
   delete mirror.dataset.mwitoolsCollapsed;
+  addDungeonArtwork(mirror, location?.actionHrid);
   mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
   mirror.addEventListener("click", (event) => {
     event.preventDefault();
@@ -955,7 +1028,7 @@ function renderDungeonCombatGroups(parent, rows, nextOrder) {
     const body = section.querySelector(".mwi-task-dungeon-body");
     body.hidden = collapsed;
     body.replaceChildren(
-      ...locationRows.map(({ card }) => mirrorTaskCard(card)),
+      ...locationRows.map(({ card }) => mirrorTaskCard(card, location)),
     );
     section.hidden = collapsedProfessions.has("combat");
     section.style.order = String(nextOrder.value++);

@@ -18,9 +18,6 @@ function addInventorySummaryStyles() {
       font-size: var(--mwi-inventory-heading-font-size);
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
-      width: calc(100% + .5rem);
-      box-sizing: border-box;
-      margin-inline: -.25rem;
     }
     .mwi-inventory-summary-grid {
       display: grid;
@@ -31,10 +28,10 @@ function addInventorySummaryStyles() {
       --mwi-summary-accent: 120, 174, 255;
       min-width: 0;
       overflow: visible;
-      border: 1px solid rgba(255, 255, 255, .08);
-      border-left: 2px solid rgba(var(--mwi-summary-accent), .58);
-      border-radius: .25rem;
-      background: rgba(17, 20, 27, .72);
+      border: 0;
+      border-left: 2px solid rgba(var(--mwi-summary-accent), .75);
+      border-radius: 0;
+      background: transparent;
     }
     .mwi-summary-card--combat { --mwi-summary-accent: 238, 115, 103; }
     .mwi-summary-card--skilling { --mwi-summary-accent: 90, 200, 149; }
@@ -121,8 +118,8 @@ function addInventorySummaryStyles() {
       display: flex;
       min-width: 0;
       align-items: baseline;
-      justify-content: space-between;
-      gap: .5rem;
+      justify-content: flex-start;
+      gap: .375rem;
       padding: 0 .25rem;
       font-size: inherit;
       line-height: inherit;
@@ -201,7 +198,7 @@ function addInventorySummaryStyles() {
     .mwi-asset-toggle .mwi-summary-chevron { margin: 0 2px 0 0; }
     .mwi-asset-subtotal {
       min-width: 0;
-      margin-left: auto;
+      margin-left: 6px;
       color: rgb(var(--mwi-summary-accent));
       font-size: inherit;
       font-weight: 700;
@@ -228,8 +225,8 @@ function addInventorySummaryStyles() {
       position: relative;
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
-      gap: .5rem;
+      justify-content: flex-start;
+      gap: .375rem;
       padding: 0;
       color: var(--color-text-secondary, #aeb5c0);
       font-size: inherit;

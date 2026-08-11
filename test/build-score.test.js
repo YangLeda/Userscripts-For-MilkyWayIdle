@@ -314,13 +314,29 @@ test("profile scores include tools and show unavailable values when hidden", asy
   assert.equal(publicScores.skilling.total, 109);
 
   await runtime.api.showBuildScoreOnProfile(publicProfile);
-  assert.match(document.body.textContent, /战斗着装评分：47\.0/);
-  assert.match(document.body.textContent, /生活着装评分：109/);
+  const profileScores = document.querySelector("#script_profile_gear_scores");
+  assert.equal(profileScores.tagName, "SECTION");
+  assert.match(profileScores.getAttribute("style"), /width: fit-content/);
+  assert.match(profileScores.getAttribute("style"), /border-left: 2px solid/);
+  assert.match(document.body.textContent, /战斗着装评分：\s*47\.0/);
+  assert.match(document.body.textContent, /生活着装评分：\s*109/);
   assert.match(
     document.querySelector("#skillingScores_profile").textContent,
     /房屋：10\.0/,
   );
   assert.match(document.body.textContent, /工具：49\.0/);
+  const battleToggle = document.querySelector("#toggleScores_profile");
+  const battleDetails = document.querySelector("#buildScores_profile");
+  const battleIcon = battleToggle.querySelector(".mwi-profile-toggle-icon");
+  const battleText = battleToggle.textContent;
+  assert.equal(battleIcon.textContent.trim(), "+");
+  battleToggle.click();
+  assert.equal(battleDetails.style.display, "block");
+  assert.equal(battleIcon.textContent, "↓");
+  assert.equal(battleToggle.textContent.replace("↓", "+"), battleText);
+  battleToggle.click();
+  assert.equal(battleDetails.style.display, "none");
+  assert.equal(battleIcon.textContent, "+");
 
   const hiddenProfile = {
     profile: {
@@ -335,8 +351,8 @@ test("profile scores include tools and show unavailable values when hidden", asy
     document.querySelectorAll("#script_profile_gear_scores").length,
     1,
   );
-  assert.match(document.body.textContent, /战斗着装评分：7\.0（装备隐藏）/);
-  assert.match(document.body.textContent, /生活着装评分：-（装备隐藏）/);
+  assert.match(document.body.textContent, /战斗着装评分：\s*7\.0（装备隐藏）/);
+  assert.match(document.body.textContent, /生活着装评分：\s*-（装备隐藏）/);
   assert.match(
     document.querySelector("#buildScores_profile").textContent,
     /技能：-/,
@@ -353,8 +369,8 @@ test("profile scores include tools and show unavailable values when hidden", asy
 
   runtime.config.isZH = false;
   await runtime.api.showBuildScoreOnProfile(publicProfile);
-  assert.match(document.body.textContent, /Combat Gear Score: 47\.0/);
-  assert.match(document.body.textContent, /Skilling Gear Score: 109/);
+  assert.match(document.body.textContent, /Combat Gear Score:\s*47\.0/);
+  assert.match(document.body.textContent, /Skilling Gear Score:\s*109/);
   assert.match(document.body.textContent, /House: 7\.0/);
   assert.match(document.body.textContent, /Abilities: 0\.0/);
 });

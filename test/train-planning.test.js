@@ -300,7 +300,7 @@ test("shop navigation falls back to native DOM and only prefills quantity", asyn
   navigation.addEventListener("click", () => {
     document.body.insertAdjacentHTML(
       "beforeend",
-      `<div class="ShopPanel_shopPanel__test"><div class="ShopPanel_shopItem__test"><div class="ShopPanel_name__test">Board</div><svg><use href="#board"></use></svg></div></div>`,
+      `<div class="ShopPanel_shopPanel__test"><div class="ShopPanel_shopItems__test"><div class="ShopPanel_shopItem__test"><div class="ShopPanel_name__test">Board</div><svg><use href="#board"></use></svg></div></div></div>`,
     );
     document
       .querySelector('[class*="ShopPanel_shopItem"]')
@@ -331,6 +331,12 @@ test("shop navigation falls back to native DOM and only prefills quantity", asyn
   assert.equal(
     document
       .querySelector('[class*="ShopPanel_shopItem"]')
+      .classList.contains("mwi-train-shop-target"),
+    false,
+  );
+  assert.equal(
+    document
+      .querySelector('[class*="ShopPanel_shopItem__"]')
       .classList.contains("mwi-train-shop-target"),
     true,
   );

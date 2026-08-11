@@ -284,50 +284,43 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
   panel.querySelector("#script_profile_gear_scores")?.remove();
   panel.insertAdjacentHTML(
     "beforeend",
-    `<div id="script_profile_gear_scores" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${
-              runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "
-            }${runtime.api.formatScore(scores.battle.total)}${hiddenText}</div>
-            <div id="buildScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
-                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</div>
-            </div>
-            <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${
-              runtime.config.isZH
-                ? "+ 生活着装评分："
-                : "+ Skilling Gear Score: "
-            }${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</div>
-            <div id="skillingScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
-                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</div>
-            </div>
-        </div>`,
+    `<section id="script_profile_gear_scores" style="display: block !important; width: fit-content !important; max-width: 100% !important; text-align: left !important; color: ${runtime.config.SCRIPT_COLOR_MAIN} !important; font-size: 0.8125rem !important; margin-top: 8px !important; border-left: 2px solid ${runtime.config.SCRIPT_COLOR_MAIN} !important; padding-left: 8px !important;">
+            <p id="toggleScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                    <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
+                    <span style="display: inline !important; float: none !important;">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
+                    <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.total)}${hiddenText}</span>
+            </p>
+            <section id="buildScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span></p>
+            </section>
+            <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                    <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
+                    <span style="display: inline !important; float: none !important;">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
+                    <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</span>
+            </p>
+            <section id="skillingScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span></p>
+            </section>
+        </section>`,
   );
 
-  const bindToggle = (toggleId, detailsId, label, value) => {
+  const bindToggle = (toggleId, detailsId) => {
     const toggle = document.getElementById(toggleId);
     const details = document.getElementById(detailsId);
+    if (!toggle || !details) return;
+    const icon = toggle.querySelector(".mwi-profile-toggle-icon");
     toggle.addEventListener("click", () => {
       const isCollapsed = details.style.display === "none";
       details.style.display = isCollapsed ? "block" : "none";
-      toggle.textContent =
-        (isCollapsed ? "↓ " : "+ ") + label + value + hiddenText;
+      if (icon) icon.textContent = isCollapsed ? "↓" : "+";
     });
   };
-  bindToggle(
-    "toggleScores_profile",
-    "buildScores_profile",
-    runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ",
-    runtime.api.formatScore(scores.battle.total),
-  );
-  bindToggle(
-    "toggleSkillingScores_profile",
-    "skillingScores_profile",
-    runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ",
-    hiddenValue ?? runtime.api.formatScore(scores.skilling.total),
-  );
+  bindToggle("toggleScores_profile", "buildScores_profile");
+  bindToggle("toggleSkillingScores_profile", "skillingScores_profile");
 }
 
 // 计算他人资料着装评分

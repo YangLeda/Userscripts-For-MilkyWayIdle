@@ -57,7 +57,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .${CONTROL_CLASS}{display:flex;align-items:center;gap:4px;margin-left:auto}
+    .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
     .mwi-train-button:hover{filter:brightness(1.16)}
     .mwi-train-button:disabled{cursor:default;filter:none;opacity:.58}
@@ -65,7 +65,13 @@ function addStyles() {
     .mwi-train-button[data-kind="cart"]{border-color:rgba(245,180,70,.65);background:#43351f}
     .mwi-train-cart-mode{height:20px;padding:0 6px;border:1px solid rgba(144,166,235,.45);border-radius:999px;background:#202033;color:#b8bfd8;font:600 10px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
     .mwi-train-cart-mode[aria-pressed="true"]{border-color:rgba(245,180,70,.75);background:#49381d;color:#ffe2a0}
-    .${WIDE_WINDOW_CLASS}{box-sizing:border-box!important;width:min(430px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important}
+    .${WIDE_WINDOW_CLASS}{box-sizing:border-box!important;width:min(480px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS}>[class*="Modal_modalContent"]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_regularComponent"],.${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_skillActionDetail"]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_regularComponent"]>*{box-sizing:border-box!important;max-width:100%!important;min-width:0!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_loadoutDropdown"]{min-width:0!important;flex-wrap:wrap!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_buttonsContainer"]{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;flex-wrap:wrap!important}
+    .${WIDE_WINDOW_CLASS} .${CONTROL_CLASS}{flex:1 1 100%;width:100%;margin-left:0}
     .mwi-train-shop-target{position:relative;z-index:1;outline:3px solid #ffd257!important;outline-offset:2px;box-shadow:0 0 0 2px rgba(255,210,87,.28),0 0 18px rgba(255,188,55,.8)!important;animation:mwi-train-shop-pulse 1.1s ease-in-out infinite alternate}
     .${DETAIL_CLASS}{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58)}
     .${DETAIL_CLASS}>section{box-sizing:border-box;width:min(470px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:16px 20px;border:1px solid #90a6eb;border-radius:8px;background:#1c1c2c;color:#e8e8ef;box-shadow:0 5px 20px rgba(0,0,0,.55);font-size:13px}
@@ -399,7 +405,12 @@ function findTrainShopItem(panel, step) {
     .split("/")
     .at(-1);
   const itemName = localizedItem(step.outputHrid);
-  return [...panel.querySelectorAll('[class*="ShopPanel_shopItem"]')]
+  return [...panel.querySelectorAll('[class*="ShopPanel_shopItem__"]')]
+    .filter((candidate) =>
+      [...candidate.classList].some((name) =>
+        name.startsWith("ShopPanel_shopItem__"),
+      ),
+    )
     .filter(visible)
     .find((candidate) => {
       const hrefs = [...candidate.querySelectorAll("use")].map(

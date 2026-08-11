@@ -22255,42 +22255,42 @@
     panel.querySelector("#script_profile_gear_scores")?.remove();
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div id="script_profile_gear_scores" style="text-align: left; color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem;">
-            <div style="cursor: pointer; font-weight: bold" id="toggleScores_profile">${runtime.config.isZH ? "+ 战斗着装评分：" : "+ Combat Gear Score: "}${runtime.api.formatScore(scores.battle.total)}${hiddenText}</div>
-            <div id="buildScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.battle.house)}</div>
-                    <div>${runtime.config.isZH ? "技能：" : "Abilities: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</div>
-            </div>
-            <div style="cursor: pointer; font-weight: bold" id="toggleSkillingScores_profile">${runtime.config.isZH ? "+ 生活着装评分：" : "+ Skilling Gear Score: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</div>
-            <div id="skillingScores_profile" style="display: none; margin-left: 20px;">
-                    <div>${runtime.config.isZH ? "房屋：" : "House: "}${runtime.api.formatScore(scores.skilling.house)}</div>
-                    <div>${runtime.config.isZH ? "工具：" : "Tools: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</div>
-                    <div>${runtime.config.isZH ? "装备：" : "Equipment: "}${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</div>
-            </div>
-        </div>`
+      `<section id="script_profile_gear_scores" style="display: block !important; width: fit-content !important; max-width: 100% !important; text-align: left !important; color: ${runtime.config.SCRIPT_COLOR_MAIN} !important; font-size: 0.8125rem !important; margin-top: 8px !important; border-left: 2px solid ${runtime.config.SCRIPT_COLOR_MAIN} !important; padding-left: 8px !important;">
+            <p id="toggleScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                    <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
+                    <span style="display: inline !important; float: none !important;">${runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: "}</span>
+                    <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.total)}${hiddenText}</span>
+            </p>
+            <section id="buildScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span></p>
+            </section>
+            <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                    <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
+                    <span style="display: inline !important; float: none !important;">${runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: "}</span>
+                    <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</span>
+            </p>
+            <section id="skillingScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span></p>
+            </section>
+        </section>`
     );
-    const bindToggle = (toggleId, detailsId, label, value) => {
+    const bindToggle = (toggleId, detailsId) => {
       const toggle = document.getElementById(toggleId);
       const details = document.getElementById(detailsId);
+      if (!toggle || !details) return;
+      const icon = toggle.querySelector(".mwi-profile-toggle-icon");
       toggle.addEventListener("click", () => {
         const isCollapsed = details.style.display === "none";
         details.style.display = isCollapsed ? "block" : "none";
-        toggle.textContent = (isCollapsed ? "↓ " : "+ ") + label + value + hiddenText;
+        if (icon) icon.textContent = isCollapsed ? "↓" : "+";
       });
     };
-    bindToggle(
-      "toggleScores_profile",
-      "buildScores_profile",
-      runtime.config.isZH ? "战斗着装评分：" : "Combat Gear Score: ",
-      runtime.api.formatScore(scores.battle.total)
-    );
-    bindToggle(
-      "toggleSkillingScores_profile",
-      "skillingScores_profile",
-      runtime.config.isZH ? "生活着装评分：" : "Skilling Gear Score: ",
-      hiddenValue ?? runtime.api.formatScore(scores.skilling.total)
-    );
+    bindToggle("toggleScores_profile", "buildScores_profile");
+    bindToggle("toggleSkillingScores_profile", "skillingScores_profile");
   }
   async function getBuildScoreByProfile(profile_shared_obj) {
     const profile = profile_shared_obj.profile;
@@ -25291,9 +25291,6 @@ ${preview}`
       font-size: var(--mwi-inventory-heading-font-size);
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
-      width: calc(100% + .5rem);
-      box-sizing: border-box;
-      margin-inline: -.25rem;
     }
     .mwi-inventory-summary-grid {
       display: grid;
@@ -25304,10 +25301,10 @@ ${preview}`
       --mwi-summary-accent: 120, 174, 255;
       min-width: 0;
       overflow: visible;
-      border: 1px solid rgba(255, 255, 255, .08);
-      border-left: 2px solid rgba(var(--mwi-summary-accent), .58);
-      border-radius: .25rem;
-      background: rgba(17, 20, 27, .72);
+      border: 0;
+      border-left: 2px solid rgba(var(--mwi-summary-accent), .75);
+      border-radius: 0;
+      background: transparent;
     }
     .mwi-summary-card--combat { --mwi-summary-accent: 238, 115, 103; }
     .mwi-summary-card--skilling { --mwi-summary-accent: 90, 200, 149; }
@@ -25394,8 +25391,8 @@ ${preview}`
       display: flex;
       min-width: 0;
       align-items: baseline;
-      justify-content: space-between;
-      gap: .5rem;
+      justify-content: flex-start;
+      gap: .375rem;
       padding: 0 .25rem;
       font-size: inherit;
       line-height: inherit;
@@ -25474,7 +25471,7 @@ ${preview}`
     .mwi-asset-toggle .mwi-summary-chevron { margin: 0 2px 0 0; }
     .mwi-asset-subtotal {
       min-width: 0;
-      margin-left: auto;
+      margin-left: 6px;
       color: rgb(var(--mwi-summary-accent));
       font-size: inherit;
       font-weight: 700;
@@ -25501,8 +25498,8 @@ ${preview}`
       position: relative;
       display: flex;
       align-items: baseline;
-      justify-content: space-between;
-      gap: .5rem;
+      justify-content: flex-start;
+      gap: .375rem;
       padding: 0;
       color: var(--color-text-secondary, #aeb5c0);
       font-size: inherit;
@@ -30080,7 +30077,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID8;
     style.textContent = `
-    .${CONTROL_CLASS}{display:flex;align-items:center;gap:4px;margin-left:auto}
+    .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
     .mwi-train-button:hover{filter:brightness(1.16)}
     .mwi-train-button:disabled{cursor:default;filter:none;opacity:.58}
@@ -30088,7 +30085,13 @@ ${locks}` : ""}`;
     .mwi-train-button[data-kind="cart"]{border-color:rgba(245,180,70,.65);background:#43351f}
     .mwi-train-cart-mode{height:20px;padding:0 6px;border:1px solid rgba(144,166,235,.45);border-radius:999px;background:#202033;color:#b8bfd8;font:600 10px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
     .mwi-train-cart-mode[aria-pressed="true"]{border-color:rgba(245,180,70,.75);background:#49381d;color:#ffe2a0}
-    .${WIDE_WINDOW_CLASS}{box-sizing:border-box!important;width:min(430px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important}
+    .${WIDE_WINDOW_CLASS}{box-sizing:border-box!important;width:min(480px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS}>[class*="Modal_modalContent"]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_regularComponent"],.${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_skillActionDetail"]{box-sizing:border-box!important;width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_regularComponent"]>*{box-sizing:border-box!important;max-width:100%!important;min-width:0!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_loadoutDropdown"]{min-width:0!important;flex-wrap:wrap!important}
+    .${WIDE_WINDOW_CLASS} [class*="SkillActionDetail_buttonsContainer"]{box-sizing:border-box!important;max-width:100%!important;min-width:0!important;flex-wrap:wrap!important}
+    .${WIDE_WINDOW_CLASS} .${CONTROL_CLASS}{flex:1 1 100%;width:100%;margin-left:0}
     .mwi-train-shop-target{position:relative;z-index:1;outline:3px solid #ffd257!important;outline-offset:2px;box-shadow:0 0 0 2px rgba(255,210,87,.28),0 0 18px rgba(255,188,55,.8)!important;animation:mwi-train-shop-pulse 1.1s ease-in-out infinite alternate}
     .${DETAIL_CLASS}{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58)}
     .${DETAIL_CLASS}>section{box-sizing:border-box;width:min(470px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:16px 20px;border:1px solid #90a6eb;border-radius:8px;background:#1c1c2c;color:#e8e8ef;box-shadow:0 5px 20px rgba(0,0,0,.55);font-size:13px}
@@ -30354,7 +30357,11 @@ ${locks}` : ""}`;
   function findTrainShopItem(panel, step) {
     const bare = String(step.outputHrid ?? "").split("/").at(-1);
     const itemName3 = localizedItem(step.outputHrid);
-    return [...panel.querySelectorAll('[class*="ShopPanel_shopItem"]')].filter(visible).find((candidate) => {
+    return [...panel.querySelectorAll('[class*="ShopPanel_shopItem__"]')].filter(
+      (candidate) => [...candidate.classList].some(
+        (name) => name.startsWith("ShopPanel_shopItem__")
+      )
+    ).filter(visible).find((candidate) => {
       const hrefs = [...candidate.querySelectorAll("use")].map(
         (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
       );
@@ -31169,27 +31176,40 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID9;
     style.textContent = `
-    .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
-    .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
-    .mwi-task-profession-header:hover { background:rgba(255,255,255,.055); }
+    [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
+    [class*="RandomTask_randomTask"] { min-width:0 !important; }
+    [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
+    [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
+    [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
+    .mwi-task-profession-group { --mwi-task-group-accent:120,174,255; grid-column:1/-1; min-width:0; }
+    .mwi-task-profession-group[data-profession="new"] { --mwi-task-group-accent:230,181,79; }
+    .mwi-task-profession-group[data-profession="completed"] { --mwi-task-group-accent:90,200,149; }
+    .mwi-task-profession-group[data-profession="combat"] { --mwi-task-group-accent:238,115,103; }
+    .mwi-task-profession-header { display:flex; width:100%; min-height:32px; box-sizing:border-box; align-items:center; gap:7px; padding:5px 9px; border:0; border-left:3px solid rgba(var(--mwi-task-group-accent),.78); border-radius:0; background:transparent; color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
+    .mwi-task-profession-header:hover { background:rgba(var(--mwi-task-group-accent),.075); }
+    .mwi-task-profession-header:focus-visible { outline:2px solid rgba(var(--mwi-task-group-accent),.72); outline-offset:-3px; }
     .mwi-task-profession-title { font-weight:650; }
-    .mwi-task-profession-count { min-width:22px; padding:1px 6px; border-radius:999px; background:rgba(255,255,255,.09); color:var(--color-text-secondary,#bbb); font-size:.68rem; text-align:center; }
-    .mwi-task-profession-chevron { margin-left:auto; color:var(--color-text-secondary,#aaa); transition:transform .15s ease; }
+    .mwi-task-profession-count { min-width:1.25rem; padding:0; border:0; background:transparent; color:rgba(var(--mwi-task-group-accent),.95); font-size:.68rem; font-weight:700; text-align:center; }
+    .mwi-task-profession-chevron { margin-left:auto; color:rgba(var(--mwi-task-group-accent),.9); transition:transform .15s ease; }
     .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
     .mwi-task-profession-body { display:none; }
     .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
-    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
-    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:1px solid rgba(255,255,255,.11); border-left:2px solid rgba(183,126,255,.72); border-radius:5px; background:rgba(70,42,100,.18); color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
+    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:0; border-left:2px solid rgba(183,126,255,.78); border-radius:0; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-task-dungeon-header:hover { background:rgba(183,126,255,.07); }
+    .mwi-task-dungeon-header:focus-visible { outline:2px solid rgba(183,126,255,.62); outline-offset:-3px; }
     .mwi-task-dungeon-header span:last-child { margin-left:auto; transition:transform .15s ease; }
     .mwi-task-dungeon-header[aria-expanded="false"] span:last-child { transform:rotate(-90deg); }
-    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
     .mwi-task-combat-mode { display:flex; width:max-content; gap:2px; margin:4px 0 8px; padding:2px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(0,0,0,.18); }
     .mwi-task-combat-mode button { padding:3px 10px; border:0; border-radius:4px; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-combat-mode button[aria-pressed="true"] { background:${runtime.config.SCRIPT_COLOR_MAIN}; color:#18130a; font-weight:700; }
     ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
     ${TASK_SELECTOR}[data-mwitools-dungeon-source="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:0; left:50%; width:30%; height:100%; opacity:.3; pointer-events:none; }
+    .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
+    .mwi-task-bg.mwi-task-bg--monster { left:42%; }
+    .mwi-task-bg.mwi-task-bg--dungeon { left:68%; }
     .mwi-task-bg svg { width:100%; height:100%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
     [data-mwitools-task-mirror="true"] { position:relative; }
@@ -31290,14 +31310,7 @@ ${locks}` : ""}`;
       ([, localizedName]) => localizedName === normalized
     )?.[0] ?? "";
   }
-  function monsterHridForCard(card, task) {
-    const direct = nestedValue(task, ["monsterHrid", "targetMonsterHrid"]);
-    if (direct) return String(direct);
-    const actionHrid = String(taskActionHrid(task) ?? "");
-    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    if (actionHrid.startsWith("/actions/combat/") && !detail?.combatZoneInfo?.isDungeon && detail?.combatZoneInfo?.fightInfo?.battlesPerBoss !== 10) {
-      return actionHrid.replace("/actions/combat/", "/monsters/");
-    }
+  function namedMonsterHridForCard(card) {
     const monsterName = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
     const translated = runtime.api.getOthersFromZhName?.(monsterName);
     if (String(translated).startsWith("/monsters/")) return translated;
@@ -31310,6 +31323,46 @@ ${locks}` : ""}`;
       (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName || runtime.data.ZHActionNames?.[candidate.hrid] === monsterName)
     );
     return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
+  }
+  function normalizeMonsterHrid(value) {
+    if (typeof value !== "string") return "";
+    if (value.startsWith("/monsters/")) return value;
+    if (!value.startsWith("/actions/combat/")) return "";
+    const candidate = value.replace("/actions/combat/", "/monsters/");
+    return Object.hasOwn(runtime.data.ZHOthersDic ?? {}, candidate) ? candidate : "";
+  }
+  function fightMonsterHrids(value, result = /* @__PURE__ */ new Set(), visited = /* @__PURE__ */ new Set()) {
+    if (!value || visited.has(value)) return result;
+    if (typeof value === "string") {
+      const normalized = normalizeMonsterHrid(value);
+      if (normalized) result.add(normalized);
+      return result;
+    }
+    if (typeof value !== "object") return result;
+    visited.add(value);
+    for (const child of Object.values(value)) {
+      fightMonsterHrids(child, result, visited);
+    }
+    return result;
+  }
+  function monsterHridForCard(card, task) {
+    const named = namedMonsterHridForCard(card);
+    if (named) return named;
+    const direct = normalizeMonsterHrid(
+      nestedValue(task, [
+        "monsterHrid",
+        "targetMonsterHrid",
+        "combatMonsterHrid"
+      ])
+    );
+    if (direct) return direct;
+    const actionHrid = String(taskActionHrid(task) ?? "");
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    const fightCandidates = [
+      ...fightMonsterHrids(detail?.combatZoneInfo?.fightInfo)
+    ];
+    if (fightCandidates.length === 1) return fightCandidates[0];
+    return normalizeMonsterHrid(actionHrid) || null;
   }
   function taskArtworkForCard(card, task) {
     const profession = professionForCard(card, task);
@@ -31357,6 +31410,25 @@ ${locks}` : ""}`;
     background.appendChild(svg);
     card.style.position = "relative";
     card.appendChild(background);
+  }
+  function addDungeonArtwork(card, actionHrid) {
+    card.querySelector(":scope > .mwi-task-bg--dungeon")?.remove();
+    const monster = card.querySelector(":scope > .mwi-task-bg");
+    monster?.classList.add("mwi-task-bg--monster");
+    const href = taskSpriteHref("actions", actionHrid);
+    if (!href) return;
+    const background = document.createElement("div");
+    background.className = "mwi-task-bg mwi-task-bg--dungeon";
+    background.dataset.spriteHref = href;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.append(use);
+    background.append(svg);
+    card.append(background);
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
@@ -31482,6 +31554,7 @@ ${locks}` : ""}`;
     const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail?.hrid] : detail?.name) ?? detail?.name;
     return {
       key: `dungeon-${detail?.hrid}`,
+      actionHrid: detail?.hrid ?? "",
       label: name || t9("未知地牢", "Unknown dungeon"),
       order: Number(detail?.sortIndex ?? 9999)
     };
@@ -31739,7 +31812,7 @@ ${locks}` : ""}`;
     group.append(header, body);
     return group;
   }
-  function mirrorTaskCard(source) {
+  function mirrorTaskCard(source, location2) {
     const mirror = source.cloneNode(true);
     mirror.dataset.mwitoolsTaskMirror = "true";
     mirror.removeAttribute("id");
@@ -31747,6 +31820,7 @@ ${locks}` : ""}`;
     mirror.style.display = "";
     delete mirror.dataset.mwitoolsDungeonSource;
     delete mirror.dataset.mwitoolsCollapsed;
+    addDungeonArtwork(mirror, location2?.actionHrid);
     mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
     mirror.addEventListener("click", (event) => {
       event.preventDefault();
@@ -31817,7 +31891,7 @@ ${locks}` : ""}`;
       const body = section.querySelector(".mwi-task-dungeon-body");
       body.hidden = collapsed;
       body.replaceChildren(
-        ...locationRows.map(({ card }) => mirrorTaskCard(card))
+        ...locationRows.map(({ card }) => mirrorTaskCard(card, location2))
       );
       section.hidden = collapsedProfessions.has("combat");
       section.style.order = String(nextOrder.value++);

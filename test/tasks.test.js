@@ -127,8 +127,40 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
   runtime.api.renderTasks();
 
   const styles = document.querySelector("#mwitools-task-style").textContent;
-  assert.match(styles, /repeat\(auto-fill,minmax\(min\(100%,320px\),1fr\)\)/);
+  assert.match(
+    styles,
+    /TasksPanel_taskList[^}]*repeat\(auto-fill,minmax\(min\(100%,270px\),1fr\)/,
+  );
+  assert.match(styles, /RandomTask_randomTask[^}]*min-width:\s*0\s*!important/);
+  assert.match(
+    styles,
+    /\.mwi-task-combat-location-body[^}]*repeat\(auto-fill,minmax\(min\(100%,270px\),1fr\)[^}]*gap:8px/,
+  );
+  assert.match(
+    styles,
+    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*left:68%[^}]*width:24%[^}]*height:88%/,
+  );
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
+  assert.match(
+    styles,
+    /\.mwi-task-profession-header\s*\{[^}]*border:\s*0[^}]*border-left:\s*3px solid rgba\(var\(--mwi-task-group-accent\),\.78\)[^}]*border-radius:\s*0[^}]*background:\s*transparent/s,
+  );
+  assert.match(
+    styles,
+    /\.mwi-task-dungeon-header\s*\{[^}]*border:\s*0[^}]*border-left:\s*2px solid rgba\(183,126,255,\.78\)[^}]*border-radius:\s*0[^}]*background:\s*transparent/s,
+  );
+  assert.match(
+    styles,
+    /data-profession="new"[^}]*--mwi-task-group-accent:230,181,79/,
+  );
+  assert.match(
+    styles,
+    /data-profession="completed"[^}]*--mwi-task-group-accent:90,200,149/,
+  );
+  assert.match(
+    styles,
+    /data-profession="combat"[^}]*--mwi-task-group-accent:238,115,103/,
+  );
 
   const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
   assert.deepEqual(
@@ -203,6 +235,17 @@ test("task artwork resolves target items and monsters as translucent sprite art"
       kind: "combat_monsters",
       hrid: "/monsters/fly",
     },
+  );
+  assert.deepEqual(
+    taskArtworkForCard(cards[3], {
+      actionHrid: "/actions/combat/aquahorse",
+      monsterHrid: "/monsters/aquahorse",
+    }),
+    {
+      kind: "combat_monsters",
+      hrid: "/monsters/fly",
+    },
+    "the monster visibly named on the card must win over a zone or stale task ID",
   );
 
   document.body.insertAdjacentHTML(
@@ -429,6 +472,11 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     { id: "den", actionHrid: "/actions/combat/chimerical_den" },
   ];
   runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg style="display:none"><use href="/static/media/actions_sprite.test.svg#chimerical_den"></use></svg>`,
+  );
   localStorage.setItem(
     "MWITools_task_combat_mode_v1:test.milkywayidle.com:tasks-test",
     "planet",
@@ -445,6 +493,29 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
   assert.equal(
     document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
     4,
+  );
+  const denMirror = [
+    ...document.querySelectorAll('[data-mwitools-task-mirror="true"]'),
+  ].find(
+    (taskCard) =>
+      taskCard.textContent.includes("苍蝇") &&
+      taskCard
+        .closest(".mwi-task-combat-location")
+        ?.dataset.location.includes("chimerical_den"),
+  );
+  assert.deepEqual(
+    [...denMirror.querySelectorAll(":scope > .mwi-task-bg use")].map((use) =>
+      use.getAttribute("href").split("#").at(-1),
+    ),
+    ["fly", "chimerical_den"],
+  );
+  assert.equal(
+    denMirror.querySelectorAll(":scope > .mwi-task-bg--monster").length,
+    1,
+  );
+  assert.equal(
+    denMirror.querySelectorAll(":scope > .mwi-task-bg--dungeon").length,
+    1,
   );
   assert.equal(
     document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
@@ -483,6 +554,7 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     0,
   );
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 
 test("production-chain tasks stay together when automatic sorting is disabled", () => {
