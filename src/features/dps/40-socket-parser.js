@@ -40,6 +40,7 @@ const SocketHook = (() => {
   let playersHP = []; // PV joueurs (détection heal)
   let playerKnownDotAbilities = {}; // 玩家槽位 → 本场已确认的持续伤害技能
   let playerDotUntil = {}; // 玩家槽位 → Map(技能 → 预计最后一跳时间)
+  let playerDotCasts = []; // 已确认施法的逐目标 DoT 时间轴，仅作无法归属时的兜底
   let playerKnownReflectionAbilities = {}; // 玩家槽位 → 本场装备/观察到的反伤技能
   let playerReflectUntil = {}; // 玩家槽位 → performance.now() 时间轴上的反伤到期点
   let playerReflectSource = {}; // 玩家槽位 → 反伤技能 Hrid
@@ -54,6 +55,11 @@ const SocketHook = (() => {
   // instance, change quand on relance un combat.
   let currentCharacterId = null;
   let currentCombatKey = null;
+  let testNow = null;
+
+  function clockNow() {
+    return testNow === null ? performance.now() : testNow;
+  }
 
   // ── Mode Trial de Guilde ───────────────────────────────────────────────────
   // guild_battle_updated : message dédié au Trial, parallèle à battle_updated.
@@ -495,11 +501,18 @@ const SocketHook = (() => {
   ]);
   // initClientData 中 effectType=damage 表示技能本次结算能直接造成伤害；
   // damageOverTimeRatio + damageOverTimeDuration 才表示真正的持续伤害。
-  // 固定回退值让初始化表尚未来得及到达时，烈焰风暴/重伤仍可识别。
+  // 固定回退值让初始化表尚未来得及到达时，火焰风暴/血刃斩仍可识别。
   const abilityDamageRules = new Map([
-    ["/abilities/firestorm", { direct: true, dotDuration: 6000 }],
-    ["/abilities/maim", { direct: true, dotDuration: 9000 }],
+    [
+      "/abilities/firestorm",
+      { direct: true, dotDuration: 6000, dotInterval: 3000 },
+    ],
+    ["/abilities/maim", { direct: true, dotDuration: 9000, dotInterval: 3000 }],
   ]);
+  const DOT_DEFAULT_INTERVAL_MS = 3000;
+  const DOT_MATCH_TOLERANCE_MS = 500;
+  const DOT_TARGET_BIND_WINDOW_MS = 2000;
+  const DOT_CAST_RETENTION_MS = 30000;
   const reflectionBuffSources = new Map(); // buff uniqueHrid → 对应反伤技能
   const reflectionTypeSources = new Map(); // buff typeHrid → Set(反伤技能)
   const reflectionItemHrids = new Set();
@@ -575,6 +588,16 @@ const SocketHook = (() => {
         return max;
       return Math.max(max, durationToMs(effect.damageOverTimeDuration));
     }, 0);
+    const dotInterval = damageEffects.reduce((minimum, effect) => {
+      if (!(Number(effect.damageOverTimeRatio) > 0)) return minimum;
+      const raw =
+        effect.damageOverTimeInterval ??
+        effect.damageOverTimeTickInterval ??
+        effect.tickInterval;
+      const interval = durationToMs(raw);
+      if (!(interval > 0)) return minimum;
+      return minimum > 0 ? Math.min(minimum, interval) : interval;
+    }, 0);
     const targetTypes = [
       ...new Set(
         damageEffects
@@ -586,6 +609,7 @@ const SocketHook = (() => {
       abilityDamageRules.set(hrid, {
         direct: damageEffects.length > 0,
         dotDuration,
+        dotInterval: dotDuration ? dotInterval || DOT_DEFAULT_INTERVAL_MS : 0,
         targetTypes,
       });
     }
@@ -684,13 +708,218 @@ const SocketHook = (() => {
     if (!rule) return "unknown";
     return rule.direct ? "direct" : "support";
   }
-  function activateDot(activeContainer, dotContainer, key, abilityHrid, ts) {
+  function activateDot(
+    activeContainer,
+    dotContainer,
+    key,
+    abilityHrid,
+    ts,
+    timeline = null,
+  ) {
     const hrid = String(abilityHrid || ""),
       rule = abilityDamageRules.get(hrid);
     if (!rule || !(rule.dotDuration > 0)) return;
     ensureSet(dotContainer, key).add(hrid);
     const active = activeContainer[key] || (activeContainer[key] = new Map());
     active.set(hrid, Math.max(active.get(hrid) || 0, ts + rule.dotDuration));
+    if (timeline) scheduleDotCast(timeline, key, hrid, ts);
+  }
+
+  function pruneDotCasts(timeline, ts) {
+    for (let index = timeline.length - 1; index >= 0; index -= 1) {
+      if (timeline[index].expiresAt + DOT_CAST_RETENTION_MS < ts) {
+        timeline.splice(index, 1);
+      }
+    }
+  }
+
+  function dotTickSchedule(startedAt, rule) {
+    const interval = rule.dotInterval || DOT_DEFAULT_INTERVAL_MS;
+    const schedule = [];
+    for (
+      let elapsed = interval;
+      elapsed <= rule.dotDuration;
+      elapsed += interval
+    ) {
+      schedule.push({ dueAt: startedAt + elapsed, consumed: false });
+    }
+    return schedule;
+  }
+
+  function scheduleDotCast(timeline, key, abilityHrid, ts) {
+    const rule = abilityDamageRules.get(abilityHrid);
+    if (!rule || !(rule.dotDuration > 0)) return;
+    pruneDotCasts(timeline, ts);
+    timeline.push({
+      key: String(key),
+      abilityHrid,
+      startedAt: ts,
+      landedAt: null,
+      expiresAt: ts + rule.dotDuration,
+      targets: new Map(),
+    });
+  }
+
+  function bindDotTargets(timeline, key, abilityHrid, hits, ts) {
+    if (!Array.isArray(hits) || !hits.length) return;
+    pruneDotCasts(timeline, ts);
+    const cast = timeline
+      .slice()
+      .reverse()
+      .find(
+        (candidate) =>
+          candidate.key === String(key) &&
+          candidate.abilityHrid === abilityHrid &&
+          ts - candidate.startedAt >= 0 &&
+          ts - candidate.startedAt <= DOT_TARGET_BIND_WINDOW_MS,
+      );
+    if (!cast) return;
+    if (cast.landedAt === null) {
+      cast.landedAt = ts;
+      const rule = abilityDamageRules.get(abilityHrid);
+      cast.expiresAt = ts + (rule?.dotDuration || 0);
+    }
+    const rule = abilityDamageRules.get(abilityHrid);
+    if (!rule) return;
+    for (const hit of hits) {
+      const targetKey = String(hit.key);
+      if (!cast.targets.has(targetKey)) {
+        cast.targets.set(targetKey, dotTickSchedule(cast.landedAt, rule));
+      }
+    }
+  }
+
+  function scheduledDotCandidate(
+    timeline,
+    targetKey,
+    ts,
+    { key = null, abilityHrid = "" } = {},
+  ) {
+    pruneDotCasts(timeline, ts);
+    const candidates = [];
+    for (const cast of timeline) {
+      if (key !== null && cast.key !== String(key)) continue;
+      if (abilityHrid && cast.abilityHrid !== abilityHrid) continue;
+      for (const tick of cast.targets.get(String(targetKey)) || []) {
+        if (tick.consumed) continue;
+        const lateness = ts - tick.dueAt;
+        if (lateness >= 0 && lateness <= DOT_MATCH_TOLERANCE_MS) {
+          candidates.push({ cast, tick, distance: lateness });
+        }
+      }
+    }
+    candidates.sort(
+      (left, right) =>
+        left.distance - right.distance ||
+        left.tick.dueAt - right.tick.dueAt ||
+        left.cast.startedAt - right.cast.startedAt,
+    );
+    if (!candidates.length) return null;
+    if (
+      candidates.length > 1 &&
+      Math.abs(candidates[0].distance - candidates[1].distance) < 1
+    ) {
+      return { ambiguous: true };
+    }
+    return candidates[0];
+  }
+
+  function consumeScheduledDotHits(
+    timeline,
+    hits,
+    ts,
+    { key = null, abilityHrid = "" } = {},
+  ) {
+    const matched = [];
+    const unmatched = [];
+    let ambiguous = false;
+    for (const hit of hits || []) {
+      const candidate = scheduledDotCandidate(timeline, hit.key, ts, {
+        key,
+        abilityHrid,
+      });
+      if (!candidate || candidate.ambiguous) {
+        ambiguous ||= Boolean(candidate?.ambiguous);
+        unmatched.push(hit);
+        continue;
+      }
+      candidate.tick.consumed = true;
+      matched.push({ hit, cast: candidate.cast });
+    }
+    return { matched, unmatched, ambiguous };
+  }
+
+  function scheduledDotDamage(timeline, hits, ts) {
+    pruneDotCasts(timeline, ts);
+    const targetKeys = new Set((hits || []).map((hit) => String(hit.key)));
+    const hasPendingTargetSchedule = timeline.some((cast) =>
+      [...targetKeys].some((targetKey) =>
+        (cast.targets.get(targetKey) || []).some((tick) => !tick.consumed),
+      ),
+    );
+    const { matched, unmatched, ambiguous } = consumeScheduledDotHits(
+      timeline,
+      hits,
+      ts,
+    );
+    const groups = new Map();
+    for (const { hit, cast } of matched) {
+      const groupKey = `${cast.key}\u0000${cast.abilityHrid}`;
+      const group = groups.get(groupKey) || {
+        key: cast.key,
+        abilityHrid: cast.abilityHrid,
+        amount: 0,
+      };
+      group.amount += Number(hit.amount) || 0;
+      groups.set(groupKey, group);
+    }
+    return {
+      groups: [...groups.values()],
+      unmatchedAmount: unmatched.reduce(
+        (sum, hit) => sum + (Number(hit.amount) || 0),
+        0,
+      ),
+      ambiguous,
+      hasPendingTargetSchedule,
+    };
+  }
+
+  function dotAbilityFromSource(source) {
+    const value = String(source || "");
+    if (value.startsWith("dot:/abilities/")) return value.slice(4);
+    return abilityDamageRules.get(value)?.dotDuration > 0 ? value : "";
+  }
+
+  function recordDotAttribution(timeline, key, source, hits, ts) {
+    const value = String(source || ""),
+      abilityHrid = dotAbilityFromSource(value);
+    if (abilityHrid && !value.startsWith("dot:")) {
+      bindDotTargets(timeline, key, abilityHrid, hits, ts);
+      return;
+    }
+    if (value === "dot" || value.startsWith("dot:")) {
+      consumeScheduledDotHits(timeline, hits, ts, { key, abilityHrid });
+    }
+  }
+
+  function activeDotCandidates(keys, activeContainer, ts) {
+    return keys.filter((key) =>
+      [...(activeContainer[key] || new Map()).values()].some(
+        (until) => until > ts,
+      ),
+    );
+  }
+
+  function uniqueActiveDotCandidate(keys, activeContainer, ts) {
+    const candidates = activeDotCandidates(keys, activeContainer, ts);
+    return candidates.length === 1 ? candidates[0] : null;
+  }
+
+  function activeDotSourceFor(activeContainer, key, ts) {
+    const abilities = [...(activeContainer[key] || new Map()).entries()]
+      .filter(([, until]) => until > ts)
+      .map(([hrid]) => hrid);
+    return abilities.length === 1 ? `dot:${abilities[0]}` : "dot";
   }
   function dotAbilitiesFor(dotContainer, activeContainer, key, ts) {
     const known = [...(dotContainer[key] || [])];
@@ -854,7 +1083,7 @@ const SocketHook = (() => {
       unit,
     );
     const nowWall = Date.now(),
-      nowPerf = performance.now();
+      nowPerf = clockNow();
     let remaining = 0,
       foundBuff = false;
     Object.values(unit.combatBuffMap || {}).forEach((buff) => {
@@ -928,7 +1157,7 @@ const SocketHook = (() => {
       ),
     );
     const nowWall = Date.now(),
-      nowPerf = performance.now();
+      nowPerf = clockNow();
     let remaining = 0,
       foundBuff = false;
     Object.values(unit.combatBuffMap || {}).forEach((buff) => {
@@ -1288,7 +1517,7 @@ const SocketHook = (() => {
     const mMap = p.mMap || {},
       pMap = p.pMap || {};
     const idx = Object.keys(pMap);
-    const ts = performance.now();
+    const ts = clockNow();
 
     for (const k of idx) guildMaxSlot = Math.max(guildMaxSlot, +k + 1);
 
@@ -1718,6 +1947,7 @@ const SocketHook = (() => {
     playersHP = [];
     playerKnownDotAbilities = {};
     playerDotUntil = {};
+    playerDotCasts = [];
     playerKnownReflectionAbilities = {};
     playerReflectUntil = {};
     playerReflectSource = {};
@@ -1854,6 +2084,7 @@ const SocketHook = (() => {
     );
     playerKnownDotAbilities = {};
     playerDotUntil = {};
+    playerDotCasts = [];
     playerKnownReflectionAbilities = {};
     playerReflectUntil = {};
     playerReflectSource = {};
@@ -1910,7 +2141,7 @@ const SocketHook = (() => {
     const mMap = p.mMap || {},
       pMap = p.pMap || {};
     const idx = Object.keys(pMap);
-    const ts = performance.now();
+    const ts = clockNow();
     const battleType = isInLabyrinth ? "labyrinth" : "combat";
 
     // 1. 真正行动者：普通战斗的完整 CombatUnitUpdate 会携带 atkCounter。
@@ -1954,6 +2185,7 @@ const SocketHook = (() => {
             k,
             completed,
             ts,
+            playerDotCasts,
           );
         }
         playersAtkCounter[i] = nextCounter;
@@ -2070,8 +2302,8 @@ const SocketHook = (() => {
       playersHP[i] = hp;
     }
 
-    // 3. 归属优先级：唯一 atkCounter 增量 → 唯一 MP 下降 → 唯一 DoT
-    // 施放者。治疗/辅助技能若与 DoT 同时结算，不再把怪物掉血记到治疗者。
+    // 3. 归属优先级：唯一 atkCounter 增量 → 唯一 MP 下降 → 已确认的
+    // DoT 时间轴。治疗/辅助技能若与 DoT 同时结算，不把掉血记到治疗者。
     let attributedKey = null,
       attributedSource = "unknown";
     const hitReflectors = idx.filter(
@@ -2105,50 +2337,6 @@ const SocketHook = (() => {
       } else if (weapon.includes("blazing_trident")) {
         attributedKey = actionActor;
         attributedSource = weapon;
-      } else {
-        const dotKey = uniqueDotCandidate(
-          idx,
-          playerKnownDotAbilities,
-          playerDotUntil,
-          ts,
-        );
-        if (dotKey !== null) {
-          attributedKey = dotKey;
-          attributedSource = dotSourceFor(
-            playerKnownDotAbilities,
-            playerDotUntil,
-            dotKey,
-            ts,
-          );
-        }
-      }
-    } else {
-      const dotKey = uniqueDotCandidate(
-        idx,
-        playerKnownDotAbilities,
-        playerDotUntil,
-        ts,
-      );
-      if (dotKey !== null) {
-        attributedKey = dotKey;
-        attributedSource = dotSourceFor(
-          playerKnownDotAbilities,
-          playerDotUntil,
-          dotKey,
-          ts,
-        );
-      } else if (idx.length === 1) {
-        attributedKey = idx[0];
-        const action = currentAction[+attributedKey];
-        attributedSource =
-          action === "auto" || pMap[attributedKey].isAutoAtk
-            ? "auto"
-            : dotSourceFor(
-                playerKnownDotAbilities,
-                playerDotUntil,
-                attributedKey,
-                ts,
-              );
       }
     }
 
@@ -2174,15 +2362,67 @@ const SocketHook = (() => {
       }
     }
 
+    let killAttributionKey = attributedKey;
     if (tickDmg > 0) {
       bus.dispatchEvent(
         new CustomEvent("damage", {
           detail: { amount: tickDmg, ts, battleType },
         }),
       );
+      let scheduledDot = null;
+      if (
+        attributedKey === null &&
+        reflectors.length === 0 &&
+        monsterActors.length === 0
+      ) {
+        const playerKeys = [...keyToName.keys()],
+          activeKeys = activeDotCandidates(playerKeys, playerDotUntil, ts);
+        scheduledDot = scheduledDotDamage(playerDotCasts, monsterHits, ts);
+        if (scheduledDot.groups.length) {
+          if (
+            scheduledDot.groups.length === 1 &&
+            scheduledDot.unmatchedAmount === 0
+          ) {
+            killAttributionKey = scheduledDot.groups[0].key;
+          }
+        } else if (
+          !scheduledDot.ambiguous &&
+          !scheduledDot.hasPendingTargetSchedule &&
+          activeKeys.length === 1
+        ) {
+          const activeKey = uniqueActiveDotCandidate(
+            playerKeys,
+            playerDotUntil,
+            ts,
+          );
+          attributedKey = activeKey;
+          attributedSource = activeDotSourceFor(playerDotUntil, activeKey, ts);
+          killAttributionKey = activeKey;
+        } else if (
+          !scheduledDot.ambiguous &&
+          !scheduledDot.hasPendingTargetSchedule &&
+          activeKeys.length === 0 &&
+          idx.length === 1
+        ) {
+          attributedKey = idx[0];
+          killAttributionKey = attributedKey;
+          const action = currentAction[+attributedKey];
+          attributedSource =
+            action === "auto" || pMap[attributedKey].isAutoAtk
+              ? "auto"
+              : "unknown";
+        }
+      }
       if (attributedKey !== null) {
         const name = keyToName.get(attributedKey);
         if (name) {
+          recordDotAttribution(
+            playerDotCasts,
+            attributedKey,
+            attributedSource,
+            monsterHits,
+            ts,
+          );
           const pierce = splitCrossbowPierce(
             name,
             attributedSource,
@@ -2233,6 +2473,27 @@ const SocketHook = (() => {
           }
           Diagnostics.recordNominal();
         }
+      } else if (scheduledDot?.groups.length) {
+        for (const group of scheduledDot.groups) {
+          const name = keyToName.get(group.key);
+          if (!name || !(group.amount > 0)) continue;
+          bus.dispatchEvent(
+            new CustomEvent("playerDamage", {
+              detail: {
+                name,
+                amount: group.amount,
+                source: `dot:${group.abilityHrid}`,
+                ts,
+                battleType,
+              },
+            }),
+          );
+        }
+        if (scheduledDot.unmatchedAmount > 0) {
+          Diagnostics.recordOrphan(scheduledDot.unmatchedAmount);
+        } else {
+          Diagnostics.recordNominal();
+        }
       } else if (reflectors.length > 1) {
         const share = tickDmg / reflectors.length;
         reflectors.forEach((key) => {
@@ -2256,8 +2517,8 @@ const SocketHook = (() => {
       }
     }
 
-    if (killed > 0 && attributedKey !== null) {
-      const name = keyToName.get(attributedKey);
+    if (killed > 0 && killAttributionKey !== null) {
+      const name = keyToName.get(killAttributionKey);
       if (name)
         for (let n = 0; n < killed; n++)
           bus.dispatchEvent(
@@ -2580,6 +2841,9 @@ const SocketHook = (() => {
     getCharacterId: () => currentCharacterId,
     getCombatKey: () => currentCombatKey,
     testHandleMessage: handleMessage,
+    testSetNow(value) {
+      testNow = Number.isFinite(value) ? Number(value) : null;
+    },
     scanGuildNames,
     scanGuildNamesAttrs,
     scanGuildNamesLoose,

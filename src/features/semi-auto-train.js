@@ -509,9 +509,9 @@ export function navigateToTrainShop(step) {
       }
       setTimeout(fill, 100);
     };
-    raf(fill);
+    fill();
   };
-  raf(open);
+  open();
   return navigationAccepted;
 }
 

@@ -177,7 +177,7 @@ test("production durations over one day use whole days, hours, and minutes", () 
   runtime.api.renderProductionPanel();
   assert.match(
     document.querySelector("#mwi-production-summary").textContent,
-    /本次总耗时1天 9小时 20分/,
+    /本次总耗时1天9小时20分/,
   );
   assert.doesNotMatch(
     document.querySelector("#mwi-production-summary").textContent,

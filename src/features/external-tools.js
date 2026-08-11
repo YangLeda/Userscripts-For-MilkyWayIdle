@@ -1115,23 +1115,7 @@ function constructMooneycalcLocalStorage(characterData) {
 
 function hoursToReadableString(hours) {
   const sec = hours * 60 * 60;
-  if (sec >= 86400) {
-    return (
-      Number(sec / 86400).toFixed(1) + (runtime.config.isZH ? " 天" : " days")
-    );
-  }
-  const d = new Date(Math.round(sec * 1000));
-  function pad(i) {
-    return ("0" + i).slice(-2);
-  }
-  let str =
-    d.getUTCHours() +
-    "h " +
-    pad(d.getUTCMinutes()) +
-    "m " +
-    pad(d.getUTCSeconds()) +
-    "s";
-  return str;
+  return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
 }
 
 function addExportButton(obj) {

@@ -678,7 +678,10 @@ function renderDetailsRows(container, rows, rerender) {
   container.innerHTML = "";
   const max = rows.length ? Math.max(...rows.map((r) => r.value), 1) : 1;
   rows.forEach((r, i) => {
-    const cls = ClassSystem.get(r.name),
+    const synthetic = r.synthetic === "unattributed-damage",
+      cls = synthetic
+        ? ClassSystem.definitions.unknown
+        : ClassSystem.get(r.name),
       line = el("div", {
         position: "relative",
         height: "24px",
@@ -720,19 +723,22 @@ function renderDetailsRows(container, rows, rerender) {
     });
     rank.textContent = String(i + 1) + ".";
     const icon = iconElement(cls.icon, cls.label);
-    icon.title = `${cls.label}${langText("｜点击选择职业", " | Click to choose class")}`;
+    icon.title = synthetic
+      ? r.name
+      : `${cls.label}${langText("｜点击选择职业", " | Click to choose class")}`;
     Object.assign(icon.style, {
       width: "19px",
       height: "19px",
       objectFit: "contain",
       flexShrink: "0",
-      cursor: "pointer",
+      cursor: synthetic ? "default" : "pointer",
       filter: "drop-shadow(0 1px 1px #000)",
     });
-    icon.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openClassPicker(r.name, icon, rerender);
-    });
+    if (!synthetic)
+      icon.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openClassPicker(r.name, icon, rerender);
+      });
     const name = el("span", {
       fontWeight: "600",
       overflow: "hidden",

@@ -300,6 +300,7 @@ const RecountPanel = (() => {
     const rows = (view.players || [])
       .map((p) => ({
         n: p.name,
+        synthetic: p.synthetic,
         v: Number(p[mode.value]) || 0,
         ps: Number(p[mode.perSecond]) || 0,
         breakdown:
@@ -318,6 +319,7 @@ const RecountPanel = (() => {
       listEl,
       rows.map((r) => ({
         name: r.n,
+        synthetic: r.synthetic,
         value: r.v,
         ps: r.ps,
         pct: (100 * r.v) / total,

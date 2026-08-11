@@ -229,7 +229,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
     [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,#334b84)!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,#eef2ff)!important; filter:none!important; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
@@ -885,10 +885,17 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   const mountNative = (loadout, found) => {
     mountMode = "native";
     ({ shell, navigationBranch } = found);
-    tab = loadout.cloneNode(false);
+    tab = loadout.cloneNode(true);
     tab.id = TAB_ID;
     tab.type = "button";
-    tab.textContent = t("盈亏", "P/L");
+    const badgeText = tab.querySelector(
+      ".TabsComponent_badge__1Du26, .MuiBadge-root",
+    );
+    if (badgeText) {
+      badgeText.textContent = t("盈亏", "P/L");
+    } else {
+      tab.textContent = t("盈亏", "P/L");
+    }
     for (const className of [...tab.classList]) {
       if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
         tab.classList.remove(className);
@@ -898,6 +905,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
     if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
     tab.setAttribute("aria-selected", "false");
+    tab.setAttribute("tabindex", "-1");
     tab.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

@@ -291,9 +291,18 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
                     <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.total)}${hiddenText}</span>
             </p>
             <section id="buildScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span>
+                    </p>
             </section>
             <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                     <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
@@ -301,9 +310,18 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
                     <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</span>
             </p>
             <section id="skillingScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span>
+                    </p>
             </section>
         </section>`,
   );
@@ -316,7 +334,9 @@ async function showBuildScoreOnProfile(profile_shared_obj) {
     toggle.addEventListener("click", () => {
       const isCollapsed = details.style.display === "none";
       details.style.display = isCollapsed ? "block" : "none";
-      if (icon) icon.textContent = isCollapsed ? "↓" : "+";
+      if (icon) {
+        icon.textContent = isCollapsed ? "↓" : "+";
+      }
     });
   };
   bindToggle("toggleScores_profile", "buildScores_profile");

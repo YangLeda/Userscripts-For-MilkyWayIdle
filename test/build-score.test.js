@@ -322,9 +322,9 @@ test("profile scores include tools and show unavailable values when hidden", asy
   assert.match(document.body.textContent, /生活着装评分：\s*109/);
   assert.match(
     document.querySelector("#skillingScores_profile").textContent,
-    /房屋：10\.0/,
+    /房屋：\s*10\.0/,
   );
-  assert.match(document.body.textContent, /工具：49\.0/);
+  assert.match(document.body.textContent, /工具：\s*49\.0/);
   const battleToggle = document.querySelector("#toggleScores_profile");
   const battleDetails = document.querySelector("#buildScores_profile");
   const battleIcon = battleToggle.querySelector(".mwi-profile-toggle-icon");
@@ -355,15 +355,15 @@ test("profile scores include tools and show unavailable values when hidden", asy
   assert.match(document.body.textContent, /生活着装评分：\s*-（装备隐藏）/);
   assert.match(
     document.querySelector("#buildScores_profile").textContent,
-    /技能：-/,
+    /技能：\s*-/,
   );
   assert.match(
     document.querySelector("#skillingScores_profile").textContent,
-    /工具：-/,
+    /工具：\s*-/,
   );
   assert.match(
     document.querySelector("#skillingScores_profile").textContent,
-    /房屋：10\.0/,
+    /房屋：\s*10\.0/,
   );
   assert.doesNotMatch(document.body.textContent, /战力打造分/);
 
@@ -371,8 +371,8 @@ test("profile scores include tools and show unavailable values when hidden", asy
   await runtime.api.showBuildScoreOnProfile(publicProfile);
   assert.match(document.body.textContent, /Combat Gear Score:\s*47\.0/);
   assert.match(document.body.textContent, /Skilling Gear Score:\s*109/);
-  assert.match(document.body.textContent, /House: 7\.0/);
-  assert.match(document.body.textContent, /Abilities: 0\.0/);
+  assert.match(document.body.textContent, /House:\s*7\.0/);
+  assert.match(document.body.textContent, /Abilities:\s*0\.0/);
 });
 
 test("score formatting keeps one decimal through 100 and groups larger integers", () => {

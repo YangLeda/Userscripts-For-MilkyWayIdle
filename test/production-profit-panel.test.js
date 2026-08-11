@@ -93,6 +93,22 @@ function nativeTooltip() {
   return document.querySelector("#native-tooltip");
 }
 
+test("shared duration formatting uses integer day-hour-minute units", () => {
+  runtime.config.isZH = true;
+  assert.equal(
+    runtime.api.timeReadable(2 * 86_400 + 6 * 3_600 + 15 * 60),
+    "2天6小时15分",
+  );
+  runtime.config.isZH = false;
+  assert.equal(
+    runtime.api.timeReadable(2 * 86_400 + 6 * 3_600 + 15 * 60),
+    "2d 6h 15m",
+  );
+  assert.equal(runtime.api.timeReadable(3_661), "1h 01m 01s");
+  assert.equal(runtime.api.timeReadable(Number.NaN), "—");
+  runtime.config.isZH = true;
+});
+
 test("profit UI displays three valuation rows with revenue, costs, and profit", () => {
   const anchor = nativeTooltip();
   const original = anchor.innerHTML;

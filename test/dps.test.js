@@ -39,6 +39,7 @@ const moduleUrl =
   "data:text/javascript;base64," +
   Buffer.from(bundled.outputFiles[0].text).toString("base64");
 const {
+  runtime,
   CombatIdentity,
   GameAssets,
   Settings,
@@ -91,11 +92,11 @@ assert(
 );
 Settings.setLanguage("zh");
 assert(
-  DamageSources.label("/abilities/firestorm") === "烈焰风暴",
+  DamageSources.label("/abilities/firestorm") === "火焰风暴",
   "中文来源名称未生效",
 );
 assert(
-  DamageSources.label("dot:/abilities/firestorm") === "持续伤害（烈焰风暴）",
+  DamageSources.label("dot:/abilities/firestorm") === "持续伤害（火焰风暴）",
   "单一持续伤害技能没有显示具体技能名",
 );
 Settings.setLanguage("en");
@@ -189,9 +190,33 @@ assert(
 );
 Settings.setLanguage("zh");
 assert(
-  DamageSources.label("/abilities/sweep") === "横扫" &&
-    DamageSources.label("/abilities/stunning_blow") === "眩晕重击",
-  "新版技能的中文名称没有进入统一来源映射",
+  DamageSources.label("/abilities/sweep") === "重扫" &&
+    DamageSources.label("/abilities/stunning_blow") === "重锤",
+  "DPS 技能名没有使用游戏官方汉化",
+);
+for (const [abilityHrid, officialName] of Object.entries(
+  runtime.data.ZHOthersDic,
+).filter(([hrid]) => hrid.startsWith("/abilities/")))
+  assert(
+    DamageSources.label(abilityHrid) === officialName,
+    `${abilityHrid} 没有显示官方中文名 ${officialName}`,
+  );
+assert(
+  DamageSources.label("dot:/abilities/fireball") === "持续伤害（火球）",
+  "持续伤害明细没有复用官方技能名",
+);
+runtime.state.initData_abilityDetailMap = {
+  "/abilities/future_ability": { name: "Future Ability" },
+};
+Settings.setLanguage("en");
+assert(
+  DamageSources.label("/abilities/future_ability") === "Future Ability",
+  "英文技能名没有优先读取客户端能力表",
+);
+Settings.setLanguage("zh");
+assert(
+  DamageSources.label("/abilities/future_ability") === "Future Ability",
+  "官方汉化缺失时没有回退客户端技能名",
 );
 assert(
   DamageSources.label("combined:%2Fitems%2Fsundering_crossbow|auto") ===
@@ -921,12 +946,12 @@ const taken = takenEvents.find(
   (event) => event.name === "承伤甲" && event.amount === 24,
 );
 assert(
-  taken && TakenSources.label(taken.source) === "试炼萤火虫 · 烈焰风暴",
+  taken && TakenSources.label(taken.source) === "试炼萤火虫 · 火焰风暴",
   "普通战斗承伤没有按怪物上一条准备技能记录“怪物 · 技能”来源",
 );
 
 // 游戏初始化表是技能分类的权威来源：治疗者行动与 Firestorm 跳伤同包时，
-// 伤害仍归原 DoT 施放者，并显示“持续伤害（烈焰风暴）”对应的技能图标。
+// 伤害仍归原 DoT 施放者，并显示“持续伤害（火焰风暴）”对应的技能图标。
 send({
   type: "init_client_data",
   abilityDetailMap: {
@@ -955,12 +980,14 @@ const healer = player("治疗乙", "magic", "nature", "magic", 3500000000);
 healer.attackAttemptCounter = 0;
 healer.preparingAbilityHrid = "/abilities/heal";
 healer.combatAbilities = [{ abilityHrid: "/abilities/heal" }];
+SocketHook.testSetNow(0);
 send({
   type: "new_battle",
   combatStartTime: "heal-with-dot",
   players: [dotCaster, healer],
   monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
 });
+SocketHook.testSetNow(1000);
 send({
   type: "battle_updated",
   pMap: {
@@ -970,6 +997,7 @@ send({
   mMap: { 0: { cHP: 90 } },
 });
 emitted.length = 0;
+SocketHook.testSetNow(4000);
 send({
   type: "battle_updated",
   pMap: {
@@ -988,6 +1016,234 @@ assert(
   ) && !emitted.some((x) => x[0] === "damage" && x[1] === "治疗乙"),
   "与治疗同时结算的 DoT 仍被算到治疗者，或唯一 DoT 技能未被具体标注",
 );
+
+// 两名玩家的 DoT 同时生效时，只有落在预期跳点后 0～500ms 的唯一候选
+// 才接收无法直接归属的伤害；完全重叠的跳点继续保留为团队差额。
+const timedDotPlayer = (name) => {
+  const value = player(name, "magic", "fire", "magic", 3500000000);
+  value.attackAttemptCounter = 0;
+  value.preparingAbilityHrid = "/abilities/firestorm";
+  value.combatAbilities = [{ abilityHrid: "/abilities/firestorm" }];
+  return value;
+};
+SocketHook.testSetNow(0);
+send({
+  type: "new_battle",
+  combatStartTime: "overlapping-dot-nearest",
+  players: [timedDotPlayer("时间轴甲"), timedDotPlayer("时间轴乙")],
+  monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
+});
+SocketHook.testSetNow(1000);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: {
+      cMP: 100,
+      cHP: 100,
+      atkCounter: 0,
+      abilityHrid: "/abilities/firestorm",
+    },
+  },
+  mMap: { 0: { cHP: 90 } },
+});
+SocketHook.testSetNow(4000);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: {
+      cMP: 100,
+      cHP: 100,
+      atkCounter: 0,
+      abilityHrid: "/abilities/firestorm",
+    },
+  },
+  mMap: { 0: { cHP: 85 } },
+});
+SocketHook.testSetNow(4500);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 75 } },
+});
+emitted.length = 0;
+SocketHook.testSetNow(7100);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 70 } },
+});
+SocketHook.testSetNow(7520);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 65 } },
+});
+assert(
+  emitted.some(
+    (event) =>
+      event[0] === "damage" &&
+      event[1] === "时间轴甲" &&
+      event[2] === 5 &&
+      event[3] === "dot:/abilities/firestorm",
+  ) &&
+    emitted.some(
+      (event) =>
+        event[0] === "damage" &&
+        event[1] === "时间轴乙" &&
+        event[2] === 5 &&
+        event[3] === "dot:/abilities/firestorm",
+    ),
+  "重叠 DoT 没有按最接近的未消费跳点分别归属",
+);
+
+SocketHook.testSetNow(0);
+send({
+  type: "new_battle",
+  combatStartTime: "overlapping-dot-tie",
+  players: [timedDotPlayer("重叠甲"), timedDotPlayer("重叠乙")],
+  monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
+});
+SocketHook.testSetNow(1000);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: {
+      cMP: 100,
+      cHP: 100,
+      atkCounter: 0,
+      abilityHrid: "/abilities/firestorm",
+    },
+  },
+  mMap: { 0: { cHP: 90 } },
+});
+SocketHook.testSetNow(4000);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: {
+      cMP: 100,
+      cHP: 100,
+      atkCounter: 0,
+      abilityHrid: "/abilities/firestorm",
+    },
+  },
+  mMap: { 0: { cHP: 85 } },
+});
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 75 } },
+});
+emitted.length = 0;
+typedTeamDamage.length = 0;
+SocketHook.testSetNow(7000);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+    1: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 70 } },
+});
+assert(
+  !emitted.some(
+    (event) =>
+      event[0] === "damage" && (event[1] === "重叠甲" || event[1] === "重叠乙"),
+  ) && typedTeamDamage.some((event) => event.amount === 5),
+  "完全重叠的 DoT 跳点被强行猜给了其中一名玩家",
+);
+
+const startSingleTimedDotBattle = (battleId, name) => {
+  SocketHook.testSetNow(0);
+  send({
+    type: "new_battle",
+    combatStartTime: battleId,
+    players: [timedDotPlayer(name)],
+    monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
+  });
+  SocketHook.testSetNow(1000);
+  send({
+    type: "battle_updated",
+    pMap: {
+      0: {
+        cMP: 80,
+        cHP: 100,
+        atkCounter: 1,
+        abilityHrid: "/abilities/fireball",
+      },
+    },
+    mMap: { 0: { cHP: 90 } },
+  });
+  emitted.length = 0;
+  typedTeamDamage.length = 0;
+};
+
+startSingleTimedDotBattle("dot-one-sided-window", "窗口甲");
+SocketHook.testSetNow(3999);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 85 } },
+});
+assert(
+  !emitted.some((event) => event[0] === "damage" && event[1] === "窗口甲") &&
+    typedTeamDamage.some((event) => event.amount === 5),
+  "预期跳点之前的伤害被提前归给了 DoT",
+);
+emitted.length = 0;
+typedTeamDamage.length = 0;
+SocketHook.testSetNow(4500);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 80 } },
+});
+assert(
+  emitted.some(
+    (event) =>
+      event[0] === "damage" &&
+      event[1] === "窗口甲" &&
+      event[2] === 5 &&
+      event[3] === "dot:/abilities/firestorm",
+  ),
+  "预期跳点后恰好 500ms 的伤害没有归给 DoT",
+);
+
+startSingleTimedDotBattle("dot-outside-window", "窗口乙");
+SocketHook.testSetNow(7501);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 80, cHP: 100, atkCounter: 1, abilityHrid: "/abilities/fireball" },
+  },
+  mMap: { 0: { cHP: 85 } },
+});
+assert(
+  !emitted.some((event) => event[0] === "damage" && event[1] === "窗口乙") &&
+    typedTeamDamage.some((event) => event.amount === 5),
+  "预期跳点后超过 500ms 的伤害仍被归给了 DoT",
+);
+SocketHook.testSetNow(null);
 
 emitted.length = 0;
 newBattle("single");
@@ -1703,6 +1959,27 @@ assert(
     sourceView.breakdown.reduce((sum, item) => sum + item.value, 0) === 30,
   "实时排行没有生成带总量、DPS 和百分比的伤害构成",
 );
+Session.addTeamDamage(10, performance.now());
+const unattributedCurrent = ViewData.get().players.find(
+  (player) => player.synthetic === "unattributed-damage",
+);
+assert(
+  unattributedCurrent &&
+    unattributedCurrent.name === "无法归属伤害" &&
+    unattributedCurrent.damage === 10 &&
+    unattributedCurrent.breakdown === null,
+  "实时 DPS 表没有派生无法归属伤害行",
+);
+
+Session.reset({ combatKey: "unattributed-clamp", characterId: "A" });
+Session.addTeamDamage(10, performance.now());
+Session.addPlayerDamage("甲", 10.00001);
+assert(
+  !ViewData.get().players.some(
+    (player) => player.synthetic === "unattributed-damage",
+  ),
+  "浮点微小误差或归属合计超过团队值时仍生成了负数差额行",
+);
 
 Session.reset({ combatKey: "trial-day", characterId: "A", type: "trial" });
 Session.addTeamDamage(12, performance.now());
@@ -1814,7 +2091,7 @@ HistoryStore.push({
   type: "trial",
   date: new Date().toISOString(),
   durationMs: 10000,
-  teamDamage: 100,
+  teamDamage: 110,
   classes: { 甲: "fire", 乙: "sword" },
   players: [
     {
@@ -1841,7 +2118,7 @@ HistoryStore.push({
   fragments: [
     {
       durationMs: 4000,
-      teamDamage: 40,
+      teamDamage: 45,
       players: {
         damage: { 甲: 40 },
         healing: {},
@@ -1851,7 +2128,7 @@ HistoryStore.push({
     },
     {
       durationMs: 6000,
-      teamDamage: 60,
+      teamDamage: 65,
       players: {
         damage: { 甲: 30, 乙: 30 },
         healing: {},
@@ -1876,7 +2153,11 @@ let selectedView = ViewData.get();
 assert(
   !selectedView.current &&
     selectedView.type === "trial" &&
-    selectedView.teamDamage === 100 &&
+    selectedView.teamDamage === 110 &&
+    selectedView.players.some(
+      (player) =>
+        player.synthetic === "unattributed-damage" && player.damage === 10,
+    ) &&
     selectedView.players[0].damage === 70,
   "历史片段没有替换当前排行数据或试炼标记丢失",
 );
@@ -1886,8 +2167,12 @@ const reconnectOption = segmentOptions.find(
 SegmentSelection.select(reconnectOption.key);
 selectedView = ViewData.get();
 assert(
-  selectedView.teamDamage === 60 &&
-    selectedView.players.some((x) => x.name === "乙" && x.dps === 5),
+  selectedView.teamDamage === 65 &&
+    selectedView.players.some((x) => x.name === "乙" && x.dps === 5) &&
+    selectedView.players.some(
+      (player) =>
+        player.synthetic === "unattributed-damage" && player.damage === 5,
+    ),
   "断线子片段 DPS 排行计算错误",
 );
 SegmentSelection.select("current");

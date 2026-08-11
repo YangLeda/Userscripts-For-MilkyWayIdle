@@ -15,6 +15,34 @@ import { Session } from "./20-session.js";
 
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
 
+const UNATTRIBUTED_EPSILON = 0.0001;
+
+function withUnattributedDamage(players, teamDamage, elapsed) {
+  const attributed = players.reduce(
+      (sum, player) => sum + (Number(player.damage) || 0),
+      0,
+    ),
+    damage = Math.max(0, (Number(teamDamage) || 0) - attributed);
+  if (!(damage > UNATTRIBUTED_EPSILON)) return players;
+  return [
+    ...players,
+    {
+      name: langText("无法归属伤害", "Unattributed Damage"),
+      synthetic: "unattributed-damage",
+      classId: "unknown",
+      damage,
+      dps: elapsed > 0 ? damage / elapsed : 0,
+      healing: 0,
+      hps: 0,
+      taken: 0,
+      takenPs: 0,
+      kills: 0,
+      breakdown: null,
+      takenBreakdown: null,
+    },
+  ];
+}
+
 // ─── 战斗历史与活动缓存 ───────────────────────────────────────────────────────
 const HistoryStore = (() => {
   const KEY = "kikimeter:history:v2",
@@ -775,19 +803,9 @@ const ViewData = (() => {
   }
   function current() {
     const elapsed = Session.getElapsedSeconds(),
-      names = Session.getAllPlayerNames();
-    return {
-      key: "current",
-      label: langText("当前战斗", "Current combat"),
-      current: true,
-      type: Session.getMeta().type || "combat",
-      elapsed,
-      teamDamage: Session.getTeamDamage(),
-      teamDps: Session.getTeamDps(),
-      teamKills: Session.getTeamKills(),
-      fragmentCount: Session.getFragments().length,
-      graphPoints: Session.getFullGraphPoints(),
-      players: names.map((name) => ({
+      names = Session.getAllPlayerNames(),
+      teamDamage = Session.getTeamDamage(),
+      players = names.map((name) => ({
         name,
         classId: ClassSystem.classFor(name),
         damage: Session.getPlayerDamage(name),
@@ -808,7 +826,19 @@ const ViewData = (() => {
           Session.getPlayerTaken(name),
           elapsed,
         ),
-      })),
+      }));
+    return {
+      key: "current",
+      label: langText("当前战斗", "Current combat"),
+      current: true,
+      type: Session.getMeta().type || "combat",
+      elapsed,
+      teamDamage,
+      teamDps: Session.getTeamDps(),
+      teamKills: Session.getTeamKills(),
+      fragmentCount: Session.getFragments().length,
+      graphPoints: Session.getFullGraphPoints(),
+      players: withUnattributedDamage(players, teamDamage, elapsed),
     };
   }
   function historical(selected) {
@@ -892,7 +922,7 @@ const ViewData = (() => {
       teamKills,
       fragmentCount: fragment ? 1 : (entry.fragments || []).length || 1,
       graphPoints: fragment ? [] : graphPoints(entry.graph),
-      players,
+      players: withUnattributedDamage(players, teamDamage, elapsed),
     };
   }
   function get() {

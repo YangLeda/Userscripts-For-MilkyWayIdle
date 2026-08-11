@@ -110,7 +110,7 @@ test("reached and invalid targets are reported explicitly", () => {
   );
 });
 
-test("market and dictionary each keep one live bilingual calculator", async () => {
+test("only the dictionary keeps one live bilingual calculator", async () => {
   document.body.innerHTML = `
     <div class="MarketplacePanel_marketplacePanel__test">
       <div class="MarketplacePanel_currentItem__test">
@@ -128,15 +128,28 @@ test("market and dictionary each keep one live bilingual calculator", async () =
   await settle();
   assert.equal(
     document.querySelectorAll(".mwi-ability-book-calculator").length,
-    2,
+    1,
+  );
+  assert.equal(
+    document.querySelector(
+      '[class*="MarketplacePanel"] .mwi-ability-book-calculator',
+    ),
+    null,
   );
 
-  const market = document.querySelector('[data-surface="market"]');
-  const target = market.querySelector("input");
+  const dictionary = document.querySelector('[data-surface="dictionary"]');
+  const target = dictionary.querySelector("input");
   target.value = "2";
   target.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  assert.match(market.textContent, /解锁 1 \+ 升级 4 = 合计 5 本/);
-  assert.match(market.textContent, /参考购买成本：625/);
+  assert.match(dictionary.textContent, /解锁 1 \+ 升级 4 = 合计 5 本/);
+  assert.match(dictionary.textContent, /参考购买成本：625/);
+
+  runtime.state.marketApiJson = {
+    marketData: { "/items/fireball_book": [{ a: 200, b: 180 }] },
+  };
+  runtime.dispatchMessage({ type: "market_item_values_updated" });
+  await settle();
+  assert.match(dictionary.textContent, /参考购买成本：1K/);
 
   runtime.state.initData_characterAbilities = [
     {
@@ -147,14 +160,14 @@ test("market and dictionary each keep one live bilingual calculator", async () =
   ];
   runtime.dispatchMessage({ type: "abilities_updated" });
   await settle();
-  assert.match(market.textContent, /当前 Lv\.1 · 总经验 40/);
-  assert.match(market.textContent, /升级还需 2 本/);
+  assert.match(dictionary.textContent, /当前 Lv\.1 · 总经验 40/);
+  assert.match(dictionary.textContent, /升级还需 2 本/);
 
   runtime.config.isZH = false;
   runtime.dispatchMessage({ type: "action_completed" });
   await settle();
-  assert.match(market.textContent, /Ability book calculator/);
-  assert.match(market.textContent, /2 books needed to level/);
+  assert.match(dictionary.textContent, /Ability book calculator/);
+  assert.match(dictionary.textContent, /2 books needed to level/);
 
   await runtime.features.disable("skillbook");
   assert.equal(
@@ -172,20 +185,18 @@ test("missing character data waits and missing prices do not hide book counts", 
   runtime.state.initData_characterAbilities = null;
   runtime.state.marketApiJson = { marketData: {} };
   document.body.innerHTML = `
-    <div class="MarketplacePanel_marketplacePanel__test">
-      <div class="MarketplacePanel_currentItem__test">
-        <svg><use href="#fireball_book"></use></svg>
-      </div>
+    <div class="ItemDictionary_modalContent__test">
+      <h1 class="ItemDictionary_title__test">Fireball Book</h1>
     </div>`;
   await runtime.features.enable("skillbook");
   await settle();
-  const market = document.querySelector('[data-surface="market"]');
-  assert.match(market.textContent, /等待角色与技能书数据/);
+  const dictionary = document.querySelector('[data-surface="dictionary"]');
+  assert.match(dictionary.textContent, /等待角色与技能书数据/);
 
   runtime.state.initData_characterAbilities = [];
   runtime.dispatchMessage({ type: "character_abilities_updated" });
   await settle();
-  assert.match(market.textContent, /解锁 1 \+ 升级 0 = 合计 1 本/);
-  assert.match(market.textContent, /参考购买成本：暂无卖价/);
+  assert.match(dictionary.textContent, /解锁 1 \+ 升级 0 = 合计 1 本/);
+  assert.match(dictionary.textContent, /参考购买成本：暂无卖价/);
   await runtime.features.disable("skillbook");
 });

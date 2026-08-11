@@ -39,12 +39,11 @@ function addInventorySummaryStyles() {
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      height: 1.125rem;
-      min-height: 0;
+      min-height: 1.375rem;
       box-sizing: border-box;
       align-items: center;
       gap: .1875rem;
-      padding: 0 .25rem;
+      padding: .1875rem .25rem;
       border: 0;
       background: transparent;
       color: inherit;
@@ -120,7 +119,7 @@ function addInventorySummaryStyles() {
       align-items: baseline;
       justify-content: flex-start;
       gap: .375rem;
-      padding: 0 .25rem;
+      padding: .15rem .25rem;
       font-size: inherit;
       line-height: inherit;
     }
@@ -149,7 +148,7 @@ function addInventorySummaryStyles() {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 400; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
@@ -174,7 +173,7 @@ function addInventorySummaryStyles() {
       min-height: 0;
       align-items: center;
       gap: .25rem;
-      padding: 0 .25rem;
+      padding: .15rem .25rem;
       border: 0;
       background: transparent;
       color: var(--color-text-primary, #e8ebef);
@@ -227,7 +226,7 @@ function addInventorySummaryStyles() {
       align-items: baseline;
       justify-content: flex-start;
       gap: .375rem;
-      padding: 0;
+      padding: .15rem 0;
       color: var(--color-text-secondary, #aeb5c0);
       font-size: inherit;
       line-height: inherit;
@@ -240,7 +239,7 @@ function addInventorySummaryStyles() {
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
-    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 400; }
+    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
     .mwi-inventory-category-heading {
       display: flex !important;
       min-width: 0;
@@ -455,9 +454,10 @@ async function calculateNetworth(options = {}) {
       "block";
     previousSummary?.remove();
 
-    invElem.insertAdjacentHTML(
-      "beforebegin",
-      `<div id="script_inventory_summary">
+    const previousSortControls = invElem.parentElement?.querySelector(
+      "#script_inv_sort_controls",
+    );
+    const summaryHTML = `<div id="script_inventory_summary">
         <div class="mwi-inventory-summary-grid">
           <section class="mwi-summary-card mwi-summary-card--combat">
             <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
@@ -524,8 +524,13 @@ async function calculateNetworth(options = {}) {
             </div>
           </section>
         </div>
-      </div>`,
-    );
+      </div>`;
+
+    if (previousSortControls) {
+      previousSortControls.insertAdjacentHTML("afterend", summaryHTML);
+    } else {
+      invElem.insertAdjacentHTML("beforebegin", summaryHTML);
+    }
 
     // 监听点击事件，控制折叠和展开
     const summary = invElem.parentElement.querySelector(
@@ -591,8 +596,37 @@ async function calculateNetworth(options = {}) {
     });
   };
 
+  const isInventoryTabActive = (invElem) => {
+    const hiddenTabPanel = invElem.closest('[class*="TabPanel_hidden"]');
+    if (hiddenTabPanel) return false;
+    const parentContainer =
+      invElem.closest('[class*="TabsComponent_tabPanelsContainer"]')
+        ?.parentElement ?? document;
+    const assetHistoryTab = parentContainer.querySelector(
+      '#mwitools-asset-history-tab[data-active="true"]',
+    );
+    if (assetHistoryTab) return false;
+    const selectedTab = parentContainer.querySelector(
+      'button[aria-selected="true"], button.Mui-selected, [role="tab"][aria-selected="true"]',
+    );
+    if (selectedTab) {
+      if (selectedTab.id === "mwitools-asset-history-tab") return false;
+      if (selectedTab.dataset.mwiCreditTab === "true") return false;
+      if (selectedTab.classList.contains("income-tab")) return false;
+      const text = selectedTab.textContent || "";
+      if (
+        !/库存|Inventory/i.test(text) &&
+        !selectedTab.querySelector('[class*="Inventory"]')
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   const renderInventoryPanels = () => {
     for (const node of targetNodes) {
+      const activeTab = isInventoryTabActive(node);
       if (showWorth) {
         node.classList.add("script_buildScore_added");
         const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
@@ -607,6 +641,18 @@ async function calculateNetworth(options = {}) {
           node.classList.add("script_invSort_added");
           addInvSortButton(node);
         }
+      }
+      const summary = node.parentElement?.querySelector(
+        "#script_inventory_summary",
+      );
+      if (summary) {
+        summary.style.display = activeTab ? "" : "none";
+      }
+      const sortControls = node.parentElement?.querySelector(
+        "#script_inv_sort_controls",
+      );
+      if (sortControls) {
+        sortControls.style.display = activeTab ? "" : "none";
       }
     }
   };
@@ -662,28 +708,24 @@ async function addInvSortButton(invElem) {
   }
 
   const fairButton = `<button
-        id="script_sortByFair_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByFair_btn">
         ${runtime.config.isZH ? "市场价值" : "Market Value"}
         </button>`;
   const askButton = `<button
-        id="script_sortByAsk_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByAsk_btn">
         ${runtime.config.isZH ? "出售价" : "Ask"}
         </button>`;
   const bidButton = `<button
-        id="script_sortByBid_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByBid_btn">
         ${runtime.config.isZH ? "收购价" : "Bid"}
         </button>`;
   const noneButton = `<button
-        id="script_sortByNone_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
   const refreshButton = `<button
         id="script_refresh_inventory_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        style="border-radius: 4px; padding: 2px 8px; margin-left: 6px; cursor: pointer; font: inherit; font-size: 0.78rem; background-color: rgba(255, 255, 255, 0.08); color: var(--color-text-primary, #e8ebef); border: 1px solid rgba(255, 255, 255, 0.16);">
         ${runtime.config.isZH ? "刷新" : "Refresh"}
         </button>`;
   const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
@@ -692,9 +734,52 @@ async function addInvSortButton(invElem) {
     showWorth ? ` ${refreshButton}` : ""
   }</div>`;
   if (!invElem.isConnected || !invElem.parentElement) return;
-  invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+  const existingSummary = invElem.parentElement.querySelector(
+    "#script_inventory_summary",
+  );
+  if (existingSummary) {
+    existingSummary.insertAdjacentHTML("beforebegin", buttonsDiv);
+  } else {
+    invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+  }
+
+  const updateSortButtonStyles = (activeOrder) => {
+    const parent = invElem.parentElement;
+    if (!parent) return;
+    const btnMap = {
+      fair: parent.querySelector("button#script_sortByFair_btn"),
+      ask: parent.querySelector("button#script_sortByAsk_btn"),
+      bid: parent.querySelector("button#script_sortByBid_btn"),
+      none: parent.querySelector("button#script_sortByNone_btn"),
+    };
+    for (const [key, btn] of Object.entries(btnMap)) {
+      if (!btn) continue;
+      const isActive = key === activeOrder;
+      btn.style.borderRadius = "4px";
+      btn.style.padding = "2px 8px";
+      btn.style.margin = "0 2px";
+      btn.style.cursor = "pointer";
+      btn.style.font = "inherit";
+      btn.style.fontSize = "0.78rem";
+      btn.style.transition = "all 0.15s ease-in-out";
+      if (isActive) {
+        btn.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+        btn.style.color = "#0b1522";
+        btn.style.fontWeight = "700";
+        btn.style.border = "1px solid transparent";
+        btn.style.boxShadow = "0 0 8px rgba(0, 198, 255, 0.45)";
+      } else {
+        btn.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
+        btn.style.color = "var(--color-text-secondary, #aeb5c0)";
+        btn.style.fontWeight = "500";
+        btn.style.border = "1px solid rgba(255, 255, 255, 0.16)";
+        btn.style.boxShadow = "none";
+      }
+    }
+  };
 
   const sortItemsBy = (order) => {
+    updateSortButtonStyles(order);
     for (const typeDiv of invElem.children) {
       const categoryButton = typeDiv.querySelector(
         '[class*="Inventory_categoryButton"]',
@@ -800,6 +885,7 @@ async function addInvSortButton(invElem) {
     invElem.parentElement
       .querySelector("button#script_sortByNone_btn")
       ?.addEventListener("click", () => sortItemsBy("none"));
+    updateSortButtonStyles("none");
   }
 
   const refreshButtonElement = invElem.parentElement.querySelector(

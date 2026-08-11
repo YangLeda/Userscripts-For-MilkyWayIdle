@@ -1,4 +1,5 @@
 import { GameAssets, Settings, VERSION } from "./00-bootstrap.js";
+import { runtime } from "../../core/runtime.js";
 
 // ─── 职业识别、颜色与图标 ───────────────────────────────────────────────────
 const ClassSystem = (() => {
@@ -1499,70 +1500,6 @@ const DamageSources = (() => {
     dot: ["持续伤害", "Damage Over Time"],
     unknown: ["未识别来源", "Unknown Source"],
     legacy: ["旧版本未记录来源", "Legacy Untracked"],
-    "/abilities/firestorm": ["烈焰风暴", "Firestorm"],
-    "/abilities/maim": ["重伤", "Maim"],
-    "/abilities/crippling_slash": ["致残斩击", "Crippling Slash"],
-    "/abilities/puncture": ["穿刺", "Puncture"],
-    "/abilities/penetrating_strike": ["贯穿打击", "Penetrating Strike"],
-    "/abilities/impale": ["贯穿", "Impale"],
-    "/abilities/rain_of_arrows": ["箭雨", "Rain of Arrows"],
-    "/abilities/penetrating_shot": ["穿透射击", "Penetrating Shot"],
-    "/abilities/spike_shell": ["尖刺甲壳", "Spike Shell"],
-    "/abilities/retribution": ["惩戒", "Retribution"],
-    "/abilities/fireball": ["火球术", "Fireball"],
-    "/abilities/flame_blast": ["烈焰冲击", "Flame Blast"],
-    "/abilities/frost_surge": ["寒霜奔涌", "Frost Surge"],
-    "/abilities/ice_spear": ["冰枪术", "Ice Spear"],
-    "/abilities/aqua_arrow": ["水箭", "Aqua Arrow"],
-    "/abilities/flame_arrow": ["火焰箭", "Flame Arrow"],
-    "/abilities/pestilent_shot": ["瘟疫射击", "Pestilent Shot"],
-    "/abilities/quick_shot": ["快速射击", "Quick Shot"],
-    "/abilities/cleave": ["顺劈斩", "Cleave"],
-    "/abilities/fracturing_impact": ["碎裂冲击", "Fracturing Impact"],
-    "/abilities/poke": ["戳刺", "Poke"],
-    "/abilities/life_drain": ["生命汲取", "Life Drain"],
-    "/abilities/aqua_aura": ["水之光环", "Aqua Aura"],
-    "/abilities/berserk": ["狂暴", "Berserk"],
-    "/abilities/critical_aura": ["暴击光环", "Critical Aura"],
-    "/abilities/elemental_affinity": ["元素亲和", "Elemental Affinity"],
-    "/abilities/elusiveness": ["闪避", "Elusiveness"],
-    "/abilities/entangle": ["缠绕", "Entangle"],
-    "/abilities/fierce_aura": ["猛烈光环", "Fierce Aura"],
-    "/abilities/flame_aura": ["火焰光环", "Flame Aura"],
-    "/abilities/frenzy": ["狂乱", "Frenzy"],
-    "/abilities/guardian_aura": ["守护光环", "Guardian Aura"],
-    "/abilities/heal": ["治疗", "Heal"],
-    "/abilities/insanity": ["疯狂", "Insanity"],
-    "/abilities/invincible": ["无敌", "Invincible"],
-    "/abilities/mana_spring": ["法力喷泉", "Mana Spring"],
-    "/abilities/minor_heal": ["次级治疗", "Minor Heal"],
-    "/abilities/mystic_aura": ["神秘光环", "Mystic Aura"],
-    "/abilities/natures_veil": ["自然菌幕", "Nature's Veil"],
-    "/abilities/precision": ["精准", "Precision"],
-    "/abilities/provoke": ["挑衅", "Provoke"],
-    "/abilities/quick_aid": ["快速救助", "Quick Aid"],
-    "/abilities/rejuvenate": ["回春", "Rejuvenate"],
-    "/abilities/action_speed": ["行动速度", "Action Speed"],
-    "/abilities/combat_drop_quantity": ["战斗掉落数量", "Combat Drop Quantity"],
-    "/abilities/efficiency": ["效率", "Efficiency"],
-    "/abilities/gathering": ["采集", "Gathering"],
-    "/abilities/wisdom": ["智慧", "Wisdom"],
-    "/abilities/revive": ["复活", "Revive"],
-    "/abilities/scratch": ["抓挠", "Scratch"],
-    "/abilities/shield_bash": ["盾牌猛击", "Shield Bash"],
-    "/abilities/silencing_shot": ["沉默射击", "Silencing Shot"],
-    "/abilities/smack": ["猛击", "Smack"],
-    "/abilities/smoke_burst": ["烟雾爆发", "Smoke Burst"],
-    "/abilities/speed_aura": ["速度光环", "Speed Aura"],
-    "/abilities/steady_shot": ["稳固射击", "Steady Shot"],
-    "/abilities/stunning_blow": ["眩晕重击", "Stunning Blow"],
-    "/abilities/sweep": ["横扫", "Sweep"],
-    "/abilities/taunt": ["嘲讽", "Taunt"],
-    "/abilities/toughness": ["坚韧", "Toughness"],
-    "/abilities/toxic_pollen": ["剧毒花粉", "Toxic Pollen"],
-    "/abilities/water_strike": ["水击", "Water Strike"],
-    "/abilities/sylvan_aura": ["森林光环", "Sylvan Aura"],
-    "/abilities/vampirism": ["吸血", "Vampirism"],
   };
   const itemLabels = {
     "/items/blazing_trident": ["炽焰三叉戟特效", "Blazing Trident Effect"],
@@ -1630,6 +1567,32 @@ const DamageSources = (() => {
   function isSupport(source) {
     return supportAbilities.has(normalize(source));
   }
+  function clientAbilityName(value) {
+    const map = runtime.state.initData_abilityDetailMap;
+    const detail = map instanceof Map ? map.get(value) : map?.[value];
+    return String(detail?.name || "").trim();
+  }
+  function abilityLabel(value, english) {
+    if (english)
+      return (
+        clientAbilityName(value) ||
+        (value === "/abilities/natures_veil" ? "Nature's Veil" : "") ||
+        value
+          .split("/")
+          .pop()
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (char) => char.toUpperCase())
+      );
+    return (
+      runtime.data.ZHOthersDic?.[value] ||
+      clientAbilityName(value) ||
+      value
+        .split("/")
+        .pop()
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase())
+    );
+  }
   // 展示层统一来源：服务器把技能本体与三叉戟触发合成一个 HP 差，无法
   // 准确拆数，因此并回触发技能；辅助技能触发的数值则只属于三叉戟。
   // 该转换也作用于旧历史，避免升级后旧记录继续显示重复行。
@@ -1648,12 +1611,14 @@ const DamageSources = (() => {
   function label(source) {
     const value = normalize(source),
       english = Settings.getLanguage() === "en";
+    if (value.startsWith("/abilities/")) return abilityLabel(value, english);
     if (labels[value]) return labels[value][english ? 1 : 0];
     if (value.startsWith("dot:")) {
       const ability = value.slice(4),
-        abilityName = labels[ability]
-          ? labels[ability][english ? 1 : 0]
-          : ability
+        abilityName = ability.startsWith("/abilities/")
+          ? abilityLabel(ability, english)
+          : labels[ability]?.[english ? 1 : 0] ||
+            ability
               .split("/")
               .pop()
               .replace(/_/g, " ")
@@ -1688,7 +1653,7 @@ const DamageSources = (() => {
       .pop()
       .replace(/_/g, " ")
       .replace(/\b\w/g, (char) => char.toUpperCase());
-    return tail || labels.unknown;
+    return tail || labels.unknown[english ? 1 : 0];
   }
   function icon(source, playerName = "") {
     const value = normalize(source);

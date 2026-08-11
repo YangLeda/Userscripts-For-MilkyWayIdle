@@ -137,9 +137,13 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     document.querySelectorAll("#mwitools-asset-history-panel").length,
     1,
   );
-  assert.match(
-    document.querySelector("#mwitools-asset-history-style").textContent,
-    /#00c6ff/,
+  const assetStyles = document.querySelector(
+    "#mwitools-asset-history-style",
+  ).textContent;
+  assert.match(assetStyles, /color:#00c6ff!important; font-weight:700/);
+  assert.doesNotMatch(
+    assetStyles,
+    /#mwitools-asset-history-tab\[data-active="true"\][^}]*background/,
   );
   assert.equal(
     document.querySelector("#mwi-asset-share-chat").textContent,

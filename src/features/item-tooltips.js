@@ -58,12 +58,22 @@ function calculateTotalTime() {
 }
 
 function timeReadable(sec) {
-  if (sec >= 86400) {
-    return (
-      Number(sec / 86400).toFixed(1) + (runtime.config.isZH ? " 天" : " days")
-    );
+  if (!Number.isFinite(sec) || sec < 0) return "—";
+  const normalized = Math.round(sec);
+  if (normalized >= 86_400) {
+    const days = Math.floor(normalized / 86_400);
+    const hours = Math.floor((normalized % 86_400) / 3_600);
+    const minutes = Math.floor((normalized % 3_600) / 60);
+    const parts = [runtime.config.isZH ? `${days}天` : `${days}d`];
+    if (hours > 0) {
+      parts.push(runtime.config.isZH ? `${hours}小时` : `${hours}h`);
+    }
+    if (minutes > 0) {
+      parts.push(runtime.config.isZH ? `${minutes}分` : `${minutes}m`);
+    }
+    return parts.join(runtime.config.isZH ? "" : " ");
   }
-  const d = new Date(Math.round(sec * 1000));
+  const d = new Date(normalized * 1000);
   function pad(i) {
     return ("0" + i).slice(-2);
   }

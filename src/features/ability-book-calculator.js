@@ -2,7 +2,6 @@ import { runtime } from "../core/runtime.js";
 
 const STYLE_ID = "mwitools-ability-book-calculator-style";
 const PANEL_CLASS = "mwi-ability-book-calculator";
-const MARKET_SELECTOR = '[class*="MarketplacePanel_marketplacePanel"]';
 const DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
 
 function t(zh, en) {
@@ -184,10 +183,10 @@ function addStyles() {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-function createPanel(surface, onTargetChange) {
+function createPanel(onTargetChange) {
   const panel = document.createElement("section");
   panel.className = PANEL_CLASS;
-  panel.dataset.surface = surface;
+  panel.dataset.surface = "dictionary";
   const title = document.createElement("div");
   title.className = "mwi-book-title";
   const state = document.createElement("div");
@@ -326,14 +325,6 @@ function visiblePanels(selector) {
   return visible.length ? visible : panels;
 }
 
-function marketAnchor(panel) {
-  return (
-    panel.querySelector(
-      '[class*="MarketplacePanel_currentItem"],[class*="MarketplacePanel_itemContainer"]',
-    ) ?? panel.firstElementChild
-  );
-}
-
 runtime.features.register({
   id: "skillbook",
   setting: "skillbook",
@@ -342,12 +333,12 @@ runtime.features.register({
     addStyles();
     const targetValues = new Map();
     let refreshTimer = null;
-    const updateSurface = (container, itemHrid, surface) => {
+    const updateSurface = (container, itemHrid) => {
       let panel = container.querySelector(
-        `.${PANEL_CLASS}[data-surface="${surface}"]`,
+        `.${PANEL_CLASS}[data-surface="dictionary"]`,
       );
       if (!panel) {
-        panel = createPanel(surface, (changedPanel, value) => {
+        panel = createPanel((changedPanel, value) => {
           targetValues.set(changedPanel.dataset.itemHrid, Number(value));
           updatePanel(
             changedPanel,
@@ -355,30 +346,17 @@ runtime.features.register({
             targetValues,
           );
         });
-        if (surface === "market") {
-          marketAnchor(container)?.insertAdjacentElement("afterend", panel);
-          if (!panel.isConnected) container.appendChild(panel);
-        } else {
-          container.appendChild(panel);
-        }
+        container.appendChild(panel);
       }
       updatePanel(panel, itemHrid, targetValues);
     };
     const refresh = () => {
-      for (const panel of visiblePanels(MARKET_SELECTOR)) {
-        const itemHrid = resolveAbilityBookItem(panel);
-        const existing = panel.querySelector(
-          `.${PANEL_CLASS}[data-surface="market"]`,
-        );
-        if (itemHrid) updateSurface(panel, itemHrid, "market");
-        else existing?.remove();
-      }
       for (const panel of visiblePanels(DICTIONARY_SELECTOR)) {
         const itemHrid = resolveAbilityBookItem(panel);
         const existing = panel.querySelector(
           `.${PANEL_CLASS}[data-surface="dictionary"]`,
         );
-        if (itemHrid) updateSurface(panel, itemHrid, "dictionary");
+        if (itemHrid) updateSurface(panel, itemHrid);
         else existing?.remove();
       }
     };

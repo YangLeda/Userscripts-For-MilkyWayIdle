@@ -968,7 +968,7 @@
     },
     skillbook: {
       id: "skillbook",
-      desc: isZH ? "在技能书市场和物品词典显示实时升级需求" : "Show live ability-book requirements in the market and item dictionary.",
+      desc: isZH ? "在物品词典显示实时技能书升级需求" : "Show live ability-book requirements in the item dictionary.",
       isTrue: true
     },
     ThirdPartyLinks: {
@@ -1658,8 +1658,8 @@
       "tools",
       "技能书计算器",
       "Ability book calculator",
-      "在技能书市场和物品词典实时计算解锁、升级所需本数与参考购买成本。",
-      "Calculate live unlock, leveling, and reference purchase requirements in ability-book markets and the item dictionary."
+      "在物品词典实时计算技能书解锁、升级所需本数与参考购买成本。",
+      "Calculate live ability-book unlock, leveling, and reference purchase requirements in the item dictionary."
     ]
   ];
   var settingsCatalog = Object.fromEntries(
@@ -22262,9 +22262,18 @@
                     <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.total)}${hiddenText}</span>
             </p>
             <section id="buildScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.battle.house)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "技能：" : "Abilities: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.abilities)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span>
+                    </p>
             </section>
             <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                     <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
@@ -22272,9 +22281,18 @@
                     <span style="display: inline !important; font-weight: 700 !important; color: #ffffff !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.total)}${hiddenText}</span>
             </p>
             <section id="skillingScores_profile" style="display: none; width: fit-content !important; text-align: left !important; margin-left: 18px !important; margin-top: 3px !important; margin-bottom: 6px !important; font-size: 0.75rem !important;">
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span></p>
-                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;"><span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span></p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "房屋：" : "House: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${runtime.api.formatScore(scores.skilling.house)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "工具：" : "Tools: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.tools)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span>
+                    </p>
             </section>
         </section>`
     );
@@ -22286,7 +22304,9 @@
       toggle.addEventListener("click", () => {
         const isCollapsed = details.style.display === "none";
         details.style.display = isCollapsed ? "block" : "none";
-        if (icon) icon.textContent = isCollapsed ? "↓" : "+";
+        if (icon) {
+          icon.textContent = isCollapsed ? "↓" : "+";
+        }
       });
     };
     bindToggle("toggleScores_profile", "buildScores_profile");
@@ -23289,7 +23309,7 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-    #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
     [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,#334b84)!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,#eef2ff)!important; filter:none!important; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
@@ -23846,10 +23866,17 @@ ${preview}`
     const mountNative = (loadout, found) => {
       mountMode = "native";
       ({ shell: shell2, navigationBranch } = found);
-      tab = loadout.cloneNode(false);
+      tab = loadout.cloneNode(true);
       tab.id = TAB_ID;
       tab.type = "button";
-      tab.textContent = t2("盈亏", "P/L");
+      const badgeText = tab.querySelector(
+        ".TabsComponent_badge__1Du26, .MuiBadge-root"
+      );
+      if (badgeText) {
+        badgeText.textContent = t2("盈亏", "P/L");
+      } else {
+        tab.textContent = t2("盈亏", "P/L");
+      }
       for (const className of [...tab.classList]) {
         if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
           tab.classList.remove(className);
@@ -23859,6 +23886,7 @@ ${preview}`
       if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
       if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
       tab.setAttribute("aria-selected", "false");
+      tab.setAttribute("tabindex", "-1");
       tab.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -25312,12 +25340,11 @@ ${preview}`
     .mwi-summary-toggle {
       display: flex;
       width: 100%;
-      height: 1.125rem;
-      min-height: 0;
+      min-height: 1.375rem;
       box-sizing: border-box;
       align-items: center;
       gap: .1875rem;
-      padding: 0 .25rem;
+      padding: .1875rem .25rem;
       border: 0;
       background: transparent;
       color: inherit;
@@ -25393,7 +25420,7 @@ ${preview}`
       align-items: baseline;
       justify-content: flex-start;
       gap: .375rem;
-      padding: 0 .25rem;
+      padding: .15rem .25rem;
       font-size: inherit;
       line-height: inherit;
     }
@@ -25422,7 +25449,7 @@ ${preview}`
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 400; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
@@ -25447,7 +25474,7 @@ ${preview}`
       min-height: 0;
       align-items: center;
       gap: .25rem;
-      padding: 0 .25rem;
+      padding: .15rem .25rem;
       border: 0;
       background: transparent;
       color: var(--color-text-primary, #e8ebef);
@@ -25500,7 +25527,7 @@ ${preview}`
       align-items: baseline;
       justify-content: flex-start;
       gap: .375rem;
-      padding: 0;
+      padding: .15rem 0;
       color: var(--color-text-secondary, #aeb5c0);
       font-size: inherit;
       line-height: inherit;
@@ -25513,7 +25540,7 @@ ${preview}`
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
-    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 400; }
+    .mwi-asset-row .mwi-number, .mwi-asset-row > span:last-child { color: #f3f5f7; font-weight: 600; }
     .mwi-inventory-category-heading {
       display: flex !important;
       min-width: 0;
@@ -25675,9 +25702,10 @@ ${preview}`
       const wasSkillingScoreOpen = previousSummary?.querySelector("#skillingScores")?.style.display === "block";
       const wasNetworthOpen = previousSummary?.querySelector("#netWorthDetails")?.style.display === "block";
       previousSummary?.remove();
-      invElem.insertAdjacentHTML(
-        "beforebegin",
-        `<div id="script_inventory_summary">
+      const previousSortControls = invElem.parentElement?.querySelector(
+        "#script_inv_sort_controls"
+      );
+      const summaryHTML = `<div id="script_inventory_summary">
         <div class="mwi-inventory-summary-grid">
           <section class="mwi-summary-card mwi-summary-card--combat">
             <button type="button" class="mwi-summary-toggle" id="toggleScores" aria-expanded="false" aria-controls="buildScores">
@@ -25744,8 +25772,12 @@ ${preview}`
             </div>
           </section>
         </div>
-      </div>`
-      );
+      </div>`;
+      if (previousSortControls) {
+        previousSortControls.insertAdjacentHTML("afterend", summaryHTML);
+      } else {
+        invElem.insertAdjacentHTML("beforebegin", summaryHTML);
+      }
       const summary = invElem.parentElement.querySelector(
         "#script_inventory_summary"
       );
@@ -25801,8 +25833,31 @@ ${preview}`
         setExpanded(toggleNonCurrentAssets, nonCurrentAssets, isCollapsed);
       });
     };
+    const isInventoryTabActive = (invElem) => {
+      const hiddenTabPanel = invElem.closest('[class*="TabPanel_hidden"]');
+      if (hiddenTabPanel) return false;
+      const parentContainer = invElem.closest('[class*="TabsComponent_tabPanelsContainer"]')?.parentElement ?? document;
+      const assetHistoryTab = parentContainer.querySelector(
+        '#mwitools-asset-history-tab[data-active="true"]'
+      );
+      if (assetHistoryTab) return false;
+      const selectedTab = parentContainer.querySelector(
+        'button[aria-selected="true"], button.Mui-selected, [role="tab"][aria-selected="true"]'
+      );
+      if (selectedTab) {
+        if (selectedTab.id === "mwitools-asset-history-tab") return false;
+        if (selectedTab.dataset.mwiCreditTab === "true") return false;
+        if (selectedTab.classList.contains("income-tab")) return false;
+        const text = selectedTab.textContent || "";
+        if (!/库存|Inventory/i.test(text) && !selectedTab.querySelector('[class*="Inventory"]')) {
+          return false;
+        }
+      }
+      return true;
+    };
     const renderInventoryPanels = () => {
       for (const node of targetNodes) {
+        const activeTab2 = isInventoryTabActive(node);
         if (showWorth) {
           node.classList.add("script_buildScore_added");
           const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
@@ -25817,6 +25872,18 @@ ${preview}`
             node.classList.add("script_invSort_added");
             addInvSortButton(node);
           }
+        }
+        const summary = node.parentElement?.querySelector(
+          "#script_inventory_summary"
+        );
+        if (summary) {
+          summary.style.display = activeTab2 ? "" : "none";
+        }
+        const sortControls = node.parentElement?.querySelector(
+          "#script_inv_sort_controls"
+        );
+        if (sortControls) {
+          sortControls.style.display = activeTab2 ? "" : "none";
         }
       }
     };
@@ -25850,34 +25917,72 @@ ${preview}`
       }
     }
     const fairButton = `<button
-        id="script_sortByFair_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByFair_btn">
         ${runtime.config.isZH ? "市场价值" : "Market Value"}
         </button>`;
     const askButton = `<button
-        id="script_sortByAsk_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByAsk_btn">
         ${runtime.config.isZH ? "出售价" : "Ask"}
         </button>`;
     const bidButton = `<button
-        id="script_sortByBid_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByBid_btn">
         ${runtime.config.isZH ? "收购价" : "Bid"}
         </button>`;
     const noneButton = `<button
-        id="script_sortByNone_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
     const refreshButton = `<button
         id="script_refresh_inventory_btn"
-        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        style="border-radius: 4px; padding: 2px 8px; margin-left: 6px; cursor: pointer; font: inherit; font-size: 0.78rem; background-color: rgba(255, 255, 255, 0.08); color: var(--color-text-primary, #e8ebef); border: 1px solid rgba(255, 255, 255, 0.16);">
         ${runtime.config.isZH ? "刷新" : "Refresh"}
         </button>`;
     const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
     if (!invElem.isConnected || !invElem.parentElement) return;
-    invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+    const existingSummary = invElem.parentElement.querySelector(
+      "#script_inventory_summary"
+    );
+    if (existingSummary) {
+      existingSummary.insertAdjacentHTML("beforebegin", buttonsDiv);
+    } else {
+      invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
+    }
+    const updateSortButtonStyles = (activeOrder) => {
+      const parent = invElem.parentElement;
+      if (!parent) return;
+      const btnMap = {
+        fair: parent.querySelector("button#script_sortByFair_btn"),
+        ask: parent.querySelector("button#script_sortByAsk_btn"),
+        bid: parent.querySelector("button#script_sortByBid_btn"),
+        none: parent.querySelector("button#script_sortByNone_btn")
+      };
+      for (const [key, btn] of Object.entries(btnMap)) {
+        if (!btn) continue;
+        const isActive = key === activeOrder;
+        btn.style.borderRadius = "4px";
+        btn.style.padding = "2px 8px";
+        btn.style.margin = "0 2px";
+        btn.style.cursor = "pointer";
+        btn.style.font = "inherit";
+        btn.style.fontSize = "0.78rem";
+        btn.style.transition = "all 0.15s ease-in-out";
+        if (isActive) {
+          btn.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+          btn.style.color = "#0b1522";
+          btn.style.fontWeight = "700";
+          btn.style.border = "1px solid transparent";
+          btn.style.boxShadow = "0 0 8px rgba(0, 198, 255, 0.45)";
+        } else {
+          btn.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
+          btn.style.color = "var(--color-text-secondary, #aeb5c0)";
+          btn.style.fontWeight = "500";
+          btn.style.border = "1px solid rgba(255, 255, 255, 0.16)";
+          btn.style.boxShadow = "none";
+        }
+      }
+    };
     const sortItemsBy = (order) => {
+      updateSortButtonStyles(order);
       for (const typeDiv of invElem.children) {
         const categoryButton = typeDiv.querySelector(
           '[class*="Inventory_categoryButton"]'
@@ -25944,6 +26049,7 @@ ${preview}`
       invElem.parentElement.querySelector("button#script_sortByAsk_btn")?.addEventListener("click", () => sortItemsBy("ask"));
       invElem.parentElement.querySelector("button#script_sortByBid_btn")?.addEventListener("click", () => sortItemsBy("bid"));
       invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
+      updateSortButtonStyles("none");
     }
     const refreshButtonElement = invElem.parentElement.querySelector(
       "button#script_refresh_inventory_btn"
@@ -27055,10 +27161,22 @@ ${preview}`
     targetNode.textContent += totalTimeStr;
   }
   function timeReadable(sec) {
-    if (sec >= 86400) {
-      return Number(sec / 86400).toFixed(1) + (runtime.config.isZH ? " 天" : " days");
+    if (!Number.isFinite(sec) || sec < 0) return "—";
+    const normalized = Math.round(sec);
+    if (normalized >= 86400) {
+      const days = Math.floor(normalized / 86400);
+      const hours = Math.floor(normalized % 86400 / 3600);
+      const minutes = Math.floor(normalized % 3600 / 60);
+      const parts = [runtime.config.isZH ? `${days}天` : `${days}d`];
+      if (hours > 0) {
+        parts.push(runtime.config.isZH ? `${hours}小时` : `${hours}h`);
+      }
+      if (minutes > 0) {
+        parts.push(runtime.config.isZH ? `${minutes}分` : `${minutes}m`);
+      }
+      return parts.join(runtime.config.isZH ? "" : " ");
     }
-    const d = new Date(Math.round(sec * 1e3));
+    const d = new Date(normalized * 1e3);
     function pad(i) {
       return ("0" + i).slice(-2);
     }
@@ -27989,7 +28107,7 @@ ${preview}`
     const parts = [t6(`${days}天`, `${days}d`)];
     if (hours > 0) parts.push(t6(`${hours}小时`, `${hours}h`));
     if (minutes > 0) parts.push(t6(`${minutes}分`, `${minutes}m`));
-    return parts.join(" ");
+    return parts.join(runtime.config.isZH ? "" : " ");
   }
   function formatClock(timestamp) {
     if (!Number.isFinite(timestamp)) return "—";
@@ -30449,9 +30567,9 @@ ${locks}` : ""}`;
         }
         setTimeout(fill, 100);
       };
-      raf(fill);
+      fill();
     };
-    raf(open);
+    open();
     return navigationAccepted;
   }
   function setInput(input, value) {
@@ -32905,7 +33023,6 @@ ${locks}` : ""}`;
   // src/features/ability-book-calculator.js
   var STYLE_ID12 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
-  var MARKET_SELECTOR = '[class*="MarketplacePanel_marketplacePanel"]';
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
   function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -33061,10 +33178,10 @@ ${locks}` : ""}`;
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
-  function createPanel(surface, onTargetChange) {
+  function createPanel(onTargetChange) {
     const panel = document.createElement("section");
     panel.className = PANEL_CLASS;
-    panel.dataset.surface = surface;
+    panel.dataset.surface = "dictionary";
     const title = document.createElement("div");
     title.className = "mwi-book-title";
     const state = document.createElement("div");
@@ -33192,11 +33309,6 @@ ${locks}` : ""}`;
     const visible2 = panels.filter((panel) => panel.getClientRects().length);
     return visible2.length ? visible2 : panels;
   }
-  function marketAnchor(panel) {
-    return panel.querySelector(
-      '[class*="MarketplacePanel_currentItem"],[class*="MarketplacePanel_itemContainer"]'
-    ) ?? panel.firstElementChild;
-  }
   runtime.features.register({
     id: "skillbook",
     setting: "skillbook",
@@ -33205,12 +33317,12 @@ ${locks}` : ""}`;
       addStyles10();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
-      const updateSurface = (container, itemHrid, surface) => {
+      const updateSurface = (container, itemHrid) => {
         let panel = container.querySelector(
-          `.${PANEL_CLASS}[data-surface="${surface}"]`
+          `.${PANEL_CLASS}[data-surface="dictionary"]`
         );
         if (!panel) {
-          panel = createPanel(surface, (changedPanel, value) => {
+          panel = createPanel((changedPanel, value) => {
             targetValues.set(changedPanel.dataset.itemHrid, Number(value));
             updatePanel(
               changedPanel,
@@ -33218,30 +33330,17 @@ ${locks}` : ""}`;
               targetValues
             );
           });
-          if (surface === "market") {
-            marketAnchor(container)?.insertAdjacentElement("afterend", panel);
-            if (!panel.isConnected) container.appendChild(panel);
-          } else {
-            container.appendChild(panel);
-          }
+          container.appendChild(panel);
         }
         updatePanel(panel, itemHrid, targetValues);
       };
       const refresh = () => {
-        for (const panel of visiblePanels(MARKET_SELECTOR)) {
-          const itemHrid = resolveAbilityBookItem(panel);
-          const existing = panel.querySelector(
-            `.${PANEL_CLASS}[data-surface="market"]`
-          );
-          if (itemHrid) updateSurface(panel, itemHrid, "market");
-          else existing?.remove();
-        }
         for (const panel of visiblePanels(DICTIONARY_SELECTOR)) {
           const itemHrid = resolveAbilityBookItem(panel);
           const existing = panel.querySelector(
             `.${PANEL_CLASS}[data-surface="dictionary"]`
           );
-          if (itemHrid) updateSurface(panel, itemHrid, "dictionary");
+          if (itemHrid) updateSurface(panel, itemHrid);
           else existing?.remove();
         }
       };
@@ -38610,71 +38709,7 @@ ${locks}` : ""}`;
       reflect: ["反伤", "Reflection"],
       dot: ["持续伤害", "Damage Over Time"],
       unknown: ["未识别来源", "Unknown Source"],
-      legacy: ["旧版本未记录来源", "Legacy Untracked"],
-      "/abilities/firestorm": ["烈焰风暴", "Firestorm"],
-      "/abilities/maim": ["重伤", "Maim"],
-      "/abilities/crippling_slash": ["致残斩击", "Crippling Slash"],
-      "/abilities/puncture": ["穿刺", "Puncture"],
-      "/abilities/penetrating_strike": ["贯穿打击", "Penetrating Strike"],
-      "/abilities/impale": ["贯穿", "Impale"],
-      "/abilities/rain_of_arrows": ["箭雨", "Rain of Arrows"],
-      "/abilities/penetrating_shot": ["穿透射击", "Penetrating Shot"],
-      "/abilities/spike_shell": ["尖刺甲壳", "Spike Shell"],
-      "/abilities/retribution": ["惩戒", "Retribution"],
-      "/abilities/fireball": ["火球术", "Fireball"],
-      "/abilities/flame_blast": ["烈焰冲击", "Flame Blast"],
-      "/abilities/frost_surge": ["寒霜奔涌", "Frost Surge"],
-      "/abilities/ice_spear": ["冰枪术", "Ice Spear"],
-      "/abilities/aqua_arrow": ["水箭", "Aqua Arrow"],
-      "/abilities/flame_arrow": ["火焰箭", "Flame Arrow"],
-      "/abilities/pestilent_shot": ["瘟疫射击", "Pestilent Shot"],
-      "/abilities/quick_shot": ["快速射击", "Quick Shot"],
-      "/abilities/cleave": ["顺劈斩", "Cleave"],
-      "/abilities/fracturing_impact": ["碎裂冲击", "Fracturing Impact"],
-      "/abilities/poke": ["戳刺", "Poke"],
-      "/abilities/life_drain": ["生命汲取", "Life Drain"],
-      "/abilities/aqua_aura": ["水之光环", "Aqua Aura"],
-      "/abilities/berserk": ["狂暴", "Berserk"],
-      "/abilities/critical_aura": ["暴击光环", "Critical Aura"],
-      "/abilities/elemental_affinity": ["元素亲和", "Elemental Affinity"],
-      "/abilities/elusiveness": ["闪避", "Elusiveness"],
-      "/abilities/entangle": ["缠绕", "Entangle"],
-      "/abilities/fierce_aura": ["猛烈光环", "Fierce Aura"],
-      "/abilities/flame_aura": ["火焰光环", "Flame Aura"],
-      "/abilities/frenzy": ["狂乱", "Frenzy"],
-      "/abilities/guardian_aura": ["守护光环", "Guardian Aura"],
-      "/abilities/heal": ["治疗", "Heal"],
-      "/abilities/insanity": ["疯狂", "Insanity"],
-      "/abilities/invincible": ["无敌", "Invincible"],
-      "/abilities/mana_spring": ["法力喷泉", "Mana Spring"],
-      "/abilities/minor_heal": ["次级治疗", "Minor Heal"],
-      "/abilities/mystic_aura": ["神秘光环", "Mystic Aura"],
-      "/abilities/natures_veil": ["自然菌幕", "Nature's Veil"],
-      "/abilities/precision": ["精准", "Precision"],
-      "/abilities/provoke": ["挑衅", "Provoke"],
-      "/abilities/quick_aid": ["快速救助", "Quick Aid"],
-      "/abilities/rejuvenate": ["回春", "Rejuvenate"],
-      "/abilities/action_speed": ["行动速度", "Action Speed"],
-      "/abilities/combat_drop_quantity": ["战斗掉落数量", "Combat Drop Quantity"],
-      "/abilities/efficiency": ["效率", "Efficiency"],
-      "/abilities/gathering": ["采集", "Gathering"],
-      "/abilities/wisdom": ["智慧", "Wisdom"],
-      "/abilities/revive": ["复活", "Revive"],
-      "/abilities/scratch": ["抓挠", "Scratch"],
-      "/abilities/shield_bash": ["盾牌猛击", "Shield Bash"],
-      "/abilities/silencing_shot": ["沉默射击", "Silencing Shot"],
-      "/abilities/smack": ["猛击", "Smack"],
-      "/abilities/smoke_burst": ["烟雾爆发", "Smoke Burst"],
-      "/abilities/speed_aura": ["速度光环", "Speed Aura"],
-      "/abilities/steady_shot": ["稳固射击", "Steady Shot"],
-      "/abilities/stunning_blow": ["眩晕重击", "Stunning Blow"],
-      "/abilities/sweep": ["横扫", "Sweep"],
-      "/abilities/taunt": ["嘲讽", "Taunt"],
-      "/abilities/toughness": ["坚韧", "Toughness"],
-      "/abilities/toxic_pollen": ["剧毒花粉", "Toxic Pollen"],
-      "/abilities/water_strike": ["水击", "Water Strike"],
-      "/abilities/sylvan_aura": ["森林光环", "Sylvan Aura"],
-      "/abilities/vampirism": ["吸血", "Vampirism"]
+      legacy: ["旧版本未记录来源", "Legacy Untracked"]
     };
     const itemLabels = {
       "/items/blazing_trident": ["炽焰三叉戟特效", "Blazing Trident Effect"],
@@ -38738,6 +38773,16 @@ ${locks}` : ""}`;
     function isSupport(source) {
       return supportAbilities.has(normalize2(source));
     }
+    function clientAbilityName(value) {
+      const map = runtime.state.initData_abilityDetailMap;
+      const detail = map instanceof Map ? map.get(value) : map?.[value];
+      return String(detail?.name || "").trim();
+    }
+    function abilityLabel(value, english) {
+      if (english)
+        return clientAbilityName(value) || (value === "/abilities/natures_veil" ? "Nature's Veil" : "") || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+      return runtime.data.ZHOthersDic?.[value] || clientAbilityName(value) || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    }
     function canonical(source, playerName = "") {
       const value = normalize2(source);
       if (value.startsWith("combined:")) {
@@ -38752,9 +38797,10 @@ ${locks}` : ""}`;
     }
     function label(source) {
       const value = normalize2(source), english = Settings.getLanguage() === "en";
+      if (value.startsWith("/abilities/")) return abilityLabel(value, english);
       if (labels[value]) return labels[value][english ? 1 : 0];
       if (value.startsWith("dot:")) {
-        const ability = value.slice(4), abilityName = labels[ability] ? labels[ability][english ? 1 : 0] : ability.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+        const ability = value.slice(4), abilityName = ability.startsWith("/abilities/") ? abilityLabel(ability, english) : labels[ability]?.[english ? 1 : 0] || ability.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
         return english ? "Damage Over Time (" + abilityName + ")" : "持续伤害（" + abilityName + "）";
       }
       if (value.startsWith("combined:")) {
@@ -38767,7 +38813,7 @@ ${locks}` : ""}`;
         return Settings.getLanguage() === "en" ? englishName + " Effect" : "武器特效：" + englishName;
       }
       const tail = value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-      return tail || labels.unknown;
+      return tail || labels.unknown[english ? 1 : 0];
     }
     function icon(source, playerName = "") {
       const value = normalize2(source);
@@ -39408,6 +39454,7 @@ ${locks}` : ""}`;
     let playersHP = [];
     let playerKnownDotAbilities = {};
     let playerDotUntil = {};
+    let playerDotCasts = [];
     let playerKnownReflectionAbilities = {};
     let playerReflectUntil = {};
     let playerReflectSource = {};
@@ -39417,6 +39464,10 @@ ${locks}` : ""}`;
     let lastCombatStartTime = null;
     let currentCharacterId2 = null;
     let currentCombatKey = null;
+    let testNow = null;
+    function clockNow() {
+      return testNow === null ? performance.now() : testNow;
+    }
     let guildSlotNames = /* @__PURE__ */ new Map();
     const guildSlotLocked = /* @__PURE__ */ new Set();
     let guildMonstersHP = {};
@@ -39713,9 +39764,16 @@ ${locks}` : ""}`;
       ["/abilities/retribution", 3e4]
     ]);
     const abilityDamageRules = /* @__PURE__ */ new Map([
-      ["/abilities/firestorm", { direct: true, dotDuration: 6e3 }],
-      ["/abilities/maim", { direct: true, dotDuration: 9e3 }]
+      [
+        "/abilities/firestorm",
+        { direct: true, dotDuration: 6e3, dotInterval: 3e3 }
+      ],
+      ["/abilities/maim", { direct: true, dotDuration: 9e3, dotInterval: 3e3 }]
     ]);
+    const DOT_DEFAULT_INTERVAL_MS = 3e3;
+    const DOT_MATCH_TOLERANCE_MS = 500;
+    const DOT_TARGET_BIND_WINDOW_MS = 2e3;
+    const DOT_CAST_RETENTION_MS = 3e4;
     const reflectionBuffSources = /* @__PURE__ */ new Map();
     const reflectionTypeSources = /* @__PURE__ */ new Map();
     const reflectionItemHrids = /* @__PURE__ */ new Set();
@@ -39783,6 +39841,13 @@ ${locks}` : ""}`;
           return max;
         return Math.max(max, durationToMs(effect.damageOverTimeDuration));
       }, 0);
+      const dotInterval = damageEffects.reduce((minimum, effect) => {
+        if (!(Number(effect.damageOverTimeRatio) > 0)) return minimum;
+        const raw = effect.damageOverTimeInterval ?? effect.damageOverTimeTickInterval ?? effect.tickInterval;
+        const interval = durationToMs(raw);
+        if (!(interval > 0)) return minimum;
+        return minimum > 0 ? Math.min(minimum, interval) : interval;
+      }, 0);
       const targetTypes = [
         ...new Set(
           damageEffects.map((effect) => String(effect.targetType || "")).filter(Boolean)
@@ -39792,6 +39857,7 @@ ${locks}` : ""}`;
         abilityDamageRules.set(hrid, {
           direct: damageEffects.length > 0,
           dotDuration,
+          dotInterval: dotDuration ? dotInterval || DOT_DEFAULT_INTERVAL_MS : 0,
           targetTypes
         });
       }
@@ -39879,12 +39945,168 @@ ${locks}` : ""}`;
       if (!rule) return "unknown";
       return rule.direct ? "direct" : "support";
     }
-    function activateDot(activeContainer, dotContainer, key, abilityHrid, ts) {
+    function activateDot(activeContainer, dotContainer, key, abilityHrid, ts, timeline = null) {
       const hrid = String(abilityHrid || ""), rule = abilityDamageRules.get(hrid);
       if (!rule || !(rule.dotDuration > 0)) return;
       ensureSet(dotContainer, key).add(hrid);
       const active = activeContainer[key] || (activeContainer[key] = /* @__PURE__ */ new Map());
       active.set(hrid, Math.max(active.get(hrid) || 0, ts + rule.dotDuration));
+      if (timeline) scheduleDotCast(timeline, key, hrid, ts);
+    }
+    function pruneDotCasts(timeline, ts) {
+      for (let index = timeline.length - 1; index >= 0; index -= 1) {
+        if (timeline[index].expiresAt + DOT_CAST_RETENTION_MS < ts) {
+          timeline.splice(index, 1);
+        }
+      }
+    }
+    function dotTickSchedule(startedAt, rule) {
+      const interval = rule.dotInterval || DOT_DEFAULT_INTERVAL_MS;
+      const schedule = [];
+      for (let elapsed = interval; elapsed <= rule.dotDuration; elapsed += interval) {
+        schedule.push({ dueAt: startedAt + elapsed, consumed: false });
+      }
+      return schedule;
+    }
+    function scheduleDotCast(timeline, key, abilityHrid, ts) {
+      const rule = abilityDamageRules.get(abilityHrid);
+      if (!rule || !(rule.dotDuration > 0)) return;
+      pruneDotCasts(timeline, ts);
+      timeline.push({
+        key: String(key),
+        abilityHrid,
+        startedAt: ts,
+        landedAt: null,
+        expiresAt: ts + rule.dotDuration,
+        targets: /* @__PURE__ */ new Map()
+      });
+    }
+    function bindDotTargets(timeline, key, abilityHrid, hits, ts) {
+      if (!Array.isArray(hits) || !hits.length) return;
+      pruneDotCasts(timeline, ts);
+      const cast = timeline.slice().reverse().find(
+        (candidate) => candidate.key === String(key) && candidate.abilityHrid === abilityHrid && ts - candidate.startedAt >= 0 && ts - candidate.startedAt <= DOT_TARGET_BIND_WINDOW_MS
+      );
+      if (!cast) return;
+      if (cast.landedAt === null) {
+        cast.landedAt = ts;
+        const rule2 = abilityDamageRules.get(abilityHrid);
+        cast.expiresAt = ts + (rule2?.dotDuration || 0);
+      }
+      const rule = abilityDamageRules.get(abilityHrid);
+      if (!rule) return;
+      for (const hit of hits) {
+        const targetKey = String(hit.key);
+        if (!cast.targets.has(targetKey)) {
+          cast.targets.set(targetKey, dotTickSchedule(cast.landedAt, rule));
+        }
+      }
+    }
+    function scheduledDotCandidate(timeline, targetKey, ts, { key = null, abilityHrid = "" } = {}) {
+      pruneDotCasts(timeline, ts);
+      const candidates = [];
+      for (const cast of timeline) {
+        if (key !== null && cast.key !== String(key)) continue;
+        if (abilityHrid && cast.abilityHrid !== abilityHrid) continue;
+        for (const tick of cast.targets.get(String(targetKey)) || []) {
+          if (tick.consumed) continue;
+          const lateness = ts - tick.dueAt;
+          if (lateness >= 0 && lateness <= DOT_MATCH_TOLERANCE_MS) {
+            candidates.push({ cast, tick, distance: lateness });
+          }
+        }
+      }
+      candidates.sort(
+        (left, right) => left.distance - right.distance || left.tick.dueAt - right.tick.dueAt || left.cast.startedAt - right.cast.startedAt
+      );
+      if (!candidates.length) return null;
+      if (candidates.length > 1 && Math.abs(candidates[0].distance - candidates[1].distance) < 1) {
+        return { ambiguous: true };
+      }
+      return candidates[0];
+    }
+    function consumeScheduledDotHits(timeline, hits, ts, { key = null, abilityHrid = "" } = {}) {
+      const matched = [];
+      const unmatched = [];
+      let ambiguous = false;
+      for (const hit of hits || []) {
+        const candidate = scheduledDotCandidate(timeline, hit.key, ts, {
+          key,
+          abilityHrid
+        });
+        if (!candidate || candidate.ambiguous) {
+          ambiguous ||= Boolean(candidate?.ambiguous);
+          unmatched.push(hit);
+          continue;
+        }
+        candidate.tick.consumed = true;
+        matched.push({ hit, cast: candidate.cast });
+      }
+      return { matched, unmatched, ambiguous };
+    }
+    function scheduledDotDamage(timeline, hits, ts) {
+      pruneDotCasts(timeline, ts);
+      const targetKeys = new Set((hits || []).map((hit) => String(hit.key)));
+      const hasPendingTargetSchedule = timeline.some(
+        (cast) => [...targetKeys].some(
+          (targetKey) => (cast.targets.get(targetKey) || []).some((tick) => !tick.consumed)
+        )
+      );
+      const { matched, unmatched, ambiguous } = consumeScheduledDotHits(
+        timeline,
+        hits,
+        ts
+      );
+      const groups = /* @__PURE__ */ new Map();
+      for (const { hit, cast } of matched) {
+        const groupKey = `${cast.key}\0${cast.abilityHrid}`;
+        const group = groups.get(groupKey) || {
+          key: cast.key,
+          abilityHrid: cast.abilityHrid,
+          amount: 0
+        };
+        group.amount += Number(hit.amount) || 0;
+        groups.set(groupKey, group);
+      }
+      return {
+        groups: [...groups.values()],
+        unmatchedAmount: unmatched.reduce(
+          (sum, hit) => sum + (Number(hit.amount) || 0),
+          0
+        ),
+        ambiguous,
+        hasPendingTargetSchedule
+      };
+    }
+    function dotAbilityFromSource(source) {
+      const value = String(source || "");
+      if (value.startsWith("dot:/abilities/")) return value.slice(4);
+      return abilityDamageRules.get(value)?.dotDuration > 0 ? value : "";
+    }
+    function recordDotAttribution(timeline, key, source, hits, ts) {
+      const value = String(source || ""), abilityHrid = dotAbilityFromSource(value);
+      if (abilityHrid && !value.startsWith("dot:")) {
+        bindDotTargets(timeline, key, abilityHrid, hits, ts);
+        return;
+      }
+      if (value === "dot" || value.startsWith("dot:")) {
+        consumeScheduledDotHits(timeline, hits, ts, { key, abilityHrid });
+      }
+    }
+    function activeDotCandidates(keys, activeContainer, ts) {
+      return keys.filter(
+        (key) => [...(activeContainer[key] || /* @__PURE__ */ new Map()).values()].some(
+          (until) => until > ts
+        )
+      );
+    }
+    function uniqueActiveDotCandidate(keys, activeContainer, ts) {
+      const candidates = activeDotCandidates(keys, activeContainer, ts);
+      return candidates.length === 1 ? candidates[0] : null;
+    }
+    function activeDotSourceFor(activeContainer, key, ts) {
+      const abilities = [...(activeContainer[key] || /* @__PURE__ */ new Map()).entries()].filter(([, until]) => until > ts).map(([hrid]) => hrid);
+      return abilities.length === 1 ? `dot:${abilities[0]}` : "dot";
     }
     function dotAbilitiesFor(dotContainer, activeContainer, key, ts) {
       const known = [...dotContainer[key] || []];
@@ -39998,7 +40220,7 @@ ${locks}` : ""}`;
         slot,
         unit
       );
-      const nowWall = Date.now(), nowPerf = performance.now();
+      const nowWall = Date.now(), nowPerf = clockNow();
       let remaining = 0, foundBuff = false;
       Object.values(unit.combatBuffMap || {}).forEach((buff) => {
         const type = normalizedReflectType(
@@ -40050,7 +40272,7 @@ ${locks}` : ""}`;
           unit
         )
       );
-      const nowWall = Date.now(), nowPerf = performance.now();
+      const nowWall = Date.now(), nowPerf = clockNow();
       let remaining = 0, foundBuff = false;
       Object.values(unit.combatBuffMap || {}).forEach((buff) => {
         const type = normalizedReflectType(
@@ -40295,7 +40517,7 @@ ${locks}` : ""}`;
       if (!isGuildBattle) return;
       const mMap = p.mMap || {}, pMap = p.pMap || {};
       const idx = Object.keys(pMap);
-      const ts = performance.now();
+      const ts = clockNow();
       for (const k of idx) guildMaxSlot = Math.max(guildMaxSlot, +k + 1);
       const incomingTier = p.tier !== void 0 ? String(p.tier) : currentGuildTier;
       if (currentGuildTier === null || incomingTier !== null && String(currentGuildTier) !== String(incomingTier)) {
@@ -40652,6 +40874,7 @@ ${locks}` : ""}`;
       playersHP = [];
       playerKnownDotAbilities = {};
       playerDotUntil = {};
+      playerDotCasts = [];
       playerKnownReflectionAbilities = {};
       playerReflectUntil = {};
       playerReflectSource = {};
@@ -40757,6 +40980,7 @@ ${locks}` : ""}`;
       );
       playerKnownDotAbilities = {};
       playerDotUntil = {};
+      playerDotCasts = [];
       playerKnownReflectionAbilities = {};
       playerReflectUntil = {};
       playerReflectSource = {};
@@ -40797,7 +41021,7 @@ ${locks}` : ""}`;
       if (isGuildBattle) return;
       const mMap = p.mMap || {}, pMap = p.pMap || {};
       const idx = Object.keys(pMap);
-      const ts = performance.now();
+      const ts = clockNow();
       const battleType = isInLabyrinth ? "labyrinth" : "combat";
       const counterActors = [], mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
@@ -40826,7 +41050,8 @@ ${locks}` : ""}`;
               playerKnownDotAbilities,
               k,
               completed,
-              ts
+              ts,
+              playerDotCasts
             );
           }
           playersAtkCounter[i] = nextCounter;
@@ -40941,47 +41166,6 @@ ${locks}` : ""}`;
         } else if (weapon.includes("blazing_trident")) {
           attributedKey = actionActor;
           attributedSource = weapon;
-        } else {
-          const dotKey = uniqueDotCandidate(
-            idx,
-            playerKnownDotAbilities,
-            playerDotUntil,
-            ts
-          );
-          if (dotKey !== null) {
-            attributedKey = dotKey;
-            attributedSource = dotSourceFor(
-              playerKnownDotAbilities,
-              playerDotUntil,
-              dotKey,
-              ts
-            );
-          }
-        }
-      } else {
-        const dotKey = uniqueDotCandidate(
-          idx,
-          playerKnownDotAbilities,
-          playerDotUntil,
-          ts
-        );
-        if (dotKey !== null) {
-          attributedKey = dotKey;
-          attributedSource = dotSourceFor(
-            playerKnownDotAbilities,
-            playerDotUntil,
-            dotKey,
-            ts
-          );
-        } else if (idx.length === 1) {
-          attributedKey = idx[0];
-          const action = currentAction[+attributedKey];
-          attributedSource = action === "auto" || pMap[attributedKey].isAutoAtk ? "auto" : dotSourceFor(
-            playerKnownDotAbilities,
-            playerDotUntil,
-            attributedKey,
-            ts
-          );
         }
       }
       const primaryMonsterIndex = monstersAlive.findIndex(Boolean), monsterHits = [];
@@ -41001,15 +41185,47 @@ ${locks}` : ""}`;
           killed++;
         }
       }
+      let killAttributionKey = attributedKey;
       if (tickDmg > 0) {
         bus.dispatchEvent(
           new CustomEvent("damage", {
             detail: { amount: tickDmg, ts, battleType }
           })
         );
+        let scheduledDot = null;
+        if (attributedKey === null && reflectors.length === 0 && monsterActors.length === 0) {
+          const playerKeys = [...keyToName.keys()], activeKeys = activeDotCandidates(playerKeys, playerDotUntil, ts);
+          scheduledDot = scheduledDotDamage(playerDotCasts, monsterHits, ts);
+          if (scheduledDot.groups.length) {
+            if (scheduledDot.groups.length === 1 && scheduledDot.unmatchedAmount === 0) {
+              killAttributionKey = scheduledDot.groups[0].key;
+            }
+          } else if (!scheduledDot.ambiguous && !scheduledDot.hasPendingTargetSchedule && activeKeys.length === 1) {
+            const activeKey = uniqueActiveDotCandidate(
+              playerKeys,
+              playerDotUntil,
+              ts
+            );
+            attributedKey = activeKey;
+            attributedSource = activeDotSourceFor(playerDotUntil, activeKey, ts);
+            killAttributionKey = activeKey;
+          } else if (!scheduledDot.ambiguous && !scheduledDot.hasPendingTargetSchedule && activeKeys.length === 0 && idx.length === 1) {
+            attributedKey = idx[0];
+            killAttributionKey = attributedKey;
+            const action = currentAction[+attributedKey];
+            attributedSource = action === "auto" || pMap[attributedKey].isAutoAtk ? "auto" : "unknown";
+          }
+        }
         if (attributedKey !== null) {
           const name = keyToName.get(attributedKey);
           if (name) {
+            recordDotAttribution(
+              playerDotCasts,
+              attributedKey,
+              attributedSource,
+              monsterHits,
+              ts
+            );
             const pierce = splitCrossbowPierce(
               name,
               attributedSource,
@@ -41060,6 +41276,27 @@ ${locks}` : ""}`;
             }
             Diagnostics.recordNominal();
           }
+        } else if (scheduledDot?.groups.length) {
+          for (const group of scheduledDot.groups) {
+            const name = keyToName.get(group.key);
+            if (!name || !(group.amount > 0)) continue;
+            bus.dispatchEvent(
+              new CustomEvent("playerDamage", {
+                detail: {
+                  name,
+                  amount: group.amount,
+                  source: `dot:${group.abilityHrid}`,
+                  ts,
+                  battleType
+                }
+              })
+            );
+          }
+          if (scheduledDot.unmatchedAmount > 0) {
+            Diagnostics.recordOrphan(scheduledDot.unmatchedAmount);
+          } else {
+            Diagnostics.recordNominal();
+          }
         } else if (reflectors.length > 1) {
           const share = tickDmg / reflectors.length;
           reflectors.forEach((key) => {
@@ -41082,8 +41319,8 @@ ${locks}` : ""}`;
           Diagnostics.recordOrphan(tickDmg);
         }
       }
-      if (killed > 0 && attributedKey !== null) {
-        const name = keyToName.get(attributedKey);
+      if (killed > 0 && killAttributionKey !== null) {
+        const name = keyToName.get(killAttributionKey);
         if (name)
           for (let n = 0; n < killed; n++)
             bus.dispatchEvent(
@@ -41319,6 +41556,9 @@ ${locks}` : ""}`;
       getCharacterId: () => currentCharacterId2,
       getCombatKey: () => currentCombatKey,
       testHandleMessage: handleMessage2,
+      testSetNow(value) {
+        testNow = Number.isFinite(value) ? Number(value) : null;
+      },
       scanGuildNames,
       scanGuildNamesAttrs,
       scanGuildNamesLoose,
@@ -41333,6 +41573,31 @@ ${locks}` : ""}`;
 
   // src/features/dps/30-history.js
   var langText = (zh, en) => Settings.getLanguage() === "en" ? en : zh;
+  var UNATTRIBUTED_EPSILON = 1e-4;
+  function withUnattributedDamage(players, teamDamage, elapsed) {
+    const attributed = players.reduce(
+      (sum, player) => sum + (Number(player.damage) || 0),
+      0
+    ), damage = Math.max(0, (Number(teamDamage) || 0) - attributed);
+    if (!(damage > UNATTRIBUTED_EPSILON)) return players;
+    return [
+      ...players,
+      {
+        name: langText("无法归属伤害", "Unattributed Damage"),
+        synthetic: "unattributed-damage",
+        classId: "unknown",
+        damage,
+        dps: elapsed > 0 ? damage / elapsed : 0,
+        healing: 0,
+        hps: 0,
+        taken: 0,
+        takenPs: 0,
+        kills: 0,
+        breakdown: null,
+        takenBreakdown: null
+      }
+    ];
+  }
   var HistoryStore = /* @__PURE__ */ (() => {
     const KEY = "kikimeter:history:v2", LEGACY_KEY = "kikimeter:history:v1", ACTIVE_KEY = "kikimeter:active:v2";
     const MAX_PER_TYPE = 10;
@@ -41997,40 +42262,40 @@ ${locks}` : ""}`;
       }));
     }
     function current() {
-      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames();
+      const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), players = names.map((name) => ({
+        name,
+        classId: ClassSystem.classFor(name),
+        damage: Session.getPlayerDamage(name),
+        dps: Session.getPlayerDps(name),
+        healing: Session.getPlayerHealing(name),
+        hps: Session.getPlayerHps(name),
+        taken: Session.getPlayerTaken(name),
+        takenPs: Session.getPlayerTakenPs(name),
+        kills: Session.getPlayerKills(name),
+        breakdown: damageBreakdown(
+          Session.getPlayerDamageSources(name),
+          Session.getPlayerDamage(name),
+          elapsed,
+          name
+        ),
+        takenBreakdown: takenBreakdown(
+          Session.getPlayerTakenSources(name),
+          Session.getPlayerTaken(name),
+          elapsed
+        )
+      }));
       return {
         key: "current",
         label: langText("当前战斗", "Current combat"),
         current: true,
         type: Session.getMeta().type || "combat",
         elapsed,
-        teamDamage: Session.getTeamDamage(),
+        teamDamage,
         teamDps: Session.getTeamDps(),
         teamKills: Session.getTeamKills(),
         fragmentCount: Session.getFragments().length,
         graphPoints: Session.getFullGraphPoints(),
-        players: names.map((name) => ({
-          name,
-          classId: ClassSystem.classFor(name),
-          damage: Session.getPlayerDamage(name),
-          dps: Session.getPlayerDps(name),
-          healing: Session.getPlayerHealing(name),
-          hps: Session.getPlayerHps(name),
-          taken: Session.getPlayerTaken(name),
-          takenPs: Session.getPlayerTakenPs(name),
-          kills: Session.getPlayerKills(name),
-          breakdown: damageBreakdown(
-            Session.getPlayerDamageSources(name),
-            Session.getPlayerDamage(name),
-            elapsed,
-            name
-          ),
-          takenBreakdown: takenBreakdown(
-            Session.getPlayerTakenSources(name),
-            Session.getPlayerTaken(name),
-            elapsed
-          )
-        }))
+        players: withUnattributedDamage(players, teamDamage, elapsed)
       };
     }
     function historical(selected) {
@@ -42103,7 +42368,7 @@ ${locks}` : ""}`;
         teamKills,
         fragmentCount: fragment ? 1 : (entry.fragments || []).length || 1,
         graphPoints: fragment ? [] : graphPoints(entry.graph),
-        players
+        players: withUnattributedDamage(players, teamDamage, elapsed)
       };
     }
     function get() {
@@ -42664,7 +42929,7 @@ ${locks}` : ""}`;
     container.innerHTML = "";
     const max = rows.length ? Math.max(...rows.map((r) => r.value), 1) : 1;
     rows.forEach((r, i) => {
-      const cls = ClassSystem.get(r.name), line = el("div", {
+      const synthetic = r.synthetic === "unattributed-damage", cls = synthetic ? ClassSystem.definitions.unknown : ClassSystem.get(r.name), line = el("div", {
         position: "relative",
         height: "24px",
         margin: "2px 0",
@@ -42705,19 +42970,20 @@ ${locks}` : ""}`;
       });
       rank.textContent = String(i + 1) + ".";
       const icon = iconElement(cls.icon, cls.label);
-      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
+      icon.title = synthetic ? r.name : `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
       Object.assign(icon.style, {
         width: "19px",
         height: "19px",
         objectFit: "contain",
         flexShrink: "0",
-        cursor: "pointer",
+        cursor: synthetic ? "default" : "pointer",
         filter: "drop-shadow(0 1px 1px #000)"
       });
-      icon.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openClassPicker(r.name, icon, rerender);
-      });
+      if (!synthetic)
+        icon.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openClassPicker(r.name, icon, rerender);
+        });
       const name = el("span", {
         fontWeight: "600",
         overflow: "hidden",
@@ -43922,6 +44188,7 @@ ${locks}` : ""}`;
       ) : view.teamDamage;
       const rows = (view.players || []).map((p) => ({
         name: p.name,
+        synthetic: p.synthetic,
         value: mainMode === "hps" ? Number(p.healing) || 0 : mainMode === "taken" ? Number(p.taken) || 0 : Number(p.damage) || 0,
         ps: mainMode === "hps" ? Number(p.hps) || 0 : mainMode === "taken" ? Number(p.takenPs) || 0 : Number(p.dps) || 0,
         pct: total > 0 ? (mainMode === "hps" ? Number(p.healing) || 0 : mainMode === "taken" ? Number(p.taken) || 0 : Number(p.damage) || 0) * 100 / total : 0,
@@ -44398,6 +44665,7 @@ ${locks}` : ""}`;
       titleEl.textContent = langText4(mode.zh, mode.en);
       const rows = (view.players || []).map((p) => ({
         n: p.name,
+        synthetic: p.synthetic,
         v: Number(p[mode.value]) || 0,
         ps: Number(p[mode.perSecond]) || 0,
         breakdown: mode.id === "dmg" ? p.breakdown : mode.id === "taken" ? p.takenBreakdown : null
@@ -44408,6 +44676,7 @@ ${locks}` : ""}`;
         listEl,
         rows.map((r) => ({
           name: r.n,
+          synthetic: r.synthetic,
           value: r.v,
           ps: r.ps,
           pct: 100 * r.v / total,
@@ -45689,15 +45958,7 @@ ${locks}` : ""}`;
   }
   function hoursToReadableString(hours) {
     const sec = hours * 60 * 60;
-    if (sec >= 86400) {
-      return Number(sec / 86400).toFixed(1) + (runtime.config.isZH ? " 天" : " days");
-    }
-    const d = new Date(Math.round(sec * 1e3));
-    function pad(i) {
-      return ("0" + i).slice(-2);
-    }
-    let str = d.getUTCHours() + "h " + pad(d.getUTCMinutes()) + "m " + pad(d.getUTCSeconds()) + "s";
-    return str;
+    return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
   }
   function addExportButton(obj) {
     const checkElem = () => {

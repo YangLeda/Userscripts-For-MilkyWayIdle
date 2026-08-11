@@ -204,8 +204,8 @@ let settingsMap = {
   skillbook: {
     id: "skillbook",
     desc: isZH
-      ? "在技能书市场和物品词典显示实时升级需求"
-      : "Show live ability-book requirements in the market and item dictionary.",
+      ? "在物品词典显示实时技能书升级需求"
+      : "Show live ability-book requirements in the item dictionary.",
     isTrue: true,
   },
   ThirdPartyLinks: {
@@ -933,8 +933,8 @@ const catalogRows = [
     "tools",
     "技能书计算器",
     "Ability book calculator",
-    "在技能书市场和物品词典实时计算解锁、升级所需本数与参考购买成本。",
-    "Calculate live unlock, leveling, and reference purchase requirements in ability-book markets and the item dictionary.",
+    "在物品词典实时计算技能书解锁、升级所需本数与参考购买成本。",
+    "Calculate live ability-book unlock, leveling, and reference purchase requirements in the item dictionary.",
   ],
 ];
 

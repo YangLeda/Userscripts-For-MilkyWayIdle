@@ -1,3 +1,6 @@
+import "../src/data/translations.js";
+
+export { runtime } from "../src/core/runtime.js";
 export {
   CombatIdentity,
   GameAssets,

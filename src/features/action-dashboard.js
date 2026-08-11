@@ -19,7 +19,7 @@ function formatDuration(seconds) {
   const parts = [t(`${days}天`, `${days}d`)];
   if (hours > 0) parts.push(t(`${hours}小时`, `${hours}h`));
   if (minutes > 0) parts.push(t(`${minutes}分`, `${minutes}m`));
-  return parts.join(" ");
+  return parts.join(runtime.config.isZH ? "" : " ");
 }
 
 function formatClock(timestamp) {

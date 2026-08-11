@@ -1388,6 +1388,7 @@ const KikiMeter = (() => {
     const rows = (view.players || [])
       .map((p) => ({
         name: p.name,
+        synthetic: p.synthetic,
         value:
           mainMode === "hps"
             ? Number(p.healing) || 0

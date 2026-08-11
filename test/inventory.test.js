@@ -191,7 +191,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-toggle\s*\{[^}]*height:\s*1\.125rem[^}]*min-height:\s*0[^}]*padding:\s*0 \.25rem/s,
+    /\.mwi-summary-toggle\s*\{[^}]*min-height:\s*1\.375rem[^}]*padding:\s*\.1875rem \.25rem/s,
   );
   assert.match(
     summaryStyles,
@@ -203,15 +203,15 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-stat\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*0 \.25rem/s,
+    /\.mwi-summary-stat\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*\.15rem \.25rem/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-asset-toggle\s*\{[^}]*min-height:\s*0[^}]*padding:\s*0 \.25rem[^}]*font-size:\s*inherit/s,
+    /\.mwi-asset-toggle\s*\{[^}]*min-height:\s*0[^}]*padding:\s*\.15rem \.25rem[^}]*font-size:\s*inherit/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-asset-row\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*0[^}]*font-size:\s*inherit/s,
+    /\.mwi-asset-row\s*\{[^}]*justify-content:\s*flex-start[^}]*gap:\s*\.375rem[^}]*padding:\s*\.15rem 0[^}]*font-size:\s*inherit/s,
   );
   assert.match(
     summaryStyles,
@@ -219,12 +219,36 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-stat-value\s*\{[^}]*font-weight:\s*400/s,
+    /\.mwi-summary-stat-value\s*\{[^}]*font-weight:\s*650/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-asset-row \.mwi-number, \.mwi-asset-row > span:last-child\s*\{[^}]*font-weight:\s*400/s,
+    /\.mwi-asset-row \.mwi-number, \.mwi-asset-row > span:last-child\s*\{[^}]*font-weight:\s*600/s,
   );
+  const sortControls = document.querySelector("#script_inv_sort_controls");
+  const summary = document.querySelector("#script_inventory_summary");
+  assert.equal(sortControls.nextElementSibling, summary);
+  const noneButton = document.querySelector("#script_sortByNone_btn");
+  assert.equal(noneButton.style.fontWeight, "700");
+  document.querySelector("#script_sortByFair_btn").click();
+  assert.equal(
+    document.querySelector("#script_sortByFair_btn").style.fontWeight,
+    "700",
+  );
+  assert.equal(noneButton.style.fontWeight, "500");
+
+  const profitTab = document.createElement("button");
+  profitTab.id = "mwitools-asset-history-tab";
+  profitTab.setAttribute("aria-selected", "true");
+  profitTab.dataset.active = "true";
+  document.body.prepend(profitTab);
+  await runtime.api.calculateNetworth();
+  assert.equal(summary.style.display, "none");
+  assert.equal(sortControls.style.display, "none");
+  profitTab.remove();
+  await runtime.api.calculateNetworth();
+  assert.equal(summary.style.display, "");
+  assert.equal(sortControls.style.display, "");
   assert.equal(
     document
       .querySelector("#script_inventory_summary")
