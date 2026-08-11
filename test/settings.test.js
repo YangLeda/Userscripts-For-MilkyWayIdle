@@ -178,7 +178,7 @@ test("card settings render every visible setting with nested children and search
     /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
   );
   assert.match(root.textContent, /牛铃计入总资产/);
-  assert.match(root.textContent, /背部装备按保护之镜估值/);
+  assert.match(root.textContent, /普通披风按取得成本估值/);
 
   const search = root.querySelector(".mwi-settings-search");
   search.value = "Idle members";

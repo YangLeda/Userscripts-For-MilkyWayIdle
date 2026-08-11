@@ -108,8 +108,8 @@ let settingsMap = {
   valueBackEquipmentWithProtectionMirror: {
     id: "valueBackEquipmentWithProtectionMirror",
     desc: isZH
-      ? "背部装备按保护之镜强化成本估值"
-      : "Value back equipment using enhancement costs with Mirrors of Protection.",
+      ? "普通未强化披风按取得成本估值"
+      : "Value ordinary unenhanced capes by acquisition cost.",
     isTrue: true,
   },
   invSort: {
@@ -613,10 +613,10 @@ const catalogRows = [
   [
     "valueBackEquipmentWithProtectionMirror",
     "inventory",
-    "背部装备按保护之镜估值",
-    "Value back equipment with protection mirrors",
-    "强化背部装备按使用保护之镜的期望强化成本估值；默认开启。",
-    "Value enhanced back-slot equipment by its expected enhancement cost using Mirrors of Protection. On by default.",
+    "普通披风按取得成本估值",
+    "Value ordinary capes by acquisition cost",
+    "只控制未强化、未精炼的普通披风：开启后按商店等实际取得成本估值，关闭后按市场/NPC 常规价值。强化披风始终按保护之镜期望成本估值，精炼披风始终计入基础披风与精炼材料。",
+    "Only controls ordinary capes that are neither enhanced nor refined: on uses shop/acquisition cost, while off uses normal market/NPC value. Enhanced capes always use expected Mirror of Protection cost, and refined capes always include their base cape and refining materials.",
   ],
   [
     "invSort",

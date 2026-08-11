@@ -29,6 +29,7 @@ runtime.state.marketItemValues = {
   "/items/test_cape": { 5: 50_000 },
   "/items/artificer_cape_refined": { 5: 60_000 },
   "/items/test_sword": { 5: 40_000 },
+  "/items/labyrinth_refinement_shard": { 0: 20 },
 };
 runtime.state.initData_itemDetailMap = {
   "/items/material_cheap": {
@@ -83,6 +84,14 @@ runtime.state.initData_itemDetailMap = {
   "/items/test_sword": {
     equipmentDetail: { equipmentSlotHrid: "/item_locations/main_hand" },
   },
+  "/items/chance_cape": {
+    sellPrice: 100_000,
+    equipmentDetail: { type: "/equipment_types/back" },
+  },
+  "/items/chance_cape_refined": {
+    sellPrice: 100_000,
+    equipmentDetail: { type: "/equipment_types/back" },
+  },
 };
 runtime.state.initData_shopItemDetailMap = {
   dungeon_reward: {
@@ -105,6 +114,19 @@ runtime.state.initData_labyrinthShopItemDetailMap = {
     itemHrid: "/items/labyrinth_reward",
     cost: { itemHrid: "/items/labyrinth_token", count: 10 },
     outputCount: 2,
+  },
+  chance_cape: {
+    itemHrid: "/items/chance_cape",
+    cost: { itemHrid: "/items/labyrinth_token", count: 250 },
+    outputCount: 1,
+  },
+};
+runtime.state.initData_actionDetailMap = {
+  chance_cape_refined: {
+    upgradeItemHrid: "/items/chance_cape",
+    retainAllEnhancement: true,
+    inputItems: [{ itemHrid: "/items/labyrinth_refinement_shard", count: 10 }],
+    outputItems: [{ itemHrid: "/items/chance_cape_refined", count: 1 }],
   },
 };
 runtime.state.initData_openableLootDropMap = {
@@ -277,6 +299,51 @@ test("non-tradable token assets are classified separately", () => {
   );
 });
 
+test("non-refined and refined back gear keep acquisition and enhancement value", () => {
+  const originalPlanner = runtime.api.calculateEnhancementPlan;
+  runtime.api.calculateEnhancementPlan = (options) => {
+    const baseValue = options.getFairValue("/items/chance_cape", 0);
+    const refinementValue = options.itemHrid.endsWith("_refined")
+      ? options.getFairValue("/items/labyrinth_refinement_shard", 0) * 10
+      : 0;
+    return {
+      status: "complete",
+      totalCost:
+        baseValue + refinementValue + Number(options.targetLevel) * 1_000,
+    };
+  };
+
+  // The dynamic labyrinth-token value is 800, so acquisition costs 250 × 800.
+  // With the option off, only the plain +0 cape uses its normal NPC fallback.
+  // Refined or enhanced capes always include acquisition, refinement, and/or
+  // Mirror of Protection enhancement costs as applicable.
+  assetSettings.valueBackEquipmentWithProtectionMirror = false;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 0), 100_000);
+  assert.equal(
+    runtime.api.getAssetValue("/items/chance_cape_refined", 0),
+    200_200,
+  );
+  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 5), 205_000);
+  assert.equal(
+    runtime.api.getAssetValue("/items/chance_cape_refined", 5),
+    205_200,
+  );
+
+  assetSettings.valueBackEquipmentWithProtectionMirror = true;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 0), 200_000);
+  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 5), 205_000);
+  assert.equal(
+    runtime.api.getAssetValue("/items/chance_cape_refined", 5),
+    205_200,
+  );
+
+  runtime.api.calculateEnhancementPlan = originalPlanner;
+  assetSettings.valueBackEquipmentWithProtectionMirror = false;
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("back equipment can use forced protection-mirror enhancement value", () => {
   const originalPlanner = runtime.api.calculateEnhancementPlan;
   let received = null;
@@ -286,10 +353,6 @@ test("back equipment can use forced protection-mirror enhancement value", () => 
   };
 
   assetSettings.valueBackEquipmentWithProtectionMirror = false;
-  runtime.api.invalidateAssetValueCache();
-  assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 50_000);
-
-  assetSettings.valueBackEquipmentWithProtectionMirror = true;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 123_456);
   assert.equal(

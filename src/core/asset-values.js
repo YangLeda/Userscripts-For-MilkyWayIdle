@@ -206,6 +206,93 @@ function getShopDetails() {
   ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
 }
 
+function acquisitionCostValue(itemHrid, enhancementLevel, context) {
+  if (itemHrid === "/items/coin") return 1;
+  return getAssetValueInternal(itemHrid, enhancementLevel, context, {
+    forceAcquisitionValue: true,
+  });
+}
+
+function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
+  let bestValue = Number.POSITIVE_INFINITY;
+  for (const detail of getShopDetails()) {
+    const rewards = normalizeRewardRecords(detail);
+    const matchingCount = rewards.reduce((total, reward) => {
+      const rewardHrid = reward?.itemHrid ?? reward?.hrid;
+      const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
+      return rewardHrid === itemHrid && rewardLevel === enhancementLevel
+        ? total + positiveNumber(reward.count ?? 1)
+        : total;
+    }, 0);
+    if (!matchingCount) continue;
+
+    let totalCost = 0,
+      complete = true;
+    for (const cost of normalizeCostRecords(detail)) {
+      const costHrid = cost?.itemHrid ?? cost?.hrid;
+      const count = positiveNumber(cost?.count);
+      if (!costHrid || !count) continue;
+      const unitValue = acquisitionCostValue(
+        costHrid,
+        Number(cost?.enhancementLevel ?? 0) || 0,
+        context,
+      );
+      if (!(unitValue > 0)) {
+        complete = false;
+        break;
+      }
+      totalCost += count * unitValue;
+    }
+    if (complete && totalCost > 0) {
+      bestValue = Math.min(bestValue, totalCost / matchingCount);
+    }
+  }
+  return Number.isFinite(bestValue) ? bestValue : 0;
+}
+
+function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
+  if (!String(itemHrid).endsWith("_refined")) return 0;
+  let bestValue = Number.POSITIVE_INFINITY;
+  for (const [, action] of entriesOfMap(
+    runtime.state.initData_actionDetailMap,
+  )) {
+    const outputs = Array.isArray(action?.outputItems)
+      ? action.outputItems
+      : [];
+    const outputCount = outputs.reduce((total, output) => {
+      const outputHrid = output?.itemHrid ?? output?.hrid;
+      return outputHrid === itemHrid
+        ? total + positiveNumber(output.count ?? 1)
+        : total;
+    }, 0);
+    const baseItemHrid = action?.upgradeItemHrid;
+    if (!outputCount || !baseItemHrid) continue;
+
+    const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
+    let totalCost = acquisitionCostValue(baseItemHrid, retainedLevel, context),
+      complete = totalCost > 0;
+    for (const cost of action.inputItems ?? []) {
+      const costHrid = cost?.itemHrid ?? cost?.hrid;
+      const count = positiveNumber(cost?.count);
+      if (!costHrid || !count) continue;
+      const unitValue = acquisitionCostValue(
+        costHrid,
+        Number(cost?.enhancementLevel ?? 0) || 0,
+        context,
+      );
+      if (!(unitValue > 0)) {
+        complete = false;
+        break;
+      }
+      totalCost += count * unitValue;
+    }
+    if (complete && totalCost > 0) {
+      bestValue = Math.min(bestValue, totalCost / outputCount);
+    }
+  }
+  return Number.isFinite(bestValue) ? bestValue : 0;
+}
+
 function getShopCurrencyValue(currencyItemHrid, context) {
   let bestValue = 0;
   for (const detail of getShopDetails()) {
@@ -249,11 +336,23 @@ function getAssetValueInternal(
 ) {
   if (!itemHrid) return 0;
   const level = Number(enhancementLevel) || 0;
-  const useProtectionMirrorValue =
-    level > 0 &&
-    settingEnabled("valueBackEquipmentWithProtectionMirror") &&
-    isBackEquipment(itemHrid, options.itemLocationHrid);
-  const cacheKey = `${itemHrid}:${level}:${useProtectionMirrorValue ? "protection-mirror" : "market"}`;
+  const directFairValue = runtime.api.getFairValue(itemHrid, level);
+  const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
+  const refinedBackEquipment =
+    backEquipment && String(itemHrid).endsWith("_refined");
+  const preferAcquisitionValue =
+    options.forceAcquisitionValue === true ||
+    (backEquipment &&
+      (level > 0 ||
+        refinedBackEquipment ||
+        settingEnabled("valueBackEquipmentWithProtectionMirror")));
+  const useProtectionMirrorValue = level > 0 && backEquipment;
+  const cacheMode = useProtectionMirrorValue
+    ? "protection-mirror"
+    : preferAcquisitionValue
+      ? "acquisition"
+      : "market";
+  const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
   if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
   if (context.has(cacheKey)) return 0;
 
@@ -263,6 +362,12 @@ function getAssetValueInternal(
       targetLevel: level,
       forcedProtectionItemHrid: "/items/mirror_of_protection",
       allowPhilosopherMirror: false,
+      getFairValue: (hrid, targetLevel = 0) => {
+        const marketValue = runtime.api.getFairValue(hrid, targetLevel);
+        return marketValue > 0
+          ? marketValue
+          : acquisitionCostValue(hrid, targetLevel, context);
+      },
     });
     if (plan?.status === "complete" && positiveNumber(plan.totalCost)) {
       const value = positiveNumber(plan.totalCost);
@@ -271,10 +376,9 @@ function getAssetValueInternal(
     }
   }
 
-  const fairValue = runtime.api.getFairValue(itemHrid, level);
-  if (fairValue > 0) {
-    assetValueCache.set(cacheKey, fairValue);
-    return fairValue;
+  if (!preferAcquisitionValue && directFairValue > 0) {
+    assetValueCache.set(cacheKey, directFairValue);
+    return directFairValue;
   }
 
   context.add(cacheKey);
@@ -288,10 +392,17 @@ function getAssetValueInternal(
   } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
     value = getShopCurrencyValue(itemHrid, context);
   } else {
-    value = getOpenableValue(itemHrid, context);
+    value = Math.max(
+      !backEquipment || preferAcquisitionValue
+        ? getShopAcquisitionValue(itemHrid, level, context)
+        : 0,
+      getRefinedAcquisitionValue(itemHrid, level, context),
+      getOpenableValue(itemHrid, context),
+    );
   }
   context.delete(cacheKey);
 
+  if (!(value > 0)) value = directFairValue;
   if (!(value > 0)) {
     value = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
   }

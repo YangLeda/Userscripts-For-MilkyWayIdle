@@ -83,6 +83,24 @@ runtime.state.initData_itemDetailMap = {
       noncombatEnhancementBonuses: { craftingSpeed: 0.0058 },
     },
   },
+  "/items/chance_cape": {
+    equipmentDetail: {
+      type: "/equipment_types/back",
+      combatStats: {},
+      noncombatStats: { alchemySpeed: 0.05 },
+      combatEnhancementBonuses: {},
+      noncombatEnhancementBonuses: { alchemySpeed: 0.005 },
+    },
+  },
+  "/items/chance_cape_refined": {
+    equipmentDetail: {
+      type: "/equipment_types/back",
+      combatStats: {},
+      noncombatStats: { alchemySpeed: 0.058 },
+      combatEnhancementBonuses: {},
+      noncombatEnhancementBonuses: { alchemySpeed: 0.0058 },
+    },
+  },
 };
 runtime.state.initData_houseRoomDetailMap = Object.fromEntries(
   allHouseHrids.map((houseHrid) => [
@@ -219,6 +237,39 @@ test("refined back equipment contributes its enhanced value to gear score", () =
       skillingEquipment: 12,
     },
   );
+});
+
+test("all refined and non-refined cape states contribute to equipped score", () => {
+  const originalGetAssetValue = runtime.api.getAssetValue;
+  const values = new Map([
+    ["/items/chance_cape:0", 10_000_000],
+    ["/items/chance_cape:5", 20_000_000],
+    ["/items/chance_cape_refined:0", 30_000_000],
+    ["/items/chance_cape_refined:5", 40_000_000],
+  ]);
+  runtime.api.getAssetValue = (itemHrid, enhancementLevel) =>
+    values.get(`${itemHrid}:${enhancementLevel}`) ?? 0;
+
+  assert.deepEqual(
+    runtime.api.calculateGearScores(
+      [...values.keys()].map((key) => {
+        const [itemHrid, enhancementLevel] = key.split(":");
+        return {
+          itemHrid,
+          itemLocationHrid: "/item_locations/back",
+          enhancementLevel: Number(enhancementLevel),
+          count: 1,
+        };
+      }),
+    ),
+    {
+      combatEquipment: 0,
+      skillingTools: 0,
+      skillingEquipment: 100,
+    },
+  );
+
+  runtime.api.getAssetValue = originalGetAssetValue;
 });
 
 test("combat and skilling houses are dynamic while all houses remain fixed assets", async () => {

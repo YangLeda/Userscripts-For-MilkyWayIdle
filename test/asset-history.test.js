@@ -253,6 +253,39 @@ test("a refined back item is included in equipped assets with its location", asy
   });
 });
 
+test("warehouse assets include every refined and enhanced cape state", async () => {
+  const values = new Map([
+    ["/items/chance_cape:0", 100],
+    ["/items/chance_cape:5", 200],
+    ["/items/chance_cape_refined:0", 300],
+    ["/items/chance_cape_refined:5", 400],
+  ]);
+  runtime.state.initData_characterItems = [...values.keys()].map((key) => {
+    const [itemHrid, enhancementLevel] = key.split(":");
+    return {
+      itemHrid,
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: Number(enhancementLevel),
+      count: 1,
+    };
+  });
+  runtime.state.initData_myMarketListings = [];
+  runtime.api.getAssetValue = (itemHrid, enhancementLevel) =>
+    values.get(`${itemHrid}:${enhancementLevel}`) ?? 0;
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.isNonTradableTokenAsset = () => false;
+  runtime.api.getSelfBuildScores = async () => ({
+    assets: { allHouses: 0, allAbilities: 0 },
+  });
+  runtime.api.getGuildShrineValue = () => 0;
+
+  const result = await getAssetSnapshot();
+  assert.equal(result.values.equipment, 0);
+  assert.equal(result.values.inventory, 1_000);
+  assert.equal(result.values.total, 1_000);
+});
+
 test("unknown legacy components never become fake zero-valued percentages", () => {
   const values = normalizeAssetValues(
     { equipment: 1, inventory: 2, marketListings: 3, total: 99 },
