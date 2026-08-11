@@ -260,11 +260,31 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
   };
 }
 
-function getPrice(itemHrid, kind) {
-  const value =
-    kind === "sell"
-      ? runtime.api.getNetSellPrice?.(itemHrid, 0)
-      : runtime.api.getAskPrice?.(itemHrid, 0);
+const PROFIT_VALUATION_MODES = new Set(["conservative", "fair", "aggressive"]);
+
+function getProfitValuationMode() {
+  const mode = String(runtime.settings.get?.("profitValuationMode") ?? "fair");
+  return PROFIT_VALUATION_MODES.has(mode) ? mode : "fair";
+}
+
+function getPrice(itemHrid, kind, mode) {
+  let value = 0;
+  if (mode === "conservative") {
+    value =
+      kind === "sell"
+        ? runtime.api.getNetSellPrice?.(itemHrid, 0)
+        : runtime.api.getAskPrice?.(itemHrid, 0);
+  } else if (mode === "aggressive") {
+    value =
+      kind === "sell"
+        ? runtime.api.getNetSellPriceAtAsk?.(itemHrid, 0)
+        : runtime.api.getBidPrice?.(itemHrid, 0);
+  } else {
+    value = runtime.api.getFairValue?.(itemHrid, 0);
+    if (kind === "sell" && Number(value) > 0) {
+      value *= 1 - (Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0);
+    }
+  }
   return Number(value) > 0 ? Number(value) : null;
 }
 
@@ -411,12 +431,84 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     Number.isFinite(maxCraftable) &&
     (infinite || maxCraftable < normalizedCount);
 
-  const missingPrices = [];
+  const valuationMode = getProfitValuationMode();
+  const optionalOutputs = getOptionalOutputs(actionHrid, detail);
+  const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+
+  function calculateValuation(mode) {
+    const missingPrices = [];
+    const unpricedByproducts = [];
+    const materialCostPerAction = inputs.reduce((total, input) => {
+      const effectiveCount =
+        input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
+      const price = getPrice(input.itemHrid, "buy", mode);
+      if (price === null) missingPrices.push(input.itemHrid);
+      return total + (price === null ? 0 : effectiveCount * price);
+    }, 0);
+    const primaryRevenuePerAction = outputs.reduce((total, output) => {
+      const effectiveCount = output.count * (1 + quantityBonus);
+      const price = getPrice(output.itemHrid, "sell", mode);
+      if (price === null) missingPrices.push(output.itemHrid);
+      return total + (price === null ? 0 : effectiveCount * price);
+    }, 0);
+    const byproductRevenuePerAction = optionalOutputs.reduce(
+      (total, output) => {
+        const price = getPrice(output.itemHrid, "sell", mode);
+        if (price === null) unpricedByproducts.push(output.itemHrid);
+        return total + (price === null ? 0 : output.count * price);
+      },
+      0,
+    );
+    let teaCostPerHour = 0;
+    for (const drink of teaEffects.drinks) {
+      const price = getPrice(drink.itemHrid, "buy", mode);
+      if (price === null) missingPrices.push(drink.itemHrid);
+      const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+      teaCostPerHour += price === null ? 0 : price * countPerHour;
+    }
+    const teaCostPerAction = actionsPerHour
+      ? teaCostPerHour / actionsPerHour
+      : 0;
+    const revenuePerAction =
+      primaryRevenuePerAction + byproductRevenuePerAction;
+    const complete = missingPrices.length === 0 && secondsPerAction !== null;
+    const netProfitPerAction = complete
+      ? revenuePerAction - materialCostPerAction - teaCostPerAction
+      : null;
+    const profitPerHour =
+      netProfitPerAction === null || !actionsPerHour
+        ? null
+        : netProfitPerAction * actionsPerHour;
+    const totalProfit =
+      netProfitPerAction === null || effectivelyInfinite
+        ? null
+        : netProfitPerAction * executableCount;
+    return {
+      mode,
+      complete,
+      materialCostPerAction,
+      teaCostPerHour,
+      teaCostPerAction,
+      primaryRevenuePerAction,
+      byproductRevenuePerAction,
+      revenuePerAction,
+      netProfitPerAction,
+      profitPerHour,
+      totalProfit,
+      missingPrices: [...new Set(missingPrices)],
+      unpricedByproducts: [...new Set(unpricedByproducts)],
+    };
+  }
+
+  const valuations = Object.fromEntries(
+    [...PROFIT_VALUATION_MODES].map((mode) => [mode, calculateValuation(mode)]),
+  );
+  const selectedValuation = valuations[valuationMode];
+  const missingPrices = selectedValuation.missingPrices;
   const inputDetails = inputs.map((input) => {
     const effectiveCount =
       input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
-    const unitPrice = getPrice(input.itemHrid, "buy");
-    if (unitPrice === null) missingPrices.push(input.itemHrid);
+    const unitPrice = getPrice(input.itemHrid, "buy", valuationMode);
     return {
       ...input,
       effectiveCount,
@@ -425,15 +517,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice,
     };
   });
-  const materialCostPerAction = inputDetails.reduce(
-    (total, input) => total + (input.valuePerAction ?? 0),
-    0,
-  );
-
   const outputDetails = outputs.map((output) => {
     const effectiveCount = output.count * (1 + quantityBonus);
-    const unitPrice = getPrice(output.itemHrid, "sell");
-    if (unitPrice === null) missingPrices.push(output.itemHrid);
+    const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
     return {
       ...output,
       baseCount: output.count,
@@ -446,40 +532,23 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice,
     };
   });
-  const primaryRevenuePerAction = outputDetails.reduce(
-    (total, output) => total + (output.valuePerAction ?? 0),
-    0,
-  );
+  const unpricedByproducts = selectedValuation.unpricedByproducts;
+  const byproductOutputs = optionalOutputs.map((output) => {
+    const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+    return {
+      ...output,
+      effectiveCount: output.count,
+      expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
+      owned: getInventoryCount(output.itemHrid),
+      unitPrice,
+      valuePerAction: unitPrice === null ? null : output.count * unitPrice,
+    };
+  });
 
-  const unpricedByproducts = [];
-  const byproductOutputs = getOptionalOutputs(actionHrid, detail).map(
-    (output) => {
-      const unitPrice = getPrice(output.itemHrid, "sell");
-      if (unitPrice === null) unpricedByproducts.push(output.itemHrid);
-      return {
-        ...output,
-        effectiveCount: output.count,
-        expectedCount:
-          output.count * (effectivelyInfinite ? 1 : executableCount),
-        owned: getInventoryCount(output.itemHrid),
-        unitPrice,
-        valuePerAction: unitPrice === null ? null : output.count * unitPrice,
-      };
-    },
-  );
-  const byproductRevenuePerAction = byproductOutputs.reduce(
-    (total, output) => total + (output.valuePerAction ?? 0),
-    0,
-  );
-  const revenuePerAction = primaryRevenuePerAction + byproductRevenuePerAction;
-
-  let teaCostPerHour = 0;
   const drinks = teaEffects.drinks.map((drink) => {
-    const price = getPrice(drink.itemHrid, "buy");
-    if (price === null) missingPrices.push(drink.itemHrid);
+    const price = getPrice(drink.itemHrid, "buy", valuationMode);
     const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
     const costPerHour = price === null ? null : price * countPerHour;
-    teaCostPerHour += costPerHour ?? 0;
     return {
       ...drink,
       countPerHour,
@@ -487,12 +556,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       unitPrice: price,
     };
   });
-  const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
-  const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : 0;
-  const complete = missingPrices.length === 0 && secondsPerAction !== null;
-  const netProfitPerAction = complete
-    ? revenuePerAction - materialCostPerAction - teaCostPerAction
-    : null;
+  const complete = selectedValuation.complete;
   let totalSeconds = null;
   if (effectivelyInfinite) {
     totalSeconds = Infinity;
@@ -547,23 +611,19 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     timingSource: timing?.timingSource ?? null,
     teaEffects: { ...teaEffects, drinks },
     maxCraftable,
-    materialCostPerAction,
-    teaCostPerHour,
-    teaCostPerAction,
-    primaryRevenuePerAction,
-    byproductRevenuePerAction,
-    revenuePerAction,
-    netProfitPerAction,
-    profitPerHour:
-      netProfitPerAction === null || !actionsPerHour
-        ? null
-        : netProfitPerAction * actionsPerHour,
-    totalProfit:
-      netProfitPerAction === null || effectivelyInfinite
-        ? null
-        : netProfitPerAction * executableCount,
-    missingPrices: [...new Set(missingPrices)],
-    unpricedByproducts: [...new Set(unpricedByproducts)],
+    valuationMode,
+    valuations,
+    materialCostPerAction: selectedValuation.materialCostPerAction,
+    teaCostPerHour: selectedValuation.teaCostPerHour,
+    teaCostPerAction: selectedValuation.teaCostPerAction,
+    primaryRevenuePerAction: selectedValuation.primaryRevenuePerAction,
+    byproductRevenuePerAction: selectedValuation.byproductRevenuePerAction,
+    revenuePerAction: selectedValuation.revenuePerAction,
+    netProfitPerAction: selectedValuation.netProfitPerAction,
+    profitPerHour: selectedValuation.profitPerHour,
+    totalProfit: selectedValuation.totalProfit,
+    missingPrices,
+    unpricedByproducts,
   };
 }
 

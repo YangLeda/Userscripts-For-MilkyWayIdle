@@ -89,6 +89,12 @@ function getNetSellPrice(itemHrid, enhancementLevel = 0) {
   );
 }
 
+function getNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+  return (
+    getAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid))
+  );
+}
+
 function getMarketPriceIncrement(price) {
   const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
   const priceText = String(integerPrice);
@@ -445,6 +451,7 @@ Object.assign(runtime.api, {
   getFairValue,
   getMarketTaxRate,
   getNetSellPrice,
+  getNetSellPriceAtAsk,
   getMarketPriceIncrement,
   normalizeMarketPrice,
   parseCompactNumber,

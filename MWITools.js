@@ -1010,6 +1010,11 @@
       desc: isZH ? "启用新版 DPS、HPS、承伤、战斗片段与历史统计" : "Enable DPS, HPS, damage-taken, segment, and combat history tracking.",
       isTrue: true
     },
+    battleBuffs: {
+      id: "battleBuffs",
+      desc: isZH ? "在战斗单位下方显示 Buff / Debuff 图标和倒计时" : "Show buff and debuff icons with countdowns below combat units.",
+      isTrue: true
+    },
     actionBarProfit: {
       id: "actionBarProfit",
       desc: isZH ? "动作栏显示净利润" : "Show net profit in the action bar.",
@@ -1024,6 +1029,12 @@
       id: "productionProfit",
       desc: isZH ? "生产面板显示净利润" : "Show net profit in production panels.",
       isTrue: true
+    },
+    profitValuationMode: {
+      id: "profitValuationMode",
+      desc: isZH ? "生产利润估值口径" : "Production profit valuation mode.",
+      type: "choice",
+      value: "fair"
     },
     taskInsights: {
       id: "taskInsights",
@@ -1261,8 +1272,16 @@
       "production",
       "生产净利润",
       "Production net profit",
-      "显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-      "Show after-tax net profit per action, hour, day, and entered quantity."
+      "按所选估值口径显示每次、每小时、每天和本次输入数量对应的税后净利润。",
+      "Show after-tax net profit per action, hour, day, and entered quantity using the selected valuation mode."
+    ],
+    [
+      "profitValuationMode",
+      "production",
+      "利润估值口径",
+      "Profit valuation mode",
+      "保守按即时成交，公允按市场价值，激进按挂单成交；默认使用公允。",
+      "Conservative uses immediate execution, fair uses market value, and aggressive uses limit orders. Fair is the default."
     ],
     [
       "actionPanel_foragingTotal",
@@ -1449,6 +1468,14 @@
       "Track damage, healing, damage taken, segments, and history; configure display details in the DPS panel."
     ],
     [
+      "battleBuffs",
+      "combat",
+      "战斗 Buff 显示",
+      "Battle buff display",
+      "在每个战斗单位下方显示增益和减益图标，带剩余时间倒计时环。",
+      "Show buff and debuff icons with countdown rings below each combat unit."
+    ],
+    [
       "mapIndex",
       "combat",
       "战斗地图编号",
@@ -1557,12 +1584,42 @@
       }
     ])
   );
+  Object.assign(settingsCatalog.profitValuationMode, {
+    type: "choice",
+    options: [
+      {
+        value: "conservative",
+        label: { zh: "保守", en: "Conservative" },
+        description: {
+          zh: "材料和饮料按最低卖单价买入；产物和副产物按最高买单价卖出并扣税，模拟全部立即成交。",
+          en: "Buy materials and drinks at the lowest ask; sell outputs and byproducts at the highest bid after tax, modeling immediate execution."
+        }
+      },
+      {
+        value: "fair",
+        label: { zh: "公允（默认）", en: "Fair (default)" },
+        description: {
+          zh: "材料、饮料、产物和副产物均按服务器市场价值计算；缺失时取买卖单中间价（仅一侧有价则用该价），出售收入再扣税。",
+          en: "Use the server market value for every item; if absent, use the bid/ask midpoint or the available side, then deduct tax from sale revenue."
+        }
+      },
+      {
+        value: "aggressive",
+        label: { zh: "激进", en: "Aggressive" },
+        description: {
+          zh: "材料和饮料按最高买单价挂单买入；产物和副产物按最低卖单价挂单卖出并扣税，假设挂单最终成交。",
+          en: "Buy materials and drinks with limit orders at the highest bid; sell outputs and byproducts at the lowest ask after tax, assuming the orders eventually fill."
+        }
+      }
+    ]
+  });
   var settingParents = {
     actionBarProfit: "totalActionTime",
     actionQueue: "totalActionTime",
     actionPanel_foragingTotal: "actionPanel_totalTime",
     productionSummary: "actionPanel_totalTime",
     productionProfit: "actionPanel_totalTime",
+    profitValuationMode: "productionProfit",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
@@ -1584,14 +1641,27 @@
   }
   settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
   var settingListeners = /* @__PURE__ */ new Map();
+  function normalizeSettingValue(id, value) {
+    const setting = settingsMap[id];
+    if (!setting) return void 0;
+    if (setting.type !== "choice") return Boolean(value);
+    const allowed = new Set(
+      (settingsCatalog[id]?.options ?? []).map((option) => option.value)
+    );
+    const candidate = String(value ?? "");
+    return allowed.has(candidate) ? candidate : setting.value;
+  }
   function getSetting(id) {
-    return settingsMap[id]?.isTrue;
+    const setting = settingsMap[id];
+    return setting?.type === "choice" ? setting.value : setting?.isTrue;
   }
   async function setSetting(id, value, options = {}) {
-    if (!settingsMap[id]) return false;
-    const normalized = Boolean(value);
-    const previous = settingsMap[id].isTrue;
-    settingsMap[id].isTrue = normalized;
+    const setting = settingsMap[id];
+    if (!setting) return false;
+    const normalized = normalizeSettingValue(id, value);
+    const previous = getSetting(id);
+    if (setting.type === "choice") setting.value = normalized;
+    else setting.isTrue = normalized;
     if (previous === normalized && !options.force) return true;
     if (options.persist !== false) runtime.api.persistSettings?.();
     for (const listener of settingListeners.get(id) ?? []) {
@@ -18302,6 +18372,9 @@
   function getNetSellPrice(itemHrid, enhancementLevel = 0) {
     return getBidPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
   }
+  function getNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+    return getAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
+  }
   function getMarketPriceIncrement(price) {
     const integerPrice = Math.max(1, Math.floor(Math.abs(Number(price) || 0)));
     const priceText = String(integerPrice);
@@ -18603,6 +18676,7 @@
     getFairValue,
     getMarketTaxRate,
     getNetSellPrice,
+    getNetSellPriceAtAsk,
     getMarketPriceIncrement,
     normalizeMarketPrice,
     parseCompactNumber,
@@ -18855,8 +18929,23 @@
       timingSource: "calculated"
     };
   }
-  function getPrice(itemHrid, kind) {
-    const value = kind === "sell" ? runtime.api.getNetSellPrice?.(itemHrid, 0) : runtime.api.getAskPrice?.(itemHrid, 0);
+  var PROFIT_VALUATION_MODES = /* @__PURE__ */ new Set(["conservative", "fair", "aggressive"]);
+  function getProfitValuationMode() {
+    const mode = String(runtime.settings.get?.("profitValuationMode") ?? "fair");
+    return PROFIT_VALUATION_MODES.has(mode) ? mode : "fair";
+  }
+  function getPrice(itemHrid, kind, mode) {
+    let value = 0;
+    if (mode === "conservative") {
+      value = kind === "sell" ? runtime.api.getNetSellPrice?.(itemHrid, 0) : runtime.api.getAskPrice?.(itemHrid, 0);
+    } else if (mode === "aggressive") {
+      value = kind === "sell" ? runtime.api.getNetSellPriceAtAsk?.(itemHrid, 0) : runtime.api.getBidPrice?.(itemHrid, 0);
+    } else {
+      value = runtime.api.getFairValue?.(itemHrid, 0);
+      if (kind === "sell" && Number(value) > 0) {
+        value *= 1 - (Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0);
+      }
+    }
     return Number(value) > 0 ? Number(value) : null;
   }
   function expectedDropCount(drop) {
@@ -18976,11 +19065,69 @@
     const executableCount = respectInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
     const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && (infinite || maxCraftable < normalizedCount);
-    const missingPrices = [];
+    const valuationMode = getProfitValuationMode();
+    const optionalOutputs = getOptionalOutputs(actionHrid, detail);
+    const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+    function calculateValuation(mode) {
+      const missingPrices2 = [];
+      const unpricedByproducts2 = [];
+      const materialCostPerAction = inputs.reduce((total, input) => {
+        const effectiveCount = input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
+        const price = getPrice(input.itemHrid, "buy", mode);
+        if (price === null) missingPrices2.push(input.itemHrid);
+        return total + (price === null ? 0 : effectiveCount * price);
+      }, 0);
+      const primaryRevenuePerAction = outputs.reduce((total, output) => {
+        const effectiveCount = output.count * (1 + quantityBonus);
+        const price = getPrice(output.itemHrid, "sell", mode);
+        if (price === null) missingPrices2.push(output.itemHrid);
+        return total + (price === null ? 0 : effectiveCount * price);
+      }, 0);
+      const byproductRevenuePerAction = optionalOutputs.reduce(
+        (total, output) => {
+          const price = getPrice(output.itemHrid, "sell", mode);
+          if (price === null) unpricedByproducts2.push(output.itemHrid);
+          return total + (price === null ? 0 : output.count * price);
+        },
+        0
+      );
+      let teaCostPerHour = 0;
+      for (const drink of teaEffects.drinks) {
+        const price = getPrice(drink.itemHrid, "buy", mode);
+        if (price === null) missingPrices2.push(drink.itemHrid);
+        const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+        teaCostPerHour += price === null ? 0 : price * countPerHour;
+      }
+      const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : 0;
+      const revenuePerAction = primaryRevenuePerAction + byproductRevenuePerAction;
+      const complete2 = missingPrices2.length === 0 && secondsPerAction !== null;
+      const netProfitPerAction = complete2 ? revenuePerAction - materialCostPerAction - teaCostPerAction : null;
+      const profitPerHour = netProfitPerAction === null || !actionsPerHour ? null : netProfitPerAction * actionsPerHour;
+      const totalProfit = netProfitPerAction === null || effectivelyInfinite ? null : netProfitPerAction * executableCount;
+      return {
+        mode,
+        complete: complete2,
+        materialCostPerAction,
+        teaCostPerHour,
+        teaCostPerAction,
+        primaryRevenuePerAction,
+        byproductRevenuePerAction,
+        revenuePerAction,
+        netProfitPerAction,
+        profitPerHour,
+        totalProfit,
+        missingPrices: [...new Set(missingPrices2)],
+        unpricedByproducts: [...new Set(unpricedByproducts2)]
+      };
+    }
+    const valuations = Object.fromEntries(
+      [...PROFIT_VALUATION_MODES].map((mode) => [mode, calculateValuation(mode)])
+    );
+    const selectedValuation = valuations[valuationMode];
+    const missingPrices = selectedValuation.missingPrices;
     const inputDetails = inputs.map((input) => {
       const effectiveCount = input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
-      const unitPrice = getPrice(input.itemHrid, "buy");
-      if (unitPrice === null) missingPrices.push(input.itemHrid);
+      const unitPrice = getPrice(input.itemHrid, "buy", valuationMode);
       return {
         ...input,
         effectiveCount,
@@ -18989,14 +19136,9 @@
         valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice
       };
     });
-    const materialCostPerAction = inputDetails.reduce(
-      (total, input) => total + (input.valuePerAction ?? 0),
-      0
-    );
     const outputDetails = outputs.map((output) => {
       const effectiveCount = output.count * (1 + quantityBonus);
-      const unitPrice = getPrice(output.itemHrid, "sell");
-      if (unitPrice === null) missingPrices.push(output.itemHrid);
+      const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
       return {
         ...output,
         baseCount: output.count,
@@ -19008,37 +19150,22 @@
         valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice
       };
     });
-    const primaryRevenuePerAction = outputDetails.reduce(
-      (total, output) => total + (output.valuePerAction ?? 0),
-      0
-    );
-    const unpricedByproducts = [];
-    const byproductOutputs = getOptionalOutputs(actionHrid, detail).map(
-      (output) => {
-        const unitPrice = getPrice(output.itemHrid, "sell");
-        if (unitPrice === null) unpricedByproducts.push(output.itemHrid);
-        return {
-          ...output,
-          effectiveCount: output.count,
-          expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
-          owned: getInventoryCount(output.itemHrid),
-          unitPrice,
-          valuePerAction: unitPrice === null ? null : output.count * unitPrice
-        };
-      }
-    );
-    const byproductRevenuePerAction = byproductOutputs.reduce(
-      (total, output) => total + (output.valuePerAction ?? 0),
-      0
-    );
-    const revenuePerAction = primaryRevenuePerAction + byproductRevenuePerAction;
-    let teaCostPerHour = 0;
+    const unpricedByproducts = selectedValuation.unpricedByproducts;
+    const byproductOutputs = optionalOutputs.map((output) => {
+      const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+      return {
+        ...output,
+        effectiveCount: output.count,
+        expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
+        owned: getInventoryCount(output.itemHrid),
+        unitPrice,
+        valuePerAction: unitPrice === null ? null : output.count * unitPrice
+      };
+    });
     const drinks = teaEffects.drinks.map((drink) => {
-      const price = getPrice(drink.itemHrid, "buy");
-      if (price === null) missingPrices.push(drink.itemHrid);
+      const price = getPrice(drink.itemHrid, "buy", valuationMode);
       const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
       const costPerHour = price === null ? null : price * countPerHour;
-      teaCostPerHour += costPerHour ?? 0;
       return {
         ...drink,
         countPerHour,
@@ -19046,10 +19173,7 @@
         unitPrice: price
       };
     });
-    const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
-    const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : 0;
-    const complete = missingPrices.length === 0 && secondsPerAction !== null;
-    const netProfitPerAction = complete ? revenuePerAction - materialCostPerAction - teaCostPerAction : null;
+    const complete = selectedValuation.complete;
     let totalSeconds = null;
     if (effectivelyInfinite) {
       totalSeconds = Infinity;
@@ -19094,17 +19218,19 @@
       timingSource: timing?.timingSource ?? null,
       teaEffects: { ...teaEffects, drinks },
       maxCraftable,
-      materialCostPerAction,
-      teaCostPerHour,
-      teaCostPerAction,
-      primaryRevenuePerAction,
-      byproductRevenuePerAction,
-      revenuePerAction,
-      netProfitPerAction,
-      profitPerHour: netProfitPerAction === null || !actionsPerHour ? null : netProfitPerAction * actionsPerHour,
-      totalProfit: netProfitPerAction === null || effectivelyInfinite ? null : netProfitPerAction * executableCount,
-      missingPrices: [...new Set(missingPrices)],
-      unpricedByproducts: [...new Set(unpricedByproducts)]
+      valuationMode,
+      valuations,
+      materialCostPerAction: selectedValuation.materialCostPerAction,
+      teaCostPerHour: selectedValuation.teaCostPerHour,
+      teaCostPerAction: selectedValuation.teaCostPerAction,
+      primaryRevenuePerAction: selectedValuation.primaryRevenuePerAction,
+      byproductRevenuePerAction: selectedValuation.byproductRevenuePerAction,
+      revenuePerAction: selectedValuation.revenuePerAction,
+      netProfitPerAction: selectedValuation.netProfitPerAction,
+      profitPerHour: selectedValuation.profitPerHour,
+      totalProfit: selectedValuation.totalProfit,
+      missingPrices,
+      unpricedByproducts
     };
   }
   function projectQueue(actions = runtime.state.currentActionsHridList, context = {}) {
@@ -23251,6 +23377,456 @@ ${preview}`
     }
   });
 
+  // src/features/battle-buffs.js
+  var STYLE_ID3 = "mwi-buff-style";
+  var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
+  var BUFFS = /* @__PURE__ */ new Map([
+    ["/abilities/mana_spring", 10],
+    ["/abilities/taunt", 65],
+    ["/abilities/provoke", 65],
+    ["/abilities/toughness", 20],
+    ["/abilities/elusiveness", 20],
+    ["/abilities/precision", 20],
+    ["/abilities/berserk", 20],
+    ["/abilities/elemental_affinity", 20],
+    ["/abilities/frenzy", 20],
+    ["/abilities/spike_shell", 30],
+    ["/abilities/retribution", 30],
+    ["/abilities/vampirism", 20],
+    ["/abilities/insanity", 12],
+    ["/abilities/invincible", 12],
+    ["/abilities/fierce_aura", 120],
+    ["/abilities/guardian_aura", 120],
+    ["/abilities/mystic_aura", 120],
+    ["/abilities/speed_aura", 120],
+    ["/abilities/critical_aura", 120]
+  ]);
+  var DEBUFFS = /* @__PURE__ */ new Map([
+    ["/abilities/puncture", 10],
+    ["/abilities/maim", 12],
+    ["/abilities/crippling_slash", 12],
+    ["/abilities/fracturing_impact", 12],
+    ["/abilities/pestilent_shot", 12],
+    ["/abilities/ice_spear", 8],
+    ["/abilities/frost_surge", 9],
+    ["/abilities/toxic_pollen", 10],
+    ["/abilities/smoke_burst", 8]
+  ]);
+  var SINGLE_TARGET_DEBUFFS = /* @__PURE__ */ new Set([
+    "/abilities/puncture",
+    "/abilities/maim",
+    "/abilities/pestilent_shot",
+    "/abilities/smoke_burst"
+  ]);
+  var TEAM_BUFFS = /* @__PURE__ */ new Set([
+    "/abilities/mana_spring",
+    "/abilities/fierce_aura",
+    "/abilities/guardian_aura",
+    "/abilities/mystic_aura",
+    "/abilities/speed_aura",
+    "/abilities/critical_aura"
+  ]);
+  function abilityId(hrid) {
+    const parts = hrid.split("/");
+    return parts[parts.length - 1] || hrid;
+  }
+  function ensureBuffStyles(scope) {
+    if (document.getElementById(STYLE_ID3)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID3;
+    style.textContent = `
+.mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
+.mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
+.mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
+.mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
+.mwi-icon{width:15px;height:15px;display:block}
+.mwi-progress-ring{position:absolute;inset:-3px;border-radius:14px;pointer-events:none;mask:linear-gradient(#000 0 0);-webkit-mask:linear-gradient(#000 0 0)}
+.mwi-progress-ring::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:3px;background:conic-gradient(var(--mwi-ring-color) 0deg var(--mwi-ring-deg), transparent var(--mwi-ring-deg) 360deg);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.mwi-buff{background:#e7f4e4;color:#1e4d1a;border:1px solid #7fbf7a}
+.mwi-debuff{background:#fbe3e3;color:#6b1a1a;border:1px solid #d17b7b}
+`;
+    (document.head || document.documentElement).appendChild(style);
+    scope.add(() => style.remove());
+  }
+  function createBuffTracker(scope) {
+    const UNIT_STATE = /* @__PURE__ */ new WeakMap();
+    const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
+    const PENDING_BUFFS = [];
+    const PENDING_DEBUFFS = [];
+    let abilitySpriteBase = null;
+    function getAbilitySpriteBase() {
+      if (abilitySpriteBase) return abilitySpriteBase;
+      const selectors = [
+        'use[href*="abilities_sprite"]',
+        'use[xlink\\:href*="abilities_sprite"]',
+        'img[src*="abilities_sprite"]',
+        'link[href*="abilities_sprite"]'
+      ];
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        if (!node) continue;
+        const href = node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src");
+        if (typeof href === "string" && href.includes("abilities_sprite")) {
+          abilitySpriteBase = href.split("#")[0];
+          return abilitySpriteBase;
+        }
+      }
+      abilitySpriteBase = FALLBACK_SPRITE_URL;
+      return abilitySpriteBase;
+    }
+    function getUnitElements(areaClass) {
+      const area = document.querySelector(`[class*="${areaClass}"]`);
+      if (!area) return [];
+      const grid = area.querySelector('[class*="BattlePanel_combatUnitGrid"]');
+      if (!grid) return [];
+      return Array.from(
+        grid.querySelectorAll('[class*="CombatUnit_combatUnit"]')
+      );
+    }
+    function getBattleUnits() {
+      return {
+        players: getUnitElements("BattlePanel_playersArea"),
+        monsters: getUnitElements("BattlePanel_monstersArea")
+      };
+    }
+    function ensureBuffBar(unitEl) {
+      let bar = unitEl.querySelector(".mwi-buffbar");
+      if (!bar) {
+        bar = document.createElement("div");
+        bar.className = "mwi-buffbar";
+        const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
+        statusHost.classList.add("mwi-has-buffbar");
+        statusHost.appendChild(bar);
+      }
+      return bar;
+    }
+    function getState(unitEl) {
+      let state = UNIT_STATE.get(unitEl);
+      if (!state) {
+        state = { effects: /* @__PURE__ */ new Map() };
+        UNIT_STATE.set(unitEl, state);
+      }
+      return state;
+    }
+    function getActionKey(state) {
+      if (!state || typeof state !== "object") return null;
+      if (typeof state.abilityHrid === "string" && state.abilityHrid.length > 0)
+        return state.abilityHrid;
+      if (state.isAutoAtk === true) return "auto";
+      return null;
+    }
+    function seedStateFromCombatant(list, stateMap) {
+      if (!Array.isArray(list)) return;
+      for (let i = 0; i < list.length; i += 1) {
+        const entry = list[i];
+        if (!entry || typeof entry !== "object") continue;
+        const state = stateMap.get(String(i)) || {};
+        const preparing = typeof entry.preparingAbilityHrid === "string" ? entry.preparingAbilityHrid : "";
+        if (preparing) {
+          state.abilityHrid = preparing;
+          delete state.isAutoAtk;
+        } else if (entry.isPreparingAutoAttack === true || entry.isAutoAtk === true) {
+          state.isAutoAtk = true;
+          delete state.abilityHrid;
+        }
+        if (typeof entry.currentHitpoints === "number")
+          state.cHP = entry.currentHitpoints;
+        if (typeof entry.currentManapoints === "number")
+          state.cMP = entry.currentManapoints;
+        stateMap.set(String(i), state);
+      }
+    }
+    function clearMonsterBuffs() {
+      const units = getBattleUnits().monsters;
+      for (const unitEl of units) {
+        if (!unitEl) continue;
+        const state = UNIT_STATE.get(unitEl);
+        if (state) state.effects.clear();
+        const bar = unitEl.querySelector(".mwi-buffbar");
+        if (bar) bar.innerHTML = "";
+      }
+    }
+    function resetForNewBattle() {
+      BATTLE_STATE.monsters.clear();
+      PENDING_BUFFS.length = 0;
+      PENDING_DEBUFFS.length = 0;
+    }
+    function handleNewBattle(signal) {
+      resetForNewBattle();
+      clearMonsterBuffs();
+      seedStateFromCombatant(signal.players, BATTLE_STATE.players);
+      seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
+    }
+    function mergeState(stateMap, patchMap, mapName) {
+      const actionChanges = [];
+      const hpChanges = [];
+      if (!patchMap || typeof patchMap !== "object")
+        return { actionChanges, hpChanges };
+      const keys = Object.keys(patchMap);
+      for (let idx = 0; idx < keys.length; idx += 1) {
+        const key = keys[idx];
+        const patch = patchMap[key];
+        if (!patch || typeof patch !== "object") continue;
+        const prev = stateMap.get(key) || {};
+        const next = { ...prev, ...patch };
+        const patchPreparing = typeof patch.preparingAbilityHrid === "string" ? patch.preparingAbilityHrid : typeof patch.abilityHrid === "string" ? patch.abilityHrid : "";
+        const patchAuto = patch.isPreparingAutoAttack === true || patch.isAutoAtk === true || patch.isAutoAttack === true;
+        if (patchPreparing) {
+          next.abilityHrid = patchPreparing;
+          delete next.isAutoAtk;
+        } else if (patchAuto) {
+          next.isAutoAtk = true;
+          delete next.abilityHrid;
+        }
+        const prevAction = getActionKey(prev);
+        const nextAction = getActionKey(next);
+        if (prevAction && nextAction && prevAction !== nextAction) {
+          actionChanges.push({ mapName, key, prevAction, nextAction });
+        }
+        if (typeof prev.cHP === "number" && typeof next.cHP === "number" && prev.cHP !== next.cHP) {
+          hpChanges.push({
+            mapName,
+            key,
+            prevHP: prev.cHP,
+            newHP: next.cHP,
+            delta: next.cHP - prev.cHP
+          });
+        }
+        stateMap.set(key, next);
+      }
+      return { actionChanges, hpChanges };
+    }
+    function updateBattleState(payload) {
+      if (!payload || typeof payload !== "object") return;
+      const playerResult = mergeState(BATTLE_STATE.players, payload.pMap, "pMap");
+      const monsterResult = mergeState(
+        BATTLE_STATE.monsters,
+        payload.mMap,
+        "mMap"
+      );
+      const monsterHits = monsterResult.hpChanges.filter((h) => h.delta < 0).map((h) => Number(h.key));
+      for (const change of playerResult.actionChanges) {
+        if (BUFFS.has(change.prevAction)) {
+          const casterIndex2 = Number(change.key);
+          if (Number.isInteger(casterIndex2))
+            PENDING_BUFFS.push({
+              mapName: "pMap",
+              casterIndex: casterIndex2,
+              abilityHrid: change.prevAction
+            });
+        }
+        if (!DEBUFFS.has(change.prevAction)) continue;
+        if (monsterHits.length === 0) continue;
+        const casterIndex = Number(change.key);
+        if (!Number.isInteger(casterIndex)) continue;
+        PENDING_DEBUFFS.push({
+          casterMap: "pMap",
+          casterIndex,
+          abilityHrid: change.prevAction,
+          targetSide: "monsters",
+          targets: monsterHits
+        });
+      }
+      const playerHits = playerResult.hpChanges.filter((h) => h.delta < 0).map((h) => Number(h.key));
+      for (const change of monsterResult.actionChanges) {
+        if (BUFFS.has(change.prevAction)) {
+          const casterIndex2 = Number(change.key);
+          if (Number.isInteger(casterIndex2))
+            PENDING_BUFFS.push({
+              mapName: "mMap",
+              casterIndex: casterIndex2,
+              abilityHrid: change.prevAction
+            });
+        }
+        if (!DEBUFFS.has(change.prevAction)) continue;
+        if (playerHits.length === 0) continue;
+        const casterIndex = Number(change.key);
+        if (!Number.isInteger(casterIndex)) continue;
+        PENDING_DEBUFFS.push({
+          casterMap: "mMap",
+          casterIndex,
+          abilityHrid: change.prevAction,
+          targetSide: "players",
+          targets: playerHits
+        });
+      }
+    }
+    function renderUnit(unitEl) {
+      const state = getState(unitEl);
+      const bar = ensureBuffBar(unitEl);
+      const now = Date.now();
+      const entries = Array.from(state.effects.values()).filter(
+        (effect) => effect.expiresAt > now
+      );
+      state.effects = new Map(
+        entries.map((effect) => [effect.abilityHrid, effect])
+      );
+      bar.innerHTML = "";
+      for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
+        const chip = document.createElement("span");
+        chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
+        const iconWrap = document.createElement("span");
+        iconWrap.className = "mwi-icon-wrap";
+        const icon = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg"
+        );
+        icon.setAttribute("role", "img");
+        icon.setAttribute("aria-label", "技能");
+        icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
+        icon.setAttribute("width", "100%");
+        icon.setAttribute("height", "100%");
+        const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+        const spriteBase = getAbilitySpriteBase();
+        const spriteRef = `${spriteBase}#${abilityId(effect.abilityHrid)}`;
+        use.setAttribute("href", spriteRef);
+        use.setAttribute("xlink:href", spriteRef);
+        icon.appendChild(use);
+        const total = Math.max(1, effect.durationSec);
+        const elapsed = Math.max(
+          0,
+          Math.min(total, (now - effect.startedAt) / 1e3)
+        );
+        const progress = Math.min(1, Math.max(0, elapsed / total));
+        const degrees = progress * 360;
+        iconWrap.appendChild(icon);
+        chip.appendChild(iconWrap);
+        const ring = document.createElement("span");
+        ring.className = "mwi-progress-ring";
+        ring.style.setProperty("--mwi-ring-deg", `${degrees}deg`);
+        ring.style.setProperty(
+          "--mwi-ring-color",
+          effect.kind === "buff" ? "rgba(60,140,60,0.7)" : "rgba(180,60,60,0.7)"
+        );
+        chip.appendChild(ring);
+        bar.appendChild(chip);
+      }
+    }
+    function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
+      const state = getState(unitEl);
+      const now = Date.now();
+      state.effects.set(abilityHrid, {
+        abilityHrid,
+        kind,
+        durationSec,
+        startedAt: now,
+        expiresAt: now + durationSec * 1e3
+      });
+      renderUnit(unitEl);
+    }
+    function applyBattleUpdated(payload) {
+      const pMap = payload?.pMap;
+      const mMap = payload?.mMap;
+      const units = getBattleUnits();
+      if (units.players.length === 0 && units.monsters.length === 0) return;
+      ensureBuffStyles(scope);
+      updateBattleState(payload);
+      if (PENDING_BUFFS.length > 0) {
+        const pending = PENDING_BUFFS.splice(0, PENDING_BUFFS.length);
+        for (const item of pending) {
+          if (!BUFFS.has(item.abilityHrid)) continue;
+          const duration = BUFFS.get(item.abilityHrid);
+          const isTeamBuff = TEAM_BUFFS.has(item.abilityHrid);
+          const unitList = item.mapName === "pMap" ? units.players : units.monsters;
+          if (isTeamBuff) {
+            for (const unitEl of unitList) {
+              if (unitEl)
+                updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+            }
+          } else {
+            const unitEl = unitList[item.casterIndex];
+            if (unitEl)
+              updateUnitEffect(unitEl, "buff", item.abilityHrid, duration);
+          }
+        }
+      }
+      if (PENDING_DEBUFFS.length > 0) {
+        const pending = PENDING_DEBUFFS.splice(0, PENDING_DEBUFFS.length);
+        for (const item of pending) {
+          if (!DEBUFFS.has(item.abilityHrid)) continue;
+          const duration = DEBUFFS.get(item.abilityHrid);
+          const applyList = item.targetSide === "monsters" ? units.monsters : units.players;
+          const targets = SINGLE_TARGET_DEBUFFS.has(item.abilityHrid) ? item.targets.slice(0, 1) : item.targets;
+          for (const target of targets) {
+            const unitEl = applyList[target];
+            if (unitEl)
+              updateUnitEffect(unitEl, "debuff", item.abilityHrid, duration);
+          }
+        }
+      }
+      const applyBuffsFromMap = (map, mapName) => {
+        if (!map || typeof map !== "object") return;
+        const unitList = mapName === "pMap" ? units.players : units.monsters;
+        const keys = Object.keys(map);
+        for (let idx = 0; idx < keys.length; idx += 1) {
+          const key = keys[idx];
+          const entity = map[key];
+          if (!entity || typeof entity !== "object") continue;
+          const abilityHrid = entity.abilityHrid;
+          if (typeof abilityHrid !== "string" || abilityHrid.length === 0)
+            continue;
+          if (!BUFFS.has(abilityHrid)) continue;
+          const duration = BUFFS.get(abilityHrid);
+          const keyIndex = Number.isInteger(Number(key)) ? Number(key) : idx;
+          if (TEAM_BUFFS.has(abilityHrid)) {
+            for (const unitEl of unitList) {
+              if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+            }
+          } else {
+            const unitEl = unitList[keyIndex];
+            if (unitEl) updateUnitEffect(unitEl, "buff", abilityHrid, duration);
+          }
+        }
+      };
+      applyBuffsFromMap(pMap, "pMap");
+      applyBuffsFromMap(mMap, "mMap");
+    }
+    function tickCountdowns() {
+      const units = getBattleUnits();
+      for (const unitEl of [...units.players, ...units.monsters]) {
+        if (UNIT_STATE.has(unitEl)) renderUnit(unitEl);
+      }
+    }
+    function removeAllBuffBars() {
+      const units = getBattleUnits();
+      for (const unitEl of [...units.players, ...units.monsters]) {
+        const bar = unitEl?.querySelector(".mwi-buffbar");
+        if (bar) {
+          bar.closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
+          bar.remove();
+        }
+      }
+    }
+    return {
+      handleNewBattle,
+      applyBattleUpdated,
+      tickCountdowns,
+      removeAllBuffBars
+    };
+  }
+  runtime.features.register({
+    id: "battleBuffs",
+    setting: "battleBuffs",
+    initialize({ scope }) {
+      const tracker = createBuffTracker(scope);
+      scope.interval(() => tracker.tickCountdowns(), 1e3);
+      scope.add(
+        runtime.onMessage("new_battle", (payload) => {
+          tracker.handleNewBattle(payload);
+        })
+      );
+      scope.add(
+        runtime.onMessage("battle_updated", (payload) => {
+          tracker.applyBattleUpdated(payload);
+        })
+      );
+      scope.add(() => tracker.removeAllBuffBars());
+    }
+  });
+  Object.assign(runtime.api, {
+    battleBuffs: { BUFFS, DEBUFFS, TEAM_BUFFS, SINGLE_TARGET_DEBUFFS }
+  });
+
   // src/features/inventory.js
   var guildCreditWatcherStarted = false;
   var inventoryRefreshTimer = null;
@@ -24083,7 +24659,7 @@ ${preview}`
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID3 = "mwitools-production-profit-panel-style";
+  var STYLE_ID4 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN = 12;
   var PANEL_GAP = 10;
   var activePanel = null;
@@ -24154,9 +24730,9 @@ ${preview}`
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
   }
   function addStyles2() {
-    if (document.getElementById(STYLE_ID3)) return;
+    if (document.getElementById(STYLE_ID4)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
     #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID2} * { box-sizing:border-box; }
@@ -24452,6 +25028,19 @@ ${preview}`
     position();
     return panel;
   }
+  runtime.settings.onChange?.("profitValuationMode", () => {
+    if (!activePanel?.anchor?.isConnected || !activePanel.panel) return;
+    const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(
+      activePanel.itemHrid
+    );
+    if (!actionHrid) return;
+    renderPanel(
+      activePanel.panel,
+      activePanel.itemHrid,
+      runtime.api.projectAction(actionHrid, 1)
+    );
+    activePanel.position();
+  });
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     positionProductionProfitPanel: positionPanel,
@@ -25313,7 +25902,7 @@ ${preview}`
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID4 = "mwitools-action-dashboard-style";
+  var STYLE_ID5 = "mwitools-action-dashboard-style";
   function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -25334,9 +25923,9 @@ ${preview}`
     return runtime.api.createFormattedNumber(value);
   }
   function addStyles3() {
-    if (document.getElementById(STYLE_ID4)) return;
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
@@ -25659,7 +26248,7 @@ ${preview}`
   });
 
   // src/features/procurement.js
-  var STYLE_ID5 = "mwitools-procurement-style";
+  var STYLE_ID6 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -25698,9 +26287,9 @@ ${preview}`
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function addStyles4() {
-    if (document.getElementById(STYLE_ID5)) return;
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -26969,7 +27558,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID5)?.remove();
+        document.getElementById(STYLE_ID6)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -26982,7 +27571,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/tasks.js
-  var STYLE_ID6 = "mwitools-task-style";
+  var STYLE_ID7 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
   var originalCards = [];
   var taskListParent = null;
@@ -27010,9 +27599,9 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   function addStyles5() {
-    if (document.getElementById(STYLE_ID6)) return;
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
     .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
@@ -27589,7 +28178,7 @@ ${locks}` : ""}`;
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note"
     ).forEach((node) => node.remove());
     document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => delete node.dataset.mwitoolsMergeWired);
-    document.getElementById(STYLE_ID6)?.remove();
+    document.getElementById(STYLE_ID7)?.remove();
     originalCards = [];
     taskListParent = null;
     collapsedProfessions.clear();
@@ -27635,7 +28224,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID7 = "mwitools-task-new-style";
+  var STYLE_ID8 = "mwitools-task-new-style";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]';
   function questId(quest) {
     return String(
@@ -27710,9 +28299,9 @@ ${locks}` : ""}`;
     return state;
   }
   function addStyles6() {
-    if (document.getElementById(STYLE_ID7)) return;
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     ${TASK_SELECTOR2}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
     .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
@@ -27725,7 +28314,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID7)?.remove();
+    document.getElementById(STYLE_ID8)?.remove();
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -28184,7 +28773,7 @@ ${locks}` : ""}`;
   // src/features/feedback/panel.js
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID8 = "mwitools-feedback-style";
+  var STYLE_ID9 = "mwitools-feedback-style";
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -28197,9 +28786,9 @@ ${locks}` : ""}`;
     return labels[status] ? t8(...labels[status]) : status;
   }
   function addStyles7() {
-    if (document.getElementById(STYLE_ID8)) return;
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
@@ -28646,10 +29235,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID8)?.remove();
+      document.getElementById(STYLE_ID9)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID8 };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID9 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -28698,7 +29287,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID9 = "mwitools-guild-xp-style";
+  var STYLE_ID10 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -28786,9 +29375,9 @@ ${locks}` : ""}`;
     }
   }
   function addStyles8() {
-    if (document.getElementById(STYLE_ID9)) return;
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -30965,7 +31554,7 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID10 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID11 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
@@ -30973,9 +31562,9 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   function addStyles9() {
-    if (document.getElementById(STYLE_ID10)) return;
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -31238,7 +31827,7 @@ ${locks}` : ""}`;
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
         id,
-        Boolean(setting.isTrue)
+        setting.type === "choice" ? setting.value : Boolean(setting.isTrue)
       ])
     );
     localStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values }));
@@ -31246,6 +31835,20 @@ ${locks}` : ""}`;
       "script_settingsMap",
       JSON.stringify(runtime.settings.settingsMap)
     );
+  }
+  function applyStoredSetting(id, value) {
+    const setting = runtime.settings.settingsMap[id];
+    if (!setting) return;
+    if (setting.type === "choice") {
+      const allowed = new Set(
+        (runtime.settings.catalog[id]?.options ?? []).map(
+          (option) => option.value
+        )
+      );
+      if (allowed.has(String(value))) setting.value = String(value);
+      return;
+    }
+    setting.isTrue = Boolean(value);
   }
   function applyVisualSettings() {
     runtime.config.isZH = runtime.settings.settingsMap.forceMWIToolsDisplayZH.isTrue || runtime.config.isZHInGameSetting;
@@ -31260,9 +31863,7 @@ ${locks}` : ""}`;
       );
       if (storedV2?.version === 2 && storedV2.values) {
         for (const [id, value] of Object.entries(storedV2.values)) {
-          if (runtime.settings.settingsMap[id]) {
-            runtime.settings.settingsMap[id].isTrue = Boolean(value);
-          }
+          applyStoredSetting(id, value);
         }
         loadedV2 = true;
       }
@@ -31275,11 +31876,11 @@ ${locks}` : ""}`;
           localStorage.getItem("script_settingsMap") || "null"
         );
         for (const option of Object.values(legacy ?? {})) {
-          if (runtime.settings.settingsMap[option?.id]) {
-            runtime.settings.settingsMap[option.id].isTrue = Boolean(
-              option.isTrue
-            );
-          }
+          if (!option?.id) continue;
+          applyStoredSetting(
+            option.id,
+            option.type === "choice" ? option.value : option.isTrue
+          );
         }
       } catch (error) {
         console.warn("[MWITools] Could not migrate legacy settings", error);
@@ -31315,7 +31916,7 @@ ${locks}` : ""}`;
     .mwi-setting-card:hover { background:rgba(255,255,255,.025); }
     .mwi-setting-card.mwi-setting-child { margin-top:5px; padding:6px 8px; border:1px solid rgba(255,255,255,.075); border-radius:5px; background:rgba(0,0,0,.12); }
     .mwi-setting-card.mwi-setting-child:has(input:disabled) { opacity:.52; }
-    .mwi-setting-row { display:grid; min-height:42px; grid-template-columns:minmax(170px,.72fr) minmax(260px,1.5fr) auto 40px; align-items:center; gap:8px 14px; }
+    .mwi-setting-row { display:grid; min-height:42px; grid-template-columns:minmax(170px,.72fr) minmax(260px,1.5fr) auto minmax(40px,auto); align-items:center; gap:8px 14px; }
     .mwi-setting-copy { display:contents; }
     .mwi-setting-title-line { display:flex; min-width:0; grid-column:1; grid-row:1; align-items:center; gap:7px; text-align:left; }
     .mwi-setting-title { min-width:0; font-size:.84rem; font-weight:650; line-height:1.25; }
@@ -31330,12 +31931,19 @@ ${locks}` : ""}`;
     .mwi-setting-toggle span::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:.16s; }
     .mwi-setting-toggle input:checked + span { background:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
     .mwi-setting-toggle input:checked + span::after { transform:translateX(16px); }
+    .mwi-setting-choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-column:1 / 5; grid-row:2; gap:6px; margin-top:2px; }
+    .mwi-setting-choice { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:2px 7px; box-sizing:border-box; min-width:0; padding:7px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(0,0,0,.16); cursor:pointer; }
+    .mwi-setting-choice:has(input:checked) { border-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); background:rgba(255,165,0,.08); }
+    .mwi-setting-choice:has(input:disabled) { cursor:not-allowed; }
+    .mwi-setting-choice input { grid-column:1; grid-row:1 / 3; margin:2px 0 0; accent-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
+    .mwi-setting-choice-title { grid-column:2; grid-row:1; font-size:.75rem; font-weight:650; line-height:1.25; }
+    .mwi-setting-choice-description { grid-column:2; grid-row:2; color:var(--color-text-secondary,#aaa); font-size:.67rem; line-height:1.35; }
     .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:.68rem; color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
     .mwi-setting-more summary { display:inline-block; cursor:pointer; color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); list-style-position:inside; }
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
+    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-choices { grid-template-columns:1fr; grid-column:1 / 3; grid-row:4; } }
   `;
     styleHost.appendChild(style);
   }
@@ -31387,6 +31995,7 @@ ${locks}` : ""}`;
   }
   function createSettingCard(definition, options = {}) {
     const setting = runtime.settings.settingsMap[definition.id];
+    const isChoice = setting.type === "choice";
     const children = Object.values(runtime.settings.catalog).filter(
       (candidate) => candidate.parent === definition.id
     );
@@ -31399,6 +32008,12 @@ ${locks}` : ""}`;
       definition.title?.en,
       definition.summary?.zh,
       definition.summary?.en,
+      ...(definition.options ?? []).flatMap((option) => [
+        option.label?.zh,
+        option.label?.en,
+        option.description?.zh,
+        option.description?.en
+      ]),
       ...descendants.flatMap((child) => [
         child.title?.zh,
         child.title?.en,
@@ -31438,20 +32053,56 @@ ${locks}` : ""}`;
     setStatus();
     const titleLine = document.createElement("div");
     titleLine.className = "mwi-setting-title-line";
-    titleLine.append(title, status);
+    titleLine.append(title);
+    if (!isChoice) titleLine.append(status);
     copy.append(titleLine, summary);
-    const toggle = document.createElement("label");
-    toggle.className = "mwi-setting-toggle";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = Boolean(setting.isTrue);
-    if (definition.parent) {
-      checkbox.disabled = !areSettingParentsEnabled(definition);
+    let control;
+    let checkbox = null;
+    let choiceInputs = [];
+    if (isChoice) {
+      const choices = document.createElement("div");
+      choices.className = "mwi-setting-choices";
+      choices.setAttribute("role", "radiogroup");
+      choices.setAttribute("aria-label", localizedText(definition.title));
+      for (const optionDefinition of definition.options ?? []) {
+        const option = document.createElement("label");
+        option.className = "mwi-setting-choice";
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = `mwi-setting-${definition.id}`;
+        radio.value = optionDefinition.value;
+        radio.checked = setting.value === optionDefinition.value;
+        if (definition.parent) {
+          radio.disabled = !areSettingParentsEnabled(definition);
+        }
+        const optionTitle = document.createElement("span");
+        optionTitle.className = "mwi-setting-choice-title";
+        optionTitle.textContent = localizedText(optionDefinition.label);
+        const optionDescription = document.createElement("span");
+        optionDescription.className = "mwi-setting-choice-description";
+        optionDescription.textContent = localizedText(
+          optionDefinition.description
+        );
+        option.append(radio, optionTitle, optionDescription);
+        choices.append(option);
+        choiceInputs.push(radio);
+      }
+      control = choices;
+    } else {
+      const toggle = document.createElement("label");
+      toggle.className = "mwi-setting-toggle";
+      checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(setting.isTrue);
+      if (definition.parent) {
+        checkbox.disabled = !areSettingParentsEnabled(definition);
+      }
+      checkbox.setAttribute("aria-label", localizedText(definition.title));
+      const track = document.createElement("span");
+      toggle.append(checkbox, track);
+      control = toggle;
     }
-    checkbox.setAttribute("aria-label", localizedText(definition.title));
-    const track = document.createElement("span");
-    toggle.append(checkbox, track);
-    if (definition.details || children.length) {
+    if (!isChoice && definition.details || children.length) {
       const details = document.createElement("details");
       details.className = "mwi-setting-more";
       const detailsSummary = document.createElement("summary");
@@ -31467,19 +32118,27 @@ ${locks}` : ""}`;
       }
       copy.append(details);
     }
-    row.append(copy, toggle);
+    row.append(copy, control);
     card.append(row);
-    checkbox.addEventListener("change", async () => {
-      await runtime.settings.set(definition.id, checkbox.checked);
-      if (definition.id === "forceMWIToolsDisplayZH" || definition.id === "useOrangeAsMainColor" || children.length) {
-        applyVisualSettings();
-        renderSettings(document.querySelector("#script_settings"));
-        return;
+    if (choiceInputs.length) {
+      for (const radio of choiceInputs) {
+        radio.addEventListener("change", () => {
+          if (radio.checked) runtime.settings.set(definition.id, radio.value);
+        });
       }
-      setStatus();
-    });
+    } else {
+      checkbox.addEventListener("change", async () => {
+        await runtime.settings.set(definition.id, checkbox.checked);
+        if (definition.id === "forceMWIToolsDisplayZH" || definition.id === "useOrangeAsMainColor" || children.length) {
+          applyVisualSettings();
+          renderSettings(document.querySelector("#script_settings"));
+          return;
+        }
+        setStatus();
+      });
+    }
     const stopStatusListener = runtime.features.onStatusChange((id) => {
-      if (id === definition.id) setStatus();
+      if (!isChoice && id === definition.id) setStatus();
     });
     card._mwitoolsCleanup = stopStatusListener;
     return card;
@@ -31498,7 +32157,7 @@ ${locks}` : ""}`;
     heading.textContent = "MWITools";
     const subtitle = document.createElement("div");
     subtitle.className = "mwi-settings-subtitle";
-    subtitle.textContent = runtime.config.isZH ? "所有开关会立即生效。功能数据与公会经验只保存在当前设备。" : "Changes apply immediately. Feature data and guild XP stay on this device.";
+    subtitle.textContent = runtime.config.isZH ? "所有设置会立即生效。功能数据与公会经验只保存在当前设备。" : "Settings apply immediately. Feature data and guild XP stay on this device.";
     heroCopy.append(heading, subtitle);
     const search = document.createElement("input");
     search.className = "mwi-settings-search";
@@ -31794,7 +32453,7 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID11 = "mwitools-important-update-style";
+  var STYLE_ID12 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t12(value) {
     if (typeof value === "string") return value;
@@ -31888,9 +32547,9 @@ ${locks}` : ""}`;
     return manifest;
   }
   function addStyles10() {
-    if (document.getElementById(STYLE_ID11)) return;
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -31951,7 +32610,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID11)?.remove();
+        document.getElementById(STYLE_ID12)?.remove();
       });
     }
   });

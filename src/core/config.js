@@ -257,6 +257,13 @@ let settingsMap = {
       : "Enable DPS, HPS, damage-taken, segment, and combat history tracking.",
     isTrue: true,
   },
+  battleBuffs: {
+    id: "battleBuffs",
+    desc: isZH
+      ? "在战斗单位下方显示 Buff / Debuff 图标和倒计时"
+      : "Show buff and debuff icons with countdowns below combat units.",
+    isTrue: true,
+  },
   actionBarProfit: {
     id: "actionBarProfit",
     desc: isZH ? "动作栏显示净利润" : "Show net profit in the action bar.",
@@ -273,6 +280,12 @@ let settingsMap = {
     id: "productionProfit",
     desc: isZH ? "生产面板显示净利润" : "Show net profit in production panels.",
     isTrue: true,
+  },
+  profitValuationMode: {
+    id: "profitValuationMode",
+    desc: isZH ? "生产利润估值口径" : "Production profit valuation mode.",
+    type: "choice",
+    value: "fair",
   },
   taskInsights: {
     id: "taskInsights",
@@ -522,8 +535,16 @@ const catalogRows = [
     "production",
     "生产净利润",
     "Production net profit",
-    "显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-    "Show after-tax net profit per action, hour, day, and entered quantity.",
+    "按所选估值口径显示每次、每小时、每天和本次输入数量对应的税后净利润。",
+    "Show after-tax net profit per action, hour, day, and entered quantity using the selected valuation mode.",
+  ],
+  [
+    "profitValuationMode",
+    "production",
+    "利润估值口径",
+    "Profit valuation mode",
+    "保守按即时成交，公允按市场价值，激进按挂单成交；默认使用公允。",
+    "Conservative uses immediate execution, fair uses market value, and aggressive uses limit orders. Fair is the default.",
   ],
   [
     "actionPanel_foragingTotal",
@@ -710,6 +731,14 @@ const catalogRows = [
     "Track damage, healing, damage taken, segments, and history; configure display details in the DPS panel.",
   ],
   [
+    "battleBuffs",
+    "combat",
+    "战斗 Buff 显示",
+    "Battle buff display",
+    "在每个战斗单位下方显示增益和减益图标，带剩余时间倒计时环。",
+    "Show buff and debuff icons with countdown rings below each combat unit.",
+  ],
+  [
     "mapIndex",
     "combat",
     "战斗地图编号",
@@ -820,12 +849,43 @@ const settingsCatalog = Object.fromEntries(
   ]),
 );
 
+Object.assign(settingsCatalog.profitValuationMode, {
+  type: "choice",
+  options: [
+    {
+      value: "conservative",
+      label: { zh: "保守", en: "Conservative" },
+      description: {
+        zh: "材料和饮料按最低卖单价买入；产物和副产物按最高买单价卖出并扣税，模拟全部立即成交。",
+        en: "Buy materials and drinks at the lowest ask; sell outputs and byproducts at the highest bid after tax, modeling immediate execution.",
+      },
+    },
+    {
+      value: "fair",
+      label: { zh: "公允（默认）", en: "Fair (default)" },
+      description: {
+        zh: "材料、饮料、产物和副产物均按服务器市场价值计算；缺失时取买卖单中间价（仅一侧有价则用该价），出售收入再扣税。",
+        en: "Use the server market value for every item; if absent, use the bid/ask midpoint or the available side, then deduct tax from sale revenue.",
+      },
+    },
+    {
+      value: "aggressive",
+      label: { zh: "激进", en: "Aggressive" },
+      description: {
+        zh: "材料和饮料按最高买单价挂单买入；产物和副产物按最低卖单价挂单卖出并扣税，假设挂单最终成交。",
+        en: "Buy materials and drinks with limit orders at the highest bid; sell outputs and byproducts at the lowest ask after tax, assuming the orders eventually fill.",
+      },
+    },
+  ],
+});
+
 const settingParents = {
   actionBarProfit: "totalActionTime",
   actionQueue: "totalActionTime",
   actionPanel_foragingTotal: "actionPanel_totalTime",
   productionSummary: "actionPanel_totalTime",
   productionProfit: "actionPanel_totalTime",
+  profitValuationMode: "productionProfit",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
@@ -851,15 +911,29 @@ settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
 
 const settingListeners = new Map();
 
+function normalizeSettingValue(id, value) {
+  const setting = settingsMap[id];
+  if (!setting) return undefined;
+  if (setting.type !== "choice") return Boolean(value);
+  const allowed = new Set(
+    (settingsCatalog[id]?.options ?? []).map((option) => option.value),
+  );
+  const candidate = String(value ?? "");
+  return allowed.has(candidate) ? candidate : setting.value;
+}
+
 function getSetting(id) {
-  return settingsMap[id]?.isTrue;
+  const setting = settingsMap[id];
+  return setting?.type === "choice" ? setting.value : setting?.isTrue;
 }
 
 async function setSetting(id, value, options = {}) {
-  if (!settingsMap[id]) return false;
-  const normalized = Boolean(value);
-  const previous = settingsMap[id].isTrue;
-  settingsMap[id].isTrue = normalized;
+  const setting = settingsMap[id];
+  if (!setting) return false;
+  const normalized = normalizeSettingValue(id, value);
+  const previous = getSetting(id);
+  if (setting.type === "choice") setting.value = normalized;
+  else setting.isTrue = normalized;
   if (previous === normalized && !options.force) return true;
 
   if (options.persist !== false) runtime.api.persistSettings?.();

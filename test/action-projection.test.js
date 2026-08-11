@@ -55,6 +55,15 @@ runtime.api.getTeaBuffsByActionHrid = () => ({
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/output" ? 100 : 0;
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/output" ? 114 : 0;
+runtime.api.getFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  if (ask > 0) return ask;
+  const netSell = runtime.api.getNetSellPrice(itemHrid);
+  return netSell > 0 ? netSell / 0.95 : 0;
+};
 
 test("action projection shares duration, direct material capacity and net profit", () => {
   const result = runtime.api.projectAction("/actions/crafting/test", 5, {
@@ -68,6 +77,36 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.netProfitPerAction, 80);
   assert.equal(result.profitPerHour, 28_800);
   assert.equal(result.totalProfit, 400);
+  assert.equal(result.valuationMode, "fair");
+  assert.equal(result.valuations.conservative.netProfitPerAction, 80);
+  assert.equal(result.valuations.fair.netProfitPerAction, 80);
+  assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
+});
+
+test("profit valuation mode selects conservative, fair, or aggressive prices", () => {
+  const setting = runtime.settings.settingsMap.profitValuationMode;
+  const originalFairValue = runtime.api.getFairValue;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/input" ? 9 : itemHrid === "/items/output" ? 110 : 0;
+
+  setting.value = "conservative";
+  assert.equal(
+    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
+    80,
+  );
+  setting.value = "fair";
+  assert.equal(
+    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
+    86.5,
+  );
+  setting.value = "aggressive";
+  assert.equal(
+    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
+    98,
+  );
+
+  setting.value = "fair";
+  runtime.api.getFairValue = originalFairValue;
 });
 
 test("missing prices stay incomplete instead of becoming zero-profit", () => {

@@ -440,6 +440,20 @@ function showProductionProfitPanel(anchor, itemHrid) {
   return panel;
 }
 
+runtime.settings.onChange?.("profitValuationMode", () => {
+  if (!activePanel?.anchor?.isConnected || !activePanel.panel) return;
+  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(
+    activePanel.itemHrid,
+  );
+  if (!actionHrid) return;
+  renderPanel(
+    activePanel.panel,
+    activePanel.itemHrid,
+    runtime.api.projectAction(actionHrid, 1),
+  );
+  activePanel.position();
+});
+
 Object.assign(runtime.api, {
   hideProductionProfitPanel,
   positionProductionProfitPanel: positionPanel,

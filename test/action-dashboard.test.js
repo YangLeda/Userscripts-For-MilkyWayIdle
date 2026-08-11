@@ -83,8 +83,17 @@ runtime.api.getTeaBuffsByActionHrid = () => ({});
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/log" ? 10 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/lumber" ? 100 : 0;
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/log" ? 8 : 0);
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/lumber" ? 114 : 0;
+runtime.api.getFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  if (ask > 0) return ask;
+  const netSell = runtime.api.getNetSellPrice(itemHrid);
+  return netSell > 0 ? netSell / 0.95 : 0;
+};
 
-test("Chinese crafting dialogs render the production summary below the action controls", () => {
+test("Chinese crafting dialogs render the selected profit valuation", async () => {
   runtime.api.renderProductionPanel();
 
   const card = document.querySelector("#mwi-production-summary");
@@ -98,6 +107,16 @@ test("Chinese crafting dialogs render the production summary below the action co
   assert.match(card.textContent, /库存最多可做10/);
   assert.match(card.textContent, /本次总耗时30s/);
   assert.match(card.textContent, /本次总净利润400/);
+
+  await runtime.settings.set("profitValuationMode", "aggressive", {
+    persist: false,
+  });
+  runtime.api.renderProductionPanel();
+  assert.match(card.textContent, /本次总净利润490/);
+  assert.doesNotMatch(card.textContent, /~/);
+  await runtime.settings.set("profitValuationMode", "fair", {
+    persist: false,
+  });
 
   const extension = document.createElement("section");
   extension.dataset.mwitoolsProductionExtension = "true";

@@ -52,13 +52,22 @@ runtime.state.actionTypeBuffSources = {};
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
   itemHrid === "/items/panel-output" ? 100 : 0;
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/panel-output" ? 114 : 0;
+runtime.api.getFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  if (ask > 0) return ask;
+  const netSell = runtime.api.getNetSellPrice(itemHrid);
+  return netSell > 0 ? netSell / 0.95 : 0;
+};
 runtime.api.getTotalEffiPercentage = () => 0;
 
 function nativeTooltip() {
   return document.querySelector("#native-tooltip");
 }
 
-test("profit UI is a separate sibling and leaves the native tooltip untouched", () => {
+test("profit UI displays only the selected valuation", async () => {
   const anchor = nativeTooltip();
   const original = anchor.innerHTML;
   const panel = runtime.api.showProductionProfitPanel(
@@ -79,6 +88,21 @@ test("profit UI is a separate sibling and leaves the native tooltip untouched", 
     .querySelector(".mwi-profit-metric-value");
   assert.equal(hourlyProfit.textContent, "28.8K");
   assert.equal(hourlyProfit.title, "28,800");
+  assert.doesNotMatch(hourlyProfit.textContent, /~/);
+
+  await runtime.settings.set("profitValuationMode", "aggressive", {
+    persist: false,
+  });
+  const aggressiveHourlyProfit = [
+    ...panel.querySelectorAll(".mwi-profit-metric"),
+  ]
+    .find((metric) => metric.textContent.includes("净利润/小时"))
+    .querySelector(".mwi-profit-metric-value");
+  assert.equal(aggressiveHourlyProfit.textContent, "35.3K");
+  assert.equal(aggressiveHourlyProfit.title, "35,280");
+  await runtime.settings.set("profitValuationMode", "fair", {
+    persist: false,
+  });
   assert.equal(
     document.querySelectorAll("#mwitools-production-profit-panel").length,
     1,
