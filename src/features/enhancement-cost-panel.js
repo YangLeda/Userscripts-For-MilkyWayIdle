@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { positionAnchoredPanel } from "../core/panel-position.js";
 
 const PANEL_ID = "mwitools-enhancement-cost-panel";
 const STYLE_ID = "mwitools-enhancement-cost-panel-style";
@@ -139,52 +140,10 @@ function renderPanel(panel, plan) {
 
 function positionPanel() {
   const state = activePanel;
-  if (!state?.anchor?.isConnected || !state.panel?.isConnected) return;
-  const anchorRect = state.anchor.getBoundingClientRect();
-  const panelRect = state.panel.getBoundingClientRect();
-  const viewportWidth =
-    Number(globalThis.innerWidth) || document.documentElement.clientWidth;
-  const viewportHeight =
-    Number(globalThis.innerHeight) || document.documentElement.clientHeight;
-  const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN;
-  const roomLeft = anchorRect.left - VIEWPORT_MARGIN;
-  const roomBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN;
-  const roomAbove = anchorRect.top - VIEWPORT_MARGIN;
-  let placement = "right";
-  let left = anchorRect.right + PANEL_GAP;
-  let top = anchorRect.top;
-
-  if (
-    roomRight < panelRect.width + PANEL_GAP &&
-    roomLeft >= panelRect.width + PANEL_GAP
-  ) {
-    placement = "left";
-    left = anchorRect.left - panelRect.width - PANEL_GAP;
-  } else if (
-    roomRight < panelRect.width + PANEL_GAP &&
-    roomLeft < panelRect.width + PANEL_GAP
-  ) {
-    if (roomBelow >= panelRect.height + PANEL_GAP || roomBelow >= roomAbove) {
-      placement = "bottom";
-      left = anchorRect.left;
-      top = anchorRect.bottom + PANEL_GAP;
-    } else {
-      placement = "top";
-      left = anchorRect.left;
-      top = anchorRect.top - panelRect.height - PANEL_GAP;
-    }
-  }
-  left = Math.min(
-    Math.max(VIEWPORT_MARGIN, left),
-    viewportWidth - panelRect.width - VIEWPORT_MARGIN,
-  );
-  top = Math.min(
-    Math.max(VIEWPORT_MARGIN, top),
-    viewportHeight - panelRect.height - VIEWPORT_MARGIN,
-  );
-  state.panel.dataset.placement = placement;
-  state.panel.style.left = `${Math.round(left)}px`;
-  state.panel.style.top = `${Math.round(top)}px`;
+  positionAnchoredPanel(state?.anchor, state?.panel, {
+    gap: PANEL_GAP,
+    margin: VIEWPORT_MARGIN,
+  });
 }
 
 export function hideEnhancementCostPanel() {

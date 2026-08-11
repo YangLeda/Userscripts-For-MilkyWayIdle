@@ -12487,6 +12487,54 @@ ${preview}`
     renderGuildCreditAdvisor
   });
 
+  // src/core/panel-position.js
+  function clamp(value, minimum, maximum) {
+    return Math.min(Math.max(value, minimum), maximum);
+  }
+  function computeAnchoredPanelPosition(anchorRect, panelRect, options = {}) {
+    const gap = Number(options.gap) || 0;
+    const margin = Number(options.margin) || 0;
+    const viewportWidth = Number(options.viewportWidth) || globalThis.innerWidth || globalThis.document?.documentElement?.clientWidth || 0;
+    const viewportHeight = Number(options.viewportHeight) || globalThis.innerHeight || globalThis.document?.documentElement?.clientHeight || 0;
+    const roomRight = viewportWidth - anchorRect.right - margin;
+    const roomLeft = anchorRect.left - margin;
+    const maxTop = viewportHeight - panelRect.height - margin;
+    let placement = "right";
+    let left;
+    let top;
+    if (roomRight >= panelRect.width + gap) {
+      left = anchorRect.right + gap;
+      top = clamp(anchorRect.top, margin, maxTop);
+    } else if (roomLeft >= panelRect.width + gap) {
+      placement = "left";
+      left = anchorRect.left - panelRect.width - gap;
+      top = clamp(anchorRect.top, margin, maxTop);
+    } else {
+      const roomBelow = viewportHeight - anchorRect.bottom - margin;
+      placement = roomBelow >= panelRect.height + gap ? "bottom" : "top";
+      left = clamp(
+        anchorRect.left,
+        margin,
+        viewportWidth - panelRect.width - margin
+      );
+      top = placement === "bottom" ? anchorRect.bottom + gap : anchorRect.top - panelRect.height - gap;
+      top = clamp(top, margin, maxTop);
+    }
+    return { left: Math.round(left), top: Math.round(top), placement };
+  }
+  function positionAnchoredPanel(anchor, panel, options = {}) {
+    if (!anchor?.isConnected || !panel?.isConnected) return false;
+    const { left, top, placement } = computeAnchoredPanelPosition(
+      anchor.getBoundingClientRect(),
+      panel.getBoundingClientRect(),
+      options
+    );
+    panel.dataset.placement = placement;
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    return true;
+  }
+
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
   var STYLE_ID5 = "mwitools-production-profit-panel-style";
@@ -12851,57 +12899,13 @@ ${preview}`
       `<div class="mwi-profit-warning">${escapeHtml(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
     );
   }
-  function clamp(value, minimum, maximum) {
-    return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
-  }
   function positionPanel() {
     const state = activePanel;
-    if (!state?.anchor?.isConnected || !state.panel?.isConnected) {
-      hideProductionProfitPanel();
-      return;
-    }
-    const anchorRect = state.anchor.getBoundingClientRect();
-    const panelRect = state.panel.getBoundingClientRect();
-    const viewportWidth = globalThis.innerWidth ?? document.documentElement.clientWidth;
-    const viewportHeight = globalThis.innerHeight ?? document.documentElement.clientHeight;
-    const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN;
-    const roomLeft = anchorRect.left - VIEWPORT_MARGIN;
-    let placement = "right";
-    let left;
-    let top;
-    if (roomRight >= panelRect.width + PANEL_GAP) {
-      left = anchorRect.right + PANEL_GAP;
-      top = clamp(
-        anchorRect.top,
-        VIEWPORT_MARGIN,
-        viewportHeight - panelRect.height - VIEWPORT_MARGIN
-      );
-    } else if (roomLeft >= panelRect.width + PANEL_GAP) {
-      placement = "left";
-      left = anchorRect.left - panelRect.width - PANEL_GAP;
-      top = clamp(
-        anchorRect.top,
-        VIEWPORT_MARGIN,
-        viewportHeight - panelRect.height - VIEWPORT_MARGIN
-      );
-    } else {
-      const roomBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN;
-      placement = roomBelow >= panelRect.height + PANEL_GAP ? "bottom" : "top";
-      left = clamp(
-        anchorRect.left,
-        VIEWPORT_MARGIN,
-        viewportWidth - panelRect.width - VIEWPORT_MARGIN
-      );
-      top = placement === "bottom" ? anchorRect.bottom + PANEL_GAP : anchorRect.top - panelRect.height - PANEL_GAP;
-      top = clamp(
-        top,
-        VIEWPORT_MARGIN,
-        viewportHeight - panelRect.height - VIEWPORT_MARGIN
-      );
-    }
-    state.panel.dataset.placement = placement;
-    state.panel.style.left = `${Math.round(left)}px`;
-    state.panel.style.top = `${Math.round(top)}px`;
+    const positioned = positionAnchoredPanel(state?.anchor, state?.panel, {
+      gap: PANEL_GAP,
+      margin: VIEWPORT_MARGIN
+    });
+    if (!positioned) hideProductionProfitPanel();
   }
   function hideProductionProfitPanel() {
     const state = activePanel;
@@ -22081,43 +22085,10 @@ ${locks}` : ""}`;
   }
   function positionPanel2() {
     const state = activePanel2;
-    if (!state?.anchor?.isConnected || !state.panel?.isConnected) return;
-    const anchorRect = state.anchor.getBoundingClientRect();
-    const panelRect = state.panel.getBoundingClientRect();
-    const viewportWidth = Number(globalThis.innerWidth) || document.documentElement.clientWidth;
-    const viewportHeight = Number(globalThis.innerHeight) || document.documentElement.clientHeight;
-    const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN2;
-    const roomLeft = anchorRect.left - VIEWPORT_MARGIN2;
-    const roomBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN2;
-    const roomAbove = anchorRect.top - VIEWPORT_MARGIN2;
-    let placement = "right";
-    let left = anchorRect.right + PANEL_GAP2;
-    let top = anchorRect.top;
-    if (roomRight < panelRect.width + PANEL_GAP2 && roomLeft >= panelRect.width + PANEL_GAP2) {
-      placement = "left";
-      left = anchorRect.left - panelRect.width - PANEL_GAP2;
-    } else if (roomRight < panelRect.width + PANEL_GAP2 && roomLeft < panelRect.width + PANEL_GAP2) {
-      if (roomBelow >= panelRect.height + PANEL_GAP2 || roomBelow >= roomAbove) {
-        placement = "bottom";
-        left = anchorRect.left;
-        top = anchorRect.bottom + PANEL_GAP2;
-      } else {
-        placement = "top";
-        left = anchorRect.left;
-        top = anchorRect.top - panelRect.height - PANEL_GAP2;
-      }
-    }
-    left = Math.min(
-      Math.max(VIEWPORT_MARGIN2, left),
-      viewportWidth - panelRect.width - VIEWPORT_MARGIN2
-    );
-    top = Math.min(
-      Math.max(VIEWPORT_MARGIN2, top),
-      viewportHeight - panelRect.height - VIEWPORT_MARGIN2
-    );
-    state.panel.dataset.placement = placement;
-    state.panel.style.left = `${Math.round(left)}px`;
-    state.panel.style.top = `${Math.round(top)}px`;
+    positionAnchoredPanel(state?.anchor, state?.panel, {
+      gap: PANEL_GAP2,
+      margin: VIEWPORT_MARGIN2
+    });
   }
   function hideEnhancementCostPanel() {
     const state = activePanel2;

@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { positionAnchoredPanel } from "../core/panel-position.js";
 
 const PANEL_ID = "mwitools-production-profit-panel";
 const STYLE_ID = "mwitools-production-profit-panel-style";
@@ -443,63 +444,13 @@ function renderPanel(panel, itemHrid, projection, options = {}) {
   );
 }
 
-function clamp(value, minimum, maximum) {
-  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
-}
-
 function positionPanel() {
   const state = activePanel;
-  if (!state?.anchor?.isConnected || !state.panel?.isConnected) {
-    hideProductionProfitPanel();
-    return;
-  }
-  const anchorRect = state.anchor.getBoundingClientRect();
-  const panelRect = state.panel.getBoundingClientRect();
-  const viewportWidth =
-    globalThis.innerWidth ?? document.documentElement.clientWidth;
-  const viewportHeight =
-    globalThis.innerHeight ?? document.documentElement.clientHeight;
-  const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN;
-  const roomLeft = anchorRect.left - VIEWPORT_MARGIN;
-  let placement = "right";
-  let left;
-  let top;
-  if (roomRight >= panelRect.width + PANEL_GAP) {
-    left = anchorRect.right + PANEL_GAP;
-    top = clamp(
-      anchorRect.top,
-      VIEWPORT_MARGIN,
-      viewportHeight - panelRect.height - VIEWPORT_MARGIN,
-    );
-  } else if (roomLeft >= panelRect.width + PANEL_GAP) {
-    placement = "left";
-    left = anchorRect.left - panelRect.width - PANEL_GAP;
-    top = clamp(
-      anchorRect.top,
-      VIEWPORT_MARGIN,
-      viewportHeight - panelRect.height - VIEWPORT_MARGIN,
-    );
-  } else {
-    const roomBelow = viewportHeight - anchorRect.bottom - VIEWPORT_MARGIN;
-    placement = roomBelow >= panelRect.height + PANEL_GAP ? "bottom" : "top";
-    left = clamp(
-      anchorRect.left,
-      VIEWPORT_MARGIN,
-      viewportWidth - panelRect.width - VIEWPORT_MARGIN,
-    );
-    top =
-      placement === "bottom"
-        ? anchorRect.bottom + PANEL_GAP
-        : anchorRect.top - panelRect.height - PANEL_GAP;
-    top = clamp(
-      top,
-      VIEWPORT_MARGIN,
-      viewportHeight - panelRect.height - VIEWPORT_MARGIN,
-    );
-  }
-  state.panel.dataset.placement = placement;
-  state.panel.style.left = `${Math.round(left)}px`;
-  state.panel.style.top = `${Math.round(top)}px`;
+  const positioned = positionAnchoredPanel(state?.anchor, state?.panel, {
+    gap: PANEL_GAP,
+    margin: VIEWPORT_MARGIN,
+  });
+  if (!positioned) hideProductionProfitPanel();
 }
 
 function hideProductionProfitPanel() {
