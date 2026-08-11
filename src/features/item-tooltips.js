@@ -34,7 +34,9 @@ function calculateTotalTime() {
   if (match) {
     const numOfTimes = +match[1];
     const timePerActionSec = +runtime.api
-      .getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn"))
+      .getOriTextFromElement(
+        document.querySelector('[class*="ProgressBar_text"]'),
+      )
       .match(/[\d\.]+/)[0];
     const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
     let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
@@ -95,14 +97,16 @@ const tooltipObserver = new MutationObserver(async function (mutations) {
         added?.nodeType === 1 &&
         added.classList.contains("MuiTooltip-popper")
       ) {
-        if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
+        if (added.querySelector('div[class*="ItemTooltipText_name"]')) {
           await handleTooltipItem(added);
         } else if (
-          added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")
+          added.querySelector(
+            'div[class*="QueuedActions_queuedActionsEditMenu"]',
+          )
         ) {
           runtime.api.handleActionQueueMenue(
             added.querySelector(
-              "div.QueuedActions_queuedActionsEditMenu__3OoQH",
+              'div[class*="QueuedActions_queuedActionsEditMenu"]',
             ),
           );
         } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
@@ -413,7 +417,7 @@ function getTeaBuffsByActionHrid(actionHrid) {
 
 async function handleTooltipItem(tooltip) {
   const itemNameElems = tooltip.querySelectorAll(
-    "div.ItemTooltipText_name__2JAHA span",
+    'div[class*="ItemTooltipText_name"] span',
   );
 
   // 带强化等级的物品单独处理

@@ -23,7 +23,7 @@ function addActionPanelStyles() {
 
 /* 动作面板 */
 const waitForActionPanelParent = () => {
-  const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
+  const targetNode = document.querySelector('div[class*="GamePage_mainPanel"]');
   if (targetNode) {
     console.log("start observe action panel");
     const actionPanelObserver = new MutationObserver(async function (
@@ -33,11 +33,13 @@ const waitForActionPanelParent = () => {
         for (const added of mutation.addedNodes) {
           if (
             added?.classList?.contains("Modal_modalContainer__3B80m") &&
-            added.querySelector("div.SkillActionDetail_regularComponent__3oCgr")
+            added.querySelector(
+              'div[class*="SkillActionDetail_regularComponent"]',
+            )
           ) {
             handleActionPanel(
               added.querySelector(
-                "div.SkillActionDetail_regularComponent__3oCgr",
+                'div[class*="SkillActionDetail_regularComponent"]',
               ),
             );
           }
@@ -540,14 +542,14 @@ runtime.features.register({
   initialize({ scope }) {
     let observed = null;
     const attach = () => {
-      const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+      const target = document.querySelector('div[class*="GamePage_mainPanel"]');
       if (!target || observed === target) return;
       observed = target;
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           for (const added of mutation.addedNodes) {
             const panel = added?.querySelector?.(
-              "div.SkillActionDetail_regularComponent__3oCgr",
+              'div[class*="SkillActionDetail_regularComponent"]',
             );
             if (
               panel &&
@@ -561,7 +563,7 @@ runtime.features.register({
       });
       scope.observer(observer, target, { childList: true, subtree: true });
       const openPanel = target.querySelector(
-        "div.SkillActionDetail_regularComponent__3oCgr",
+        'div[class*="SkillActionDetail_regularComponent"]',
       );
       if (
         openPanel &&

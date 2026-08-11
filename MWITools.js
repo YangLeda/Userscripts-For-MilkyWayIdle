@@ -11920,7 +11920,9 @@ ${preview}`
     });
   }
   async function addGuildCreditConversionsSortButton() {
-    const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
+    const selectorContainer = document.querySelector(
+      '[class*="ItemSelector_menu"]'
+    );
     if (!selectorContainer) {
       return;
     }
@@ -12078,7 +12080,7 @@ ${preview}`
                     id="script_itemSelector_price"
                     style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
                 </div>`;
-          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+          itemElem.querySelector('[class*="Item_item"][class*="Item_clickable"]').insertAdjacentHTML("beforeend", priceElemHTML);
         }
         const priceElem = itemElem.querySelector("#script_itemSelector_price");
         if (!itemElem.querySelector("#script_itemSelector_credit")) {
@@ -12086,7 +12088,7 @@ ${preview}`
                     id="script_itemSelector_credit"
                     style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
                 </div>`;
-          itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", creditElemHTML);
+          itemElem.querySelector('[class*="Item_item"][class*="Item_clickable"]').insertAdjacentHTML("beforeend", creditElemHTML);
         }
         const creditElem = itemElem.querySelector("#script_itemSelector_credit");
         if (order === "ask") {
@@ -12992,7 +12994,9 @@ ${preview}`
     const match = content.match(/\((\d+)\)/);
     if (match) {
       const numOfTimes = +match[1];
-      const timePerActionSec = +runtime.api.getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn")).match(/[\d\.]+/)[0];
+      const timePerActionSec = +runtime.api.getOriTextFromElement(
+        document.querySelector('[class*="ProgressBar_text"]')
+      ).match(/[\d\.]+/)[0];
       const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
       let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
       if (actionHrid.includes("enhanc")) {
@@ -13038,12 +13042,14 @@ ${preview}`
     for (const mutation of mutations) {
       for (const added of mutation.addedNodes) {
         if (added?.nodeType === 1 && added.classList.contains("MuiTooltip-popper")) {
-          if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
+          if (added.querySelector('div[class*="ItemTooltipText_name"]')) {
             await handleTooltipItem(added);
-          } else if (added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")) {
+          } else if (added.querySelector(
+            'div[class*="QueuedActions_queuedActionsEditMenu"]'
+          )) {
             runtime.api.handleActionQueueMenue(
               added.querySelector(
-                "div.QueuedActions_queuedActionsEditMenu__3OoQH"
+                'div[class*="QueuedActions_queuedActionsEditMenu"]'
               )
             );
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
@@ -13296,7 +13302,7 @@ ${preview}`
   }
   async function handleTooltipItem(tooltip) {
     const itemNameElems = tooltip.querySelectorAll(
-      "div.ItemTooltipText_name__2JAHA span"
+      'div[class*="ItemTooltipText_name"] span'
     );
     if (itemNameElems.length > 1) {
       runtime.api.hideProductionProfitPanel?.();
@@ -13520,16 +13526,18 @@ ${preview}`
     (document.head ?? document.documentElement).appendChild(style);
   }
   var waitForActionPanelParent = () => {
-    const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
+    const targetNode = document.querySelector('div[class*="GamePage_mainPanel"]');
     if (targetNode) {
       console.log("start observe action panel");
       const actionPanelObserver = new MutationObserver(async function(mutations) {
         for (const mutation of mutations) {
           for (const added of mutation.addedNodes) {
-            if (added?.classList?.contains("Modal_modalContainer__3B80m") && added.querySelector("div.SkillActionDetail_regularComponent__3oCgr")) {
+            if (added?.classList?.contains("Modal_modalContainer__3B80m") && added.querySelector(
+              'div[class*="SkillActionDetail_regularComponent"]'
+            )) {
               handleActionPanel(
                 added.querySelector(
-                  "div.SkillActionDetail_regularComponent__3oCgr"
+                  'div[class*="SkillActionDetail_regularComponent"]'
                 )
               );
             }
@@ -13906,14 +13914,14 @@ ${preview}`
     initialize({ scope }) {
       let observed = null;
       const attach = () => {
-        const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+        const target = document.querySelector('div[class*="GamePage_mainPanel"]');
         if (!target || observed === target) return;
         observed = target;
         const observer = new MutationObserver((mutations) => {
           for (const mutation of mutations) {
             for (const added of mutation.addedNodes) {
               const panel = added?.querySelector?.(
-                "div.SkillActionDetail_regularComponent__3oCgr"
+                'div[class*="SkillActionDetail_regularComponent"]'
               );
               if (panel && (!panel.querySelector("#mwi-level-progress") || panel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
                 handleActionPanel(panel);
@@ -13923,7 +13931,7 @@ ${preview}`
         });
         scope.observer(observer, target, { childList: true, subtree: true });
         const openPanel = target.querySelector(
-          "div.SkillActionDetail_regularComponent__3oCgr"
+          'div[class*="SkillActionDetail_regularComponent"]'
         );
         if (openPanel && (!openPanel.querySelector("#mwi-level-progress") || openPanel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
           handleActionPanel(openPanel);

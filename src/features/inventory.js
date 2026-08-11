@@ -910,7 +910,9 @@ async function addInvSortButton(invElem) {
 
 /* 公会信用兑换选择弹窗排序 */
 async function addGuildCreditConversionsSortButton() {
-  const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
+  const selectorContainer = document.querySelector(
+    '[class*="ItemSelector_menu"]',
+  );
   if (!selectorContainer) {
     return;
   }
@@ -1116,7 +1118,7 @@ async function addGuildCreditConversionsSortButton() {
                     style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left; font-size: 10px;">
                 </div>`;
         itemElem
-          .querySelector(".Item_item__2De2O.Item_clickable__3viV6")
+          .querySelector('[class*="Item_item"][class*="Item_clickable"]')
           .insertAdjacentHTML("beforeend", priceElemHTML);
       }
       const priceElem = itemElem.querySelector("#script_itemSelector_price");
@@ -1127,7 +1129,7 @@ async function addGuildCreditConversionsSortButton() {
                     style="z-index: 1; position: absolute; bottom: 2px; left: 2px; text-align: left; font-size: 10px;">
                 </div>`;
         itemElem
-          .querySelector(".Item_item__2De2O.Item_clickable__3viV6")
+          .querySelector('[class*="Item_item"][class*="Item_clickable"]')
           .insertAdjacentHTML("beforeend", creditElemHTML);
       }
       const creditElem = itemElem.querySelector("#script_itemSelector_credit");
