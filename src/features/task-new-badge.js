@@ -1,7 +1,9 @@
 import { runtime } from "../core/runtime.js";
 
 const STYLE_ID = "mwitools-task-new-style";
-const TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
+const TASK_SELECTOR =
+  'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+const liveTaskNewStates = new Map();
 
 export function questId(quest) {
   return String(
@@ -134,6 +136,7 @@ runtime.features.register({
     addStyles();
     const storageKey = taskNewStorageKey(characterId);
     const state = readTaskNewState(storageKey);
+    liveTaskNewStates.set(storageKey, state);
     const initial = runtime.state.characterQuests ?? [];
     // Only the first-ever snapshot is a baseline. On later page loads, tasks
     // absent from the persisted baseline are new even if they were received
@@ -141,11 +144,6 @@ runtime.features.register({
     initializeQuestState(state, initial);
     writeTaskNewState(storageKey, state);
 
-    const markRead = (id) => {
-      if (!state.fresh.delete(id)) return;
-      writeTaskNewState(storageKey, state);
-      render();
-    };
     const render = () => {
       const quests = runtime.state.characterQuests ?? [];
       const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -163,7 +161,9 @@ runtime.features.register({
         const task =
           quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
         const id = questId(task);
-        const fresh = id && state.fresh.has(id) && !isCompleted(task);
+        const fresh = Boolean(
+          id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id),
+        );
         card.classList.toggle("mwi-task-is-new", Boolean(fresh));
         let badge = card.querySelector(":scope > .mwi-task-new-badge");
         if (fresh && !badge) {
@@ -192,31 +192,29 @@ runtime.features.register({
         render();
       }),
     );
-    scope.event(
-      document,
-      "click",
-      (event) => {
-        const card = event.target?.closest?.(TASK_SELECTOR);
-        if (!card) return;
-        const fallbackIndex = [
-          ...document.querySelectorAll(TASK_SELECTOR),
-        ].indexOf(card);
-        const liveIndex = Number(
-          card.dataset.mwitoolsOriginalIndex ?? fallbackIndex,
-        );
-        markRead(questId((runtime.state.characterQuests ?? [])[liveIndex]));
-      },
-      true,
-    );
     render();
     scope.interval(render, 350);
-    scope.add(cleanupDom);
+    scope.add(() => {
+      if (liveTaskNewStates.get(storageKey) === state) {
+        liveTaskNewStates.delete(storageKey);
+      }
+      cleanupDom();
+    });
   },
 });
 
 Object.assign(runtime.api, {
   getNewTaskIds() {
     const key = taskNewStorageKey(runtime.state.currentCharacterId);
-    return [...readTaskNewState(key).fresh];
+    const state = liveTaskNewStates.get(key) ?? readTaskNewState(key);
+    initializeQuestState(state, runtime.state.characterQuests ?? []);
+    writeTaskNewState(key, state);
+    return [...state.fresh];
+  },
+  acknowledgeNewTaskIds(ids) {
+    const key = taskNewStorageKey(runtime.state.currentCharacterId);
+    const state = liveTaskNewStates.get(key) ?? readTaskNewState(key);
+    for (const id of ids ?? []) state.fresh.delete(String(id));
+    writeTaskNewState(key, state);
   },
 });

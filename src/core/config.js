@@ -108,9 +108,9 @@ let settingsMap = {
   valueBackEquipmentWithProtectionMirror: {
     id: "valueBackEquipmentWithProtectionMirror",
     desc: isZH
-      ? "普通未强化披风按取得成本估值"
-      : "Value ordinary unenhanced capes by acquisition cost.",
-    isTrue: true,
+      ? "普通未强化背部装备按保护之镜价值估值"
+      : "Value ordinary unenhanced back equipment using Mirrors of Protection.",
+    isTrue: false,
   },
   invSort: {
     id: "invSort",
@@ -120,8 +120,8 @@ let settingsMap = {
   guildCreditConversionsSort: {
     id: "guildCreditConversionsSort",
     desc: isZH
-      ? "公会信用兑换：公会信用兑换选择排序"
-      : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
+      ? "公会信用兑换：显示性价比推荐"
+      : "Guild Credit Exchange: Show value recommendations.",
     isTrue: true,
   },
   profileBuildScore: {
@@ -289,8 +289,8 @@ let settingsMap = {
   taskNewBadge: {
     id: "taskNewBadge",
     desc: isZH
-      ? "新领取任务显示高亮和新角标"
-      : "Highlight newly received tasks.",
+      ? "新领取任务置顶并显示高亮和新角标"
+      : "Pin and highlight newly received tasks.",
     isTrue: true,
   },
   taskAutoReturn: {
@@ -613,10 +613,10 @@ const catalogRows = [
   [
     "valueBackEquipmentWithProtectionMirror",
     "inventory",
-    "普通披风按取得成本估值",
-    "Value ordinary capes by acquisition cost",
-    "只控制未强化、未精炼的普通披风：开启后按商店等实际取得成本估值，关闭后按市场/NPC 常规价值。强化披风始终按保护之镜期望成本估值，精炼披风始终计入基础披风与精炼材料。",
-    "Only controls ordinary capes that are neither enhanced nor refined: on uses shop/acquisition cost, while off uses normal market/NPC value. Enhanced capes always use expected Mirror of Protection cost, and refined capes always include their base cape and refining materials.",
+    "普通背部装备按保护之镜估值",
+    "Value ordinary back equipment by protection mirrors",
+    "开启后，未强化、未精炼的普通背部装备（包括披风、箭袋等）按保护之镜的当前价值估值；默认关闭。所有强化背部装备（包括精炼后的背部装备）在计算强化成本时始终使用保护之镜，不受此开关影响。",
+    "When enabled, ordinary unenhanced and unrefined back-slot equipment, including capes and quivers, uses the current value of a Mirror of Protection. Off by default. All enhanced back equipment, including refined back equipment, always uses Mirrors of Protection for enhancement costs regardless of this option.",
   ],
   [
     "invSort",
@@ -701,10 +701,10 @@ const catalogRows = [
   [
     "taskNewBadge",
     "tasks",
-    "新任务标记",
-    "New task badges",
-    "新领取任务显示黄色角标和高亮，点击任务卡后标记为已读。",
-    "Show a yellow badge and highlight on newly received tasks until the task card is clicked.",
+    "新任务置顶与标记",
+    "New task group and badges",
+    "本次进入任务页期间，将新领取任务置于最顶部的新任务分类并显示黄色角标；再次进入任务页时恢复正常分类。",
+    "Place newly received tasks in a highlighted top group for the current task-page visit, then restore their normal groups on the next visit.",
   ],
   [
     "taskAutoReturn",
@@ -885,10 +885,10 @@ const catalogRows = [
   [
     "guildCreditConversionsSort",
     "guild",
-    "公会信用兑换排序",
-    "Guild credit exchange sorting",
-    "按材料市场价值整理公会信用兑换选项。",
-    "Sort guild credit exchange options by material market value.",
+    "公会信用兑换性价比推荐",
+    "Guild credit exchange recommendations",
+    "按市场出售价计算兑换相同信用点的真实材料成本，并比较当前方案与最优方案。",
+    "Compare the selected conversion with the cheapest way to obtain the same credits using market asks.",
   ],
   [
     "ThirdPartyLinks",

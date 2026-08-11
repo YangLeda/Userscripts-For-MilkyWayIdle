@@ -1,7 +1,8 @@
 import { runtime } from "../core/runtime.js";
 
-let guildCreditWatcherStarted = false;
 let inventoryRefreshTimer = null;
+let inventoryDisplayVersion = 0;
+const frozenInventoryDisplays = new Map();
 const INVENTORY_SUMMARY_STYLE_ID = "mwitools-inventory-summary-style";
 
 function addInventorySummaryStyles() {
@@ -273,6 +274,12 @@ function scheduleNetworthRefresh() {
   inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
 }
 
+function inventoryDisplayKey() {
+  const characterId = String(runtime.state.currentCharacterId ?? "").trim();
+  if (!characterId) return "";
+  return `${runtime.api.getMarketEnvironment?.() ?? "production"}:${characterId}`;
+}
+
 const INVENTORY_CATEGORY_ALIASES = {
   "/item_categories/currency": ["currency", "currencies", "货币"],
   "/item_categories/loot": ["loot", "loots", "战利品"],
@@ -318,7 +325,7 @@ function resolveInventoryCategoryHrid(grid, heading) {
   )?.[0];
 }
 
-function addInventoryCategoryValues(invElem) {
+function calculateInventoryCategoryValues() {
   const categoryValues = new Map();
   for (const item of runtime.state.initData_characterItems ?? []) {
     if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
@@ -342,6 +349,13 @@ function addInventoryCategoryValues(invElem) {
     );
   }
 
+  return categoryValues;
+}
+
+function addInventoryCategoryValues(
+  invElem,
+  categoryValues = calculateInventoryCategoryValues(),
+) {
   for (const category of invElem.children) {
     const grid = category.matches?.('[class*="Inventory_itemGrid"]')
       ? category
@@ -366,10 +380,37 @@ function addInventoryCategoryValues(invElem) {
   }
 }
 
-async function calculateNetworth() {
-  if (!Array.isArray(runtime.state.initData_characterItems)) return;
+async function getFrozenInventoryDisplay(force = false) {
+  const key = inventoryDisplayKey();
+  if (!key) return null;
+  if (!force && frozenInventoryDisplays.has(key)) {
+    return frozenInventoryDisplays.get(key);
+  }
   const snapshot = await runtime.api.refreshAssetSnapshot();
-  if (!snapshot) return;
+  if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
+  const display = {
+    snapshot,
+    categoryValues: calculateInventoryCategoryValues(),
+    version: ++inventoryDisplayVersion,
+  };
+  frozenInventoryDisplays.set(key, display);
+  return display;
+}
+
+async function calculateNetworth(options = {}) {
+  if (!Array.isArray(runtime.state.initData_characterItems)) return;
+  const targetNodes = document.querySelectorAll(
+    'div[class*="Inventory_items"]',
+  );
+  if (!targetNodes.length) return;
+
+  const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
+  const showSort = runtime.settings.settingsMap.invSort.isTrue;
+  const display = showWorth
+    ? await getFrozenInventoryDisplay(options.force === true)
+    : null;
+  if (showWorth && !display) return;
+  const snapshot = display?.snapshot;
   addInventorySummaryStyles();
 
   const addInventorySummary = (invElem) => {
@@ -524,14 +565,17 @@ async function calculateNetworth() {
   };
 
   const renderInventoryPanels = () => {
-    const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
     for (const node of targetNodes) {
-      if (runtime.settings.settingsMap.invWorth.isTrue) {
+      if (showWorth) {
         node.classList.add("script_buildScore_added");
-        addInventorySummary(node);
-        addInventoryCategoryValues(node);
+        const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
+        if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
+          addInventorySummary(node);
+          addInventoryCategoryValues(node, display.categoryValues);
+          node.dataset.mwitoolsInventoryDisplayVersion = renderVersion;
+        }
       }
-      if (runtime.settings.settingsMap.invSort.isTrue) {
+      if (showSort || showWorth) {
         if (!node.classList.contains("script_invSort_added")) {
           node.classList.add("script_invSort_added");
           addInvSortButton(node);
@@ -540,17 +584,6 @@ async function calculateNetworth() {
     }
   };
   renderInventoryPanels();
-
-  const waitGuildCreditConversionsSelect = () => {
-    if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
-      addGuildCreditConversionsSortButton();
-
-    setTimeout(waitGuildCreditConversionsSelect, 1000);
-  };
-  if (!guildCreditWatcherStarted) {
-    guildCreditWatcherStarted = true;
-    waitGuildCreditConversionsSelect();
-  }
 }
 
 /* 仓库物品排序 */
@@ -579,15 +612,26 @@ function getInventorySortUnitValue(
   return derivedValue;
 }
 
+function getInventoryItemEnhancementLevel(itemElem) {
+  const levelText =
+    itemElem?.querySelector?.('[class*="Item_enhancementLevel"]')
+      ?.textContent ?? "";
+  return Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
+}
+
 function isSortableInventoryCategory(typeName) {
   return typeName !== "Equipment";
 }
 
 async function addInvSortButton(invElem) {
-  const price_data = await runtime.api.fetchMarketJSON();
-  if (!price_data || !price_data.marketData) {
-    console.error("addInvSortButton fetchMarketJSON null");
-    return;
+  const showSort = runtime.settings.settingsMap.invSort.isTrue;
+  const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
+  if (showSort) {
+    const priceData = await runtime.api.fetchMarketJSON();
+    if (!priceData?.marketData) {
+      console.error("addInvSortButton fetchMarketJSON null");
+      return;
+    }
   }
 
   const fairButton = `<button
@@ -610,31 +654,18 @@ async function addInvSortButton(invElem) {
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
+  const refreshButton = `<button
+        id="script_refresh_inventory_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "刷新" : "Refresh"}
+        </button>`;
   const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
-    runtime.config.isZH ? "物品排序：" : "Sort items by: "
-  }${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
+    showSort ? (runtime.config.isZH ? "物品排序：" : "Sort items by: ") : ""
+  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${
+    showWorth ? ` ${refreshButton}` : ""
+  }</div>`;
+  if (!invElem.isConnected || !invElem.parentElement) return;
   invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
-
-  invElem.parentElement
-    .querySelector("button#script_sortByFair_btn")
-    .addEventListener("click", function () {
-      sortItemsBy("fair");
-    });
-  invElem.parentElement
-    .querySelector("button#script_sortByAsk_btn")
-    .addEventListener("click", function (e) {
-      sortItemsBy("ask");
-    });
-  invElem.parentElement
-    .querySelector("button#script_sortByBid_btn")
-    .addEventListener("click", function (e) {
-      sortItemsBy("bid");
-    });
-  invElem.parentElement
-    .querySelector("button#script_sortByNone_btn")
-    .addEventListener("click", function (e) {
-      sortItemsBy("none");
-    });
 
   const sortItemsBy = (order) => {
     for (const typeDiv of invElem.children) {
@@ -656,14 +687,18 @@ async function addInvSortButton(invElem) {
           itemName = runtime.api.getItemEnNameFromZhName(itemName);
         }
         const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+        const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
         let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
         itemCount = runtime.api.parseCompactNumber(itemCount);
         const itemAskmWorth =
-          getInventorySortUnitValue(itemHrid, 0, "ask") * itemCount;
+          getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") *
+          itemCount;
         const itemBidWorth =
-          getInventorySortUnitValue(itemHrid, 0, "bid") * itemCount;
+          getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") *
+          itemCount;
         const itemFairWorth =
-          getInventorySortUnitValue(itemHrid, 0, "fair") * itemCount;
+          getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") *
+          itemCount;
 
         // 价格角标
         if (!itemElem.querySelector("#script_stack_price")) {
@@ -695,6 +730,40 @@ async function addInvSortButton(invElem) {
       }
     }
   };
+
+  if (showSort) {
+    invElem.parentElement
+      .querySelector("button#script_sortByFair_btn")
+      ?.addEventListener("click", () => sortItemsBy("fair"));
+    invElem.parentElement
+      .querySelector("button#script_sortByAsk_btn")
+      ?.addEventListener("click", () => sortItemsBy("ask"));
+    invElem.parentElement
+      .querySelector("button#script_sortByBid_btn")
+      ?.addEventListener("click", () => sortItemsBy("bid"));
+    invElem.parentElement
+      .querySelector("button#script_sortByNone_btn")
+      ?.addEventListener("click", () => sortItemsBy("none"));
+  }
+
+  const refreshButtonElement = invElem.parentElement.querySelector(
+    "button#script_refresh_inventory_btn",
+  );
+  refreshButtonElement?.addEventListener("click", async () => {
+    const idleText = runtime.config.isZH ? "刷新" : "Refresh";
+    refreshButtonElement.disabled = true;
+    refreshButtonElement.textContent = runtime.config.isZH
+      ? "刷新中…"
+      : "Refreshing…";
+    try {
+      await calculateNetworth({ force: true });
+    } finally {
+      if (refreshButtonElement.isConnected) {
+        refreshButtonElement.disabled = false;
+        refreshButtonElement.textContent = idleText;
+      }
+    }
+  });
 }
 
 /* 公会信用兑换选择弹窗排序 */
@@ -990,6 +1059,7 @@ Object.assign(runtime.api, {
   scheduleNetworthRefresh,
   addInventoryCategoryValues,
   getInventorySortUnitValue,
+  getInventoryItemEnhancementLevel,
   isSortableInventoryCategory,
   addInvSortButton,
   addGuildCreditConversionsSortButton,

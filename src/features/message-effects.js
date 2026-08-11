@@ -4,7 +4,8 @@ function refreshAssets() {
   const settings = runtime.settings.settingsMap;
   if (settings.invWorth.isTrue || settings.invSort.isTrue) {
     runtime.api.scheduleNetworthRefresh();
-  } else if (settings.assetHistory.isTrue) {
+  }
+  if (settings.assetHistory.isTrue) {
     runtime.api.assetHistory.scheduleRefresh();
   }
 }

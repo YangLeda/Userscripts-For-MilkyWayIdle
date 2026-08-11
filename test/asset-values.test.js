@@ -26,6 +26,7 @@ runtime.state.marketItemValues = {
   "/items/task_drop_a": { 0: 100 },
   "/items/task_drop_b": { 0: 200 },
   "/items/labyrinth_reward": { 0: 4000 },
+  "/items/mirror_of_protection": { 0: 80_000 },
   "/items/test_cape": { 5: 50_000 },
   "/items/artificer_cape_refined": { 5: 60_000 },
   "/items/test_sword": { 5: 40_000 },
@@ -76,6 +77,10 @@ runtime.state.initData_itemDetailMap = {
   "/items/vendor_only": { sellPrice: 1234 },
   "/items/task_crate": { sellPrice: 5 },
   "/items/test_cape": {
+    equipmentDetail: { equipmentSlotHrid: "/item_locations/back" },
+  },
+  "/items/test_quiver": {
+    sellPrice: 12_345,
     equipmentDetail: { equipmentSlotHrid: "/item_locations/back" },
   },
   "/items/artificer_cape_refined": {
@@ -353,12 +358,12 @@ test("non-refined and refined back gear keep acquisition and enhancement value",
   };
 
   // The dynamic labyrinth-token value is 800, so acquisition costs 250 × 800.
-  // With the option off, only the plain +0 cape uses its normal NPC fallback.
-  // Refined or enhanced capes always include acquisition, refinement, and/or
-  // Mirror of Protection enhancement costs as applicable.
+  // Plain +0 back gear normally uses its market/NPC fallback. Refined gear
+  // retains acquisition and refinement costs regardless of the mirror option.
   assetSettings.valueBackEquipmentWithProtectionMirror = false;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/chance_cape", 0), 100_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_quiver", 0), 12_345);
   assert.equal(
     runtime.api.getAssetValue("/items/chance_cape_refined", 0),
     200_200,
@@ -371,7 +376,8 @@ test("non-refined and refined back gear keep acquisition and enhancement value",
 
   assetSettings.valueBackEquipmentWithProtectionMirror = true;
   runtime.api.invalidateAssetValueCache();
-  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 0), 200_000);
+  assert.equal(runtime.api.getAssetValue("/items/chance_cape", 0), 80_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_quiver", 0), 80_000);
   assert.equal(runtime.api.getAssetValue("/items/chance_cape", 5), 205_000);
   assert.equal(
     runtime.api.getAssetValue("/items/chance_cape_refined", 5),
@@ -383,15 +389,33 @@ test("non-refined and refined back gear keep acquisition and enhancement value",
   runtime.api.invalidateAssetValueCache();
 });
 
-test("back equipment can use forced protection-mirror enhancement value", () => {
+test("all enhanced back equipment uses forced protection-mirror value", () => {
   const originalPlanner = runtime.api.calculateEnhancementPlan;
   let received = null;
   runtime.api.calculateEnhancementPlan = (options) => {
     received = options;
-    return { status: "complete", totalCost: 123_456 };
+    return {
+      status: "complete",
+      totalCost: options.forcedProtectionItemHrid ? 123_456 : 234_567,
+    };
   };
 
   assetSettings.valueBackEquipmentWithProtectionMirror = false;
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 123_456);
+  assert.equal(
+    received.forcedProtectionItemHrid,
+    "/items/mirror_of_protection",
+  );
+  assert.equal(received.allowPhilosopherMirror, false);
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/test_quiver", 5), 123_456);
+  assert.equal(
+    received.forcedProtectionItemHrid,
+    "/items/mirror_of_protection",
+  );
+
+  assetSettings.valueBackEquipmentWithProtectionMirror = true;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/test_cape", 5), 123_456);
   assert.equal(
@@ -405,7 +429,7 @@ test("back equipment can use forced protection-mirror enhancement value", () => 
     123_456,
   );
   assert.equal(received.itemHrid, "/items/artificer_cape_refined");
-  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 123_456);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 234_567);
   assert.equal(received.forcedProtectionItemHrid, null);
   assert.equal(received.allowPhilosopherMirror, true);
   assert.equal(

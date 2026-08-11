@@ -898,8 +898,8 @@
     },
     valueBackEquipmentWithProtectionMirror: {
       id: "valueBackEquipmentWithProtectionMirror",
-      desc: isZH ? "普通未强化披风按取得成本估值" : "Value ordinary unenhanced capes by acquisition cost.",
-      isTrue: true
+      desc: isZH ? "普通未强化背部装备按保护之镜价值估值" : "Value ordinary unenhanced back equipment using Mirrors of Protection.",
+      isTrue: false
     },
     invSort: {
       id: "invSort",
@@ -908,7 +908,7 @@
     },
     guildCreditConversionsSort: {
       id: "guildCreditConversionsSort",
-      desc: isZH ? "公会信用兑换：公会信用兑换选择排序" : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
+      desc: isZH ? "公会信用兑换：显示性价比推荐" : "Guild Credit Exchange: Show value recommendations.",
       isTrue: true
     },
     profileBuildScore: {
@@ -1033,7 +1033,7 @@
     },
     taskNewBadge: {
       id: "taskNewBadge",
-      desc: isZH ? "新领取任务显示高亮和新角标" : "Highlight newly received tasks.",
+      desc: isZH ? "新领取任务置顶并显示高亮和新角标" : "Pin and highlight newly received tasks.",
       isTrue: true
     },
     taskAutoReturn: {
@@ -1342,10 +1342,10 @@
     [
       "valueBackEquipmentWithProtectionMirror",
       "inventory",
-      "普通披风按取得成本估值",
-      "Value ordinary capes by acquisition cost",
-      "只控制未强化、未精炼的普通披风：开启后按商店等实际取得成本估值，关闭后按市场/NPC 常规价值。强化披风始终按保护之镜期望成本估值，精炼披风始终计入基础披风与精炼材料。",
-      "Only controls ordinary capes that are neither enhanced nor refined: on uses shop/acquisition cost, while off uses normal market/NPC value. Enhanced capes always use expected Mirror of Protection cost, and refined capes always include their base cape and refining materials."
+      "普通背部装备按保护之镜估值",
+      "Value ordinary back equipment by protection mirrors",
+      "开启后，未强化、未精炼的普通背部装备（包括披风、箭袋等）按保护之镜的当前价值估值；默认关闭。所有强化背部装备（包括精炼后的背部装备）在计算强化成本时始终使用保护之镜，不受此开关影响。",
+      "When enabled, ordinary unenhanced and unrefined back-slot equipment, including capes and quivers, uses the current value of a Mirror of Protection. Off by default. All enhanced back equipment, including refined back equipment, always uses Mirrors of Protection for enhancement costs regardless of this option."
     ],
     [
       "invSort",
@@ -1430,10 +1430,10 @@
     [
       "taskNewBadge",
       "tasks",
-      "新任务标记",
-      "New task badges",
-      "新领取任务显示黄色角标和高亮，点击任务卡后标记为已读。",
-      "Show a yellow badge and highlight on newly received tasks until the task card is clicked."
+      "新任务置顶与标记",
+      "New task group and badges",
+      "本次进入任务页期间，将新领取任务置于最顶部的新任务分类并显示黄色角标；再次进入任务页时恢复正常分类。",
+      "Place newly received tasks in a highlighted top group for the current task-page visit, then restore their normal groups on the next visit."
     ],
     [
       "taskAutoReturn",
@@ -1614,10 +1614,10 @@
     [
       "guildCreditConversionsSort",
       "guild",
-      "公会信用兑换排序",
-      "Guild credit exchange sorting",
-      "按材料市场价值整理公会信用兑换选项。",
-      "Sort guild credit exchange options by material market value."
+      "公会信用兑换性价比推荐",
+      "Guild credit exchange recommendations",
+      "按市场出售价计算兑换相同信用点的真实材料成本，并比较当前方案与最优方案。",
+      "Compare the selected conversion with the cheapest way to obtain the same credits using market asks."
     ],
     [
       "ThirdPartyLinks",
@@ -20741,11 +20741,25 @@
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
     const enhancedEquipment = level > 0 && isEquipment(itemHrid);
     const refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined");
-    const preferAcquisitionValue = options.forceAcquisitionValue === true || backEquipment && (refinedBackEquipment || settingEnabled("valueBackEquipmentWithProtectionMirror"));
-    const cacheMode = enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : preferAcquisitionValue ? "acquisition" : "market";
+    const ordinaryBackMirrorValue = level === 0 && backEquipment && !refinedBackEquipment && options.forceAcquisitionValue !== true && settingEnabled("valueBackEquipmentWithProtectionMirror");
+    const preferAcquisitionValue = options.forceAcquisitionValue === true || refinedBackEquipment;
+    const cacheMode = enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : ordinaryBackMirrorValue ? "protection-mirror-value" : preferAcquisitionValue ? "acquisition" : "market";
     const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
     if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
     if (context.has(cacheKey)) return 0;
+    if (ordinaryBackMirrorValue) {
+      context.add(cacheKey);
+      const mirrorValue = getAssetValueInternal(
+        "/items/mirror_of_protection",
+        0,
+        context
+      );
+      context.delete(cacheKey);
+      if (mirrorValue > 0) {
+        assetValueCache.set(cacheKey, mirrorValue);
+        return mirrorValue;
+      }
+    }
     if (enhancedEquipment) {
       const enhancementCost = getEnhancedEquipmentCost(
         itemHrid,
@@ -21075,9 +21089,8 @@
   });
   function refreshConfiguredAssetValues() {
     invalidateAssetValueCache();
-    if (runtime.api.scheduleNetworthRefresh) {
-      runtime.api.scheduleNetworthRefresh();
-    } else {
+    runtime.api.scheduleNetworthRefresh?.();
+    if (runtime.settings.settingsMap.assetHistory.isTrue) {
       runtime.api.scheduleAssetSnapshotRefresh?.(0);
     }
   }
@@ -24705,8 +24718,9 @@ ${preview}`
   });
 
   // src/features/inventory.js
-  var guildCreditWatcherStarted = false;
   var inventoryRefreshTimer = null;
+  var inventoryDisplayVersion = 0;
+  var frozenInventoryDisplays = /* @__PURE__ */ new Map();
   var INVENTORY_SUMMARY_STYLE_ID = "mwitools-inventory-summary-style";
   function addInventorySummaryStyles() {
     if (document.getElementById(INVENTORY_SUMMARY_STYLE_ID)) return;
@@ -24974,6 +24988,11 @@ ${preview}`
     clearTimeout(inventoryRefreshTimer);
     inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
   }
+  function inventoryDisplayKey() {
+    const characterId = String(runtime.state.currentCharacterId ?? "").trim();
+    if (!characterId) return "";
+    return `${runtime.api.getMarketEnvironment?.() ?? "production"}:${characterId}`;
+  }
   var INVENTORY_CATEGORY_ALIASES = {
     "/item_categories/currency": ["currency", "currencies", "货币"],
     "/item_categories/loot": ["loot", "loots", "战利品"],
@@ -24990,9 +25009,9 @@ ${preview}`
     return String(value ?? "").replace(/^[+−-]\s*/, "").replace(/\s*\(\d+\)\s*$/, "").trim().toLowerCase();
   }
   function resolveInventoryCategoryHrid(grid, heading) {
-    const itemName2 = grid.querySelector('div[class*="Item_itemContainer"] svg[aria-label]')?.getAttribute("aria-label")?.trim();
-    if (itemName2) {
-      const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2 : itemName2;
+    const itemName3 = grid.querySelector('div[class*="Item_itemContainer"] svg[aria-label]')?.getAttribute("aria-label")?.trim();
+    if (itemName3) {
+      const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(itemName3) ?? itemName3 : itemName3;
       const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
       const categoryHrid = runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
       if (categoryHrid) return categoryHrid;
@@ -25005,7 +25024,7 @@ ${preview}`
       ([, aliases]) => labels.some((label) => aliases.includes(label))
     )?.[0];
   }
-  function addInventoryCategoryValues(invElem) {
+  function calculateInventoryCategoryValues() {
     const categoryValues = /* @__PURE__ */ new Map();
     for (const item of runtime.state.initData_characterItems ?? []) {
       if (item?.itemLocationHrid !== "/item_locations/inventory") continue;
@@ -25022,6 +25041,9 @@ ${preview}`
         (categoryValues.get(categoryHrid) ?? 0) + value
       );
     }
+    return categoryValues;
+  }
+  function addInventoryCategoryValues(invElem, categoryValues = calculateInventoryCategoryValues()) {
     for (const category of invElem.children) {
       const grid = category.matches?.('[class*="Inventory_itemGrid"]') ? category : category.querySelector(':scope > [class*="Inventory_itemGrid"]') ?? category;
       const heading = grid.querySelector(
@@ -25041,10 +25063,33 @@ ${preview}`
       heading.appendChild(value);
     }
   }
-  async function calculateNetworth() {
-    if (!Array.isArray(runtime.state.initData_characterItems)) return;
+  async function getFrozenInventoryDisplay(force = false) {
+    const key = inventoryDisplayKey();
+    if (!key) return null;
+    if (!force && frozenInventoryDisplays.has(key)) {
+      return frozenInventoryDisplays.get(key);
+    }
     const snapshot = await runtime.api.refreshAssetSnapshot();
-    if (!snapshot) return;
+    if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
+    const display = {
+      snapshot,
+      categoryValues: calculateInventoryCategoryValues(),
+      version: ++inventoryDisplayVersion
+    };
+    frozenInventoryDisplays.set(key, display);
+    return display;
+  }
+  async function calculateNetworth(options = {}) {
+    if (!Array.isArray(runtime.state.initData_characterItems)) return;
+    const targetNodes = document.querySelectorAll(
+      'div[class*="Inventory_items"]'
+    );
+    if (!targetNodes.length) return;
+    const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
+    const showSort = runtime.settings.settingsMap.invSort.isTrue;
+    const display = showWorth ? await getFrozenInventoryDisplay(options.force === true) : null;
+    if (showWorth && !display) return;
+    const snapshot = display?.snapshot;
     addInventorySummaryStyles();
     const addInventorySummary = (invElem) => {
       const { scores, values } = snapshot;
@@ -25181,14 +25226,17 @@ ${preview}`
       });
     };
     const renderInventoryPanels = () => {
-      const targetNodes = document.querySelectorAll("div.Inventory_items__6SXv0");
       for (const node of targetNodes) {
-        if (runtime.settings.settingsMap.invWorth.isTrue) {
+        if (showWorth) {
           node.classList.add("script_buildScore_added");
-          addInventorySummary(node);
-          addInventoryCategoryValues(node);
+          const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
+          if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
+            addInventorySummary(node);
+            addInventoryCategoryValues(node, display.categoryValues);
+            node.dataset.mwitoolsInventoryDisplayVersion = renderVersion;
+          }
         }
-        if (runtime.settings.settingsMap.invSort.isTrue) {
+        if (showSort || showWorth) {
           if (!node.classList.contains("script_invSort_added")) {
             node.classList.add("script_invSort_added");
             addInvSortButton(node);
@@ -25197,15 +25245,6 @@ ${preview}`
       }
     };
     renderInventoryPanels();
-    const waitGuildCreditConversionsSelect = () => {
-      if (runtime.settings.settingsMap.guildCreditConversionsSort.isTrue)
-        addGuildCreditConversionsSortButton();
-      setTimeout(waitGuildCreditConversionsSelect, 1e3);
-    };
-    if (!guildCreditWatcherStarted) {
-      guildCreditWatcherStarted = true;
-      waitGuildCreditConversionsSelect();
-    }
   }
   function getInventorySortUnitValue(itemHrid, enhancementLevel = 0, order = "fair") {
     const derivedValue = Number(runtime.api.getAssetValue?.(itemHrid, enhancementLevel)) || Number(runtime.api.getFairValue?.(itemHrid, enhancementLevel)) || 0;
@@ -25217,14 +25256,22 @@ ${preview}`
     }
     return derivedValue;
   }
+  function getInventoryItemEnhancementLevel(itemElem) {
+    const levelText = itemElem?.querySelector?.('[class*="Item_enhancementLevel"]')?.textContent ?? "";
+    return Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
+  }
   function isSortableInventoryCategory(typeName) {
     return typeName !== "Equipment";
   }
   async function addInvSortButton(invElem) {
-    const price_data = await runtime.api.fetchMarketJSON();
-    if (!price_data || !price_data.marketData) {
-      console.error("addInvSortButton fetchMarketJSON null");
-      return;
+    const showSort = runtime.settings.settingsMap.invSort.isTrue;
+    const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
+    if (showSort) {
+      const priceData = await runtime.api.fetchMarketJSON();
+      if (!priceData?.marketData) {
+        console.error("addInvSortButton fetchMarketJSON null");
+        return;
+      }
     }
     const fairButton = `<button
         id="script_sortByFair_btn"
@@ -25246,20 +25293,14 @@ ${preview}`
         style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${runtime.config.isZH ? "物品排序：" : "Sort items by: "}${fairButton} ${askButton} ${bidButton} ${noneButton}</div>`;
+    const refreshButton = `<button
+        id="script_refresh_inventory_btn"
+        style="border-radius: 3px; background-color: ${runtime.config.SCRIPT_COLOR_MAIN}; color: black;">
+        ${runtime.config.isZH ? "刷新" : "Refresh"}
+        </button>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
+    if (!invElem.isConnected || !invElem.parentElement) return;
     invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
-    invElem.parentElement.querySelector("button#script_sortByFair_btn").addEventListener("click", function() {
-      sortItemsBy("fair");
-    });
-    invElem.parentElement.querySelector("button#script_sortByAsk_btn").addEventListener("click", function(e) {
-      sortItemsBy("ask");
-    });
-    invElem.parentElement.querySelector("button#script_sortByBid_btn").addEventListener("click", function(e) {
-      sortItemsBy("bid");
-    });
-    invElem.parentElement.querySelector("button#script_sortByNone_btn").addEventListener("click", function(e) {
-      sortItemsBy("none");
-    });
     const sortItemsBy = (order) => {
       for (const typeDiv of invElem.children) {
         const typeName = runtime.api.getOriTextFromElement(
@@ -25271,16 +25312,17 @@ ${preview}`
         typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
         const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
         for (const itemElem of itemElems) {
-          let itemName2 = itemElem.querySelector("svg").attributes["aria-label"].value;
+          let itemName3 = itemElem.querySelector("svg").attributes["aria-label"].value;
           if (runtime.config.isZHInGameSetting) {
-            itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+            itemName3 = runtime.api.getItemEnNameFromZhName(itemName3);
           }
-          const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+          const itemHrid = runtime.state.itemEnNameToHridMap[itemName3];
+          const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
           let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
           itemCount = runtime.api.parseCompactNumber(itemCount);
-          const itemAskmWorth = getInventorySortUnitValue(itemHrid, 0, "ask") * itemCount;
-          const itemBidWorth = getInventorySortUnitValue(itemHrid, 0, "bid") * itemCount;
-          const itemFairWorth = getInventorySortUnitValue(itemHrid, 0, "fair") * itemCount;
+          const itemAskmWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") * itemCount;
+          const itemBidWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") * itemCount;
+          const itemFairWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") * itemCount;
           if (!itemElem.querySelector("#script_stack_price")) {
             itemElem.style.position = "relative";
             const priceElemHTML = `<div
@@ -25306,6 +25348,28 @@ ${preview}`
         }
       }
     };
+    if (showSort) {
+      invElem.parentElement.querySelector("button#script_sortByFair_btn")?.addEventListener("click", () => sortItemsBy("fair"));
+      invElem.parentElement.querySelector("button#script_sortByAsk_btn")?.addEventListener("click", () => sortItemsBy("ask"));
+      invElem.parentElement.querySelector("button#script_sortByBid_btn")?.addEventListener("click", () => sortItemsBy("bid"));
+      invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
+    }
+    const refreshButtonElement = invElem.parentElement.querySelector(
+      "button#script_refresh_inventory_btn"
+    );
+    refreshButtonElement?.addEventListener("click", async () => {
+      const idleText = runtime.config.isZH ? "刷新" : "Refresh";
+      refreshButtonElement.disabled = true;
+      refreshButtonElement.textContent = runtime.config.isZH ? "刷新中…" : "Refreshing…";
+      try {
+        await calculateNetworth({ force: true });
+      } finally {
+        if (refreshButtonElement.isConnected) {
+          refreshButtonElement.disabled = false;
+          refreshButtonElement.textContent = idleText;
+        }
+      }
+    });
   }
   async function addGuildCreditConversionsSortButton() {
     const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
@@ -25414,17 +25478,17 @@ ${preview}`
           ".Item_itemContainer__x7kH1"
         );
         if (!itemElem) return;
-        let itemName2 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
-        if (!itemName2) {
+        let itemName3 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+        if (!itemName3) {
           itemElem.style.order = 0;
           const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
           if (priceElem2) priceElem2.remove();
           return;
         }
         if (runtime.config.isZHInGameSetting) {
-          itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+          itemName3 = runtime.api.getItemEnNameFromZhName(itemName3);
         }
-        const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+        const itemHrid = runtime.state.itemEnNameToHridMap[itemName3];
         let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
         if (!itemCount) {
           itemElem.style.order = 0;
@@ -25455,7 +25519,7 @@ ${preview}`
         }
         if (targetCreditHrid && creditAskPrice > 0) {
           priceList.push({
-            name: itemName2,
+            name: itemName3,
             ask: creditAskPrice,
             bid: creditBidPrice
           });
@@ -25529,18 +25593,357 @@ ${preview}`
     scheduleNetworthRefresh,
     addInventoryCategoryValues,
     getInventorySortUnitValue,
+    getInventoryItemEnhancementLevel,
     isSortableInventoryCategory,
     addInvSortButton,
     addGuildCreditConversionsSortButton
   });
 
+  // src/features/guild-credit-advisor.js
+  var CARD_ID = "mwitools-guild-credit-advisor";
+  var STYLE_ID4 = "mwitools-guild-credit-advisor-style";
+  var MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
+  function t4(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function positiveNumber2(value) {
+    const number2 = Number(value);
+    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+  }
+  function isVisible(element) {
+    if (!element?.isConnected || element.hidden) return false;
+    const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
+    return style?.display !== "none" && style?.visibility !== "hidden";
+  }
+  function findGuildExchangeModal(documentRef = document) {
+    return [...documentRef.querySelectorAll(MODAL_SELECTOR)].filter(isVisible).at(-1);
+  }
+  function itemHridFromIcon(icon) {
+    let label = icon?.getAttribute?.("aria-label")?.trim();
+    if (label && runtime.config.isZHInGameSetting) {
+      label = runtime.api.getItemEnNameFromZhName?.(label) ?? label;
+    }
+    if (label && runtime.state.itemEnNameToHridMap?.[label]) {
+      return runtime.state.itemEnNameToHridMap[label];
+    }
+    const fragment = icon?.querySelector?.("use")?.getAttribute?.("href")?.split("#").at(-1);
+    if (!fragment) return "";
+    return Object.keys(runtime.state.initData_itemDetailMap ?? {}).find(
+      (itemHrid) => itemHrid.split("/").at(-1) === fragment
+    );
+  }
+  function guildCreditHrids() {
+    const result = /* @__PURE__ */ new Set();
+    for (const detail of Object.values(
+      runtime.state.initData_itemDetailMap ?? {}
+    )) {
+      for (const conversion of detail?.guildCreditConversions ?? []) {
+        if (conversion?.creditItemHrid) result.add(conversion.creditItemHrid);
+      }
+    }
+    return result;
+  }
+  function readGuildExchangeContext(modal) {
+    const creditHrids = guildCreditHrids();
+    const iconHrids = [...modal.querySelectorAll("svg[aria-label]")].map(itemHridFromIcon).filter(Boolean);
+    const creditItemHrid = iconHrids.find(
+      (itemHrid) => creditHrids.has(itemHrid)
+    );
+    const selectedItemHrid = iconHrids.find(
+      (itemHrid) => itemHrid !== creditItemHrid && runtime.state.initData_itemDetailMap?.[itemHrid]?.guildCreditConversions?.some(
+        (conversion) => conversion.creditItemHrid === creditItemHrid
+      )
+    );
+    const batchInput = modal.querySelector('input[type="number"],input');
+    return {
+      creditItemHrid,
+      selectedItemHrid,
+      batchCount: Math.max(1, Math.floor(positiveNumber2(batchInput?.value) || 1))
+    };
+  }
+  function collectGuildCreditConversions(creditItemHrid) {
+    const result = [];
+    for (const [fallbackHrid, detail] of Object.entries(
+      runtime.state.initData_itemDetailMap ?? {}
+    )) {
+      const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
+      for (const conversion of detail?.guildCreditConversions ?? []) {
+        if (conversion?.creditItemHrid !== creditItemHrid) continue;
+        const itemCount = positiveNumber2(conversion.itemCount);
+        const creditCount = positiveNumber2(conversion.creditCount);
+        if (!itemCount || !creditCount) continue;
+        result.push({ itemHrid, itemCount, creditCount, detail });
+      }
+    }
+    return result;
+  }
+  function normalizeAsk(order) {
+    if (Array.isArray(order)) {
+      return {
+        price: positiveNumber2(order[0]),
+        quantity: positiveNumber2(order[1])
+      };
+    }
+    const quantity = positiveNumber2(
+      order?.quantity ?? order?.count ?? positiveNumber2(order?.orderQuantity) - positiveNumber2(order?.filledQuantity)
+    );
+    return { price: positiveNumber2(order?.price), quantity };
+  }
+  function quoteGuildCreditAsk(itemHrid, requiredItems) {
+    const levelBook = runtime.state.marketOrderBooks?.[itemHrid]?.[0] ?? runtime.state.marketOrderBooks?.[itemHrid]?.["0"];
+    if (levelBook && Array.isArray(levelBook.asks)) {
+      let remaining = requiredItems;
+      let totalCost = 0;
+      const asks = levelBook.asks.map(normalizeAsk).filter(({ price, quantity }) => price > 0 && quantity > 0).sort((left, right) => left.price - right.price);
+      for (const ask of asks) {
+        const quantity = Math.min(remaining, ask.quantity);
+        totalCost += quantity * ask.price;
+        remaining -= quantity;
+        if (remaining <= 0) break;
+      }
+      return remaining <= 0 ? { available: true, totalCost, estimated: false } : { available: false, totalCost: 0, estimated: false };
+    }
+    const askPrice = positiveNumber2(runtime.api.getAskPrice?.(itemHrid, 0));
+    return askPrice ? {
+      available: true,
+      totalCost: askPrice * requiredItems,
+      estimated: true
+    } : { available: false, totalCost: 0, estimated: true };
+  }
+  function evaluateGuildCreditConversion(conversion, targetCredits = 1) {
+    const batches = Math.max(
+      1,
+      Math.ceil(positiveNumber2(targetCredits) / conversion.creditCount)
+    );
+    const requiredItems = batches * conversion.itemCount;
+    const producedCredits = batches * conversion.creditCount;
+    const quote = quoteGuildCreditAsk(conversion.itemHrid, requiredItems);
+    return {
+      ...conversion,
+      ...quote,
+      batches,
+      requiredItems,
+      producedCredits,
+      costPerCredit: quote.available ? quote.totalCost / producedCredits : Number.POSITIVE_INFINITY
+    };
+  }
+  function itemName(itemHrid) {
+    const detail = runtime.state.initData_itemDetailMap?.[itemHrid];
+    if (runtime.config.isZH) {
+      return runtime.data.ZHItemNames?.[itemHrid] ?? detail?.name ?? itemHrid;
+    }
+    return detail?.name ?? itemHrid;
+  }
+  function addStyles2() {
+    if (document.getElementById(STYLE_ID4)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID4;
+    style.textContent = `
+    #${CARD_ID}{position:absolute;z-index:20;top:0;left:calc(100% + 10px);width:260px;padding:10px;border:1px solid rgba(255,180,60,.45);border-radius:7px;background:rgba(20,23,31,.97);color:var(--color-text-primary,#eee);font-size:.72rem;box-shadow:0 8px 24px rgba(0,0,0,.38)}
+    #${CARD_ID} .mwi-guild-advisor-title{margin-bottom:7px;color:${runtime.config.SCRIPT_COLOR_MAIN};font-size:.82rem;font-weight:750}
+    #${CARD_ID} .mwi-guild-advisor-best{padding:7px;border-radius:5px;background:rgba(255,170,45,.1)}
+    #${CARD_ID} .mwi-guild-advisor-name{font-weight:700}
+    #${CARD_ID} .mwi-guild-advisor-row{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--color-text-secondary,#bbb)}
+    #${CARD_ID} .mwi-guild-advisor-row strong{color:var(--color-text-primary,#eee);text-align:right}
+    #${CARD_ID} .mwi-guild-advisor-selected{margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.12)}
+    #${CARD_ID} .mwi-guild-advisor-note{margin-top:6px;color:var(--color-text-secondary,#aaa);font-size:.66rem}
+    @media(max-width:1150px){#${CARD_ID}{position:relative;top:auto;left:auto;width:auto;margin-top:8px}}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function appendRow(parent, label, value) {
+    const row = document.createElement("div");
+    row.className = "mwi-guild-advisor-row";
+    const labelNode = document.createElement("span");
+    labelNode.textContent = label;
+    const valueNode = document.createElement("strong");
+    valueNode.textContent = value;
+    row.append(labelNode, valueNode);
+    parent.appendChild(row);
+  }
+  async function renderGuildCreditAdvisor() {
+    const modal = findGuildExchangeModal();
+    if (!modal) {
+      document.getElementById(CARD_ID)?.remove();
+      return null;
+    }
+    const context = readGuildExchangeContext(modal);
+    if (!context.creditItemHrid) {
+      document.getElementById(CARD_ID)?.remove();
+      return null;
+    }
+    if (!await runtime.api.ensureMarketValueSource?.()) return null;
+    const conversions = collectGuildCreditConversions(context.creditItemHrid);
+    const selectedConversion = conversions.find(
+      ({ itemHrid }) => itemHrid === context.selectedItemHrid
+    );
+    const targetCredits = selectedConversion ? selectedConversion.creditCount * context.batchCount : 1;
+    const evaluated = conversions.map(
+      (conversion) => evaluateGuildCreditConversion(conversion, targetCredits)
+    ).filter(({ available }) => available).sort(
+      (left, right) => left.costPerCredit - right.costPerCredit || left.totalCost - right.totalCost || itemName(left.itemHrid).localeCompare(itemName(right.itemHrid))
+    );
+    const best = evaluated[0];
+    addStyles2();
+    let card = document.getElementById(CARD_ID);
+    if (!card) {
+      card = document.createElement("aside");
+      card.id = CARD_ID;
+      modal.style.position = "relative";
+      modal.appendChild(card);
+    }
+    card.replaceChildren();
+    const title = document.createElement("div");
+    title.className = "mwi-guild-advisor-title";
+    title.textContent = t4("公会信用兑换性价比", "Guild credit value");
+    card.appendChild(title);
+    if (!best) {
+      const empty = document.createElement("div");
+      empty.textContent = t4(
+        "没有可用的市场出售价或订单深度。",
+        "No usable market asks or order-book depth."
+      );
+      card.appendChild(empty);
+      return card;
+    }
+    const bestBox = document.createElement("div");
+    bestBox.className = "mwi-guild-advisor-best";
+    const bestName = document.createElement("div");
+    bestName.className = "mwi-guild-advisor-name";
+    bestName.textContent = `${t4("最优：", "Best: ")}${itemName(best.itemHrid)}`;
+    bestBox.appendChild(bestName);
+    appendRow(
+      bestBox,
+      t4("每信用点", "Per credit"),
+      runtime.api.numberFormatter(best.costPerCredit)
+    );
+    appendRow(
+      bestBox,
+      t4("需要材料", "Items required"),
+      runtime.api.formatExactNumber(best.requiredItems)
+    );
+    appendRow(
+      bestBox,
+      t4("本批总成本", "Batch cost"),
+      runtime.api.numberFormatter(best.totalCost)
+    );
+    card.appendChild(bestBox);
+    if (selectedConversion) {
+      const selected = evaluateGuildCreditConversion(
+        selectedConversion,
+        targetCredits
+      );
+      const selectedBox = document.createElement("div");
+      selectedBox.className = "mwi-guild-advisor-selected";
+      const selectedName = document.createElement("div");
+      selectedName.className = "mwi-guild-advisor-name";
+      selectedName.textContent = `${t4("当前：", "Selected: ")}${itemName(selected.itemHrid)}`;
+      selectedBox.appendChild(selectedName);
+      if (selected.available) {
+        appendRow(
+          selectedBox,
+          t4("每信用点", "Per credit"),
+          runtime.api.numberFormatter(selected.costPerCredit)
+        );
+        const premium = best.costPerCredit > 0 ? ((selected.costPerCredit / best.costPerCredit - 1) * 100).toFixed(1) : "0.0";
+        appendRow(selectedBox, t4("比最优高", "Above best"), `${premium}%`);
+      } else {
+        appendRow(
+          selectedBox,
+          t4("报价", "Quote"),
+          t4("深度不足", "Insufficient depth")
+        );
+      }
+      card.appendChild(selectedBox);
+    }
+    if (best.estimated || evaluated.some(({ estimated }) => estimated)) {
+      const note = document.createElement("div");
+      note.className = "mwi-guild-advisor-note";
+      note.textContent = t4(
+        "未加载完整订单簿的物品按当前最低卖价估算。",
+        "Items without a loaded order book use the current lowest ask estimate."
+      );
+      card.appendChild(note);
+    }
+    return card;
+  }
+  function cleanup() {
+    document.getElementById(CARD_ID)?.remove();
+    document.getElementById(STYLE_ID4)?.remove();
+  }
+  runtime.features.register({
+    id: "guildCreditConversionsSort",
+    setting: "guildCreditConversionsSort",
+    scope: "character",
+    initialize({ scope }) {
+      let frame = null;
+      const schedule = () => {
+        if (frame !== null) return;
+        const run = () => {
+          frame = null;
+          void renderGuildCreditAdvisor();
+        };
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          frame = globalThis.requestAnimationFrame(run);
+        } else {
+          frame = setTimeout(run, 0);
+        }
+      };
+      const observer = new MutationObserver((mutations) => {
+        const activeModal = findGuildExchangeModal();
+        const relevant = mutations.some((mutation) => {
+          if (mutation.target?.closest?.(`#${CARD_ID}`)) return false;
+          const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
+          if (changedNodes.length > 0 && changedNodes.every(
+            (node) => node?.id === CARD_ID || node?.closest?.(`#${CARD_ID}`)
+          )) {
+            return false;
+          }
+          if (activeModal && (mutation.target === activeModal || activeModal.contains?.(mutation.target))) {
+            return true;
+          }
+          return changedNodes.some(
+            (node) => node?.matches?.(MODAL_SELECTOR) || node?.querySelector?.(MODAL_SELECTOR)
+          );
+        });
+        if (relevant) schedule();
+      });
+      scope.observer(observer, document.body, { childList: true, subtree: true });
+      const scheduleFromModal = (event) => {
+        if (event.target?.closest?.(MODAL_SELECTOR)) schedule();
+      };
+      scope.event(document, "input", scheduleFromModal, true);
+      scope.event(document, "change", scheduleFromModal, true);
+      for (const messageType of [
+        "market_item_values_updated",
+        "market_item_order_books_updated"
+      ]) {
+        scope.add(runtime.onMessage(messageType, schedule));
+      }
+      scope.add(() => {
+        if (frame !== null) {
+          if (typeof globalThis.cancelAnimationFrame === "function") {
+            globalThis.cancelAnimationFrame(frame);
+          } else {
+            clearTimeout(frame);
+          }
+        }
+        cleanup();
+      });
+      schedule();
+    }
+  });
+  Object.assign(runtime.api, {
+    renderGuildCreditAdvisor
+  });
+
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID4 = "mwitools-production-profit-panel-style";
+  var STYLE_ID5 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN = 12;
   var PANEL_GAP = 10;
   var activePanel = null;
-  function t4(zh, en) {
+  function t5(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function escapeHtml(value) {
@@ -25573,7 +25976,7 @@ ${preview}`
   function formatPercent2(value) {
     return `${Number(value || 0) >= 0 ? "+" : ""}${formatNumber2(value, 1)}%`;
   }
-  function itemName(itemHrid) {
+  function itemName2(itemHrid) {
     return (runtime.config.isZH ? runtime.data.ZHItemNames?.[itemHrid] : runtime.state.initData_itemDetailMap?.[itemHrid]?.name) ?? runtime.state.initData_itemDetailMap?.[itemHrid]?.name ?? itemHrid?.split("/").at(-1) ?? "—";
   }
   function actionName(actionHrid, detail) {
@@ -25606,10 +26009,10 @@ ${preview}`
     const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
   }
-  function addStyles2() {
-    if (document.getElementById(STYLE_ID4)) return;
+  function addStyles3() {
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID2} * { box-sizing:border-box; }
@@ -25674,7 +26077,7 @@ ${preview}`
     (document.head ?? document.documentElement).appendChild(style);
   }
   function renderItemRow(item, type) {
-    const name = itemName(item.itemHrid);
+    const name = itemName2(item.itemHrid);
     const isInput = type === "input";
     const baseCount = Number(item.baseCount ?? item.count) || 0;
     const effectiveCount = Number(item.effectiveCount ?? item.count) || 0;
@@ -25683,10 +26086,10 @@ ${preview}`
       quantity = `${formatNumber2(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t4("前置", "Base");
-    if (item.kind === "essence") kind = t4("精华", "Essence");
-    if (item.kind === "rare") kind = t4("稀有", "Rare");
-    const priceLabel = isInput ? t4("市价", "Market value") : item.valueSource === "derived" ? t4("派生期望值", "Derived expected value") : t4("税后市价", "Net market value");
+    if (item.isUpgradeItem) kind = t5("前置", "Base");
+    if (item.kind === "essence") kind = t5("精华", "Essence");
+    if (item.kind === "rare") kind = t5("稀有", "Rare");
+    const priceLabel = isInput ? t5("市价", "Market value") : item.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : t5("税后市价", "Net market value");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -25696,7 +26099,7 @@ ${preview}`
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t4("每动作", "per action")}</span>
+        <span>${t5("每动作", "per action")}</span>
       </div>
     </div>`;
   }
@@ -25741,19 +26144,19 @@ ${preview}`
       <div class="mwi-profit-valuation-title">${escapeHtml(valuationText(definition.title))}</div>
       <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(definition.explanation))}</div>
     </div>
-    ${renderValuationMetric(t4("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
-    ${renderValuationMetric(t4("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t4("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
-    ${renderValuationMetric(t4("总成本/动作", "Total cost/action"), totalCost)}
-    ${renderValuationMetric(t4("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
-    ${renderValuationMetric(t4("净利润/天", "Net profit/day"), profitPerDay, true)}
+    ${renderValuationMetric(t5("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t5("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t5("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t5("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t5("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t5("净利润/天", "Net profit/day"), profitPerDay, true)}
   </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t4("玩家数据未就绪", "Player data pending")
+        label: t5("玩家数据未就绪", "Player data pending")
       };
     }
     const valuations = VALUATION_ROWS.map(
@@ -25763,23 +26166,23 @@ ${preview}`
       (valuation) => valuation?.complete
     ).length;
     if (completeCount === 0) {
-      return { className: "incomplete", label: t4("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t5("无法计算", "Unavailable") };
     }
     if (completeCount < valuations.length) {
       return {
         className: "partial",
-        label: t4("部分口径缺价", "Some prices missing")
+        label: t5("部分口径缺价", "Some prices missing")
       };
     }
     if (valuations.some(
       (valuation) => valuation?.unpricedByproducts?.length > 0 || valuation?.derivedMissingPrices?.length > 0
     )) {
-      return { className: "partial", label: t4("部分计价", "Partial pricing") };
+      return { className: "partial", label: t5("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t4("完整计价", "Fully priced") };
+    return { className: "complete", label: t5("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection) {
-    const productName = itemName(itemHrid);
+    const productName = itemName2(itemHrid);
     const status = statusInfo(projection);
     const detail = projection.detail;
     panel.dataset.status = status.className;
@@ -25788,14 +26191,14 @@ ${preview}`
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t4("当前玩家实时配置", "Current player configuration")}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t5("当前玩家实时配置", "Current player configuration")}</div>
       </div>
       <div class="mwi-profit-status ${status.className}">${escapeHtml(status.label)}</div>
     </header>`;
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t4("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t5("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -25806,43 +26209,43 @@ ${preview}`
     ].map((item) => renderItemRow(item, "output")).join("");
     const teas = projection.teaEffects?.drinks ?? [];
     const teaIcons = teas.length ? teas.map((tea) => {
-      const name = itemName(tea.itemHrid);
+      const name = itemName2(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t4("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t5("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t4("工匠", "Artisan")} −${formatNumber2(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t5("工匠", "Artisan")} −${formatNumber2(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t4("额外产量", "Extra output")} +${formatNumber2(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t5("额外产量", "Extra output")} +${formatNumber2(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t4("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t4("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t4("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t5("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t5("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t5("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t4("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t5("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t4("饮料浓度", "Drink strength")}</span><strong>×${formatNumber2(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t4("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t4("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t4("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t4("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t5("饮料浓度", "Drink strength")}</span><strong>×${formatNumber2(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t5("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t5("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t5("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t5("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t4("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t4("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t4("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t5("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t5("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t5("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
@@ -25858,11 +26261,11 @@ ${preview}`
     const warningParts = [];
     if (missingValuations.length) {
       const details = missingValuations.map((definition) => {
-        const names = (projection.valuations?.[definition.mode]?.missingPrices ?? []).map(itemName).join(runtime.config.isZH ? "、" : ", ");
+        const names = (projection.valuations?.[definition.mode]?.missingPrices ?? []).map(itemName2).join(runtime.config.isZH ? "、" : ", ");
         return `${valuationText(definition.title)}：${names || "—"}`;
       }).join(runtime.config.isZH ? "；" : "; ");
       warningParts.push(
-        `${t4("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
+        `${t5("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
       );
     }
     const unpricedByproducts = [
@@ -25874,7 +26277,7 @@ ${preview}`
     ];
     if (unpricedByproducts.length) {
       warningParts.push(
-        `${t4("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t5("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName2).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const derivedMissingPrices = [
@@ -25886,7 +26289,7 @@ ${preview}`
     ];
     if (derivedMissingPrices.length) {
       warningParts.push(
-        `${t4("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t5("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName2).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     if (!warningParts.length) return;
@@ -25967,7 +26370,7 @@ ${preview}`
       return null;
     }
     hideProductionProfitPanel();
-    addStyles2();
+    addStyles3();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const panel = document.createElement("aside");
     panel.id = PANEL_ID2;
@@ -26234,11 +26637,11 @@ ${preview}`
     }
     runtime.api.hideEnhancementCostPanel?.();
     const itemNameElem = itemNameElems[0];
-    let itemName2 = runtime.api.getOriTextFromElement(itemNameElem);
+    let itemName3 = runtime.api.getOriTextFromElement(itemNameElem);
     if (runtime.config.isZHInGameSetting) {
-      itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+      itemName3 = runtime.api.getItemEnNameFromZhName(itemName3);
     }
-    const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+    const itemHrid = runtime.state.itemEnNameToHridMap[itemName3];
     let amount = 0;
     let insertAfterElem = null;
     const amountSpan = tooltip.querySelectorAll("span")[1];
@@ -26857,8 +27260,8 @@ ${preview}`
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID5 = "mwitools-action-dashboard-style";
-  function t5(zh, en) {
+  var STYLE_ID6 = "mwitools-action-dashboard-style";
+  function t6(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -26877,10 +27280,10 @@ ${preview}`
   function number(value) {
     return runtime.api.createFormattedNumber(value);
   }
-  function addStyles3() {
-    if (document.getElementById(STYLE_ID5)) return;
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
@@ -26988,26 +27391,26 @@ ${preview}`
     const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
     const effectiveCount = projection.effectiveCount ?? projection.count;
     remaining.append(
-      `${t5("剩余", "Remaining")} `,
+      `${t6("剩余", "Remaining")} `,
       effectivelyInfinite ? "∞" : number(effectiveCount)
     );
     if (projection.materialLimited) {
-      remaining.title = t5(
+      remaining.title = t6(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     } else if (enhancementCount !== null) {
-      remaining.title = t5(
+      remaining.title = t6(
         "已按强化栏当前可处理数量计算",
         "Based on the amount currently available for enhancement"
       );
     }
     const currentTime = document.createElement("span");
-    currentTime.textContent = `${t5("还需", "Time left")} ${formatDuration(
+    currentTime.textContent = `${t6("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
     const eta = document.createElement("strong");
-    eta.textContent = projection.finishAt ? `${t5("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t5("预计完成", "Finishes at")} —`;
+    eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
   }
@@ -27104,7 +27507,7 @@ ${preview}`
     card.replaceChildren();
     const title = document.createElement("div");
     title.className = "mwi-production-card-title";
-    title.textContent = t5("本次生产摘要", "Production summary");
+    title.textContent = t6("本次生产摘要", "Production summary");
     const grid = document.createElement("div");
     grid.className = "mwi-production-metrics";
     const outputs = document.createElement("span");
@@ -27114,41 +27517,41 @@ ${preview}`
       outputs.append(`${name} `, number(output.expectedCount));
     });
     grid.append(
-      metric(t5("预期总产出", "Output"), outputs),
+      metric(t6("预期总产出", "Output"), outputs),
       metric(
-        t5("当前拥有", "Owned"),
+        t6("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t5("库存最多可做", "Max craftable"),
+        t6("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number(projection.maxCraftable)
       ),
       metric(
-        t5("本次总耗时", "Duration"),
+        t6("本次总耗时", "Duration"),
         formatDuration(projection.totalSeconds)
       )
     );
     if (runtime.settings.get("productionProfit")) {
       grid.append(
         metric(
-          t5("每次净利润", "Per action"),
+          t6("每次净利润", "Per action"),
           number(projection.netProfitPerAction)
         ),
-        metric(t5("每小时净利润", "Per hour"), number(projection.profitPerHour)),
+        metric(t6("每小时净利润", "Per hour"), number(projection.profitPerHour)),
         metric(
-          t5("每天净利润", "Per day"),
+          t6("每天净利润", "Per day"),
           number(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
-        metric(t5("本次总净利润", "Total profit"), number(projection.totalProfit))
+        metric(t6("本次总净利润", "Total profit"), number(projection.totalProfit))
       );
     }
     card.append(title, grid);
     if (projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t5(
+      warning.textContent = t6(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -27168,7 +27571,7 @@ ${preview}`
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles3();
+      addStyles4();
       renderActionDashboard();
       scope.interval(renderActionDashboard, 500);
       scope.add(() => {
@@ -27221,7 +27624,7 @@ ${preview}`
   });
 
   // src/features/procurement.js
-  var STYLE_ID6 = "mwitools-procurement-style";
+  var STYLE_ID7 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -27243,7 +27646,7 @@ ${preview}`
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t6(zh, en) {
+  function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function materialNoun(count) {
@@ -27259,10 +27662,10 @@ ${preview}`
   function escapeHtml2(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -27389,7 +27792,7 @@ ${preview}`
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t6(`缺 ${activeCount} 项`, `${activeCount} missing`) : t6("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t7(`缺 ${activeCount} 项`, `${activeCount} missing`) : t7("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
@@ -27405,7 +27808,7 @@ ${preview}`
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t6(
+      empty.textContent = t7(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
@@ -27424,19 +27827,19 @@ ${preview}`
         else unpriced += 1;
       }
       row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t6("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t6("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
+      <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
+      <button class="item-icon" title="${t7("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
       <button class="item-name" title="${escapeHtml2(item.name)}">${escapeHtml2(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t6("待购数量", "Quantity")}">
+        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
         <button class="step" data-step="1">＋</button>
       </div>
-      <button class="delete" title="${t6("删除", "Remove")}">×</button>
+      <button class="delete" title="${t7("删除", "Remove")}">×</button>
       <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t6("库存", "Stock")} ${formatNumber3(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber3(price)} · ${t6("计", "total")} ${formatNumber3(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t6("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
+        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t7("库存", "Stock")} ${formatNumber3(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
+        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber3(price)} · ${t7("计", "total")} ${formatNumber3(price * item.quantity)}` : "—"}</span>` : ""}
+        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t7("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
         procurement.setCartItemQuantity(
@@ -27483,8 +27886,8 @@ ${preview}`
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    <span class="footer-total">${t6("补齐合计", "Total")}<strong title="${unpriced ? t6("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber3(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t6("项未估价", "unpriced")}</small>` : ""}</span>
-    <button class="clear">${t6("清空未收藏", "Clear")}</button>`;
+    <span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber3(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>
+    <button class="clear">${t7("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       procurement.clearCart();
     });
@@ -27513,7 +27916,7 @@ ${preview}`
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t6(
+      empty.textContent = t7(
         "还没有制作计划。把生产缺料加入购物车时可以同时创建。",
         "No crafting plans yet. Create one when adding production materials."
       );
@@ -27525,13 +27928,13 @@ ${preview}`
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t6("已完成", "Completed") : t6("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber3(plan.progress)} / ${formatNumber3(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t6("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t6("重新打开", "Reopen") : t6("完成", "Complete")}</button><button data-action="remove">${t6("删除", "Delete")}</button></div>`;
+      <div class="plan-actions"><button data-action="count">${t7("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t7("重新打开", "Reopen") : t7("完成", "Complete")}</button><button data-action="remove">${t7("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t6("输入新的目标次数", "Enter a new target count"),
+          t7("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
@@ -27548,7 +27951,7 @@ ${preview}`
       body.append(row);
     }
     const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `<span>${t6("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t6("清空计划", "Clear plans")}</button>`;
+    footer.innerHTML = `<span>${t7("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t7("清空计划", "Clear plans")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
     });
@@ -27694,7 +28097,7 @@ ${preview}`
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t6(...sectionDefinition.title);
+      heading.textContent = t7(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -27702,14 +28105,14 @@ ${preview}`
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml2(t6(zh, en))}${description ? `<small>${escapeHtml2(t6(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml2(t7(zh, en))}${description ? `<small>${escapeHtml2(t7(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t6("开", "On") : t6("关", "Off");
+          state.textContent = settings2[id] ? t7("开", "On") : t7("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -27717,7 +28120,7 @@ ${preview}`
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t6(zh, en));
+          control.setAttribute("aria-label", t7(zh, en));
           control.addEventListener(
             "click",
             () => procurement.setSetting(id, !settings2[id])
@@ -27725,10 +28128,10 @@ ${preview}`
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t6("关闭", "Off")],
-            ["95", t6("标准 95%", "Standard 95%")],
-            ["99", t6("充足 99%", "Ample 99%")],
-            ["99.9", t6("极高 99.9%", "Full 99.9%")]
+            ["off", t7("关闭", "Off")],
+            ["95", t7("标准 95%", "Standard 95%")],
+            ["99", t7("充足 99%", "Ample 99%")],
+            ["99.9", t7("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -27744,7 +28147,7 @@ ${preview}`
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t6("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t7("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -27754,7 +28157,7 @@ ${preview}`
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t6("重置", "Reset");
+          control.textContent = t7("重置", "Reset");
           control.addEventListener("click", () => {
             procurement.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
@@ -27789,7 +28192,7 @@ ${preview}`
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t6("请按快捷键…", "Press shortcut…");
+    button.textContent = t7("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -27825,11 +28228,11 @@ ${preview}`
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t6("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t6("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t7("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t7("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t6("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t6("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t6("清单", "Cart")}</button><button class="tab" data-tab="plans">${t6("计划", "Plans")}</button><button class="tab" data-tab="settings">${t6("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t7("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t7("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t7("清单", "Cart")}</button><button class="tab" data-tab="plans">${t7("计划", "Plans")}</button><button class="tab" data-tab="settings">${t7("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -27981,11 +28384,11 @@ ${preview}`
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t6("缺", "Need")} ${formatNumber3(material.shortage)}` : `${t6("余", "Spare")} ${formatNumber3(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t7("缺", "Need")} ${formatNumber3(material.shortage)}` : `${t7("余", "Spare")} ${formatNumber3(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t6("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t6("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t6("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t7("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t7("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t7("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
       }
@@ -28001,12 +28404,12 @@ ${locks}` : ""}`;
     );
     const summary = document.createElement("div");
     summary.className = "mwi-procurement-summary-line";
-    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t6("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t6("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t6("材料充足", "Materials ready")}</span>`;
+    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     add.disabled = addable.length === 0 && !chain?.stages?.length;
-    add.textContent = addable.length ? t6("加入购物清单", "Add to shopping list") : t6("已在清单中", "Already listed");
+    add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
     add.addEventListener("click", () => {
       const selectedActions = new Set(
         [
@@ -28026,10 +28429,10 @@ ${locks}` : ""}`;
         );
       }
       showToast(
-        result.added ? t6(
+        result.added ? t7(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t6("没有新的缺料", "No new shortages")
+        ) : t7("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -28038,7 +28441,7 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t6("升级链", "Upgrade chain")} · ${chain.stages.length} ${t6("阶段", "stages")}${chain.cycle ? ` · ${t6("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t6("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t7("升级链", "Upgrade chain")} · ${chain.stages.length} ${t7("阶段", "stages")}${chain.cycle ? ` · ${t7("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t7("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
@@ -28201,22 +28604,22 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t6("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t7("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     const addable = materials.filter(
       (material) => material.purchasable && material.addableShortage > 0
     );
-    add.textContent = addable.length ? t6("加入购物清单", "Add to shopping list") : t6("已在清单中", "Already listed");
+    add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
     add.disabled = addable.length === 0;
     add.addEventListener("click", () => {
       const result = procurement.addRequirementsToCart(materials, "housing");
       showToast(
-        result.added ? t6(
+        result.added ? t7(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t6("没有新的缺料", "No new shortages")
+        ) : t7("没有新的缺料", "No new shortages")
       );
       lastProductionSignature = "";
       globalThis.queueMicrotask(() => renderHouseProcurement(modal));
@@ -28264,7 +28667,7 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t6(
+        t7(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
@@ -28351,7 +28754,7 @@ ${locks}` : ""}`;
       "[MWITools] Failed to open shopping item in marketplace",
       lastError
     );
-    showToast(t6("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t7("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -28467,7 +28870,7 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t6(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t7(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
     for (const item of rows) {
@@ -28475,11 +28878,11 @@ ${locks}` : ""}`;
       chip.className = "mwi-procurement-nav-chip";
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
-      const itemName2 = procurement.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t6("已完成", "Completed") : exactNumber(item.quantity);
-      chip.title = `${itemName2} · ${quantity}`;
+      const itemName3 = procurement.resolveItemName(item.itemHrid) || item.name;
+      const quantity = item.done ? t7("已完成", "Completed") : exactNumber(item.quantity);
+      chip.title = `${itemName3} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
-      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName2 })}</span><b>${item.done ? "✓" : formatNumber3(item.quantity)}</b>`;
+      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName3 })}</span><b>${item.done ? "✓" : formatNumber3(item.quantity)}</b>`;
       if (!item.done) {
         chip.addEventListener(
           "click",
@@ -28491,7 +28894,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t6("下一项 ›", "Next ›");
+    nextButton.textContent = t7("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -28582,10 +28985,10 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t6(
+          next ? t7(
             `${procurement.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
             `${procurement.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t6("购物清单已全部补齐", "Shopping list fulfilled")
+          ) : t7("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
@@ -28604,7 +29007,7 @@ ${locks}` : ""}`;
     id: "procurementAssistant",
     scope: "character",
     initialize({ scope, characterId }) {
-      addStyles4();
+      addStyles5();
       if (procurement.activeCharacterId !== characterId) {
         procurement.loadCharacterData(characterId);
       }
@@ -28618,7 +29021,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID6)?.remove();
+        document.getElementById(STYLE_ID7)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -28631,16 +29034,23 @@ ${locks}` : ""}`;
   });
 
   // src/features/tasks.js
-  var STYLE_ID7 = "mwitools-task-style";
-  var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
+  var STYLE_ID8 = "mwitools-task-style";
+  var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
+  var pageTaskIds = /* @__PURE__ */ new Map();
+  var pageNewTaskIds = /* @__PURE__ */ new Set();
+  var pendingResetSlots = /* @__PURE__ */ new Set();
   var lastRenderedCards = [];
   var lastTaskRenderSignature = "";
   var lastActionDetails = null;
   var lastActionCategories = null;
+  var combatGroupMode = "planet";
+  var taskSpriteManifestPromise = null;
+  var taskSpriteBases = /* @__PURE__ */ new Map();
   var collapsedProfessions = /* @__PURE__ */ new Set();
+  var collapsedDungeonGroups = /* @__PURE__ */ new Set();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -28660,13 +29070,90 @@ ${locks}` : ""}`;
     en: "Completed",
     order: -1
   };
-  function t7(zh, en) {
+  var NEW_PROFESSION = {
+    key: "new",
+    zh: "新任务",
+    en: "New Tasks",
+    order: -2
+  };
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function taskId(task) {
+    return String(
+      task?.id ?? task?.characterQuestID ?? task?.characterQuestId ?? task?.questID ?? task?.questId ?? task?.characterTaskID ?? task?.characterTaskId ?? ""
+    );
+  }
+  function combatModeStorageKey() {
+    const server = globalThis.location?.hostname ?? "unknown";
+    return `MWITools_task_combat_mode_v1:${server}:${String(runtime.state.currentCharacterId ?? "")}`;
+  }
+  function readCombatGroupMode() {
+    try {
+      return localStorage.getItem(combatModeStorageKey()) === "dungeon" ? "dungeon" : "planet";
+    } catch {
+      return "planet";
+    }
+  }
+  function writeCombatGroupMode(mode) {
+    try {
+      localStorage.setItem(combatModeStorageKey(), mode);
+    } catch {
+    }
+  }
+  function rememberSpriteBase(kind, value) {
+    const base = String(value ?? "").split("#")[0];
+    if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
+      taskSpriteBases.set(kind, base);
+    }
+  }
+  function scanTaskSpriteBases() {
+    try {
+      document.querySelectorAll("svg use").forEach(
+        (use) => ["items", "actions", "combat_monsters"].forEach(
+          (kind) => rememberSpriteBase(
+            kind,
+            use.getAttribute("href") ?? use.getAttribute("xlink:href")
+          )
+        )
+      );
+      globalThis.performance?.getEntriesByType?.("resource")?.forEach(
+        (entry) => ["items", "actions", "combat_monsters"].forEach(
+          (kind) => rememberSpriteBase(kind, entry.name)
+        )
+      );
+    } catch {
+    }
+  }
+  async function loadTaskSpriteManifest() {
+    if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
+    taskSpriteManifestPromise = (async () => {
+      scanTaskSpriteBases();
+      try {
+        const response = await globalThis.fetch(
+          new URL("/asset-manifest.json", globalThis.location?.origin).href
+        );
+        if (!response.ok) return;
+        const manifest = await response.json();
+        for (const value of Object.values(manifest?.files ?? {})) {
+          for (const kind of ["items", "actions", "combat_monsters"]) {
+            rememberSpriteBase(kind, value);
+          }
+        }
+      } catch {
+      }
+    })();
+    return taskSpriteManifestPromise;
+  }
+  function taskSpriteHref(kind, hrid) {
+    scanTaskSpriteBases();
+    const base = taskSpriteBases.get(kind);
+    return base ? `${base}#${String(hrid ?? "").split("/").at(-1)}` : "";
+  }
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
     .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
@@ -28679,8 +29166,19 @@ ${locks}` : ""}`;
     .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
     .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
     .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:1px solid rgba(255,255,255,.11); border-left:2px solid rgba(183,126,255,.72); border-radius:5px; background:rgba(70,42,100,.18); color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-task-dungeon-header span:last-child { margin-left:auto; transition:transform .15s ease; }
+    .mwi-task-dungeon-header[aria-expanded="false"] span:last-child { transform:rotate(-90deg); }
+    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr)); gap:10px; min-width:0; }
+    .mwi-task-combat-mode { display:flex; width:max-content; gap:2px; margin:4px 0 8px; padding:2px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(0,0,0,.18); }
+    .mwi-task-combat-mode button { padding:3px 10px; border:0; border-radius:4px; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-combat-mode button[aria-pressed="true"] { background:${runtime.config.SCRIPT_COLOR_MAIN}; color:#18130a; font-weight:700; }
     ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; right:5px; bottom:4px; width:58px; height:58px; opacity:.075; pointer-events:none; }
+    ${TASK_SELECTOR}[data-mwitools-dungeon-source="true"] { display:none !important; }
+    .mwi-task-bg { position:absolute; z-index:0; top:0; left:50%; width:30%; height:100%; opacity:.3; pointer-events:none; }
+    .mwi-task-bg svg { width:100%; height:100%; }
+    ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
+    [data-mwitools-task-mirror="true"] { position:relative; }
     .mwi-task-merged-note { margin-top:7px; padding:7px 9px; border-radius:5px; background:rgba(70,170,100,.12); color:#9bd7aa; font-size:.72rem; }
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -28764,17 +29262,87 @@ ${locks}` : ""}`;
       taskProfitPerHour: projection.totalProfit === null || !Number.isFinite(projection.totalSeconds) || projection.totalSeconds <= 0 ? null : (projection.totalProfit + reward) / projection.totalSeconds * 3600
     };
   }
+  function targetNameFromCard(card) {
+    return visibleTaskTitle(card).split(/\s[-–]\s/).slice(1).join(" - ").trim();
+  }
+  function itemHridFromDisplayName(name) {
+    if (!name) return "";
+    const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
+    const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(normalized) ?? normalized : normalized;
+    if (runtime.state.itemEnNameToHridMap?.[englishName]) {
+      return runtime.state.itemEnNameToHridMap[englishName];
+    }
+    return Object.entries(runtime.data.ZHItemNames ?? {}).find(
+      ([, localizedName]) => localizedName === normalized
+    )?.[0] ?? "";
+  }
+  function monsterHridForCard(card, task) {
+    const direct = nestedValue(task, ["monsterHrid", "targetMonsterHrid"]);
+    if (direct) return String(direct);
+    const actionHrid = String(taskActionHrid(task) ?? "");
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (actionHrid.startsWith("/actions/combat/") && !detail?.combatZoneInfo?.isDungeon && detail?.combatZoneInfo?.fightInfo?.battlesPerBoss !== 10) {
+      return actionHrid.replace("/actions/combat/", "/monsters/");
+    }
+    const monsterName = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
+    const translated = runtime.api.getOthersFromZhName?.(monsterName);
+    if (String(translated).startsWith("/monsters/")) return translated;
+    if (String(translated).startsWith("/actions/combat/")) {
+      return String(translated).replace("/actions/combat/", "/monsters/");
+    }
+    const matchingAction = Object.values(
+      runtime.state.initData_actionDetailMap ?? {}
+    ).find(
+      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName || runtime.data.ZHActionNames?.[candidate.hrid] === monsterName)
+    );
+    return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
+  }
+  function taskArtworkForCard(card, task) {
+    const profession = professionForCard(card, task);
+    if (profession.key === "combat") {
+      const monsterHrid = monsterHridForCard(card, task);
+      if (monsterHrid) return { kind: "combat_monsters", hrid: monsterHrid };
+    }
+    const namedItemHrid = itemHridFromDisplayName(targetNameFromCard(card));
+    if (namedItemHrid) return { kind: "items", hrid: namedItemHrid };
+    const actionHrid = taskActionHrid(task);
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    const outputs = [
+      ...detail?.outputItems ?? [],
+      ...detail?.dropTable ?? []
+    ];
+    const outputItemHrid = detail?.upgradeItemHrid ?? (outputs.length === 1 ? outputs[0]?.itemHrid ?? outputs[0]?.hrid : outputs.find((output) => Number(output?.dropRate ?? 1) >= 1)?.itemHrid);
+    if (outputItemHrid) return { kind: "items", hrid: outputItemHrid };
+    return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
+  }
   function decorateCard(card, task) {
     card.querySelector(".mwi-task-insight")?.remove();
-    if (runtime.settings.get("taskIcons") && !card.querySelector(".mwi-task-bg")) {
-      const source = card.querySelector("svg");
-      if (source) {
-        const icon = source.cloneNode(true);
-        icon.classList.add("mwi-task-bg");
-        card.style.position = "relative";
-        card.appendChild(icon);
-      }
+    if (!runtime.settings.get("taskIcons")) {
+      card.querySelector(":scope > .mwi-task-bg")?.remove();
+      return;
     }
+    const artwork = taskArtworkForCard(card, task);
+    const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+    const existing = card.querySelector(":scope > .mwi-task-bg");
+    if (!href) {
+      existing?.remove();
+      return;
+    }
+    if (existing?.dataset.spriteHref === href) return;
+    existing?.remove();
+    const background = document.createElement("div");
+    background.className = "mwi-task-bg";
+    background.dataset.spriteHref = href;
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.appendChild(use);
+    background.appendChild(svg);
+    card.style.position = "relative";
+    card.appendChild(background);
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
@@ -28801,7 +29369,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t7("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t8("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -28863,7 +29431,7 @@ ${locks}` : ""}`;
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
       return {
         key: `dungeon-${detail.hrid}`,
-        label: `${t7("地牢", "Dungeon")} · ${name}`,
+        label: `${t8("地牢", "Dungeon")} · ${name}`,
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -28878,7 +29446,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t7("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t8("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -28886,15 +29454,54 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t7("地图", "Zone")} ${mapIndex}`,
+        label: `${t8("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "combat-unresolved",
-      label: t7("其他战斗", "Other combat"),
+      label: t8("其他战斗", "Other combat"),
       order: 99999
     };
+  }
+  function dungeonLocation(detail) {
+    const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail?.hrid] : detail?.name) ?? detail?.name;
+    return {
+      key: `dungeon-${detail?.hrid}`,
+      label: name || t8("未知地牢", "Unknown dungeon"),
+      order: Number(detail?.sortIndex ?? 9999)
+    };
+  }
+  function dungeonLocationsForCard(card, task) {
+    const actionHrid = taskActionHrid(task);
+    const taskDetail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (taskDetail?.combatZoneInfo?.isDungeon) {
+      return [dungeonLocation(taskDetail)];
+    }
+    const monsterHrid = monsterHridForCard(card, task);
+    if (!monsterHrid) {
+      return [
+        {
+          key: "dungeon-unresolved",
+          label: t8("其他战斗", "Other combat"),
+          order: 99999
+        }
+      ];
+    }
+    const matches = Object.values(runtime.state.initData_actionDetailMap ?? {}).filter(
+      (detail) => detail?.combatZoneInfo?.isDungeon && JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
+        `"${monsterHrid}"`
+      )
+    ).map(dungeonLocation).sort(
+      (left, right) => left.order - right.order || left.label.localeCompare(right.label)
+    );
+    return matches.length ? matches : [
+      {
+        key: "dungeon-unresolved",
+        label: t8("其他战斗", "Other combat"),
+        order: 99999
+      }
+    ];
   }
   function actionSortInfo(task, originalIndex) {
     const actionHrid = taskActionHrid(task);
@@ -28972,11 +29579,82 @@ ${locks}` : ""}`;
     );
     return { depths: cache, groups };
   }
+  function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
+    if (!runtime.settings.settingsMap.taskNewBadge.isTrue) {
+      pageNewTaskIds.clear();
+      runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
+      return;
+    }
+    const freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []);
+    const activeIds = /* @__PURE__ */ new Set();
+    cards.forEach((card, index) => {
+      const id = taskId(tasks[index]);
+      if (!id) return;
+      activeIds.add(id);
+      const previousId = pageTaskIds.get(index);
+      const changed = previousId && previousId !== id;
+      if (enteredNewTaskPage || !previousId) {
+        if (freshIds.has(id)) pageNewTaskIds.add(id);
+      } else if (changed) {
+        if (pendingResetSlots.has(index) && pageClassifications.get(index)?.profession?.key === NEW_PROFESSION.key) {
+          pageNewTaskIds.add(id);
+        } else if (freshIds.has(id)) {
+          pageNewTaskIds.add(id);
+        }
+        pendingResetSlots.delete(index);
+      } else if (freshIds.has(id)) {
+        pageNewTaskIds.add(id);
+      }
+      pageTaskIds.set(index, id);
+      card.dataset.mwitoolsTaskId = id;
+    });
+    for (const id of [...pageNewTaskIds]) {
+      if (!activeIds.has(id)) pageNewTaskIds.delete(id);
+    }
+    runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
+    const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
+    if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
+  }
+  function ensureCombatModeToggle() {
+    if (!taskListParent?.isConnected) return;
+    let controls = taskListParent.parentElement?.querySelector(
+      ":scope > .mwi-task-combat-mode"
+    );
+    if (!controls) {
+      controls = document.createElement("div");
+      controls.className = "mwi-task-combat-mode";
+      for (const [mode, zh, en] of [
+        ["planet", "星球", "Planet"],
+        ["dungeon", "地牢", "Dungeon"]
+      ]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.mode = mode;
+        button.textContent = t8(zh, en);
+        button.addEventListener("click", () => {
+          if (combatGroupMode === mode) return;
+          combatGroupMode = mode;
+          writeCombatGroupMode(mode);
+          lastTaskRenderSignature = "";
+          renderTasks();
+        });
+        controls.appendChild(button);
+      }
+      taskListParent.insertAdjacentElement("beforebegin", controls);
+    }
+    for (const button of controls.querySelectorAll("button[data-mode]")) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.mode === combatGroupMode)
+      );
+    }
+  }
   function ungroupCards() {
     if (!taskListParent?.isConnected) return;
     taskListParent.querySelectorAll(
       ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location"
     ).forEach((group) => group.remove());
+    taskListParent.parentElement?.querySelector(":scope > .mwi-task-combat-mode")?.remove();
     taskListParent.querySelectorAll(`:scope > ${TASK_SELECTOR}`).forEach((card) => {
       card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
       delete card.dataset.mwitoolsOriginalOrder;
@@ -28984,6 +29662,8 @@ ${locks}` : ""}`;
       delete card.dataset.mwitoolsCollapsed;
       delete card.dataset.mwitoolsProfession;
       delete card.dataset.mwitoolsLocation;
+      delete card.dataset.mwitoolsDungeonSource;
+      delete card.dataset.mwitoolsTaskId;
     });
   }
   function orderedRows(cards, tasks) {
@@ -28993,15 +29673,23 @@ ${locks}` : ""}`;
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
       const completed = isCompletedCard(card, task);
       const previous = pageClassifications.get(slot);
-      const computedProfession = completed ? COMPLETED_PROFESSION : professionForCard(card, task);
-      const profession = !completed && previous && !previous.completed ? previous.profession : computedProfession;
+      const isNew = pageNewTaskIds.has(taskId(task));
+      const computedProfession = isNew ? NEW_PROFESSION : completed ? COMPLETED_PROFESSION : professionForCard(card, task);
+      const profession = isNew ? NEW_PROFESSION : !completed && previous && !previous.completed && previous.profession.key !== NEW_PROFESSION.key ? previous.profession : computedProfession;
       const location2 = profession.key === "combat" ? !completed && previous?.profession.key === "combat" ? previous.location : combatLocationForCard(card, task) : null;
-      pageClassifications.set(slot, { completed, profession, location: location2 });
+      const dungeonLocations = profession.key === "combat" ? !completed && previous?.profession.key === "combat" ? previous.dungeonLocations ?? dungeonLocationsForCard(card, task) : dungeonLocationsForCard(card, task) : [];
+      pageClassifications.set(slot, {
+        completed,
+        profession,
+        location: location2,
+        dungeonLocations
+      });
       return {
         card,
         task,
         profession,
         location: location2,
+        dungeonLocations,
         info: actionSortInfo(task, slot),
         depth: chains?.depths.get(taskActionHrid(task)) ?? 0,
         chain: chains?.groups.get(taskActionHrid(task)) ?? index
@@ -29063,7 +29751,96 @@ ${locks}` : ""}`;
     group.append(header, body);
     return group;
   }
+  function mirrorTaskCard(source) {
+    const mirror = source.cloneNode(true);
+    mirror.dataset.mwitoolsTaskMirror = "true";
+    mirror.removeAttribute("id");
+    mirror.style.order = "";
+    mirror.style.display = "";
+    delete mirror.dataset.mwitoolsDungeonSource;
+    delete mirror.dataset.mwitoolsCollapsed;
+    mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
+    mirror.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const mirrorButton = event.target.closest("button");
+      if (mirrorButton) {
+        const mirrorButtons = [...mirror.querySelectorAll("button")];
+        const sourceButtons = [...source.querySelectorAll("button")];
+        sourceButtons[mirrorButtons.indexOf(mirrorButton)]?.click();
+        return;
+      }
+      source.click();
+    });
+    return mirror;
+  }
+  function renderDungeonCombatGroups(parent, rows, nextOrder) {
+    const locations = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      row.card.dataset.mwitoolsDungeonSource = "true";
+      for (const location2 of row.dungeonLocations ?? []) {
+        if (!locations.has(location2.key)) {
+          locations.set(location2.key, { location: location2, rows: [] });
+        }
+        locations.get(location2.key).rows.push(row);
+      }
+    }
+    const orderedLocations = [...locations.values()].sort(
+      (left, right) => left.location.order - right.location.order || left.location.label.localeCompare(right.location.label)
+    );
+    const active = /* @__PURE__ */ new Set();
+    for (const { location: location2, rows: locationRows } of orderedLocations) {
+      active.add(location2.key);
+      let section = parent.querySelector(
+        `:scope > .mwi-task-combat-location[data-location="${location2.key}"]`
+      );
+      if (!section || section.dataset.mode !== "dungeon") {
+        section?.remove();
+        section = document.createElement("section");
+        section.className = "mwi-task-combat-location";
+        section.dataset.location = location2.key;
+        section.dataset.mode = "dungeon";
+        const header2 = document.createElement("button");
+        header2.type = "button";
+        header2.className = "mwi-task-dungeon-header";
+        const title = document.createElement("span");
+        title.className = "mwi-task-combat-location-title-text";
+        const chevron = document.createElement("span");
+        chevron.textContent = "▾";
+        header2.append(title, chevron);
+        const body2 = document.createElement("div");
+        body2.className = "mwi-task-dungeon-body";
+        header2.addEventListener("click", () => {
+          if (collapsedDungeonGroups.has(location2.key)) {
+            collapsedDungeonGroups.delete(location2.key);
+          } else {
+            collapsedDungeonGroups.add(location2.key);
+          }
+          lastTaskRenderSignature = "";
+          renderTasks();
+        });
+        section.append(header2, body2);
+        parent.appendChild(section);
+      }
+      const collapsed = collapsedDungeonGroups.has(location2.key);
+      const header = section.querySelector(".mwi-task-dungeon-header");
+      header.setAttribute("aria-expanded", String(!collapsed));
+      section.querySelector(".mwi-task-combat-location-title-text").textContent = `${location2.label} (${locationRows.length})`;
+      const body = section.querySelector(".mwi-task-dungeon-body");
+      body.hidden = collapsed;
+      body.replaceChildren(
+        ...locationRows.map(({ card }) => mirrorTaskCard(card))
+      );
+      section.hidden = collapsedProfessions.has("combat");
+      section.style.order = String(nextOrder.value++);
+    }
+    return active;
+  }
   function renderCombatGroups(parent, rows, nextOrder) {
+    if (combatGroupMode === "dungeon") {
+      return renderDungeonCombatGroups(parent, rows, nextOrder);
+    }
+    for (const row of rows) delete row.card.dataset.mwitoolsDungeonSource;
     const locations = /* @__PURE__ */ new Map();
     for (const row of rows) {
       const location2 = row.location ?? combatLocationForCard(row.card, row.task);
@@ -29074,14 +29851,18 @@ ${locks}` : ""}`;
     const orderedLocations = [...locations.values()].sort(
       (left, right) => left.location.order - right.location.order || left.location.label.localeCompare(right.location.label)
     );
+    const active = /* @__PURE__ */ new Set();
     for (const { location: location2, rows: locationRows } of orderedLocations) {
+      active.add(location2.key);
       let section = parent.querySelector(
         `:scope > .mwi-task-combat-location[data-location="${location2.key}"]`
       );
-      if (!section) {
+      if (!section || section.dataset.mode === "dungeon") {
+        section?.remove();
         section = document.createElement("section");
         section.className = "mwi-task-combat-location";
         section.dataset.location = location2.key;
+        section.dataset.mode = "planet";
         const title = document.createElement("h4");
         title.className = "mwi-task-combat-location-title";
         section.append(title);
@@ -29094,20 +29875,23 @@ ${locks}` : ""}`;
         row.card.dataset.mwitoolsLocation = location2.key;
       }
     }
+    return active;
   }
   function renderRegularGroup(rows, nextOrder) {
     for (const row of rows) row.card.style.order = String(nextOrder.value++);
   }
   function groupCards(cards, tasks) {
     if (!taskListParent) return;
+    for (const card of cards) delete card.dataset.mwitoolsDungeonSource;
     document.querySelectorAll(".mwi-task-toolbar").forEach((node) => node.remove());
     const rows = orderedRows(cards, tasks);
     const customDefinitions = rows.map((row) => row.profession).filter(
-      (profession, index, all) => ![COMPLETED_PROFESSION, ...PROFESSIONS].some(
+      (profession, index, all) => ![NEW_PROFESSION, COMPLETED_PROFESSION, ...PROFESSIONS].some(
         (known) => known.key === profession.key
       ) && all.findIndex((candidate) => candidate.key === profession.key) === index
     );
     const definitions = [
+      NEW_PROFESSION,
       COMPLETED_PROFESSION,
       ...PROFESSIONS,
       ...customDefinitions
@@ -29143,10 +29927,12 @@ ${locks}` : ""}`;
         }
       }
       if (profession.key === "combat") {
-        renderCombatGroups(taskListParent, matching, nextOrder);
-        for (const row of matching) {
-          if (row.card.dataset.mwitoolsLocation)
-            activeLocations.add(row.card.dataset.mwitoolsLocation);
+        for (const key of renderCombatGroups(
+          taskListParent,
+          matching,
+          nextOrder
+        )) {
+          activeLocations.add(key);
         }
       } else {
         renderRegularGroup(matching, nextOrder);
@@ -29181,6 +29967,28 @@ ${locks}` : ""}`;
       });
     });
   }
+  function wireResetButtons(cards) {
+    cards.forEach((card, index) => {
+      if (card.dataset.mwitoolsResetWired) return;
+      const button = [...card.querySelectorAll("button")].find(
+        (candidate) => /reset|重置/i.test(candidate.textContent)
+      );
+      if (!button) return;
+      card.dataset.mwitoolsResetWired = "true";
+      button.addEventListener(
+        "click",
+        () => {
+          pendingResetSlots.add(index);
+          const timeout = setTimeout(
+            () => pendingResetSlots.delete(index),
+            3e4
+          );
+          timeout?.unref?.();
+        },
+        true
+      );
+    });
+  }
   function applyPendingMerge() {
     const pending = runtime.state.pendingMergedTask;
     if (!pending) return;
@@ -29206,7 +30014,7 @@ ${locks}` : ""}`;
       note.className = "mwi-task-merged-note";
       input.parentElement.insertAdjacentElement("afterend", note);
     }
-    note.textContent = t7(
+    note.textContent = t8(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -29217,13 +30025,19 @@ ${locks}` : ""}`;
       runtime.config.isZH,
       runtime.settings.get("taskAutoSort"),
       runtime.settings.get("taskIcons"),
-      [...collapsedProfessions].sort().join(",")
+      combatGroupMode,
+      [...pageNewTaskIds].sort().join(","),
+      [...collapsedProfessions].sort().join(","),
+      [...collapsedDungeonGroups].sort().join(",")
     ];
     const rows = cards.map((card, index) => {
       const task = tasks[index] ?? {};
       return [
         taskActionHrid(task) ?? "",
         visibleTaskTitle(card),
+        String(card.textContent ?? "").match(
+          /(?:进度|progress)\s*[:：]\s*[\d,.]+\s*\/\s*[\d,.]+/i
+        )?.[0] ?? "",
         isCompletedCard(card, task) ? "1" : "0",
         card.dataset.mwitoolsProfession ?? "",
         card.dataset.mwitoolsCollapsed ?? ""
@@ -29242,6 +30056,11 @@ ${locks}` : ""}`;
         lastTaskRenderSignature = "";
         lastActionDetails = null;
         lastActionCategories = null;
+        pageClassifications = /* @__PURE__ */ new Map();
+        pageTaskIds = /* @__PURE__ */ new Map();
+        pageNewTaskIds = /* @__PURE__ */ new Set();
+        pendingResetSlots = /* @__PURE__ */ new Set();
+        runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
       }
       return;
     }
@@ -29251,11 +30070,17 @@ ${locks}` : ""}`;
       ungroupCards();
       originalCards = [];
       pageClassifications = /* @__PURE__ */ new Map();
+      pageTaskIds = /* @__PURE__ */ new Map();
+      pageNewTaskIds = /* @__PURE__ */ new Set();
+      pendingResetSlots = /* @__PURE__ */ new Set();
+      combatGroupMode = readCombatGroupMode();
       taskListParent = observedParent;
     }
     cards = cards.filter((card) => card.parentElement === taskListParent);
     const tasks = runtime.state.characterQuests ?? [];
     const cardTasks = cards.map((card, index) => tasks[index] ?? {});
+    syncPageNewTasks(cards, cardTasks, enteredNewTaskPage);
+    ensureCombatModeToggle();
     const signature = taskRenderSignature(cards, cardTasks);
     const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
     const actionDetails = runtime.state.initData_actionDetailMap;
@@ -29278,6 +30103,7 @@ ${locks}` : ""}`;
     });
     cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
     wireMergeButtons(cards, cardTasks);
+    wireResetButtons(cards);
     groupCards(cards, cardTasks);
     applyPendingMerge();
     lastRenderedCards = [...cards];
@@ -29290,24 +30116,36 @@ ${locks}` : ""}`;
     document.querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note"
     ).forEach((node) => node.remove());
-    document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => delete node.dataset.mwitoolsMergeWired);
-    document.getElementById(STYLE_ID7)?.remove();
+    document.querySelectorAll("[data-mwitools-merge-wired],[data-mwitools-reset-wired]").forEach((node) => {
+      delete node.dataset.mwitoolsMergeWired;
+      delete node.dataset.mwitoolsResetWired;
+    });
+    document.getElementById(STYLE_ID8)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
+    pageTaskIds = /* @__PURE__ */ new Map();
+    pageNewTaskIds = /* @__PURE__ */ new Set();
+    pendingResetSlots = /* @__PURE__ */ new Set();
+    runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
     lastRenderedCards = [];
     lastTaskRenderSignature = "";
     lastActionDetails = null;
     lastActionCategories = null;
     collapsedProfessions.clear();
+    collapsedDungeonGroups.clear();
   }
   runtime.features.register({
     id: "taskInsights",
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles5();
+      addStyles6();
       renderTasks();
+      void loadTaskSpriteManifest().then(() => {
+        lastTaskRenderSignature = "";
+        renderTasks();
+      });
       scope.interval(renderTasks, 500);
       scope.add(cleanupTasks);
     }
@@ -29333,7 +30171,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles5,
+    addTaskStyles: addStyles6,
     taskActionHrid,
     taskRemaining,
     taskProjection,
@@ -29342,8 +30180,9 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID8 = "mwitools-task-new-style";
-  var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]';
+  var STYLE_ID9 = "mwitools-task-new-style";
+  var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
     return String(
       quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? quest?.questID ?? quest?.questId ?? quest?.characterTaskID ?? quest?.characterTaskId ?? ""
@@ -29416,10 +30255,10 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     ${TASK_SELECTOR2}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
     .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
@@ -29432,7 +30271,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID8)?.remove();
+    document.getElementById(STYLE_ID9)?.remove();
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -29440,17 +30279,13 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles6();
+      addStyles7();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
+      liveTaskNewStates.set(storageKey, state);
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
-      const markRead = (id) => {
-        if (!state.fresh.delete(id)) return;
-        writeTaskNewState(storageKey, state);
-        render();
-      };
       const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -29467,7 +30302,9 @@ ${locks}` : ""}`;
         cards.forEach((card, index) => {
           const task = quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
           const id = questId(task);
-          const fresh = id && state.fresh.has(id) && !isCompleted(task);
+          const fresh = Boolean(
+            id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id)
+          );
           card.classList.toggle("mwi-task-is-new", Boolean(fresh));
           let badge = card.querySelector(":scope > .mwi-task-new-badge");
           if (fresh && !badge) {
@@ -29494,36 +30331,34 @@ ${locks}` : ""}`;
           render();
         })
       );
-      scope.event(
-        document,
-        "click",
-        (event) => {
-          const card = event.target?.closest?.(TASK_SELECTOR2);
-          if (!card) return;
-          const fallbackIndex = [
-            ...document.querySelectorAll(TASK_SELECTOR2)
-          ].indexOf(card);
-          const liveIndex = Number(
-            card.dataset.mwitoolsOriginalIndex ?? fallbackIndex
-          );
-          markRead(questId((runtime.state.characterQuests ?? [])[liveIndex]));
-        },
-        true
-      );
       render();
       scope.interval(render, 350);
-      scope.add(cleanupDom);
+      scope.add(() => {
+        if (liveTaskNewStates.get(storageKey) === state) {
+          liveTaskNewStates.delete(storageKey);
+        }
+        cleanupDom();
+      });
     }
   });
   Object.assign(runtime.api, {
     getNewTaskIds() {
       const key = taskNewStorageKey(runtime.state.currentCharacterId);
-      return [...readTaskNewState(key).fresh];
+      const state = liveTaskNewStates.get(key) ?? readTaskNewState(key);
+      initializeQuestState(state, runtime.state.characterQuests ?? []);
+      writeTaskNewState(key, state);
+      return [...state.fresh];
+    },
+    acknowledgeNewTaskIds(ids) {
+      const key = taskNewStorageKey(runtime.state.currentCharacterId);
+      const state = liveTaskNewStates.get(key) ?? readTaskNewState(key);
+      for (const id of ids ?? []) state.fresh.delete(String(id));
+      writeTaskNewState(key, state);
     }
   });
 
   // src/features/task-auto-return.js
-  var TASK_SELECTOR3 = '[class*="RandomTask_randomTask"]';
+  var TASK_SELECTOR3 = '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]';
   var ACTION_DETAIL_SELECTOR = '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';
   var RETURN_TTL_MS = 3e4;
@@ -29736,11 +30571,11 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID9 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID10 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var MARKET_SELECTOR = '[class*="MarketplacePanel_marketplacePanel"]';
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function finite(value) {
@@ -29801,7 +30636,7 @@ ${locks}` : ""}`;
     if (!raw) return "";
     return raw.startsWith("/items/") ? raw : `/items/${raw.split("/").at(-1)}`;
   }
-  function itemHridFromIcon(root) {
+  function itemHridFromIcon2(root) {
     const preferred = root?.querySelectorAll?.(
       '[class*="MarketplacePanel_currentItem"] svg use,[class*="MarketplacePanel_itemContainer"] svg use,[class*="ItemDictionary_item"] svg use'
     );
@@ -29831,7 +30666,7 @@ ${locks}` : ""}`;
     return normalizeItemHrid2(translated);
   }
   function resolveAbilityBookItem(root) {
-    const itemHrid = itemHridFromIcon(root) || itemHridFromTitle(root);
+    const itemHrid = itemHridFromIcon2(root) || itemHridFromTitle(root);
     return runtime.state.initData_itemDetailMap?.[itemHrid]?.abilityBookDetail ? itemHrid : "";
   }
   function abilityRecord(abilityHrid) {
@@ -29877,10 +30712,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -29929,12 +30764,12 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-title",
-      t8("技能书计算器", "Ability book calculator")
+      t9("技能书计算器", "Ability book calculator")
     );
     const data = calculatorData(itemHrid);
     const input = panel.querySelector("input");
     const targetLabel = panel.querySelector(".mwi-book-target span");
-    targetLabel.textContent = t8("目标等级", "Target level");
+    targetLabel.textContent = t9("目标等级", "Target level");
     input.setAttribute("aria-label", targetLabel.textContent);
     if (!data.ready || !data.experienceGain || !data.maximumLevel) {
       panel.dataset.status = "waiting";
@@ -29942,7 +30777,7 @@ ${locks}` : ""}`;
       setPanelText(
         panel,
         ".mwi-book-state",
-        t8("等待角色与技能书数据", "Waiting for character and ability-book data")
+        t9("等待角色与技能书数据", "Waiting for character and ability-book data")
       );
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
@@ -29964,15 +30799,15 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-state",
-      data.isLearned ? t8(
+      data.isLearned ? t9(
         `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
         `Current Lv.${data.level} · total XP ${exact(data.experience)}`
-      ) : t8("当前：未学习", "Current: not learned")
+      ) : t9("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
-      t8(
+      t9(
         `每本增加 ${exact(data.experienceGain)} 经验`,
         `${exact(data.experienceGain)} XP per book`
       )
@@ -29988,19 +30823,19 @@ ${locks}` : ""}`;
     panel.dataset.status = requirement.status;
     let resultText;
     if (requirement.status === "invalid") {
-      resultText = t8(
+      resultText = t9(
         `目标等级必须为 1–${data.maximumLevel} 的整数`,
         `Target level must be an integer from 1 to ${data.maximumLevel}`
       );
     } else if (requirement.status === "reached") {
-      resultText = t8("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+      resultText = t9("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
     } else if (requirement.unlockBooks) {
-      resultText = t8(
+      resultText = t9(
         `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
         `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
       );
     } else {
-      resultText = t8(
+      resultText = t9(
         `升级还需 ${requirement.totalBooks} 本`,
         `${requirement.totalBooks} books needed to level`
       );
@@ -30010,10 +30845,10 @@ ${locks}` : ""}`;
     const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
     let costText = "";
     if (requirement.status !== "invalid") {
-      costText = books === 0 ? t8("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t8(
+      costText = books === 0 ? t9("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t9(
         `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低卖价 ${runtime.api.numberFormatter(ask)}/本）`,
         `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
-      ) : t8(
+      ) : t9(
         "参考购买成本：暂无卖价",
         "Reference purchase cost: no ask price"
       );
@@ -30035,7 +30870,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles7();
+      addStyles8();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid, surface) => {
@@ -30101,7 +30936,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID9)?.remove();
+        document.getElementById(STYLE_ID10)?.remove();
       });
       refresh();
     }
@@ -30123,12 +30958,12 @@ ${locks}` : ""}`;
       runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? ""
     ).trim();
     const icon = item.querySelector("svg[aria-label]");
-    let itemName2 = icon?.getAttribute("aria-label")?.trim();
-    if (!itemName2) return null;
+    let itemName3 = icon?.getAttribute("aria-label")?.trim();
+    if (!itemName3) return null;
     if (runtime.config.isZHInGameSetting) {
-      itemName2 = runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2;
+      itemName3 = runtime.api.getItemEnNameFromZhName?.(itemName3) ?? itemName3;
     }
-    const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName2];
+    const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName3];
     const itemDetail = runtime.state.initData_itemDetailMap?.[itemHrid];
     if (!itemHrid || itemDetail?.isTradable !== true) return null;
     const levelText = item.querySelector('[class*="Item_enhancementLevel"]')?.textContent ?? "";
@@ -30163,7 +30998,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t9(zh, en) {
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -30220,10 +31055,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t9(...labels);
+    if (labels) return t10(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t9(
+      return t10(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -30287,7 +31122,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t9("意见反馈服务请求超时", "Feedback service request timed out")
+            t10("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -30304,7 +31139,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t9(
+            localizeErrorDetail(payload?.detail) || t10(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -30322,7 +31157,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t9("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t10("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -30336,9 +31171,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t9("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t10("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t9("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t10("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -30351,21 +31186,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t9("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t10("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t9("图片链接过长", "The image link is too long"));
+        throw new Error(t10("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t9("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t10("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t9("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t10("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -30468,8 +31303,8 @@ ${locks}` : ""}`;
   // src/features/feedback/panel.js
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID10 = "mwitools-feedback-style";
-  function t10(zh, en) {
+  var STYLE_ID11 = "mwitools-feedback-style";
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -30478,12 +31313,12 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t10(...labels[status]) : status;
+    return labels[status] ? t11(...labels[status]) : status;
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
@@ -30524,23 +31359,23 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles8();
+      addStyles9();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t10("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t10("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t10("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t10("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t10("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t11("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t11("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t11("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t11("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t11("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t10("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t11("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t10("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t10("功能建议", "Feature request")}</option><option value="other">${t10("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t10("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t10("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t10("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t10("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t10("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t10("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t10("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t10("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t10("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t11("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t11("功能建议", "Feature request")}</option><option value="other">${t11("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t11("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t11("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t11("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t11("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t11("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t11("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t11("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t11("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t11("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -30582,7 +31417,7 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t10("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        button.innerHTML = `<span>✉</span><span>${t11("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
         this.scope.event(button, "click", () => this.open());
       }
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
@@ -30649,12 +31484,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t10("正在提交…", "Submitting…");
+      error.textContent = t11("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t10("请填写标题和详细说明。", "Enter a title and details.")
+            t11("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -30674,7 +31509,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t10("已保存反馈。", "Feedback saved.");
+        error.textContent = t11("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -30687,7 +31522,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t10(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t11(
         "提交",
         "Submit"
       );
@@ -30720,13 +31555,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t10(
+      node.textContent = errorMessage ? t11(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t10(
+      ) : this.quota ? t11(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t10("额度暂时不可用", "Quota unavailable");
+      ) : t11("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -30741,7 +31576,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t10("还没有提交过反馈。", "No feedback yet.")
+            t11("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -30775,7 +31610,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t10("返回列表", "Back")}`
+          `← ${t11("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -30789,29 +31624,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t10("详细说明", "Details"), item.detail)
+          this.textSection(t11("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t10("复现步骤", "Steps to reproduce"),
+              t11("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t10("预期结果", "Expected result"),
+              t11("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t10("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t11("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t10("图片", "Image")} ${index + 1}：${url}`
+              `${t11("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -30822,7 +31657,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t10("留言", "Messages")));
+        messages.append(makeElement("h4", "", t11("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -30830,7 +31665,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t10("管理员", "Admin") : t10("我", "Me")
+              message.actor === "admin" ? t11("管理员", "Admin") : t11("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -30842,7 +31677,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t10("暂无留言", "No messages")
+              t11("暂无留言", "No messages")
             )
           );
         }
@@ -30850,7 +31685,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t10("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t11("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -30859,9 +31694,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t10("补充留言…", "Add a message…");
+          input.placeholder = t11("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t10("发送", "Send"));
+          const send = makeElement("button", "", t11("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -30882,7 +31717,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t10(
+              t11(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -30919,7 +31754,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t10(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t11(
         "保存修改",
         "Save changes"
       );
@@ -30930,10 +31765,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID10)?.remove();
+      document.getElementById(STYLE_ID11)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID10 };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID11 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -30982,11 +31817,11 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID11 = "mwitools-guild-xp-style";
+  var STYLE_ID12 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -31105,10 +31940,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -31149,7 +31984,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t11("待再次采样", "Awaiting another sample") : t11("样本不足", "Not enough data");
+      return waiting ? t12("待再次采样", "Awaiting another sample") : t12("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -31183,7 +32018,7 @@ ${locks}` : ""}`;
     svg.classList.add("mwi-guild-trend");
     svg.setAttribute("viewBox", "0 0 400 58");
     svg.setAttribute("preserveAspectRatio", "none");
-    const label = t11(
+    const label = t12(
       "公会经验获取速度（XP/小时）",
       "Guild XP gain rate (XP/hour)"
     );
@@ -31265,10 +32100,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t11("公会经验进度", "Guild XP progress");
+    title.textContent = t12("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t11("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t11("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t12("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t12("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -31283,21 +32118,21 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t11("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t12("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t11("最近 XP/h", "Recent XP/h"),
+        t12("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t11("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t11("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t12("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t12("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t11("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t11("样本不足", "Not enough data")
+        t12("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t12("样本不足", "Not enough data")
       )
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t11(
+    trendLabel.textContent = t12(
       "最近 7 天经验获取速度（XP/小时）",
       "XP gain rate over the last 7 days (XP/hour)"
     );
@@ -31309,7 +32144,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t11("当前闲置", "Idle now")} (${idle.length}) · ${t11(
+      label.textContent = `${t12("当前闲置", "Idle now")} (${idle.length}) · ${t12(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -31331,8 +32166,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t11("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t11("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t12("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t12("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -31344,7 +32179,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t11("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t12("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -31446,10 +32281,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t11("最近 XP/h", "Recent XP/h")
+          textContent: t12("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t11("24 小时 XP/h", "24h XP/h")
+          textContent: t12("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -31527,7 +32362,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles9();
+      addStyles10();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -31542,7 +32377,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles9();
+        addStyles10();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -31578,7 +32413,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t12(zh, en) {
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   async function handleBattleSummary(message) {
@@ -31810,7 +32645,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t12("全部", "All")}</option>
+            <option value="1">${t13("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31831,7 +32666,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t12("全部", "All")}</option>
+            <option value="1000">${t13("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31852,33 +32687,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t12("全部", "All")}</option>
-                <option value="attack">${t12("攻击", "Attack")}</option>
-                <option value="melee">${t12("近战", "Melee")}</option>
-                <option value="defense">${t12("防御", "Defense")}</option>
-                <option value="ranged">${t12("远程", "Ranged")}</option>
-                <option value="magic">${t12("魔法", "Magic")}</option>
-                <option value="others">${t12("其他", "Others")}</option>
+                <option value="all">${t13("全部", "All")}</option>
+                <option value="attack">${t13("攻击", "Attack")}</option>
+                <option value="melee">${t13("近战", "Melee")}</option>
+                <option value="defense">${t13("防御", "Defense")}</option>
+                <option value="ranged">${t13("远程", "Ranged")}</option>
+                <option value="magic">${t13("魔法", "Magic")}</option>
+                <option value="others">${t13("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t12("全部", "All")}</option>
-                <option value="main_hand">${t12("主手", "Main Hand")}</option>
-                <option value="off_hand">${t12("副手", "Off Hand")}</option>
-                <option value="two_hand">${t12("双手", "Two Hand")}</option>
-                <option value="head">${t12("头部", "Head")}</option>
-                <option value="body">${t12("身体", "Body")}</option>
-                <option value="hands">${t12("手部", "Hands")}</option>
-                <option value="legs">${t12("腿部", "Legs")}</option>
-                <option value="feet">${t12("脚部", "Feet")}</option>
-                <option value="neck">${t12("项链", "Neck")}</option>
-                <option value="earrings">${t12("耳饰", "Earrings")}</option>
-                <option value="ring">${t12("戒指", "Ring")}</option>
-                <option value="pouch">${t12("袋子", "Pouch")}</option>
-                <option value="back">${t12("背部", "Back")}</option>
+                <option value="all">${t13("全部", "All")}</option>
+                <option value="main_hand">${t13("主手", "Main Hand")}</option>
+                <option value="off_hand">${t13("副手", "Off Hand")}</option>
+                <option value="two_hand">${t13("双手", "Two Hand")}</option>
+                <option value="head">${t13("头部", "Head")}</option>
+                <option value="body">${t13("身体", "Body")}</option>
+                <option value="hands">${t13("手部", "Hands")}</option>
+                <option value="legs">${t13("腿部", "Legs")}</option>
+                <option value="feet">${t13("脚部", "Feet")}</option>
+                <option value="neck">${t13("项链", "Neck")}</option>
+                <option value="earrings">${t13("耳饰", "Earrings")}</option>
+                <option value="ring">${t13("戒指", "Ring")}</option>
+                <option value="pouch">${t13("袋子", "Pouch")}</option>
+                <option value="back">${t13("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -32761,17 +33596,17 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID12 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID13 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
-  function t13(zh, en) {
+  function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -32805,7 +33640,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number2)) return "—";
     const rounded = Math.round(number2);
     const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number2, digits)} ${t13("个", "pcs")}`;
+    return `${compactNumber(number2, digits)} ${t14("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -32828,11 +33663,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t13(
+      text: t14(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t13(
+      title: t14(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -32841,28 +33676,28 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t13("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t13("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t13(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t13("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t13(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t13("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t14("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t14("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t14(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t14("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t14(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t14("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t13("总成本", "Total cost"),
+        t14("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t13("耗时", "Time"),
+        t14("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t13("开始保护", "Protect from"), normalStart),
+      metric3(t14("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t13("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t14("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -32933,7 +33768,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles10();
+    addStyles11();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -32984,6 +33819,18 @@ ${locks}` : ""}`;
     wrapper.append(valueRow, priceRow);
     tooltipContent.append(wrapper);
   }
+  function getTooltipEnhancementPlanOptions(itemHrid) {
+    const forceProtectionMirror = Boolean(
+      runtime.api.isBackEquipment?.(itemHrid)
+    );
+    return {
+      forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
+      allowPhilosopherMirror: !forceProtectionMirror,
+      getFairValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level) || runtime.api.getAssetValue?.(hrid, level, {
+        forceAcquisitionValue: true
+      }) || 0
+    };
+  }
   async function handleEnhancedItemTooltip(tooltip) {
     const tooltipContent = tooltip?.querySelector(
       ".ItemTooltipText_itemTooltipText__zFq3A"
@@ -32995,15 +33842,15 @@ ${locks}` : ""}`;
       hideEnhancementCostPanel();
       return;
     }
-    let itemName2 = runtime.api.getOriTextFromElement(itemNameElements[0]);
+    let itemName3 = runtime.api.getOriTextFromElement(itemNameElements[0]);
     if (runtime.config.isZHInGameSetting) {
-      itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
+      itemName3 = runtime.api.getItemEnNameFromZhName(itemName3);
     }
     const enhancementLevel = Math.max(
       0,
       Math.floor(Number(itemNameElements[1].textContent.replace("+", "")) || 0)
     );
-    const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
+    const itemHrid = runtime.state.itemEnNameToHridMap[itemName3];
     if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
       hideEnhancementCostPanel();
       return;
@@ -33019,7 +33866,8 @@ ${locks}` : ""}`;
     if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
     const plan = calculateEnhancementPlan({
       itemHrid,
-      targetLevel: enhancementLevel
+      targetLevel: enhancementLevel,
+      ...getTooltipEnhancementPlanOptions(itemHrid)
     });
     if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
   }
@@ -33027,7 +33875,7 @@ ${locks}` : ""}`;
 
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
-  var BACK_MIRROR_DEFAULT_MIGRATION_KEY = "MWITools_back_mirror_default_enabled_v1";
+  var BACK_MIRROR_DEFAULT_CORRECTION_KEY = "MWITools_back_mirror_default_disabled_v2";
   var SETTINGS_STYLE_ID = "mwitools-settings-style";
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
@@ -33083,9 +33931,9 @@ ${locks}` : ""}`;
         console.warn("[MWITools] Could not migrate legacy settings", error);
       }
     }
-    if (!localStorage.getItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY)) {
-      runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
-      localStorage.setItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY, "1");
+    if (!localStorage.getItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY)) {
+      runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+      localStorage.setItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY, "1");
     }
     applyVisualSettings();
     persistSettings();
@@ -33710,9 +34558,9 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID13 = "mwitools-important-update-style";
+  var STYLE_ID14 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t14(value) {
+  function t15(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -33803,10 +34651,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID14;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -33824,7 +34672,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles11();
+    addStyles12();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -33836,8 +34684,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t14(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t14(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t15(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t15(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -33867,7 +34715,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID13)?.remove();
+        document.getElementById(STYLE_ID14)?.remove();
       });
     }
   });
@@ -34851,7 +35699,7 @@ ${locks}` : ""}`;
         html
       };
     }
-    function isVisible(element) {
+    function isVisible2(element) {
       if (!element) return false;
       try {
         const style = getComputedStyle(element);
@@ -34876,7 +35724,7 @@ ${locks}` : ""}`;
           document.querySelectorAll(selector).forEach((element) => {
             if (element.closest && element.closest('[data-kikimeter="true"]'))
               return;
-            if (isVisible(element) && !elements.includes(element))
+            if (isVisible2(element) && !elements.includes(element))
               elements.push(element);
           });
         } catch (e) {
@@ -35961,9 +36809,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t15 = 0;
-        playerKills.forEach((v) => t15 += v);
-        return t15;
+        let t16 = 0;
+        playerKills.forEach((v) => t16 += v);
+        return t16;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -36223,12 +37071,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t15) {
-      const low = t15.toLowerCase();
+    function looksLikeNoise(t16) {
+      const low = t16.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t15)) return true;
-      if (/^\d+%?$/.test(t15)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t15)) return true;
+      if (/^lv\.?\d+$/i.test(t16)) return true;
+      if (/^\d+%?$/.test(t16)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t16)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -36250,14 +37098,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t15) => t15 && !looksLikeNoise(t15) && !/^trial\s/i.test(t15));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t16) => t16 && !looksLikeNoise(t16) && !/^trial\s/i.test(t16));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t15, i) => {
-        resolved.set(String(i + offset), t15);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t16, i) => {
+        resolved.set(String(i + offset), t16);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -36325,7 +37173,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t15) => t15.length > 0)) {
+          if (texts.some((t16) => t16.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -36361,10 +37209,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t15 = c.textContent.trim();
-            if (t15.length >= 2 && t15.length <= 20 && !looksLikeNoise(t15)) {
+            const t16 = c.textContent.trim();
+            if (t16.length >= 2 && t16.length <= 20 && !looksLikeNoise(t16)) {
               nameLikeCount++;
-              texts.push(t15.slice(0, 20));
+              texts.push(t16.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -37956,11 +38804,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t15 = el2.textContent.trim();
-        if (!t15 || t15.length < 2 || t15.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t15);
+        const t16 = el2.textContent.trim();
+        if (!t16 || t16.length < 2 || t16.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t16);
         let cssEllipsis = false;
-        if (!literalEllipsis && t15.length <= 20 && !t15.includes(" ") && !looksLikeNoise(t15)) {
+        if (!literalEllipsis && t16.length <= 20 && !t16.includes(" ") && !looksLikeNoise(t16)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -40409,10 +41257,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t15 = c.textContent;
-        if (t15.includes("Combat Zones") || t15.includes("战斗区域") || t15.includes("戰鬥區域"))
+        const t16 = c.textContent;
+        if (t16.includes("Combat Zones") || t16.includes("战斗区域") || t16.includes("戰鬥區域"))
           return c;
-        if (t15.includes("Labyrinth") && t15.includes("Room") && t15.includes("Automation") || t15.includes("迷宫") && (t15.includes("房间") || t15.includes("自动化")) || t15.includes("迷宮") && (t15.includes("房間") || t15.includes("自動化")))
+        if (t16.includes("Labyrinth") && t16.includes("Room") && t16.includes("Automation") || t16.includes("迷宫") && (t16.includes("房间") || t16.includes("自动化")) || t16.includes("迷宮") && (t16.includes("房間") || t16.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -40718,10 +41566,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t15) => {
+      TYPES.forEach((t16) => {
         const btn = document.createElement("button");
-        btn.textContent = t15.label;
-        const active = historyFilter === t15.id;
+        btn.textContent = t16.label;
+        const active = historyFilter === t16.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -40735,7 +41583,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t15.id;
+          historyFilter = t16.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -40859,8 +41707,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t15) => t15.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t15) => t15.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t16) => t16.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t16) => t16.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -42533,14 +43381,21 @@ ${locks}` : ""}`;
         runtime.api.scheduleNetworthRefresh?.();
         scope.interval(() => {
           const needsRender = [
-            ...document.querySelectorAll("div.Inventory_items__6SXv0")
+            ...document.querySelectorAll('div[class*="Inventory_items"]')
           ].some((node) => !node.classList.contains("script_buildScore_added"));
           if (needsRender) runtime.api.scheduleNetworthRefresh?.();
         }, 500);
       },
       cleanup() {
         removeAll("#script_inventory_summary");
-        document.querySelectorAll(".script_buildScore_added").forEach((node) => node.classList.remove("script_buildScore_added"));
+        document.querySelectorAll(".script_buildScore_added").forEach((node) => {
+          node.classList.remove("script_buildScore_added");
+          delete node.dataset.mwitoolsInventoryDisplayVersion;
+        });
+        removeAll(".mwi-inventory-category-value");
+        removeAll("#script_inv_sort_controls");
+        document.querySelectorAll(".script_invSort_added").forEach((node) => node.classList.remove("script_invSort_added"));
+        runtime.api.scheduleNetworthRefresh?.();
       }
     },
     invSort: {
@@ -42549,7 +43404,7 @@ ${locks}` : ""}`;
         runtime.api.scheduleNetworthRefresh?.();
         scope.interval(() => {
           const needsRender = [
-            ...document.querySelectorAll("div.Inventory_items__6SXv0")
+            ...document.querySelectorAll('div[class*="Inventory_items"]')
           ].some((node) => !node.classList.contains("script_invSort_added"));
           if (needsRender) runtime.api.scheduleNetworthRefresh?.();
         }, 500);
@@ -42557,6 +43412,7 @@ ${locks}` : ""}`;
       cleanup() {
         removeAll("#script_inv_sort_controls,#script_stack_price");
         document.querySelectorAll(".script_invSort_added").forEach((node) => node.classList.remove("script_invSort_added"));
+        runtime.api.scheduleNetworthRefresh?.();
       }
     },
     actionQueue: {
@@ -42595,7 +43451,6 @@ ${locks}` : ""}`;
   };
   for (const id of [
     "useOrangeAsMainColor",
-    "guildCreditConversionsSort",
     "profileBuildScore",
     "battlePanel",
     "enhanceSim",
@@ -42664,7 +43519,8 @@ ${locks}` : ""}`;
     const settings2 = runtime.settings.settingsMap;
     if (settings2.invWorth.isTrue || settings2.invSort.isTrue) {
       runtime.api.scheduleNetworthRefresh();
-    } else if (settings2.assetHistory.isTrue) {
+    }
+    if (settings2.assetHistory.isTrue) {
       runtime.api.assetHistory.scheduleRefresh();
     }
   }

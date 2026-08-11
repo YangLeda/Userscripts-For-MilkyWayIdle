@@ -16,6 +16,7 @@ import "./features/public-api.js";
 import "./features/leaderboard-overlay.js";
 import "./features/battle-buffs.js";
 import "./features/inventory.js";
+import "./features/guild-credit-advisor.js";
 import "./features/production-profit-panel.js";
 import "./features/item-tooltips.js";
 import "./features/action-panel.js";

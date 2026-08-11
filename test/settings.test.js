@@ -47,7 +47,7 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
-    true,
+    false,
   );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
@@ -87,22 +87,23 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   );
 });
 
-test("back mirror valuation migrates to enabled once and then preserves user choice", () => {
-  const migrationKey = "MWITools_back_mirror_default_enabled_v1";
-  localStorage.removeItem(migrationKey);
-  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
-  runtime.api.readSettings();
-  assert.equal(
-    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
-    true,
-  );
-
-  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+test("back mirror valuation resets to disabled once and then preserves user choice", () => {
+  const correctionKey = "MWITools_back_mirror_default_disabled_v2";
+  localStorage.removeItem(correctionKey);
+  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
   runtime.api.persistSettings();
   runtime.api.readSettings();
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
     false,
+  );
+
+  runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
+  runtime.api.persistSettings();
+  runtime.api.readSettings();
+  assert.equal(
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
+    true,
   );
 });
 
@@ -178,7 +179,7 @@ test("card settings render every visible setting with nested children and search
     /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
   );
   assert.match(root.textContent, /牛铃计入总资产/);
-  assert.match(root.textContent, /普通披风按取得成本估值/);
+  assert.match(root.textContent, /普通背部装备按保护之镜估值/);
 
   const search = root.querySelector(".mwi-settings-search");
   search.value = "Idle members";

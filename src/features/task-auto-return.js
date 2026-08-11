@@ -1,6 +1,7 @@
 import { runtime } from "../core/runtime.js";
 
-const TASK_SELECTOR = '[class*="RandomTask_randomTask"]';
+const TASK_SELECTOR =
+  '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]';
 const ACTION_DETAIL_SELECTOR =
   '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';

@@ -24,6 +24,24 @@ function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
   tooltipContent.append(wrapper);
 }
 
+export function getTooltipEnhancementPlanOptions(itemHrid) {
+  const forceProtectionMirror = Boolean(
+    runtime.api.isBackEquipment?.(itemHrid),
+  );
+  return {
+    forcedProtectionItemHrid: forceProtectionMirror
+      ? "/items/mirror_of_protection"
+      : null,
+    allowPhilosopherMirror: !forceProtectionMirror,
+    getFairValue: (hrid, level = 0) =>
+      runtime.api.getFairValue(hrid, level) ||
+      runtime.api.getAssetValue?.(hrid, level, {
+        forceAcquisitionValue: true,
+      }) ||
+      0,
+  };
+}
+
 export async function handleEnhancedItemTooltip(tooltip) {
   const tooltipContent = tooltip?.querySelector(
     ".ItemTooltipText_itemTooltipText__zFq3A",
@@ -63,6 +81,7 @@ export async function handleEnhancedItemTooltip(tooltip) {
   const plan = calculateEnhancementPlan({
     itemHrid,
     targetLevel: enhancementLevel,
+    ...getTooltipEnhancementPlanOptions(itemHrid),
   });
   if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
 }

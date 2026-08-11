@@ -8,6 +8,7 @@ const card = (title, progress, action = "前往") => `
   <div class="RandomTask_randomTask__test">
     <div class="RandomTask_name__test">${title}</div>
     <div>进度: ${progress}</div>
+    <button>重置</button>
     <button>${action}</button>
     <div class="mwi-task-insight">任务净利润 — 队列同动作 0</div>
   </div>`;
@@ -38,11 +39,15 @@ await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
-await import("../src/features/tasks.js");
+const { dungeonLocationsForCard, taskArtworkForCard } =
+  await import("../src/features/tasks.js");
+const { taskNewStorageKey, writeTaskNewState } =
+  await import("../src/features/task-new-badge.js");
 
 runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
 runtime.settings.settingsMap.taskIcons.isTrue = false;
 runtime.settings.settingsMap.taskAutoSort.isTrue = false;
+runtime.state.currentCharacterId = "tasks-test";
 runtime.state.initData_actionCategoryDetailMap = {
   "/action_categories/combat/smelly_planet": {
     name: "Smelly Planet",
@@ -64,6 +69,7 @@ runtime.state.initData_actionDetailMap = {
     hrid: "/actions/crafting/lumber",
     name: "Lumber",
     type: "/action_types/crafting",
+    outputItems: [{ itemHrid: "/items/lumber", count: 1 }],
   },
   "/actions/milking/cow": {
     hrid: "/actions/milking/cow",
@@ -182,6 +188,42 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
   assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
 });
 
+test("task artwork resolves target items and monsters as translucent sprite art", () => {
+  const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+  assert.deepEqual(
+    taskArtworkForCard(cards[1], runtime.state.characterQuests[1]),
+    {
+      kind: "items",
+      hrid: "/items/lumber",
+    },
+  );
+  assert.deepEqual(
+    taskArtworkForCard(cards[3], runtime.state.characterQuests[3]),
+    {
+      kind: "combat_monsters",
+      hrid: "/monsters/fly",
+    },
+  );
+
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg style="display:none"><use href="/static/media/items_sprite.test.svg#coin"></use></svg>
+     <svg style="display:none"><use href="/static/media/combat_monsters_sprite.test.svg#fly"></use></svg>`,
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.api.renderTasks();
+  assert.match(
+    cards[1].querySelector(".mwi-task-bg use").getAttribute("href"),
+    /items_sprite\.test\.svg#lumber$/,
+  );
+  assert.match(
+    cards[3].querySelector(".mwi-task-bg use").getAttribute("href"),
+    /combat_monsters_sprite\.test\.svg#fly$/,
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
+  runtime.api.renderTasks();
+});
+
 test("submitting a completed task can replace its card without parent mismatch", () => {
   const taskList = document.querySelector('[class*="TasksPanel_taskList"]');
   const submitted = taskList.querySelector(TASK_SELECTOR);
@@ -284,6 +326,163 @@ test("a reset task keeps its current category until the task page is re-entered"
     ),
     null,
   );
+});
+
+test("new tasks stay in the top group for one task-page visit", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__new-group">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("制作 - 新木板", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "known-task", actionHrid: "/actions/crafting/lumber" },
+    { id: "fresh-task", actionHrid: "/actions/crafting/lumber" },
+  ];
+  writeTaskNewState(taskNewStorageKey("tasks-test"), {
+    initialized: true,
+    known: new Set(["known-task", "fresh-task"]),
+    fresh: new Set(["fresh-task"]),
+  });
+  runtime.settings.settingsMap.taskNewBadge.isTrue = true;
+  runtime.api.renderTasks();
+
+  const list = document.querySelector(".TasksPanel_taskList__new-group");
+  assert.equal(
+    list.querySelector(".mwi-task-profession-title").textContent,
+    "新任务",
+  );
+  const freshCard = [...list.querySelectorAll(TASK_SELECTOR)].find((taskCard) =>
+    taskCard.textContent.includes("新木板"),
+  );
+  assert.equal(freshCard.dataset.mwitoolsProfession, "new");
+
+  freshCard.querySelector("button").click();
+  freshCard.querySelector('div[class*="RandomTask_name"]').textContent =
+    "挤奶 - 新奶牛";
+  runtime.state.characterQuests[1] = {
+    id: "reset-task",
+    actionHrid: "/actions/milking/cow",
+  };
+  runtime.api.renderTasks();
+  assert.equal(freshCard.dataset.mwitoolsProfession, "new");
+
+  list.remove();
+  runtime.api.renderTasks();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__new-reentered">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 新奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.api.renderTasks();
+  assert.equal(
+    document.querySelector(
+      '.TasksPanel_taskList__new-reentered [data-profession="new"]',
+    ),
+    null,
+  );
+  assert.equal(
+    document.querySelectorAll(
+      '.TasksPanel_taskList__new-reentered [data-mwitools-profession="milking"]',
+    ).length,
+    1,
+  );
+});
+
+test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__dungeons">
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 水马", "0 / 10")}
+      ${card("击败 - 奇幻洞穴", "0 / 1")}
+    </div>`,
+  );
+  runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"] = {
+    ...runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"],
+    combatZoneInfo: {
+      isDungeon: true,
+      fightInfo: {
+        monsters: ["/monsters/fly", "/monsters/aquahorse"],
+      },
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/combat/pirate_cove"] = {
+    hrid: "/actions/combat/pirate_cove",
+    name: "Pirate Cove",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 57,
+    combatZoneInfo: {
+      isDungeon: true,
+      fightInfo: { monsters: ["/monsters/fly"] },
+    },
+  };
+  runtime.state.characterQuests = [
+    { id: "fly", actionHrid: "/actions/combat/fly" },
+    { id: "horse", actionHrid: "/actions/combat/aquahorse" },
+    { id: "den", actionHrid: "/actions/combat/chimerical_den" },
+  ];
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  localStorage.setItem(
+    "MWITools_task_combat_mode_v1:test.milkywayidle.com:tasks-test",
+    "planet",
+  );
+  runtime.api.renderTasks();
+
+  const controls = document.querySelector(".mwi-task-combat-mode");
+  controls.querySelector('[data-mode="dungeon"]').click();
+  assert.equal(
+    document.querySelectorAll('.mwi-task-combat-location[data-mode="dungeon"]')
+      .length,
+    2,
+  );
+  assert.equal(
+    document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
+    4,
+  );
+  assert.equal(
+    document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
+    3,
+  );
+  assert.equal(
+    dungeonLocationsForCard(
+      document.querySelector(TASK_SELECTOR),
+      runtime.state.characterQuests[0],
+    ).length,
+    2,
+  );
+
+  const sourceFly = [...document.querySelectorAll(TASK_SELECTOR)].find(
+    (taskCard) => taskCard.textContent.includes("苍蝇"),
+  );
+  let forwarded = 0;
+  [...sourceFly.querySelectorAll("button")]
+    .at(-1)
+    .addEventListener("click", () => {
+      forwarded += 1;
+    });
+  const mirrorFly = [
+    ...document.querySelectorAll('[data-mwitools-task-mirror="true"]'),
+  ].find((taskCard) => taskCard.textContent.includes("苍蝇"));
+  [...mirrorFly.querySelectorAll("button")].at(-1).click();
+  assert.equal(forwarded, 1);
+
+  controls.querySelector('[data-mode="planet"]').click();
+  assert.equal(
+    document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
+    0,
+  );
+  assert.equal(
+    document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
+    0,
+  );
+  runtime.settings.settingsMap.taskNewBadge.isTrue = true;
 });
 
 test("auto sort keeps tasks from the same full production chain together", () => {

@@ -11,16 +11,23 @@ const adapters = {
       runtime.api.scheduleNetworthRefresh?.();
       scope.interval(() => {
         const needsRender = [
-          ...document.querySelectorAll("div.Inventory_items__6SXv0"),
+          ...document.querySelectorAll('div[class*="Inventory_items"]'),
         ].some((node) => !node.classList.contains("script_buildScore_added"));
         if (needsRender) runtime.api.scheduleNetworthRefresh?.();
       }, 500);
     },
     cleanup() {
       removeAll("#script_inventory_summary");
+      document.querySelectorAll(".script_buildScore_added").forEach((node) => {
+        node.classList.remove("script_buildScore_added");
+        delete node.dataset.mwitoolsInventoryDisplayVersion;
+      });
+      removeAll(".mwi-inventory-category-value");
+      removeAll("#script_inv_sort_controls");
       document
-        .querySelectorAll(".script_buildScore_added")
-        .forEach((node) => node.classList.remove("script_buildScore_added"));
+        .querySelectorAll(".script_invSort_added")
+        .forEach((node) => node.classList.remove("script_invSort_added"));
+      runtime.api.scheduleNetworthRefresh?.();
     },
   },
   invSort: {
@@ -29,7 +36,7 @@ const adapters = {
       runtime.api.scheduleNetworthRefresh?.();
       scope.interval(() => {
         const needsRender = [
-          ...document.querySelectorAll("div.Inventory_items__6SXv0"),
+          ...document.querySelectorAll('div[class*="Inventory_items"]'),
         ].some((node) => !node.classList.contains("script_invSort_added"));
         if (needsRender) runtime.api.scheduleNetworthRefresh?.();
       }, 500);
@@ -39,6 +46,7 @@ const adapters = {
       document
         .querySelectorAll(".script_invSort_added")
         .forEach((node) => node.classList.remove("script_invSort_added"));
+      runtime.api.scheduleNetworthRefresh?.();
     },
   },
   actionQueue: {
@@ -80,7 +88,6 @@ const adapters = {
 
 for (const id of [
   "useOrangeAsMainColor",
-  "guildCreditConversionsSort",
   "profileBuildScore",
   "battlePanel",
   "enhanceSim",

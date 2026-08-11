@@ -377,21 +377,40 @@ function getAssetValueInternal(
   const enhancedEquipment = level > 0 && isEquipment(itemHrid);
   const refinedBackEquipment =
     backEquipment && String(itemHrid).endsWith("_refined");
+  const ordinaryBackMirrorValue =
+    level === 0 &&
+    backEquipment &&
+    !refinedBackEquipment &&
+    options.forceAcquisitionValue !== true &&
+    settingEnabled("valueBackEquipmentWithProtectionMirror");
   const preferAcquisitionValue =
-    options.forceAcquisitionValue === true ||
-    (backEquipment &&
-      (refinedBackEquipment ||
-        settingEnabled("valueBackEquipmentWithProtectionMirror")));
+    options.forceAcquisitionValue === true || refinedBackEquipment;
   const cacheMode = enhancedEquipment
     ? backEquipment
       ? "enhancement-protected-mirror"
       : "enhancement-protected"
-    : preferAcquisitionValue
-      ? "acquisition"
-      : "market";
+    : ordinaryBackMirrorValue
+      ? "protection-mirror-value"
+      : preferAcquisitionValue
+        ? "acquisition"
+        : "market";
   const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
   if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
   if (context.has(cacheKey)) return 0;
+
+  if (ordinaryBackMirrorValue) {
+    context.add(cacheKey);
+    const mirrorValue = getAssetValueInternal(
+      "/items/mirror_of_protection",
+      0,
+      context,
+    );
+    context.delete(cacheKey);
+    if (mirrorValue > 0) {
+      assetValueCache.set(cacheKey, mirrorValue);
+      return mirrorValue;
+    }
+  }
 
   if (enhancedEquipment) {
     const enhancementCost = getEnhancedEquipmentCost(
@@ -776,9 +795,8 @@ Object.assign(runtime.api, {
 
 function refreshConfiguredAssetValues() {
   invalidateAssetValueCache();
-  if (runtime.api.scheduleNetworthRefresh) {
-    runtime.api.scheduleNetworthRefresh();
-  } else {
+  runtime.api.scheduleNetworthRefresh?.();
+  if (runtime.settings.settingsMap.assetHistory.isTrue) {
     runtime.api.scheduleAssetSnapshotRefresh?.(0);
   }
 }

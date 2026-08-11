@@ -1,8 +1,8 @@
 import { runtime } from "../core/runtime.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
-const BACK_MIRROR_DEFAULT_MIGRATION_KEY =
-  "MWITools_back_mirror_default_enabled_v1";
+const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
+  "MWITools_back_mirror_default_disabled_v2";
 const SETTINGS_STYLE_ID = "mwitools-settings-style";
 const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
@@ -74,11 +74,11 @@ function readSettings() {
     }
   }
 
-  // 26.2.27 briefly shipped this new option as disabled. Enable it once for
-  // existing installs, then preserve every explicit choice made afterward.
-  if (!localStorage.getItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY)) {
-    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
-    localStorage.setItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY, "1");
+  // Reset the briefly repurposed back-equipment option once. Valuing plain
+  // back gear by a protection mirror is opt-in, so later choices stick.
+  if (!localStorage.getItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY)) {
+    runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+    localStorage.setItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY, "1");
   }
   applyVisualSettings();
   persistSettings();
