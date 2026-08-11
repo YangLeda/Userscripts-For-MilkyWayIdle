@@ -128,6 +128,27 @@ test("profit UI displays three valuation rows with revenue, costs, and profit", 
   );
 });
 
+test("missing price details appear only in the bottom warning", () => {
+  const getBidPrice = runtime.api.getBidPrice;
+  runtime.api.getBidPrice = () => 0;
+
+  const panel = runtime.api.showProductionProfitPanel(
+    nativeTooltip(),
+    "/items/panel-output",
+  );
+  const aggressiveRow = panel.querySelector('[data-mode="aggressive"]');
+  const warning = panel.querySelector(".mwi-profit-warning");
+
+  assert.ok(aggressiveRow.classList.contains("incomplete"));
+  assert.doesNotMatch(aggressiveRow.textContent, /缺价|Input/);
+  assert.match(aggressiveRow.textContent, /买单买入 · 卖单卖出/);
+  assert.ok(warning);
+  assert.match(warning.textContent, /贪心（低买高卖）：Input/);
+
+  runtime.api.getBidPrice = getBidPrice;
+  runtime.api.showProductionProfitPanel(nativeTooltip(), "/items/panel-output");
+});
+
 test("panel placement chooses the available side and stays inside the viewport", () => {
   const anchor = nativeTooltip();
   anchor.getBoundingClientRect = () => ({

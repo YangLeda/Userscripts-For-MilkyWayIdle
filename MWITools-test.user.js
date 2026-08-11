@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools 测试版
 // @namespace    https://fishingidle.com/mwitools-test
-// @version      26.2.35
+// @version      26.2.36
 // @description  [测试版] Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -24707,19 +24707,19 @@ ${preview}`
     .mwi-profit-stat-list { width:100%; }
     .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:9.5px; }
     .mwi-profit-stat strong { color:#edf0f4; font-weight:650; }
-    .mwi-profit-valuations { display:flex; flex-direction:column; gap:7px; padding:0 12px 12px; }
-    .mwi-profit-valuation-row { display:grid; grid-template-columns:132px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:8px; background:rgba(255,255,255,.03); }
+    .mwi-profit-valuations { display:flex; flex-direction:column; gap:4px; padding:0 12px 10px; }
+    .mwi-profit-valuation-row { display:grid; grid-template-columns:126px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:7px; background:rgba(255,255,255,.03); }
     .mwi-profit-valuation-row[data-mode="fair"] { --mwi-valuation-color:#74a9ef; }
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
-    .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:2px; padding:8px 10px; border-right:1px solid rgba(255,255,255,.08); }
-    .mwi-profit-valuation-title { color:#fff; font-size:11px; font-weight:750; line-height:1.25; }
-    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:8.5px; line-height:1.25; }
-    .mwi-profit-valuation-metric { min-width:0; padding:8px 5px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
+    .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
+    .mwi-profit-valuation-title { color:#fff; font-size:10.5px; font-weight:750; line-height:1.2; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:8px; line-height:1.15; }
+    .mwi-profit-valuation-metric { min-width:0; padding:5px 4px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
     .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
-    .mwi-profit-valuation-label { min-height:2.4em; color:var(--color-text-secondary,#9da5b0); font-size:8.5px; line-height:1.2; }
-    .mwi-profit-valuation-value { margin-top:3px; color:#fff; font-size:11px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:8px; line-height:1.1; }
+    .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:10.5px; font-weight:700; overflow-wrap:anywhere; }
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
@@ -24795,14 +24795,10 @@ ${preview}`
     const complete = Boolean(valuation?.complete);
     const totalCost = complete ? valuation.materialCostPerAction + valuation.teaCostPerAction : null;
     const profitPerDay = complete ? valuation.profitPerHour * 24 : null;
-    const state = complete ? definition.explanation : {
-      zh: `缺价：${(valuation?.missingPrices ?? []).map(itemName).join("、") || "—"}`,
-      en: `Missing: ${(valuation?.missingPrices ?? []).map(itemName).join(", ") || "—"}`
-    };
     return `<section class="mwi-profit-valuation-row${complete ? "" : " incomplete"}" data-mode="${definition.mode}">
     <div class="mwi-profit-valuation-name">
       <div class="mwi-profit-valuation-title">${escapeHtml(valuationText(definition.title))}</div>
-      <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(state))}</div>
+      <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(definition.explanation))}</div>
     </div>
     ${renderValuationMetric(t3("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
     ${renderValuationMetric(t3("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
