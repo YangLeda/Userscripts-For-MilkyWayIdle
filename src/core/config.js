@@ -357,6 +357,13 @@ let settingsMap = {
     desc: isZH ? "公会总览显示闲置成员" : "Show idle guild members.",
     isTrue: true,
   },
+  leaderboardOverlay: {
+    id: "leaderboardOverlay",
+    desc: isZH
+      ? "角色名字旁显示排行榜名次徽章"
+      : "Show leaderboard rank badges beside character names.",
+    isTrue: true,
+  },
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -415,10 +422,17 @@ const settingsGroups = {
     },
   },
   guild: {
-    title: { zh: "公会与排行榜", en: "Guild & Leaderboard" },
+    title: { zh: "公会", en: "Guild" },
     summary: {
       zh: "只在本机记录经验快照，展示公会进度和成员速率。",
       en: "Store XP snapshots locally to show guild progress and member rates.",
+    },
+  },
+  leaderboard: {
+    title: { zh: "排行榜与排名", en: "Leaderboards & Rankings" },
+    summary: {
+      zh: "在角色名字旁展示技能排名，并增强排行榜数据。",
+      en: "Show skill ranks beside character names and enhance leaderboard data.",
     },
   },
   tools: {
@@ -758,6 +772,14 @@ const catalogRows = [
     "Idle members",
     "在公会总览常显当前未进行动作的可见成员。",
     "Always show visible guild members who are not currently performing an action.",
+  ],
+  [
+    "leaderboardOverlay",
+    "leaderboard",
+    "排行榜名次徽章",
+    "Leaderboard rank badges",
+    "显示信息采集助手提供的技能排行榜名次徽章，并增强排行榜经验速率列。",
+    "Show skill leaderboard badges supplied by the data collector and enhance leaderboards with XP rates.",
   ],
   [
     "guildCreditConversionsSort",

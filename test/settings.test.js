@@ -109,8 +109,8 @@ test("card settings render every visible setting with nested children and search
   t.after(() => runtime.features.disable("settingsUi"));
   const root = document.querySelector("#script_settings");
   assert.equal(root.dataset.mwitoolsVersion, "2");
-  assert.equal(root.querySelectorAll(".mwi-settings-group").length, 9);
-  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 44);
+  assert.equal(root.querySelectorAll(".mwi-settings-group").length, 10);
+  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 45);
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
   const topLevelCards = root.querySelectorAll(
     ".mwi-settings-grid > .mwi-setting-card",
@@ -142,8 +142,9 @@ test("card settings render every visible setting with nested children and search
       .map(
         (group) => group.querySelector(".mwi-settings-group-title").textContent,
       ),
-    ["公会与排行榜"],
+    ["公会"],
   );
+  assert.match(root.textContent, /排行榜与排名/);
   await runtime.features.disable("settingsUi");
 });
 

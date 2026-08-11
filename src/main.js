@@ -12,6 +12,7 @@ import "./core/messages.js";
 import "./features/build-score.js";
 import "./features/asset-history/index.js";
 import "./features/public-api.js";
+import "./features/leaderboard-overlay.js";
 import "./features/inventory.js";
 import "./features/production-profit-panel.js";
 import "./features/item-tooltips.js";

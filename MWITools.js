@@ -1100,6 +1100,11 @@
       desc: isZH ? "公会总览显示闲置成员" : "Show idle guild members.",
       isTrue: true
     },
+    leaderboardOverlay: {
+      id: "leaderboardOverlay",
+      desc: isZH ? "角色名字旁显示排行榜名次徽章" : "Show leaderboard rank badges beside character names.",
+      isTrue: true
+    },
     forceMWIToolsDisplayZH: {
       id: "forceMWIToolsDisplayZH",
       desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -1157,10 +1162,17 @@
       }
     },
     guild: {
-      title: { zh: "公会与排行榜", en: "Guild & Leaderboard" },
+      title: { zh: "公会", en: "Guild" },
       summary: {
         zh: "只在本机记录经验快照，展示公会进度和成员速率。",
         en: "Store XP snapshots locally to show guild progress and member rates."
+      }
+    },
+    leaderboard: {
+      title: { zh: "排行榜与排名", en: "Leaderboards & Rankings" },
+      summary: {
+        zh: "在角色名字旁展示技能排名，并增强排行榜数据。",
+        en: "Show skill ranks beside character names and enhance leaderboard data."
       }
     },
     tools: {
@@ -1499,6 +1511,14 @@
       "Idle members",
       "在公会总览常显当前未进行动作的可见成员。",
       "Always show visible guild members who are not currently performing an action."
+    ],
+    [
+      "leaderboardOverlay",
+      "leaderboard",
+      "排行榜名次徽章",
+      "Leaderboard rank badges",
+      "显示信息采集助手提供的技能排行榜名次徽章，并增强排行榜经验速率列。",
+      "Show skill leaderboard badges supplied by the data collector and enhance leaderboards with XP rates."
     ],
     [
       "guildCreditConversionsSort",
@@ -18404,8 +18424,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal2 = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal2.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal3.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error("Unable to read market values through the game cache", error);
     }
@@ -22811,6 +22831,426 @@ ${preview}`
     publishScoreSnapshot
   });
 
+  // src/features/leaderboard-overlay.js
+  var OVERLAY_VERSION = "1.1.0";
+  var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
+  var STYLE_ID2 = "mwi-leaderboard-overlay-style";
+  var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
+  var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
+  var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
+  var LEADERBOARD_TABLE_SELECTOR = 'table[class*="LeaderboardPanel_leaderboardTable"]';
+  var DEFAULT_CATEGORIES = [
+    ["milking", "挤奶"],
+    ["foraging", "采摘"],
+    ["woodcutting", "伐木"],
+    ["cheesesmithing", "奶酪锻造"],
+    ["crafting", "制作"],
+    ["tailoring", "缝纫"],
+    ["cooking", "烹饪"],
+    ["brewing", "冲泡"],
+    ["alchemy", "炼金"],
+    ["enhancing", "强化"],
+    ["attack", "攻击"],
+    ["defense", "防御"],
+    ["melee", "近战"],
+    ["ranged", "远程"],
+    ["magic", "魔法"]
+  ];
+  var activeInstances = 0;
+  var featureEnabled = false;
+  var controllers = /* @__PURE__ */ new Set();
+  function normalizedName(value) {
+    return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
+  }
+  function badgeTier(rank) {
+    const value = Number(rank);
+    if (!Number.isInteger(value) || value < 1 || value > 100) return null;
+    if (value <= 20) return "rainbow";
+    if (value <= 50) return "gold";
+    if (value <= 80) return "silver";
+    return "bronze";
+  }
+  function roundedCompact(value, divisor, suffix) {
+    const rounded = Math.round(value / divisor * 10) / 10;
+    return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}${suffix}`;
+  }
+  function validExperienceRate(value) {
+    if (value == null || value === "") return null;
+    const number2 = Number(value);
+    return Number.isFinite(number2) && number2 >= 0 ? number2 : null;
+  }
+  function formatExperienceRate(value) {
+    const number2 = validExperienceRate(value);
+    if (number2 == null) return "—";
+    if (number2 >= 1e6) return roundedCompact(number2, 1e6, "M");
+    return roundedCompact(number2, 1e3, "K");
+  }
+  function compareRateRows(left, right, mode) {
+    const leftRate = validExperienceRate(left?.xpPerHour);
+    const rightRate = validExperienceRate(right?.xpPerHour);
+    const leftValid = leftRate != null;
+    const rightValid = rightRate != null;
+    const leftRank = Number(left?.rank) || Number.MAX_SAFE_INTEGER;
+    const rightRank = Number(right?.rank) || Number.MAX_SAFE_INTEGER;
+    if (mode === "official") return leftRank - rightRank;
+    if (leftValid !== rightValid) return leftValid ? -1 : 1;
+    if (!leftValid) return leftRank - rightRank;
+    const rateDifference = mode === "ascending" ? leftRate - rightRate : rightRate - leftRate;
+    return rateDifference || leftRank - rightRank;
+  }
+  function ensureStyles(documentRef) {
+    if (documentRef.getElementById(STYLE_ID2)) return;
+    const mount = documentRef.head || documentRef.documentElement;
+    if (!mount) {
+      documentRef.addEventListener(
+        "readystatechange",
+        () => ensureStyles(documentRef),
+        { once: true }
+      );
+      return;
+    }
+    const style = documentRef.createElement("style");
+    style.id = STYLE_ID2;
+    style.textContent = `
+    [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
+    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
+    .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
+    .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
+    .mwi-lb-badge--rainbow{border-color:transparent;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box}
+    .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
+    .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
+    .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
+    [${RATE_HEADER_ATTRIBUTE}]{cursor:pointer;user-select:none;white-space:nowrap}
+    [${RATE_HEADER_ATTRIBUTE}]:hover{filter:brightness(1.18)}
+    [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
+  `;
+    mount.append(style);
+  }
+  function createOverlay(options = {}) {
+    const documentRef = options.document ?? (typeof document !== "undefined" ? document : null);
+    if (!documentRef) {
+      throw new Error("MWILeaderboardOverlay requires a document");
+    }
+    const categoryEntries = Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES;
+    const categoryOrder = categoryEntries.map(([category]) => category);
+    const categoryLabels = Object.fromEntries(categoryEntries);
+    const iconBaseUrl = String(
+      options.iconBaseUrl || DEFAULT_ICON_BASE_URL
+    ).replace(/\/+$/, "");
+    const state = {
+      categories: {},
+      nameIndex: /* @__PURE__ */ new Map(),
+      currentLeaderboard: null,
+      sortMode: "official",
+      refreshPending: false,
+      destroyed: false
+    };
+    ensureStyles(documentRef);
+    function rebuildNameIndex() {
+      const index = /* @__PURE__ */ new Map();
+      for (const category of categoryOrder) {
+        const snapshot = state.categories?.[category];
+        for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
+          const name = normalizedName(row.characterName || row.name);
+          const rank = Number(row.rank);
+          const tier = badgeTier(rank);
+          if (!name || !tier) continue;
+          if (!index.has(name)) index.set(name, []);
+          index.get(name).push({
+            category,
+            label: categoryLabels[category] || category,
+            rank,
+            tier,
+            capturedAt: snapshot.receivedAt || snapshot.capturedAt || null
+          });
+        }
+      }
+      state.nameIndex = index;
+    }
+    function badgeSignature(badges) {
+      return badges.map((item) => `${item.category}:${item.rank}:${item.capturedAt || ""}`).join("|");
+    }
+    function renderNameBadges() {
+      const nameElements = documentRef.querySelectorAll(
+        '[class*="CharacterName_name"][data-name]'
+      );
+      for (const nameElement of nameElements) {
+        const host = nameElement.parentElement;
+        if (!host) continue;
+        let container = host.querySelector(
+          `:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`
+        );
+        if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
+          container?.remove();
+          continue;
+        }
+        const badges = state.nameIndex.get(
+          normalizedName(nameElement.getAttribute("data-name"))
+        ) || [];
+        if (!badges.length) {
+          container?.remove();
+          continue;
+        }
+        const profilePlacement = Boolean(
+          nameElement.closest(
+            '[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]'
+          )
+        );
+        const placement = profilePlacement ? "profile" : "inline";
+        const signature = badgeSignature(badges);
+        const previousPlacement = container?.dataset.mwiLeaderboardPlacement || "";
+        if (!container) {
+          container = documentRef.createElement("span");
+          container.setAttribute(BADGE_CONTAINER_ATTRIBUTE, "");
+        }
+        container.dataset.mwiLeaderboardPlacement = placement;
+        if (profilePlacement && container.previousElementSibling !== nameElement) {
+          nameElement.insertAdjacentElement("afterend", container);
+        } else if (!profilePlacement && (!container.isConnected || previousPlacement === "profile")) {
+          host.append(container);
+        }
+        if (container.dataset.mwiLeaderboardSignature === signature) continue;
+        container.dataset.mwiLeaderboardSignature = signature;
+        container.replaceChildren(
+          ...badges.map((item) => {
+            const badge = documentRef.createElement("span");
+            badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}`;
+            const icon = documentRef.createElement("img");
+            icon.className = "mwi-lb-badge-icon";
+            icon.src = `${iconBaseUrl}/${encodeURIComponent(item.category)}.png`;
+            icon.alt = "";
+            icon.setAttribute("aria-hidden", "true");
+            badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
+            badge.title = `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            return badge;
+          })
+        );
+      }
+    }
+    function currentRowsByName() {
+      return new Map(
+        (state.currentLeaderboard?.rows || []).map((row) => [
+          normalizedName(row.characterName || row.name),
+          row
+        ])
+      );
+    }
+    function updateHeaderCopy(header) {
+      const arrow = state.sortMode === "descending" ? " ↓" : state.sortMode === "ascending" ? " ↑" : "";
+      const copy = `经验/小时${arrow}`;
+      if (header.textContent !== copy) header.textContent = copy;
+      header.title = "点击排序：降序 → 升序 → 官方原排名";
+      header.setAttribute(
+        "aria-sort",
+        state.sortMode === "descending" ? "descending" : state.sortMode === "ascending" ? "ascending" : "none"
+      );
+    }
+    function applyTableSort(table, rowsByName) {
+      const tbody = table.tBodies?.[0];
+      if (!tbody) return;
+      const rows = [...tbody.rows];
+      rows.sort((left, right) => {
+        const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
+        const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
+        return compareRateRows(
+          rowsByName.get(normalizedName(leftName)),
+          rowsByName.get(normalizedName(rightName)),
+          state.sortMode
+        );
+      });
+      if (rows.some((row, index) => tbody.rows[index] !== row)) {
+        rows.forEach((row) => tbody.append(row));
+      }
+    }
+    function renderLeaderboardRateColumn() {
+      const current = state.currentLeaderboard;
+      if (!current) return;
+      const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
+      if (!table) return;
+      const headingRow = table.tHead?.rows?.[0];
+      const tbody = table.tBodies?.[0];
+      if (!headingRow || !tbody) return;
+      let header = headingRow.querySelector(`[${RATE_HEADER_ATTRIBUTE}]`);
+      if (!header) {
+        header = documentRef.createElement("th");
+        header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
+        header.addEventListener("click", () => {
+          state.sortMode = state.sortMode === "official" ? "descending" : state.sortMode === "descending" ? "ascending" : "official";
+          scheduleRefresh();
+        });
+        headingRow.append(header);
+      }
+      updateHeaderCopy(header);
+      const rowsByName = currentRowsByName();
+      for (const rowElement of tbody.rows) {
+        const name = rowElement.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
+        const model = rowsByName.get(normalizedName(name));
+        let cell = rowElement.querySelector(`[${RATE_CELL_ATTRIBUTE}]`);
+        if (!cell) {
+          cell = documentRef.createElement("td");
+          cell.setAttribute(RATE_CELL_ATTRIBUTE, "");
+          rowElement.append(cell);
+        }
+        const copy = formatExperienceRate(model?.xpPerHour);
+        const rate = validExperienceRate(model?.xpPerHour);
+        const title = rate != null ? `${Math.round(rate).toLocaleString()} 经验/小时` : "缺少可比较的历史快照";
+        if (cell.textContent !== copy) cell.textContent = copy;
+        if (cell.title !== title) cell.title = title;
+      }
+      applyTableSort(table, rowsByName);
+    }
+    function refresh() {
+      if (state.destroyed) return;
+      renderNameBadges();
+      renderLeaderboardRateColumn();
+    }
+    function scheduleRefresh() {
+      if (state.destroyed || state.refreshPending) return;
+      state.refreshPending = true;
+      const schedule = documentRef.defaultView?.requestAnimationFrame || ((callback) => setTimeout(callback, 25));
+      schedule(() => {
+        state.refreshPending = false;
+        refresh();
+      });
+    }
+    const Observer = documentRef.defaultView?.MutationObserver || (typeof MutationObserver !== "undefined" ? MutationObserver : null);
+    if (!Observer) {
+      throw new Error("MWILeaderboardOverlay requires MutationObserver");
+    }
+    const observer = new Observer(() => scheduleRefresh());
+    const observe = () => {
+      if (state.destroyed || !documentRef.documentElement) return;
+      observer.observe(documentRef.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-name"]
+      });
+      scheduleRefresh();
+    };
+    if (documentRef.documentElement) observe();
+    else
+      documentRef.addEventListener("readystatechange", observe, { once: true });
+    activeInstances += 1;
+    return {
+      setRankings(categories) {
+        state.categories = categories && typeof categories === "object" ? categories : {};
+        rebuildNameIndex();
+        scheduleRefresh();
+      },
+      enhanceLeaderboard({ category, rows }) {
+        if (!categoryOrder.includes(category)) return false;
+        state.currentLeaderboard = {
+          category,
+          rows: Array.isArray(rows) ? rows : []
+        };
+        state.sortMode = "official";
+        scheduleRefresh();
+        return true;
+      },
+      destroy() {
+        if (state.destroyed) return;
+        state.destroyed = true;
+        observer.disconnect();
+        state.sortMode = "official";
+        const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
+        if (table && state.currentLeaderboard) {
+          applyTableSort(table, currentRowsByName());
+        }
+        documentRef.querySelectorAll(
+          `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`
+        ).forEach((element) => element.remove());
+        activeInstances = Math.max(0, activeInstances - 1);
+        if (activeInstances === 0) documentRef.getElementById(STYLE_ID2)?.remove();
+      }
+    };
+  }
+  function create(options = {}) {
+    let instance = null;
+    let destroyed = false;
+    let rankings = null;
+    let leaderboard = null;
+    const allowedCategories = new Set(
+      (Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES).map(([category]) => category)
+    );
+    const mount = () => {
+      if (destroyed || instance || !featureEnabled) return;
+      instance = createOverlay(options);
+      if (rankings) instance.setRankings(rankings);
+      if (leaderboard) instance.enhanceLeaderboard(leaderboard);
+    };
+    const unmount = () => {
+      instance?.destroy();
+      instance = null;
+    };
+    const controller = {
+      setRankings(categories) {
+        rankings = categories && typeof categories === "object" ? categories : {};
+        instance?.setRankings(rankings);
+      },
+      enhanceLeaderboard(payload = {}) {
+        if (!allowedCategories.has(payload.category)) return false;
+        leaderboard = {
+          category: payload.category,
+          rows: Array.isArray(payload.rows) ? payload.rows : []
+        };
+        instance?.enhanceLeaderboard(leaderboard);
+        return true;
+      },
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        unmount();
+        controllers.delete(controller);
+      }
+    };
+    Object.defineProperties(controller, {
+      enabled: {
+        enumerable: true,
+        get() {
+          return featureEnabled && !destroyed;
+        }
+      },
+      _mount: { value: mount },
+      _unmount: { value: unmount }
+    });
+    controllers.add(controller);
+    mount();
+    return controller;
+  }
+  var leaderboardOverlayApi = {
+    VERSION: OVERLAY_VERSION,
+    create,
+    formatExperienceRate,
+    badgeTier,
+    compareRateRows,
+    get enabled() {
+      return featureEnabled;
+    }
+  };
+  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  try {
+    Object.defineProperty(pageGlobal2, "MWILeaderboardOverlay", {
+      configurable: true,
+      enumerable: true,
+      value: leaderboardOverlayApi
+    });
+  } catch {
+    pageGlobal2.MWILeaderboardOverlay = leaderboardOverlayApi;
+  }
+  runtime.features.register({
+    id: "leaderboardOverlay",
+    setting: "leaderboardOverlay",
+    initialize({ scope }) {
+      featureEnabled = true;
+      for (const controller of controllers) controller._mount();
+      scope.add(() => {
+        featureEnabled = false;
+        for (const controller of controllers) controller._unmount();
+      });
+    }
+  });
+
   // src/features/inventory.js
   var guildCreditWatcherStarted = false;
   var inventoryRefreshTimer = null;
@@ -23643,7 +24083,7 @@ ${preview}`
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID2 = "mwitools-production-profit-panel-style";
+  var STYLE_ID3 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN = 12;
   var PANEL_GAP = 10;
   var activePanel = null;
@@ -23714,9 +24154,9 @@ ${preview}`
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
   }
   function addStyles2() {
-    if (document.getElementById(STYLE_ID2)) return;
+    if (document.getElementById(STYLE_ID3)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID2;
+    style.id = STYLE_ID3;
     style.textContent = `
     #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID2} * { box-sizing:border-box; }
@@ -24873,7 +25313,7 @@ ${preview}`
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID3 = "mwitools-action-dashboard-style";
+  var STYLE_ID4 = "mwitools-action-dashboard-style";
   function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -24894,9 +25334,9 @@ ${preview}`
     return runtime.api.createFormattedNumber(value);
   }
   function addStyles3() {
-    if (document.getElementById(STYLE_ID3)) return;
+    if (document.getElementById(STYLE_ID4)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; z-index:5; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:nowrap; overflow:hidden; pointer-events:none; }
@@ -25219,7 +25659,7 @@ ${preview}`
   });
 
   // src/features/procurement.js
-  var STYLE_ID4 = "mwitools-procurement-style";
+  var STYLE_ID5 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -25258,9 +25698,9 @@ ${preview}`
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function addStyles4() {
-    if (document.getElementById(STYLE_ID4)) return;
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -26529,7 +26969,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID4)?.remove();
+        document.getElementById(STYLE_ID5)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -26542,7 +26982,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/tasks.js
-  var STYLE_ID5 = "mwitools-task-style";
+  var STYLE_ID6 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
   var originalCards = [];
   var taskListParent = null;
@@ -26570,9 +27010,9 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   function addStyles5() {
-    if (document.getElementById(STYLE_ID5)) return;
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     .mwi-task-profession-group { grid-column:1/-1; min-width:0; }
     .mwi-task-profession-header { display:flex; width:100%; min-height:36px; align-items:center; gap:8px; padding:7px 10px; border:1px solid rgba(255,255,255,.13); border-left:3px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); border-radius:6px; background:rgba(0,0,0,.2); color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
@@ -27149,7 +27589,7 @@ ${locks}` : ""}`;
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note"
     ).forEach((node) => node.remove());
     document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => delete node.dataset.mwitoolsMergeWired);
-    document.getElementById(STYLE_ID5)?.remove();
+    document.getElementById(STYLE_ID6)?.remove();
     originalCards = [];
     taskListParent = null;
     collapsedProfessions.clear();
@@ -27195,7 +27635,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID6 = "mwitools-task-new-style";
+  var STYLE_ID7 = "mwitools-task-new-style";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]';
   function questId(quest) {
     return String(
@@ -27270,9 +27710,9 @@ ${locks}` : ""}`;
     return state;
   }
   function addStyles6() {
-    if (document.getElementById(STYLE_ID6)) return;
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     ${TASK_SELECTOR2}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
     .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
@@ -27285,7 +27725,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID6)?.remove();
+    document.getElementById(STYLE_ID7)?.remove();
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -27744,7 +28184,7 @@ ${locks}` : ""}`;
   // src/features/feedback/panel.js
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID7 = "mwitools-feedback-style";
+  var STYLE_ID8 = "mwitools-feedback-style";
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -27757,9 +28197,9 @@ ${locks}` : ""}`;
     return labels[status] ? t8(...labels[status]) : status;
   }
   function addStyles7() {
-    if (document.getElementById(STYLE_ID7)) return;
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
@@ -28206,10 +28646,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID7)?.remove();
+      document.getElementById(STYLE_ID8)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID7 };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID8 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -28258,7 +28698,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID8 = "mwitools-guild-xp-style";
+  var STYLE_ID9 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -28346,9 +28786,9 @@ ${locks}` : ""}`;
     }
   }
   function addStyles8() {
-    if (document.getElementById(STYLE_ID8)) return;
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -30525,7 +30965,7 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID9 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID10 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
@@ -30533,9 +30973,9 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   function addStyles9() {
-    if (document.getElementById(STYLE_ID9)) return;
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -31354,7 +31794,7 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID10 = "mwitools-important-update-style";
+  var STYLE_ID11 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t12(value) {
     if (typeof value === "string") return value;
@@ -31448,9 +31888,9 @@ ${locks}` : ""}`;
     return manifest;
   }
   function addStyles10() {
-    if (document.getElementById(STYLE_ID10)) return;
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -31511,7 +31951,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID10)?.remove();
+        document.getElementById(STYLE_ID11)?.remove();
       });
     }
   });
@@ -40259,8 +40699,8 @@ ${locks}` : ""}`;
 
   // src/main.js
   function loadCachedClientData() {
-    const pageGlobal2 = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal2.localStorageUtil;
+    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
+    const localStorageUtil = pageGlobal3.localStorageUtil;
     if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
       return false;
     }
