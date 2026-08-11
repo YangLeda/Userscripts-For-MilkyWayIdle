@@ -270,7 +270,7 @@ test("adds a sortable experience-rate column and restores official order", async
 test("the feature anonymously loads, caches, and applies leaderboard data", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   await runtime.settings.set("leaderboardXpRate", false, { persist: false });
-  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v1");
+  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v2");
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
     <table class="LeaderboardPanel_leaderboardTable__test">
@@ -307,10 +307,13 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   await runtime.settings.set("leaderboardXpRate", true, { persist: false });
   await settle();
-  assert.equal(requestOptions.url.endsWith("/api/v1/leaderboards"), true);
+  assert.equal(
+    requestOptions.url.endsWith("/api/v1/leaderboards?categories=16"),
+    true,
+  );
   assert.equal(requestOptions.headers, undefined);
   assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
-  assert.ok(localStorage.getItem("MWITools_leaderboard_overlay_cache_v1"));
+  assert.ok(localStorage.getItem("MWITools_leaderboard_overlay_cache_v2"));
 
   runtime.dispatchMessage({
     type: "leaderboard_updated",
@@ -354,7 +357,7 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
 test("leaderboard copy follows the MWITools language", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   await runtime.settings.set("leaderboardXpRate", false, { persist: false });
-  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v1");
+  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v2");
   runtime.config.isZH = false;
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   document.body.innerHTML = `

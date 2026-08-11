@@ -2,8 +2,8 @@ import { runtime } from "../core/runtime.js";
 
 const OVERLAY_VERSION = "1.2.0";
 const LEADERBOARD_API_URL =
-  "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
-const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
+  "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
+const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
 const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
 const DEFAULT_ICON_BASE_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";

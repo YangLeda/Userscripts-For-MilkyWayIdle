@@ -23414,8 +23414,8 @@ ${preview}`
 
   // src/features/leaderboard-overlay.js
   var OVERLAY_VERSION = "1.2.0";
-  var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
-  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
+  var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
+  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
   var STYLE_ID2 = "mwi-leaderboard-overlay-style";
