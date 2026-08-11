@@ -2,6 +2,8 @@ import { runtime } from "../core/runtime.js";
 
 const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
+const HOUR_MS = 60 * 60 * 1000;
+const TREND_WINDOW_MS = 7 * 24 * HOUR_MS;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -29,6 +31,46 @@ function findField(object, keys, maxDepth = 4) {
     }
   }
   return null;
+}
+
+function findOwnField(object, keys) {
+  if (!object || typeof object !== "object") {
+    return { found: false, value: undefined };
+  }
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(object, key)) {
+      return { found: true, value: object[key] };
+    }
+  }
+  return { found: false, value: undefined };
+}
+
+function isGuildMemberIdle(member) {
+  const hidden = findOwnField(member, [
+    "hideOnlineStatus",
+    "isOnlineHidden",
+    "onlineStatusHidden",
+  ]).value;
+  const online = findOwnField(member, ["isOnline", "online"]).value;
+  if (Boolean(hidden) || online !== true) return false;
+
+  // The current guild payload exposes the member's activity as `actionType`.
+  // Missing activity data is unknown (for example, a private or older payload),
+  // not proof that the member is idle.
+  const action = findOwnField(member, [
+    "actionType",
+    "currentActionType",
+    "currentActionHrid",
+    "actionHrid",
+    "currentAction",
+  ]);
+  if (!action.found) return false;
+  if (action.value === null || action.value === false) return true;
+  if (typeof action.value === "string") {
+    const value = action.value.trim();
+    return value === "" || /(?:^|\/)idle$/i.test(value);
+  }
+  return false;
 }
 
 function entityId(entity) {
@@ -115,14 +157,27 @@ function addStyles() {
     .mwi-guild-xp-metric { padding:7px 8px; border-radius:5px; background:rgba(0,0,0,.18); }
     .mwi-guild-xp-metric small { display:block; color:var(--color-text-secondary,#aaa); }
     .mwi-guild-xp-metric strong { display:block; margin-top:2px; color:#ffa500; }
+    .mwi-guild-trend-label { margin-top:8px; color:var(--color-text-secondary,#aaa); font-size:.68rem; }
     .mwi-guild-trend { width:100%; height:58px; margin-top:8px; overflow:visible; }
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; min-width:118px; }
-    .mwi-guild-rate-content { display:flex; align-items:center; gap:7px; }
+    .mwi-guild-members-wide { width:100% !important; max-width:860px !important; }
+    .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
+    .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
+    .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(2),
+    .mwi-guild-member-table > thead > tr > th:nth-child(3),
+    .mwi-guild-member-table > thead > tr > th:nth-child(4),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(2),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(3),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(4) { min-width:38px; }
+    .mwi-guild-member-table > thead > tr > th:nth-child(5),
+    .mwi-guild-member-table > tbody > tr > td:nth-child(5) { min-width:96px; }
+    .mwi-guild-rate-cell { color:#ffa500; white-space:nowrap; min-width:105px; }
+    .mwi-guild-rate-content { display:flex; align-items:center; gap:5px; }
     .mwi-guild-rate-value { flex:0 0 auto; }
-    .mwi-guild-rate-track { display:block; flex:1 1 54px; min-width:32px; max-width:82px; height:5px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.08); }
+    .mwi-guild-rate-track { display:block; flex:1 1 42px; min-width:24px; max-width:68px; height:5px; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.08); }
     .mwi-guild-rate-fill { display:block; height:100%; min-width:2px; border-radius:inherit; background:rgba(91,134,255,.58); }
     .mwi-guild-rate-sort { margin-left:4px; color:var(--color-text-secondary,#aaa); font-size:.62rem; }
     .mwi-guild-div-rate-head,.mwi-guild-div-rates { display:grid; grid-template-columns:repeat(2,minmax(92px,1fr)); gap:8px; margin-left:auto; text-align:right; }
@@ -153,17 +208,43 @@ function metric(label, value, title = "") {
   return box;
 }
 
+function guildXpRatePoints(points, now = Date.now()) {
+  const cutoff = now - TREND_WINDOW_MS;
+  const sorted = [...points]
+    .map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) }))
+    .filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp))
+    .sort((left, right) => left.at - right.at)
+    .filter((point) => point.at >= cutoff);
+  const rates = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const elapsed = current.at - previous.at;
+    const gained = current.xp - previous.xp;
+    if (elapsed <= 0 || gained < 0) continue;
+    rates.push({ at: current.at, rate: (gained / elapsed) * HOUR_MS });
+  }
+  return rates;
+}
+
 function trendSvg(points) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.classList.add("mwi-guild-trend");
   svg.setAttribute("viewBox", "0 0 400 58");
   svg.setAttribute("preserveAspectRatio", "none");
-  const recent = points.filter(
-    (point) => point.at >= Date.now() - 7 * 24 * 60 * 60 * 1000,
+  const label = t(
+    "公会经验获取速度（XP/小时）",
+    "Guild XP gain rate (XP/hour)",
   );
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", label);
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = label;
+  svg.append(title);
+  const recent = guildXpRatePoints(points);
   if (recent.length < 2) return svg;
-  const minXp = Math.min(...recent.map((point) => point.xp));
-  const maxXp = Math.max(...recent.map((point) => point.xp));
+  const minRate = Math.min(...recent.map((point) => point.rate));
+  const maxRate = Math.max(...recent.map((point) => point.rate));
   const minAt = recent[0].at;
   const maxAt = recent.at(-1).at;
   const polyline = document.createElementNS(
@@ -175,7 +256,8 @@ function trendSvg(points) {
     recent
       .map((point) => {
         const x = ((point.at - minAt) / Math.max(1, maxAt - minAt)) * 400;
-        const y = 54 - ((point.xp - minXp) / Math.max(1, maxXp - minXp)) * 50;
+        const y =
+          54 - ((point.rate - minRate) / Math.max(1, maxRate - minRate)) * 50;
         return `${x},${y}`;
       })
       .join(" "),
@@ -286,25 +368,18 @@ async function renderGuildOverview() {
         : t("样本不足", "Not enough data"),
     ),
   );
-  card.append(head, grid, trendSvg(rates?.points ?? []));
+  const trendLabel = document.createElement("div");
+  trendLabel.className = "mwi-guild-trend-label";
+  trendLabel.textContent = t(
+    "最近 7 天经验获取速度（XP/小时）",
+    "XP gain rate over the last 7 days (XP/hour)",
+  );
+  card.append(head, grid, trendLabel, trendSvg(rates?.points ?? []));
 
   if (runtime.settings.get("guildIdleMembers")) {
-    const idle = (runtime.state.guildCharacters ?? []).filter((member) => {
-      const hidden = Boolean(
-        findField(member, [
-          "hideOnlineStatus",
-          "isOnlineHidden",
-          "onlineStatusHidden",
-        ]),
-      );
-      const online = findField(member, ["isOnline", "online"]);
-      const action = findField(member, [
-        "currentAction",
-        "currentActionHrid",
-        "actionHrid",
-      ]);
-      return !hidden && online === true && !action;
-    });
+    const idle = (runtime.state.guildCharacters ?? []).filter(
+      isGuildMemberIdle,
+    );
     const idleRow = document.createElement("div");
     idleRow.className = "mwi-guild-idle";
     const label = document.createElement("b");
@@ -325,6 +400,11 @@ async function renderGuildOverview() {
 function appendRateColumns(table, rows, kind, parentId = "") {
   if (!table?.tHead?.rows?.[0] || !rows.length) return;
   table.classList.add(`mwi-guild-${kind}-table`);
+  if (kind === "member") {
+    table
+      .closest('[class*="GuildPanel_membersTab__"]')
+      ?.classList.add("mwi-guild-members-wide");
+  }
   const header = table.tHead.rows[0];
   if (!header.querySelector(".mwi-guild-recent-head")) {
     for (const [rateIndex, [className, label]] of [
@@ -575,6 +655,11 @@ for (const id of ["guildMemberXp", "guildLeaderboardXp", "guildIdleMembers"]) {
         document
           .querySelectorAll(`table.mwi-guild-${kind}-table`)
           .forEach((table) => {
+            if (kind === "member") {
+              table
+                .closest(".mwi-guild-members-wide")
+                ?.classList.remove("mwi-guild-members-wide");
+            }
             table
               .querySelectorAll(
                 ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head",
@@ -597,4 +682,6 @@ Object.assign(runtime.api, {
   renderGuildOverview,
   renderGuildTables,
   getGuildEntityXp: entityXp,
+  getGuildXpRatePoints: guildXpRatePoints,
+  isGuildMemberIdle,
 });

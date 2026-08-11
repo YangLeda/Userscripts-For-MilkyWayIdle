@@ -349,3 +349,31 @@ test("guild members and guild leaderboard use normalized state only for guild ro
   });
   assert.equal(runtime.state.guildLeaderboard[0].id, "guild-1");
 });
+
+test("guild member normalization preserves the sharable activity status", () => {
+  runtime.api.applyGameMessage({
+    type: "guild_characters_updated",
+    guildCharacterMap: {
+      42: { characterID: 42, guildExperience: 1234 },
+    },
+    guildSharableCharacterMap: {
+      42: {
+        name: "Working Member",
+        isOnline: true,
+        hideOnlineStatus: false,
+        actionType: "/action_types/crafting",
+      },
+    },
+  });
+
+  assert.deepEqual(runtime.state.guildCharacters, [
+    {
+      characterID: 42,
+      guildExperience: 1234,
+      name: "Working Member",
+      isOnline: true,
+      hideOnlineStatus: false,
+      actionType: "/action_types/crafting",
+    },
+  ]);
+});

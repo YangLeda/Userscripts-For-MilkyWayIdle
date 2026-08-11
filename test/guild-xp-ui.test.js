@@ -60,6 +60,10 @@ test("guild overview exists only once and only while Overview is selected", asyn
   await runtime.api.renderGuildOverview();
   await runtime.api.renderGuildOverview();
   assert.equal(document.querySelectorAll(".mwi-guild-xp-card").length, 1);
+  assert.equal(
+    document.querySelector(".mwi-guild-trend-label").textContent,
+    "最近 7 天经验获取速度（XP/小时）",
+  );
   assert.ok(
     document
       .querySelector(".GuildPanel_overviewTab__test")
@@ -107,10 +111,12 @@ test("an async overview render cannot insert after the user leaves the tab", asy
 test("guild XP columns draw relative bars and sort in both directions", async () => {
   document.body.innerHTML = `
     <div class="GuildPanel_guildPanel__test">
-      <table>
-        <thead><tr><th>成员</th></tr></thead>
-        <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
-      </table>
+      <div class="GuildPanel_membersTab__test">
+        <table>
+          <thead><tr><th>成员</th></tr></thead>
+          <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
+        </table>
+      </div>
     </div>`;
   runtime.state.guild = { id: "guild-table", guildExperience: 5000 };
   runtime.state.guildCharacters = [
@@ -138,6 +144,11 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   runtime.api.renderGuildTables();
 
   const table = document.querySelector("table");
+  assert.ok(
+    document
+      .querySelector(".GuildPanel_membersTab__test")
+      .classList.contains("mwi-guild-members-wide"),
+  );
   assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 6);
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map((row) =>
@@ -162,5 +173,50 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
       (row) => row.cells[0].textContent,
     ),
     ["Alice", "Bob", "Charlie"],
+  );
+});
+
+test("guild idle status requires an explicit empty activity type", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-idle", guildExperience: 3456 };
+  runtime.state.guildCharacters = [
+    { name: "Working", isOnline: true, actionType: "/action_types/crafting" },
+    { name: "Idle", isOnline: true, actionType: "" },
+    { name: "Unknown", isOnline: true },
+    {
+      name: "Hidden",
+      isOnline: true,
+      hideOnlineStatus: true,
+      actionType: "",
+    },
+    { name: "Offline", isOnline: false, actionType: "" },
+  ];
+  runtime.settings.get = (id) => id === "guildIdleMembers";
+
+  await runtime.api.renderGuildOverview();
+
+  const idleRow = document.querySelector(".mwi-guild-idle");
+  assert.match(idleRow.textContent, /当前闲置 \(1\)/);
+  assert.deepEqual(
+    [...idleRow.querySelectorAll("span")].map((node) => node.textContent),
+    ["Idle"],
+  );
+});
+
+test("guild trend converts cumulative XP samples into XP-per-hour points", () => {
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  const points = runtime.api.getGuildXpRatePoints(
+    [
+      { at: now - 3 * hour, xp: 100 },
+      { at: now - 2 * hour, xp: 250 },
+      { at: now - hour, xp: 650 },
+    ],
+    now,
+  );
+
+  assert.deepEqual(
+    points.map((point) => point.rate),
+    [150, 400],
   );
 });
