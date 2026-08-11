@@ -120,20 +120,83 @@ function getProductionPanelDuration(panel) {
   return null;
 }
 
+function clearActionDashboard() {
+  document.querySelector("#mwi-action-dashboard")?.remove();
+  document
+    .querySelectorAll(".mwi-action-dashboard-host")
+    .forEach((element) =>
+      element.classList.remove("mwi-action-dashboard-host"),
+    );
+}
+
+function nativeActionText(host) {
+  return [...(host?.childNodes ?? [])]
+    .filter(
+      (node) =>
+        node.nodeType !== 1 ||
+        (node.id !== "mwi-action-dashboard" &&
+          node.id !== "script_item_warning"),
+    )
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .replaceAll(/\s+/g, " ")
+    .trim();
+}
+
+function normalizedActionText(value) {
+  return String(value ?? "")
+    .replaceAll(/\([^)]*\)\s*$/g, "")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function actionHeaderNames(actionHrid, detail) {
+  const names = new Set([
+    detail?.name,
+    runtime.data.ZHActionNames?.[actionHrid],
+  ]);
+  for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
+    names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
+    names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+  }
+  return [...names].map(normalizedActionText).filter(Boolean);
+}
+
+function actionMatchesHeader(action, host) {
+  const actionHrid = action?.actionHrid;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!actionHrid || !detail || detail.type === "/action_types/combat") {
+    return false;
+  }
+  const header = normalizedActionText(nativeActionText(host));
+  if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
+    return false;
+  }
+  if (String(actionHrid).includes("/enhancing")) {
+    return (
+      /\+\s*\d+/.test(header) ||
+      actionHeaderNames(actionHrid, detail).some((name) =>
+        header.includes(name),
+      )
+    );
+  }
+  return actionHeaderNames(actionHrid, detail).some(
+    (name) => header === name || header.includes(name),
+  );
+}
+
 function renderActionDashboard() {
   addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
-  const actions = runtime.state.currentActionsHridList ?? [];
-  if (!host || !actions.length) {
-    document.querySelector("#mwi-action-dashboard")?.remove();
-    document
-      .querySelectorAll(".mwi-action-dashboard-host")
-      .forEach((element) =>
-        element.classList.remove("mwi-action-dashboard-host"),
-      );
+  const actions = [...(runtime.state.currentActionsHridList ?? [])].sort(
+    (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
+  );
+  const current = actions[0];
+  if (!host || !current || !actionMatchesHeader(current, host)) {
+    clearActionDashboard();
     return;
   }
-  const current = actions[0];
   const timing = getLiveActionTiming(host);
   const enhancementCount = getNativeEnhancementCount(host, current);
   const projection = runtime.api.projectAction(

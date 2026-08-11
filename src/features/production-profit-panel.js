@@ -300,17 +300,24 @@ function statusInfo(projection) {
   return { className: "complete", label: t("完整计价", "Fully priced") };
 }
 
-function renderPanel(panel, itemHrid, projection) {
+function renderPanel(panel, itemHrid, projection, options = {}) {
   const productName = itemName(itemHrid);
   const status = statusInfo(projection);
   const detail = projection.detail;
+  const directAction = Boolean(options.directAction);
+  const title = directAction
+    ? actionName(projection.actionHrid, detail)
+    : productName;
+  const subtitle = directAction
+    ? `${t("全部期望产物", "All expected outputs")} · ${t("当前玩家实时配置", "Current player configuration")}`
+    : `${actionName(projection.actionHrid, detail)} · ${t("当前玩家实时配置", "Current player configuration")}`;
   panel.dataset.status = status.className;
   panel.innerHTML = `
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t("当前玩家实时配置", "Current player configuration")}</div>
+        <div class="mwi-profit-title">${escapeHtml(title)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(subtitle)}</div>
       </div>
       <div class="mwi-profit-status ${status.className}">${escapeHtml(status.label)}</div>
     </header>`;
@@ -509,8 +516,10 @@ function hideProductionProfitPanel() {
   activePanel = null;
 }
 
-function showProductionProfitPanel(anchor, itemHrid) {
-  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+  const actionHrid =
+    options.actionHrid ??
+    runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
   if (!anchor?.isConnected || !actionHrid) {
     hideProductionProfitPanel();
     return null;
@@ -518,11 +527,17 @@ function showProductionProfitPanel(anchor, itemHrid) {
   hideProductionProfitPanel();
   addStyles();
   const projection = runtime.api.projectAction(actionHrid, 1);
+  const primaryItemHrid =
+    itemHrid ??
+    runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
+  if (!primaryItemHrid) return null;
   const panel = document.createElement("aside");
   panel.id = PANEL_ID;
   panel.setAttribute("role", "status");
   panel.setAttribute("aria-live", "polite");
-  renderPanel(panel, itemHrid, projection);
+  renderPanel(panel, primaryItemHrid, projection, {
+    directAction: Boolean(options.actionHrid),
+  });
   anchor.insertAdjacentElement("afterend", panel);
 
   const position = () =>
@@ -538,7 +553,8 @@ function showProductionProfitPanel(anchor, itemHrid) {
   resizeObserver?.observe(panel);
   activePanel = {
     anchor,
-    itemHrid,
+    itemHrid: primaryItemHrid,
+    actionHrid,
     mutationObserver,
     panel,
     position,

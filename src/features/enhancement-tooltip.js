@@ -34,10 +34,10 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
       : null,
     allowPhilosopherMirror: !forceProtectionMirror,
     getFairValue: (hrid, level = 0) =>
-      runtime.api.getFairValue(hrid, level) ||
       runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true,
       }) ||
+      runtime.api.getFairValue(hrid, level) ||
       0,
   };
 }

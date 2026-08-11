@@ -8,7 +8,7 @@ const dom = new JSDOM(
     <div class="Header_actionInfo__test">
       <div class="Header_myActions__test">
         <div class="Header_currentAction__test">
-          <div class="Header_actionName__test"></div>
+          <div class="Header_actionName__test"><span>木板</span></div>
           <div class="ProgressBar_progressBar__test" style="--duration:10">
             <div class="ProgressBar_innerBar__test ProgressBar_active__test" style="transform:matrix(0.7, 0, 0, 1, 0, 0)"></div>
             <div class="ProgressBar_text__test">10.00s</div>
@@ -292,6 +292,70 @@ test("the top action bar shows only current-action count, time left, and finish 
   ).textContent;
   assert.match(dashboardStyle, /flex-wrap:wrap/);
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
+});
+
+test("the top action bar follows ordinal order and hides on header mismatch or combat", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren(
+    Object.assign(document.createElement("span"), {
+      textContent: "木板",
+    }),
+  );
+  runtime.state.currentActionsHridList = [
+    {
+      ordinal: 2,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 99,
+      currentCount: 0,
+    },
+    {
+      ordinal: 1,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+  assert.match(
+    document.querySelector("#mwi-action-dashboard").textContent,
+    /6/,
+  );
+
+  host.firstElementChild.textContent = "奇幻洞穴";
+  runtime.api.renderActionDashboard();
+  assert.equal(document.querySelector("#mwi-action-dashboard"), null);
+  assert.equal(host.classList.contains("mwi-action-dashboard-host"), false);
+
+  runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"] = {
+    hrid: "/actions/combat/chimerical_den",
+    name: "Chimerical Den",
+    type: "/action_types/combat",
+  };
+  runtime.data.ZHActionNames["/actions/combat/chimerical_den"] = "奇幻洞穴";
+  runtime.state.currentActionsHridList = [
+    {
+      ordinal: 1,
+      actionHrid: "/actions/combat/chimerical_den",
+      hasMaxCount: false,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+  assert.equal(document.querySelector("#mwi-action-dashboard"), null);
+
+  host.firstElementChild.textContent = "木板";
+  runtime.state.currentActionsHridList = [
+    {
+      ordinal: 1,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+  assert.ok(document.querySelector("#mwi-action-dashboard"));
 });
 
 test("the top action estimate keeps the completed-cycle progress after the bar restarts", () => {

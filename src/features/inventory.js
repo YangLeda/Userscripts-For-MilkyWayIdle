@@ -11,9 +11,12 @@ function addInventorySummaryStyles() {
   style.id = INVENTORY_SUMMARY_STYLE_ID;
   style.textContent = `
     #script_inventory_summary {
-      margin: .0625rem 0 .1875rem;
+      --mwi-inventory-heading-font-size: .875rem;
+      --mwi-inventory-heading-line-height: 1.2;
+      margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .72rem;
+      font-size: var(--mwi-inventory-heading-font-size);
+      line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
     .mwi-inventory-summary-grid {
@@ -65,16 +68,16 @@ function addInventorySummaryStyles() {
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .64rem;
+      font-size: inherit;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .78rem;
+      font-size: inherit;
       font-weight: 750;
-      line-height: 1.05;
+      line-height: inherit;
       overflow-wrap: anywhere;
     }
     .mwi-summary-chevron {
@@ -91,7 +94,7 @@ function addInventorySummaryStyles() {
       transform: rotate(225deg) translate(-2px, 2px);
     }
     .mwi-summary-details {
-      margin: 0 7px 3px 17px;
+      margin: 0 .25rem 0 .5rem;
       animation: mwi-summary-reveal .16s ease-out;
     }
     .mwi-summary-stats {
@@ -99,13 +102,13 @@ function addInventorySummaryStyles() {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 0;
-      padding: 0 0 1px 17px;
+      padding: 0 0 0 .5rem;
     }
     .mwi-summary-stats::before {
       position: absolute;
       top: 0;
-      bottom: 11px;
-      left: 5px;
+      bottom: .5em;
+      left: 0;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .34);
       content: "";
@@ -116,21 +119,23 @@ function addInventorySummaryStyles() {
       min-width: 0;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      padding: 2px 5px;
+      gap: .5rem;
+      padding: 0 .25rem;
+      font-size: inherit;
+      line-height: inherit;
     }
     .mwi-summary-stat::before {
       position: absolute;
       top: 50%;
-      left: -12px;
-      width: 12px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
     .mwi-summary-stat::after {
       position: absolute;
       top: calc(50% - 2px);
-      left: -14px;
+      left: calc(-.5rem - 2px);
       width: 3px;
       height: 3px;
       border-radius: 50%;
@@ -140,15 +145,15 @@ function addInventorySummaryStyles() {
     .mwi-summary-stat-label {
       overflow: hidden;
       color: var(--color-text-secondary, #9da6b2);
-      font-size: .6rem;
+      font-size: inherit;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: .68rem; font-weight: 650; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
-      padding: 0 0 1px 17px;
+      padding: 0 0 0 .5rem;
     }
     .mwi-asset-group {
       position: relative;
@@ -156,9 +161,9 @@ function addInventorySummaryStyles() {
     }
     .mwi-asset-group:not(:last-child)::after {
       position: absolute;
-      top: 12px;
-      bottom: -13px;
-      left: -12px;
+      top: .6em;
+      bottom: -.6em;
+      left: -.5rem;
       border-left: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
@@ -166,24 +171,25 @@ function addInventorySummaryStyles() {
       position: relative;
       display: flex;
       width: 100%;
-      min-height: 24px;
+      min-height: 0;
       align-items: center;
-      gap: 6px;
-      padding: 2px 5px;
+      gap: .25rem;
+      padding: 0 .25rem;
       border: 0;
       background: transparent;
       color: var(--color-text-primary, #e8ebef);
       font: inherit;
-      font-size: .68rem;
+      font-size: inherit;
       font-weight: 600;
+      line-height: inherit;
       text-align: left;
       cursor: pointer;
     }
     .mwi-asset-toggle::before {
       position: absolute;
       top: 50%;
-      left: -12px;
-      width: 12px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
@@ -194,7 +200,7 @@ function addInventorySummaryStyles() {
       min-width: 0;
       margin-left: auto;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .66rem;
+      font-size: inherit;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
@@ -203,14 +209,14 @@ function addInventorySummaryStyles() {
       position: relative;
       display: grid;
       gap: 0;
-      margin-left: 9px;
-      padding: 0 5px 2px 16px;
+      margin-left: .25rem;
+      padding: 0 .25rem 0 .5rem;
     }
     .mwi-asset-rows::before {
       position: absolute;
       top: 0;
-      bottom: 9px;
-      left: 5px;
+      bottom: .5em;
+      left: 0;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .25);
       content: "";
@@ -220,16 +226,17 @@ function addInventorySummaryStyles() {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      padding: 2px 0;
+      gap: .5rem;
+      padding: 0;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .64rem;
+      font-size: inherit;
+      line-height: inherit;
     }
     .mwi-asset-row::before {
       position: absolute;
       top: 50%;
-      left: -11px;
-      width: 11px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
@@ -268,6 +275,23 @@ function addInventorySummaryStyles() {
 
 function numberHtml(value) {
   return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+}
+
+function syncInventorySummaryTypography(invElem, summary) {
+  const categoryTitle = invElem.querySelector(
+    '[class*="Inventory_categoryButton"]',
+  );
+  const computed = categoryTitle
+    ? categoryTitle.ownerDocument?.defaultView?.getComputedStyle(categoryTitle)
+    : null;
+  const fontSize =
+    Number.parseFloat(computed?.fontSize) > 0 ? computed.fontSize : ".875rem";
+  const lineHeight =
+    computed?.lineHeight && computed.lineHeight !== "normal"
+      ? computed.lineHeight
+      : "1.2";
+  summary.style.setProperty("--mwi-inventory-heading-font-size", fontSize);
+  summary.style.setProperty("--mwi-inventory-heading-line-height", lineHeight);
 }
 
 function scheduleNetworthRefresh() {
@@ -507,6 +531,7 @@ async function calculateNetworth(options = {}) {
     const summary = invElem.parentElement.querySelector(
       "#script_inventory_summary",
     );
+    syncInventorySummaryTypography(invElem, summary);
     const toggleScores = summary.querySelector("#toggleScores");
     const ScoreDetails = summary.querySelector("#buildScores");
     const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
@@ -671,36 +696,54 @@ async function addInvSortButton(invElem) {
 
   const sortItemsBy = (order) => {
     for (const typeDiv of invElem.children) {
-      const typeName = runtime.api.getOriTextFromElement(
-        typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0],
+      const categoryButton = typeDiv.querySelector(
+        '[class*="Inventory_categoryButton"]',
       );
+      const typeName =
+        runtime.api.getOriTextFromElement?.(categoryButton) ??
+        categoryButton?.textContent ??
+        "";
       if (!isSortableInventoryCategory(typeName)) {
         continue;
       }
 
-      typeDiv.querySelector(".Inventory_label__XEOAx").style.order =
-        Number.MIN_SAFE_INTEGER;
+      const label = typeDiv.querySelector('[class*="Inventory_label"]');
+      if (label) label.style.order = Number.MIN_SAFE_INTEGER;
 
-      const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
-      for (const itemElem of itemElems) {
+      const itemElems = [
+        ...typeDiv.querySelectorAll('[class*="Item_itemContainer"]'),
+      ];
+      const sortableItems = itemElems.map((itemElem, originalIndex) => {
         let itemName =
-          itemElem.querySelector("svg").attributes["aria-label"].value;
-        if (runtime.config.isZHInGameSetting) {
+          itemElem
+            .querySelector("svg[aria-label]")
+            ?.getAttribute("aria-label") ?? "";
+        if (
+          runtime.config.isZHInGameSetting &&
+          typeof runtime.api.getItemEnNameFromZhName === "function"
+        ) {
           itemName = runtime.api.getItemEnNameFromZhName(itemName);
         }
         const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
         const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
-        let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
-        itemCount = runtime.api.parseCompactNumber(itemCount);
-        const itemAskmWorth =
-          getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") *
-          itemCount;
-        const itemBidWorth =
-          getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") *
-          itemCount;
-        const itemFairWorth =
-          getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") *
-          itemCount;
+        const countText =
+          itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
+        const parsedCount =
+          runtime.api.parseCompactNumber?.(countText) ?? Number(countText);
+        const itemCount = Number.isFinite(Number(parsedCount))
+          ? Number(parsedCount)
+          : 1;
+        const values = {
+          ask:
+            getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") *
+            itemCount,
+          bid:
+            getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") *
+            itemCount,
+          fair:
+            getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") *
+            itemCount,
+        };
 
         // 价格角标
         if (!itemElem.querySelector("#script_stack_price")) {
@@ -709,26 +752,37 @@ async function addInvSortButton(invElem) {
                         id="script_stack_price"
                         style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left;">
                     </div>`;
-          itemElem
-            .querySelector(".Item_item__2De2O.Item_clickable__3viV6")
-            .insertAdjacentHTML("beforeend", priceElemHTML);
+          const priceHost =
+            itemElem.querySelector(
+              '[class*="Item_item"][class*="Item_clickable"]',
+            ) ?? itemElem;
+          priceHost.insertAdjacentHTML("beforeend", priceElemHTML);
         }
         const priceElem = itemElem.querySelector("#script_stack_price");
+        return { itemElem, originalIndex, priceElem, values };
+      });
 
-        // 排序
-        if (order === "fair") {
-          itemElem.style.order = -itemFairWorth;
-          priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
-        } else if (order === "ask") {
-          itemElem.style.order = -itemAskmWorth;
-          priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
-        } else if (order === "bid") {
-          itemElem.style.order = -itemBidWorth;
-          priceElem.textContent = runtime.api.numberFormatter(itemBidWorth);
-        } else if (order === "none") {
+      if (order === "none") {
+        for (const { itemElem, priceElem } of sortableItems) {
           itemElem.style.order = 0;
           priceElem.textContent = "";
         }
+        continue;
+      }
+
+      sortableItems.sort(
+        (left, right) =>
+          right.values[order] - left.values[order] ||
+          left.originalIndex - right.originalIndex,
+      );
+      for (const [
+        rank,
+        { itemElem, priceElem, values },
+      ] of sortableItems.entries()) {
+        // CSS order only accepts integers. Assigning -stackValue broke sorting
+        // whenever a market value contained decimals or exceeded CSS limits.
+        itemElem.style.order = rank;
+        priceElem.textContent = runtime.api.numberFormatter(values[order]);
       }
     }
   };

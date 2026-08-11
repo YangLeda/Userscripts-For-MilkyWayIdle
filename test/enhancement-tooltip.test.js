@@ -44,6 +44,16 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");
   assert.equal(options.allowPhilosopherMirror, false);
 
+  runtime.api.getFairValue = () => 999_999;
+  runtime.api.getAssetValue = () => 123_456;
+  options = getTooltipEnhancementPlanOptions("/items/advanced_attack_charm");
+  assert.equal(
+    options.getFairValue("/items/advanced_attack_charm", 0),
+    123_456,
+  );
+  assert.equal(options.forcedProtectionItemHrid, null);
+  assert.equal(options.allowPhilosopherMirror, true);
+
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
   options = getTooltipEnhancementPlanOptions("/items/chance_cape_refined");
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");

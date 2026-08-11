@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import "../core/train-planning.js";
 
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
@@ -621,70 +622,33 @@ function actionSortInfo(task, originalIndex) {
   };
 }
 
-function productionDepth(tasks) {
-  const actionDetails = Object.values(
-    runtime.state.initData_actionDetailMap ?? {},
-  ).filter((detail) => detail?.hrid);
-  const procurement = runtime.api.procurement;
-  const parent = new Map();
-  const firstSeen = new Map();
-  const find = (actionHrid) => {
-    const current = parent.get(actionHrid) ?? actionHrid;
-    if (current === actionHrid) return current;
-    const root = find(current);
-    parent.set(actionHrid, root);
-    return root;
-  };
-  const union = (left, right) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
-  };
-  for (const detail of actionDetails) {
-    parent.set(detail.hrid, detail.hrid);
-  }
-  for (const detail of actionDetails) {
-    const producer = detail.upgradeItemHrid
-      ? procurement?.getProducerAction?.(detail.upgradeItemHrid)
-      : null;
-    if (producer?.actionHrid && producer.actionHrid !== detail.hrid)
-      union(detail.hrid, producer.actionHrid);
-  }
-  for (const [index, task] of tasks.entries()) {
+function productionChains(tasks) {
+  if (!runtime.settings.get("taskTrainPlanner")) return null;
+  const planning = runtime.api.trainPlanning;
+  if (!planning) return null;
+  const rows = tasks.map((task, index) => {
     const actionHrid = taskActionHrid(task);
-    if (parent.has(actionHrid) && !firstSeen.has(actionHrid))
-      firstSeen.set(actionHrid, index);
-  }
-  const cache = new Map();
-  const visiting = new Set();
-  const depth = (actionHrid) => {
-    if (cache.has(actionHrid)) return cache.get(actionHrid);
-    if (visiting.has(actionHrid)) return 0;
-    visiting.add(actionHrid);
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    let value = 0;
-    const producer = detail?.upgradeItemHrid
-      ? procurement?.getProducerAction?.(detail.upgradeItemHrid)
-      : null;
-    if (producer?.actionHrid && producer.actionHrid !== actionHrid)
-      value = depth(producer.actionHrid) + 1;
-    visiting.delete(actionHrid);
-    cache.set(actionHrid, value);
-    return value;
-  };
-  for (const task of tasks) depth(taskActionHrid(task));
-  const groupMinimum = new Map();
-  for (const [actionHrid, index] of firstSeen) {
-    const root = find(actionHrid);
-    groupMinimum.set(root, Math.min(groupMinimum.get(root) ?? index, index));
-  }
-  const groups = new Map(
-    [...firstSeen.keys()].map((actionHrid) => [
+    const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
+    const root = outputHrid ? planning.trainChainRoot(outputHrid) : "";
+    const depth = outputHrid ? planning.trainChainDepth(outputHrid) : -1;
+    return {
       actionHrid,
-      groupMinimum.get(find(actionHrid)) ?? firstSeen.get(actionHrid),
+      root: root && depth >= 0 ? root : `task:${index}`,
+      depth: Math.max(0, depth),
+      index,
+    };
+  });
+  const groupOrder = new Map();
+  for (const row of rows) {
+    if (!groupOrder.has(row.root)) groupOrder.set(row.root, row.index);
+  }
+  return new Map(
+    rows.map((row) => [
+      row.actionHrid,
+      { depth: row.depth, group: groupOrder.get(row.root) ?? row.index },
     ]),
   );
-  return { depths: cache, groups };
 }
 
 function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
@@ -787,7 +751,7 @@ function ungroupCards() {
 }
 
 function orderedRows(cards, tasks) {
-  const chains = productionDepth(tasks);
+  const chains = productionChains(tasks);
   const rows = cards.map((card, index) => {
     const task = tasks[index];
     const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -832,15 +796,22 @@ function orderedRows(cards, tasks) {
       location,
       dungeonLocations,
       info: actionSortInfo(task, slot),
-      depth: chains?.depths.get(taskActionHrid(task)) ?? 0,
-      chain: chains?.groups.get(taskActionHrid(task)) ?? index,
+      depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
+      chain: chains?.get(taskActionHrid(task))?.group ?? index,
     };
   });
   rows.sort((left, right) => {
     const professionOrder = left.profession.order - right.profession.order;
     if (professionOrder) return professionOrder;
-    if (!runtime.settings.get("taskAutoSort") || !chains) {
+    if (!chains) {
       return left.info.originalIndex - right.info.originalIndex;
+    }
+    if (!runtime.settings.get("taskAutoSort")) {
+      return (
+        left.chain - right.chain ||
+        left.depth - right.depth ||
+        left.info.originalIndex - right.info.originalIndex
+      );
     }
     if (left.info.unknown && right.info.unknown)
       return left.info.originalIndex - right.info.originalIndex;

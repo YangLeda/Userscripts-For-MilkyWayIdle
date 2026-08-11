@@ -322,6 +322,17 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
 }
 
 const PROFIT_VALUATION_MODES = new Set(["conservative", "fair", "aggressive"]);
+const PROFIT_ACTION_TYPES = new Set([
+  "/action_types/alchemy",
+  "/action_types/brewing",
+  "/action_types/cheesesmithing",
+  "/action_types/cooking",
+  "/action_types/crafting",
+  "/action_types/foraging",
+  "/action_types/milking",
+  "/action_types/tailoring",
+  "/action_types/woodcutting",
+]);
 
 function getDirectPrice(itemHrid, kind, mode) {
   let value = 0;
@@ -414,8 +425,12 @@ function resolveProductionActionByItemHrid(itemHrid) {
   if (!target) return null;
   const matches = Object.entries(
     runtime.state.initData_actionDetailMap ?? {},
-  ).filter(([, detail]) =>
-    asArray(detail?.outputItems).some((output) => output?.itemHrid === target),
+  ).filter(
+    ([, detail]) =>
+      PROFIT_ACTION_TYPES.has(detail?.type) &&
+      getExpectedOutputs(detail).some(
+        (output) => output?.itemHrid === target && Number(output.count) > 0,
+      ),
   );
   if (!matches.length) return null;
   const slug = target.split("/").at(-1);

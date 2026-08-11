@@ -6,8 +6,6 @@ import { AssetHistoryChart } from "./20-chart.js";
 const TAB_ID = "mwitools-asset-history-tab";
 const PANEL_ID = "mwitools-asset-history-panel";
 const STYLE_ID = "mwitools-asset-history-style";
-const MOBILE_BUTTON_ID = "mwitools-asset-history-mobile-button";
-const MOBILE_SHELL_ID = "mwitools-asset-history-mobile-shell";
 
 export const ASSET_SHARE_TEMPLATE_COUNT = 12;
 
@@ -232,14 +230,7 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
-    #${MOBILE_BUTTON_ID} { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); z-index:2147483000; min-width:54px; padding:8px 12px; border:1px solid rgba(0,198,255,.72); border-radius:999px; background:#14243a; box-shadow:0 5px 18px rgba(0,0,0,.45); color:#72dcff; font:700 13px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
-    #${MOBILE_BUTTON_ID}[data-active="true"] { background:#00c6ff; color:#0b1522; }
-    #${MOBILE_SHELL_ID} { position:fixed; inset:0; z-index:2147483001; display:flex; min-width:0; flex-direction:column; background:#111b2b; }
-    #${MOBILE_SHELL_ID}[hidden] { display:none!important; }
-    .mwi-asset-mobile-header { display:flex; min-height:46px; flex:0 0 auto; align-items:center; justify-content:space-between; gap:12px; padding:env(safe-area-inset-top,0px) 12px 0; border-bottom:1px solid rgba(255,255,255,.1); background:#101927; color:#f2f5f9; }
-    .mwi-asset-mobile-title { font-size:15px; font-weight:750; }
-    .mwi-asset-mobile-close { width:36px; height:36px; padding:0; border:0; background:transparent; color:#e9edf4; font:26px/36px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
-    #${MOBILE_SHELL_ID} #${PANEL_ID} { min-height:0; flex:1 1 auto; max-height:none; }
+    [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,#334b84)!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,#eef2ff)!important; filter:none!important; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
     .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
@@ -279,7 +270,7 @@ function addStyles() {
     .mwi-asset-edit-grid input { box-sizing:border-box; width:100%; border:1px solid rgba(255,255,255,.18); border-radius:4px; background:#101728; color:#eee; padding:6px; }
     .mwi-asset-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
     @media(max-width:760px){
-      #${PANEL_ID} { padding:10px 8px 20px; }
+      #${PANEL_ID} { min-height:0; padding:10px 8px calc(20px + env(safe-area-inset-bottom,0px)); overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
       .mwi-asset-chart-box { height:280px; }
       .mwi-asset-edit-grid { grid-template-columns:1fr; }
     }
@@ -295,10 +286,48 @@ function buttonLabel(button) {
     .toLowerCase();
 }
 
-function findLoadoutTab() {
-  return [...document.querySelectorAll("button")].find((button) =>
-    /^(配装|loadouts?)(?:\s*\d+)?$/i.test(buttonLabel(button)),
-  );
+const CHARACTER_TAB_PATTERNS = {
+  inventory: /^(库存|inventory)$/i,
+  equipment: /^(装备|equipment)$/i,
+  skills: /^(技能|skills?|abilities)$/i,
+  house: /^(房屋|house)$/i,
+  loadout: /^(配装|loadouts?)(?:\s*\d+)?$/i,
+};
+
+function findCharacterManagementLoadoutTab() {
+  const groups = new Map();
+  for (const button of document.querySelectorAll('button[role="tab"],button')) {
+    const parent = button.parentElement;
+    if (!parent) continue;
+    if (!groups.has(parent)) groups.set(parent, []);
+    groups.get(parent).push(button);
+  }
+  const candidates = [];
+  for (const [parent, buttons] of groups) {
+    const matched = Object.fromEntries(
+      Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
+        key,
+        buttons.find((button) => pattern.test(buttonLabel(button))),
+      ]),
+    );
+    const supportingTabs = [
+      matched.equipment,
+      matched.skills,
+      matched.house,
+    ].filter(Boolean).length;
+    if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
+    const rect = parent.getBoundingClientRect?.();
+    const visible = Boolean(rect && rect.width > 0 && rect.height > 0);
+    const inCharacterManagement = Boolean(
+      parent.closest('[class*="CharacterManagement_characterManagement"]'),
+    );
+    candidates.push({
+      button: matched.loadout,
+      score: Number(visible) * 4 + Number(inCharacterManagement) * 2,
+    });
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.button ?? null;
 }
 
 function looksLikeContent(node) {
@@ -738,14 +767,11 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   let active = false;
   let mountMode = null;
   let tab = null;
-  let mobileButton = null;
-  let mobileShell = null;
   let host = null;
   let panel = null;
   let shell = null;
   let navigationBranch = null;
   const hiddenNodes = new Map();
-  const nativeTabStates = new Map();
 
   const restoreNative = () => {
     for (const [node, state] of hiddenNodes) {
@@ -756,68 +782,73 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     hiddenNodes.clear();
   };
 
-  const restoreNativeTabs = () => {
-    for (const [button, state] of nativeTabStates) {
-      if (!button.isConnected) continue;
-      if (state.className === null) button.removeAttribute("class");
-      else button.setAttribute("class", state.className);
-      for (const [name, value] of Object.entries(state.attributes)) {
-        if (value === null) button.removeAttribute(name);
-        else button.setAttribute(name, value);
-      }
+  const captureIdleTabStyle = () => {
+    if (!tab || !navigationBranch || typeof getComputedStyle !== "function") {
+      return;
     }
-    nativeTabStates.clear();
+    const style = getComputedStyle(tab);
+    navigationBranch.style.setProperty(
+      "--mwi-asset-idle-background",
+      style.background || style.backgroundColor || "#334b84",
+    );
+    navigationBranch.style.setProperty(
+      "--mwi-asset-idle-border",
+      style.borderColor || "rgba(255,255,255,.16)",
+    );
+    navigationBranch.style.setProperty(
+      "--mwi-asset-idle-color",
+      style.color || "#eef2ff",
+    );
+    navigationBranch.style.setProperty(
+      "--mwi-asset-idle-shadow",
+      style.boxShadow || "none",
+    );
   };
 
-  const deactivateNativeTabs = () => {
-    for (const button of tab?.parentElement?.querySelectorAll("button") ?? []) {
-      if (button === tab) continue;
-      if (!nativeTabStates.has(button)) {
-        nativeTabStates.set(button, {
-          className: button.getAttribute("class"),
-          attributes: Object.fromEntries(
-            ["aria-selected", "data-active", "data-selected", "data-state"].map(
-              (name) => [name, button.getAttribute(name)],
-            ),
-          ),
-        });
-      }
-      button.setAttribute("aria-selected", "false");
-      if (button.hasAttribute("data-active")) button.dataset.active = "false";
-      if (button.hasAttribute("data-selected")) {
-        button.dataset.selected = "false";
-      }
-      if (button.hasAttribute("data-state")) button.dataset.state = "inactive";
-      for (const className of [...button.classList]) {
-        if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
-          button.classList.remove(className);
-        }
-      }
+  const clearNativeTabOverride = () => {
+    if (!navigationBranch) return;
+    delete navigationBranch.dataset.mwitoolsAssetActive;
+    for (const property of [
+      "--mwi-asset-idle-background",
+      "--mwi-asset-idle-border",
+      "--mwi-asset-idle-color",
+      "--mwi-asset-idle-shadow",
+    ]) {
+      navigationBranch.style.removeProperty(property);
     }
+  };
+
+  const syncHostViewport = () => {
+    if (!host) return;
+    if (!isCompactViewport() || !active) {
+      host.style.removeProperty("height");
+      host.style.removeProperty("max-height");
+      return;
+    }
+    const top = Math.max(0, Math.round(host.getBoundingClientRect().top));
+    const available = `calc(100dvh - ${top}px - env(safe-area-inset-bottom,0px))`;
+    host.style.height = available;
+    host.style.maxHeight = available;
   };
 
   const setActive = (next) => {
-    active = Boolean(next);
+    const nextActive = Boolean(next);
+    if (mountMode === "native" && nextActive && !active) {
+      captureIdleTabStyle();
+    }
+    active = nextActive;
     if (tab) {
       tab.dataset.active = String(active);
       tab.setAttribute("aria-selected", String(active));
     }
-    if (mobileButton) {
-      mobileButton.dataset.active = String(active);
-      mobileButton.setAttribute("aria-expanded", String(active));
-    }
-    if (mobileShell) mobileShell.hidden = !active;
     if (host) host.hidden = !active;
-    if (mountMode === "mobile") {
-      if (active) panel?.update(runtime.api.getLatestAssetSnapshot?.());
-      return;
-    }
     if (!active) {
       restoreNative();
-      restoreNativeTabs();
+      clearNativeTabOverride();
+      syncHostViewport();
       return;
     }
-    deactivateNativeTabs();
+    navigationBranch.dataset.mwitoolsAssetActive = "true";
     for (const node of [...(shell?.children ?? [])]) {
       if (
         node === navigationBranch ||
@@ -834,6 +865,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       node.hidden = true;
       node.style.display = "none";
     }
+    syncHostViewport();
     panel?.update(runtime.api.getLatestAssetSnapshot?.());
   };
 
@@ -843,16 +875,11 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     panel = null;
     tab?.remove();
     host?.remove();
-    mobileButton?.remove();
-    mobileShell?.remove();
     mountMode = null;
     tab = null;
-    mobileButton = null;
-    mobileShell = null;
     host = null;
     shell = null;
     navigationBranch = null;
-    nativeTabStates.clear();
   };
 
   const mountNative = (loadout, found) => {
@@ -863,7 +890,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     tab.type = "button";
     tab.textContent = t("盈亏", "P/L");
     for (const className of [...tab.classList]) {
-      if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+      if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
         tab.classList.remove(className);
       }
     }
@@ -885,53 +912,8 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     panel.update(runtime.api.getLatestAssetSnapshot?.());
   };
 
-  const mountMobile = () => {
-    mountMode = "mobile";
-    mobileButton = document.createElement("button");
-    mobileButton.id = MOBILE_BUTTON_ID;
-    mobileButton.type = "button";
-    mobileButton.textContent = t("盈亏", "P/L");
-    mobileButton.dataset.active = "false";
-    mobileButton.setAttribute("aria-expanded", "false");
-    mobileButton.setAttribute(
-      "aria-label",
-      t("打开盈亏页面", "Open profit and loss page"),
-    );
-    mobileButton.addEventListener("click", () => setActive(true));
-
-    mobileShell = document.createElement("section");
-    mobileShell.id = MOBILE_SHELL_ID;
-    mobileShell.hidden = true;
-    mobileShell.setAttribute("role", "dialog");
-    mobileShell.setAttribute("aria-modal", "true");
-    mobileShell.setAttribute(
-      "aria-label",
-      t("每日资产盈亏", "Daily asset profit and loss"),
-    );
-    const header = document.createElement("header");
-    header.className = "mwi-asset-mobile-header";
-    const title = document.createElement("div");
-    title.className = "mwi-asset-mobile-title";
-    title.textContent = t("每日资产盈亏", "Daily asset P/L");
-    const close = document.createElement("button");
-    close.type = "button";
-    close.className = "mwi-asset-mobile-close";
-    close.textContent = "×";
-    close.setAttribute("aria-label", t("关闭盈亏页面", "Close P/L page"));
-    close.addEventListener("click", () => setActive(false));
-    header.append(title, close);
-
-    host = document.createElement("section");
-    host.id = PANEL_ID;
-    host.hidden = true;
-    mobileShell.append(header, host);
-    document.body.append(mobileButton, mobileShell);
-    panel = new AssetHistoryPanel(host, store, scopeKey);
-    panel.update(runtime.api.getLatestAssetSnapshot?.());
-  };
-
   const ensureMounted = () => {
-    const loadout = findLoadoutTab();
+    const loadout = findCharacterManagementLoadoutTab();
     const found = loadout && findPanelShell(loadout);
     if (loadout && found) {
       if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
@@ -940,19 +922,6 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       }
       teardownMount();
       mountNative(loadout, found);
-      return;
-    }
-    if (isCompactViewport()) {
-      if (
-        mountMode === "mobile" &&
-        mobileButton?.isConnected &&
-        mobileShell?.isConnected &&
-        host?.isConnected
-      ) {
-        return;
-      }
-      teardownMount();
-      mountMobile();
       return;
     }
     if (mountMode !== null) teardownMount();
@@ -967,17 +936,18 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     (event) => {
       if (!active || event.target.closest(`#${TAB_ID}`)) return;
       const nativeButton = event.target.closest("button");
-      if (nativeButton && tab?.parentElement?.contains(nativeButton)) {
+      if (nativeButton && navigationBranch?.contains(nativeButton)) {
         setActive(false);
       }
     },
     true,
   );
   scope.event(document, "keydown", (event) => {
-    if (active && mountMode === "mobile" && event.key === "Escape") {
+    if (active && isCompactViewport() && event.key === "Escape") {
       setActive(false);
     }
   });
+  scope.event(window, "resize", syncHostViewport);
 
   return {
     update(snapshot) {

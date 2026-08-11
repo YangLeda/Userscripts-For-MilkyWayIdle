@@ -134,6 +134,52 @@ test("train chains report cycles and parse compact counts", () => {
   assert.equal(planning.parseTrainCount("∞"), null);
 });
 
+test("default train navigation accepts a GamePage instance without navTarget", () => {
+  document.body.innerHTML = '<div class="GamePage_gamePage__test"></div>';
+  delete globalThis.mwi;
+  const calls = [];
+  const gamePage = document.querySelector('[class*="GamePage_gamePage"]');
+  gamePage.__reactFiber$train = {
+    stateNode: null,
+    return: {
+      stateNode: {
+        handleGoToActionTypeDetail(actionHrid) {
+          calls.push(actionHrid);
+        },
+      },
+      return: null,
+    },
+  };
+  const plan = {
+    cycle: false,
+    truncated: false,
+    steps: [
+      {
+        kind: "craft",
+        actionHrid: "/actions/crafting/board",
+        outputHrid: "/items/board",
+        count: 1,
+      },
+    ],
+  };
+  assert.equal(train.startTrain(plan), true);
+  assert.deepEqual(calls, ["/actions/crafting/board"]);
+  assert.equal(train.getTrainState().index, 0);
+  train.cancelTrain();
+  document.body.replaceChildren();
+});
+
+test("skill navigation click is accepted while the target action panel mounts", () => {
+  document.body.innerHTML = '<button data-target="crafting">Crafting</button>';
+  let clicked = 0;
+  document.querySelector("button").addEventListener("click", () => {
+    clicked += 1;
+  });
+  assert.equal(train.navigateToTrainAction("/actions/crafting/board"), true);
+  assert.equal(clicked, 1);
+  document.body.replaceChildren();
+});
+
 test("step shopping accumulates shared materials without buying train intermediates", async () => {
   runtime.api.procurement.clearCart({ includeStarred: true });
   const plan = planning.createTrainPlan(

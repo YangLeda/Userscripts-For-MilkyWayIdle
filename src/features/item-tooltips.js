@@ -95,11 +95,133 @@ const tooltipObserver = new MutationObserver(async function (mutations) {
               "div.QueuedActions_queuedActionsEditMenu__3OoQH",
             ),
           );
+        } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
+          const actionHrid = resolveGatheringActionFromElement(added);
+          if (actionHrid) {
+            runtime.api.showProductionProfitPanel?.(added, null, {
+              actionHrid,
+            });
+          }
         }
       }
     }
   }
 });
+
+const GATHERING_ACTION_TYPES = new Set([
+  "/action_types/foraging",
+  "/action_types/milking",
+  "/action_types/woodcutting",
+]);
+const GATHERING_CARD_SELECTOR = [
+  '[data-action-hrid^="/actions/"]',
+  '[class*="SkillAction_skillAction"]',
+  '[class*="GatheringProductionSkillPanel_action"]',
+].join(",");
+
+function reactFiberKey(element) {
+  return Object.keys(element ?? {}).find(
+    (key) =>
+      key.startsWith("__reactFiber$") ||
+      key.startsWith("__reactInternalInstance$"),
+  );
+}
+
+function gatheringActionHrid(value) {
+  const hrid = String(value ?? "");
+  const detail = runtime.state.initData_actionDetailMap?.[hrid];
+  return GATHERING_ACTION_TYPES.has(detail?.type) ? hrid : "";
+}
+
+function actionHridFromReactValue(value, depth = 0, seen = new Set()) {
+  if (!value || depth > 3 || typeof value !== "object" || seen.has(value)) {
+    return "";
+  }
+  seen.add(value);
+  for (const key of ["actionHrid", "hrid"]) {
+    const actionHrid = gatheringActionHrid(value[key]);
+    if (actionHrid) return actionHrid;
+  }
+  for (const key of [
+    "actionDetail",
+    "action",
+    "detail",
+    "selectedAction",
+    "children",
+    "props",
+  ]) {
+    const nested = value[key];
+    if (Array.isArray(nested)) {
+      for (const entry of nested) {
+        const actionHrid = actionHridFromReactValue(entry, depth + 1, seen);
+        if (actionHrid) return actionHrid;
+      }
+      continue;
+    }
+    const actionHrid = actionHridFromReactValue(nested, depth + 1, seen);
+    if (actionHrid) return actionHrid;
+  }
+  return "";
+}
+
+export function resolveGatheringActionFromElement(element) {
+  for (let current = element; current; current = current.parentElement) {
+    const direct = gatheringActionHrid(
+      current.dataset?.actionHrid ?? current.getAttribute?.("data-action-hrid"),
+    );
+    if (direct) return direct;
+    const key = reactFiberKey(current);
+    let fiber = key ? current[key] : null;
+    for (let depth = 0; fiber && depth < 8; depth += 1) {
+      for (const value of [
+        fiber.memoizedProps,
+        fiber.pendingProps,
+        fiber.memoizedState,
+        fiber.stateNode?.props,
+        fiber.stateNode?.state,
+      ]) {
+        const fromFiber = actionHridFromReactValue(value);
+        if (fromFiber) return fromFiber;
+      }
+      fiber = fiber.return;
+    }
+    if (current.classList?.contains("MuiTooltip-popper")) break;
+  }
+
+  const texts = [
+    runtime.api.getOriTextFromElement?.(element),
+    element?.textContent,
+    ...[...(element?.querySelectorAll?.("div,span") ?? [])]
+      .filter((node) => String(node.textContent ?? "").trim().length <= 80)
+      .map(
+        (node) => runtime.api.getOriTextFromElement?.(node) ?? node.textContent,
+      ),
+  ]
+    .map((text) =>
+      String(text ?? "")
+        .replaceAll(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(Boolean);
+  const matches = Object.values(runtime.state.initData_actionDetailMap ?? {})
+    .filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type))
+    .filter((detail) => {
+      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]]
+        .map((name) => String(name ?? "").trim())
+        .filter(Boolean);
+      return texts.some((text) => names.includes(text));
+    })
+    .sort(
+      (left, right) =>
+        Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0) ||
+        String(left.hrid).localeCompare(String(right.hrid)),
+    );
+  return matches[0]?.hrid ?? "";
+}
+
+function gatheringCardFromEventTarget(target) {
+  return target?.closest?.(GATHERING_CARD_SELECTOR) ?? null;
+}
 
 const actionHridToToolsSpeedBuffNamesMap = {
   "/action_types/brewing": "brewingSpeed",
@@ -504,6 +626,20 @@ for (const id of ["itemTooltip_profit", "showConsumTips"]) {
     id,
     setting: id,
     dependsOn: ["itemTooltip_prices"],
-    initialize() {},
+    initialize({ scope }) {
+      if (id !== "itemTooltip_profit") return;
+      scope.event(document, "mouseover", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        const actionHrid = resolveGatheringActionFromElement(card);
+        if (!actionHrid) return;
+        runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
+      });
+      scope.event(document, "mouseout", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        runtime.api.hideProductionProfitPanel?.();
+      });
+    },
   });
 }

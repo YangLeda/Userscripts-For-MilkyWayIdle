@@ -10,6 +10,16 @@ const PANEL_SELECTOR =
 const LOADOUT_SELECTOR = '[class*="SkillActionDetail_loadoutDropdown"]';
 const BUTTONS_SELECTOR = '[class*="SkillActionDetail_buttonsContainer"]';
 const TRAIN_TIMEOUT_MS = 60_000;
+const ACTION_NAVIGATION_HANDLERS = [
+  "handleGoToActionTypeDetail",
+  "handleClickActionTypeDetail",
+  "handleGoToActionType",
+  "handleSelectActionType",
+  "handleGoToActionDetail",
+  "handleSelectAction",
+  "handleClickAction",
+  "handleGoToAction",
+];
 
 let activeTrain = null;
 let scanPending = false;
@@ -159,41 +169,43 @@ function fiberKey(element) {
   );
 }
 
-function gameInstance() {
+function gameInstances() {
   const pageGlobal = globalThis.unsafeWindow ?? globalThis;
-  if (pageGlobal.mwi?.game) return pageGlobal.mwi.game;
+  const instances = [];
+  if (pageGlobal.mwi?.game) instances.push(pageGlobal.mwi.game);
   const gamePage = document.querySelector(
     '[class*="GamePage_gamePage"],[class^="GamePage"]',
   );
   const key = fiberKey(gamePage);
   let fiber = key ? gamePage[key] : null;
   while (fiber) {
-    if (fiber.stateNode?.state?.navTarget !== undefined) return fiber.stateNode;
+    const instance = fiber.stateNode;
+    if (
+      instance &&
+      (typeof instance.setState === "function" ||
+        ACTION_NAVIGATION_HANDLERS.some(
+          (handler) => typeof instance[handler] === "function",
+        )) &&
+      !instances.includes(instance)
+    ) {
+      instances.push(instance);
+    }
     fiber = fiber.return;
   }
-  return null;
+  return instances;
 }
 
 export function navigateToTrainAction(actionHrid) {
-  const game = gameInstance();
-  if (!game) return false;
   const invoke = () => {
-    for (const name of [
-      "handleGoToActionTypeDetail",
-      "handleClickActionTypeDetail",
-      "handleGoToActionType",
-      "handleSelectActionType",
-      "handleGoToActionDetail",
-      "handleSelectAction",
-      "handleClickAction",
-      "handleGoToAction",
-    ]) {
-      if (typeof game[name] !== "function") continue;
-      try {
-        game[name](actionHrid);
-        return true;
-      } catch {
-        // Try the next compatible game handler.
+    for (const game of gameInstances()) {
+      for (const name of ACTION_NAVIGATION_HANDLERS) {
+        if (typeof game[name] !== "function") continue;
+        try {
+          game[name](actionHrid);
+          return true;
+        } catch {
+          // Try the next compatible game handler or React instance.
+        }
       }
     }
     return false;
@@ -216,13 +228,17 @@ export function navigateToTrainAction(actionHrid) {
   if (navigation) {
     navigation.click();
     setTimeout(invoke, 150);
+    // Opening the skill page is a valid first navigation stage. Arrival is
+    // verified from the mounted action panel by the normal train scanner.
     return true;
   }
   return invoke();
 }
 
 export function navigateToTrainShop(step) {
-  const game = gameInstance();
+  const game = gameInstances().find(
+    (instance) => typeof instance.setState === "function",
+  );
   if (!game || !step?.shopHrid) return false;
   try {
     if (game.state?.navTarget !== "shop") game.setState({ navTarget: "shop" });

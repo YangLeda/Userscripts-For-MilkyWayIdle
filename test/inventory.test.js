@@ -8,7 +8,7 @@ const dom = new JSDOM(
     <div class="Header_totalLevel__8LY3Q"></div>
     <section id="inventory-parent"><div class="Inventory_items__6SXv0">
       <div><div class="Inventory_itemGrid__test">
-        <div class="Inventory_label__test"><span class="Inventory_categoryButton__test">食物</span></div>
+        <div class="Inventory_label__test"><span class="Inventory_categoryButton__test" style="font-size:14px;line-height:20px">食物</span></div>
         <div class="Item_itemContainer__test"><svg aria-label="Milk"></svg></div>
       </div></div>
       <div><div class="Inventory_itemGrid__test">
@@ -189,11 +189,31 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-label\s*\{[^}]*font-size:\s*\.64rem/s,
+    /\.mwi-summary-label\s*\{[^}]*font-size:\s*inherit/s,
   );
   assert.match(
     summaryStyles,
-    /\.mwi-summary-value\s*\{[^}]*font-size:\s*\.78rem/s,
+    /\.mwi-summary-value\s*\{[^}]*font-size:\s*inherit/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-asset-toggle\s*\{[^}]*min-height:\s*0[^}]*padding:\s*0 \.25rem[^}]*font-size:\s*inherit/s,
+  );
+  assert.match(
+    summaryStyles,
+    /\.mwi-asset-row\s*\{[^}]*padding:\s*0[^}]*font-size:\s*inherit/s,
+  );
+  assert.equal(
+    document
+      .querySelector("#script_inventory_summary")
+      .style.getPropertyValue("--mwi-inventory-heading-font-size"),
+    "14px",
+  );
+  assert.equal(
+    document
+      .querySelector("#script_inventory_summary")
+      .style.getPropertyValue("--mwi-inventory-heading-line-height"),
+    "20px",
   );
   assert.match(summaryStyles, /\.mwi-summary-stats::before/);
   assert.match(summaryStyles, /\.mwi-summary-stat::before/);
@@ -475,4 +495,44 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   );
 
   await runtime.settings.set("includeCowbellsInAssets", false);
+});
+
+test("market value sorting ranks every stack descending inside its category", async () => {
+  document.body.innerHTML = `<section id="sort-parent"><div class="Inventory_items__newHash">
+    <div class="Inventory_category__newHash"><div class="Inventory_itemGrid__newHash">
+      <div class="Inventory_label__newHash"><span class="Inventory_categoryButton__newHash">Food</span></div>
+      <div id="low" class="Item_itemContainer__newHash"><div class="Item_item__newHash Item_clickable__newHash"><svg aria-label="Low"></svg><span class="Item_count__newHash">2</span></div></div>
+      <div id="high" class="Item_itemContainer__newHash"><div class="Item_item__newHash Item_clickable__newHash"><svg aria-label="High"></svg><span class="Item_count__newHash">1</span></div></div>
+      <div id="middle" class="Item_itemContainer__newHash"><div class="Item_item__newHash Item_clickable__newHash"><svg aria-label="Middle"></svg><span class="Item_count__newHash">3</span></div></div>
+    </div></div>
+  </div></section>`;
+  const originalGetAssetValue = runtime.api.getAssetValue;
+  const originalFetchMarketJSON = runtime.api.fetchMarketJSON;
+  runtime.api.getAssetValue = (hrid) =>
+    ({ "/items/low": 10.25, "/items/high": 100.5, "/items/middle": 20.1 })[
+      hrid
+    ] ?? 0;
+  runtime.state.itemEnNameToHridMap = {
+    Low: "/items/low",
+    High: "/items/high",
+    Middle: "/items/middle",
+  };
+  runtime.state.marketApiJson = { marketData: {} };
+  runtime.api.fetchMarketJSON = async () => runtime.state.marketApiJson;
+  runtime.settings.settingsMap.invSort.isTrue = true;
+
+  await runtime.api.addInvSortButton(
+    document.querySelector(".Inventory_items__newHash"),
+  );
+  document.querySelector("#script_sortByFair_btn").click();
+
+  assert.equal(document.querySelector("#high").style.order, "0");
+  assert.equal(document.querySelector("#middle").style.order, "1");
+  assert.equal(document.querySelector("#low").style.order, "2");
+  assert.match(document.querySelector("#high").textContent, /100\.5/);
+  assert.match(document.querySelector("#middle").textContent, /60\.3/);
+  assert.match(document.querySelector("#low").textContent, /20\.5/);
+
+  runtime.api.getAssetValue = originalGetAssetValue;
+  runtime.api.fetchMarketJSON = originalFetchMarketJSON;
 });

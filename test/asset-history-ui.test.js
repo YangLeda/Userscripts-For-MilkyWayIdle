@@ -44,10 +44,22 @@ const {
 
 function gameShell() {
   const shell = document.createElement("main");
+  shell.className = "CharacterManagement_characterManagement__test";
   shell.innerHTML = `
-    <nav><button type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">库存</button><button type="button" id="loadout" aria-selected="false">配装 <span>0</span></button></nav>
+    <nav class="MuiTabs-flexContainer"><button role="tab" type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">库存</button><button role="tab" type="button" aria-selected="false">装备</button><button role="tab" type="button" aria-selected="false">技能</button><button role="tab" type="button" id="house" aria-selected="false">房屋</button><button role="tab" type="button" id="loadout" aria-selected="false">配装 <span>0</span></button></nav>
     <section class="Inventory_panel__test"><input placeholder="物品搜索"></section>
   `;
+  const nativeTabs = [...shell.querySelectorAll('button[role="tab"]')];
+  for (const button of nativeTabs) {
+    button.addEventListener("click", () => {
+      for (const candidate of nativeTabs) {
+        const selected = candidate === button;
+        candidate.setAttribute("aria-selected", String(selected));
+        candidate.dataset.active = String(selected);
+        candidate.classList.toggle("NavigationTabs_selected__test", selected);
+      }
+    });
+  }
   document.body.appendChild(shell);
   return shell;
 }
@@ -101,7 +113,7 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
-test("盈亏 is a singleton native sibling and restores game content on tab switches", () => {
+test("盈亏 visually suppresses native selection without mutating React tab state", () => {
   document.body.replaceChildren();
   intervals.clear();
   const shell = gameShell();
@@ -145,12 +157,13 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   tab.click();
   const inventoryTab = shell.querySelector("nav button");
   assert.equal(tab.getAttribute("aria-selected"), "true");
-  assert.equal(inventoryTab.getAttribute("aria-selected"), "false");
-  assert.equal(inventoryTab.dataset.active, "false");
+  assert.equal(inventoryTab.getAttribute("aria-selected"), "true");
+  assert.equal(inventoryTab.dataset.active, "true");
   assert.equal(
     inventoryTab.classList.contains("NavigationTabs_selected__test"),
-    false,
+    true,
   );
+  assert.equal(shell.querySelector("nav").dataset.mwitoolsAssetActive, "true");
   assert.equal(nativeContent.hidden, true);
   assert.equal(
     document.querySelector("#mwitools-asset-history-panel").hidden,
@@ -166,13 +179,19 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   const currentTotal = document.querySelector("#mwi-asset-current-total");
   assert.equal(currentTotal.textContent, "1.23M");
   assert.equal(currentTotal.title, "1,234,567");
-  inventoryTab.click();
-  assert.equal(inventoryTab.getAttribute("aria-selected"), "true");
-  assert.equal(inventoryTab.dataset.active, "true");
+  const houseTab = shell.querySelector("#house");
+  houseTab.click();
+  assert.equal(houseTab.getAttribute("aria-selected"), "true");
+  assert.equal(inventoryTab.getAttribute("aria-selected"), "false");
   assert.equal(
-    inventoryTab.classList.contains("NavigationTabs_selected__test"),
+    houseTab.classList.contains("NavigationTabs_selected__test"),
     true,
   );
+  assert.equal(
+    shell.querySelector("nav").dataset.mwitoolsAssetActive,
+    undefined,
+  );
+  assert.equal(tab.dataset.active, "false");
   assert.equal(nativeContent.hidden, false);
   assert.equal(
     document.querySelector("#mwitools-asset-history-panel").hidden,
@@ -185,13 +204,17 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   assert.equal(document.querySelector("#mwitools-asset-history-panel"), null);
 });
 
-test("mobile always has a dedicated P/L page launcher", () => {
+test("mobile mounts P/L beside the visible character-management tabs", () => {
   document.body.replaceChildren();
   intervals.clear();
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
     value: 390,
   });
+  const decoy = document.createElement("div");
+  decoy.innerHTML = `<nav><button role="tab">库存</button><button role="tab">装备</button><button role="tab">技能</button><button role="tab">房屋</button><button role="tab" id="decoy-loadout">配装</button></nav><section class="Loadout_panel__test"></section>`;
+  document.body.appendChild(decoy);
+  const shell = gameShell();
   const scope = runtime.createCleanupScope();
   const ui = createAssetHistoryUi({
     scope,
@@ -199,26 +222,32 @@ test("mobile always has a dedicated P/L page launcher", () => {
     scopeKey: "production:7",
   });
 
-  const launcher = document.querySelector(
-    "#mwitools-asset-history-mobile-button",
+  const tab = document.querySelector("#mwitools-asset-history-tab");
+  const panel = document.querySelector("#mwitools-asset-history-panel");
+  assert.ok(tab);
+  assert.equal(tab.parentElement, shell.querySelector("nav"));
+  assert.equal(tab.previousElementSibling, shell.querySelector("#loadout"));
+  assert.notEqual(
+    tab.previousElementSibling,
+    decoy.querySelector("#decoy-loadout"),
   );
-  const mobilePage = document.querySelector(
-    "#mwitools-asset-history-mobile-shell",
-  );
-  assert.ok(launcher);
-  assert.equal(launcher.textContent, "盈亏");
-  assert.equal(launcher.getAttribute("aria-label"), "打开盈亏页面");
-  assert.equal(mobilePage.hidden, true);
-
-  launcher.click();
-  assert.equal(mobilePage.hidden, false);
   assert.equal(
-    document.querySelector("#mwitools-asset-history-panel").hidden,
-    false,
+    document.querySelector("#mwitools-asset-history-mobile-button"),
+    null,
   );
-  assert.match(mobilePage.textContent, /每日资产盈亏/);
-  mobilePage.querySelector(".mwi-asset-mobile-close").click();
-  assert.equal(mobilePage.hidden, true);
+  assert.equal(panel.hidden, true);
+
+  tab.click();
+  assert.equal(panel.hidden, false);
+  assert.match(panel.style.height, /100dvh/);
+  assert.match(
+    document.querySelector("#mwitools-asset-history-style").textContent,
+    /touch-action:pan-y/,
+  );
+  document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape" }),
+  );
+  assert.equal(panel.hidden, true);
 
   ui.destroy();
   scope.cleanup();

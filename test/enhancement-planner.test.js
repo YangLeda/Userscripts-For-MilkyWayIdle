@@ -207,6 +207,42 @@ test("planner can force regular protection mirrors and disable philosopher synth
   assert.equal(mirrorPlan.status, "complete");
   assert.equal(mirrorPlan.philosopherStart, null);
   assert.ok(mirrorPlan.totalCost > defaultPlan.totalCost);
+  assert.equal(mirrorPlan.protectionItemHrid, "/items/mirror_of_protection");
+  assert.equal(mirrorPlan.protectionUnitCost, 80_000);
+});
+
+test("planner compares resolved base cost with protection items and mirrors", () => {
+  const mirrorValues = prices({
+    "/items/target": 100_000,
+    "/items/special_protection": 90_000,
+    "/items/mirror_of_protection": 80_000,
+  });
+  const mirrorPlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => mirrorValues[hrid] ?? 0,
+  });
+  assert.equal(mirrorPlan.status, "complete");
+  assert.equal(mirrorPlan.protectionItemHrid, "/items/mirror_of_protection");
+  assert.equal(mirrorPlan.protectionUnitCost, 80_000);
+
+  const baseValues = prices({
+    "/items/target": 40_000,
+    "/items/special_protection": 90_000,
+    "/items/mirror_of_protection": 80_000,
+  });
+  const basePlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => baseValues[hrid] ?? 0,
+  });
+  assert.equal(basePlan.status, "complete");
+  assert.equal(basePlan.protectionItemHrid, "/items/target");
+  assert.equal(basePlan.protectionUnitCost, 40_000);
 });
 
 test("planner chooses philosopher protection and reports required enhancement inputs", () => {

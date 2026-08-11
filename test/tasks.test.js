@@ -485,14 +485,14 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
 });
 
-test("auto sort keeps tasks from the same full production chain together", () => {
+test("production-chain tasks stay together when automatic sorting is disabled", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
     `<div class="TasksPanel_taskList__chains">
-      ${card("奶酪锻造 - 深紫刷子", "0 / 5")}
-      ${card("奶酪锻造 - 无关工具", "0 / 5")}
       ${card("奶酪锻造 - 绛红刷子", "0 / 5")}
+      ${card("奶酪锻造 - 无关工具", "0 / 5")}
+      ${card("奶酪锻造 - 彩虹刷子", "0 / 5")}
     </div>`,
   );
   runtime.state.initData_actionCategoryDetailMap = {
@@ -542,14 +542,21 @@ test("auto sort keeps tasks from the same full production chain together", () =>
         4,
         "/items/hidden_brush_stage",
       ),
+      action(
+        "/actions/cheesesmithing/rainbow_brush",
+        [{ itemHrid: "/items/crimson_brush", count: 1 }],
+        [{ itemHrid: "/items/rainbow_brush", count: 1 }],
+        5,
+        "/items/crimson_brush",
+      ),
     ].map((detail) => [detail.hrid, detail]),
   );
   runtime.state.characterQuests = [
-    { actionHrid: "/actions/cheesesmithing/burble_brush" },
-    { actionHrid: "/actions/cheesesmithing/unrelated_tool" },
     { actionHrid: "/actions/cheesesmithing/crimson_brush" },
+    { actionHrid: "/actions/cheesesmithing/unrelated_tool" },
+    { actionHrid: "/actions/cheesesmithing/rainbow_brush" },
   ];
-  runtime.settings.settingsMap.taskAutoSort.isTrue = true;
+  runtime.settings.settingsMap.taskAutoSort.isTrue = false;
 
   runtime.api.renderTasks();
 
@@ -564,8 +571,8 @@ test("auto sort keeps tasks from the same full production chain together", () =>
         taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
     );
   assert.deepEqual(orderedTitles, [
-    "奶酪锻造 - 深紫刷子",
     "奶酪锻造 - 绛红刷子",
+    "奶酪锻造 - 彩虹刷子",
     "奶酪锻造 - 无关工具",
   ]);
 });

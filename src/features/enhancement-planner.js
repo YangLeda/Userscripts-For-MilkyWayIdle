@@ -430,20 +430,34 @@ export function calculateEnhancementPlan({
   if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
   if (hasMissingRequiredPrice) return unavailableResult([...missing]);
 
-  const protectionCandidates = forcedProtectionItemHrid
-    ? [forcedProtectionItemHrid]
-    : [
-        baseItemHrid,
-        ...(item.protectionItemHrids ?? []),
-        "/items/mirror_of_protection",
-      ];
-  let protectionPrice = 0;
-  for (const candidate of new Set(protectionCandidates)) {
-    const value = price(candidate, 0);
-    if (value > 0 && (!protectionPrice || value < protectionPrice)) {
-      protectionPrice = value;
+  let protectionChoice = null;
+  const considerProtection = (hrid, value) => {
+    if (
+      hrid &&
+      value > 0 &&
+      (!protectionChoice || value < protectionChoice.value)
+    ) {
+      protectionChoice = { hrid, value };
     }
+  };
+  if (forcedProtectionItemHrid) {
+    considerProtection(
+      forcedProtectionItemHrid,
+      price(forcedProtectionItemHrid, 0),
+    );
+  } else {
+    // The equipment itself protects at the same fully resolved acquisition
+    // cost used for the base item, not a second direct-market lookup.
+    considerProtection(baseItemHrid, basePrice);
+    for (const candidate of new Set(item.protectionItemHrids ?? [])) {
+      considerProtection(candidate, price(candidate, 0));
+    }
+    considerProtection(
+      "/items/mirror_of_protection",
+      price("/items/mirror_of_protection", 0),
+    );
   }
+  const protectionPrice = protectionChoice?.value ?? 0;
   const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
   const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
   const ultraTeaCostPerAction =
@@ -543,6 +557,9 @@ export function calculateEnhancementPlan({
       best.mode === "philosopher" ? best.mirrorCount : best.protectionCount,
     expectedNormalProtectionCount: best.protectionCount,
     expectedPhilosopherMirrorCount: best.mirrorCount,
+    protectionItemHrid:
+      best.protectionCount > EPSILON ? (protectionChoice?.hrid ?? null) : null,
+    protectionUnitCost: best.protectionCount > EPSILON ? protectionPrice : 0,
     philosopherStart: best.philosopherStartLevel,
     aLevel: best.philosopherStartLevel,
     aCount: best.aCount,

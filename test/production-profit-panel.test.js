@@ -27,6 +27,8 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/features/production-profit-panel.js");
+const { resolveGatheringActionFromElement } =
+  await import("../src/features/item-tooltips.js");
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/panel-output": {
@@ -37,24 +39,48 @@ runtime.state.initData_actionDetailMap = {
     inputItems: [{ itemHrid: "/items/input", count: 2 }],
     outputItems: [{ itemHrid: "/items/panel-output", count: 1 }],
   },
+  "/actions/milking/rainbow-cow": {
+    hrid: "/actions/milking/rainbow-cow",
+    name: "Rainbow Cow",
+    type: "/action_types/milking",
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      {
+        itemHrid: "/items/rainbow_milk",
+        dropRate: 0.5,
+        minCount: 2,
+        maxCount: 4,
+      },
+    ],
+  },
 };
 runtime.state.initData_itemDetailMap = {
   "/items/input": { name: "Input" },
   "/items/panel-output": { name: "Panel Output" },
+  "/items/rainbow_milk": { name: "Rainbow Milk" },
 };
 runtime.state.initData_characterSkills = [];
 runtime.state.initData_characterItems = [];
 runtime.state.initData_actionTypeDrinkSlotsMap = {
   "/action_types/crafting": [],
+  "/action_types/milking": [],
 };
 runtime.state.currentEquipmentMap = {};
 runtime.state.actionTypeBuffSources = {};
 runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
 runtime.api.getNetSellPrice = (itemHrid) =>
-  itemHrid === "/items/panel-output" ? 100 : 0;
+  itemHrid === "/items/panel-output"
+    ? 100
+    : itemHrid === "/items/rainbow_milk"
+      ? 200
+      : 0;
 runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
 runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
-  itemHrid === "/items/panel-output" ? 114 : 0;
+  itemHrid === "/items/panel-output"
+    ? 114
+    : itemHrid === "/items/rainbow_milk"
+      ? 220
+      : 0;
 runtime.api.getFairValue = (itemHrid) => {
   const ask = runtime.api.getAskPrice(itemHrid);
   if (ask > 0) return ask;
@@ -126,6 +152,89 @@ test("profit UI displays three valuation rows with revenue, costs, and profit", 
     document.querySelectorAll("#mwitools-production-profit-panel").length,
     1,
   );
+});
+
+test("gathering drop-table products open the same profit panel", () => {
+  const panel = runtime.api.showProductionProfitPanel(
+    nativeTooltip(),
+    "/items/rainbow_milk",
+  );
+  assert.ok(panel);
+  assert.match(panel.textContent, /彩虹牛奶/);
+  assert.match(panel.textContent, /Rainbow Cow/);
+  assert.match(panel.textContent, /1\.5/);
+  assert.match(panel.textContent, /产出/);
+});
+
+test("direct gathering actions show every probability-weighted map output", () => {
+  const actionHrid = "/actions/foraging/mixed_garden";
+  runtime.state.initData_actionDetailMap[actionHrid] = {
+    hrid: actionHrid,
+    name: "Mixed Garden",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      { itemHrid: "/items/berry", dropRate: 0.5, minCount: 1, maxCount: 3 },
+      { itemHrid: "/items/flower", dropRate: 0.25, minCount: 2, maxCount: 2 },
+      { itemHrid: "/items/herb", dropRate: 1, minCount: 1, maxCount: 1 },
+      { itemHrid: "/items/rare_seed", dropRate: 0.1, minCount: 1, maxCount: 1 },
+    ],
+  };
+  runtime.data.ZHActionNames[actionHrid] = "混合花园";
+  for (const [itemHrid, name] of [
+    ["/items/berry", "Berry"],
+    ["/items/flower", "Flower"],
+    ["/items/herb", "Herb"],
+    ["/items/rare_seed", "Rare Seed"],
+  ]) {
+    runtime.state.initData_itemDetailMap[itemHrid] = { name };
+    runtime.data.ZHItemNames[itemHrid] = name;
+  }
+  runtime.state.initData_actionTypeDrinkSlotsMap["/action_types/foraging"] = [];
+  const oldNetSell = runtime.api.getNetSellPrice;
+  const oldNetSellAtAsk = runtime.api.getNetSellPriceAtAsk;
+  const oldBid = runtime.api.getBidPrice;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid.startsWith("/items/") ? 100 : oldNetSell(itemHrid);
+  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+    itemHrid.startsWith("/items/") ? 114 : oldNetSellAtAsk(itemHrid);
+  runtime.api.getBidPrice = (itemHrid) =>
+    itemHrid.startsWith("/items/") ? 95 : oldBid(itemHrid);
+
+  const panel = runtime.api.showProductionProfitPanel(nativeTooltip(), null, {
+    actionHrid,
+  });
+  assert.ok(panel);
+  assert.match(panel.textContent, /混合花园/);
+  assert.match(panel.textContent, /全部期望产物/);
+  const quantities = Object.fromEntries(
+    [...panel.querySelectorAll(".mwi-profit-item[data-item-hrid]")].map(
+      (row) => [
+        row.dataset.itemHrid,
+        row.querySelector(".mwi-profit-item-meta").textContent,
+      ],
+    ),
+  );
+  assert.match(quantities["/items/berry"], /^1\s/);
+  assert.match(quantities["/items/flower"], /^0\.5\s/);
+  assert.match(quantities["/items/herb"], /^1\s/);
+  assert.match(quantities["/items/rare_seed"], /^0\.1\s/);
+
+  const actionCard = document.createElement("div");
+  actionCard.className = "SkillAction_skillAction__test";
+  actionCard.__reactFiber$gathering = {
+    memoizedProps: {
+      actionDetail: runtime.state.initData_actionDetailMap[actionHrid],
+    },
+    return: null,
+  };
+  document.body.append(actionCard);
+  assert.equal(resolveGatheringActionFromElement(actionCard), actionHrid);
+  actionCard.remove();
+
+  runtime.api.getNetSellPrice = oldNetSell;
+  runtime.api.getNetSellPriceAtAsk = oldNetSellAtAsk;
+  runtime.api.getBidPrice = oldBid;
 });
 
 test("English valuation labels use Tea cost", () => {

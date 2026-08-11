@@ -33,6 +33,33 @@ runtime.state.initData_actionDetailMap = {
     inputItems: [],
     outputItems: [{ itemHrid: "/items/output", count: 1 }],
   },
+  "/actions/milking/rainbow-cow": {
+    hrid: "/actions/milking/rainbow-cow",
+    type: "/action_types/milking",
+    sortIndex: 10,
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      {
+        itemHrid: "/items/rainbow_milk",
+        dropRate: 0.5,
+        minCount: 2,
+        maxCount: 4,
+      },
+    ],
+  },
+  "/actions/combat/rainbow-cow": {
+    hrid: "/actions/combat/rainbow-cow",
+    type: "/action_types/combat",
+    sortIndex: 1,
+    dropTable: [
+      {
+        itemHrid: "/items/rainbow_milk",
+        dropRate: 1,
+        minCount: 99,
+        maxCount: 99,
+      },
+    ],
+  },
 };
 runtime.state.initData_characterItems = [
   {
@@ -82,6 +109,19 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.valuations.conservative.netProfitPerAction, 80);
   assert.equal(result.valuations.fair.netProfitPerAction, 80);
   assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
+});
+
+test("production resolver maps gathering drop tables and excludes combat loot", () => {
+  assert.equal(
+    runtime.api.resolveProductionActionByItemHrid("/items/rainbow_milk"),
+    "/actions/milking/rainbow-cow",
+  );
+  assert.deepEqual(
+    runtime.api.getExpectedOutputs(
+      runtime.state.initData_actionDetailMap["/actions/milking/rainbow-cow"],
+    ),
+    [{ itemHrid: "/items/rainbow_milk", count: 1.5 }],
+  );
 });
 
 test("projection exposes market, high-buy-low-sell, and low-buy-high-sell valuations", () => {

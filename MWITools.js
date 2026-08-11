@@ -19031,6 +19031,17 @@
     };
   }
   var PROFIT_VALUATION_MODES = /* @__PURE__ */ new Set(["conservative", "fair", "aggressive"]);
+  var PROFIT_ACTION_TYPES = /* @__PURE__ */ new Set([
+    "/action_types/alchemy",
+    "/action_types/brewing",
+    "/action_types/cheesesmithing",
+    "/action_types/cooking",
+    "/action_types/crafting",
+    "/action_types/foraging",
+    "/action_types/milking",
+    "/action_types/tailoring",
+    "/action_types/woodcutting"
+  ]);
   function getDirectPrice(itemHrid, kind, mode) {
     let value = 0;
     if (mode === "conservative") {
@@ -19112,7 +19123,9 @@
     const matches = Object.entries(
       runtime.state.initData_actionDetailMap ?? {}
     ).filter(
-      ([, detail]) => asArray(detail?.outputItems).some((output) => output?.itemHrid === target)
+      ([, detail]) => PROFIT_ACTION_TYPES.has(detail?.type) && getExpectedOutputs(detail).some(
+        (output) => output?.itemHrid === target && Number(output.count) > 0
+      )
     );
     if (!matches.length) return null;
     const slug = target.split("/").at(-1);
@@ -23117,8 +23130,6 @@
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
   var STYLE_ID = "mwitools-asset-history-style";
-  var MOBILE_BUTTON_ID = "mwitools-asset-history-mobile-button";
-  var MOBILE_SHELL_ID = "mwitools-asset-history-mobile-shell";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
@@ -23279,14 +23290,7 @@
     style.id = STYLE_ID;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
-    #${MOBILE_BUTTON_ID} { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); z-index:2147483000; min-width:54px; padding:8px 12px; border:1px solid rgba(0,198,255,.72); border-radius:999px; background:#14243a; box-shadow:0 5px 18px rgba(0,0,0,.45); color:#72dcff; font:700 13px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
-    #${MOBILE_BUTTON_ID}[data-active="true"] { background:#00c6ff; color:#0b1522; }
-    #${MOBILE_SHELL_ID} { position:fixed; inset:0; z-index:2147483001; display:flex; min-width:0; flex-direction:column; background:#111b2b; }
-    #${MOBILE_SHELL_ID}[hidden] { display:none!important; }
-    .mwi-asset-mobile-header { display:flex; min-height:46px; flex:0 0 auto; align-items:center; justify-content:space-between; gap:12px; padding:env(safe-area-inset-top,0px) 12px 0; border-bottom:1px solid rgba(255,255,255,.1); background:#101927; color:#f2f5f9; }
-    .mwi-asset-mobile-title { font-size:15px; font-weight:750; }
-    .mwi-asset-mobile-close { width:36px; height:36px; padding:0; border:0; background:transparent; color:#e9edf4; font:26px/36px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
-    #${MOBILE_SHELL_ID} #${PANEL_ID} { min-height:0; flex:1 1 auto; max-height:none; }
+    [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,#334b84)!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,#eef2ff)!important; filter:none!important; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
     .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
@@ -23326,7 +23330,7 @@
     .mwi-asset-edit-grid input { box-sizing:border-box; width:100%; border:1px solid rgba(255,255,255,.18); border-radius:4px; background:#101728; color:#eee; padding:6px; }
     .mwi-asset-edit-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:12px; }
     @media(max-width:760px){
-      #${PANEL_ID} { padding:10px 8px 20px; }
+      #${PANEL_ID} { min-height:0; padding:10px 8px calc(20px + env(safe-area-inset-bottom,0px)); overflow-x:hidden; overflow-y:auto; overscroll-behavior-y:contain; -webkit-overflow-scrolling:touch; touch-action:pan-y; }
       .mwi-asset-chart-box { height:280px; }
       .mwi-asset-edit-grid { grid-template-columns:1fr; }
     }
@@ -23338,10 +23342,47 @@
       runtime.api.getOriTextFromElement?.(button) ?? button?.textContent ?? ""
     ).trim().toLowerCase();
   }
-  function findLoadoutTab() {
-    return [...document.querySelectorAll("button")].find(
-      (button) => /^(配装|loadouts?)(?:\s*\d+)?$/i.test(buttonLabel(button))
-    );
+  var CHARACTER_TAB_PATTERNS = {
+    inventory: /^(库存|inventory)$/i,
+    equipment: /^(装备|equipment)$/i,
+    skills: /^(技能|skills?|abilities)$/i,
+    house: /^(房屋|house)$/i,
+    loadout: /^(配装|loadouts?)(?:\s*\d+)?$/i
+  };
+  function findCharacterManagementLoadoutTab() {
+    const groups = /* @__PURE__ */ new Map();
+    for (const button of document.querySelectorAll('button[role="tab"],button')) {
+      const parent = button.parentElement;
+      if (!parent) continue;
+      if (!groups.has(parent)) groups.set(parent, []);
+      groups.get(parent).push(button);
+    }
+    const candidates = [];
+    for (const [parent, buttons] of groups) {
+      const matched = Object.fromEntries(
+        Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
+          key,
+          buttons.find((button) => pattern.test(buttonLabel(button)))
+        ])
+      );
+      const supportingTabs = [
+        matched.equipment,
+        matched.skills,
+        matched.house
+      ].filter(Boolean).length;
+      if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
+      const rect = parent.getBoundingClientRect?.();
+      const visible2 = Boolean(rect && rect.width > 0 && rect.height > 0);
+      const inCharacterManagement = Boolean(
+        parent.closest('[class*="CharacterManagement_characterManagement"]')
+      );
+      candidates.push({
+        button: matched.loadout,
+        score: Number(visible2) * 4 + Number(inCharacterManagement) * 2
+      });
+    }
+    candidates.sort((a, b) => b.score - a.score);
+    return candidates[0]?.button ?? null;
   }
   function looksLikeContent(node) {
     if (!(node instanceof Element)) return false;
@@ -23698,14 +23739,11 @@ ${preview}`
     let active = false;
     let mountMode = null;
     let tab = null;
-    let mobileButton = null;
-    let mobileShell = null;
     let host = null;
     let panel = null;
     let shell2 = null;
     let navigationBranch = null;
     const hiddenNodes = /* @__PURE__ */ new Map();
-    const nativeTabStates = /* @__PURE__ */ new Map();
     const restoreNative = () => {
       for (const [node, state] of hiddenNodes) {
         node.hidden = state.hidden;
@@ -23714,66 +23752,70 @@ ${preview}`
       }
       hiddenNodes.clear();
     };
-    const restoreNativeTabs = () => {
-      for (const [button, state] of nativeTabStates) {
-        if (!button.isConnected) continue;
-        if (state.className === null) button.removeAttribute("class");
-        else button.setAttribute("class", state.className);
-        for (const [name, value] of Object.entries(state.attributes)) {
-          if (value === null) button.removeAttribute(name);
-          else button.setAttribute(name, value);
-        }
+    const captureIdleTabStyle = () => {
+      if (!tab || !navigationBranch || typeof getComputedStyle !== "function") {
+        return;
       }
-      nativeTabStates.clear();
+      const style = getComputedStyle(tab);
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-background",
+        style.background || style.backgroundColor || "#334b84"
+      );
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-border",
+        style.borderColor || "rgba(255,255,255,.16)"
+      );
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-color",
+        style.color || "#eef2ff"
+      );
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-shadow",
+        style.boxShadow || "none"
+      );
     };
-    const deactivateNativeTabs = () => {
-      for (const button of tab?.parentElement?.querySelectorAll("button") ?? []) {
-        if (button === tab) continue;
-        if (!nativeTabStates.has(button)) {
-          nativeTabStates.set(button, {
-            className: button.getAttribute("class"),
-            attributes: Object.fromEntries(
-              ["aria-selected", "data-active", "data-selected", "data-state"].map(
-                (name) => [name, button.getAttribute(name)]
-              )
-            )
-          });
-        }
-        button.setAttribute("aria-selected", "false");
-        if (button.hasAttribute("data-active")) button.dataset.active = "false";
-        if (button.hasAttribute("data-selected")) {
-          button.dataset.selected = "false";
-        }
-        if (button.hasAttribute("data-state")) button.dataset.state = "inactive";
-        for (const className of [...button.classList]) {
-          if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
-            button.classList.remove(className);
-          }
-        }
+    const clearNativeTabOverride = () => {
+      if (!navigationBranch) return;
+      delete navigationBranch.dataset.mwitoolsAssetActive;
+      for (const property of [
+        "--mwi-asset-idle-background",
+        "--mwi-asset-idle-border",
+        "--mwi-asset-idle-color",
+        "--mwi-asset-idle-shadow"
+      ]) {
+        navigationBranch.style.removeProperty(property);
       }
+    };
+    const syncHostViewport = () => {
+      if (!host) return;
+      if (!isCompactViewport() || !active) {
+        host.style.removeProperty("height");
+        host.style.removeProperty("max-height");
+        return;
+      }
+      const top = Math.max(0, Math.round(host.getBoundingClientRect().top));
+      const available = `calc(100dvh - ${top}px - env(safe-area-inset-bottom,0px))`;
+      host.style.height = available;
+      host.style.maxHeight = available;
     };
     const setActive = (next) => {
-      active = Boolean(next);
+      const nextActive = Boolean(next);
+      if (mountMode === "native" && nextActive && !active) {
+        captureIdleTabStyle();
+      }
+      active = nextActive;
       if (tab) {
         tab.dataset.active = String(active);
         tab.setAttribute("aria-selected", String(active));
       }
-      if (mobileButton) {
-        mobileButton.dataset.active = String(active);
-        mobileButton.setAttribute("aria-expanded", String(active));
-      }
-      if (mobileShell) mobileShell.hidden = !active;
       if (host) host.hidden = !active;
-      if (mountMode === "mobile") {
-        if (active) panel?.update(runtime.api.getLatestAssetSnapshot?.());
-        return;
-      }
       if (!active) {
         restoreNative();
-        restoreNativeTabs();
+        clearNativeTabOverride();
+        syncHostViewport();
         return;
       }
-      deactivateNativeTabs();
+      navigationBranch.dataset.mwitoolsAssetActive = "true";
       for (const node of [...shell2?.children ?? []]) {
         if (node === navigationBranch || node === host || node.tagName === "STYLE")
           continue;
@@ -23786,6 +23828,7 @@ ${preview}`
         node.hidden = true;
         node.style.display = "none";
       }
+      syncHostViewport();
       panel?.update(runtime.api.getLatestAssetSnapshot?.());
     };
     const teardownMount = () => {
@@ -23794,16 +23837,11 @@ ${preview}`
       panel = null;
       tab?.remove();
       host?.remove();
-      mobileButton?.remove();
-      mobileShell?.remove();
       mountMode = null;
       tab = null;
-      mobileButton = null;
-      mobileShell = null;
       host = null;
       shell2 = null;
       navigationBranch = null;
-      nativeTabStates.clear();
     };
     const mountNative = (loadout, found) => {
       mountMode = "native";
@@ -23813,7 +23851,7 @@ ${preview}`
       tab.type = "button";
       tab.textContent = t2("盈亏", "P/L");
       for (const className of [...tab.classList]) {
-        if (/(?:^|_)(?:active|selected)(?:_|$)/i.test(className)) {
+        if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
           tab.classList.remove(className);
         }
       }
@@ -23834,50 +23872,8 @@ ${preview}`
       panel = new AssetHistoryPanel(host, store, scopeKey);
       panel.update(runtime.api.getLatestAssetSnapshot?.());
     };
-    const mountMobile = () => {
-      mountMode = "mobile";
-      mobileButton = document.createElement("button");
-      mobileButton.id = MOBILE_BUTTON_ID;
-      mobileButton.type = "button";
-      mobileButton.textContent = t2("盈亏", "P/L");
-      mobileButton.dataset.active = "false";
-      mobileButton.setAttribute("aria-expanded", "false");
-      mobileButton.setAttribute(
-        "aria-label",
-        t2("打开盈亏页面", "Open profit and loss page")
-      );
-      mobileButton.addEventListener("click", () => setActive(true));
-      mobileShell = document.createElement("section");
-      mobileShell.id = MOBILE_SHELL_ID;
-      mobileShell.hidden = true;
-      mobileShell.setAttribute("role", "dialog");
-      mobileShell.setAttribute("aria-modal", "true");
-      mobileShell.setAttribute(
-        "aria-label",
-        t2("每日资产盈亏", "Daily asset profit and loss")
-      );
-      const header = document.createElement("header");
-      header.className = "mwi-asset-mobile-header";
-      const title = document.createElement("div");
-      title.className = "mwi-asset-mobile-title";
-      title.textContent = t2("每日资产盈亏", "Daily asset P/L");
-      const close = document.createElement("button");
-      close.type = "button";
-      close.className = "mwi-asset-mobile-close";
-      close.textContent = "×";
-      close.setAttribute("aria-label", t2("关闭盈亏页面", "Close P/L page"));
-      close.addEventListener("click", () => setActive(false));
-      header.append(title, close);
-      host = document.createElement("section");
-      host.id = PANEL_ID;
-      host.hidden = true;
-      mobileShell.append(header, host);
-      document.body.append(mobileButton, mobileShell);
-      panel = new AssetHistoryPanel(host, store, scopeKey);
-      panel.update(runtime.api.getLatestAssetSnapshot?.());
-    };
     const ensureMounted = () => {
-      const loadout = findLoadoutTab();
+      const loadout = findCharacterManagementLoadoutTab();
       const found = loadout && findPanelShell(loadout);
       if (loadout && found) {
         if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
@@ -23886,14 +23882,6 @@ ${preview}`
         }
         teardownMount();
         mountNative(loadout, found);
-        return;
-      }
-      if (isCompactViewport()) {
-        if (mountMode === "mobile" && mobileButton?.isConnected && mobileShell?.isConnected && host?.isConnected) {
-          return;
-        }
-        teardownMount();
-        mountMobile();
         return;
       }
       if (mountMode !== null) teardownMount();
@@ -23907,17 +23895,18 @@ ${preview}`
       (event) => {
         if (!active || event.target.closest(`#${TAB_ID}`)) return;
         const nativeButton = event.target.closest("button");
-        if (nativeButton && tab?.parentElement?.contains(nativeButton)) {
+        if (nativeButton && navigationBranch?.contains(nativeButton)) {
           setActive(false);
         }
       },
       true
     );
     scope.event(document, "keydown", (event) => {
-      if (active && mountMode === "mobile" && event.key === "Escape") {
+      if (active && isCompactViewport() && event.key === "Escape") {
         setActive(false);
       }
     });
+    scope.event(window, "resize", syncHostViewport);
     return {
       update(snapshot) {
         panel?.update(snapshot);
@@ -25294,9 +25283,12 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      margin: .0625rem 0 .1875rem;
+      --mwi-inventory-heading-font-size: .875rem;
+      --mwi-inventory-heading-line-height: 1.2;
+      margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: .72rem;
+      font-size: var(--mwi-inventory-heading-font-size);
+      line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
     .mwi-inventory-summary-grid {
@@ -25348,16 +25340,16 @@ ${preview}`
     .mwi-summary-label {
       flex: 0 0 auto;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .64rem;
+      font-size: inherit;
       font-weight: 600;
       white-space: nowrap;
     }
     .mwi-summary-value {
       min-width: 0;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .78rem;
+      font-size: inherit;
       font-weight: 750;
-      line-height: 1.05;
+      line-height: inherit;
       overflow-wrap: anywhere;
     }
     .mwi-summary-chevron {
@@ -25374,7 +25366,7 @@ ${preview}`
       transform: rotate(225deg) translate(-2px, 2px);
     }
     .mwi-summary-details {
-      margin: 0 7px 3px 17px;
+      margin: 0 .25rem 0 .5rem;
       animation: mwi-summary-reveal .16s ease-out;
     }
     .mwi-summary-stats {
@@ -25382,13 +25374,13 @@ ${preview}`
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       gap: 0;
-      padding: 0 0 1px 17px;
+      padding: 0 0 0 .5rem;
     }
     .mwi-summary-stats::before {
       position: absolute;
       top: 0;
-      bottom: 11px;
-      left: 5px;
+      bottom: .5em;
+      left: 0;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .34);
       content: "";
@@ -25399,21 +25391,23 @@ ${preview}`
       min-width: 0;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      padding: 2px 5px;
+      gap: .5rem;
+      padding: 0 .25rem;
+      font-size: inherit;
+      line-height: inherit;
     }
     .mwi-summary-stat::before {
       position: absolute;
       top: 50%;
-      left: -12px;
-      width: 12px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
     .mwi-summary-stat::after {
       position: absolute;
       top: calc(50% - 2px);
-      left: -14px;
+      left: calc(-.5rem - 2px);
       width: 3px;
       height: 3px;
       border-radius: 50%;
@@ -25423,15 +25417,15 @@ ${preview}`
     .mwi-summary-stat-label {
       overflow: hidden;
       color: var(--color-text-secondary, #9da6b2);
-      font-size: .6rem;
+      font-size: inherit;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .mwi-summary-stat-value { color: #f3f5f7; font-size: .68rem; font-weight: 650; }
+    .mwi-summary-stat-value { color: #f3f5f7; font-size: inherit; font-weight: 650; }
     .mwi-asset-groups {
       display: grid;
       gap: 0;
-      padding: 0 0 1px 17px;
+      padding: 0 0 0 .5rem;
     }
     .mwi-asset-group {
       position: relative;
@@ -25439,9 +25433,9 @@ ${preview}`
     }
     .mwi-asset-group:not(:last-child)::after {
       position: absolute;
-      top: 12px;
-      bottom: -13px;
-      left: -12px;
+      top: .6em;
+      bottom: -.6em;
+      left: -.5rem;
       border-left: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
@@ -25449,24 +25443,25 @@ ${preview}`
       position: relative;
       display: flex;
       width: 100%;
-      min-height: 24px;
+      min-height: 0;
       align-items: center;
-      gap: 6px;
-      padding: 2px 5px;
+      gap: .25rem;
+      padding: 0 .25rem;
       border: 0;
       background: transparent;
       color: var(--color-text-primary, #e8ebef);
       font: inherit;
-      font-size: .68rem;
+      font-size: inherit;
       font-weight: 600;
+      line-height: inherit;
       text-align: left;
       cursor: pointer;
     }
     .mwi-asset-toggle::before {
       position: absolute;
       top: 50%;
-      left: -12px;
-      width: 12px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .34);
       content: "";
     }
@@ -25477,7 +25472,7 @@ ${preview}`
       min-width: 0;
       margin-left: auto;
       color: rgb(var(--mwi-summary-accent));
-      font-size: .66rem;
+      font-size: inherit;
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
@@ -25486,14 +25481,14 @@ ${preview}`
       position: relative;
       display: grid;
       gap: 0;
-      margin-left: 9px;
-      padding: 0 5px 2px 16px;
+      margin-left: .25rem;
+      padding: 0 .25rem 0 .5rem;
     }
     .mwi-asset-rows::before {
       position: absolute;
       top: 0;
-      bottom: 9px;
-      left: 5px;
+      bottom: .5em;
+      left: 0;
       width: 1px;
       background: rgba(var(--mwi-summary-accent), .25);
       content: "";
@@ -25503,16 +25498,17 @@ ${preview}`
       display: flex;
       align-items: baseline;
       justify-content: space-between;
-      gap: 8px;
-      padding: 2px 0;
+      gap: .5rem;
+      padding: 0;
       color: var(--color-text-secondary, #aeb5c0);
-      font-size: .64rem;
+      font-size: inherit;
+      line-height: inherit;
     }
     .mwi-asset-row::before {
       position: absolute;
       top: 50%;
-      left: -11px;
-      width: 11px;
+      left: -.5rem;
+      width: .5rem;
       border-top: 1px solid rgba(var(--mwi-summary-accent), .25);
       content: "";
     }
@@ -25550,6 +25546,16 @@ ${preview}`
   }
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+  }
+  function syncInventorySummaryTypography(invElem, summary) {
+    const categoryTitle = invElem.querySelector(
+      '[class*="Inventory_categoryButton"]'
+    );
+    const computed = categoryTitle ? categoryTitle.ownerDocument?.defaultView?.getComputedStyle(categoryTitle) : null;
+    const fontSize = Number.parseFloat(computed?.fontSize) > 0 ? computed.fontSize : ".875rem";
+    const lineHeight = computed?.lineHeight && computed.lineHeight !== "normal" ? computed.lineHeight : "1.2";
+    summary.style.setProperty("--mwi-inventory-heading-font-size", fontSize);
+    summary.style.setProperty("--mwi-inventory-heading-line-height", lineHeight);
   }
   function scheduleNetworthRefresh() {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
@@ -25742,6 +25748,7 @@ ${preview}`
       const summary = invElem.parentElement.querySelector(
         "#script_inventory_summary"
       );
+      syncInventorySummaryTypography(invElem, summary);
       const toggleScores = summary.querySelector("#toggleScores");
       const ScoreDetails = summary.querySelector("#buildScores");
       const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
@@ -25871,48 +25878,63 @@ ${preview}`
     invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
     const sortItemsBy = (order) => {
       for (const typeDiv of invElem.children) {
-        const typeName = runtime.api.getOriTextFromElement(
-          typeDiv.getElementsByClassName("Inventory_categoryButton__35s1x")[0]
+        const categoryButton = typeDiv.querySelector(
+          '[class*="Inventory_categoryButton"]'
         );
+        const typeName = runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? "";
         if (!isSortableInventoryCategory(typeName)) {
           continue;
         }
-        typeDiv.querySelector(".Inventory_label__XEOAx").style.order = Number.MIN_SAFE_INTEGER;
-        const itemElems = typeDiv.querySelectorAll(".Item_itemContainer__x7kH1");
-        for (const itemElem of itemElems) {
-          let itemName3 = itemElem.querySelector("svg").attributes["aria-label"].value;
-          if (runtime.config.isZHInGameSetting) {
+        const label = typeDiv.querySelector('[class*="Inventory_label"]');
+        if (label) label.style.order = Number.MIN_SAFE_INTEGER;
+        const itemElems = [
+          ...typeDiv.querySelectorAll('[class*="Item_itemContainer"]')
+        ];
+        const sortableItems = itemElems.map((itemElem, originalIndex) => {
+          let itemName3 = itemElem.querySelector("svg[aria-label]")?.getAttribute("aria-label") ?? "";
+          if (runtime.config.isZHInGameSetting && typeof runtime.api.getItemEnNameFromZhName === "function") {
             itemName3 = runtime.api.getItemEnNameFromZhName(itemName3);
           }
           const itemHrid = runtime.state.itemEnNameToHridMap[itemName3];
           const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
-          let itemCount = itemElem.querySelector(".Item_count__1HVvv").innerText;
-          itemCount = runtime.api.parseCompactNumber(itemCount);
-          const itemAskmWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") * itemCount;
-          const itemBidWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") * itemCount;
-          const itemFairWorth = getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") * itemCount;
+          const countText = itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
+          const parsedCount = runtime.api.parseCompactNumber?.(countText) ?? Number(countText);
+          const itemCount = Number.isFinite(Number(parsedCount)) ? Number(parsedCount) : 1;
+          const values = {
+            ask: getInventorySortUnitValue(itemHrid, enhancementLevel, "ask") * itemCount,
+            bid: getInventorySortUnitValue(itemHrid, enhancementLevel, "bid") * itemCount,
+            fair: getInventorySortUnitValue(itemHrid, enhancementLevel, "fair") * itemCount
+          };
           if (!itemElem.querySelector("#script_stack_price")) {
             itemElem.style.position = "relative";
             const priceElemHTML = `<div
                         id="script_stack_price"
                         style="z-index: 1; position: absolute; top: 2px; left: 2px; text-align: left;">
                     </div>`;
-            itemElem.querySelector(".Item_item__2De2O.Item_clickable__3viV6").insertAdjacentHTML("beforeend", priceElemHTML);
+            const priceHost = itemElem.querySelector(
+              '[class*="Item_item"][class*="Item_clickable"]'
+            ) ?? itemElem;
+            priceHost.insertAdjacentHTML("beforeend", priceElemHTML);
           }
           const priceElem = itemElem.querySelector("#script_stack_price");
-          if (order === "fair") {
-            itemElem.style.order = -itemFairWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemFairWorth);
-          } else if (order === "ask") {
-            itemElem.style.order = -itemAskmWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemAskmWorth);
-          } else if (order === "bid") {
-            itemElem.style.order = -itemBidWorth;
-            priceElem.textContent = runtime.api.numberFormatter(itemBidWorth);
-          } else if (order === "none") {
+          return { itemElem, originalIndex, priceElem, values };
+        });
+        if (order === "none") {
+          for (const { itemElem, priceElem } of sortableItems) {
             itemElem.style.order = 0;
             priceElem.textContent = "";
           }
+          continue;
+        }
+        sortableItems.sort(
+          (left, right) => right.values[order] - left.values[order] || left.originalIndex - right.originalIndex
+        );
+        for (const [
+          rank,
+          { itemElem, priceElem, values }
+        ] of sortableItems.entries()) {
+          itemElem.style.order = rank;
+          priceElem.textContent = runtime.api.numberFormatter(values[order]);
         }
       }
     };
@@ -26749,17 +26771,20 @@ ${preview}`
     }
     return { className: "complete", label: t5("完整计价", "Fully priced") };
   }
-  function renderPanel(panel, itemHrid, projection) {
+  function renderPanel(panel, itemHrid, projection, options = {}) {
     const productName = itemName2(itemHrid);
     const status = statusInfo(projection);
     const detail = projection.detail;
+    const directAction = Boolean(options.directAction);
+    const title = directAction ? actionName(projection.actionHrid, detail) : productName;
+    const subtitle = directAction ? `${t5("全部期望产物", "All expected outputs")} · ${t5("当前玩家实时配置", "Current player configuration")}` : `${actionName(projection.actionHrid, detail)} · ${t5("当前玩家实时配置", "Current player configuration")}`;
     panel.dataset.status = status.className;
     panel.innerHTML = `
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t5("当前玩家实时配置", "Current player configuration")}</div>
+        <div class="mwi-profit-title">${escapeHtml(title)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(subtitle)}</div>
       </div>
       <div class="mwi-profit-status ${status.className}">${escapeHtml(status.label)}</div>
     </header>`;
@@ -26931,8 +26956,8 @@ ${preview}`
     state.panel?.remove();
     activePanel = null;
   }
-  function showProductionProfitPanel(anchor, itemHrid) {
-    const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+  function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+    const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
     if (!anchor?.isConnected || !actionHrid) {
       hideProductionProfitPanel();
       return null;
@@ -26940,11 +26965,15 @@ ${preview}`
     hideProductionProfitPanel();
     addStyles3();
     const projection = runtime.api.projectAction(actionHrid, 1);
+    const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
+    if (!primaryItemHrid) return null;
     const panel = document.createElement("aside");
     panel.id = PANEL_ID2;
     panel.setAttribute("role", "status");
     panel.setAttribute("aria-live", "polite");
-    renderPanel(panel, itemHrid, projection);
+    renderPanel(panel, primaryItemHrid, projection, {
+      directAction: Boolean(options.actionHrid)
+    });
     anchor.insertAdjacentElement("afterend", panel);
     const position = () => globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
     const mutationObserver = new MutationObserver(() => {
@@ -26956,7 +26985,8 @@ ${preview}`
     resizeObserver?.observe(panel);
     activePanel = {
       anchor,
-      itemHrid,
+      itemHrid: primaryItemHrid,
+      actionHrid,
       mutationObserver,
       panel,
       position,
@@ -27046,11 +27076,111 @@ ${preview}`
                 "div.QueuedActions_queuedActionsEditMenu__3OoQH"
               )
             );
+          } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
+            const actionHrid = resolveGatheringActionFromElement(added);
+            if (actionHrid) {
+              runtime.api.showProductionProfitPanel?.(added, null, {
+                actionHrid
+              });
+            }
           }
         }
       }
     }
   });
+  var GATHERING_ACTION_TYPES = /* @__PURE__ */ new Set([
+    "/action_types/foraging",
+    "/action_types/milking",
+    "/action_types/woodcutting"
+  ]);
+  var GATHERING_CARD_SELECTOR = [
+    '[data-action-hrid^="/actions/"]',
+    '[class*="SkillAction_skillAction"]',
+    '[class*="GatheringProductionSkillPanel_action"]'
+  ].join(",");
+  function reactFiberKey(element) {
+    return Object.keys(element ?? {}).find(
+      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
+    );
+  }
+  function gatheringActionHrid(value) {
+    const hrid = String(value ?? "");
+    const detail = runtime.state.initData_actionDetailMap?.[hrid];
+    return GATHERING_ACTION_TYPES.has(detail?.type) ? hrid : "";
+  }
+  function actionHridFromReactValue(value, depth = 0, seen = /* @__PURE__ */ new Set()) {
+    if (!value || depth > 3 || typeof value !== "object" || seen.has(value)) {
+      return "";
+    }
+    seen.add(value);
+    for (const key of ["actionHrid", "hrid"]) {
+      const actionHrid = gatheringActionHrid(value[key]);
+      if (actionHrid) return actionHrid;
+    }
+    for (const key of [
+      "actionDetail",
+      "action",
+      "detail",
+      "selectedAction",
+      "children",
+      "props"
+    ]) {
+      const nested = value[key];
+      if (Array.isArray(nested)) {
+        for (const entry of nested) {
+          const actionHrid2 = actionHridFromReactValue(entry, depth + 1, seen);
+          if (actionHrid2) return actionHrid2;
+        }
+        continue;
+      }
+      const actionHrid = actionHridFromReactValue(nested, depth + 1, seen);
+      if (actionHrid) return actionHrid;
+    }
+    return "";
+  }
+  function resolveGatheringActionFromElement(element) {
+    for (let current = element; current; current = current.parentElement) {
+      const direct = gatheringActionHrid(
+        current.dataset?.actionHrid ?? current.getAttribute?.("data-action-hrid")
+      );
+      if (direct) return direct;
+      const key = reactFiberKey(current);
+      let fiber = key ? current[key] : null;
+      for (let depth = 0; fiber && depth < 8; depth += 1) {
+        for (const value of [
+          fiber.memoizedProps,
+          fiber.pendingProps,
+          fiber.memoizedState,
+          fiber.stateNode?.props,
+          fiber.stateNode?.state
+        ]) {
+          const fromFiber = actionHridFromReactValue(value);
+          if (fromFiber) return fromFiber;
+        }
+        fiber = fiber.return;
+      }
+      if (current.classList?.contains("MuiTooltip-popper")) break;
+    }
+    const texts = [
+      runtime.api.getOriTextFromElement?.(element),
+      element?.textContent,
+      ...[...element?.querySelectorAll?.("div,span") ?? []].filter((node) => String(node.textContent ?? "").trim().length <= 80).map(
+        (node) => runtime.api.getOriTextFromElement?.(node) ?? node.textContent
+      )
+    ].map(
+      (text) => String(text ?? "").replaceAll(/\s+/g, " ").trim()
+    ).filter(Boolean);
+    const matches = Object.values(runtime.state.initData_actionDetailMap ?? {}).filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type)).filter((detail) => {
+      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]].map((name) => String(name ?? "").trim()).filter(Boolean);
+      return texts.some((text) => names.includes(text));
+    }).sort(
+      (left, right) => Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0) || String(left.hrid).localeCompare(String(right.hrid))
+    );
+    return matches[0]?.hrid ?? "";
+  }
+  function gatheringCardFromEventTarget(target) {
+    return target?.closest?.(GATHERING_CARD_SELECTOR) ?? null;
+  }
   var actionHridToToolsSpeedBuffNamesMap = {
     "/action_types/brewing": "brewingSpeed",
     "/action_types/cheesesmithing": "cheesesmithingSpeed",
@@ -27381,7 +27511,20 @@ ${preview}`
       id,
       setting: id,
       dependsOn: ["itemTooltip_prices"],
-      initialize() {
+      initialize({ scope }) {
+        if (id !== "itemTooltip_profit") return;
+        scope.event(document, "mouseover", (event) => {
+          const card = gatheringCardFromEventTarget(event.target);
+          if (!card || card.contains(event.relatedTarget)) return;
+          const actionHrid = resolveGatheringActionFromElement(card);
+          if (!actionHrid) return;
+          runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
+        });
+        scope.event(document, "mouseout", (event) => {
+          const card = gatheringCardFromEventTarget(event.target);
+          if (!card || card.contains(event.relatedTarget)) return;
+          runtime.api.hideProductionProfitPanel?.();
+        });
       }
     });
   }
@@ -27922,18 +28065,61 @@ ${preview}`
     }
     return null;
   }
+  function clearActionDashboard() {
+    document.querySelector("#mwi-action-dashboard")?.remove();
+    document.querySelectorAll(".mwi-action-dashboard-host").forEach(
+      (element) => element.classList.remove("mwi-action-dashboard-host")
+    );
+  }
+  function nativeActionText(host) {
+    return [...host?.childNodes ?? []].filter(
+      (node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard" && node.id !== "script_item_warning"
+    ).map((node) => node.textContent ?? "").join(" ").replaceAll(/\s+/g, " ").trim();
+  }
+  function normalizedActionText(value) {
+    return String(value ?? "").replaceAll(/\([^)]*\)\s*$/g, "").replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
+  }
+  function actionHeaderNames(actionHrid, detail) {
+    const names = /* @__PURE__ */ new Set([
+      detail?.name,
+      runtime.data.ZHActionNames?.[actionHrid]
+    ]);
+    for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
+      names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
+      names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+    }
+    return [...names].map(normalizedActionText).filter(Boolean);
+  }
+  function actionMatchesHeader(action, host) {
+    const actionHrid = action?.actionHrid;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!actionHrid || !detail || detail.type === "/action_types/combat") {
+      return false;
+    }
+    const header = normalizedActionText(nativeActionText(host));
+    if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
+      return false;
+    }
+    if (String(actionHrid).includes("/enhancing")) {
+      return /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
+        (name) => header.includes(name)
+      );
+    }
+    return actionHeaderNames(actionHrid, detail).some(
+      (name) => header === name || header.includes(name)
+    );
+  }
   function renderActionDashboard() {
     addStyles4();
     const host = document.querySelector('div[class*="Header_actionName"]');
-    const actions = runtime.state.currentActionsHridList ?? [];
-    if (!host || !actions.length) {
-      document.querySelector("#mwi-action-dashboard")?.remove();
-      document.querySelectorAll(".mwi-action-dashboard-host").forEach(
-        (element) => element.classList.remove("mwi-action-dashboard-host")
-      );
+    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
+      (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
+    );
+    const current = actions[0];
+    if (!host || !current || !actionMatchesHeader(current, host)) {
+      clearActionDashboard();
       return;
     }
-    const current = actions[0];
     const timing = getLiveActionTiming(host);
     const enhancementCount = getNativeEnhancementCount(host, current);
     const projection = runtime.api.projectAction(
@@ -29851,6 +30037,16 @@ ${locks}` : ""}`;
   var LOADOUT_SELECTOR = '[class*="SkillActionDetail_loadoutDropdown"]';
   var BUTTONS_SELECTOR = '[class*="SkillActionDetail_buttonsContainer"]';
   var TRAIN_TIMEOUT_MS = 6e4;
+  var ACTION_NAVIGATION_HANDLERS = [
+    "handleGoToActionTypeDetail",
+    "handleClickActionTypeDetail",
+    "handleGoToActionType",
+    "handleSelectActionType",
+    "handleGoToActionDetail",
+    "handleSelectAction",
+    "handleClickAction",
+    "handleGoToAction"
+  ];
   var activeTrain = null;
   var scanPending = false;
   function raf(callback) {
@@ -29979,39 +30175,36 @@ ${locks}` : ""}`;
       (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
     );
   }
-  function gameInstance() {
+  function gameInstances() {
     const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
-    if (pageGlobal3.mwi?.game) return pageGlobal3.mwi.game;
+    const instances = [];
+    if (pageGlobal3.mwi?.game) instances.push(pageGlobal3.mwi.game);
     const gamePage = document.querySelector(
       '[class*="GamePage_gamePage"],[class^="GamePage"]'
     );
     const key = fiberKey(gamePage);
     let fiber = key ? gamePage[key] : null;
     while (fiber) {
-      if (fiber.stateNode?.state?.navTarget !== void 0) return fiber.stateNode;
+      const instance = fiber.stateNode;
+      if (instance && (typeof instance.setState === "function" || ACTION_NAVIGATION_HANDLERS.some(
+        (handler) => typeof instance[handler] === "function"
+      )) && !instances.includes(instance)) {
+        instances.push(instance);
+      }
       fiber = fiber.return;
     }
-    return null;
+    return instances;
   }
   function navigateToTrainAction(actionHrid) {
-    const game = gameInstance();
-    if (!game) return false;
     const invoke = () => {
-      for (const name of [
-        "handleGoToActionTypeDetail",
-        "handleClickActionTypeDetail",
-        "handleGoToActionType",
-        "handleSelectActionType",
-        "handleGoToActionDetail",
-        "handleSelectAction",
-        "handleClickAction",
-        "handleGoToAction"
-      ]) {
-        if (typeof game[name] !== "function") continue;
-        try {
-          game[name](actionHrid);
-          return true;
-        } catch {
+      for (const game of gameInstances()) {
+        for (const name of ACTION_NAVIGATION_HANDLERS) {
+          if (typeof game[name] !== "function") continue;
+          try {
+            game[name](actionHrid);
+            return true;
+          } catch {
+          }
         }
       }
       return false;
@@ -30036,7 +30229,9 @@ ${locks}` : ""}`;
     return invoke();
   }
   function navigateToTrainShop(step) {
-    const game = gameInstance();
+    const game = gameInstances().find(
+      (instance) => typeof instance.setState === "function"
+    );
     if (!game || !step?.shopHrid) return false;
     try {
       if (game.state?.navTarget !== "shop") game.setState({ navTarget: "shop" });
@@ -30940,66 +31135,33 @@ ${locks}` : ""}`;
       actionHrid
     };
   }
-  function productionDepth(tasks) {
-    const actionDetails = Object.values(
-      runtime.state.initData_actionDetailMap ?? {}
-    ).filter((detail) => detail?.hrid);
-    const procurement2 = runtime.api.procurement;
-    const parent = /* @__PURE__ */ new Map();
-    const firstSeen = /* @__PURE__ */ new Map();
-    const find = (actionHrid) => {
-      const current = parent.get(actionHrid) ?? actionHrid;
-      if (current === actionHrid) return current;
-      const root = find(current);
-      parent.set(actionHrid, root);
-      return root;
-    };
-    const union = (left, right) => {
-      const leftRoot = find(left);
-      const rightRoot = find(right);
-      if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
-    };
-    for (const detail of actionDetails) {
-      parent.set(detail.hrid, detail.hrid);
-    }
-    for (const detail of actionDetails) {
-      const producer = detail.upgradeItemHrid ? procurement2?.getProducerAction?.(detail.upgradeItemHrid) : null;
-      if (producer?.actionHrid && producer.actionHrid !== detail.hrid)
-        union(detail.hrid, producer.actionHrid);
-    }
-    for (const [index, task] of tasks.entries()) {
+  function productionChains(tasks) {
+    if (!runtime.settings.get("taskTrainPlanner")) return null;
+    const planning = runtime.api.trainPlanning;
+    if (!planning) return null;
+    const rows = tasks.map((task, index) => {
       const actionHrid = taskActionHrid(task);
-      if (parent.has(actionHrid) && !firstSeen.has(actionHrid))
-        firstSeen.set(actionHrid, index);
-    }
-    const cache = /* @__PURE__ */ new Map();
-    const visiting = /* @__PURE__ */ new Set();
-    const depth = (actionHrid) => {
-      if (cache.has(actionHrid)) return cache.get(actionHrid);
-      if (visiting.has(actionHrid)) return 0;
-      visiting.add(actionHrid);
       const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-      let value = 0;
-      const producer = detail?.upgradeItemHrid ? procurement2?.getProducerAction?.(detail.upgradeItemHrid) : null;
-      if (producer?.actionHrid && producer.actionHrid !== actionHrid)
-        value = depth(producer.actionHrid) + 1;
-      visiting.delete(actionHrid);
-      cache.set(actionHrid, value);
-      return value;
-    };
-    for (const task of tasks) depth(taskActionHrid(task));
-    const groupMinimum = /* @__PURE__ */ new Map();
-    for (const [actionHrid, index] of firstSeen) {
-      const root = find(actionHrid);
-      groupMinimum.set(root, Math.min(groupMinimum.get(root) ?? index, index));
-    }
-    const groups = new Map(
-      [...firstSeen.keys()].map((actionHrid) => [
+      const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
+      const root = outputHrid ? planning.trainChainRoot(outputHrid) : "";
+      const depth = outputHrid ? planning.trainChainDepth(outputHrid) : -1;
+      return {
         actionHrid,
-        groupMinimum.get(find(actionHrid)) ?? firstSeen.get(actionHrid)
+        root: root && depth >= 0 ? root : `task:${index}`,
+        depth: Math.max(0, depth),
+        index
+      };
+    });
+    const groupOrder = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      if (!groupOrder.has(row.root)) groupOrder.set(row.root, row.index);
+    }
+    return new Map(
+      rows.map((row) => [
+        row.actionHrid,
+        { depth: row.depth, group: groupOrder.get(row.root) ?? row.index }
       ])
     );
-    return { depths: cache, groups };
   }
   function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
     if (!runtime.settings.settingsMap.taskNewBadge.isTrue) {
@@ -31089,7 +31251,7 @@ ${locks}` : ""}`;
     });
   }
   function orderedRows(cards, tasks) {
-    const chains = productionDepth(tasks);
+    const chains = productionChains(tasks);
     const rows = cards.map((card, index) => {
       const task = tasks[index];
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -31113,15 +31275,18 @@ ${locks}` : ""}`;
         location: location2,
         dungeonLocations,
         info: actionSortInfo(task, slot),
-        depth: chains?.depths.get(taskActionHrid(task)) ?? 0,
-        chain: chains?.groups.get(taskActionHrid(task)) ?? index
+        depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
+        chain: chains?.get(taskActionHrid(task))?.group ?? index
       };
     });
     rows.sort((left, right) => {
       const professionOrder = left.profession.order - right.profession.order;
       if (professionOrder) return professionOrder;
-      if (!runtime.settings.get("taskAutoSort") || !chains) {
+      if (!chains) {
         return left.info.originalIndex - right.info.originalIndex;
+      }
+      if (!runtime.settings.get("taskAutoSort")) {
+        return left.chain - right.chain || left.depth - right.depth || left.info.originalIndex - right.info.originalIndex;
       }
       if (left.info.unknown && right.info.unknown)
         return left.info.originalIndex - right.info.originalIndex;
@@ -35174,18 +35339,28 @@ ${locks}` : ""}`;
     const blessedTeaPrice = price("/items/blessed_tea", 0);
     if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
     if (hasMissingRequiredPrice) return unavailableResult([...missing]);
-    const protectionCandidates = forcedProtectionItemHrid ? [forcedProtectionItemHrid] : [
-      baseItemHrid,
-      ...item.protectionItemHrids ?? [],
-      "/items/mirror_of_protection"
-    ];
-    let protectionPrice = 0;
-    for (const candidate of new Set(protectionCandidates)) {
-      const value = price(candidate, 0);
-      if (value > 0 && (!protectionPrice || value < protectionPrice)) {
-        protectionPrice = value;
+    let protectionChoice = null;
+    const considerProtection = (hrid, value) => {
+      if (hrid && value > 0 && (!protectionChoice || value < protectionChoice.value)) {
+        protectionChoice = { hrid, value };
       }
+    };
+    if (forcedProtectionItemHrid) {
+      considerProtection(
+        forcedProtectionItemHrid,
+        price(forcedProtectionItemHrid, 0)
+      );
+    } else {
+      considerProtection(baseItemHrid, basePrice);
+      for (const candidate of new Set(item.protectionItemHrids ?? [])) {
+        considerProtection(candidate, price(candidate, 0));
+      }
+      considerProtection(
+        "/items/mirror_of_protection",
+        price("/items/mirror_of_protection", 0)
+      );
     }
+    const protectionPrice = protectionChoice?.value ?? 0;
     const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
     const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
     const ultraTeaCostPerAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * ultraTeaPrice;
@@ -35256,6 +35431,8 @@ ${locks}` : ""}`;
       expectedProtectionCount: best.mode === "philosopher" ? best.mirrorCount : best.protectionCount,
       expectedNormalProtectionCount: best.protectionCount,
       expectedPhilosopherMirrorCount: best.mirrorCount,
+      protectionItemHrid: best.protectionCount > EPSILON ? protectionChoice?.hrid ?? null : null,
+      protectionUnitCost: best.protectionCount > EPSILON ? protectionPrice : 0,
       philosopherStart: best.philosopherStartLevel,
       aLevel: best.philosopherStartLevel,
       aCount: best.aCount,
@@ -35503,9 +35680,9 @@ ${locks}` : ""}`;
     return {
       forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: !forceProtectionMirror,
-      getFairValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level) || runtime.api.getAssetValue?.(hrid, level, {
+      getFairValue: (hrid, level = 0) => runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true
-      }) || 0
+      }) || runtime.api.getFairValue(hrid, level) || 0
     };
   }
   async function handleEnhancedItemTooltip(tooltip) {
