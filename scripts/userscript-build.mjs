@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -13,50 +13,6 @@ export async function getProductionBanner() {
   return (
     await readFile(path.join(projectRoot, "src/userscript-banner.txt"), "utf8")
   ).trimEnd();
-}
-
-export async function getTestBanner() {
-  const productionBanner = await getProductionBanner();
-  const lines = productionBanner.split("\n");
-  const testLines = [];
-  let insertedTestMatch = false;
-
-  for (const line of lines) {
-    if (line.startsWith("// @name         ")) {
-      testLines.push("// @name         MWITools 测试版");
-      continue;
-    }
-    if (line.startsWith("// @namespace    ")) {
-      testLines.push("// @namespace    https://fishingidle.com/mwitools-test");
-      continue;
-    }
-    if (line.startsWith("// @version      ")) {
-      testLines.push("// @version      26.2.36");
-      continue;
-    }
-    if (line.startsWith("// @description  ")) {
-      testLines.push(
-        line.replace("// @description  ", "// @description  [测试版] "),
-      );
-      continue;
-    }
-    if (line.startsWith("// @match        ")) {
-      if (!insertedTestMatch) {
-        testLines.push("// @match        https://test.milkywayidle.com/*");
-        testLines.push(
-          "// @updateURL    https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.meta.js",
-        );
-        testLines.push(
-          "// @downloadURL  https://milk.43.167.210.211.sslip.io/scripts/mwitools-test.user.js",
-        );
-        insertedTestMatch = true;
-      }
-      continue;
-    }
-    testLines.push(line);
-  }
-
-  return testLines.join("\n");
 }
 
 export async function buildUserscript({ banner, outfile }) {
@@ -75,15 +31,4 @@ export async function buildUserscript({ banner, outfile }) {
     loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
-}
-
-export async function writeMetadataFile(banner, outfile) {
-  const endMarker = "// ==/UserScript==";
-  const end = banner.indexOf(endMarker);
-  if (end === -1) throw new Error("Userscript metadata block is incomplete");
-  await writeFile(
-    outfile,
-    `${banner.slice(0, end + endMarker.length)}\n`,
-    "utf8",
-  );
 }

@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   buildUserscript,
   getProductionBanner,
-  getTestBanner,
   projectRoot,
 } from "./userscript-build.mjs";
 
@@ -17,11 +16,6 @@ try {
       banner: await getProductionBanner(),
       filename: "MWITools.js",
       command: "npm run build",
-    },
-    {
-      banner: await getTestBanner(),
-      filename: "MWITools-test.user.js",
-      command: "npm run build:test",
     },
   ]) {
     const tempOutput = path.join(tempDir, distribution.filename);

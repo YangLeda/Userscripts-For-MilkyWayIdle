@@ -7,20 +7,19 @@ const output = await readFile(
   new URL("../MWITools.js", import.meta.url),
   "utf8",
 );
-const testOutput = await readFile(
-  new URL("../MWITools-test.user.js", import.meta.url),
-  "utf8",
-);
-const testMetadata = await readFile(
-  new URL("../MWITools-test.meta.js", import.meta.url),
-  "utf8",
-);
-
 test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
   assert.match(output, /^\/\/ @version\s+26\.2$/m);
+  assert.match(
+    output,
+    /^\/\/ @updateURL\s+https:\/\/update\.greasyfork\.org\/scripts\/494467\/MWITools\.meta\.js$/m,
+  );
+  assert.match(
+    output,
+    /^\/\/ @downloadURL\s+https:\/\/update\.greasyfork\.org\/scripts\/494467\/MWITools\.user\.js$/m,
+  );
 
   for (const directive of [
     "// @match        https://www.milkywayidle.com/*",
@@ -61,41 +60,4 @@ test("generated userscript has a single valid metadata block", () => {
 test("generated userscript is standalone JavaScript", () => {
   assert.doesNotMatch(output, /sourceMappingURL=/);
   assert.doesNotThrow(() => new vm.Script(output));
-});
-
-test("test userscript is independently installable and test-only", () => {
-  assert.equal(testOutput.indexOf("// ==UserScript=="), 0);
-  assert.equal(testOutput.match(/\/\/ ==UserScript==/g)?.length, 1);
-  assert.equal(testOutput.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(testOutput, /^\/\/ @name\s+MWITools 测试版$/m);
-  assert.match(
-    testOutput,
-    /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-test$/m,
-  );
-  assert.match(testOutput, /^\/\/ @version\s+26\.2\.36$/m);
-  assert.match(testOutput, /^\/\/ @grant\s+unsafeWindow$/m);
-  assert.match(
-    testOutput,
-    /^\/\/ @match\s+https:\/\/test\.milkywayidle\.com\/\*$/m,
-  );
-  assert.doesNotMatch(testOutput, /^\/\/ @match\s+https:\/\/www\./m);
-  assert.match(
-    testOutput,
-    /^\/\/ @updateURL\s+https:\/\/milk\.43\.167\.210\.211\.sslip\.io\/scripts\/mwitools-test\.meta\.js$/m,
-  );
-  assert.match(
-    testOutput,
-    /^\/\/ @downloadURL\s+https:\/\/milk\.43\.167\.210\.211\.sslip\.io\/scripts\/mwitools-test\.user\.js$/m,
-  );
-  assert.doesNotMatch(testOutput, /sourceMappingURL=/);
-  assert.doesNotThrow(() => new vm.Script(testOutput));
-});
-
-test("test metadata endpoint contains only the userscript header", () => {
-  assert.equal(testMetadata.indexOf("// ==UserScript=="), 0);
-  assert.match(testMetadata, /^\/\/ @version\s+26\.2\.36$/m);
-  assert.match(testMetadata, /mwitools-test\.meta\.js/);
-  assert.match(testMetadata, /mwitools-test\.user\.js/);
-  assert.equal(testMetadata.trimEnd().endsWith("// ==/UserScript=="), true);
-  assert.ok(testMetadata.length < 4096);
 });

@@ -2,6 +2,8 @@
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
 // @version      26.2
+// @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
+// @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai
 // @license      CC-BY-NC-SA-4.0
@@ -26,13 +28,6 @@
 // @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js
 // @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js
 // ==/UserScript==
-
-/*
-    Steam客户端玩家还需要额外安装兼容插件。
-
-    MilkyWayIdle Steam game client players should also install this script:
-    https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/refs/heads/main/MWITools%20addon%20for%20Steam%20version.js
-*/
 
 /*
     【遇到MWITools插件有问题时的解决方法】
