@@ -169,9 +169,9 @@ function getOpenableValue(itemHrid, context) {
   }
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
   if (!keyItemHrid) return total;
-  const keyValue = getAssetValueInternal(keyItemHrid, 0, context);
-  if (!(keyValue > 0)) return 0;
-  return Math.max(0, total - keyValue);
+  const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
+  if (!(keyCraftingCost > 0)) return 0;
+  return Math.max(0, total - keyCraftingCost);
 }
 
 function isPersonalBuffScroll(itemHrid) {
@@ -597,6 +597,75 @@ function mergeLiquidationMissing(results) {
   return results.flatMap((result) => result?.missingItemHrids ?? []);
 }
 
+function getCraftedLiquidationValue(itemHrid, enhancementLevel, mode, context) {
+  let bestValue = Number.POSITIVE_INFINITY;
+  let missingItemHrids = [];
+  for (const [, action] of entriesOfMap(
+    runtime.state.initData_actionDetailMap,
+  )) {
+    const outputs = Array.isArray(action?.outputItems)
+      ? action.outputItems
+      : [];
+    const outputCount = outputs.reduce((total, output) => {
+      const outputHrid = output?.itemHrid ?? output?.hrid;
+      const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
+      return outputHrid === itemHrid && outputLevel === enhancementLevel
+        ? total + positiveNumber(output.count ?? 1)
+        : total;
+    }, 0);
+    if (!outputCount) continue;
+
+    const inputItems = [...(action?.inputItems ?? [])];
+    const upgradeItemHrid = action?.upgradeItemHrid;
+    if (
+      upgradeItemHrid &&
+      !inputItems.some(
+        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
+      )
+    ) {
+      inputItems.unshift({
+        itemHrid: upgradeItemHrid,
+        enhancementLevel: action.retainAllEnhancement ? enhancementLevel : 0,
+        count: 1,
+      });
+    }
+
+    let totalCost = 0;
+    let complete = true;
+    const results = [];
+    for (const input of inputItems) {
+      const inputHrid = input?.itemHrid ?? input?.hrid;
+      const count = positiveNumber(input?.count);
+      if (!inputHrid || !count) continue;
+      const result =
+        inputHrid === "/items/coin"
+          ? liquidationResult(1, "coin")
+          : getAssetLiquidationValueInternal(
+              inputHrid,
+              Number(input?.enhancementLevel ?? 0) || 0,
+              mode,
+              context,
+            );
+      results.push(result);
+      if (!(result.value > 0)) {
+        complete = false;
+        continue;
+      }
+      totalCost += count * result.value;
+    }
+    if (complete && totalCost > 0) {
+      const unitCost = totalCost / outputCount;
+      if (unitCost < bestValue) bestValue = unitCost;
+    } else {
+      missingItemHrids.push(...mergeLiquidationMissing(results));
+    }
+  }
+  if (Number.isFinite(bestValue)) {
+    return liquidationResult(bestValue, "crafting");
+  }
+  return liquidationResult(0, "missing", [...missingItemHrids, itemHrid]);
+}
+
 function getGuildCreditLiquidationValue(creditItemHrid, mode, context) {
   let bestValue = Number.POSITIVE_INFINITY;
   let bestResult = null;
@@ -746,12 +815,7 @@ function getOpenableLiquidationValue(itemHrid, mode, context) {
   }
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
   if (keyItemHrid) {
-    const keyResult = getAssetLiquidationValueInternal(
-      keyItemHrid,
-      0,
-      mode,
-      context,
-    );
+    const keyResult = getCraftedLiquidationValue(keyItemHrid, 0, mode, context);
     results.push(keyResult);
     if (!(keyResult.value > 0)) {
       return liquidationResult(0, "missing", [
