@@ -51,7 +51,7 @@ test("game route starts the bundled userscript without synchronous errors", asyn
   );
   assert.doesNotThrow(() => window.eval(userscript));
   for (let index = 0; index < 30; index += 1) await Promise.resolve();
-  assert.equal(calls.requests, 1);
+  assert.equal(calls.requests, 2);
   assert.equal(calls.styles, 2);
   assert.ok(calls.intervals >= 2);
   dom.window.close();

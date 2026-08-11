@@ -27,11 +27,11 @@ const CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="cur
 const STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
 
 function t(zh, en) {
-  return runtime.config.isZHInGameSetting ? zh : en;
+  return runtime.config.isZH ? zh : en;
 }
 
 function materialNoun(count) {
-  if (runtime.config.isZHInGameSetting) return "种材料";
+  if (runtime.config.isZH) return "种材料";
   return Number(count) === 1 ? "material" : "materials";
 }
 
@@ -148,10 +148,7 @@ function pendingItems() {
     .filter((item) => item.quantity > 0)
     .sort((a, b) => {
       if (a.starred !== b.starred) return a.starred ? -1 : 1;
-      return a.name.localeCompare(
-        b.name,
-        runtime.config.isZHInGameSetting ? "zh" : "en",
-      );
+      return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
 }
 
@@ -1006,7 +1003,7 @@ function renderHouseProcurement() {
   const missing = materials.filter(
     (material) => material.purchasable && material.shortage > 0,
   );
-  root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? (runtime.config.isZHInGameSetting ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade`) : t("房屋升级材料充足", "House materials ready")}</span>`;
+  root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? (runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade`) : t("房屋升级材料充足", "House materials ready")}</span>`;
   const add = document.createElement("button");
   add.className = "mwi-procurement-inline-button";
   add.textContent = t("加入购物清单", "Add to shopping list");

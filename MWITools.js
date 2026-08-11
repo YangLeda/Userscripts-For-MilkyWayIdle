@@ -13,6 +13,7 @@
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
+// @match        https://mooneycalc.vercel.app/*
 // @grant        GM_addStyle
 // @grant        GM.xmlHttpRequest
 // @grant        GM_xmlhttpRequest
@@ -23,10 +24,10 @@
 // @grant        unsafeWindow
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/mathjs-12.4.2.min.js
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js
+// @connect      mwi-guild.43.167.210.211.sslip.io
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js#sha256-1G2Xof0CLF+yn6L0Xry8MiAtc67r8HbOX3JI9UmPx9c=
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=
+// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=
 // ==/UserScript==
 
 /*
@@ -907,7 +908,7 @@
     },
     guildCreditConversionsSort: {
       id: "guildCreditConversionsSort",
-      desc: isZH ? "工会信用兑换：公会信用兑换选择排序" : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
+      desc: isZH ? "公会信用兑换：公会信用兑换选择排序" : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
       isTrue: true
     },
     profileBuildScore: {
@@ -987,7 +988,7 @@
     },
     checkEquipment: {
       id: "checkEquipment",
-      desc: isZH ? "页面上方显示：战斗时穿了生产装备，或者生产时没有穿对应的生产装备而仓库里有，红字警告" : "Top: Alert message when combating with production equipments equipted, or producing when there are unequipted corresponding production equipment in the inventory.",
+      desc: isZH ? "页面上方显示：战斗时穿了生产装备，或者生产时没有穿对应的生产装备而仓库里有，红字警告" : "Top: Alert when fighting with production equipment equipped, or producing while matching equipment is unequipped in inventory.",
       isTrue: true
     },
     notifiEmptyAction: {
@@ -997,7 +998,7 @@
     },
     fillMarketOrderPrice: {
       id: "fillMarketOrderPrice",
-      desc: isZH ? "发布市场订单时自动填写为最小压价" : "Automatically input price with the smallest increasement/decreasement when posting marketplace bid/sell orders.",
+      desc: isZH ? "发布市场订单时自动填写为最小压价" : "Automatically adjust to the smallest price increase or decrease when posting marketplace orders.",
       isTrue: true
     },
     showDamage: {
@@ -1233,6 +1234,14 @@
       "Show remaining count, time remaining, and estimated completion time."
     ],
     [
+      "actionBarProfit",
+      "actionBar",
+      "当前动作利润",
+      "Current action profit",
+      "在顶部动作栏显示当前生产动作的市价净利润。",
+      "Show market-value net profit for the current production action in the action bar."
+    ],
+    [
       "actionQueue",
       "actionBar",
       "完整队列时间",
@@ -1249,6 +1258,14 @@
       "Enter a target level to see required actions, estimated time, and XP/hour."
     ],
     [
+      "actionPanel_totalTime_quickInputs",
+      "production",
+      "生产次数快捷输入",
+      "Production quick inputs",
+      "在生产次数输入框旁提供常用次数和时长快捷按钮；依赖目标等级与经验功能。",
+      "Add common count and duration shortcuts beside the production input; depends on Target level & XP."
+    ],
+    [
       "productionSummary",
       "production",
       "产出与库存摘要",
@@ -1261,8 +1278,8 @@
       "production",
       "生产净利润",
       "Production net profit",
-      "按所选估值口径显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-      "Show after-tax net profit per action, hour, day, and entered quantity using the selected valuation mode."
+      "同时显示市价、效率（高买低卖）和贪心（低买高卖）三种税后收入、成本与净利润。",
+      "Show after-tax revenue, costs, and net profit for market, efficiency (buy high/sell low), and greedy (buy low/sell high) valuations."
     ],
     [
       "actionPanel_foragingTotal",
@@ -1401,6 +1418,22 @@
       "Show a yellow badge and highlight on newly received tasks until the task card is clicked."
     ],
     [
+      "taskMaterials",
+      "tasks",
+      "任务材料完成量",
+      "Task material capacity",
+      "根据库存中的直接材料显示每项任务当前可完成的数量。",
+      "Show how much of each task can be completed from current direct-material inventory."
+    ],
+    [
+      "taskQueueProgress",
+      "tasks",
+      "任务队列进度",
+      "Task queue progress",
+      "在任务卡上显示已经进入动作队列的数量和进度。",
+      "Show the quantity and progress already placed in the action queue on task cards."
+    ],
+    [
       "taskAutoSort",
       "tasks",
       "自动整理任务",
@@ -1415,6 +1448,22 @@
       "Task artwork",
       "用低透明度原生图标标识任务物品、怪物和副本。",
       "Use subtle native item, monster, and dungeon artwork on task cards."
+    ],
+    [
+      "taskStatistics",
+      "tasks",
+      "任务统计抽屉",
+      "Task statistics drawer",
+      "在任务页汇总完成状态、奖励和任务类型统计。",
+      "Summarize completion state, rewards, and task-type statistics on the task page."
+    ],
+    [
+      "taskClaimCollector",
+      "tasks",
+      "集中领取任务奖励",
+      "Collect task rewards",
+      "把当前可领取任务集中显示在任务页顶部，减少逐项查找。",
+      "Collect currently claimable tasks at the top of the task page for faster claiming."
     ],
     [
       "taskMergeActions",
@@ -18868,7 +18917,7 @@
     };
   }
   var PROFIT_VALUATION_MODES = /* @__PURE__ */ new Set(["conservative", "fair", "aggressive"]);
-  function getPrice(itemHrid, kind, mode) {
+  function getDirectPrice(itemHrid, kind, mode) {
     let value = 0;
     if (mode === "conservative") {
       value = kind === "sell" ? runtime.api.getNetSellPrice?.(itemHrid, 0) : runtime.api.getAskPrice?.(itemHrid, 0);
@@ -18881,6 +18930,35 @@
       }
     }
     return Number(value) > 0 ? Number(value) : null;
+  }
+  function getPriceInfo(itemHrid, kind, mode) {
+    const direct = getDirectPrice(itemHrid, kind, mode);
+    if (direct !== null || kind !== "sell") {
+      return {
+        value: direct,
+        source: direct === null ? "missing" : "market",
+        complete: direct !== null,
+        missingItemHrids: direct === null ? [itemHrid] : []
+      };
+    }
+    const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
+    if (!(Number(derived?.value) > 0)) {
+      return {
+        value: null,
+        source: "missing",
+        complete: false,
+        missingItemHrids: derived?.missingItemHrids ?? [itemHrid]
+      };
+    }
+    return {
+      value: Number(derived.value),
+      source: derived.source === "market" ? "market" : "derived",
+      complete: Boolean(derived.complete),
+      missingItemHrids: derived.missingItemHrids ?? []
+    };
+  }
+  function getPrice(itemHrid, kind, mode) {
+    return getPriceInfo(itemHrid, kind, mode).value;
   }
   function expectedDropCount(drop) {
     const minimum = Number(drop?.minCount ?? drop?.count ?? 0) || 0;
@@ -19005,6 +19083,7 @@
     function calculateValuation(mode) {
       const missingPrices2 = [];
       const unpricedByproducts2 = [];
+      const derivedMissingPrices = [];
       const materialCostPerAction = inputs.reduce((total, input) => {
         const effectiveCount = input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
         const price = getPrice(input.itemHrid, "buy", mode);
@@ -19013,15 +19092,21 @@
       }, 0);
       const primaryRevenuePerAction = outputs.reduce((total, output) => {
         const effectiveCount = output.count * (1 + quantityBonus);
-        const price = getPrice(output.itemHrid, "sell", mode);
-        if (price === null) missingPrices2.push(output.itemHrid);
-        return total + (price === null ? 0 : effectiveCount * price);
+        const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
+        if (priceInfo.value === null) missingPrices2.push(output.itemHrid);
+        if (!priceInfo.complete && priceInfo.value !== null) {
+          derivedMissingPrices.push(...priceInfo.missingItemHrids);
+        }
+        return total + (priceInfo.value === null ? 0 : effectiveCount * priceInfo.value);
       }, 0);
       const byproductRevenuePerAction = optionalOutputs.reduce(
         (total, output) => {
-          const price = getPrice(output.itemHrid, "sell", mode);
-          if (price === null) unpricedByproducts2.push(output.itemHrid);
-          return total + (price === null ? 0 : output.count * price);
+          const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
+          if (priceInfo.value === null) unpricedByproducts2.push(output.itemHrid);
+          if (!priceInfo.complete && priceInfo.value !== null) {
+            derivedMissingPrices.push(...priceInfo.missingItemHrids);
+          }
+          return total + (priceInfo.value === null ? 0 : output.count * priceInfo.value);
         },
         0
       );
@@ -19051,7 +19136,8 @@
         profitPerHour,
         totalProfit,
         missingPrices: [...new Set(missingPrices2)],
-        unpricedByproducts: [...new Set(unpricedByproducts2)]
+        unpricedByproducts: [...new Set(unpricedByproducts2)],
+        derivedMissingPrices: [...new Set(derivedMissingPrices)]
       };
     }
     const valuations = Object.fromEntries(
@@ -19072,7 +19158,8 @@
     });
     const outputDetails = outputs.map((output) => {
       const effectiveCount = output.count * (1 + quantityBonus);
-      const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+      const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
+      const unitPrice = priceInfo.value;
       return {
         ...output,
         baseCount: output.count,
@@ -19081,18 +19168,23 @@
         kind: "primary",
         owned: getInventoryCount(output.itemHrid),
         unitPrice,
+        valueSource: priceInfo.source,
+        derivedMissingPrices: priceInfo.missingItemHrids,
         valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice
       };
     });
     const unpricedByproducts = selectedValuation.unpricedByproducts;
     const byproductOutputs = optionalOutputs.map((output) => {
-      const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+      const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
+      const unitPrice = priceInfo.value;
       return {
         ...output,
         effectiveCount: output.count,
         expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
         owned: getInventoryCount(output.itemHrid),
         unitPrice,
+        valueSource: priceInfo.source,
+        derivedMissingPrices: priceInfo.missingItemHrids,
         valuePerAction: unitPrice === null ? null : output.count * unitPrice
       };
     });
@@ -19129,7 +19221,7 @@
     const now = Number(context.now ?? Date.now());
     return {
       status: complete ? "complete" : "incomplete",
-      isPartial: complete && unpricedByproducts.length > 0,
+      isPartial: complete && (unpricedByproducts.length > 0 || selectedValuation.derivedMissingPrices.length > 0),
       actionHrid,
       detail,
       count: normalizedCount,
@@ -19164,7 +19256,8 @@
       profitPerHour: selectedValuation.profitPerHour,
       totalProfit: selectedValuation.totalProfit,
       missingPrices,
-      unpricedByproducts
+      unpricedByproducts,
+      derivedMissingPrices: selectedValuation.derivedMissingPrices
     };
   }
   function projectQueue(actions = runtime.state.currentActionsHridList, context = {}) {
@@ -19422,13 +19515,13 @@
   }
   function resolveItemName(rawItemHrid) {
     const itemHrid = normalizeItemHrid(rawItemHrid);
-    const localized = runtime.config.isZHInGameSetting ? runtime.data.ZHItemNames?.[itemHrid] : null;
+    const localized = runtime.config.isZH ? runtime.data.ZHItemNames?.[itemHrid] : null;
     return localized ?? runtime.state.initData_itemDetailMap?.[itemHrid]?.name ?? itemHrid.split("/").at(-1)?.replaceAll("_", " ") ?? itemHrid;
   }
   function resolveActionName(actionHrid) {
     const normalized = String(actionHrid ?? "").trim();
     if (!normalized) return "";
-    const localized = runtime.config.isZHInGameSetting ? runtime.data.ZHActionNames?.[normalized] : null;
+    const localized = runtime.config.isZH ? runtime.data.ZHActionNames?.[normalized] : null;
     return localized ?? runtime.state.initData_actionDetailMap?.[normalized]?.name ?? normalized.split("/").at(-1)?.replaceAll("_", " ") ?? normalized;
   }
   function inventoryEntryKey(item) {
@@ -20081,8 +20174,8 @@
     });
   }
   function exposePublicApi() {
-    const pageWindow2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
-    const root = pageWindow2.MWITools ?? {};
+    const pageWindow3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+    const root = pageWindow3.MWITools ?? {};
     const publicApi3 = {
       version: "1.0.0",
       apiVersion: 1,
@@ -20105,7 +20198,7 @@
       off
     };
     root.shopping = publicApi3;
-    pageWindow2.MWITools = root;
+    pageWindow3.MWITools = root;
     return publicApi3;
   }
   installMessageHandlers();
@@ -20135,6 +20228,7 @@
       getLockedDetails,
       suggestedMaterialCount,
       calculateRequirements,
+      getProducerAction,
       calculateUpgradeChain,
       selectUpgradeChainMaterials,
       getCartItems,
@@ -20314,6 +20408,7 @@
     "/items/labyrinth_token"
   ]);
   var assetValueCache = /* @__PURE__ */ new Map();
+  var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
   function positiveNumber(value) {
     const number2 = Number(value);
@@ -20330,6 +20425,7 @@
   }
   function invalidateAssetValueCache() {
     assetValueCache.clear();
+    assetLiquidationCache.clear();
     guildCreditHridCache = null;
   }
   function getItemDetails(itemHrid) {
@@ -20547,6 +20643,233 @@
   function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
     return getAssetValueInternal(itemHrid, enhancementLevel, /* @__PURE__ */ new Set(), options);
   }
+  function directLiquidationValue(itemHrid, enhancementLevel, mode) {
+    if (mode === "conservative") {
+      return positiveNumber(
+        runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel)
+      );
+    }
+    if (mode === "aggressive") {
+      return positiveNumber(
+        runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
+      );
+    }
+    const fairValue = positiveNumber(
+      runtime.api.getFairValue?.(itemHrid, enhancementLevel)
+    );
+    if (!fairValue) return 0;
+    const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
+    return fairValue * Math.max(0, 1 - taxRate);
+  }
+  function liquidationResult(value, source, missingItemHrids = []) {
+    const normalizedValue = positiveNumber(value);
+    const missing = [...new Set(missingItemHrids.filter(Boolean))];
+    return {
+      value: normalizedValue,
+      complete: normalizedValue > 0 && missing.length === 0,
+      source: normalizedValue > 0 ? source : "missing",
+      missingItemHrids: missing
+    };
+  }
+  function mergeLiquidationMissing(results) {
+    return results.flatMap((result) => result?.missingItemHrids ?? []);
+  }
+  function getGuildCreditLiquidationValue(creditItemHrid, mode, context) {
+    let bestValue = Number.POSITIVE_INFINITY;
+    let bestResult = null;
+    for (const [fallbackHrid, detail] of entriesOfMap(
+      runtime.state.initData_itemDetailMap
+    )) {
+      const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
+      if (!itemHrid || itemHrid === "/items/guild_token") continue;
+      for (const conversion of detail?.guildCreditConversions ?? []) {
+        if (conversion?.creditItemHrid !== creditItemHrid) continue;
+        const itemCount = positiveNumber(conversion.itemCount);
+        const creditCount = positiveNumber(conversion.creditCount);
+        if (!itemCount || !creditCount) continue;
+        const material = getAssetLiquidationValueInternal(
+          itemHrid,
+          0,
+          mode,
+          context
+        );
+        if (material.value > 0) {
+          const value = material.value * itemCount / creditCount;
+          if (value < bestValue) {
+            bestValue = value;
+            bestResult = material;
+          }
+        }
+      }
+    }
+    return liquidationResult(
+      Number.isFinite(bestValue) ? bestValue : 0,
+      "conversion",
+      bestResult?.missingItemHrids ?? []
+    );
+  }
+  function getGuildTokenLiquidationValue(mode, context) {
+    const detail = getItemDetails("/items/guild_token");
+    let bestValue = 0;
+    let bestResult = null;
+    for (const conversion of detail?.guildCreditConversions ?? []) {
+      const creditItemHrid = conversion?.creditItemHrid;
+      const tokenCount = positiveNumber(
+        conversion?.guildTokenCount ?? conversion?.itemCount
+      );
+      const creditCount = positiveNumber(conversion?.creditCount);
+      if (!creditItemHrid || !tokenCount || !creditCount) continue;
+      const credit = getAssetLiquidationValueInternal(
+        creditItemHrid,
+        0,
+        mode,
+        context
+      );
+      if (credit.value > 0) {
+        const value = credit.value * creditCount / tokenCount;
+        if (value > bestValue) {
+          bestValue = value;
+          bestResult = credit;
+        }
+      }
+    }
+    return liquidationResult(
+      bestValue,
+      "conversion",
+      bestResult?.missingItemHrids ?? []
+    );
+  }
+  function getShopCurrencyLiquidationValue(currencyItemHrid, mode, context) {
+    let bestValue = 0;
+    let bestResults = [];
+    for (const detail of getShopDetails()) {
+      const costs = normalizeCostRecords(detail);
+      const targetCost = costs.find(
+        (cost) => (cost?.itemHrid ?? cost?.hrid) === currencyItemHrid
+      );
+      const targetCount = positiveNumber(targetCost?.count);
+      if (!targetCount) continue;
+      const results = [];
+      let rewardValue2 = 0;
+      for (const reward of normalizeRewardRecords(detail)) {
+        const itemHrid = reward?.itemHrid ?? reward?.hrid;
+        if (!itemHrid) continue;
+        const result = getAssetLiquidationValueInternal(
+          itemHrid,
+          reward.enhancementLevel ?? 0,
+          mode,
+          context
+        );
+        results.push(result);
+        rewardValue2 += positiveNumber(reward.count ?? 1) * result.value;
+      }
+      let otherCostValue = 0;
+      for (const cost of costs) {
+        const itemHrid = cost?.itemHrid ?? cost?.hrid;
+        if (!itemHrid || itemHrid === currencyItemHrid) continue;
+        const result = getAssetLiquidationValueInternal(
+          itemHrid,
+          0,
+          mode,
+          context
+        );
+        results.push(result);
+        otherCostValue += positiveNumber(cost.count) * result.value;
+      }
+      const value = Math.max(0, rewardValue2 - otherCostValue) / targetCount;
+      if (value > bestValue) {
+        bestValue = value;
+        bestResults = results;
+      }
+    }
+    return liquidationResult(
+      bestValue,
+      "conversion",
+      mergeLiquidationMissing(bestResults)
+    );
+  }
+  function getOpenableLiquidationValue(itemHrid, mode, context) {
+    const drops = getDropRecords(itemHrid);
+    if (!Array.isArray(drops) || !drops.length) {
+      return liquidationResult(0, "missing", [itemHrid]);
+    }
+    let total = 0;
+    const results = [];
+    for (const drop of drops) {
+      const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+      if (!dropItemHrid) continue;
+      const rawDropRate = Array.isArray(drop.dropRate) ? drop.dropRate[0] : drop.dropRate;
+      const dropRate = Number.isFinite(Number(rawDropRate)) ? Math.max(0, Number(rawDropRate)) : 1;
+      const minimum = Number(drop.minCount ?? drop.count ?? 1);
+      const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+      const result = getAssetLiquidationValueInternal(
+        dropItemHrid,
+        drop.enhancementLevel ?? 0,
+        mode,
+        context
+      );
+      results.push(result);
+      total += dropRate * (minimum + maximum) * 0.5 * result.value;
+    }
+    return liquidationResult(total, "openable", mergeLiquidationMissing(results));
+  }
+  function getAssetLiquidationValueInternal(itemHrid, enhancementLevel, mode, context) {
+    if (!itemHrid) return liquidationResult(0, "missing");
+    const normalizedMode = ["conservative", "fair", "aggressive"].includes(mode) ? mode : "fair";
+    const level = Number(enhancementLevel) || 0;
+    const cacheKey = `${normalizedMode}:${itemHrid}:${level}`;
+    if (assetLiquidationCache.has(cacheKey)) {
+      return assetLiquidationCache.get(cacheKey);
+    }
+    if (context.has(cacheKey)) {
+      return liquidationResult(0, "missing", [itemHrid]);
+    }
+    const directValue = directLiquidationValue(itemHrid, level, normalizedMode);
+    if (directValue > 0) {
+      const result2 = liquidationResult(directValue, "market");
+      assetLiquidationCache.set(cacheKey, result2);
+      return result2;
+    }
+    context.add(cacheKey);
+    let result;
+    if (itemHrid === "/items/cowbell") {
+      const bag = getAssetLiquidationValueInternal(
+        "/items/bag_of_10_cowbells",
+        0,
+        normalizedMode,
+        context
+      );
+      result = liquidationResult(
+        bag.value / 10,
+        "conversion",
+        bag.missingItemHrids
+      );
+    } else if (getGuildCreditHrids().has(itemHrid)) {
+      result = getGuildCreditLiquidationValue(itemHrid, normalizedMode, context);
+    } else if (itemHrid === "/items/guild_token") {
+      result = getGuildTokenLiquidationValue(normalizedMode, context);
+    } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
+      result = getShopCurrencyLiquidationValue(itemHrid, normalizedMode, context);
+    } else {
+      result = getOpenableLiquidationValue(itemHrid, normalizedMode, context);
+    }
+    context.delete(cacheKey);
+    if (!(result.value > 0)) {
+      const sellPrice = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+      result = sellPrice ? liquidationResult(sellPrice, "sell-price") : liquidationResult(0, "missing", [...result.missingItemHrids, itemHrid]);
+    }
+    assetLiquidationCache.set(cacheKey, result);
+    return result;
+  }
+  function getAssetLiquidationValue(itemHrid, enhancementLevel = 0, mode = "fair") {
+    return getAssetLiquidationValueInternal(
+      itemHrid,
+      enhancementLevel,
+      mode,
+      /* @__PURE__ */ new Set()
+    );
+  }
   function getGuildBuffLevel(guildBuffHrid) {
     const levels = runtime.state.guildBuffLevels;
     const record = Array.isArray(levels) ? levels.find(
@@ -20589,6 +20912,7 @@
   }
   Object.assign(runtime.api, {
     getAssetValue,
+    getAssetLiquidationValue,
     getGuildShrineValue,
     isBackEquipment,
     isNonTradableTokenAsset,
@@ -21358,6 +21682,78 @@
     getBuildScoreByProfile,
     calculateSkill,
     calculateEquipment
+  });
+
+  // src/features/duplicate-script-warning.js
+  var WARNING_ID = "mwitools-duplicate-script-warning";
+  var pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
+  var warningShown = false;
+  var warningDismissed = false;
+  function detectDuplicateScripts(options = {}) {
+    const target = options.pageWindow ?? pageWindow;
+    const documentRef = options.documentRef ?? globalThis.document;
+    const duplicates = [];
+    if (target.MWIMM || documentRef?.getElementById("mwi-mm2-host")) {
+      duplicates.push("MWI 市场伴侣 / MWI Market Mate");
+    }
+    if (options.dpsWasPresent ?? dpsWasPresentAtLoad) {
+      duplicates.push("银河奶牛 DPS 统计 / Galaxy Cow DPS");
+    }
+    if (target.kbd_calculateTotalNetworth || target.__everyday_profit_plus_interval__ || documentRef?.querySelector(".deltaNetworthDiv,#deltaNetworthChartModal")) {
+      duplicates.push("Everyday Profit Plus Fixed");
+    }
+    return duplicates;
+  }
+  function showDuplicateWarning(duplicates, {
+    documentRef = globalThis.document,
+    isZH: isZH2 = runtime.config.isZH,
+    durationMs = 5e3,
+    schedule = setTimeout
+  } = {}) {
+    if (!duplicates.length || !documentRef?.body) return null;
+    let warning = documentRef.getElementById(WARNING_ID);
+    if (!warning) {
+      warning = documentRef.createElement("aside");
+      warning.id = WARNING_ID;
+      warning.setAttribute("role", "status");
+      warning.setAttribute("aria-live", "polite");
+      warning.style.cssText = "position:fixed;z-index:2147483646;top:14px;right:14px;width:min(380px,calc(100vw - 28px));box-sizing:border-box;padding:12px 38px 12px 14px;border:1px solid rgba(245,158,11,.6);border-radius:9px;background:rgba(24,27,35,.97);box-shadow:0 8px 28px rgba(0,0,0,.42);color:#f5f5f5;font:13px/1.55 system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif";
+      const close = documentRef.createElement("button");
+      close.type = "button";
+      close.textContent = "×";
+      close.setAttribute("aria-label", isZH2 ? "关闭提醒" : "Close warning");
+      close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
+      close.addEventListener("click", () => {
+        warningDismissed = true;
+        warning.remove();
+      });
+      warning.append(close, documentRef.createElement("div"));
+      documentRef.body.append(warning);
+      schedule(() => warning.remove(), Math.min(5e3, durationMs));
+    }
+    const content = warning.lastElementChild;
+    const names = duplicates.join(isZH2 ? "、" : ", ");
+    content.textContent = isZH2 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+    return warning;
+  }
+  runtime.features.register({
+    id: "duplicateScriptWarning",
+    initialize({ scope }) {
+      if (warningShown) return;
+      const detected = /* @__PURE__ */ new Set();
+      const scan = () => {
+        if (warningDismissed) return;
+        for (const name of detectDuplicateScripts()) detected.add(name);
+        if (!detected.size) return;
+        warningShown = true;
+        showDuplicateWarning([...detected]);
+      };
+      scan();
+      const interval = scope.interval(scan, 250);
+      scope.timeout(() => clearInterval(interval), 3e3);
+      scope.add(() => document.getElementById(WARNING_ID)?.remove());
+    }
   });
 
   // src/features/asset-history/00-snapshot.js
@@ -22893,6 +23289,9 @@ ${preview}`
 
   // src/features/leaderboard-overlay.js
   var OVERLAY_VERSION = "1.1.0";
+  var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
+  var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
+  var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
   var STYLE_ID2 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
@@ -22900,25 +23299,34 @@ ${preview}`
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
   var LEADERBOARD_TABLE_SELECTOR = 'table[class*="LeaderboardPanel_leaderboardTable"]';
   var DEFAULT_CATEGORIES = [
-    ["milking", "挤奶"],
-    ["foraging", "采摘"],
-    ["woodcutting", "伐木"],
-    ["cheesesmithing", "奶酪锻造"],
-    ["crafting", "制作"],
-    ["tailoring", "缝纫"],
-    ["cooking", "烹饪"],
-    ["brewing", "冲泡"],
-    ["alchemy", "炼金"],
-    ["enhancing", "强化"],
-    ["attack", "攻击"],
-    ["defense", "防御"],
-    ["melee", "近战"],
-    ["ranged", "远程"],
-    ["magic", "魔法"]
+    ["milking", { zh: "挤奶", en: "Milking" }],
+    ["foraging", { zh: "采摘", en: "Foraging" }],
+    ["woodcutting", { zh: "伐木", en: "Woodcutting" }],
+    ["cheesesmithing", { zh: "奶酪锻造", en: "Cheesesmithing" }],
+    ["crafting", { zh: "制作", en: "Crafting" }],
+    ["tailoring", { zh: "缝纫", en: "Tailoring" }],
+    ["cooking", { zh: "烹饪", en: "Cooking" }],
+    ["brewing", { zh: "冲泡", en: "Brewing" }],
+    ["alchemy", { zh: "炼金", en: "Alchemy" }],
+    ["enhancing", { zh: "强化", en: "Enhancing" }],
+    ["attack", { zh: "攻击", en: "Attack" }],
+    ["defense", { zh: "防御", en: "Defense" }],
+    ["melee", { zh: "近战", en: "Melee" }],
+    ["ranged", { zh: "远程", en: "Ranged" }],
+    ["magic", { zh: "魔法", en: "Magic" }]
   ];
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
+  function t3(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function categoryLabel(value, fallback) {
+    if (value && typeof value === "object") {
+      return value[runtime.config.isZH ? "zh" : "en"] ?? fallback;
+    }
+    return String(value || fallback);
+  }
   function normalizedName(value) {
     return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
   }
@@ -23018,7 +23426,7 @@ ${preview}`
           if (!index.has(name)) index.set(name, []);
           index.get(name).push({
             category,
-            label: categoryLabels[category] || category,
+            label: categoryLabel(categoryLabels[category], category),
             rank,
             tier,
             capturedAt: snapshot.receivedAt || snapshot.capturedAt || null
@@ -23081,7 +23489,7 @@ ${preview}`
             icon.alt = "";
             icon.setAttribute("aria-hidden", "true");
             badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
-            badge.title = `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            badge.title = runtime.config.isZH ? `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}` : `${item.label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
             return badge;
           })
         );
@@ -23097,9 +23505,12 @@ ${preview}`
     }
     function updateHeaderCopy(header) {
       const arrow = state.sortMode === "descending" ? " ↓" : state.sortMode === "ascending" ? " ↑" : "";
-      const copy = `经验/小时${arrow}`;
+      const copy = `${t3("经验/小时", "XP/hour")}${arrow}`;
       if (header.textContent !== copy) header.textContent = copy;
-      header.title = "点击排序：降序 → 升序 → 官方原排名";
+      header.title = t3(
+        "点击排序：降序 → 升序 → 官方原排名",
+        "Click to sort: descending → ascending → official rank"
+      );
       header.setAttribute(
         "aria-sort",
         state.sortMode === "descending" ? "descending" : state.sortMode === "ascending" ? "ascending" : "none"
@@ -23153,7 +23564,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${Math.round(rate).toLocaleString()} 经验/小时` : "缺少可比较的历史快照";
+        const title = rate != null ? `${Math.round(rate).toLocaleString()} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -23288,6 +23699,103 @@ ${preview}`
       return featureEnabled;
     }
   };
+  function normalizeLeaderboardPayload(payload) {
+    if (payload?.type !== "leaderboard_updated" || payload?.leaderboardType !== "standard") {
+      return null;
+    }
+    const leaderboard = payload.leaderboard;
+    const category = String(
+      payload.leaderboardCategory ?? leaderboard?.category ?? ""
+    );
+    if (leaderboard?.type !== "standard" || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
+      return null;
+    }
+    const rows = leaderboard.rows.map((row) => ({
+      characterId: Number(row?.characterId ?? row?.id),
+      characterName: String(row?.characterName ?? row?.name ?? "").trim(),
+      rank: Number(row?.rank),
+      level: Number(row?.level ?? row?.value1),
+      experience: Number(row?.experience ?? row?.value2),
+      xpPerHour: validExperienceRate(row?.xpPerHour)
+    })).filter(
+      (row) => row.characterName && Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= 100
+    );
+    return rows.length ? { category, rows } : null;
+  }
+  function normalizeCategories(value) {
+    const allowed = new Set(DEFAULT_CATEGORIES.map(([category]) => category));
+    return Object.fromEntries(
+      Object.entries(value ?? {}).flatMap(([category, snapshot]) => {
+        if (!allowed.has(category) || !Array.isArray(snapshot?.rows)) return [];
+        const rows = snapshot.rows.filter(
+          (row) => String(row?.characterName ?? row?.name ?? "").trim() && Number.isInteger(Number(row?.rank)) && Number(row.rank) >= 1 && Number(row.rank) <= 100
+        );
+        return rows.length ? [[category, { ...snapshot, rows }]] : [];
+      })
+    );
+  }
+  function loadCachedCategories() {
+    try {
+      const cached = JSON.parse(
+        globalThis.localStorage?.getItem(LEADERBOARD_CACHE_KEY) || "null"
+      );
+      return cached?.schemaVersion === 1 ? normalizeCategories(cached.categories) : {};
+    } catch {
+      return {};
+    }
+  }
+  function saveCachedCategories(categories) {
+    try {
+      globalThis.localStorage?.setItem(
+        LEADERBOARD_CACHE_KEY,
+        JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories })
+      );
+    } catch (error) {
+      console.warn("[MWITools] Unable to cache leaderboard rankings", error);
+    }
+  }
+  function requestLeaderboardCategories(onRequest) {
+    const requestFn = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
+    if (!requestFn) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let settled = false;
+      let watchdog;
+      const finish = (response) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
+        if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
+          resolve(null);
+          return;
+        }
+        try {
+          const raw = response.responseText || response.response;
+          const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
+          resolve(
+            payload?.schemaVersion === 1 && payload?.leaderboardType === "standard" ? normalizeCategories(payload.categories) : null
+          );
+        } catch {
+          resolve(null);
+        }
+      };
+      watchdog = setTimeout(() => finish(null), 10500);
+      try {
+        const request2 = requestFn({
+          method: "GET",
+          url: LEADERBOARD_API_URL,
+          timeout: 1e4,
+          onload: finish,
+          onabort: () => finish(null),
+          onerror: () => finish(null),
+          ontimeout: () => finish(null)
+        });
+        onRequest?.(request2);
+        if (request2?.then) request2.then(finish).catch(() => finish(null));
+      } catch {
+        finish(null);
+      }
+    });
+  }
   var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   try {
     Object.defineProperty(pageGlobal2, "MWILeaderboardOverlay", {
@@ -23303,10 +23811,56 @@ ${preview}`
     setting: "leaderboardOverlay",
     initialize({ scope }) {
       featureEnabled = true;
-      for (const controller of controllers) controller._mount();
+      for (const controller2 of controllers) controller2._mount();
+      const controller = create();
+      let categories = loadCachedCategories();
+      let currentLeaderboard = null;
+      let active = true;
+      let activeRequest = null;
+      controller.setRankings(categories);
+      const applyCurrentLeaderboard = () => {
+        if (!currentLeaderboard) return;
+        controller.enhanceLeaderboard({
+          category: currentLeaderboard.category,
+          rows: categories[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
+        });
+      };
+      const refreshRankings = async () => {
+        const response = await requestLeaderboardCategories((request2) => {
+          activeRequest = request2;
+        });
+        activeRequest = null;
+        if (!active || !response) return;
+        categories = response;
+        saveCachedCategories(categories);
+        controller.setRankings(categories);
+        applyCurrentLeaderboard();
+      };
+      const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
+        const normalized = normalizeLeaderboardPayload(payload);
+        if (!normalized) return;
+        currentLeaderboard = normalized;
+        if (!categories[normalized.category]) {
+          categories = {
+            ...categories,
+            [normalized.category]: {
+              receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+              rows: normalized.rows
+            }
+          };
+          controller.setRankings(categories);
+        }
+        applyCurrentLeaderboard();
+      });
+      scope.add(stopMessages);
+      void refreshRankings();
+      scope.interval(() => void refreshRankings(), LEADERBOARD_REFRESH_INTERVAL);
       scope.add(() => {
+        active = false;
+        activeRequest?.abort?.();
+        controller.destroy();
         featureEnabled = false;
-        for (const controller of controllers) controller._unmount();
+        for (const controller2 of controllers) controller2._unmount();
       });
     }
   });
@@ -23606,7 +24160,7 @@ ${preview}`
           "svg"
         );
         icon.setAttribute("role", "img");
-        icon.setAttribute("aria-label", "技能");
+        icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
         icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
         icon.setAttribute("width", "100%");
         icon.setAttribute("height", "100%");
@@ -24597,7 +25151,7 @@ ${preview}`
   var VIEWPORT_MARGIN = 12;
   var PANEL_GAP = 10;
   var activePanel = null;
-  function t3(zh, en) {
+  function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function escapeHtml(value) {
@@ -24740,10 +25294,10 @@ ${preview}`
       quantity = `${formatNumber2(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t3("前置", "Base");
-    if (item.kind === "essence") kind = t3("精华", "Essence");
-    if (item.kind === "rare") kind = t3("稀有", "Rare");
-    const priceLabel = isInput ? t3("市价", "Market value") : t3("税后市价", "Net market value");
+    if (item.isUpgradeItem) kind = t4("前置", "Base");
+    if (item.kind === "essence") kind = t4("精华", "Essence");
+    if (item.kind === "rare") kind = t4("稀有", "Rare");
+    const priceLabel = isInput ? t4("市价", "Market value") : item.valueSource === "derived" ? t4("派生期望值", "Derived expected value") : t4("税后市价", "Net market value");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -24753,7 +25307,7 @@ ${preview}`
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t3("每动作", "per action")}</span>
+        <span>${t4("每动作", "per action")}</span>
       </div>
     </div>`;
   }
@@ -24798,19 +25352,19 @@ ${preview}`
       <div class="mwi-profit-valuation-title">${escapeHtml(valuationText(definition.title))}</div>
       <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(definition.explanation))}</div>
     </div>
-    ${renderValuationMetric(t3("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
-    ${renderValuationMetric(t3("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t3("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
-    ${renderValuationMetric(t3("总成本/动作", "Total cost/action"), totalCost)}
-    ${renderValuationMetric(t3("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
-    ${renderValuationMetric(t3("净利润/天", "Net profit/day"), profitPerDay, true)}
+    ${renderValuationMetric(t4("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t4("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t4("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t4("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t4("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t4("净利润/天", "Net profit/day"), profitPerDay, true)}
   </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t3("玩家数据未就绪", "Player data pending")
+        label: t4("玩家数据未就绪", "Player data pending")
       };
     }
     const valuations = VALUATION_ROWS.map(
@@ -24820,18 +25374,20 @@ ${preview}`
       (valuation) => valuation?.complete
     ).length;
     if (completeCount === 0) {
-      return { className: "incomplete", label: t3("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t4("无法计算", "Unavailable") };
     }
     if (completeCount < valuations.length) {
       return {
         className: "partial",
-        label: t3("部分口径缺价", "Some prices missing")
+        label: t4("部分口径缺价", "Some prices missing")
       };
     }
-    if (valuations.some((valuation) => valuation?.unpricedByproducts?.length > 0)) {
-      return { className: "partial", label: t3("部分计价", "Partial pricing") };
+    if (valuations.some(
+      (valuation) => valuation?.unpricedByproducts?.length > 0 || valuation?.derivedMissingPrices?.length > 0
+    )) {
+      return { className: "partial", label: t4("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t3("完整计价", "Fully priced") };
+    return { className: "complete", label: t4("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection) {
     const productName = itemName(itemHrid);
@@ -24843,14 +25399,14 @@ ${preview}`
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t3("当前玩家实时配置", "Current player configuration")}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(actionName(projection.actionHrid, detail))} · ${t4("当前玩家实时配置", "Current player configuration")}</div>
       </div>
       <div class="mwi-profit-status ${status.className}">${escapeHtml(status.label)}</div>
     </header>`;
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t3("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t4("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -24863,41 +25419,41 @@ ${preview}`
     const teaIcons = teas.length ? teas.map((tea) => {
       const name = itemName(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t3("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t4("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t3("工匠", "Artisan")} −${formatNumber2(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t4("工匠", "Artisan")} −${formatNumber2(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t3("额外产量", "Extra output")} +${formatNumber2(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t4("额外产量", "Extra output")} +${formatNumber2(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t3("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t3("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t3("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t4("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t4("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t4("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t3("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t4("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t3("饮料浓度", "Drink strength")}</span><strong>×${formatNumber2(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t3("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t3("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t3("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t3("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("饮料浓度", "Drink strength")}</span><strong>×${formatNumber2(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t3("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t3("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t3("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t4("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t4("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t4("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
@@ -24910,30 +25466,45 @@ ${preview}`
     const missingValuations = VALUATION_ROWS.filter(
       ({ mode }) => !projection.valuations?.[mode]?.complete
     );
+    const warningParts = [];
     if (missingValuations.length) {
       const details = missingValuations.map((definition) => {
         const names = (projection.valuations?.[definition.mode]?.missingPrices ?? []).map(itemName).join(runtime.config.isZH ? "、" : ", ");
         return `${valuationText(definition.title)}：${names || "—"}`;
       }).join(runtime.config.isZH ? "；" : "; ");
-      panel.insertAdjacentHTML(
-        "beforeend",
-        `<div class="mwi-profit-warning">${t3("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${escapeHtml(details)}</div>`
-      );
-    } else {
-      const unpricedByproducts = [
-        ...new Set(
-          VALUATION_ROWS.flatMap(
-            ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? []
-          )
-        )
-      ];
-      if (!unpricedByproducts.length) return;
-      const names = unpricedByproducts.map(itemName).join("、");
-      panel.insertAdjacentHTML(
-        "beforeend",
-        `<div class="mwi-profit-warning">${t3("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`
+      warningParts.push(
+        `${t4("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
       );
     }
+    const unpricedByproducts = [
+      ...new Set(
+        VALUATION_ROWS.flatMap(
+          ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? []
+        )
+      )
+    ];
+    if (unpricedByproducts.length) {
+      warningParts.push(
+        `${t4("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`
+      );
+    }
+    const derivedMissingPrices = [
+      ...new Set(
+        VALUATION_ROWS.flatMap(
+          ({ mode }) => projection.valuations?.[mode]?.derivedMissingPrices ?? []
+        )
+      )
+    ];
+    if (derivedMissingPrices.length) {
+      warningParts.push(
+        `${t4("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`
+      );
+    }
+    if (!warningParts.length) return;
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<div class="mwi-profit-warning">${escapeHtml(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
+    );
   }
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -25106,7 +25677,7 @@ ${preview}`
   var tooltipObserver = new MutationObserver(async function(mutations) {
     for (const mutation of mutations) {
       for (const added of mutation.addedNodes) {
-        if (added.classList.contains("MuiTooltip-popper")) {
+        if (added?.nodeType === 1 && added.classList.contains("MuiTooltip-popper")) {
           if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
             await handleTooltipItem(added);
           } else if (added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")) {
@@ -25322,7 +25893,7 @@ ${preview}`
         const mpPerMiniute = 60 / (cd / 1e9) * mp;
         const pricePer100Mp = ask ? ask / (mp / 100) : null;
         const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100hp, ") : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
+        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ") : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
       } else if (cd) {
         const usePerday = 24 * 60 * 60 / (cd / 1e9);
         appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
@@ -25898,7 +26469,7 @@ ${preview}`
 
   // src/features/action-dashboard.js
   var STYLE_ID5 = "mwitools-action-dashboard-style";
-  function t4(zh, en) {
+  function t5(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -26015,21 +26586,21 @@ ${preview}`
     const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
     const effectiveCount = projection.effectiveCount ?? projection.count;
     remaining.append(
-      `${t4("剩余", "Remaining")} `,
+      `${t5("剩余", "Remaining")} `,
       effectivelyInfinite ? "∞" : number(effectiveCount)
     );
     if (projection.materialLimited) {
-      remaining.title = t4(
+      remaining.title = t5(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     }
     const currentTime = document.createElement("span");
-    currentTime.textContent = `${t4("还需", "Time left")} ${formatDuration(
+    currentTime.textContent = `${t5("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
     const eta = document.createElement("strong");
-    eta.textContent = projection.finishAt ? `${t4("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t4("预计完成", "Finishes at")} —`;
+    eta.textContent = projection.finishAt ? `${t5("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t5("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
   }
@@ -26126,7 +26697,7 @@ ${preview}`
     card.replaceChildren();
     const title = document.createElement("div");
     title.className = "mwi-production-card-title";
-    title.textContent = t4("本次生产摘要", "Production summary");
+    title.textContent = t5("本次生产摘要", "Production summary");
     const grid = document.createElement("div");
     grid.className = "mwi-production-metrics";
     const outputs = document.createElement("span");
@@ -26136,41 +26707,41 @@ ${preview}`
       outputs.append(`${name} `, number(output.expectedCount));
     });
     grid.append(
-      metric(t4("预期总产出", "Output"), outputs),
+      metric(t5("预期总产出", "Output"), outputs),
       metric(
-        t4("当前拥有", "Owned"),
+        t5("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t4("库存最多可做", "Max craftable"),
+        t5("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number(projection.maxCraftable)
       ),
       metric(
-        t4("本次总耗时", "Duration"),
+        t5("本次总耗时", "Duration"),
         formatDuration(projection.totalSeconds)
       )
     );
     if (runtime.settings.get("productionProfit")) {
       grid.append(
         metric(
-          t4("每次净利润", "Per action"),
+          t5("每次净利润", "Per action"),
           number(projection.netProfitPerAction)
         ),
-        metric(t4("每小时净利润", "Per hour"), number(projection.profitPerHour)),
+        metric(t5("每小时净利润", "Per hour"), number(projection.profitPerHour)),
         metric(
-          t4("每天净利润", "Per day"),
+          t5("每天净利润", "Per day"),
           number(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
-        metric(t4("本次总净利润", "Total profit"), number(projection.totalProfit))
+        metric(t5("本次总净利润", "Total profit"), number(projection.totalProfit))
       );
     }
     card.append(title, grid);
     if (projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t4(
+      warning.textContent = t5(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -26265,11 +26836,11 @@ ${preview}`
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t5(zh, en) {
-    return runtime.config.isZHInGameSetting ? zh : en;
+  function t6(zh, en) {
+    return runtime.config.isZH ? zh : en;
   }
   function materialNoun(count) {
-    if (runtime.config.isZHInGameSetting) return "种材料";
+    if (runtime.config.isZH) return "种材料";
     return Number(count) === 1 ? "material" : "materials";
   }
   function formatNumber3(value) {
@@ -26369,10 +26940,7 @@ ${preview}`
   function pendingItems() {
     return procurement.getCartItems().filter((item) => item.quantity > 0).sort((a, b) => {
       if (a.starred !== b.starred) return a.starred ? -1 : 1;
-      return a.name.localeCompare(
-        b.name,
-        runtime.config.isZHInGameSetting ? "zh" : "en"
-      );
+      return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
   }
   function findItemsSpriteBase2() {
@@ -26414,7 +26982,7 @@ ${preview}`
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t5(`缺 ${activeCount} 项`, `${activeCount} missing`) : t5("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t6(`缺 ${activeCount} 项`, `${activeCount} missing`) : t6("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
@@ -26430,7 +26998,7 @@ ${preview}`
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t5(
+      empty.textContent = t6(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
@@ -26449,19 +27017,19 @@ ${preview}`
         else unpriced += 1;
       }
       row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t5("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t5("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
+      <button class="star" data-active="${Boolean(item.starred)}" title="${t6("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
+      <button class="item-icon" title="${t6("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
       <button class="item-name" title="${escapeHtml2(item.name)}">${escapeHtml2(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t5("待购数量", "Quantity")}">
+        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t6("待购数量", "Quantity")}">
         <button class="step" data-step="1">＋</button>
       </div>
-      <button class="delete" title="${t5("删除", "Remove")}">×</button>
+      <button class="delete" title="${t6("删除", "Remove")}">×</button>
       <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t5("库存", "Stock")} ${formatNumber3(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber3(price)} · ${t5("计", "total")} ${formatNumber3(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t5("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
+        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t6("库存", "Stock")} ${formatNumber3(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
+        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber3(price)} · ${t6("计", "total")} ${formatNumber3(price * item.quantity)}` : "—"}</span>` : ""}
+        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t6("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
         procurement.setCartItemQuantity(
@@ -26508,8 +27076,8 @@ ${preview}`
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    <span class="footer-total">${t5("补齐合计", "Total")}<strong title="${unpriced ? t5("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber3(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t5("项未估价", "unpriced")}</small>` : ""}</span>
-    <button class="clear">${t5("清空未收藏", "Clear")}</button>`;
+    <span class="footer-total">${t6("补齐合计", "Total")}<strong title="${unpriced ? t6("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber3(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t6("项未估价", "unpriced")}</small>` : ""}</span>
+    <button class="clear">${t6("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       procurement.clearCart();
     });
@@ -26538,7 +27106,7 @@ ${preview}`
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t5(
+      empty.textContent = t6(
         "还没有制作计划。把生产缺料加入购物车时可以同时创建。",
         "No crafting plans yet. Create one when adding production materials."
       );
@@ -26550,13 +27118,13 @@ ${preview}`
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t5("已完成", "Completed") : t5("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t6("已完成", "Completed") : t6("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber3(plan.progress)} / ${formatNumber3(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t5("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t5("重新打开", "Reopen") : t5("完成", "Complete")}</button><button data-action="remove">${t5("删除", "Delete")}</button></div>`;
+      <div class="plan-actions"><button data-action="count">${t6("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t6("重新打开", "Reopen") : t6("完成", "Complete")}</button><button data-action="remove">${t6("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t5("输入新的目标次数", "Enter a new target count"),
+          t6("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
@@ -26573,7 +27141,7 @@ ${preview}`
       body.append(row);
     }
     const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `<span>${t5("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t5("清空计划", "Clear plans")}</button>`;
+    footer.innerHTML = `<span>${t6("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t6("清空计划", "Clear plans")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
     });
@@ -26719,7 +27287,7 @@ ${preview}`
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t5(...sectionDefinition.title);
+      heading.textContent = t6(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -26727,14 +27295,14 @@ ${preview}`
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml2(t5(zh, en))}${description ? `<small>${escapeHtml2(t5(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml2(t6(zh, en))}${description ? `<small>${escapeHtml2(t6(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t5("开", "On") : t5("关", "Off");
+          state.textContent = settings2[id] ? t6("开", "On") : t6("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -26742,7 +27310,7 @@ ${preview}`
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t5(zh, en));
+          control.setAttribute("aria-label", t6(zh, en));
           control.addEventListener(
             "click",
             () => procurement.setSetting(id, !settings2[id])
@@ -26750,10 +27318,10 @@ ${preview}`
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t5("关闭", "Off")],
-            ["95", t5("标准 95%", "Standard 95%")],
-            ["99", t5("充足 99%", "Ample 99%")],
-            ["99.9", t5("极高 99.9%", "Full 99.9%")]
+            ["off", t6("关闭", "Off")],
+            ["95", t6("标准 95%", "Standard 95%")],
+            ["99", t6("充足 99%", "Ample 99%")],
+            ["99.9", t6("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -26769,7 +27337,7 @@ ${preview}`
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t5("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t6("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -26779,7 +27347,7 @@ ${preview}`
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t5("重置", "Reset");
+          control.textContent = t6("重置", "Reset");
           control.addEventListener("click", () => {
             procurement.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
@@ -26814,7 +27382,7 @@ ${preview}`
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t5("请按快捷键…", "Press shortcut…");
+    button.textContent = t6("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -26850,11 +27418,11 @@ ${preview}`
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t5("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t5("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t6("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t6("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t5("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t5("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t5("清单", "Cart")}</button><button class="tab" data-tab="plans">${t5("计划", "Plans")}</button><button class="tab" data-tab="settings">${t5("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t6("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t6("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t6("清单", "Cart")}</button><button class="tab" data-tab="plans">${t6("计划", "Plans")}</button><button class="tab" data-tab="settings">${t6("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -27006,11 +27574,11 @@ ${preview}`
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t5("缺", "Need")} ${formatNumber3(material.shortage)}` : `${t5("余", "Spare")} ${formatNumber3(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t6("缺", "Need")} ${formatNumber3(material.shortage)}` : `${t6("余", "Spare")} ${formatNumber3(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t5("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t5("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t5("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t6("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t6("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t6("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
       }
@@ -27026,12 +27594,12 @@ ${locks}` : ""}`;
     );
     const summary = document.createElement("div");
     summary.className = "mwi-procurement-summary-line";
-    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t5("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t5("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t5("材料充足", "Materials ready")}</span>`;
+    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t6("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t6("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t6("材料充足", "Materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     add.disabled = addable.length === 0 && !chain?.stages?.length;
-    add.textContent = addable.length ? t5("加入购物清单", "Add to shopping list") : t5("已在清单中", "Already listed");
+    add.textContent = addable.length ? t6("加入购物清单", "Add to shopping list") : t6("已在清单中", "Already listed");
     add.addEventListener("click", () => {
       const selectedActions = new Set(
         [
@@ -27051,10 +27619,10 @@ ${locks}` : ""}`;
         );
       }
       showToast(
-        result.added ? t5(
+        result.added ? t6(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t5("没有新的缺料", "No new shortages")
+        ) : t6("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -27063,7 +27631,7 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t5("升级链", "Upgrade chain")} · ${chain.stages.length} ${t5("阶段", "stages")}${chain.cycle ? ` · ${t5("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t5("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t6("升级链", "Upgrade chain")} · ${chain.stages.length} ${t6("阶段", "stages")}${chain.cycle ? ` · ${t6("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t6("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
@@ -27148,10 +27716,10 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZHInGameSetting ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t5("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t6("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
-    add.textContent = t5("加入购物清单", "Add to shopping list");
+    add.textContent = t6("加入购物清单", "Add to shopping list");
     add.disabled = !materials.some((material) => material.addableShortage > 0);
     add.addEventListener("click", () => {
       procurement.addRequirementsToCart(materials, "housing");
@@ -27199,7 +27767,7 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t5(
+        t6(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
@@ -27286,7 +27854,7 @@ ${locks}` : ""}`;
       "[MWITools] Failed to open shopping item in marketplace",
       lastError
     );
-    showToast(t5("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t6("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -27402,7 +27970,7 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t5(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t6(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
     for (const item of rows) {
@@ -27411,7 +27979,7 @@ ${locks}` : ""}`;
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
       const itemName2 = procurement.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t5("已完成", "Completed") : exactNumber(item.quantity);
+      const quantity = item.done ? t6("已完成", "Completed") : exactNumber(item.quantity);
       chip.title = `${itemName2} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
       chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName2 })}</span><b>${item.done ? "✓" : formatNumber3(item.quantity)}</b>`;
@@ -27426,7 +27994,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t5("下一项 ›", "Next ›");
+    nextButton.textContent = t6("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -27517,10 +28085,10 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t5(
+          next ? t6(
             `${procurement.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
             `${procurement.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t5("购物清单已全部补齐", "Shopping list fulfilled")
+          ) : t6("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
@@ -27590,7 +28158,7 @@ ${locks}` : ""}`;
     en: "Completed",
     order: -1
   };
-  function t6(zh, en) {
+  function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles5() {
@@ -27731,7 +28299,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t6("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t7("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -27793,7 +28361,7 @@ ${locks}` : ""}`;
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
       return {
         key: `dungeon-${detail.hrid}`,
-        label: `${t6("地牢", "Dungeon")} · ${name}`,
+        label: `${t7("地牢", "Dungeon")} · ${name}`,
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -27808,7 +28376,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t6("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t7("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -27816,13 +28384,13 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t6("地图", "Zone")} ${mapIndex}`,
+        label: `${t7("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "combat-unresolved",
-      label: t6("其他战斗", "Other combat"),
+      label: t7("其他战斗", "Other combat"),
       order: 99999
     };
   }
@@ -27842,10 +28410,12 @@ ${locks}` : ""}`;
     };
   }
   function productionDepth(tasks) {
-    const producers = /* @__PURE__ */ new Map();
+    const actionDetails = Object.values(
+      runtime.state.initData_actionDetailMap ?? {}
+    ).filter((detail) => detail?.hrid);
+    const procurement2 = runtime.api.procurement;
     const parent = /* @__PURE__ */ new Map();
     const firstSeen = /* @__PURE__ */ new Map();
-    const itemOwner = /* @__PURE__ */ new Map();
     const find = (actionHrid) => {
       const current = parent.get(actionHrid) ?? actionHrid;
       if (current === actionHrid) return current;
@@ -27858,46 +28428,35 @@ ${locks}` : ""}`;
       const rightRoot = find(right);
       if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
     };
+    for (const detail of actionDetails) {
+      parent.set(detail.hrid, detail.hrid);
+    }
+    for (const detail of actionDetails) {
+      const producer = detail.upgradeItemHrid ? procurement2?.getProducerAction?.(detail.upgradeItemHrid) : null;
+      if (producer?.actionHrid && producer.actionHrid !== detail.hrid)
+        union(detail.hrid, producer.actionHrid);
+    }
     for (const [index, task] of tasks.entries()) {
       const actionHrid = taskActionHrid(task);
-      const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-      if (!actionHrid || !detail) continue;
-      parent.set(actionHrid, actionHrid);
-      firstSeen.set(actionHrid, index);
-      const outputs = runtime.api.getExpectedOutputs(detail);
-      const inputs = runtime.api.getDirectInputs(detail);
-      for (const output of outputs) {
-        producers.set(output.itemHrid, actionHrid);
-      }
-      for (const item of [...inputs, ...outputs]) {
-        const owner = itemOwner.get(item.itemHrid);
-        if (owner) union(actionHrid, owner);
-        else itemOwner.set(item.itemHrid, actionHrid);
-      }
+      if (parent.has(actionHrid) && !firstSeen.has(actionHrid))
+        firstSeen.set(actionHrid, index);
     }
     const cache = /* @__PURE__ */ new Map();
     const visiting = /* @__PURE__ */ new Set();
-    let cycle = false;
     const depth = (actionHrid) => {
       if (cache.has(actionHrid)) return cache.get(actionHrid);
-      if (visiting.has(actionHrid)) {
-        cycle = true;
-        return 0;
-      }
+      if (visiting.has(actionHrid)) return 0;
       visiting.add(actionHrid);
       const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
       let value = 0;
-      for (const input of runtime.api.getDirectInputs(detail)) {
-        const producer = producers.get(input.itemHrid);
-        if (producer && producer !== actionHrid)
-          value = Math.max(value, depth(producer) + 1);
-      }
+      const producer = detail?.upgradeItemHrid ? procurement2?.getProducerAction?.(detail.upgradeItemHrid) : null;
+      if (producer?.actionHrid && producer.actionHrid !== actionHrid)
+        value = depth(producer.actionHrid) + 1;
       visiting.delete(actionHrid);
       cache.set(actionHrid, value);
       return value;
     };
     for (const task of tasks) depth(taskActionHrid(task));
-    if (cycle) return null;
     const groupMinimum = /* @__PURE__ */ new Map();
     for (const [actionHrid, index] of firstSeen) {
       const root = find(actionHrid);
@@ -28128,7 +28687,7 @@ ${locks}` : ""}`;
       note.className = "mwi-task-merged-note";
       input.parentElement.insertAdjacentElement("afterend", note);
     }
-    note.textContent = t6(
+    note.textContent = t7(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -28463,7 +29022,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t7(zh, en) {
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -28520,10 +29079,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t7(...labels);
+    if (labels) return t8(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t7(
+      return t8(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -28587,7 +29146,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t7("意见反馈服务请求超时", "Feedback service request timed out")
+            t8("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -28604,7 +29163,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t7(
+            localizeErrorDetail(payload?.detail) || t8(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -28622,7 +29181,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t7("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t8("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -28636,9 +29195,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t7("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t8("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t7("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t8("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -28651,21 +29210,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t7("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t8("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t7("图片链接过长", "The image link is too long"));
+        throw new Error(t8("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t7("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t8("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t7("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t8("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -28769,7 +29328,7 @@ ${locks}` : ""}`;
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID9 = "mwitools-feedback-style";
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -28778,7 +29337,7 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t8(...labels[status]) : status;
+    return labels[status] ? t9(...labels[status]) : status;
   }
   function addStyles7() {
     if (document.getElementById(STYLE_ID9)) return;
@@ -28829,18 +29388,18 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t8("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t8("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t8("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t8("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t8("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t9("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t9("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t9("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t9("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t9("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t8("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t9("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t8("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t8("功能建议", "Feature request")}</option><option value="other">${t8("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t8("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t8("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t8("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t8("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t8("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t8("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t8("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t8("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t8("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t9("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t9("功能建议", "Feature request")}</option><option value="other">${t9("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t9("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t9("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t9("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t9("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t9("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t9("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t9("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t9("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t9("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -28882,7 +29441,7 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t8("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        button.innerHTML = `<span>✉</span><span>${t9("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
         this.scope.event(button, "click", () => this.open());
       }
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
@@ -28949,12 +29508,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t8("正在提交…", "Submitting…");
+      error.textContent = t9("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t8("请填写标题和详细说明。", "Enter a title and details.")
+            t9("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -28974,7 +29533,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t8("已保存反馈。", "Feedback saved.");
+        error.textContent = t9("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -28987,7 +29546,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t8(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t9(
         "提交",
         "Submit"
       );
@@ -29020,13 +29579,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t8(
+      node.textContent = errorMessage ? t9(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t8(
+      ) : this.quota ? t9(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t8("额度暂时不可用", "Quota unavailable");
+      ) : t9("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -29041,7 +29600,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t8("还没有提交过反馈。", "No feedback yet.")
+            t9("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -29075,7 +29634,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t8("返回列表", "Back")}`
+          `← ${t9("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -29089,29 +29648,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t8("详细说明", "Details"), item.detail)
+          this.textSection(t9("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t8("复现步骤", "Steps to reproduce"),
+              t9("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t8("预期结果", "Expected result"),
+              t9("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t8("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t9("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t8("图片", "Image")} ${index + 1}：${url}`
+              `${t9("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -29122,7 +29681,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t8("留言", "Messages")));
+        messages.append(makeElement("h4", "", t9("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -29130,7 +29689,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t8("管理员", "Admin") : t8("我", "Me")
+              message.actor === "admin" ? t9("管理员", "Admin") : t9("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -29142,7 +29701,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t8("暂无留言", "No messages")
+              t9("暂无留言", "No messages")
             )
           );
         }
@@ -29150,7 +29709,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t8("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t9("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -29159,9 +29718,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t8("补充留言…", "Add a message…");
+          input.placeholder = t9("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t8("发送", "Send"));
+          const send = makeElement("button", "", t9("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -29182,7 +29741,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t8(
+              t9(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -29219,7 +29778,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t8(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t9(
         "保存修改",
         "Save changes"
       );
@@ -29284,7 +29843,7 @@ ${locks}` : ""}`;
   // src/features/guild-xp.js
   var STYLE_ID10 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
-  function t9(zh, en) {
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -29400,7 +29959,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t9("待再次采样", "Awaiting another sample") : t9("样本不足", "Not enough data");
+      return waiting ? t10("待再次采样", "Awaiting another sample") : t10("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -29495,10 +30054,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t9("公会经验进度", "Guild XP progress");
+    title.textContent = t10("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t9("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t9("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t10("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t10("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -29513,16 +30072,16 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t9("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t10("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t9("最近 XP/h", "Recent XP/h"),
+        t10("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t9("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t9("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t10("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t10("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t9("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t9("样本不足", "Not enough data")
+        t10("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t10("样本不足", "Not enough data")
       )
     );
     card.append(head, grid, trendSvg(rates?.points ?? []));
@@ -29546,7 +30105,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t9("当前闲置", "Idle now")} (${idle.length}) · ${t9(
+      label.textContent = `${t10("当前闲置", "Idle now")} (${idle.length}) · ${t10(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -29565,8 +30124,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t9("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t9("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t10("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t10("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -29578,7 +30137,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t9("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t10("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -29680,10 +30239,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t9("最近 XP/h", "Recent XP/h")
+          textContent: t10("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t9("24 小时 XP/h", "24h XP/h")
+          textContent: t10("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -29807,7 +30366,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t10(zh, en) {
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   async function handleBattleSummary(message) {
@@ -30039,7 +30598,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t10("全部", "All")}</option>
+            <option value="1">${t11("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -30060,7 +30619,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t10("全部", "All")}</option>
+            <option value="1000">${t11("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -30081,33 +30640,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t10("全部", "All")}</option>
-                <option value="attack">${t10("攻击", "Attack")}</option>
-                <option value="melee">${t10("近战", "Melee")}</option>
-                <option value="defense">${t10("防御", "Defense")}</option>
-                <option value="ranged">${t10("远程", "Ranged")}</option>
-                <option value="magic">${t10("魔法", "Magic")}</option>
-                <option value="others">${t10("其他", "Others")}</option>
+                <option value="all">${t11("全部", "All")}</option>
+                <option value="attack">${t11("攻击", "Attack")}</option>
+                <option value="melee">${t11("近战", "Melee")}</option>
+                <option value="defense">${t11("防御", "Defense")}</option>
+                <option value="ranged">${t11("远程", "Ranged")}</option>
+                <option value="magic">${t11("魔法", "Magic")}</option>
+                <option value="others">${t11("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t10("全部", "All")}</option>
-                <option value="main_hand">${t10("主手", "Main Hand")}</option>
-                <option value="off_hand">${t10("副手", "Off Hand")}</option>
-                <option value="two_hand">${t10("双手", "Two Hand")}</option>
-                <option value="head">${t10("头部", "Head")}</option>
-                <option value="body">${t10("身体", "Body")}</option>
-                <option value="hands">${t10("手部", "Hands")}</option>
-                <option value="legs">${t10("腿部", "Legs")}</option>
-                <option value="feet">${t10("脚部", "Feet")}</option>
-                <option value="neck">${t10("项链", "Neck")}</option>
-                <option value="earrings">${t10("耳饰", "Earrings")}</option>
-                <option value="ring">${t10("戒指", "Ring")}</option>
-                <option value="pouch">${t10("袋子", "Pouch")}</option>
-                <option value="back">${t10("背部", "Back")}</option>
+                <option value="all">${t11("全部", "All")}</option>
+                <option value="main_hand">${t11("主手", "Main Hand")}</option>
+                <option value="off_hand">${t11("副手", "Off Hand")}</option>
+                <option value="two_hand">${t11("双手", "Two Hand")}</option>
+                <option value="head">${t11("头部", "Head")}</option>
+                <option value="body">${t11("身体", "Body")}</option>
+                <option value="hands">${t11("手部", "Hands")}</option>
+                <option value="legs">${t11("腿部", "Legs")}</option>
+                <option value="feet">${t11("脚部", "Feet")}</option>
+                <option value="neck">${t11("项链", "Neck")}</option>
+                <option value="earrings">${t11("耳饰", "Earrings")}</option>
+                <option value="ring">${t11("戒指", "Ring")}</option>
+                <option value="pouch">${t11("袋子", "Pouch")}</option>
+                <option value="back">${t11("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -30324,7 +30883,7 @@ ${locks}` : ""}`;
         );
         tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
       } else {
-        tillLevelNumber.textContent = t10("错误", "Error");
+        tillLevelNumber.textContent = t11("错误", "Error");
       }
     };
     tillLevelInput.addEventListener("keyup", function(evt) {
@@ -30338,7 +30897,7 @@ ${locks}` : ""}`;
         );
         tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
       } else {
-        tillLevelNumber.textContent = t10("错误", "Error");
+        tillLevelNumber.textContent = t11("错误", "Error");
       }
     });
   }
@@ -30443,7 +31002,7 @@ ${locks}` : ""}`;
     }
   });
 
-  // src/features/enhancement.js
+  // src/features/navigation-action-queue.js
   var THIRD_PARTY_LINKS = [
     {
       zh: "插件合集 Q7",
@@ -30487,59 +31046,63 @@ ${locks}` : ""}`;
   }
   function add3rdPartyLinks() {
     if (!runtime.settings.get("ThirdPartyLinks")) return;
-    const waitForNavi = () => {
-      const targetNode = document.querySelector(
-        "div.NavigationBar_minorNavigationLinks__dbxh7"
-      );
-      if (targetNode) {
-        if (targetNode.querySelector('[data-mwitools-external-link="true"]')) {
-          return;
-        }
-        const links = THIRD_PARTY_LINKS.map(
-          (link) => createMinorNavigationLink(
-            runtime.config.isZH ? link.zh : link.en,
-            () => window.open(link.url, "_blank")
-          )
-        );
-        if (runtime.config.isZH) {
-          links.push(
-            createMinorNavigationLink("牛牛手册", () => {
-              window.open(
-                "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe",
-                "_blank"
-              );
-            })
-          );
-        }
-        links.push(
-          createMinorNavigationLink(
-            runtime.config.isZH ? "插件设置" : "Script settings",
-            () => {
-              const array = document.querySelectorAll(
-                ".NavigationBar_navigationLink__3eAHA"
-              );
-              array[array.length - 1]?.click();
-            }
-          )
-        );
-        const fragment = document.createDocumentFragment();
-        links.forEach((link) => fragment.append(link));
-        targetNode.insertBefore(fragment, targetNode.firstChild);
-      } else {
-        setTimeout(add3rdPartyLinks, 200);
-      }
-    };
-    waitForNavi();
-  }
-  function handleActionQueueMenue(added) {
-    if (!runtime.settings.settingsMap.actionQueue.isTrue) {
+    const targetNode = document.querySelector(
+      "div.NavigationBar_minorNavigationLinks__dbxh7"
+    );
+    if (!targetNode || targetNode.querySelector('[data-mwitools-external-link="true"]')) {
       return;
     }
+    const links = THIRD_PARTY_LINKS.map(
+      (link) => createMinorNavigationLink(
+        runtime.config.isZH ? link.zh : link.en,
+        () => window.open(link.url, "_blank")
+      )
+    );
+    if (runtime.config.isZH) {
+      links.push(
+        createMinorNavigationLink("牛牛手册", () => {
+          window.open(
+            "https://test-ctmd6jnzo6t9.feishu.cn/docx/KG9ddER6Eo2uPoxJFkicsvbEnCe",
+            "_blank"
+          );
+        })
+      );
+    }
+    links.push(
+      createMinorNavigationLink(
+        runtime.config.isZH ? "插件设置" : "Script settings",
+        () => {
+          const array = document.querySelectorAll(
+            ".NavigationBar_navigationLink__3eAHA"
+          );
+          array[array.length - 1]?.click();
+        }
+      )
+    );
+    const fragment = document.createDocumentFragment();
+    links.forEach((link) => fragment.append(link));
+    targetNode.insertBefore(fragment, targetNode.firstChild);
+  }
+  var actionQueueObservers = /* @__PURE__ */ new Map();
+  function disconnectActionQueueObservers() {
+    for (const observer of actionQueueObservers.values()) observer.disconnect();
+    actionQueueObservers.clear();
+  }
+  function handleActionQueueMenue(added) {
+    if (!runtime.settings.get("actionQueue")) return;
     handleActionQueueMenueCalculateTime(added);
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-    new MutationObserver((mutationsList) => {
+    if (!listDiv || actionQueueObservers.has(added)) return;
+    const observer = new MutationObserver(() => {
+      if (!runtime.settings.get("actionQueue")) {
+        observer.disconnect();
+        actionQueueObservers.delete(added);
+        return;
+      }
       handleActionQueueMenueCalculateTime(added);
-    }).observe(listDiv, {
+    });
+    actionQueueObservers.set(added, observer);
+    observer.observe(listDiv, {
       characterData: false,
       subtree: false,
       childList: true
@@ -30549,516 +31112,63 @@ ${locks}` : ""}`;
     const actionDivList = added.querySelectorAll(
       "div.QueuedActions_action__r3HlD"
     );
-    if (!actionDivList || actionDivList.length === 0) {
-      return;
-    }
+    if (!actionDivList.length) return;
     if (actionDivList.length !== runtime.state.currentActionsHridList.length - 1) {
       console.error("handleActionQueueTooltip action queue length inconsistency");
       return;
     }
     let actionDivListIndex = 0;
-    let hasSkippedfirstActionObj = false;
+    let hasSkippedFirstAction = false;
     let accumulatedTimeSec = 0;
     let isAccumulatedTimeInfinite = false;
     for (const actionObj of runtime.state.currentActionsHridList) {
       const actionHrid = actionObj.actionHrid;
       const count = actionObj.maxCount - actionObj.currentCount;
-      let isInfinit = false;
-      if (count === 0 || actionHrid.includes("/combat/")) {
-        isInfinit = true;
-        isAccumulatedTimeInfinite = true;
-      }
-      const baseTimePerActionSec = runtime.state.initData_actionDetailMap[actionHrid].baseTimeCost / 1e9;
+      const isInfinite = count === 0 || actionHrid.includes("/combat/");
+      if (isInfinite) isAccumulatedTimeInfinite = true;
+      const detail = runtime.state.initData_actionDetailMap[actionHrid];
+      if (!detail) continue;
+      const baseTimePerActionSec = detail.baseTimeCost / 1e9;
       const totalEffBuff = runtime.api.getTotalEffiPercentage(actionHrid);
       const toolSpeedBuff = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
       let timePerActionSec = baseTimePerActionSec / (1 + toolSpeedBuff / 100);
       timePerActionSec /= 1 + totalEffBuff / 100;
-      let totalTimeSec = count * timePerActionSec;
-      let str = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
+      const totalTimeSec = count * timePerActionSec;
+      let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
       if (!isAccumulatedTimeInfinite) {
         accumulatedTimeSec += totalTimeSec;
         const currentTime = /* @__PURE__ */ new Date();
         currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
-        str = `${runtime.config.isZH ? "到 " : "Complete at "}${String(currentTime.getHours()).padStart(2, "0")}:${String(
-          currentTime.getMinutes()
-        ).padStart(2, "0")}:${String(currentTime.getSeconds()).padStart(2, "0")}`;
+        completion = `${runtime.config.isZH ? "到 " : "Complete at "}${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(currentTime.getSeconds()).padStart(2, "0")}`;
       }
-      if (hasSkippedfirstActionObj) {
-        const html2 = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${isInfinit ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`} ${str}</div>`;
-        if (actionDivList[actionDivListIndex].querySelector(
-          "div div.script_actionTime"
-        )) {
-          actionDivList[actionDivListIndex].querySelector(
-            "div div.script_actionTime"
-          ).innerHTML = html2;
-        } else {
-          actionDivList[actionDivListIndex].querySelector("div").insertAdjacentHTML("beforeend", html2);
-        }
-        actionDivListIndex++;
+      if (hasSkippedFirstAction) {
+        const html2 = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${isInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`} ${completion}</div>`;
+        const target = actionDivList[actionDivListIndex]?.querySelector("div");
+        const current = target?.querySelector("div.script_actionTime");
+        if (current) current.outerHTML = html2;
+        else target?.insertAdjacentHTML("beforeend", html2);
+        actionDivListIndex += 1;
       }
-      hasSkippedfirstActionObj = true;
+      hasSkippedFirstAction = true;
     }
     const html = `<div id="script_queueTotalTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总时间：" : "Total time: "}${isAccumulatedTimeInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(accumulatedTimeSec)}]`}</div>`;
-    if (document.querySelector("div#script_queueTotalTime")) {
-      document.querySelector("div#script_queueTotalTime").innerHTML = html;
-    } else {
-      document.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH").insertAdjacentHTML("afterend", html);
-    }
+    const currentTotal = document.querySelector("div#script_queueTotalTime");
+    if (currentTotal) currentTotal.outerHTML = html;
+    else added.insertAdjacentHTML("afterend", html);
   }
-  function getOriTextFromElement(elem) {
-    if (!elem) {
+  function getOriTextFromElement(element) {
+    if (!element) {
       console.error("getTextFromElement null elem");
       return "";
     }
-    const translatedfrom = elem.getAttribute("script_translatedfrom");
-    if (translatedfrom) {
-      return translatedfrom;
-    }
-    return elem.textContent;
-  }
-  async function handleItemTooltipWithEnhancementLevel(tooltip) {
-    const tooltipContent = tooltip.querySelector(
-      ".ItemTooltipText_itemTooltipText__zFq3A"
-    );
-    const itemNameElems = tooltip.querySelectorAll(
-      "div.ItemTooltipText_name__2JAHA span"
-    );
-    let itemName2 = getOriTextFromElement(itemNameElems[0]);
-    if (runtime.config.isZHInGameSetting) {
-      itemName2 = runtime.api.getItemEnNameFromZhName(itemName2);
-    }
-    const enhancementLevel = Number(
-      itemNameElems[1].textContent.replace("+", "")
-    );
-    const itemHrid = runtime.state.itemEnNameToHridMap[itemName2];
-    if (!itemHrid || !runtime.state.initData_itemDetailMap[itemHrid]) {
-      console.error(
-        `handleItemTooltipWithEnhancementLevel invalid itemHrid ${itemName2} ${itemHrid}`
-      );
-      return;
-    }
-    let marketPriceHTML = "";
-    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
-      await runtime.api.fetchMarketJSON();
-      const fairValue = runtime.api.getFairValue(itemHrid, enhancementLevel);
-      const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
-      const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
-      marketPriceHTML = `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}</div>
-      <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}</div>`;
-    }
-    if (!runtime.settings.settingsMap.enhanceSim.isTrue) {
-      tooltipContent.insertAdjacentHTML("beforeend", marketPriceHTML);
-      return;
-    }
-    if (typeof math === "undefined") {
-      console.error(`handleItemTooltipWithEnhancementLevel no math lib`);
-      tooltipContent.insertAdjacentHTML(
-        "beforeend",
-        `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_ALERT};">${runtime.config.isZH ? "由于网络问题无法强化模拟: 1. 手机可能不支持脚本联网；2. 请尝试科学网络；" : "Enhancement sim Internet error"}</div>`
-      );
-      return;
-    }
-    input_data.item_hrid = itemHrid;
-    input_data.stop_at = enhancementLevel;
-    const best = await findBestEnhanceStratWithPhiMirror(input_data);
-    let appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "不支持模拟+1装备" : "Enhancement sim of +1 equipments not supported"}</div>`;
-    if (best) {
-      let needMatStr = "";
-      if (best.costs.needMap) {
-        for (const [key, value] of Object.entries(best.costs.needMap)) {
-          needMatStr += `<div>${runtime.config.isZH ? runtime.data.ZHItemNames[runtime.state.initData_itemDetailMap[key].hrid] : runtime.state.initData_itemDetailMap[key].name} ${runtime.config.isZH ? "单价: " : "price per item: "}${runtime.api.numberFormatter(value)}<div>`;
-        }
-      }
-      appendHTMLStr = `${marketPriceHTML}<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};"><div>${runtime.config.isZH ? "强化模拟（默认125级强化，6级房子，10级星空工具，10级手套，究极茶，幸运茶，卖单价收货，不包括工时费，不包括市场税）：" : "Enhancement simulator: Default level 12 enhancing, level 6 house, level 10 celestial tool, level 10 gloves, ultra tea, blessed tea, sell order price in, no player time fee, no market tax: "}</div><div>${runtime.config.isZH ? "总成本 " : "Total cost "}${runtime.api.numberFormatter(best.totalCost.toFixed(0))}</div>
-        <div>${runtime.config.isZH ? "耗时 " : "Time spend "}${best.simResult.totalActionTimeStr}</div>
-        ${best.protect_count > 0 ? `<div>${runtime.config.isZH ? "从 " : "Use protection from level "}` + best.protect_at + `${runtime.config.isZH ? " 级开始保护" : ""}</div>` : `<div>${runtime.config.isZH ? "不需要保护" : "No protection use"}</div>`}
-        <div>${runtime.config.isZH ? "保护 " : "Protection "}${best.protect_count.toFixed(1)}${runtime.config.isZH ? " 次" : " times"}</div>
-        ${best.costs.inputCount ? `<div>+${best.protect_at}${runtime.config.isZH ? "底子价格: " : " Base item Price: "}${runtime.api.numberFormatter(best.costs.baseCost)}</div><div>+${best.protect_at}${runtime.config.isZH ? "底子数量: " : " Base item Count: "}${runtime.api.numberFormatter(best.costs.baseCount)}</div><div>+${best.protect_at - 1}${runtime.config.isZH ? "材料价格: " : " Base item Price: "}${runtime.api.numberFormatter(best.costs.inputCost)}</div><div>+${best.protect_at - 1}${runtime.config.isZH ? "材料数量: " : " Base item Count: "}${runtime.api.numberFormatter(best.costs.inputCount)}</div>` : `<div>${runtime.config.isZH ? "+0底子价格: " : "+0 Base item Price: "}${runtime.api.numberFormatter(best.costs.baseCost)}</div>`}
-        <div>${best.protect_count > 0 ? (runtime.config.isZH ? "保护单价: " : "Price per protection: ") + (runtime.config.isZH ? runtime.data.ZHItemNames[runtime.state.initData_itemDetailMap[best.costs.choiceOfProtection].hrid] : runtime.state.initData_itemDetailMap[best.costs.choiceOfProtection].name) + " " + runtime.api.numberFormatter(best.costs.minProtectionCost) : ""}
-         </div>${needMatStr}</div>`;
-    }
-    tooltipContent.insertAdjacentHTML("beforeend", appendHTMLStr);
-  }
-  async function findBestEnhanceStratWithPhiMirror(input_data2) {
-    const price_data = await runtime.api.fetchMarketJSON();
-    if (!price_data || !price_data.marketData) {
-      console.error("findBestEnhanceStrat fetchMarketJSON null");
-      return null;
-    }
-    let best = await findBestEnhanceStrat(input_data2);
-    if (!best) {
-      return best;
-    }
-    const pMirrorHrid = "/items/philosophers_mirror";
-    const pMirrorCost = getItemMarketPrice(pMirrorHrid, price_data);
-    if (pMirrorCost <= 0) {
-      return best;
-    }
-    const enhancementLevel = input_data2.stop_at;
-    if (enhancementLevel <= 3) {
-      return best;
-    }
-    const keyRefined = "_refined";
-    const refinedHrid = input_data2.item_hrid;
-    const isRefined = input_data2.item_hrid.includes(keyRefined);
-    input_data2.item_hrid = isRefined ? input_data2.item_hrid.replace(keyRefined, "") : input_data2.item_hrid;
-    const lowerBest = {};
-    const lowestAt = 9;
-    for (let i = lowestAt; i < enhancementLevel; i++) {
-      input_data2.stop_at = i;
-      lowerBest[i] = await findBestEnhanceStrat(input_data2);
-    }
-    const refinedNeedMap = {};
-    let refinedCost = 0;
-    if (isRefined) {
-      const actionHrid = runtime.api.getActionHridFromItemName(
-        runtime.state.initData_itemDetailMap[refinedHrid].name
-      );
-      if (actionHrid && runtime.state.initData_actionDetailMap[actionHrid].inputItems && runtime.state.initData_actionDetailMap[actionHrid].inputItems.length > 0) {
-        const inputItems = JSON.parse(
-          JSON.stringify(
-            runtime.state.initData_actionDetailMap[actionHrid].inputItems
-          )
-        );
-        for (const item of inputItems) {
-          refinedNeedMap[item.itemHrid] = getItemMarketPrice(
-            item.itemHrid,
-            price_data
-          );
-          refinedCost += getItemMarketPrice(item.itemHrid, price_data) * item.count;
-        }
-      }
-    }
-    const allResults = [];
-    for (let protect_at = lowestAt + 1; protect_at < enhancementLevel; protect_at++) {
-      const fibonacci = [
-        0,
-        1,
-        1,
-        2,
-        3,
-        5,
-        8,
-        13,
-        21,
-        34,
-        55,
-        89,
-        144,
-        233,
-        377,
-        610,
-        987,
-        1597,
-        2584,
-        4181
-      ];
-      const baseCount = fibonacci[enhancementLevel - protect_at + 1];
-      const inputCount = fibonacci[enhancementLevel - protect_at];
-      const protectCount = baseCount + inputCount - 1;
-      const totalCost = baseCount * lowerBest[protect_at].totalCost + inputCount * lowerBest[protect_at - 1].totalCost + pMirrorCost * protectCount + refinedCost;
-      const cost = {
-        minProtectionCost: pMirrorCost,
-        choiceOfProtection: pMirrorHrid,
-        baseCost: lowerBest[protect_at].totalCost,
-        baseCount,
-        inputCost: lowerBest[protect_at - 1].totalCost,
-        inputCount,
-        needMap: refinedNeedMap
-      };
-      const itemLevel = runtime.state.initData_itemDetailMap[input_data2.item_hrid].itemLevel;
-      const effective_level = input_data2.enhancing_level + (input_data2.tea_enhancing ? 3 : 0) + (input_data2.tea_super_enhancing ? 6 : 0) + (input_data2.tea_ultra_enhancing ? 8 : 0);
-      const perActionTimeSec = (12 / (1 + (input_data2.enhancing_level > itemLevel ? (effective_level + input_data2.laboratory_level - itemLevel + input_data2.glove_bonus) / 100 : (input_data2.laboratory_level + input_data2.glove_bonus) / 100))).toFixed(2);
-      const totalActionTimeSec = protectCount * perActionTimeSec;
-      const simResult = {
-        totalActionTimeStr: runtime.api.timeReadable(totalActionTimeSec)
-      };
-      const r = {};
-      r.protect_at = protect_at;
-      r.protect_count = protectCount;
-      r.intput_count = inputCount;
-      r.simResult = simResult;
-      r.costs = cost;
-      r.totalCost = totalCost;
-      allResults.push(r);
-    }
-    for (const r of allResults) {
-      if (r.totalCost < best.totalCost) {
-        best = r;
-      }
-    }
-    return best;
-  }
-  async function findBestEnhanceStrat(input_data2) {
-    const price_data = await runtime.api.fetchMarketJSON();
-    if (!price_data || !price_data.marketData) {
-      console.error("findBestEnhanceStrat fetchMarketJSON null");
-      return [];
-    }
-    const allResults = [];
-    for (let protect_at = 2; protect_at <= input_data2.stop_at; protect_at++) {
-      const simResult = Enhancelate(input_data2, protect_at);
-      const costs = getCosts(input_data2.item_hrid, price_data);
-      const totalCost = costs.baseCost + costs.minProtectionCost * simResult.protect_count + costs.perActionCost * simResult.actions;
-      const r = {};
-      r.protect_at = protect_at;
-      r.protect_count = simResult.protect_count;
-      r.simResult = simResult;
-      r.costs = costs;
-      r.totalCost = totalCost;
-      allResults.push(r);
-    }
-    let best = null;
-    for (const r of allResults) {
-      if (best === null || r.totalCost < best.totalCost) {
-        best = r;
-      }
-    }
-    return best;
-  }
-  function Enhancelate(input_data2, protect_at) {
-    const success_rate = [
-      50,
-      //+1
-      45,
-      //+2
-      45,
-      //+3
-      40,
-      //+4
-      40,
-      //+5
-      40,
-      //+6
-      35,
-      //+7
-      35,
-      //+8
-      35,
-      //+9
-      35,
-      //+10
-      30,
-      //+11
-      30,
-      //+12
-      30,
-      //+13
-      30,
-      //+14
-      30,
-      //+15
-      30,
-      //+16
-      30,
-      //+17
-      30,
-      //+18
-      30,
-      //+19
-      30
-      //+20
-    ];
-    const itemLevel = runtime.state.initData_itemDetailMap[input_data2.item_hrid].itemLevel;
-    let total_bonus = null;
-    const effective_level = input_data2.enhancing_level + (input_data2.tea_enhancing ? 3 : 0) + (input_data2.tea_super_enhancing ? 6 : 0) + (input_data2.tea_ultra_enhancing ? 8 : 0);
-    if (effective_level >= itemLevel) {
-      total_bonus = 1 + (0.05 * (effective_level + input_data2.laboratory_level - itemLevel) + input_data2.enhancer_bonus) / 100;
-    } else {
-      total_bonus = 1 - 0.5 * (1 - effective_level / itemLevel) + (0.05 * input_data2.laboratory_level + input_data2.enhancer_bonus) / 100;
-    }
-    let markov = math.zeros(20, 20);
-    for (let i = 0; i < input_data2.stop_at; i++) {
-      const success_chance = success_rate[i] / 100 * total_bonus;
-      const destination = i >= protect_at ? i - 1 : 0;
-      if (input_data2.tea_blessed) {
-        markov.set([i, i + 2], success_chance * 0.01);
-        markov.set([i, i + 1], success_chance * 0.99);
-        markov.set([i, destination], 1 - success_chance);
-      } else {
-        markov.set([i, i + 1], success_chance);
-        markov.set([i, destination], 1 - success_chance);
-      }
-    }
-    markov.set([input_data2.stop_at, input_data2.stop_at], 1);
-    let Q = markov.subset(
-      math.index(
-        math.range(0, input_data2.stop_at),
-        math.range(0, input_data2.stop_at)
-      )
-    );
-    const M = math.inv(math.subtract(math.identity(input_data2.stop_at), Q));
-    const attemptsArray = M.subset(
-      math.index(math.range(0, 1), math.range(0, input_data2.stop_at))
-    );
-    const attempts = math.flatten(math.row(attemptsArray, 0).valueOf()).reduce((a, b) => a + b, 0);
-    const protectAttempts = M.subset(
-      math.index(math.range(0, 1), math.range(protect_at, input_data2.stop_at))
-    );
-    const protectAttemptsArray = typeof protectAttempts === "number" ? [protectAttempts] : math.flatten(math.row(protectAttempts, 0).valueOf());
-    const protects = protectAttemptsArray.map((a, i) => a * markov.get([i + protect_at, i + protect_at - 1])).reduce((a, b) => a + b, 0);
-    const perActionTimeSec = (12 / (1 + (input_data2.enhancing_level > itemLevel ? (effective_level + input_data2.laboratory_level - itemLevel + input_data2.glove_bonus) / 100 : (input_data2.laboratory_level + input_data2.glove_bonus) / 100))).toFixed(2);
-    const result = {};
-    result.actions = attempts;
-    result.protect_count = protects;
-    result.totalActionTimeSec = perActionTimeSec * attempts;
-    result.totalActionTimeStr = runtime.api.timeReadable(
-      result.totalActionTimeSec
-    );
-    return result;
-  }
-  var input_data = {
-    item_hrid: null,
-    stop_at: null,
-    enhancing_level: 125,
-    // 人物 Enhancing 技能等级
-    laboratory_level: 6,
-    // 房子等级
-    enhancer_bonus: 5.42,
-    // 工具提高成功率，10级星空强化工具
-    glove_bonus: 12.9,
-    // 手套提高强化速度，0级=10，5级=11.2，10级=12.9
-    tea_enhancing: false,
-    // 强化茶
-    tea_super_enhancing: false,
-    // 超级强化茶
-    tea_ultra_enhancing: true,
-    tea_blessed: true,
-    // 祝福茶
-    priceAskBidRatio: 1
-    // 取市场卖单价买单价比例，1=只用卖单价，0=只用买单价
-  };
-  function getCosts(hrid, price_data) {
-    const itemDetailObj = runtime.state.initData_itemDetailMap[hrid];
-    const baseCost = getRealisticBaseItemPrice(hrid, price_data);
-    let minProtectionPrice = null;
-    let minProtectionHrid = null;
-    let protect_item_hrids = itemDetailObj.protectionItemHrids == null ? [hrid, "/items/mirror_of_protection"] : [hrid, "/items/mirror_of_protection"].concat(
-      itemDetailObj.protectionItemHrids
-    );
-    protect_item_hrids.forEach((protection_hrid, i) => {
-      const this_cost = getRealisticBaseItemPrice(protection_hrid, price_data);
-      if (i === 0) {
-        minProtectionPrice = this_cost;
-        minProtectionHrid = protection_hrid;
-      } else {
-        if (this_cost > 0 && (minProtectionPrice < 0 || this_cost < minProtectionPrice)) {
-          minProtectionPrice = this_cost;
-          minProtectionHrid = protection_hrid;
-        }
-      }
-    });
-    const needMap = {};
-    let totalNeedPrice = 0;
-    for (const need of itemDetailObj.enhancementCosts) {
-      const price = need.itemHrid.startsWith("/items/trainee_") ? 25e4 : getItemMarketPrice(need.itemHrid, price_data);
-      totalNeedPrice += price * need.count;
-      if (!need.itemHrid.includes("/coin")) {
-        needMap[need.itemHrid] = price;
-      }
-    }
-    return {
-      baseCost,
-      minProtectionCost: minProtectionPrice,
-      perActionCost: totalNeedPrice,
-      choiceOfProtection: minProtectionHrid,
-      needMap
-    };
-  }
-  function getRealisticBaseItemPrice(hrid, price_data) {
-    const itemDetailObj = runtime.state.initData_itemDetailMap[hrid];
-    const productionCost = getBaseItemProductionCost(
-      itemDetailObj.name,
-      price_data
-    );
-    const item_price_data = price_data.marketData[hrid];
-    const ask = item_price_data?.[0]?.a;
-    const bid = item_price_data?.[0]?.b;
-    let result = 0;
-    if (ask && ask > 0) {
-      if (bid && bid > 0) {
-        if (ask / bid > 1.3) {
-          result = Math.max(bid, productionCost);
-        } else {
-          result = ask;
-        }
-      } else {
-        if (ask / productionCost > 1.3) {
-          result = productionCost;
-        } else {
-          result = Math.max(ask, productionCost);
-        }
-      }
-    } else {
-      if (bid && bid > 0) {
-        result = Math.max(bid, productionCost);
-      } else {
-        result = productionCost;
-      }
-    }
-    return result;
-  }
-  function getItemMarketPrice(hrid, price_data) {
-    const item_price_data = price_data.marketData[hrid];
-    if (!item_price_data || !item_price_data[0] || item_price_data[0].a < 0 && item_price_data[0].b < 0) {
-      return 0;
-    }
-    let ask = item_price_data[0]?.a;
-    let bid = item_price_data[0]?.b;
-    if (ask > 0 && bid < 0) {
-      return ask;
-    }
-    if (bid > 0 && ask < 0) {
-      return bid;
-    }
-    let final_cost = ask * input_data.priceAskBidRatio + bid * (1 - input_data.priceAskBidRatio);
-    return final_cost;
-  }
-  function getBaseItemProductionCost(itemName2, price_data) {
-    const actionHrid = runtime.api.getActionHridFromItemName(itemName2);
-    if (!actionHrid || !runtime.state.initData_actionDetailMap[actionHrid]) {
-      return -1;
-    }
-    let totalPrice = 0;
-    const inputItems = JSON.parse(
-      JSON.stringify(
-        runtime.state.initData_actionDetailMap[actionHrid].inputItems
-      )
-    );
-    for (let item of inputItems) {
-      totalPrice += getItemMarketPrice(item.itemHrid, price_data) * item.count;
-    }
-    totalPrice *= 0.9;
-    const upgradedFromItemHrid = runtime.state.initData_actionDetailMap[actionHrid]?.upgradeItemHrid;
-    if (upgradedFromItemHrid) {
-      totalPrice += getItemMarketPrice(upgradedFromItemHrid, price_data) * 1;
-    }
-    return totalPrice;
+    return element.getAttribute("script_translatedfrom") || element.textContent;
   }
   Object.assign(runtime.api, {
     add3rdPartyLinks,
-    handleActionQueueMenue,
-    handleActionQueueMenueCalculateTime,
+    disconnectActionQueueObservers,
     getOriTextFromElement,
-    handleItemTooltipWithEnhancementLevel,
-    findBestEnhanceStratWithPhiMirror,
-    findBestEnhanceStrat,
-    Enhancelate,
-    getCosts,
-    getRealisticBaseItemPrice,
-    getItemMarketPrice,
-    getBaseItemProductionCost
-  });
-  Object.defineProperties(runtime.state, {
-    input_data: {
-      enumerable: true,
-      get() {
-        return input_data;
-      },
-      set(value) {
-        input_data = value;
-      }
-    }
+    handleActionQueueMenue,
+    handleActionQueueMenueCalculateTime
   });
 
   // src/features/enhancement-planner.js
@@ -31553,7 +31663,7 @@ ${locks}` : ""}`;
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles9() {
@@ -31593,7 +31703,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number2)) return "—";
     const rounded = Math.round(number2);
     const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number2, digits)} ${t11("个", "pcs")}`;
+    return `${compactNumber(number2, digits)} ${t12("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -31616,11 +31726,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t11(
+      text: t12(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t11(
+      title: t12(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -31629,28 +31739,28 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t11("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t11("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t11(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t11("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t11(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t11("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t12("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t12("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t12(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t12("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t12(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t12("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t11("总成本", "Total cost"),
+        t12("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t11("耗时", "Time"),
+        t12("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t11("开始保护", "Protect from"), normalStart),
+      metric3(t12("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t11("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t12("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -32380,7 +32490,7 @@ ${locks}` : ""}`;
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
   var STYLE_ID12 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t12(value) {
+  function t13(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -32504,8 +32614,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t12(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t12(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t13(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t13(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -32562,8 +32672,9 @@ ${locks}` : ""}`;
   var trend_default = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAFXklEQVR42u1YTWxUVRT+zr33zZuhM/3DYistRVoCihhDMCGEiEVATQiRSKs7JVE3JprgwoXRabeulOjGEBPUmNhuwCAhYJnya9SIxggBKn+1VFpKpy2dedN5997jojPNtDOVUEph0W83d87M/e653/nOeQ+Ywxzm8GCCGYJjULEYFDPogSOXtxbNXwMAdR/IERHswLFHnwwpWsuMobPX4geoKT6U+Y5z42m2M0cE23eoOlocslFXaYIQ8PzApeGU3Fa58fKf2Zjsb8SskWuFJIK90b5oQ0WJbU7zQxgt2aGTzuZ0yMWSAPQejq1XaL5fV1wBikYhiPAKCNatfNUEilc6zBYjXTeswm9PXbd9y6pacCY3i2IWCYqWFlg26AcgYJMACMSGidNsQSwt+/elSDgGRU8gfe37qkXBgN2cSpFOJ1qlSV03JtVrw855ZwjqaMXGc50cnWUNcgyKGqBvHK58urRMnXCVWE2QCiYhnOG9MqR/cbwR+pV9/XqhklUzbSEAQARmgBCDpAbo/sOVLxeFnD1Wo8hxgEHP7GcEPvBMcIkjMPTaZxePtbXBZC3onnhbrvlyK2T2c/xIzc7UiRq+1VFj7E+LeKh94eeFOsdU3YRmyHgZAAaPryyDNFS69uwAAAwfrf40HJTvJJLWug5EIs3vl23o/pijEFiRs3cTLGGiQc8IwSy5WycfXkDG3QU9+hwRCd+4P1jSkbKIfCmZZEgJL+WbHaUber7jGBSehZncMaYC3ZXeOiCBWhU3JlZWzmuSqUWQguDyVfhGAbAwlnuSSds4/4WeU9mCuZN9/reKOQrBDJGrj4zeJDrGCqAPcnVZWK9J+KvSwdr32KnZyUm5ytc6pbUVpwc9f910yU1JkBnEUQhqgSWCJQJzK2QsBkUEJoKhBujhWNW6sOQPR0e1VpHlUsgQCRkkMW8ZhYIsE776pOr53ssXDsCdDrkpbSajDx48VVcfCrnhXm/4PK3t9gDgr9aK8OLKwDZY+QaAZxzB0H4Auv+IlW61ZmbowRh8VuSQfzYahVj6IvzpSokKlfpgR22Jktgt7OhWZuOQCl0a9fGRsH6148q3AlIuEQCEAJKehbZ0ZZ6rFyvHARsGuRaDcdpVtvGfdydPJ3dLUBDBDrTXtJXN5+0Jr96Ss4DU6GmSlIIQMuPAQCLFnhTYn07rL4aLxMmwJ7YHFW+1zDAs9pU0dH3DDAIBU1nIHRHMau7q4aVLijHcGYgs52D124JUmNI3263X/bV13JBi2GtC4Ftj9JfFDf+em7LAALobYvkabAbQAgiBiIQVLMtZqCICG1CgkiMRRV6a9w2M0I7aLV3xbMcAADTCAhBoy/xXI0AEMxNdSuXkkplBnZ18rqg7cLFE/1Hn9R1Ky9BCMdq7lyNBcrwEdtdu6YrzAbj4GT41TSBhcA9AeVNvE8z1H2s2lbi8Nxgy82AAKIHBuPyqdKDrTTwOYAXMeLZmAo0AmsHUkl9MVMicqQX2dGt9xWNV3MRsSzXz8eL1V47d89GsgG6pUG+9drBq+SPzRWX/iBkBgQSEAtsSDUAxTRS+LHC5EpAmsyxzlg1gJsWzBJcUSeqN28vVm3ouTH6yUxMyR7BdB6vriwL0O1sZLA8p0NjJYMzYcZgzZ809m5qUBwBQmWDKyUM2TvF4mAUAH4hISvXG6lYSXfw7e4sFO4nrEIPJas0wGqBJCeOxToM8B2GACaDxvTnnijj/3pjHJ1s71r4MvDTftpMQgXsP1NSVl1PtyIjJWO00oAscv9Aag8Nh0M1b/pXKTX2XCj285wn1vr0SKbA3TTVmTZh4ZwNnCtvMHOYwh9vgP/Xfodt7xGPxAAAAAElFTkSuQmCC";
 
   // src/features/dps/00-bootstrap.js
-  var pageWindow = globalThis.unsafeWindow ?? globalThis;
-  var MWI = pageWindow.__MWI_DPS = pageWindow.__MWI_DPS || {};
+  var pageWindow2 = globalThis.unsafeWindow ?? globalThis;
+  var MWI = pageWindow2.__MWI_DPS = pageWindow2.__MWI_DPS || {};
+  MWI.__mwitoolsIntegrated = true;
   var VERSION = "1.0.51";
   var TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";
   var ACCENT = "#d4af37";
@@ -32649,6 +32760,7 @@ ${locks}` : ""}`;
   var Settings = (() => {
     const KEY = "kikimeter:settings:v4";
     const LEGACY_KEY = "kikimeter:settings:v3";
+    const defaultLanguage = typeof runtime.config.isZH === "boolean" ? runtime.config.isZH ? "zh" : "en" : /^zh\b/i.test(globalThis.navigator?.language ?? "") ? "zh" : "en";
     const defaults = {
       colors: {},
       classOverrides: {},
@@ -32658,7 +32770,7 @@ ${locks}` : ""}`;
       showHealing: true,
       showGraph: false,
       autoReset: true,
-      language: "zh",
+      language: defaultLanguage,
       panelOpacity: 100
     };
     let state = { ...defaults };
@@ -34622,9 +34734,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t13 = 0;
-        playerKills.forEach((v) => t13 += v);
-        return t13;
+        let t14 = 0;
+        playerKills.forEach((v) => t14 += v);
+        return t14;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -34880,12 +34992,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t13) {
-      const low = t13.toLowerCase();
+    function looksLikeNoise(t14) {
+      const low = t14.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t13)) return true;
-      if (/^\d+%?$/.test(t13)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t13)) return true;
+      if (/^lv\.?\d+$/i.test(t14)) return true;
+      if (/^\d+%?$/.test(t14)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t14)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -34907,14 +35019,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t13) => t13 && !looksLikeNoise(t13) && !/^trial\s/i.test(t13));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t14) => t14 && !looksLikeNoise(t14) && !/^trial\s/i.test(t14));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t13, i) => {
-        resolved.set(String(i + offset), t13);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t14, i) => {
+        resolved.set(String(i + offset), t14);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -34982,7 +35094,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t13) => t13.length > 0)) {
+          if (texts.some((t14) => t14.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -35018,10 +35130,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t13 = c.textContent.trim();
-            if (t13.length >= 2 && t13.length <= 20 && !looksLikeNoise(t13)) {
+            const t14 = c.textContent.trim();
+            if (t14.length >= 2 && t14.length <= 20 && !looksLikeNoise(t14)) {
               nameLikeCount++;
-              texts.push(t13.slice(0, 20));
+              texts.push(t14.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -36498,11 +36610,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t13 = el2.textContent.trim();
-        if (!t13 || t13.length < 2 || t13.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t13);
+        const t14 = el2.textContent.trim();
+        if (!t14 || t14.length < 2 || t14.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t14);
         let cssEllipsis = false;
-        if (!literalEllipsis && t13.length <= 20 && !t13.includes(" ") && !looksLikeNoise(t13)) {
+        if (!literalEllipsis && t14.length <= 20 && !t14.includes(" ") && !looksLikeNoise(t14)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -38951,10 +39063,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t13 = c.textContent;
-        if (t13.includes("Combat Zones") || t13.includes("战斗区域") || t13.includes("戰鬥區域"))
+        const t14 = c.textContent;
+        if (t14.includes("Combat Zones") || t14.includes("战斗区域") || t14.includes("戰鬥區域"))
           return c;
-        if (t13.includes("Labyrinth") && t13.includes("Room") && t13.includes("Automation") || t13.includes("迷宫") && (t13.includes("房间") || t13.includes("自动化")) || t13.includes("迷宮") && (t13.includes("房間") || t13.includes("自動化")))
+        if (t14.includes("Labyrinth") && t14.includes("Room") && t14.includes("Automation") || t14.includes("迷宫") && (t14.includes("房间") || t14.includes("自动化")) || t14.includes("迷宮") && (t14.includes("房間") || t14.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -39260,10 +39372,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t13) => {
+      TYPES.forEach((t14) => {
         const btn = document.createElement("button");
-        btn.textContent = t13.label;
-        const active = historyFilter === t13.id;
+        btn.textContent = t14.label;
+        const active = historyFilter === t14.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -39277,7 +39389,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t13.id;
+          historyFilter = t14.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -39401,8 +39513,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t13) => t13.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t13) => t13.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t14) => t14.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t14) => t14.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -41104,6 +41216,7 @@ ${locks}` : ""}`;
     actionQueue: {
       scope: "character",
       cleanup() {
+        runtime.api.disconnectActionQueueObservers?.();
         removeAll(".script_actionTime,#script_queueTotalTime");
       }
     },
@@ -41151,8 +41264,9 @@ ${locks}` : ""}`;
     }
   };
   adapters.ThirdPartyLinks = {
-    initialize() {
+    initialize({ scope }) {
       runtime.api.add3rdPartyLinks?.();
+      scope.interval(() => runtime.api.add3rdPartyLinks?.(), 500);
     },
     cleanup() {
       removeAll('[data-mwitools-external-link="true"]');
@@ -41350,12 +41464,7 @@ ${locks}` : ""}`;
       runtime.api.observeResultsForAmvoidguy();
       return;
     }
-    if (document.URL.includes("shykai.github.io/mwisim")) {
-      runtime.api.addImportButtonFor9Battles();
-      runtime.api.observeResultsForAmvoidguy();
-      return;
-    }
-    if (document.URL.includes("mooneycalc.netlify.app")) {
+    if (document.URL.includes("mooneycalc.netlify.app") || document.URL.includes("mooneycalc.vercel.app")) {
       runtime.api.addImportButtonForMooneycalc();
       return;
     }

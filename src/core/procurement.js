@@ -223,7 +223,7 @@ function loadCharacterData(characterId) {
 
 function resolveItemName(rawItemHrid) {
   const itemHrid = normalizeItemHrid(rawItemHrid);
-  const localized = runtime.config.isZHInGameSetting
+  const localized = runtime.config.isZH
     ? runtime.data.ZHItemNames?.[itemHrid]
     : null;
   return (
@@ -237,7 +237,7 @@ function resolveItemName(rawItemHrid) {
 function resolveActionName(actionHrid) {
   const normalized = String(actionHrid ?? "").trim();
   if (!normalized) return "";
-  const localized = runtime.config.isZHInGameSetting
+  const localized = runtime.config.isZH
     ? runtime.data.ZHActionNames?.[normalized]
     : null;
   return (
@@ -1066,6 +1066,7 @@ Object.assign(runtime.api, {
     getLockedDetails,
     suggestedMaterialCount,
     calculateRequirements,
+    getProducerAction,
     calculateUpgradeChain,
     selectUpgradeChainMaterials,
     getCartItems,

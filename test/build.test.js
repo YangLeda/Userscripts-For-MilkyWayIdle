@@ -28,6 +28,7 @@ test("generated userscript has a single valid metadata block", () => {
     "// @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*",
     "// @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*",
     "// @match        https://mooneycalc.netlify.app/*",
+    "// @match        https://mooneycalc.vercel.app/*",
     "// @grant        GM_addStyle",
     "// @grant        GM.xmlHttpRequest",
     "// @grant        GM_xmlhttpRequest",
@@ -35,10 +36,10 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_getValue",
     "// @grant        GM_setValue",
     "// @connect      feedback.43.167.210.211.sslip.io",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/mathjs-12.4.2.min.js",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js",
+    "// @connect      mwi-guild.43.167.210.211.sslip.io",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js#sha256-1G2Xof0CLF+yn6L0Xry8MiAtc67r8HbOX3JI9UmPx9c=",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=",
+    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=",
   ]) {
     assert.ok(
       output.includes(directive),
@@ -47,7 +48,7 @@ test("generated userscript has a single valid metadata block", () => {
   }
   assert.doesNotMatch(
     output,
-    /ChartDataLabels|chartjs-plugin-crosshair|dragscroll/,
+    /mathjs|ChartDataLabels|chartjs-plugin-crosshair|dragscroll/,
   );
   assert.doesNotMatch(
     output,

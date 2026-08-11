@@ -14,7 +14,8 @@ const { runtime } = await import("../src/core/runtime.js");
 runtime.config.isZH = true;
 runtime.settings.get = (id) => id === "ThirdPartyLinks";
 
-const { THIRD_PARTY_LINKS } = await import("../src/features/enhancement.js");
+const { THIRD_PARTY_LINKS } =
+  await import("../src/features/navigation-action-queue.js");
 
 test("third-party navigation links use the requested sites and order", () => {
   document.body.innerHTML = `

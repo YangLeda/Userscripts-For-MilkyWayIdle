@@ -10,6 +10,7 @@ import "./core/asset-values.js";
 import "./core/message-state.js";
 import "./core/messages.js";
 import "./features/build-score.js";
+import "./features/duplicate-script-warning.js";
 import "./features/asset-history/index.js";
 import "./features/public-api.js";
 import "./features/leaderboard-overlay.js";
@@ -26,7 +27,7 @@ import "./features/inventory-market-double-click.js";
 import "./features/feedback/index.js";
 import "./features/guild-xp.js";
 import "./features/game-widgets.js";
-import "./features/enhancement.js";
+import "./features/navigation-action-queue.js";
 import "./features/enhancement-tooltip.js";
 import "./features/settings-and-notifications.js";
 import "./features/update-banner.js";
@@ -119,12 +120,10 @@ function main() {
     runtime.api.observeResultsForAmvoidguy();
     return;
   }
-  if (document.URL.includes("shykai.github.io/mwisim")) {
-    runtime.api.addImportButtonFor9Battles();
-    runtime.api.observeResultsForAmvoidguy();
-    return;
-  }
-  if (document.URL.includes("mooneycalc.netlify.app")) {
+  if (
+    document.URL.includes("mooneycalc.netlify.app") ||
+    document.URL.includes("mooneycalc.vercel.app")
+  ) {
     runtime.api.addImportButtonForMooneycalc();
     return;
   }

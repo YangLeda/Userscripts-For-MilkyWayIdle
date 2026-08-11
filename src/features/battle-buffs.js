@@ -365,7 +365,7 @@ function createBuffTracker(scope) {
         "svg",
       );
       icon.setAttribute("role", "img");
-      icon.setAttribute("aria-label", "技能");
+      icon.setAttribute("aria-label", runtime.config.isZH ? "技能" : "Ability");
       icon.setAttribute("class", "Icon_icon__2LtL_ mwi-icon");
       icon.setAttribute("width", "100%");
       icon.setAttribute("height", "100%");

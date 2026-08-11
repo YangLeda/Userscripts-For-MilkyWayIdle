@@ -44,7 +44,7 @@ This checks formatting and lint rules, runs the state/settings/userscript smoke 
 
 Important-update banners are controlled by [`release-manifest.json`](./release-manifest.json). Leave `importantVersion` unchanged for small releases. For an important release, set it to the new production version and update the bilingual message before merging to `main`; installed production scripts will then show a dismissible banner linking to the official Greasy Fork page. The independently hosted test userscript does not run this update check.
 
-The build preserves the existing userscript matches, grants, external `@require` libraries, storage keys and DOM selectors.
+The build preserves the supported userscript matches, grants, storage keys and DOM selectors. External chart libraries are pinned to fixed versions with SHA-256 integrity hashes.
 
 Marketplace values come from two sources: the environment-specific `marketplace.json` endpoint supplies executable ask/bid prices, while the game's `market_item_values_updated` websocket message supplies the server-tracked fair value. Test uses the `test.milkywayidle.com` endpoint and a 10-minute cache; production uses `www.milkywayidle.com` and a six-hour cache.
 
@@ -54,6 +54,5 @@ Inventory asset totals use the server-tracked fair value first. Non-tradable cur
 
 MWITools can import player information into:
 
+- <https://mooneycalc.netlify.app/>
 - <https://mooneycalc.vercel.app/>
-- <https://mwisim.github.io/>
-- <https://cowculator.info/>

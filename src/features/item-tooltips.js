@@ -81,7 +81,10 @@ function timeReadable(sec) {
 const tooltipObserver = new MutationObserver(async function (mutations) {
   for (const mutation of mutations) {
     for (const added of mutation.addedNodes) {
-      if (added.classList.contains("MuiTooltip-popper")) {
+      if (
+        added?.nodeType === 1 &&
+        added.classList.contains("MuiTooltip-popper")
+      ) {
         if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
           await handleTooltipItem(added);
         } else if (
@@ -357,9 +360,9 @@ async function handleTooltipItem(tooltip) {
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
         pricePer100Mp
           ? pricePer100Mp.toFixed(0) +
-            (runtime.config.isZH ? "金/100蓝, " : "coins/100hp, ")
+            (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")
           : ""
-      }${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
+      }${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
     } else if (cd) {
       const usePerday = (24 * 60 * 60) / (cd / 1000000000);
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;

@@ -347,10 +347,12 @@ function actionSortInfo(task, originalIndex) {
 }
 
 function productionDepth(tasks) {
-  const producers = new Map();
+  const actionDetails = Object.values(
+    runtime.state.initData_actionDetailMap ?? {},
+  ).filter((detail) => detail?.hrid);
+  const procurement = runtime.api.procurement;
   const parent = new Map();
   const firstSeen = new Map();
-  const itemOwner = new Map();
   const find = (actionHrid) => {
     const current = parent.get(actionHrid) ?? actionHrid;
     if (current === actionHrid) return current;
@@ -363,46 +365,39 @@ function productionDepth(tasks) {
     const rightRoot = find(right);
     if (leftRoot !== rightRoot) parent.set(rightRoot, leftRoot);
   };
+  for (const detail of actionDetails) {
+    parent.set(detail.hrid, detail.hrid);
+  }
+  for (const detail of actionDetails) {
+    const producer = detail.upgradeItemHrid
+      ? procurement?.getProducerAction?.(detail.upgradeItemHrid)
+      : null;
+    if (producer?.actionHrid && producer.actionHrid !== detail.hrid)
+      union(detail.hrid, producer.actionHrid);
+  }
   for (const [index, task] of tasks.entries()) {
     const actionHrid = taskActionHrid(task);
-    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    if (!actionHrid || !detail) continue;
-    parent.set(actionHrid, actionHrid);
-    firstSeen.set(actionHrid, index);
-    const outputs = runtime.api.getExpectedOutputs(detail);
-    const inputs = runtime.api.getDirectInputs(detail);
-    for (const output of outputs) {
-      producers.set(output.itemHrid, actionHrid);
-    }
-    for (const item of [...inputs, ...outputs]) {
-      const owner = itemOwner.get(item.itemHrid);
-      if (owner) union(actionHrid, owner);
-      else itemOwner.set(item.itemHrid, actionHrid);
-    }
+    if (parent.has(actionHrid) && !firstSeen.has(actionHrid))
+      firstSeen.set(actionHrid, index);
   }
   const cache = new Map();
   const visiting = new Set();
-  let cycle = false;
   const depth = (actionHrid) => {
     if (cache.has(actionHrid)) return cache.get(actionHrid);
-    if (visiting.has(actionHrid)) {
-      cycle = true;
-      return 0;
-    }
+    if (visiting.has(actionHrid)) return 0;
     visiting.add(actionHrid);
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     let value = 0;
-    for (const input of runtime.api.getDirectInputs(detail)) {
-      const producer = producers.get(input.itemHrid);
-      if (producer && producer !== actionHrid)
-        value = Math.max(value, depth(producer) + 1);
-    }
+    const producer = detail?.upgradeItemHrid
+      ? procurement?.getProducerAction?.(detail.upgradeItemHrid)
+      : null;
+    if (producer?.actionHrid && producer.actionHrid !== actionHrid)
+      value = depth(producer.actionHrid) + 1;
     visiting.delete(actionHrid);
     cache.set(actionHrid, value);
     return value;
   };
   for (const task of tasks) depth(taskActionHrid(task));
-  if (cycle) return null;
   const groupMinimum = new Map();
   for (const [actionHrid, index] of firstSeen) {
     const root = find(actionHrid);

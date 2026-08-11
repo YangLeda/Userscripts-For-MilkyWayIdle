@@ -104,6 +104,15 @@ test("back mirror valuation migrates to enabled once and then preserves user cho
   );
 });
 
+test("the settings catalog exposes every persisted feature switch", () => {
+  assert.deepEqual(
+    Object.values(runtime.settings.catalog)
+      .map(({ id }) => id)
+      .sort(),
+    Object.keys(runtime.settings.settingsMap).sort(),
+  );
+});
+
 test("card settings render every visible setting with nested children and search", async (t) => {
   document.body.innerHTML =
     '<div class="SettingsPanel_profileTab__test"></div>';
@@ -112,7 +121,13 @@ test("card settings render every visible setting with nested children and search
   const root = document.querySelector("#script_settings");
   assert.equal(root.dataset.mwitoolsVersion, "2");
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 10);
-  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 46);
+  assert.equal(
+    root.querySelectorAll(".mwi-setting-card").length,
+    Object.values(runtime.settings.catalog).filter(
+      (definition) =>
+        !definition.hidden && runtime.settings.settingsMap[definition.id],
+    ).length,
+  );
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
   assert.doesNotMatch(root.textContent, /利润估值口径/);
   assert.equal(root.querySelector('[role="radiogroup"]'), null);

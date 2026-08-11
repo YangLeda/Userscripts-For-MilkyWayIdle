@@ -463,7 +463,7 @@ function constructPlayerExportObjFromStoredProfile(
       }
     }
   } else {
-    // Assume food and drinks based on equipted weapon
+    // Assume food and drinks based on equipped weapon
     const weapon =
       profile.profile.wearableItemMap &&
       (profile.profile.wearableItemMap["/item_locations/main_hand"]?.itemHrid ||

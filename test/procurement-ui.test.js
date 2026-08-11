@@ -26,9 +26,8 @@ await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 await import("../src/features/procurement.js");
 
-// The shopping module follows the game's i18nextLng even if the legacy
-// MWITools-wide language flag is forced to Chinese.
-runtime.config.isZH = true;
+// The shopping module follows the MWITools-wide language flag.
+runtime.config.isZH = false;
 
 runtime.state.initData_itemDetailMap = {
   "/items/nail": { name: "Nail" },
@@ -247,8 +246,9 @@ test("shopping item clicks prefer and force the game's floating market modal", (
   gameRoot.remove();
 });
 
-test("shopping data is localized from the current game language at render time", () => {
-  localStorage.setItem("i18nextLng", "zh-CN");
+test("shopping data follows the MWITools language at render time", () => {
+  localStorage.setItem("i18nextLng", "en-US");
+  runtime.config.isZH = true;
   runtime.state.initData_itemDetailMap["/items/cotton"] = { name: "Cotton" };
   runtime.state.initData_actionDetailMap["/actions/tailoring/cotton_fabric"] = {
     hrid: "/actions/tailoring/cotton_fabric",
@@ -290,6 +290,7 @@ test("shopping data is localized from the current game language at render time",
   runtime.api.procurement.removePlan(plan.id);
   runtime.api.procurement.removeFromCart("/items/cotton");
   localStorage.setItem("i18nextLng", "en-US");
+  runtime.config.isZH = false;
 });
 
 test("market shopping navigation renders item icons instead of name pills", () => {

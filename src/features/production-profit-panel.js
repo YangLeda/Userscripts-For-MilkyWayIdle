@@ -194,7 +194,9 @@ function renderItemRow(item, type) {
   if (item.kind === "rare") kind = t("稀有", "Rare");
   const priceLabel = isInput
     ? t("市价", "Market value")
-    : t("税后市价", "Net market value");
+    : item.valueSource === "derived"
+      ? t("派生期望值", "Derived expected value")
+      : t("税后市价", "Net market value");
   return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -287,7 +289,11 @@ function statusInfo(projection) {
     };
   }
   if (
-    valuations.some((valuation) => valuation?.unpricedByproducts?.length > 0)
+    valuations.some(
+      (valuation) =>
+        valuation?.unpricedByproducts?.length > 0 ||
+        valuation?.derivedMissingPrices?.length > 0,
+    )
   ) {
     return { className: "partial", label: t("部分计价", "Partial pricing") };
   }
@@ -383,6 +389,7 @@ function renderPanel(panel, itemHrid, projection) {
   const missingValuations = VALUATION_ROWS.filter(
     ({ mode }) => !projection.valuations?.[mode]?.complete,
   );
+  const warningParts = [];
   if (missingValuations.length) {
     const details = missingValuations
       .map((definition) => {
@@ -394,25 +401,39 @@ function renderPanel(panel, itemHrid, projection) {
         return `${valuationText(definition.title)}：${names || "—"}`;
       })
       .join(runtime.config.isZH ? "；" : "; ");
-    panel.insertAdjacentHTML(
-      "beforeend",
-      `<div class="mwi-profit-warning">${t("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${escapeHtml(details)}</div>`,
-    );
-  } else {
-    const unpricedByproducts = [
-      ...new Set(
-        VALUATION_ROWS.flatMap(
-          ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? [],
-        ),
-      ),
-    ];
-    if (!unpricedByproducts.length) return;
-    const names = unpricedByproducts.map(itemName).join("、");
-    panel.insertAdjacentHTML(
-      "beforeend",
-      `<div class="mwi-profit-warning">${t("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`,
+    warningParts.push(
+      `${t("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`,
     );
   }
+  const unpricedByproducts = [
+    ...new Set(
+      VALUATION_ROWS.flatMap(
+        ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? [],
+      ),
+    ),
+  ];
+  if (unpricedByproducts.length) {
+    warningParts.push(
+      `${t("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`,
+    );
+  }
+  const derivedMissingPrices = [
+    ...new Set(
+      VALUATION_ROWS.flatMap(
+        ({ mode }) => projection.valuations?.[mode]?.derivedMissingPrices ?? [],
+      ),
+    ),
+  ];
+  if (derivedMissingPrices.length) {
+    warningParts.push(
+      `${t("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`,
+    );
+  }
+  if (!warningParts.length) return;
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="mwi-profit-warning">${escapeHtml(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`,
+  );
 }
 
 function clamp(value, minimum, maximum) {

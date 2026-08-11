@@ -37,6 +37,7 @@ await import("../src/core/config.js");
 await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
+await import("../src/core/procurement.js");
 await import("../src/features/tasks.js");
 
 runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
@@ -228,4 +229,89 @@ test("re-entering a rebuilt task page never moves new cards into a detached page
       ["已完成", "挤奶", "制作"],
     );
   }
+});
+
+test("auto sort keeps tasks from the same full production chain together", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__chains">
+      ${card("奶酪锻造 - 深紫刷子", "0 / 5")}
+      ${card("奶酪锻造 - 无关工具", "0 / 5")}
+      ${card("奶酪锻造 - 绛红刷子", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.initData_actionCategoryDetailMap = {
+    "/action_categories/cheesesmithing/tools": { sortIndex: 1 },
+  };
+  const action = (
+    hrid,
+    inputItems,
+    outputItems,
+    sortIndex,
+    upgradeItemHrid,
+  ) => ({
+    hrid,
+    name: hrid.split("/").pop(),
+    type: "/action_types/cheesesmithing",
+    category: "/action_categories/cheesesmithing/tools",
+    inputItems,
+    outputItems,
+    sortIndex,
+    upgradeItemHrid,
+  });
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    [
+      action(
+        "/actions/cheesesmithing/burble_brush",
+        [{ itemHrid: "/items/burble_ingot", count: 1 }],
+        [{ itemHrid: "/items/burble_brush", count: 1 }],
+        1,
+      ),
+      action(
+        "/actions/cheesesmithing/hidden_brush_stage",
+        [{ itemHrid: "/items/burble_brush", count: 1 }],
+        [{ itemHrid: "/items/hidden_brush_stage", count: 1 }],
+        2,
+        "/items/burble_brush",
+      ),
+      action(
+        "/actions/cheesesmithing/unrelated_tool",
+        [{ itemHrid: "/items/unrelated_ingot", count: 1 }],
+        [{ itemHrid: "/items/unrelated_tool", count: 1 }],
+        3,
+      ),
+      action(
+        "/actions/cheesesmithing/crimson_brush",
+        [{ itemHrid: "/items/hidden_brush_stage", count: 1 }],
+        [{ itemHrid: "/items/crimson_brush", count: 1 }],
+        4,
+        "/items/hidden_brush_stage",
+      ),
+    ].map((detail) => [detail.hrid, detail]),
+  );
+  runtime.state.characterQuests = [
+    { actionHrid: "/actions/cheesesmithing/burble_brush" },
+    { actionHrid: "/actions/cheesesmithing/unrelated_tool" },
+    { actionHrid: "/actions/cheesesmithing/crimson_brush" },
+  ];
+  runtime.settings.settingsMap.taskAutoSort.isTrue = true;
+
+  runtime.api.renderTasks();
+
+  const orderedTitles = [
+    ...document.querySelectorAll(
+      '.TasksPanel_taskList__chains > div[class*="RandomTask_randomTask"]',
+    ),
+  ]
+    .sort((left, right) => Number(left.style.order) - Number(right.style.order))
+    .map(
+      (taskCard) =>
+        taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
+    );
+  assert.deepEqual(orderedTitles, [
+    "奶酪锻造 - 深紫刷子",
+    "奶酪锻造 - 绛红刷子",
+    "奶酪锻造 - 无关工具",
+  ]);
 });

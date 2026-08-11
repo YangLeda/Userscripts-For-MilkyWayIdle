@@ -16,6 +16,7 @@ await import("../src/core/config.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
+await import("../src/core/asset-values.js");
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/test": {
@@ -327,6 +328,92 @@ test("tea effects are zero when the current player has no selected drinks", () =
       .effectiveCount,
     2,
   );
+});
+
+test("rare openables use three derived values and report missing inner drops", () => {
+  runtime.state.initData_actionDetailMap["/actions/foraging/rare-crate"] = {
+    hrid: "/actions/foraging/rare-crate",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    inputItems: [],
+    outputItems: [{ itemHrid: "/items/output", count: 1 }],
+    rareDropTable: [
+      {
+        itemHrid: "/items/large_artisans_crate",
+        dropRate: 0.1,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ],
+  };
+  runtime.state.initData_openableLootDropMap = {
+    "/items/large_artisans_crate": [
+      {
+        itemHrid: "/items/rare_leaf",
+        dropRate: 1,
+        minCount: 2,
+        maxCount: 2,
+      },
+      {
+        itemHrid: "/items/missing_leaf",
+        dropRate: 0.25,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ],
+  };
+  runtime.state.initData_itemDetailMap = {};
+  const originals = {
+    ask: runtime.api.getAskPrice,
+    bid: runtime.api.getBidPrice,
+    fair: runtime.api.getFairValue,
+    conservative: runtime.api.getNetSellPrice,
+    aggressive: runtime.api.getNetSellPriceAtAsk,
+    tax: runtime.api.getMarketTaxRate,
+  };
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 100
+      : itemHrid === "/items/rare_leaf"
+        ? 90
+        : 0;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 100 / 0.95
+      : itemHrid === "/items/rare_leaf"
+        ? 110
+        : 0;
+  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 120
+      : itemHrid === "/items/rare_leaf"
+        ? 135
+        : 0;
+  runtime.api.getMarketTaxRate = () => 0.05;
+  runtime.api.invalidateAssetValueCache();
+
+  const result = runtime.api.projectAction("/actions/foraging/rare-crate", 1);
+  assert.equal(result.status, "complete");
+  assert.equal(result.isPartial, true);
+  assert.equal(result.byproductOutputs[0].valueSource, "derived");
+  assert.equal(result.valuations.conservative.byproductRevenuePerAction, 18);
+  assert.ok(
+    Math.abs(result.valuations.fair.byproductRevenuePerAction - 20.9) < 1e-10,
+  );
+  assert.equal(result.valuations.aggressive.byproductRevenuePerAction, 27);
+  assert.deepEqual(result.derivedMissingPrices, ["/items/missing_leaf"]);
+
+  Object.assign(runtime.api, {
+    getAskPrice: originals.ask,
+    getBidPrice: originals.bid,
+    getFairValue: originals.fair,
+    getNetSellPrice: originals.conservative,
+    getNetSellPriceAtAsk: originals.aggressive,
+    getMarketTaxRate: originals.tax,
+  });
+  runtime.api.invalidateAssetValueCache();
 });
 
 test("unpriced optional drops produce a partial result instead of hiding profit", () => {

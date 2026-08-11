@@ -262,7 +262,7 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
 
 const PROFIT_VALUATION_MODES = new Set(["conservative", "fair", "aggressive"]);
 
-function getPrice(itemHrid, kind, mode) {
+function getDirectPrice(itemHrid, kind, mode) {
   let value = 0;
   if (mode === "conservative") {
     value =
@@ -281,6 +281,37 @@ function getPrice(itemHrid, kind, mode) {
     }
   }
   return Number(value) > 0 ? Number(value) : null;
+}
+
+function getPriceInfo(itemHrid, kind, mode) {
+  const direct = getDirectPrice(itemHrid, kind, mode);
+  if (direct !== null || kind !== "sell") {
+    return {
+      value: direct,
+      source: direct === null ? "missing" : "market",
+      complete: direct !== null,
+      missingItemHrids: direct === null ? [itemHrid] : [],
+    };
+  }
+  const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
+  if (!(Number(derived?.value) > 0)) {
+    return {
+      value: null,
+      source: "missing",
+      complete: false,
+      missingItemHrids: derived?.missingItemHrids ?? [itemHrid],
+    };
+  }
+  return {
+    value: Number(derived.value),
+    source: derived.source === "market" ? "market" : "derived",
+    complete: Boolean(derived.complete),
+    missingItemHrids: derived.missingItemHrids ?? [],
+  };
+}
+
+function getPrice(itemHrid, kind, mode) {
+  return getPriceInfo(itemHrid, kind, mode).value;
 }
 
 function expectedDropCount(drop) {
@@ -433,6 +464,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   function calculateValuation(mode) {
     const missingPrices = [];
     const unpricedByproducts = [];
+    const derivedMissingPrices = [];
     const materialCostPerAction = inputs.reduce((total, input) => {
       const effectiveCount =
         input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
@@ -442,15 +474,27 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     }, 0);
     const primaryRevenuePerAction = outputs.reduce((total, output) => {
       const effectiveCount = output.count * (1 + quantityBonus);
-      const price = getPrice(output.itemHrid, "sell", mode);
-      if (price === null) missingPrices.push(output.itemHrid);
-      return total + (price === null ? 0 : effectiveCount * price);
+      const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
+      if (priceInfo.value === null) missingPrices.push(output.itemHrid);
+      if (!priceInfo.complete && priceInfo.value !== null) {
+        derivedMissingPrices.push(...priceInfo.missingItemHrids);
+      }
+      return (
+        total +
+        (priceInfo.value === null ? 0 : effectiveCount * priceInfo.value)
+      );
     }, 0);
     const byproductRevenuePerAction = optionalOutputs.reduce(
       (total, output) => {
-        const price = getPrice(output.itemHrid, "sell", mode);
-        if (price === null) unpricedByproducts.push(output.itemHrid);
-        return total + (price === null ? 0 : output.count * price);
+        const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
+        if (priceInfo.value === null) unpricedByproducts.push(output.itemHrid);
+        if (!priceInfo.complete && priceInfo.value !== null) {
+          derivedMissingPrices.push(...priceInfo.missingItemHrids);
+        }
+        return (
+          total +
+          (priceInfo.value === null ? 0 : output.count * priceInfo.value)
+        );
       },
       0,
     );
@@ -492,6 +536,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       totalProfit,
       missingPrices: [...new Set(missingPrices)],
       unpricedByproducts: [...new Set(unpricedByproducts)],
+      derivedMissingPrices: [...new Set(derivedMissingPrices)],
     };
   }
 
@@ -514,7 +559,8 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   });
   const outputDetails = outputs.map((output) => {
     const effectiveCount = output.count * (1 + quantityBonus);
-    const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+    const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
+    const unitPrice = priceInfo.value;
     return {
       ...output,
       baseCount: output.count,
@@ -524,18 +570,23 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       kind: "primary",
       owned: getInventoryCount(output.itemHrid),
       unitPrice,
+      valueSource: priceInfo.source,
+      derivedMissingPrices: priceInfo.missingItemHrids,
       valuePerAction: unitPrice === null ? null : effectiveCount * unitPrice,
     };
   });
   const unpricedByproducts = selectedValuation.unpricedByproducts;
   const byproductOutputs = optionalOutputs.map((output) => {
-    const unitPrice = getPrice(output.itemHrid, "sell", valuationMode);
+    const priceInfo = getPriceInfo(output.itemHrid, "sell", valuationMode);
+    const unitPrice = priceInfo.value;
     return {
       ...output,
       effectiveCount: output.count,
       expectedCount: output.count * (effectivelyInfinite ? 1 : executableCount),
       owned: getInventoryCount(output.itemHrid),
       unitPrice,
+      valueSource: priceInfo.source,
+      derivedMissingPrices: priceInfo.missingItemHrids,
       valuePerAction: unitPrice === null ? null : output.count * unitPrice,
     };
   });
@@ -580,7 +631,10 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   return {
     status: complete ? "complete" : "incomplete",
-    isPartial: complete && unpricedByproducts.length > 0,
+    isPartial:
+      complete &&
+      (unpricedByproducts.length > 0 ||
+        selectedValuation.derivedMissingPrices.length > 0),
     actionHrid,
     detail,
     count: normalizedCount,
@@ -619,6 +673,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     totalProfit: selectedValuation.totalProfit,
     missingPrices,
     unpricedByproducts,
+    derivedMissingPrices: selectedValuation.derivedMissingPrices,
   };
 }
 

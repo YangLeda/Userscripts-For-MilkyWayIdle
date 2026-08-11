@@ -10,6 +10,7 @@ const SHOP_CURRENCY_HRIDS = new Set([
 ]);
 
 const assetValueCache = new Map();
+const assetLiquidationCache = new Map();
 let guildCreditHridCache = null;
 
 function positiveNumber(value) {
@@ -32,6 +33,7 @@ function entriesOfMap(value) {
 
 function invalidateAssetValueCache() {
   assetValueCache.clear();
+  assetLiquidationCache.clear();
   guildCreditHridCache = null;
 }
 
@@ -303,6 +305,264 @@ function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
   return getAssetValueInternal(itemHrid, enhancementLevel, new Set(), options);
 }
 
+function directLiquidationValue(itemHrid, enhancementLevel, mode) {
+  if (mode === "conservative") {
+    return positiveNumber(
+      runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel),
+    );
+  }
+  if (mode === "aggressive") {
+    return positiveNumber(
+      runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel),
+    );
+  }
+  const fairValue = positiveNumber(
+    runtime.api.getFairValue?.(itemHrid, enhancementLevel),
+  );
+  if (!fairValue) return 0;
+  const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
+  return fairValue * Math.max(0, 1 - taxRate);
+}
+
+function liquidationResult(value, source, missingItemHrids = []) {
+  const normalizedValue = positiveNumber(value);
+  const missing = [...new Set(missingItemHrids.filter(Boolean))];
+  return {
+    value: normalizedValue,
+    complete: normalizedValue > 0 && missing.length === 0,
+    source: normalizedValue > 0 ? source : "missing",
+    missingItemHrids: missing,
+  };
+}
+
+function mergeLiquidationMissing(results) {
+  return results.flatMap((result) => result?.missingItemHrids ?? []);
+}
+
+function getGuildCreditLiquidationValue(creditItemHrid, mode, context) {
+  let bestValue = Number.POSITIVE_INFINITY;
+  let bestResult = null;
+  for (const [fallbackHrid, detail] of entriesOfMap(
+    runtime.state.initData_itemDetailMap,
+  )) {
+    const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
+    if (!itemHrid || itemHrid === "/items/guild_token") continue;
+    for (const conversion of detail?.guildCreditConversions ?? []) {
+      if (conversion?.creditItemHrid !== creditItemHrid) continue;
+      const itemCount = positiveNumber(conversion.itemCount);
+      const creditCount = positiveNumber(conversion.creditCount);
+      if (!itemCount || !creditCount) continue;
+      const material = getAssetLiquidationValueInternal(
+        itemHrid,
+        0,
+        mode,
+        context,
+      );
+      if (material.value > 0) {
+        const value = (material.value * itemCount) / creditCount;
+        if (value < bestValue) {
+          bestValue = value;
+          bestResult = material;
+        }
+      }
+    }
+  }
+  return liquidationResult(
+    Number.isFinite(bestValue) ? bestValue : 0,
+    "conversion",
+    bestResult?.missingItemHrids ?? [],
+  );
+}
+
+function getGuildTokenLiquidationValue(mode, context) {
+  const detail = getItemDetails("/items/guild_token");
+  let bestValue = 0;
+  let bestResult = null;
+  for (const conversion of detail?.guildCreditConversions ?? []) {
+    const creditItemHrid = conversion?.creditItemHrid;
+    const tokenCount = positiveNumber(
+      conversion?.guildTokenCount ?? conversion?.itemCount,
+    );
+    const creditCount = positiveNumber(conversion?.creditCount);
+    if (!creditItemHrid || !tokenCount || !creditCount) continue;
+    const credit = getAssetLiquidationValueInternal(
+      creditItemHrid,
+      0,
+      mode,
+      context,
+    );
+    if (credit.value > 0) {
+      const value = (credit.value * creditCount) / tokenCount;
+      if (value > bestValue) {
+        bestValue = value;
+        bestResult = credit;
+      }
+    }
+  }
+  return liquidationResult(
+    bestValue,
+    "conversion",
+    bestResult?.missingItemHrids ?? [],
+  );
+}
+
+function getShopCurrencyLiquidationValue(currencyItemHrid, mode, context) {
+  let bestValue = 0;
+  let bestResults = [];
+  for (const detail of getShopDetails()) {
+    const costs = normalizeCostRecords(detail);
+    const targetCost = costs.find(
+      (cost) => (cost?.itemHrid ?? cost?.hrid) === currencyItemHrid,
+    );
+    const targetCount = positiveNumber(targetCost?.count);
+    if (!targetCount) continue;
+
+    const results = [];
+    let rewardValue = 0;
+    for (const reward of normalizeRewardRecords(detail)) {
+      const itemHrid = reward?.itemHrid ?? reward?.hrid;
+      if (!itemHrid) continue;
+      const result = getAssetLiquidationValueInternal(
+        itemHrid,
+        reward.enhancementLevel ?? 0,
+        mode,
+        context,
+      );
+      results.push(result);
+      rewardValue += positiveNumber(reward.count ?? 1) * result.value;
+    }
+
+    let otherCostValue = 0;
+    for (const cost of costs) {
+      const itemHrid = cost?.itemHrid ?? cost?.hrid;
+      if (!itemHrid || itemHrid === currencyItemHrid) continue;
+      const result = getAssetLiquidationValueInternal(
+        itemHrid,
+        0,
+        mode,
+        context,
+      );
+      results.push(result);
+      otherCostValue += positiveNumber(cost.count) * result.value;
+    }
+    const value = Math.max(0, rewardValue - otherCostValue) / targetCount;
+    if (value > bestValue) {
+      bestValue = value;
+      bestResults = results;
+    }
+  }
+  return liquidationResult(
+    bestValue,
+    "conversion",
+    mergeLiquidationMissing(bestResults),
+  );
+}
+
+function getOpenableLiquidationValue(itemHrid, mode, context) {
+  const drops = getDropRecords(itemHrid);
+  if (!Array.isArray(drops) || !drops.length) {
+    return liquidationResult(0, "missing", [itemHrid]);
+  }
+  let total = 0;
+  const results = [];
+  for (const drop of drops) {
+    const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+    if (!dropItemHrid) continue;
+    const rawDropRate = Array.isArray(drop.dropRate)
+      ? drop.dropRate[0]
+      : drop.dropRate;
+    const dropRate = Number.isFinite(Number(rawDropRate))
+      ? Math.max(0, Number(rawDropRate))
+      : 1;
+    const minimum = Number(drop.minCount ?? drop.count ?? 1);
+    const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+    const result = getAssetLiquidationValueInternal(
+      dropItemHrid,
+      drop.enhancementLevel ?? 0,
+      mode,
+      context,
+    );
+    results.push(result);
+    total += dropRate * (minimum + maximum) * 0.5 * result.value;
+  }
+  return liquidationResult(total, "openable", mergeLiquidationMissing(results));
+}
+
+function getAssetLiquidationValueInternal(
+  itemHrid,
+  enhancementLevel,
+  mode,
+  context,
+) {
+  if (!itemHrid) return liquidationResult(0, "missing");
+  const normalizedMode = ["conservative", "fair", "aggressive"].includes(mode)
+    ? mode
+    : "fair";
+  const level = Number(enhancementLevel) || 0;
+  const cacheKey = `${normalizedMode}:${itemHrid}:${level}`;
+  if (assetLiquidationCache.has(cacheKey)) {
+    return assetLiquidationCache.get(cacheKey);
+  }
+  if (context.has(cacheKey)) {
+    return liquidationResult(0, "missing", [itemHrid]);
+  }
+
+  const directValue = directLiquidationValue(itemHrid, level, normalizedMode);
+  if (directValue > 0) {
+    const result = liquidationResult(directValue, "market");
+    assetLiquidationCache.set(cacheKey, result);
+    return result;
+  }
+
+  context.add(cacheKey);
+  let result;
+  if (itemHrid === "/items/cowbell") {
+    const bag = getAssetLiquidationValueInternal(
+      "/items/bag_of_10_cowbells",
+      0,
+      normalizedMode,
+      context,
+    );
+    result = liquidationResult(
+      bag.value / 10,
+      "conversion",
+      bag.missingItemHrids,
+    );
+  } else if (getGuildCreditHrids().has(itemHrid)) {
+    result = getGuildCreditLiquidationValue(itemHrid, normalizedMode, context);
+  } else if (itemHrid === "/items/guild_token") {
+    result = getGuildTokenLiquidationValue(normalizedMode, context);
+  } else if (SHOP_CURRENCY_HRIDS.has(itemHrid)) {
+    result = getShopCurrencyLiquidationValue(itemHrid, normalizedMode, context);
+  } else {
+    result = getOpenableLiquidationValue(itemHrid, normalizedMode, context);
+  }
+  context.delete(cacheKey);
+
+  if (!(result.value > 0)) {
+    const sellPrice = positiveNumber(getItemDetails(itemHrid)?.sellPrice);
+    result = sellPrice
+      ? liquidationResult(sellPrice, "sell-price")
+      : liquidationResult(0, "missing", [...result.missingItemHrids, itemHrid]);
+  }
+  assetLiquidationCache.set(cacheKey, result);
+  return result;
+}
+
+function getAssetLiquidationValue(
+  itemHrid,
+  enhancementLevel = 0,
+  mode = "fair",
+) {
+  return getAssetLiquidationValueInternal(
+    itemHrid,
+    enhancementLevel,
+    mode,
+    new Set(),
+  );
+}
+
 function getGuildBuffLevel(guildBuffHrid) {
   const levels = runtime.state.guildBuffLevels;
   const record = Array.isArray(levels)
@@ -352,6 +612,7 @@ function getGuildShrineValue() {
 
 Object.assign(runtime.api, {
   getAssetValue,
+  getAssetLiquidationValue,
   getGuildShrineValue,
   isBackEquipment,
   isNonTradableTokenAsset,

@@ -120,7 +120,7 @@ let settingsMap = {
   guildCreditConversionsSort: {
     id: "guildCreditConversionsSort",
     desc: isZH
-      ? "工会信用兑换：公会信用兑换选择排序"
+      ? "公会信用兑换：公会信用兑换选择排序"
       : "Guild Credit Exchange: Sort Guild Credit Exchange Options.",
     isTrue: true,
   },
@@ -233,7 +233,7 @@ let settingsMap = {
     id: "checkEquipment",
     desc: isZH
       ? "页面上方显示：战斗时穿了生产装备，或者生产时没有穿对应的生产装备而仓库里有，红字警告"
-      : "Top: Alert message when combating with production equipments equipted, or producing when there are unequipted corresponding production equipment in the inventory.",
+      : "Top: Alert when fighting with production equipment equipped, or producing while matching equipment is unequipped in inventory.",
     isTrue: true,
   },
   notifiEmptyAction: {
@@ -247,7 +247,7 @@ let settingsMap = {
     id: "fillMarketOrderPrice",
     desc: isZH
       ? "发布市场订单时自动填写为最小压价"
-      : "Automatically input price with the smallest increasement/decreasement when posting marketplace bid/sell orders.",
+      : "Automatically adjust to the smallest price increase or decrease when posting marketplace orders.",
     isTrue: true,
   },
   showDamage: {
@@ -501,6 +501,14 @@ const catalogRows = [
     "Show remaining count, time remaining, and estimated completion time.",
   ],
   [
+    "actionBarProfit",
+    "actionBar",
+    "当前动作利润",
+    "Current action profit",
+    "在顶部动作栏显示当前生产动作的市价净利润。",
+    "Show market-value net profit for the current production action in the action bar.",
+  ],
+  [
     "actionQueue",
     "actionBar",
     "完整队列时间",
@@ -517,6 +525,14 @@ const catalogRows = [
     "Enter a target level to see required actions, estimated time, and XP/hour.",
   ],
   [
+    "actionPanel_totalTime_quickInputs",
+    "production",
+    "生产次数快捷输入",
+    "Production quick inputs",
+    "在生产次数输入框旁提供常用次数和时长快捷按钮；依赖目标等级与经验功能。",
+    "Add common count and duration shortcuts beside the production input; depends on Target level & XP.",
+  ],
+  [
     "productionSummary",
     "production",
     "产出与库存摘要",
@@ -529,8 +545,8 @@ const catalogRows = [
     "production",
     "生产净利润",
     "Production net profit",
-    "按所选估值口径显示每次、每小时、每天和本次输入数量对应的税后净利润。",
-    "Show after-tax net profit per action, hour, day, and entered quantity using the selected valuation mode.",
+    "同时显示市价、效率（高买低卖）和贪心（低买高卖）三种税后收入、成本与净利润。",
+    "Show after-tax revenue, costs, and net profit for market, efficiency (buy high/sell low), and greedy (buy low/sell high) valuations.",
   ],
   [
     "actionPanel_foragingTotal",
@@ -669,6 +685,22 @@ const catalogRows = [
     "Show a yellow badge and highlight on newly received tasks until the task card is clicked.",
   ],
   [
+    "taskMaterials",
+    "tasks",
+    "任务材料完成量",
+    "Task material capacity",
+    "根据库存中的直接材料显示每项任务当前可完成的数量。",
+    "Show how much of each task can be completed from current direct-material inventory.",
+  ],
+  [
+    "taskQueueProgress",
+    "tasks",
+    "任务队列进度",
+    "Task queue progress",
+    "在任务卡上显示已经进入动作队列的数量和进度。",
+    "Show the quantity and progress already placed in the action queue on task cards.",
+  ],
+  [
     "taskAutoSort",
     "tasks",
     "自动整理任务",
@@ -683,6 +715,22 @@ const catalogRows = [
     "Task artwork",
     "用低透明度原生图标标识任务物品、怪物和副本。",
     "Use subtle native item, monster, and dungeon artwork on task cards.",
+  ],
+  [
+    "taskStatistics",
+    "tasks",
+    "任务统计抽屉",
+    "Task statistics drawer",
+    "在任务页汇总完成状态、奖励和任务类型统计。",
+    "Summarize completion state, rewards, and task-type statistics on the task page.",
+  ],
+  [
+    "taskClaimCollector",
+    "tasks",
+    "集中领取任务奖励",
+    "Collect task rewards",
+    "把当前可领取任务集中显示在任务页顶部，减少逐项查找。",
+    "Collect currently claimable tasks at the top of the task page for faster claiming.",
   ],
   [
     "taskMergeActions",

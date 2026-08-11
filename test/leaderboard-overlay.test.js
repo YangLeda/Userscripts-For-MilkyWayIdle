@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after } from "node:test";
 
 import { JSDOM } from "jsdom";
 
@@ -13,12 +13,26 @@ globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.window = dom.window;
 globalThis.unsafeWindow = dom.window;
+let leaderboardRequest = (options) => {
+  globalThis.queueMicrotask(() => options.onerror?.());
+  return { abort() {} };
+};
+globalThis.GM = {
+  xmlHttpRequest(options) {
+    return leaderboardRequest(options);
+  },
+};
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
+runtime.config.isZH = true;
 const { badgeTier, compareRateRows, create, formatExperienceRate } =
   await import("../src/features/leaderboard-overlay.js");
 await runtime.features.enable("leaderboardOverlay");
+
+after(async () => {
+  await runtime.features.disable("leaderboardOverlay");
+});
 
 function settle() {
   return new Promise((resolve) => setTimeout(resolve, 40));
@@ -114,7 +128,6 @@ test("renders top-100 ranking badges beside matching character names", async () 
 
   overlay.destroy();
   assert.equal(document.querySelector("[data-mwi-leaderboard-badges]"), null);
-  assert.equal(document.getElementById("mwi-leaderboard-overlay-style"), null);
 });
 
 test("adds a sortable experience-rate column and restores official order", async () => {
@@ -177,26 +190,91 @@ test("adds a sortable experience-rate column and restores official order", async
   assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
 });
 
-test("the project setting removes and restores overlays", async () => {
+test("the feature anonymously loads, caches, and applies leaderboard data", async () => {
+  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v1");
+  document.body.innerHTML = `
+    <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
+    <table class="LeaderboardPanel_leaderboardTable__test">
+      <thead><tr><th>Character</th></tr></thead>
+      <tbody><tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr></tbody>
+    </table>`;
+  let requestOptions = null;
+  leaderboardRequest = (options) => {
+    requestOptions = options;
+    globalThis.queueMicrotask(() =>
+      options.onload({
+        status: 200,
+        responseText: JSON.stringify({
+          schemaVersion: 1,
+          leaderboardType: "standard",
+          categories: {
+            milking: {
+              receivedAt: "2026-08-11T00:00:00Z",
+              rows: [
+                {
+                  characterId: 1,
+                  characterName: "Alice",
+                  rank: 7,
+                  xpPerHour: 123_400,
+                },
+              ],
+            },
+          },
+        }),
+      }),
+    );
+    return { abort() {} };
+  };
+  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
+  await settle();
+  assert.equal(requestOptions.url.endsWith("/api/v1/leaderboards"), true);
+  assert.equal(requestOptions.headers, undefined);
+  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
+  assert.ok(localStorage.getItem("MWITools_leaderboard_overlay_cache_v1"));
+
+  runtime.dispatchMessage({
+    type: "leaderboard_updated",
+    leaderboardType: "standard",
+    leaderboardCategory: "milking",
+    leaderboard: {
+      type: "standard",
+      category: "milking",
+      rows: [{ id: 1, name: "Alice", rank: 7, value1: 100, value2: 1000 }],
+    },
+  });
+  await settle();
+  assert.equal(
+    document.querySelector("[data-mwi-leaderboard-rate-cell]").textContent,
+    "123.4K",
+  );
+
+  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  assert.equal(document.querySelector(".mwi-lb-badge"), null);
+  leaderboardRequest = (options) => {
+    globalThis.queueMicrotask(() => options.onerror?.());
+    return { abort() {} };
+  };
+  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
+  await settle();
+  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
+});
+
+test("leaderboard copy follows the MWITools language", async () => {
+  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  runtime.config.isZH = false;
+  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>`;
   const overlay = create({ document });
   overlay.setRankings({
-    milking: { rows: [{ characterName: "Alice", rank: 8 }] },
+    milking: { rows: [{ characterName: "Alice", rank: 3 }] },
   });
   await settle();
-  assert.equal(overlay.enabled, true);
-  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#8");
-
-  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
-  await settle();
-  assert.equal(dom.window.MWILeaderboardOverlay.enabled, false);
-  assert.equal(document.querySelector(".mwi-lb-badge"), null);
-
-  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
-  await settle();
-  assert.equal(overlay.enabled, true);
-  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#8");
-
+  assert.match(document.querySelector(".mwi-lb-badge").title, /Milking/);
+  assert.match(document.querySelector(".mwi-lb-badge").title, /rank #3/);
   overlay.destroy();
+  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  runtime.config.isZH = true;
+  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
 });

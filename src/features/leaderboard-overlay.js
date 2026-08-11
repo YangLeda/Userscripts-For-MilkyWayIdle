@@ -1,6 +1,10 @@
 import { runtime } from "../core/runtime.js";
 
 const OVERLAY_VERSION = "1.1.0";
+const LEADERBOARD_API_URL =
+  "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
+const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
+const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
 const DEFAULT_ICON_BASE_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
 const STYLE_ID = "mwi-leaderboard-overlay-style";
@@ -10,26 +14,37 @@ const RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
 const LEADERBOARD_TABLE_SELECTOR =
   'table[class*="LeaderboardPanel_leaderboardTable"]';
 const DEFAULT_CATEGORIES = [
-  ["milking", "挤奶"],
-  ["foraging", "采摘"],
-  ["woodcutting", "伐木"],
-  ["cheesesmithing", "奶酪锻造"],
-  ["crafting", "制作"],
-  ["tailoring", "缝纫"],
-  ["cooking", "烹饪"],
-  ["brewing", "冲泡"],
-  ["alchemy", "炼金"],
-  ["enhancing", "强化"],
-  ["attack", "攻击"],
-  ["defense", "防御"],
-  ["melee", "近战"],
-  ["ranged", "远程"],
-  ["magic", "魔法"],
+  ["milking", { zh: "挤奶", en: "Milking" }],
+  ["foraging", { zh: "采摘", en: "Foraging" }],
+  ["woodcutting", { zh: "伐木", en: "Woodcutting" }],
+  ["cheesesmithing", { zh: "奶酪锻造", en: "Cheesesmithing" }],
+  ["crafting", { zh: "制作", en: "Crafting" }],
+  ["tailoring", { zh: "缝纫", en: "Tailoring" }],
+  ["cooking", { zh: "烹饪", en: "Cooking" }],
+  ["brewing", { zh: "冲泡", en: "Brewing" }],
+  ["alchemy", { zh: "炼金", en: "Alchemy" }],
+  ["enhancing", { zh: "强化", en: "Enhancing" }],
+  ["attack", { zh: "攻击", en: "Attack" }],
+  ["defense", { zh: "防御", en: "Defense" }],
+  ["melee", { zh: "近战", en: "Melee" }],
+  ["ranged", { zh: "远程", en: "Ranged" }],
+  ["magic", { zh: "魔法", en: "Magic" }],
 ];
 
 let activeInstances = 0;
 let featureEnabled = false;
 const controllers = new Set();
+
+function t(zh, en) {
+  return runtime.config.isZH ? zh : en;
+}
+
+function categoryLabel(value, fallback) {
+  if (value && typeof value === "object") {
+    return value[runtime.config.isZH ? "zh" : "en"] ?? fallback;
+  }
+  return String(value || fallback);
+}
 
 function normalizedName(value) {
   return String(value || "")
@@ -147,7 +162,7 @@ function createOverlay(options = {}) {
         if (!index.has(name)) index.set(name, []);
         index.get(name).push({
           category,
-          label: categoryLabels[category] || category,
+          label: categoryLabel(categoryLabels[category], category),
           rank,
           tier,
           capturedAt: snapshot.receivedAt || snapshot.capturedAt || null,
@@ -222,9 +237,9 @@ function createOverlay(options = {}) {
           icon.alt = "";
           icon.setAttribute("aria-hidden", "true");
           badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
-          badge.title = `${item.label}排行榜第 ${item.rank} 名${
-            item.capturedAt ? ` · ${item.capturedAt}` : ""
-          }`;
+          badge.title = runtime.config.isZH
+            ? `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`
+            : `${item.label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
           return badge;
         }),
       );
@@ -247,9 +262,12 @@ function createOverlay(options = {}) {
         : state.sortMode === "ascending"
           ? " ↑"
           : "";
-    const copy = `经验/小时${arrow}`;
+    const copy = `${t("经验/小时", "XP/hour")}${arrow}`;
     if (header.textContent !== copy) header.textContent = copy;
-    header.title = "点击排序：降序 → 升序 → 官方原排名";
+    header.title = t(
+      "点击排序：降序 → 升序 → 官方原排名",
+      "Click to sort: descending → ascending → official rank",
+    );
     header.setAttribute(
       "aria-sort",
       state.sortMode === "descending"
@@ -322,8 +340,8 @@ function createOverlay(options = {}) {
       const rate = validExperienceRate(model?.xpPerHour);
       const title =
         rate != null
-          ? `${Math.round(rate).toLocaleString()} 经验/小时`
-          : "缺少可比较的历史快照";
+          ? `${Math.round(rate).toLocaleString()} ${t("经验/小时", "XP/hour")}`
+          : t("缺少可比较的历史快照", "No comparable historical snapshot");
       if (cell.textContent !== copy) cell.textContent = copy;
       if (cell.title !== title) cell.title = title;
     }
@@ -479,6 +497,136 @@ const leaderboardOverlayApi = {
   },
 };
 
+function normalizeLeaderboardPayload(payload) {
+  if (
+    payload?.type !== "leaderboard_updated" ||
+    payload?.leaderboardType !== "standard"
+  ) {
+    return null;
+  }
+  const leaderboard = payload.leaderboard;
+  const category = String(
+    payload.leaderboardCategory ?? leaderboard?.category ?? "",
+  );
+  if (
+    leaderboard?.type !== "standard" ||
+    leaderboard?.category !== category ||
+    !DEFAULT_CATEGORIES.some(([key]) => key === category) ||
+    !Array.isArray(leaderboard?.rows)
+  ) {
+    return null;
+  }
+  const rows = leaderboard.rows
+    .map((row) => ({
+      characterId: Number(row?.characterId ?? row?.id),
+      characterName: String(row?.characterName ?? row?.name ?? "").trim(),
+      rank: Number(row?.rank),
+      level: Number(row?.level ?? row?.value1),
+      experience: Number(row?.experience ?? row?.value2),
+      xpPerHour: validExperienceRate(row?.xpPerHour),
+    }))
+    .filter(
+      (row) =>
+        row.characterName &&
+        Number.isInteger(row.rank) &&
+        row.rank >= 1 &&
+        row.rank <= 100,
+    );
+  return rows.length ? { category, rows } : null;
+}
+
+function normalizeCategories(value) {
+  const allowed = new Set(DEFAULT_CATEGORIES.map(([category]) => category));
+  return Object.fromEntries(
+    Object.entries(value ?? {}).flatMap(([category, snapshot]) => {
+      if (!allowed.has(category) || !Array.isArray(snapshot?.rows)) return [];
+      const rows = snapshot.rows.filter(
+        (row) =>
+          String(row?.characterName ?? row?.name ?? "").trim() &&
+          Number.isInteger(Number(row?.rank)) &&
+          Number(row.rank) >= 1 &&
+          Number(row.rank) <= 100,
+      );
+      return rows.length ? [[category, { ...snapshot, rows }]] : [];
+    }),
+  );
+}
+
+function loadCachedCategories() {
+  try {
+    const cached = JSON.parse(
+      globalThis.localStorage?.getItem(LEADERBOARD_CACHE_KEY) || "null",
+    );
+    return cached?.schemaVersion === 1
+      ? normalizeCategories(cached.categories)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCachedCategories(categories) {
+  try {
+    globalThis.localStorage?.setItem(
+      LEADERBOARD_CACHE_KEY,
+      JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories }),
+    );
+  } catch (error) {
+    console.warn("[MWITools] Unable to cache leaderboard rankings", error);
+  }
+}
+
+function requestLeaderboardCategories(onRequest) {
+  const requestFn =
+    typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
+      ? GM.xmlHttpRequest
+      : typeof GM_xmlhttpRequest === "function"
+        ? GM_xmlhttpRequest
+        : null;
+  if (!requestFn) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let settled = false;
+    let watchdog;
+    const finish = (response) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
+        resolve(null);
+        return;
+      }
+      try {
+        const raw = response.responseText || response.response;
+        const payload = typeof raw === "string" ? JSON.parse(raw) : raw;
+        resolve(
+          payload?.schemaVersion === 1 &&
+            payload?.leaderboardType === "standard"
+            ? normalizeCategories(payload.categories)
+            : null,
+        );
+      } catch {
+        resolve(null);
+      }
+    };
+    watchdog = setTimeout(() => finish(null), 10_500);
+    try {
+      const request = requestFn({
+        method: "GET",
+        url: LEADERBOARD_API_URL,
+        timeout: 10_000,
+        onload: finish,
+        onabort: () => finish(null),
+        onerror: () => finish(null),
+        ontimeout: () => finish(null),
+      });
+      onRequest?.(request);
+      if (request?.then) request.then(finish).catch(() => finish(null));
+    } catch {
+      finish(null);
+    }
+  });
+}
+
 const pageGlobal = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
 try {
   Object.defineProperty(pageGlobal, "MWILeaderboardOverlay", {
@@ -496,7 +644,56 @@ runtime.features.register({
   initialize({ scope }) {
     featureEnabled = true;
     for (const controller of controllers) controller._mount();
+    const controller = create();
+    let categories = loadCachedCategories();
+    let currentLeaderboard = null;
+    let active = true;
+    let activeRequest = null;
+    controller.setRankings(categories);
+
+    const applyCurrentLeaderboard = () => {
+      if (!currentLeaderboard) return;
+      controller.enhanceLeaderboard({
+        category: currentLeaderboard.category,
+        rows:
+          categories[currentLeaderboard.category]?.rows ??
+          currentLeaderboard.rows,
+      });
+    };
+    const refreshRankings = async () => {
+      const response = await requestLeaderboardCategories((request) => {
+        activeRequest = request;
+      });
+      activeRequest = null;
+      if (!active || !response) return;
+      categories = response;
+      saveCachedCategories(categories);
+      controller.setRankings(categories);
+      applyCurrentLeaderboard();
+    };
+    const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
+      const normalized = normalizeLeaderboardPayload(payload);
+      if (!normalized) return;
+      currentLeaderboard = normalized;
+      if (!categories[normalized.category]) {
+        categories = {
+          ...categories,
+          [normalized.category]: {
+            receivedAt: new Date().toISOString(),
+            rows: normalized.rows,
+          },
+        };
+        controller.setRankings(categories);
+      }
+      applyCurrentLeaderboard();
+    });
+    scope.add(stopMessages);
+    void refreshRankings();
+    scope.interval(() => void refreshRankings(), LEADERBOARD_REFRESH_INTERVAL);
     scope.add(() => {
+      active = false;
+      activeRequest?.abort?.();
+      controller.destroy();
       featureEnabled = false;
       for (const controller of controllers) controller._unmount();
     });
@@ -510,4 +707,5 @@ export {
   create,
   formatExperienceRate,
   leaderboardOverlayApi,
+  normalizeLeaderboardPayload,
 };

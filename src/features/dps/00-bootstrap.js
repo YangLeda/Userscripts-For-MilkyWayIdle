@@ -3,6 +3,7 @@ import copyIcon from "./assets/copy.png";
 import debugIcon from "./assets/debug.png";
 import resetIcon from "./assets/reset.png";
 import trendIcon from "./assets/trend.png";
+import { runtime } from "../../core/runtime.js";
 
 /*
  * 普通战斗伤害归属：单人 pMap 直接归属；多人 pMap 优先使用 atkCounter
@@ -15,6 +16,7 @@ import trendIcon from "./assets/trend.png";
 
 const pageWindow = globalThis.unsafeWindow ?? globalThis;
 const MWI = (pageWindow.__MWI_DPS = pageWindow.__MWI_DPS || {});
+MWI.__mwitoolsIntegrated = true;
 const VERSION = "1.0.51";
 
 // Classe CSS du conteneur d'onglets du jeu. Si le jeu la change, modifier ici.
@@ -131,6 +133,14 @@ const PALETTE = [
 const Settings = (() => {
   const KEY = "kikimeter:settings:v4";
   const LEGACY_KEY = "kikimeter:settings:v3";
+  const defaultLanguage =
+    typeof runtime.config.isZH === "boolean"
+      ? runtime.config.isZH
+        ? "zh"
+        : "en"
+      : /^zh\b/i.test(globalThis.navigator?.language ?? "")
+        ? "zh"
+        : "en";
   const defaults = {
     colors: {},
     classOverrides: {},
@@ -140,7 +150,7 @@ const Settings = (() => {
     showHealing: true,
     showGraph: false,
     autoReset: true,
-    language: "zh",
+    language: defaultLanguage,
     panelOpacity: 100,
   };
   let state = { ...defaults };

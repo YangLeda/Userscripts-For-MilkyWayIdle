@@ -152,6 +152,100 @@ test("openable values support expected drops, nesting and cycle guards", () => {
   assert.equal(runtime.api.getAssetValue("/items/cyclic_crate"), 0);
 });
 
+test("output liquidation values recurse through openables for all valuation modes", () => {
+  runtime.state.initData_openableLootDropMap["/items/large_artisans_crate"] = [
+    {
+      itemHrid: "/items/liquid_leaf",
+      dropRate: 1,
+      minCount: 2,
+      maxCount: 2,
+    },
+    {
+      itemHrid: "/items/unpriced_leaf",
+      dropRate: 0.5,
+      minCount: 1,
+      maxCount: 1,
+    },
+  ];
+  const originals = {
+    fair: runtime.api.getFairValue,
+    conservative: runtime.api.getNetSellPrice,
+    aggressive: runtime.api.getNetSellPriceAtAsk,
+    tax: runtime.api.getMarketTaxRate,
+  };
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/liquid_leaf" ? 90 : 0;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/liquid_leaf" ? 110 : 0;
+  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+    itemHrid === "/items/liquid_leaf" ? 135 : 0;
+  runtime.api.getMarketTaxRate = () => 0.1;
+  runtime.api.invalidateAssetValueCache();
+
+  const conservative = runtime.api.getAssetLiquidationValue(
+    "/items/large_artisans_crate",
+    0,
+    "conservative",
+  );
+  const fair = runtime.api.getAssetLiquidationValue(
+    "/items/large_artisans_crate",
+    0,
+    "fair",
+  );
+  const aggressive = runtime.api.getAssetLiquidationValue(
+    "/items/large_artisans_crate",
+    0,
+    "aggressive",
+  );
+  assert.equal(conservative.value, 180);
+  assert.equal(fair.value, 198);
+  assert.equal(aggressive.value, 270);
+  assert.equal(fair.source, "openable");
+  assert.equal(fair.complete, false);
+  assert.deepEqual(fair.missingItemHrids, ["/items/unpriced_leaf"]);
+
+  Object.assign(runtime.api, {
+    getFairValue: originals.fair,
+    getNetSellPrice: originals.conservative,
+    getNetSellPriceAtAsk: originals.aggressive,
+    getMarketTaxRate: originals.tax,
+  });
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("direct market and NPC sell values take priority without double tax", () => {
+  const originals = {
+    fair: runtime.api.getFairValue,
+    tax: runtime.api.getMarketTaxRate,
+  };
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/task_crate" ? 1_000 : 0;
+  runtime.api.getMarketTaxRate = () => 0.05;
+  runtime.api.invalidateAssetValueCache();
+  assert.deepEqual(
+    runtime.api.getAssetLiquidationValue("/items/task_crate", 0, "fair"),
+    {
+      value: 950,
+      complete: true,
+      source: "market",
+      missingItemHrids: [],
+    },
+  );
+  assert.deepEqual(
+    runtime.api.getAssetLiquidationValue("/items/vendor_only", 0, "fair"),
+    {
+      value: 1234,
+      complete: true,
+      source: "sell-price",
+      missingItemHrids: [],
+    },
+  );
+
+  runtime.api.getFairValue = originals.fair;
+  runtime.api.getMarketTaxRate = originals.tax;
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("a direct server value wins over every derived route", () => {
   runtime.state.marketItemValues["/items/task_token"] = { 0: 999 };
   runtime.api.invalidateAssetValueCache();

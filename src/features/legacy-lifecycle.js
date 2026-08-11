@@ -44,6 +44,7 @@ const adapters = {
   actionQueue: {
     scope: "character",
     cleanup() {
+      runtime.api.disconnectActionQueueObservers?.();
       removeAll(".script_actionTime,#script_queueTotalTime");
     },
   },
@@ -95,8 +96,9 @@ adapters.skillbook = {
   },
 };
 adapters.ThirdPartyLinks = {
-  initialize() {
+  initialize({ scope }) {
     runtime.api.add3rdPartyLinks?.();
+    scope.interval(() => runtime.api.add3rdPartyLinks?.(), 500);
   },
   cleanup() {
     removeAll('[data-mwitools-external-link="true"]');
