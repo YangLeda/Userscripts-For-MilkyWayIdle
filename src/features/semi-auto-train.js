@@ -4,6 +4,7 @@ const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
 const DETAIL_CLASS = "mwi-train-detail-modal";
 const ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
+const WIDE_WINDOW_CLASS = "mwi-train-window-wide";
 const INPUT_SELECTOR =
   'div[class*="SkillActionDetail_maxActionCountInput"] input';
 const PANEL_SELECTOR =
@@ -62,6 +63,10 @@ function addStyles() {
     .mwi-train-button:disabled{cursor:default;filter:none;opacity:.58}
     .mwi-train-button[data-kind="cancel"]{border-color:rgba(235,144,144,.55);background:#5c2a2a}
     .mwi-train-button[data-kind="cart"]{border-color:rgba(245,180,70,.65);background:#43351f}
+    .mwi-train-cart-mode{height:20px;padding:0 6px;border:1px solid rgba(144,166,235,.45);border-radius:999px;background:#202033;color:#b8bfd8;font:600 10px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
+    .mwi-train-cart-mode[aria-pressed="true"]{border-color:rgba(245,180,70,.75);background:#49381d;color:#ffe2a0}
+    .${WIDE_WINDOW_CLASS}{box-sizing:border-box!important;width:min(430px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important}
+    .mwi-train-shop-target{position:relative;z-index:1;outline:3px solid #ffd257!important;outline-offset:2px;box-shadow:0 0 0 2px rgba(255,210,87,.28),0 0 18px rgba(255,188,55,.8)!important;animation:mwi-train-shop-pulse 1.1s ease-in-out infinite alternate}
     .${DETAIL_CLASS}{position:fixed;inset:0;z-index:2147483100;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.58)}
     .${DETAIL_CLASS}>section{box-sizing:border-box;width:min(470px,calc(100vw - 24px));max-height:80vh;overflow:auto;padding:16px 20px;border:1px solid #90a6eb;border-radius:8px;background:#1c1c2c;color:#e8e8ef;box-shadow:0 5px 20px rgba(0,0,0,.55);font-size:13px}
     .mwi-train-detail-title{margin-bottom:9px;padding-bottom:6px;border-bottom:1px solid #444;font-size:15px;font-weight:700}
@@ -71,6 +76,7 @@ function addStyles() {
     #${ACTIVE_INDICATOR_ID}{position:fixed;top:max(8px,env(safe-area-inset-top));left:50%;z-index:2147483000;max-width:calc(100vw - 24px);transform:translateX(-50%);overflow:hidden;padding:7px 13px;border:1px solid rgba(245,180,70,.78);border-radius:999px;background:rgba(42,32,18,.96);color:#ffe8a3;font:700 12px/1.15 Roboto,Arial,sans-serif;text-overflow:ellipsis;white-space:nowrap;box-shadow:0 5px 18px rgba(0,0,0,.48),0 0 8px rgba(245,180,70,.22);cursor:pointer}
     #${ACTIVE_INDICATOR_ID}:hover{filter:brightness(1.14)}
     #${ACTIVE_INDICATOR_ID}:focus-visible{outline:2px solid #ffe27a;outline-offset:2px}
+    @keyframes mwi-train-shop-pulse{from{filter:brightness(1)}to{filter:brightness(1.28)}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -122,6 +128,23 @@ function createButton(text, kind, handler) {
 
 function closeDetail() {
   document.querySelector(`.${DETAIL_CLASS}`)?.remove();
+}
+
+function trainWindow(panel) {
+  const container = panel?.closest?.('[class*="Modal_modalContainer"]');
+  return (
+    container?.querySelector(
+      ':scope > [class*="Modal_modal"]:not([class*="Modal_modalContainer"])',
+    ) ??
+    panel?.closest?.(
+      '[class*="Modal_modal"]:not([class*="Modal_modalContainer"])',
+    ) ??
+    null
+  );
+}
+
+function setTrainWindowWide(panel, wide) {
+  trainWindow(panel)?.classList.toggle(WIDE_WINDOW_CLASS, Boolean(wide));
 }
 
 function renderActiveIndicator() {
@@ -365,6 +388,34 @@ export function navigateToTrainAction(actionHrid) {
   return invoke();
 }
 
+function clearTrainShopHighlight() {
+  document
+    .querySelectorAll(".mwi-train-shop-target")
+    .forEach((node) => node.classList.remove("mwi-train-shop-target"));
+}
+
+function findTrainShopItem(panel, step) {
+  const bare = String(step.outputHrid ?? "")
+    .split("/")
+    .at(-1);
+  const itemName = localizedItem(step.outputHrid);
+  return [...panel.querySelectorAll('[class*="ShopPanel_shopItem"]')]
+    .filter(visible)
+    .find((candidate) => {
+      const hrefs = [...candidate.querySelectorAll("use")].map(
+        (use) =>
+          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      );
+      const name = String(
+        candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ?? "",
+      ).trim();
+      return (
+        (bare && hrefs.some((href) => href.endsWith(`#${bare}`))) ||
+        name === itemName
+      );
+    });
+}
+
 export function navigateToTrainShop(step) {
   const requestId = ++navigationRequestId;
   const game = gameInstances().find(
@@ -411,6 +462,11 @@ export function navigateToTrainShop(step) {
       fiber = fiber.return;
     }
     const quantity = Math.max(1, Math.ceil(Number(step.count) || 1));
+    const shopItem = findTrainShopItem(panel, step);
+    if (shopItem) {
+      clearTrainShopHighlight();
+      shopItem.classList.add("mwi-train-shop-target");
+    }
     if (instance) {
       try {
         instance.setState({
@@ -423,28 +479,6 @@ export function navigateToTrainShop(step) {
         // Use the visible shop card and native quantity input instead.
       }
     }
-    const bare = String(step.outputHrid ?? "")
-      .split("/")
-      .at(-1);
-    const itemName = localizedItem(step.outputHrid);
-    const shopItem = [
-      ...panel.querySelectorAll('[class*="ShopPanel_shopItem"]'),
-    ]
-      .filter(visible)
-      .find((candidate) => {
-        const hrefs = [...candidate.querySelectorAll("use")].map(
-          (use) =>
-            use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
-        );
-        const name = String(
-          candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ??
-            "",
-        ).trim();
-        return (
-          (bare && hrefs.some((href) => href.endsWith(`#${bare}`))) ||
-          name === itemName
-        );
-      });
     if (!shopItem) {
       setTimeout(open, 100);
       return;
@@ -485,6 +519,7 @@ function setInput(input, value) {
 
 function clearTrainListeners() {
   if (!activeTrain) return;
+  clearTrainShopHighlight();
   if (activeTrain.queueButton && activeTrain.queueListener) {
     activeTrain.queueButton.removeEventListener(
       "click",
@@ -528,11 +563,19 @@ function activeStepCount(context) {
   return Number.isFinite(step.count) && step.count > 0 ? step.count : null;
 }
 
+function plannedStepCount() {
+  const step = activeTrain?.steps?.[activeTrain.index];
+  return Number.isFinite(step?.count) && step.count > 0 ? step.count : null;
+}
+
 function hasPlannedProducer(itemHrid) {
   return activeTrain?.allOutputHrids?.has(itemHrid) ?? false;
 }
 
-export function addCurrentTrainStepToCart(context = panelContext()) {
+export function addCurrentTrainStepToCart(
+  context = panelContext(),
+  { usePlannedCount = false } = {},
+) {
   if (!activeTrain) return { ok: false, added: 0, skipped: 0 };
   const currentIndex = activeTrain.index;
   const current = activeTrain.steps[currentIndex];
@@ -542,10 +585,14 @@ export function addCurrentTrainStepToCart(context = panelContext()) {
     );
     return { ok: false, added: 0, skipped: 0 };
   }
-  if (!activeStepCount(context)) {
+  const count = usePlannedCount
+    ? (plannedStepCount() ?? activeStepCount(context))
+    : activeStepCount(context);
+  if (!count) {
     showToast(t("请先填写本步次数", "Enter the action count first"));
     return { ok: false, added: 0, skipped: 0 };
   }
+  current.count = count;
   activeTrain.cartStepIndexes.add(currentIndex);
   const groups = [...activeTrain.cartStepIndexes].map((index) => {
     const step = activeTrain.steps[index];
@@ -579,6 +626,48 @@ export function addCurrentTrainStepToCart(context = panelContext()) {
   return result;
 }
 
+function maybeAutoAddCurrentStep(context = panelContext()) {
+  if (!activeTrain?.autoCartEnabled) return false;
+  const currentIndex = activeTrain.index;
+  const step = activeTrain.steps[currentIndex];
+  if (
+    step?.kind === "shop" ||
+    activeTrain.cartStepIndexes.has(currentIndex) ||
+    activeTrain.autoCartPendingIndex === currentIndex ||
+    !context ||
+    context.actionHrid !== step?.actionHrid
+  ) {
+    return false;
+  }
+  activeTrain.autoCartPendingIndex = currentIndex;
+  setTimeout(() => {
+    if (
+      !activeTrain?.autoCartEnabled ||
+      activeTrain.index !== currentIndex ||
+      activeTrain.cartStepIndexes.has(currentIndex)
+    ) {
+      return;
+    }
+    const latest = panelContext();
+    if (latest?.actionHrid === step.actionHrid) {
+      addCurrentTrainStepToCart(latest, { usePlannedCount: true });
+    }
+    if (activeTrain?.index === currentIndex) {
+      activeTrain.autoCartPendingIndex = null;
+    }
+  }, 150);
+  return true;
+}
+
+export function setTrainAutoCart(enabled, context = panelContext()) {
+  if (!activeTrain) return false;
+  activeTrain.autoCartEnabled = Boolean(enabled);
+  activeTrain.autoCartPendingIndex = null;
+  if (activeTrain.autoCartEnabled) maybeAutoAddCurrentStep(context);
+  scheduleScan();
+  return true;
+}
+
 function advanceTrain() {
   if (!activeTrain) return;
   clearTrainListeners();
@@ -588,6 +677,7 @@ function advanceTrain() {
   }
   activeTrain.index += 1;
   activeTrain.readyActionHrid = "";
+  activeTrain.autoCartPendingIndex = null;
   renderActiveIndicator();
   goToCurrentStep();
 }
@@ -633,6 +723,7 @@ function wirePanel(context) {
     activeTrain.queueListener = () => notifyCurrentTrainStepQueued(context);
     button.addEventListener("click", activeTrain.queueListener, true);
   }
+  maybeAutoAddCurrentStep(context);
   resetTrainTimeout();
 }
 
@@ -698,6 +789,16 @@ export function startTrain(plan, options = {}) {
     return false;
   }
   const allSteps = (plan?.steps ?? []).map((step) => ({ ...step }));
+  const finalCount = Number(allSteps.at(-1)?.count);
+  if (!Number.isFinite(finalCount) || finalCount <= 0) {
+    showToast(
+      t(
+        "请先填写生产数量，再开始火车",
+        "Enter a production count before starting the train",
+      ),
+    );
+    return false;
+  }
   const hasPlannedCounts = allSteps.some((step) => Number.isFinite(step.count));
   const firstNeeded = allSteps.findIndex(
     (step) => !Number.isFinite(step.count) || step.count > 0,
@@ -723,6 +824,8 @@ export function startTrain(plan, options = {}) {
     timeout: null,
     readyActionHrid: "",
     arrivalShown: false,
+    autoCartEnabled: false,
+    autoCartPendingIndex: null,
     navigateAction: options.navigateAction,
     navigateShop: options.navigateShop,
   };
@@ -763,6 +866,7 @@ export function getTrainState() {
     index: activeTrain.index,
     steps: activeTrain.steps.map((step) => ({ ...step })),
     cartStepIndexes: [...activeTrain.cartStepIndexes],
+    autoCartEnabled: activeTrain.autoCartEnabled,
   };
 }
 
@@ -771,13 +875,17 @@ function idlePlan(context) {
   if (!outputHrid) return null;
   const count = runtime.api.trainPlanning.parseTrainCount(context.input.value);
   if (count) {
-    return runtime.api.trainPlanning.createTrainPlan(outputHrid, {
-      [outputHrid]: count,
-    });
+    return {
+      ...runtime.api.trainPlanning.createTrainPlan(outputHrid, {
+        [outputHrid]: count,
+      }),
+      hasExplicitCount: true,
+    };
   }
   const chain = runtime.api.trainPlanning.buildTrainChain(outputHrid);
   return {
     ...chain,
+    hasExplicitCount: false,
     steps: chain.steps.map((step) => ({ ...step, count: null })),
   };
 }
@@ -802,6 +910,7 @@ function renderControls(context) {
   const shouldShow =
     relevantRunningPanel || (!activeTrain && plan?.steps?.length >= 2);
   let controls = host.querySelector(`:scope > .${CONTROL_CLASS}`);
+  setTrainWindowWide(context.panel, shouldShow);
   if (!shouldShow) {
     controls?.remove();
     return;
@@ -811,6 +920,8 @@ function renderControls(context) {
     activeTrain?.index ?? -1,
     plan.steps.length,
     runningStep?.kind ?? "",
+    activeTrain?.autoCartEnabled ?? false,
+    plan?.hasExplicitCount !== false,
     context.actionHrid,
     runtime.config.isZH,
   ]);
@@ -825,6 +936,23 @@ function renderControls(context) {
     ),
   );
   if (activeTrain) {
+    const mode = document.createElement("button");
+    mode.type = "button";
+    mode.className = "mwi-train-cart-mode";
+    mode.setAttribute("aria-pressed", String(activeTrain.autoCartEnabled));
+    mode.textContent = activeTrain.autoCartEnabled
+      ? t("自动加购", "Auto cart")
+      : t("手动加购", "Manual cart");
+    mode.title = t(
+      "切换本步材料的自动或手动加购",
+      "Toggle automatic or manual step shopping",
+    );
+    mode.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setTrainAutoCart(!activeTrain?.autoCartEnabled, context);
+    });
+    controls.appendChild(mode);
     const cart = createButton(
       runningStep.kind === "shop"
         ? t("本步无需加购", "No cart items")
@@ -842,13 +970,16 @@ function renderControls(context) {
       ),
     );
   } else {
-    controls.appendChild(
-      createButton(
-        `🚂 ${t("开始火车", "Start train")} (${plan.steps.length}${t("步", " stops")})`,
-        "start",
-        () => startTrain(idlePlan(context)),
-      ),
+    const start = createButton(
+      `🚂 ${t("开始火车", "Start train")} (${plan.steps.length}${t("步", " stops")})`,
+      "start",
+      () => startTrain(idlePlan(context)),
     );
+    start.disabled = plan.hasExplicitCount === false;
+    if (start.disabled) {
+      start.title = t("请先填写生产数量", "Enter a production count first");
+    }
+    controls.appendChild(start);
   }
   host.appendChild(controls);
 }
@@ -857,6 +988,11 @@ function scan() {
   scanPending = false;
   renderActiveIndicator();
   const context = panelContext();
+  document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window) => {
+    if (!context?.panel || !window.contains(context.panel)) {
+      window.classList.remove(WIDE_WINDOW_CLASS);
+    }
+  });
   document.querySelectorAll(`.${CONTROL_CLASS}`).forEach((controls) => {
     if (!context?.panel.contains(controls)) controls.remove();
   });
@@ -880,6 +1016,10 @@ function cleanup() {
     .querySelectorAll(".mwi-train-toast")
     .forEach((node) => node.remove());
   document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
+  document
+    .querySelectorAll(`.${WIDE_WINDOW_CLASS}`)
+    .forEach((node) => node.classList.remove(WIDE_WINDOW_CLASS));
+  clearTrainShopHighlight();
   document.getElementById(STYLE_ID)?.remove();
   closeDetail();
   scanPending = false;
@@ -907,6 +1047,7 @@ Object.assign(runtime.api, {
     finish: finishTrain,
     getState: getTrainState,
     addCurrentStepToCart: addCurrentTrainStepToCart,
+    setAutoCart: setTrainAutoCart,
     notifyQueued: notifyCurrentTrainStepQueued,
     navigateToAction: navigateToTrainAction,
     navigateToShop: navigateToTrainShop,

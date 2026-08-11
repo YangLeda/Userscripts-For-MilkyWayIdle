@@ -134,6 +134,14 @@ test("train chains report cycles and parse compact counts", () => {
   assert.equal(planning.parseTrainCount("∞"), null);
 });
 
+test("a train cannot start without an explicit production count", () => {
+  const plan = planning.buildTrainChain("/items/final");
+  assert.equal(plan.steps.at(-1).count, undefined);
+  assert.equal(train.startTrain(plan, { navigateAction: () => true }), false);
+  assert.equal(train.getTrainState(), null);
+  assert.equal(document.querySelector("#mwi-train-active-indicator"), null);
+});
+
 test("default train navigation accepts a GamePage instance without navTarget", () => {
   document.body.innerHTML = '<div class="GamePage_gamePage__test"></div>';
   delete globalThis.mwi;
@@ -196,6 +204,56 @@ test("active train stays globally visible and can be cancelled from any page", (
   indicator.click();
   assert.equal(train.getTrainState(), null);
   assert.equal(document.querySelector("#mwi-train-active-indicator"), null);
+  document.body.replaceChildren();
+});
+
+test("automatic step shopping enables the mode and adds current shortages", async () => {
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  document.body.innerHTML = `
+    <div class="Modal_modalContainer__test">
+      <div class="Modal_modal__test">
+        <div class="Modal_modalContent__test">
+          <div class="SkillActionDetail_regularComponent__test">
+            <div class="SkillActionDetail_maxActionCountInput__test"><input value="1"></div>
+            <div class="SkillActionDetail_buttonsContainer__test"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  const originalResolver = runtime.api.resolveProductionAction;
+  runtime.api.resolveProductionAction = () => "/actions/crafting/board";
+  const plan = {
+    cycle: false,
+    truncated: false,
+    steps: [
+      {
+        kind: "craft",
+        actionHrid: "/actions/crafting/board",
+        outputHrid: "/items/board",
+        count: 1,
+      },
+      {
+        kind: "upgrade",
+        actionHrid: "/actions/crafting/final",
+        inputHrid: "/items/board",
+        outputHrid: "/items/final",
+        count: 1,
+      },
+    ],
+  };
+  assert.equal(train.startTrain(plan, { navigateAction: () => true }), true);
+  assert.equal(train.setTrainAutoCart(true), true);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  assert.equal(train.getTrainState().autoCartEnabled, true);
+  assert.equal(runtime.api.procurement.getCartItem("/items/glue").quantity, 1);
+  assert.equal(
+    document
+      .querySelector('[class*="Modal_modal"]:not([class*="modalContainer"])')
+      .classList.contains("mwi-train-window-wide"),
+    true,
+  );
+  train.cancelTrain();
+  runtime.api.resolveProductionAction = originalResolver;
   document.body.replaceChildren();
 });
 
@@ -270,6 +328,12 @@ test("shop navigation falls back to native DOM and only prefills quantity", asyn
   };
   assert.equal(train.startTrain(plan), true);
   await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    document
+      .querySelector('[class*="ShopPanel_shopItem"]')
+      .classList.contains("mwi-train-shop-target"),
+    true,
+  );
   assert.equal(document.querySelector('input[type="number"]').value, "4");
   assert.equal(purchases, 0);
   train.cancelTrain();
