@@ -75,6 +75,7 @@ test("exports the standalone overlay API and formatting helpers", () => {
 
 test("renders top-100 ranking badges beside matching character names", async () => {
   document.body.innerHTML = `
+    <svg><use href="/static/media/skills_sprite.current.svg#milking"></use></svg>
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
     <div class="Header_characterInfo__test">
       <div class="Header_info__test">
@@ -89,10 +90,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
     <div class="LeaderboardPanel_row__test">
       <span class="CharacterName_name__test" data-name="Alice">Alice</span>
     </div>`;
-  const overlay = create({
-    document,
-    iconBaseUrl: "https://example.test/icons",
-  });
+  const overlay = create({ document });
 
   overlay.setRankings({
     milking: {
@@ -117,9 +115,11 @@ test("renders top-100 ranking badges beside matching character names", async () 
     ),
     ["#4", "#25"],
   );
+  // Skill badges reuse the game's own skills sprite; no remote PNG is loaded.
+  assert.equal(aliceBadges.querySelector("img"), null);
   assert.equal(
-    aliceBadges.querySelector("img").src,
-    "https://example.test/icons/magic.png",
+    aliceBadges.querySelector("use").getAttribute("href"),
+    "/static/media/skills_sprite.current.svg#magic",
   );
   const bobName = document.querySelector('[data-name="Bob"]');
   const bobBadges = document.querySelector(

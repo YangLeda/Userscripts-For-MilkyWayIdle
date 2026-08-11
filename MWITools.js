@@ -24135,7 +24135,6 @@ ${preview}`
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
-  var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
   var STYLE_ID2 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
@@ -24238,24 +24237,35 @@ ${preview}`
   `;
     mount.append(style);
   }
-  function createBadgeIcon(documentRef, category, iconBaseUrl) {
-    if (category !== "fame_points") {
-      const icon2 = documentRef.createElement("img");
-      icon2.className = "mwi-lb-badge-icon";
-      icon2.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
-      icon2.alt = "";
-      icon2.setAttribute("aria-hidden", "true");
-      return icon2;
-    }
+  function gameSpriteBase(documentRef, spriteName, fallback) {
+    const found = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes(spriteName))?.split("#")[0];
+    return found || fallback;
+  }
+  function createSpriteIcon(documentRef, spriteBase, symbol) {
     const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.classList.add("mwi-lb-badge-icon");
     icon.setAttribute("viewBox", "0 0 40 40");
     icon.setAttribute("aria-hidden", "true");
     const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-    const miscSprite = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes("misc_sprite"))?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
-    use.setAttribute("href", `${miscSprite}#experience`);
+    use.setAttribute("href", `${spriteBase}#${symbol}`);
     icon.append(use);
     return icon;
+  }
+  function createBadgeIcon(documentRef, category) {
+    if (category === "fame_points") {
+      const miscSprite = gameSpriteBase(
+        documentRef,
+        "misc_sprite",
+        "/static/media/misc_sprite.cfad291b.svg"
+      );
+      return createSpriteIcon(documentRef, miscSprite, "experience");
+    }
+    const skillsSprite = gameSpriteBase(
+      documentRef,
+      "skills_sprite",
+      "/static/media/skills_sprite.6f279e88.svg"
+    );
+    return createSpriteIcon(documentRef, skillsSprite, category);
   }
   function createOverlay(options = {}) {
     const documentRef = options.document ?? (typeof document !== "undefined" ? document : null);
@@ -24265,9 +24275,6 @@ ${preview}`
     const categoryEntries = Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES;
     const categoryOrder = categoryEntries.map(([category]) => category);
     const categoryLabels = Object.fromEntries(categoryEntries);
-    const iconBaseUrl = String(
-      options.iconBaseUrl || DEFAULT_ICON_BASE_URL
-    ).replace(/\/+$/, "");
     const state = {
       categories: {},
       nameIndex: /* @__PURE__ */ new Map(),
@@ -24366,7 +24373,7 @@ ${preview}`
           ...visibleBadges.map((item) => {
             const badge = documentRef.createElement("span");
             badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}`;
-            const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
+            const icon = createBadgeIcon(documentRef, item.category);
             badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
             const label = categoryLabel(item.label, item.category);
             badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名` : `${label} leaderboard rank #${item.rank}`;
