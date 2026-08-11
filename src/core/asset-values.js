@@ -454,33 +454,44 @@ function projectLootChestInternal(itemHrid, config, visited) {
   const rows = [];
   let grossValue = 0;
   for (const drop of normalizedDrops) {
+    const nestedChest = normalizeLootDrops(drop.itemHrid).length > 0;
     const marketValue = lootSaleValue(
       drop.itemHrid,
       drop.enhancementLevel,
       config.sellAtAsk,
     );
     const tokenRedemption = bestRedemptions.get(drop.itemHrid) ?? null;
-    let unitValue = marketValue;
-    let valueSource = marketValue > 0 ? "market" : "missing";
+    let unitValue = 0;
+    let valueSource = "missing";
     let nested = false;
-    if (!(unitValue > 0) && tokenRedemption) {
-      unitValue = tokenRedemption.valuePerToken;
-      valueSource = "redemption";
-    }
-    if (!(unitValue > 0)) {
+    let priced = false;
+    let nestedMissing = [];
+    let pendingSelfReference = false;
+    if (nestedChest && drop.itemHrid === itemHrid) {
+      pendingSelfReference = true;
+    } else if (nestedChest) {
       const nestedProjection = projectLootChestInternal(
         drop.itemHrid,
         config,
         visited,
       );
-      if (
-        nestedProjection?.complete &&
-        Number.isFinite(nestedProjection.netValue)
-      ) {
+      if (nestedProjection && Number.isFinite(nestedProjection.netValue)) {
         unitValue = Math.max(0, nestedProjection.netValue);
         valueSource = "nested";
         nested = true;
+        priced = true;
+        nestedMissing = nestedProjection.missing;
       }
+    }
+    if (!priced && !pendingSelfReference && marketValue > 0) {
+      unitValue = marketValue;
+      valueSource = "market";
+      priced = true;
+    }
+    if (!priced && !pendingSelfReference && tokenRedemption) {
+      unitValue = tokenRedemption.valuePerToken;
+      valueSource = "redemption";
+      priced = true;
     }
     const value = drop.expectedCount * unitValue;
     grossValue += value;
@@ -493,8 +504,10 @@ function projectLootChestInternal(itemHrid, config, visited) {
       ...drop,
       unitValue,
       value,
-      priced: unitValue > 0,
+      priced,
       nested,
+      nestedMissing,
+      pendingSelfReference,
       valueSource,
       tokenRedemption,
       redemptions,
@@ -503,11 +516,36 @@ function projectLootChestInternal(itemHrid, config, visited) {
 
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
   const key = getLootKeyCost(keyItemHrid, config);
+  const selfRows = rows.filter((row) => row.pendingSelfReference);
+  const selfExpectedCount = selfRows.reduce(
+    (total, row) => total + row.expectedCount,
+    0,
+  );
+  if (selfRows.length && key.complete && selfExpectedCount < 1) {
+    const selfValue = Math.max(
+      0,
+      (grossValue - key.value) / (1 - selfExpectedCount),
+    );
+    for (const row of selfRows) {
+      row.unitValue = selfValue;
+      row.value = row.expectedCount * selfValue;
+      row.priced = true;
+      row.nested = true;
+      row.valueSource = "nested";
+      row.pendingSelfReference = false;
+      grossValue += row.value;
+    }
+  }
   const missing = new Set(
     rows
       .filter((row) => row.expectedCount > 0 && !row.priced)
       .map((row) => row.itemHrid),
   );
+  for (const row of rows) {
+    for (const missingItemHrid of row.nestedMissing) {
+      missing.add(missingItemHrid);
+    }
+  }
   for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
   const complete = missing.size === 0 && key.complete;
   const netValue = key.complete ? grossValue - key.value : null;

@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM(
   `<!doctype html><html><head></head><body>
+    <svg aria-hidden="true"><use href="/assets/items_sprite.test.svg#coin"></use></svg>
     <div class="Header_actionInfo__test">
       <div class="Header_myActions__test">
         <div class="Header_currentAction__test">
@@ -104,7 +105,21 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   assert.ok(card);
   assert.equal(controls.nextElementSibling, card);
   assert.match(card.textContent, /本次生产摘要/);
-  assert.match(card.textContent, /木板 5/);
+  const output = card.querySelector(".mwi-production-output-item");
+  assert.ok(output);
+  assert.doesNotMatch(
+    card.querySelector(".mwi-production-output-metric").textContent,
+    /木板/,
+  );
+  assert.match(output.title, /木板 ×5/);
+  assert.equal(
+    output.querySelector("use").getAttribute("href"),
+    "/assets/items_sprite.test.svg#lumber",
+  );
+  assert.match(
+    output.querySelector(".mwi-production-output-count").textContent,
+    /×5/,
+  );
   assert.match(card.textContent, /库存最多可做10/);
   assert.match(card.textContent, /本次总耗时30s/);
   assert.match(card.textContent, /本次总净利润400/);
@@ -131,6 +146,22 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   ).value = "5";
 });
 
+test("production outputs use a neutral fallback when the item sprite is unavailable", () => {
+  const spriteHost = document
+    .querySelector('use[href*="items_sprite"]')
+    .closest("svg");
+  spriteHost.remove();
+  runtime.api.renderProductionPanel();
+  const output = document.querySelector(".mwi-production-output-item");
+  assert.equal(
+    output.querySelector(".mwi-production-output-fallback")?.textContent,
+    "?",
+  );
+  assert.equal(output.textContent.includes("木板"), false);
+  document.body.prepend(spriteHost);
+  runtime.api.renderProductionPanel();
+});
+
 test("infinite production summaries use inventory capacity and expose a native-style max button", () => {
   const input = document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
@@ -143,7 +174,7 @@ test("infinite production summaries use inventory capacity and expose a native-s
   const infinityButton = document.querySelector(
     'button[class*="SkillActionDetail_infiniteButton"]',
   );
-  assert.match(card.textContent, /预期总产出木板 10/);
+  assert.match(card.textContent, /预期总产出×10/);
   assert.match(card.textContent, /本次总耗时60s/);
   assert.match(card.textContent, /本次总净利润800/);
   assert.ok(maxButton);
@@ -226,12 +257,79 @@ test("gathering dialogs without a count input still render expected outputs", ()
 
   const card = document.querySelector("#mwi-production-summary");
   assert.ok(card);
-  assert.match(card.textContent, /预期单次产出牛奶 2/);
+  assert.match(card.textContent, /预期单次产出×2/);
+  assert.match(
+    card.querySelector(".mwi-production-output-item").title,
+    /牛奶 ×2/,
+  );
   assert.match(card.textContent, /本次总耗时∞/);
   assert.match(card.textContent, /每小时净利润/);
   assert.equal(panel.contains(card), true);
   assert.equal(hiddenOldPanel.querySelector("#mwi-production-summary"), null);
   assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.api.getNetSellPrice = previousNetSell;
+  panel.remove();
+  modal.append(originalPanel);
+  hiddenOldPanel.remove();
+});
+
+test("mixed gathering outputs use a two-column icon grid", () => {
+  const originalPanel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const modal = originalPanel.closest('div[class*="Modal_modalContainer"]');
+  const hiddenOldPanel = document.createElement("div");
+  hiddenOldPanel.style.display = "none";
+  hiddenOldPanel.append(originalPanel);
+  modal.append(hiddenOldPanel);
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_skillActionDetail__mixed";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__test">混合果园</div>
+    <div class="SkillActionDetail_actionContainer__test"></div>
+  `;
+  modal.append(panel);
+  runtime.state.initData_actionDetailMap["/actions/foraging/mixed"] = {
+    hrid: "/actions/foraging/mixed",
+    name: "Mixed Orchard",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      { itemHrid: "/items/apple", dropRate: 0.5, count: 1 },
+      { itemHrid: "/items/orange", dropRate: 0.25, count: 2 },
+      { itemHrid: "/items/plum", dropRate: 0.1, count: 3 },
+    ],
+  };
+  Object.assign(runtime.state.initData_itemDetailMap, {
+    "/items/apple": { hrid: "/items/apple", name: "Apple" },
+    "/items/orange": { hrid: "/items/orange", name: "Orange" },
+    "/items/plum": { hrid: "/items/plum", name: "Plum" },
+  });
+  Object.assign(runtime.data.ZHItemNames, {
+    "/items/apple": "苹果",
+    "/items/orange": "橙子",
+    "/items/plum": "李子",
+  });
+  runtime.data.ZHActionNames["/actions/foraging/mixed"] = "混合果园";
+  const previousNetSell = runtime.api.getNetSellPrice;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    ["/items/apple", "/items/orange", "/items/plum"].includes(itemHrid)
+      ? 10
+      : previousNetSell(itemHrid);
+
+  runtime.api.renderProductionPanel();
+
+  const grid = document.querySelector(".mwi-production-output-grid");
+  assert.equal(grid.dataset.count, "3");
+  assert.equal(grid.querySelectorAll(".mwi-production-output-item").length, 3);
+  assert.doesNotMatch(grid.textContent, /苹果|橙子|李子/);
+  assert.deepEqual(
+    [...grid.querySelectorAll(".mwi-production-output-item")].map(
+      (item) => item.title,
+    ),
+    ["苹果 ×0.5", "橙子 ×0.5", "李子 ×0.3"],
+  );
 
   runtime.api.getNetSellPrice = previousNetSell;
   panel.remove();

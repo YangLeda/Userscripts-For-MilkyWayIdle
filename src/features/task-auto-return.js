@@ -191,9 +191,10 @@ runtime.features.register({
       if (restoreTimer !== null) clearTimeout(restoreTimer);
       expiryTimer = returnTimer = restoreTimer = null;
     };
-    const clearPending = () => {
+    const clearPending = ({ cancelTaskReturn = true } = {}) => {
       clearTimers();
       pending = null;
+      if (cancelTaskReturn) runtime.api.cancelTemporaryTaskReturn?.();
     };
     const armExpiry = () => {
       if (expiryTimer !== null) clearTimeout(expiryTimer);
@@ -205,8 +206,12 @@ runtime.features.register({
         return;
       }
       const context = pending;
-      clearPending();
-      openTasksPage();
+      clearPending({ cancelTaskReturn: false });
+      runtime.api.resumeTemporaryTaskReturn?.();
+      if (!openTasksPage()) {
+        runtime.api.cancelTemporaryTaskReturn?.();
+        return;
+      }
       let attempts = 0;
       const restore = () => {
         restoreTimer = null;
@@ -242,7 +247,10 @@ runtime.features.register({
             card,
             runtime.state.characterQuests ?? [],
           );
-          if (pending) armExpiry();
+          if (pending) {
+            runtime.api.armTemporaryTaskReturn?.(pending.expiresAt);
+            armExpiry();
+          }
           return;
         }
         if (

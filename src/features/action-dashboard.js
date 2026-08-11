@@ -37,6 +37,78 @@ function number(value) {
   return runtime.api.createFormattedNumber(value);
 }
 
+function findItemsSpriteBase() {
+  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
+    []) {
+    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
+      try {
+        return new URL(entry.name).pathname;
+      } catch {
+        return entry.name;
+      }
+    }
+  }
+  const use = document.querySelector(
+    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
+  );
+  const href =
+    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  return href.includes("#") ? href.split("#")[0] : "";
+}
+
+function outputItemName(itemHrid) {
+  return (
+    (runtime.config.isZH
+      ? runtime.data.ZHItemNames?.[itemHrid]
+      : runtime.state.initData_itemDetailMap?.[itemHrid]?.name) ??
+    runtime.state.initData_itemDetailMap?.[itemHrid]?.name ??
+    itemHrid?.split("/").at(-1) ??
+    "?"
+  );
+}
+
+function createProductionOutput(output) {
+  const item = document.createElement("span");
+  item.className = "mwi-production-output-item";
+  const name = outputItemName(output.itemHrid);
+  const normalizedCount = Number.isFinite(Number(output.expectedCount))
+    ? Math.round(Number(output.expectedCount) * 1e9) / 1e9
+    : output.expectedCount;
+  const exactCount =
+    runtime.api.formatExactNumber?.(normalizedCount) ?? String(normalizedCount);
+  item.title = `${name} ×${exactCount}`;
+  item.setAttribute("aria-label", item.title);
+
+  const bare = String(output.itemHrid ?? "")
+    .split("/")
+    .at(-1);
+  const sprite = findItemsSpriteBase();
+  if (bare && sprite) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.classList.add("mwi-production-output-icon");
+    svg.setAttribute("viewBox", "0 0 32 32");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    const href = `${sprite}#${bare}`;
+    use.setAttribute("href", href);
+    use.setAttribute("xlink:href", href);
+    svg.append(use);
+    item.append(svg);
+  } else {
+    const fallback = document.createElement("span");
+    fallback.className = "mwi-production-output-fallback";
+    fallback.setAttribute("aria-hidden", "true");
+    fallback.textContent = "?";
+    item.append(fallback);
+  }
+
+  const count = document.createElement("span");
+  count.className = "mwi-production-output-count";
+  count.append("×", number(output.expectedCount));
+  item.append(count);
+  return item;
+}
+
 function addStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -53,6 +125,12 @@ function addStyles() {
     .mwi-production-metric { min-width:0; padding:4px 3px; border-radius:3px; background:rgba(0,0,0,.14); text-align:center; }
     .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:.6rem; line-height:1.2; }
     .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
+    .mwi-production-output-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px 5px; width:100%; }
+    .mwi-production-output-grid[data-count="1"] .mwi-production-output-item { grid-column:1/-1; }
+    .mwi-production-output-item { display:flex; min-width:0; align-items:center; justify-content:center; gap:3px; }
+    .mwi-production-output-icon,.mwi-production-output-fallback { display:grid; width:28px; height:28px; flex:0 0 28px; place-items:center; }
+    .mwi-production-output-fallback { border-radius:4px; background:rgba(255,255,255,.08); color:var(--color-text-secondary,#aaa); font-size:.72rem; }
+    .mwi-production-output-count { min-width:0; font-size:.78rem; font-weight:700; line-height:1; white-space:nowrap; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
     .mwi-production-quick-inputs { display:grid; gap:3px; width:100%; min-width:0; margin:3px 0 1px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
@@ -618,23 +696,21 @@ function renderProductionPanel() {
   const grid = document.createElement("div");
   grid.className = "mwi-production-metrics";
 
-  const outputs = document.createElement("span");
-  projection.outputs?.forEach((output, index) => {
-    if (index) outputs.append(" · ");
-    const name =
-      (runtime.config.isZH
-        ? runtime.data.ZHItemNames?.[output.itemHrid]
-        : runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name) ??
-      output.itemHrid.split("/").pop();
-    outputs.append(`${name} `, number(output.expectedCount));
-  });
+  const outputs = document.createElement("div");
+  outputs.className = "mwi-production-output-grid";
+  outputs.dataset.count = String(projection.outputs?.length ?? 0);
+  projection.outputs?.forEach((output) =>
+    outputs.append(createProductionOutput(output)),
+  );
+  const outputMetric = metric(
+    projection.effectivelyInfinite
+      ? t("预期单次产出", "Output per action")
+      : t("预期总产出", "Total output"),
+    outputs,
+  );
+  outputMetric.classList.add("mwi-production-output-metric");
   grid.append(
-    metric(
-      projection.effectivelyInfinite
-        ? t("预期单次产出", "Output per action")
-        : t("预期总产出", "Total output"),
-      outputs,
-    ),
+    outputMetric,
     metric(
       t("当前拥有", "Owned"),
       projection.outputs?.length

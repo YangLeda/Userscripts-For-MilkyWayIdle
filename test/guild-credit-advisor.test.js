@@ -6,10 +6,12 @@ import { JSDOM } from "jsdom";
 const dom = new JSDOM(
   `<!doctype html><html><head></head><body>
     <div id="guild-shop" class="GuildPanel_shopTab__test"></div>
-    <div class="GuildPanel_exchangeModalContent__test">
-      <svg aria-label="Green Guild Credit"><use href="/items.svg#green_guild_credit"></use></svg>
-      <svg aria-label="Cheese"><use href="/items.svg#cheese"></use></svg>
-      <input type="number" value="2">
+    <div class="Modal_modalContainer__test">
+      <div class="GuildPanel_exchangeModalContent__test">
+        <svg aria-label="Green Guild Credit"><use href="/items.svg#green_guild_credit"></use></svg>
+        <svg aria-label="Cheese"><use href="/items.svg#cheese"></use></svg>
+        <input type="number" value="2">
+      </div>
     </div>
   </body></html>`,
   { url: "https://test.milkywayidle.com/" },
@@ -30,6 +32,7 @@ const {
   evaluateGuildCreditConversion,
   quoteGuildCreditAsk,
   readGuildExchangeContext,
+  positionGuildCreditAdvisor,
   renderGuildCreditAdvisor,
   renderGuildCreditRecommendations,
 } = await import("../src/features/guild-credit-advisor.js");
@@ -169,6 +172,48 @@ test("guild advisor shows the cheapest ask conversion and selected premium", asy
     document.querySelectorAll("#mwitools-guild-credit-advisor").length,
     1,
   );
+  const modal = document.querySelector(
+    '[class*="GuildPanel_exchangeModalContent"]',
+  );
+  assert.equal(card.parentElement, document.body);
+  assert.equal(modal.contains(card), false);
+  assert.equal(modal.style.position, "");
+});
+
+test("guild advisor attaches right on desktop and below on mobile", async () => {
+  const shell = document.querySelector('[class*="Modal_modalContainer"]');
+  const card = document.querySelector("#mwitools-guild-credit-advisor");
+  shell.getBoundingClientRect = () => ({
+    left: 100,
+    right: 500,
+    top: 80,
+    bottom: 420,
+    width: 400,
+    height: 340,
+  });
+  card.getBoundingClientRect = () => ({
+    left: 0,
+    right: 260,
+    top: 0,
+    bottom: 220,
+    width: 260,
+    height: 220,
+  });
+  globalThis.innerWidth = 1_200;
+  globalThis.innerHeight = 800;
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(card.dataset.placement, "right");
+  assert.equal(card.style.left, "510px");
+  assert.equal(card.style.top, "80px");
+
+  globalThis.innerWidth = 600;
+  globalThis.innerHeight = 800;
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(card.dataset.placement, "bottom");
+  assert.equal(card.style.left, "100px");
+  assert.equal(card.style.top, "430px");
+  assert.equal(card.style.maxHeight, "358px");
+  await renderGuildCreditAdvisor();
 });
 
 test("guild shop shows all eight credit recommendations beside modal details", async () => {
@@ -186,4 +231,12 @@ test("guild shop shows all eight credit recommendations beside modal details", a
   }
   assert.ok(rendered.advisor);
   assert.match(rendered.advisor.textContent, /最优：牛奶/);
+});
+
+test("closing the exchange modal removes the external advisor", async () => {
+  const shell = document.querySelector('[class*="Modal_modalContainer"]');
+  shell.remove();
+  assert.equal(await renderGuildCreditAdvisor(), null);
+  assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), null);
+  document.body.append(shell);
 });

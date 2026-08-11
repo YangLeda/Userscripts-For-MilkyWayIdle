@@ -174,10 +174,12 @@ function addStyles() {
     #${PANEL_ID}.mwi-profit-pinned { pointer-events:auto; }
     .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
     .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
-    .mwi-loot-controls { display:flex; flex-direction:column; gap:5px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
-    .mwi-loot-control { display:flex; min-height:24px; align-items:center; gap:8px; }
-    .mwi-loot-control-label { min-width:0; flex:1; color:#edf0f4; font-size:10.5px; font-weight:600; }
-    .mwi-loot-control-state { color:var(--color-text-secondary,#aeb4bf); font-size:9.5px; white-space:nowrap; }
+    .mwi-loot-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
+    .mwi-loot-controls.has-key { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .mwi-loot-control { display:grid; min-width:0; min-height:38px; grid-template-columns:minmax(0,1fr) 36px; grid-template-rows:auto 20px; align-items:center; gap:2px 7px; padding:0 7px; border-left:1px solid rgba(255,255,255,.07); }
+    .mwi-loot-control:first-child { padding-left:0; border-left:0; }
+    .mwi-loot-control-label { min-width:0; grid-column:1 / 3; color:#edf0f4; font-size:10.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-control-state { min-width:0; color:var(--color-text-secondary,#aeb4bf); font-size:9.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-loot-switch { position:relative; width:36px; height:20px; flex:0 0 36px; }
     .mwi-loot-switch input { position:absolute; opacity:0; pointer-events:none; }
     .mwi-loot-switch span { position:absolute; inset:0; border-radius:999px; cursor:pointer; background:#555; transition:.16s; }
@@ -551,7 +553,7 @@ function renderLootChestControls(config, hasKey) {
       ),
     );
   }
-  return `<div class="mwi-loot-controls">${controls.join("")}</div>`;
+  return `<div class="mwi-loot-controls${hasKey ? " has-key" : ""}">${controls.join("")}</div>`;
 }
 
 function renderLootChestPanel(panel, itemHrid, chest, options = {}) {

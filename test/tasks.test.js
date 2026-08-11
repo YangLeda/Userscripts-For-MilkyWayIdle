@@ -412,7 +412,27 @@ test("new tasks stay in the top group for one task-page visit", () => {
   runtime.api.renderTasks();
   assert.equal(freshCard.dataset.mwitoolsProfession, "new");
 
+  runtime.api.armTemporaryTaskReturn(Date.now() + 30_000);
   list.remove();
+  runtime.api.renderTasks();
+  assert.deepEqual([...runtime.state.mwitoolsPageNewTaskIds], ["reset-task"]);
+  runtime.api.resumeTemporaryTaskReturn();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__new-auto-returned">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 新奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.api.renderTasks();
+  assert.equal(
+    document.querySelector(
+      '.TasksPanel_taskList__new-auto-returned [data-mwitools-task-id="reset-task"]',
+    )?.dataset.mwitoolsProfession,
+    "new",
+  );
+
+  document.querySelector(".TasksPanel_taskList__new-auto-returned").remove();
   runtime.api.renderTasks();
   document.body.insertAdjacentHTML(
     "beforeend",

@@ -14,6 +14,7 @@ let pageClassifications = new Map();
 let pageTaskIds = new Map();
 let pageNewTaskIds = new Set();
 let pendingResetSlots = new Set();
+let temporaryTaskReturn = null;
 let lastRenderedCards = [];
 let lastTaskRenderSignature = "";
 let lastActionDetails = null;
@@ -56,6 +57,42 @@ function t(zh, en) {
 
 function taskId(task) {
   return taskCardTaskId(task);
+}
+
+export function armTemporaryTaskReturn(expiresAt) {
+  const deadline = Number(expiresAt);
+  temporaryTaskReturn = Number.isFinite(deadline)
+    ? { expiresAt: deadline, returning: false }
+    : null;
+}
+
+export function resumeTemporaryTaskReturn(now = Date.now()) {
+  if (!temporaryTaskReturn || temporaryTaskReturn.expiresAt <= now) {
+    temporaryTaskReturn = null;
+    return false;
+  }
+  temporaryTaskReturn.returning = true;
+  return true;
+}
+
+export function cancelTemporaryTaskReturn() {
+  temporaryTaskReturn = null;
+}
+
+function hasTemporaryTaskReturn(now = Date.now()) {
+  if (!temporaryTaskReturn || temporaryTaskReturn.expiresAt <= now) {
+    temporaryTaskReturn = null;
+    return false;
+  }
+  return true;
+}
+
+function consumeTemporaryTaskReturn(now = Date.now()) {
+  if (!hasTemporaryTaskReturn(now) || !temporaryTaskReturn.returning) {
+    return false;
+  }
+  temporaryTaskReturn = null;
+  return true;
 }
 
 function combatModeStorageKey() {
@@ -1282,11 +1319,13 @@ function renderTasks() {
       lastTaskRenderSignature = "";
       lastActionDetails = null;
       lastActionCategories = null;
-      pageClassifications = new Map();
-      pageTaskIds = new Map();
-      pageNewTaskIds = new Set();
-      pendingResetSlots = new Set();
-      runtime.state.mwitoolsPageNewTaskIds = new Set();
+      if (!hasTemporaryTaskReturn()) {
+        pageClassifications = new Map();
+        pageTaskIds = new Map();
+        pageNewTaskIds = new Set();
+        pendingResetSlots = new Set();
+        runtime.state.mwitoolsPageNewTaskIds = new Set();
+      }
     }
     return;
   }
@@ -1294,13 +1333,16 @@ function renderTasks() {
   const enteredNewTaskPage =
     !taskListParent?.isConnected ||
     (observedParent && observedParent !== taskListParent);
+  const resumedTaskPage = enteredNewTaskPage && consumeTemporaryTaskReturn();
   if (enteredNewTaskPage) {
     ungroupCards();
     originalCards = [];
-    pageClassifications = new Map();
-    pageTaskIds = new Map();
-    pageNewTaskIds = new Set();
-    pendingResetSlots = new Set();
+    if (!resumedTaskPage) {
+      pageClassifications = new Map();
+      pageTaskIds = new Map();
+      pageNewTaskIds = new Set();
+      pendingResetSlots = new Set();
+    }
     combatGroupMode = readCombatGroupMode();
     taskListParent = observedParent;
   }
@@ -1311,7 +1353,7 @@ function renderTasks() {
     taskRemaining,
   });
   const cardTasks = cardEntries.map(({ task }) => task);
-  syncPageNewTasks(cards, cardTasks, enteredNewTaskPage);
+  syncPageNewTasks(cards, cardTasks, enteredNewTaskPage && !resumedTaskPage);
   ensureCombatModeToggle();
   const signature = taskRenderSignature(cards, cardTasks);
   const sameCards =
@@ -1376,6 +1418,7 @@ function cleanupTasks() {
   pageTaskIds = new Map();
   pageNewTaskIds = new Set();
   pendingResetSlots = new Set();
+  temporaryTaskReturn = null;
   runtime.state.mwitoolsPageNewTaskIds = new Set();
   lastRenderedCards = [];
   lastTaskRenderSignature = "";
@@ -1458,6 +1501,9 @@ for (const id of [
 
 Object.assign(runtime.api, {
   addTaskStyles: addStyles,
+  armTemporaryTaskReturn,
+  cancelTemporaryTaskReturn,
+  resumeTemporaryTaskReturn,
   taskActionHrid,
   taskRemaining,
   taskProjection,

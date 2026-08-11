@@ -105,8 +105,8 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    ${TASK_SELECTOR}.mwi-task-is-new{position:relative;box-shadow:inset 0 0 0 2px rgba(250,190,55,.78),0 0 13px rgba(247,174,35,.2)!important;background-color:rgba(245,170,35,.075)!important}
-    .mwi-task-new-badge{position:absolute;z-index:5;right:6px;top:6px;padding:2px 7px;border-radius:999px;background:#f0aa2e;color:#221704;font-size:10px;font-weight:800;line-height:16px;box-shadow:0 2px 7px rgba(0,0,0,.35);pointer-events:none}
+    ${TASK_SELECTOR}.mwi-task-is-new{position:relative}
+    .mwi-task-new-badge{position:absolute;z-index:5;right:5px;top:5px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto!important;min-width:18px!important;max-width:max-content!important;height:18px!important;min-height:18px!important;margin:0!important;padding:0 4px!important;flex:0 0 auto!important;border:1px solid rgba(255,220,128,.72);border-radius:4px;background:#f0aa2e;color:#221704;font-size:9px;font-weight:800;line-height:16px;letter-spacing:0;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.32);pointer-events:none}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }

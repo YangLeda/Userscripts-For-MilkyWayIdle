@@ -6,6 +6,12 @@ const MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
 const SHOP_SELECTOR = '[class*="GuildPanel_shopTab"]';
 const TILE_SELECTOR = '[class*="GuildPanel_guildTile"]';
 const SUMMARY_CLASS = "mwi-guild-credit-recommendation";
+const VIEWPORT_MARGIN = 12;
+const PANEL_GAP = 10;
+const MOBILE_BREAKPOINT = 760;
+
+let advisorPositionState = null;
+let advisorPositionFrame = null;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -202,7 +208,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${CARD_ID}{position:absolute;z-index:20;top:0;left:calc(100% + 10px);width:260px;padding:10px;border:1px solid rgba(255,180,60,.45);border-radius:7px;background:rgba(20,23,31,.97);color:var(--color-text-primary,#eee);font-size:.72rem;box-shadow:0 8px 24px rgba(0,0,0,.38)}
+    #${CARD_ID}{position:fixed;z-index:2147483000;width:min(260px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;padding:10px;border:1px solid rgba(255,180,60,.45);border-radius:7px;background:rgba(20,23,31,.97);color:var(--color-text-primary,#eee);font-size:.72rem;box-shadow:0 8px 24px rgba(0,0,0,.38);scrollbar-width:thin}
     #${CARD_ID} .mwi-guild-advisor-title{margin-bottom:7px;color:${runtime.config.SCRIPT_COLOR_MAIN};font-size:.82rem;font-weight:750}
     #${CARD_ID} .mwi-guild-advisor-best{padding:7px;border-radius:5px;background:rgba(255,170,45,.1)}
     #${CARD_ID} .mwi-guild-advisor-name{font-weight:700}
@@ -214,9 +220,122 @@ function addStyles() {
     .${SUMMARY_CLASS} strong{min-width:0;overflow:hidden;color:${runtime.config.SCRIPT_COLOR_MAIN};font-weight:700;text-overflow:ellipsis;white-space:nowrap}
     .${SUMMARY_CLASS} span{margin-left:auto;flex:0 0 auto;color:var(--color-text-primary,#eee);font-variant-numeric:tabular-nums;white-space:nowrap}
     .${SUMMARY_CLASS}.mwi-guild-credit-unavailable{color:var(--color-text-secondary,#999);border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.03)}
-    @media(max-width:1150px){#${CARD_ID}{position:relative;top:auto;left:auto;width:auto;margin-top:8px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
+}
+
+function clamp(value, minimum, maximum) {
+  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+}
+
+function findGuildExchangeAnchor(modal) {
+  return modal.closest('[class*="Modal_modalContainer"]') ?? modal;
+}
+
+export function positionGuildCreditAdvisor() {
+  const state = advisorPositionState;
+  if (!state?.card?.isConnected || !state.anchor?.isConnected) return false;
+  const anchorRect = state.anchor.getBoundingClientRect();
+  const cardRect = state.card.getBoundingClientRect();
+  const viewportWidth =
+    Number(globalThis.innerWidth) || document.documentElement.clientWidth;
+  const viewportHeight =
+    Number(globalThis.innerHeight) || document.documentElement.clientHeight;
+  const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN;
+  const useBottom =
+    viewportWidth <= MOBILE_BREAKPOINT ||
+    roomRight < cardRect.width + PANEL_GAP;
+  let left;
+  let top;
+  let maxHeight;
+
+  if (useBottom) {
+    const desiredTop = anchorRect.bottom + PANEL_GAP;
+    maxHeight = Math.max(
+      72,
+      Math.min(
+        viewportHeight - VIEWPORT_MARGIN * 2,
+        viewportHeight - desiredTop - VIEWPORT_MARGIN,
+      ),
+    );
+    const visibleHeight = Math.min(
+      cardRect.height || maxHeight,
+      viewportHeight - VIEWPORT_MARGIN * 2,
+    );
+    left = clamp(
+      anchorRect.left,
+      VIEWPORT_MARGIN,
+      viewportWidth - cardRect.width - VIEWPORT_MARGIN,
+    );
+    top = clamp(
+      desiredTop,
+      VIEWPORT_MARGIN,
+      viewportHeight - visibleHeight - VIEWPORT_MARGIN,
+    );
+    state.card.dataset.placement = "bottom";
+  } else {
+    left = anchorRect.right + PANEL_GAP;
+    top = clamp(
+      anchorRect.top,
+      VIEWPORT_MARGIN,
+      viewportHeight - cardRect.height - VIEWPORT_MARGIN,
+    );
+    maxHeight = viewportHeight - VIEWPORT_MARGIN * 2;
+    state.card.dataset.placement = "right";
+  }
+  state.card.style.left = `${Math.round(left)}px`;
+  state.card.style.top = `${Math.round(top)}px`;
+  state.card.style.maxHeight = `${Math.max(72, Math.round(maxHeight))}px`;
+  return true;
+}
+
+function scheduleGuildCreditAdvisorPosition() {
+  if (advisorPositionFrame !== null) return;
+  const run = () => {
+    advisorPositionFrame = null;
+    positionGuildCreditAdvisor();
+  };
+  if (typeof globalThis.requestAnimationFrame === "function") {
+    advisorPositionFrame = globalThis.requestAnimationFrame(run);
+  } else {
+    advisorPositionFrame = setTimeout(run, 0);
+  }
+}
+
+function clearGuildCreditAdvisorPosition() {
+  if (advisorPositionFrame !== null) {
+    if (typeof globalThis.cancelAnimationFrame === "function") {
+      globalThis.cancelAnimationFrame(advisorPositionFrame);
+    } else {
+      clearTimeout(advisorPositionFrame);
+    }
+    advisorPositionFrame = null;
+  }
+  advisorPositionState?.resizeObserver?.disconnect();
+  advisorPositionState = null;
+}
+
+function mountGuildCreditAdvisor(card, modal) {
+  const anchor = findGuildExchangeAnchor(modal);
+  if (card.parentElement !== document.body) document.body.append(card);
+  if (
+    advisorPositionState?.card !== card ||
+    advisorPositionState?.anchor !== anchor
+  ) {
+    clearGuildCreditAdvisorPosition();
+    const resizeObserver = globalThis.ResizeObserver
+      ? new globalThis.ResizeObserver(scheduleGuildCreditAdvisorPosition)
+      : null;
+    resizeObserver?.observe(anchor);
+    resizeObserver?.observe(card);
+    advisorPositionState = { anchor, card, resizeObserver };
+  }
+  positionGuildCreditAdvisor();
+}
+
+function removeGuildCreditAdvisor() {
+  clearGuildCreditAdvisorPosition();
+  document.getElementById(CARD_ID)?.remove();
 }
 
 function creditHridFromTile(tile) {
@@ -279,12 +398,12 @@ function appendRow(parent, label, value) {
 export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
   const modal = findGuildExchangeModal();
   if (!modal) {
-    document.getElementById(CARD_ID)?.remove();
+    removeGuildCreditAdvisor();
     return null;
   }
   const context = readGuildExchangeContext(modal);
   if (!context.creditItemHrid) {
-    document.getElementById(CARD_ID)?.remove();
+    removeGuildCreditAdvisor();
     return null;
   }
   if (!marketReady && !(await runtime.api.ensureMarketValueSource?.())) {
@@ -309,8 +428,6 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
   if (!card) {
     card = document.createElement("aside");
     card.id = CARD_ID;
-    modal.style.position = "relative";
-    modal.appendChild(card);
   }
   card.replaceChildren();
   const title = document.createElement("div");
@@ -325,6 +442,7 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
       "No usable market asks or order-book depth.",
     );
     card.appendChild(empty);
+    mountGuildCreditAdvisor(card, modal);
     return card;
   }
 
@@ -392,6 +510,7 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
     );
     card.appendChild(note);
   }
+  mountGuildCreditAdvisor(card, modal);
   return card;
 }
 
@@ -411,7 +530,7 @@ export async function renderGuildCreditRecommendations() {
 }
 
 function cleanup() {
-  document.getElementById(CARD_ID)?.remove();
+  removeGuildCreditAdvisor();
   document
     .querySelectorAll(`.${SUMMARY_CLASS}`)
     .forEach((element) => element.remove());
@@ -484,6 +603,17 @@ runtime.features.register({
     };
     scope.event(document, "input", scheduleFromModal, true);
     scope.event(document, "change", scheduleFromModal, true);
+    scope.event(
+      globalThis.window ?? globalThis,
+      "resize",
+      scheduleGuildCreditAdvisorPosition,
+    );
+    scope.event(
+      globalThis.window ?? globalThis,
+      "scroll",
+      scheduleGuildCreditAdvisorPosition,
+      true,
+    );
     for (const messageType of [
       "market_item_values_updated",
       "market_item_order_books_updated",

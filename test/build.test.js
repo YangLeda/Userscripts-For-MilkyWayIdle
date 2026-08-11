@@ -16,7 +16,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.2$/m);
+  assert.match(output, /^\/\/ @version\s+26\.3$/m);
   assert.match(
     output,
     /^\/\/ @updateURL\s+https:\/\/update\.greasyfork\.org\/scripts\/494467\/MWITools\.meta\.js$/m,

@@ -44,6 +44,7 @@ const ITEM = {
   inner: "/items/inner_chest",
   outer: "/items/outer_chest",
   loop: "/items/loop_chest",
+  gift: "/items/self_gift",
   coin: "/items/coin",
 };
 
@@ -69,6 +70,10 @@ runtime.state.initData_openableLootDropMap = {
   [ITEM.outer]: [{ itemHrid: ITEM.inner, dropRate: 0.5, count: 1 }],
   [ITEM.loop]: [
     { itemHrid: ITEM.loop, dropRate: 1, count: 1 },
+    { itemHrid: ITEM.coin, dropRate: 1, count: 10 },
+  ],
+  [ITEM.gift]: [
+    { itemHrid: ITEM.gift, dropRate: 0.2, count: 1 },
     { itemHrid: ITEM.coin, dropRate: 1, count: 10 },
   ],
 };
@@ -115,6 +120,7 @@ const askPrices = new Map([
   [ITEM.cheap, 450],
   [ITEM.shared, 900],
   [ITEM.outside, 20_000],
+  [ITEM.inner, 1],
 ]);
 const bidPrices = new Map([
   [ITEM.key, 240],
@@ -123,6 +129,7 @@ const bidPrices = new Map([
   [ITEM.cheap, 400],
   [ITEM.shared, 600],
   [ITEM.outside, 10_000],
+  [ITEM.inner, 1],
 ]);
 runtime.api.getAskPrice = (itemHrid) => askPrices.get(itemHrid) ?? 0;
 runtime.api.getBidPrice = (itemHrid) => bidPrices.get(itemHrid) ?? 0;
@@ -243,6 +250,14 @@ test("nested chests recurse while self-references terminate", () => {
   assert.equal(loop.grossValue, 10);
   assert.equal(loop.complete, false);
   assert.ok(loop.missing.includes(ITEM.loop));
+
+  const gift = runtime.api.projectLootChest(ITEM.gift);
+  assert.equal(gift.grossValue, 12.5);
+  assert.equal(gift.netValue, 12.5);
+  assert.equal(gift.complete, true);
+  const repeatedGift = gift.drops.find((drop) => drop.itemHrid === ITEM.gift);
+  assert.equal(repeatedGift.nested, true);
+  assert.equal(repeatedGift.unitValue, 12.5);
 });
 
 test("hover is read-only and pinned panels expose synchronized switches", async () => {
@@ -261,6 +276,7 @@ test("hover is read-only and pinned panels expose synchronized switches", async 
   let panel = document.querySelector("#mwitools-production-profit-panel");
   assert.ok(panel.classList.contains("mwi-profit-pinned"));
   assert.equal(panel.querySelectorAll(".mwi-loot-switch").length, 3);
+  assert.ok(panel.querySelector(".mwi-loot-controls.has-key"));
   assert.equal(panel.parentElement, document.body);
 
   const sellToggle = panel.querySelector(
