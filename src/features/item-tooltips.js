@@ -631,6 +631,20 @@ runtime.features.register({
     };
     attach();
     scope.interval(attach, 250);
+    // Double-clicking a chest pins its hover loot panel so players can tweak
+    // the valuation pills without the tooltip disappearing.
+    scope.event(
+      document,
+      "dblclick",
+      (event) => {
+        if (event.button && event.button !== 0) return;
+        if (runtime.api.pinActiveLootChestPanel?.()) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
+      true,
+    );
     scope.add(() => {
       tooltipObserver.disconnect();
       for (const style of styles) style?.remove?.();

@@ -182,6 +182,57 @@ test("showLootChestPanel renders a single config-driven row beside the anchor", 
   assert.match(panel.textContent, /钥匙成本/);
   // Only one valuation row is shown now (config-driven, not three modes).
   assert.equal(panel.querySelectorAll(".mwi-profit-valuation-row").length, 1);
+  // Hover panel is not interactive and has no pills/close button.
+  assert.equal(panel.querySelectorAll(".mwi-loot-pill").length, 0);
+  assert.equal(panel.querySelector("[data-mwi-loot-close]"), null);
   runtime.api.hideProductionProfitPanel();
   assert.equal(anchor.nextElementSibling, null);
+});
+
+test("a pinned panel shows the three toggle pills and a close button", () => {
+  setLoot({ sell: "bid", buy: "ask", fragments: false });
+  const anchor = document.querySelector("#anchor");
+  const panel = runtime.api.showLootChestPanel(anchor, "/items/locked_chest", {
+    pinned: true,
+  });
+  assert.ok(panel.classList.contains("mwi-profit-pinned"));
+  assert.equal(panel.querySelectorAll(".mwi-loot-pill").length, 3);
+  assert.ok(panel.querySelector("[data-mwi-loot-close]"));
+  runtime.api.hideProductionProfitPanel();
+});
+
+test("clicking a pill flips its setting and re-renders in place", () => {
+  setLoot({ sell: "bid", buy: "ask", fragments: false });
+  const anchor = document.querySelector("#anchor");
+  runtime.api.showLootChestPanel(anchor, "/items/locked_chest", {
+    pinned: true,
+  });
+  assert.equal(runtime.settings.settingsMap.lootSellAtAsk.isTrue, false);
+  const sellPill = document.querySelector(
+    '[data-mwi-loot-setting="lootSellAtAsk"]',
+  );
+  sellPill.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(runtime.settings.settingsMap.lootSellAtAsk.isTrue, true);
+  // The panel is still pinned and re-rendered with the pill now active.
+  const panel = document.querySelector("#mwitools-production-profit-panel");
+  assert.ok(panel.classList.contains("mwi-profit-pinned"));
+  assert.ok(
+    document
+      .querySelector('[data-mwi-loot-setting="lootSellAtAsk"]')
+      .classList.contains("active"),
+  );
+  runtime.api.hideProductionProfitPanel();
+});
+
+test("the close button dismisses a pinned panel", () => {
+  const anchor = document.querySelector("#anchor");
+  runtime.api.showLootChestPanel(anchor, "/items/locked_chest", {
+    pinned: true,
+  });
+  const close = document.querySelector("[data-mwi-loot-close]");
+  close.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
 });

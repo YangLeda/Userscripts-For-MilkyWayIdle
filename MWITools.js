@@ -12881,6 +12881,13 @@ ${preview}`
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
     .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
+    #${PANEL_ID2}.mwi-profit-pinned { pointer-events:auto; }
+    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:6px; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
+    .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
+    .mwi-loot-controls { display:flex; flex-wrap:wrap; gap:6px; margin:0 12px 4px; }
+    .mwi-loot-pill { padding:3px 9px; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(255,255,255,.05); color:var(--color-text-secondary,#c2c8d2); font-size:10px; font-weight:600; cursor:pointer; }
+    .mwi-loot-pill:hover { border-color:rgba(255,255,255,.3); }
+    .mwi-loot-pill.active { border-color:var(--color-primary,#70a8ff); background:rgba(112,168,255,.16); color:#dbe6ff; }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
@@ -13143,6 +13150,9 @@ ${preview}`
     state.resizeObserver?.disconnect();
     globalThis.removeEventListener?.("resize", state.position);
     globalThis.removeEventListener?.("scroll", state.position, true);
+    if (state.outsideHandler) {
+      document.removeEventListener("mousedown", state.outsideHandler, true);
+    }
     state.panel?.remove();
     activePanel = null;
   }
@@ -13167,11 +13177,34 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       </div>
     </div>`;
   }
-  function renderLootChestPanel(panel, itemHrid, chest) {
+  function renderLootChestControls(config = {}) {
+    const pill = (setting, label, active) => `<button type="button" class="mwi-loot-pill${active ? " active" : ""}" data-mwi-loot-setting="${setting}">${escapeHtml(label)}</button>`;
+    return `<div class="mwi-loot-controls">
+    ${pill(
+      "lootSellAtAsk",
+      config.sellAtAsk ? t5("卖出：卖单(左)", "Sell: ask (left)") : t5("卖出：买单(右)", "Sell: bid (right)"),
+      config.sellAtAsk
+    )}
+    ${pill(
+      "lootBuyAtAsk",
+      config.buyAtAsk ? t5("买入：卖单(左)", "Buy: ask (left)") : t5("买入：买单(右)", "Buy: bid (right)"),
+      config.buyAtAsk
+    )}
+    ${pill(
+      "lootKeyFromFragments",
+      config.fromFragments ? t5("钥匙：碎片自制", "Key: fragments") : t5("钥匙：成品", "Key: finished"),
+      config.fromFragments
+    )}
+  </div>`;
+  }
+  function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
+    const pinned = Boolean(options.pinned);
     const productName = itemName2(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
     const subtitle = hasKey ? `${t5("开箱期望", "Opening estimate")} · ${t5("已扣钥匙成本", "Net of key cost")}` : t5("开箱期望", "Opening estimate");
     panel.dataset.status = "complete";
+    panel.classList.toggle("mwi-profit-pinned", pinned);
+    const closeButton = pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t5("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : "";
     panel.innerHTML = `
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
@@ -13179,7 +13212,14 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
         <div class="mwi-profit-subtitle">${escapeHtml(subtitle)}</div>
       </div>
+      ${closeButton}
     </header>`;
+    if (pinned) {
+      panel.insertAdjacentHTML(
+        "beforeend",
+        renderLootChestControls(chest.config)
+      );
+    }
     const cells = chest.drops.map(renderLootChestDropCell).join("");
     panel.insertAdjacentHTML(
       "beforeend",
@@ -13233,25 +13273,31 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     }
   }
   function mountPanel(anchor, panel, extraState = {}) {
+    const pinned = Boolean(extraState.pinned);
     anchor.insertAdjacentElement("afterend", panel);
     const position = () => globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
-    const mutationObserver = new MutationObserver(() => {
-      if (!anchor.isConnected) hideProductionProfitPanel();
-    });
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
-    const resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
-    resizeObserver?.observe(anchor);
-    resizeObserver?.observe(panel);
+    let mutationObserver = null;
+    let resizeObserver = null;
+    if (!pinned) {
+      mutationObserver = new MutationObserver(() => {
+        if (!anchor.isConnected) hideProductionProfitPanel();
+      });
+      mutationObserver.observe(document.body, { childList: true, subtree: true });
+      resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
+      resizeObserver?.observe(anchor);
+      resizeObserver?.observe(panel);
+      globalThis.addEventListener?.("resize", position);
+      globalThis.addEventListener?.("scroll", position, true);
+    }
     activePanel = {
       anchor,
       panel,
       position,
       mutationObserver,
       resizeObserver,
+      pinned,
       ...extraState
     };
-    globalThis.addEventListener?.("resize", position);
-    globalThis.addEventListener?.("scroll", position, true);
     position();
     return panel;
   }
@@ -13282,7 +13328,8 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       actionHrid
     });
   }
-  function showLootChestPanel(anchor, itemHrid) {
+  function showLootChestPanel(anchor, itemHrid, options = {}) {
+    const pinned = Boolean(options.pinned);
     const chest = runtime.api.projectLootChest?.(itemHrid);
     if (!anchor?.isConnected || !chest) {
       hideProductionProfitPanel();
@@ -13291,14 +13338,60 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     hideProductionProfitPanel();
     addStyles3();
     const panel = createPanelElement();
-    renderLootChestPanel(panel, itemHrid, chest);
-    return mountPanel(anchor, panel, { itemHrid });
+    renderLootChestPanel(panel, itemHrid, chest, { pinned });
+    mountPanel(anchor, panel, { itemHrid, pinned });
+    if (pinned) attachLootChestControls(panel, itemHrid);
+    return panel;
+  }
+  function attachLootChestControls(panel, itemHrid) {
+    const rerender = () => {
+      const chest = runtime.api.projectLootChest?.(itemHrid);
+      if (!chest) return;
+      renderLootChestPanel(panel, itemHrid, chest, { pinned: true });
+    };
+    panel.addEventListener("click", (event) => {
+      const closeButton = event.target.closest?.("[data-mwi-loot-close]");
+      if (closeButton) {
+        event.stopPropagation();
+        hideProductionProfitPanel();
+        return;
+      }
+      const pill = event.target.closest?.("[data-mwi-loot-setting]");
+      if (!pill) return;
+      event.stopPropagation();
+      const settingId = pill.dataset.mwiLootSetting;
+      const next = !runtime.settings.get?.(settingId);
+      void runtime.settings.set?.(settingId, next, { persist: true });
+      rerender();
+    });
+    const outsideHandler = (event) => {
+      if (!activePanel?.pinned || activePanel.panel !== panel) return;
+      if (panel.contains(event.target)) return;
+      hideProductionProfitPanel();
+    };
+    globalThis.setTimeout?.(() => {
+      if (activePanel?.panel !== panel) return;
+      document.addEventListener("mousedown", outsideHandler, true);
+      activePanel.outsideHandler = outsideHandler;
+    }, 0);
+  }
+  function pinActiveLootChestPanel() {
+    const state = activePanel;
+    if (!state || state.pinned || !state.itemHrid) return false;
+    if (!runtime.state.initData_openableLootDropMap?.[state.itemHrid]) {
+      return false;
+    }
+    const anchor = state.anchor;
+    const itemHrid = state.itemHrid;
+    if (!anchor?.isConnected) return false;
+    return Boolean(showLootChestPanel(anchor, itemHrid, { pinned: true }));
   }
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     positionProductionProfitPanel: positionPanel,
     showProductionProfitPanel,
-    showLootChestPanel
+    showLootChestPanel,
+    pinActiveLootChestPanel
   });
 
   // src/features/item-tooltips.js
@@ -13814,6 +13907,18 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       };
       attach();
       scope.interval(attach, 250);
+      scope.event(
+        document,
+        "dblclick",
+        (event) => {
+          if (event.button && event.button !== 0) return;
+          if (runtime.api.pinActiveLootChestPanel?.()) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        },
+        true
+      );
       scope.add(() => {
         tooltipObserver.disconnect();
         for (const style of styles) style?.remove?.();
