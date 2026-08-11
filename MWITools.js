@@ -35224,10 +35224,8 @@ ${locks}` : ""}`;
       "/abilities/heal",
       "/abilities/insanity",
       "/abilities/invincible",
-      "/abilities/mana_spring",
       "/abilities/minor_heal",
       "/abilities/mystic_aura",
-      "/abilities/natures_veil",
       "/abilities/precision",
       "/abilities/provoke",
       "/abilities/quick_aid",
@@ -35927,9 +35925,13 @@ ${locks}` : ""}`;
     let monstersAtkCounter = [], monsterCurrentAction = [], monsterKnownDotAbilities = {}, monsterDotUntil = {};
     let playersMP = [];
     let playersAtkCounter = [];
+    let playersDmgCounter = [];
     let playersHP = [];
     let playerKnownDotAbilities = {};
     let playerDotUntil = {};
+    let playerKnownReflectionAbilities = {};
+    let playerReflectUntil = {};
+    let playerReflectSource = {};
     let currentAction = [];
     const keyToName = /* @__PURE__ */ new Map();
     let haveBattle = false;
@@ -36476,18 +36478,78 @@ ${locks}` : ""}`;
     function actionFromUpdate(unit = {}, fallback = "") {
       return unit.abilityHrid || (unit.isAutoAtk || unit.isAutoAttack ? "auto" : fallback);
     }
-    function activateGuildReflection(slot, abilityHrid, ts) {
+    function activateReflection(activeContainer, sourceContainer, slot, abilityHrid, ts) {
       const duration = reflectionAbilityRules.get(String(abilityHrid || ""));
       if (duration) {
-        guildReflectUntil[slot] = Math.max(
-          guildReflectUntil[slot] || 0,
+        activeContainer[slot] = Math.max(
+          activeContainer[slot] || 0,
           ts + duration
         );
-        guildReflectSource[slot] = String(abilityHrid);
+        sourceContainer[slot] = String(abilityHrid);
       }
+    }
+    function activateGuildReflection(slot, abilityHrid, ts) {
+      activateReflection(
+        guildReflectUntil,
+        guildReflectSource,
+        slot,
+        abilityHrid,
+        ts
+      );
     }
     function isGuildReflecting(slot, ts) {
       return Number(guildReflectUntil[slot]) > ts;
+    }
+    function activatePlayerReflection(slot, abilityHrid, ts) {
+      activateReflection(
+        playerReflectUntil,
+        playerReflectSource,
+        slot,
+        abilityHrid,
+        ts
+      );
+    }
+    function isPlayerReflecting(slot, ts) {
+      return Number(playerReflectUntil[slot]) > ts;
+    }
+    function learnPlayerReflectionState(slot, unit = {}) {
+      rememberAbilityKnowledge(
+        playerKnownDotAbilities,
+        playerKnownReflectionAbilities,
+        slot,
+        unit
+      );
+      const nowWall = Date.now(), nowPerf = performance.now();
+      let remaining = 0, foundBuff = false;
+      Object.values(unit.combatBuffMap || {}).forEach((buff) => {
+        const type = normalizedReflectType(
+          buff && buff.typeHrid || buff && buff.uniqueHrid
+        );
+        if (!REFLECTION_TYPES.has(type)) return;
+        foundBuff = true;
+        const duration = durationToMs(buff.duration);
+        const started = Date.parse(buff.startTime || "");
+        const expires = Number.isFinite(started) ? started + duration : nowWall + duration;
+        remaining = Math.max(
+          remaining,
+          duration === 0 ? Infinity : expires - nowWall
+        );
+        const unique = String(buff && buff.uniqueHrid || ""), byUnique = reflectionBuffSources.get(unique), byType = [...reflectionTypeSources.get(type) || []], known = [...playerKnownReflectionAbilities[slot] || []], evidence = unique.toLowerCase();
+        const exact = byUnique || (byType.length === 1 ? byType[0] : "") || (known.length === 1 ? known[0] : "") || (evidence.includes("spike_shell") ? "/abilities/spike_shell" : evidence.includes("retribution") ? "/abilities/retribution" : "");
+        if (exact) playerReflectSource[slot] = exact;
+      });
+      const stats = unit.combatDetails && unit.combatDetails.combatStats || {};
+      const permanent = !foundBuff && (Number(stats.physicalThorns) || Number(stats.elementalThorns) || Number(stats.retaliation));
+      if (permanent) playerReflectUntil[slot] = Infinity;
+      else if (remaining > 0)
+        playerReflectUntil[slot] = Math.max(
+          playerReflectUntil[slot] || 0,
+          nowPerf + remaining
+        );
+      if (!playerReflectSource[slot]) {
+        const known = [...playerKnownReflectionAbilities[slot] || []];
+        if (known.length === 1) playerReflectSource[slot] = known[0];
+      }
     }
     function learnGuildReflectionState(unit = {}) {
       const name = unit.name || unit.character && unit.character.name;
@@ -37100,9 +37162,13 @@ ${locks}` : ""}`;
       monsterDotUntil = {};
       playersMP = [];
       playersAtkCounter = [];
+      playersDmgCounter = [];
       playersHP = [];
       playerKnownDotAbilities = {};
       playerDotUntil = {};
+      playerKnownReflectionAbilities = {};
+      playerReflectUntil = {};
+      playerReflectSource = {};
       currentAction = [];
       keyToName.clear();
       haveBattle = false;
@@ -37199,11 +37265,15 @@ ${locks}` : ""}`;
         const number2 = Number(value);
         return value !== void 0 && Number.isFinite(number2) ? number2 : void 0;
       });
+      playersDmgCounter = (p.players || []).map((pl) => monsterDamageCounter(pl));
       playersHP = (p.players || []).map(
         (pl) => pl.currentHitpoints !== void 0 ? pl.currentHitpoints : pl.cHP || 0
       );
       playerKnownDotAbilities = {};
       playerDotUntil = {};
+      playerKnownReflectionAbilities = {};
+      playerReflectUntil = {};
+      playerReflectSource = {};
       keyToName.clear();
       const names = [];
       const classes = ClassSystem.registerPlayers(p.players || []);
@@ -37213,7 +37283,7 @@ ${locks}` : ""}`;
           names.push(n);
           keyToName.set(String(i), n);
         }
-        rememberAbilityKnowledge(playerKnownDotAbilities, null, String(i), pl);
+        learnPlayerReflectionState(String(i), pl);
       });
       currentAction = (p.players || []).map(
         (pl) => pl.preparingAbilityHrid ? pl.preparingAbilityHrid : pl.isPreparingAutoAttack ? "auto" : "idle"
@@ -37243,10 +37313,15 @@ ${locks}` : ""}`;
       const idx = Object.keys(pMap);
       const ts = performance.now();
       const battleType = isInLabyrinth ? "labyrinth" : "combat";
-      const counterActors = [], mpDroppers = [], completedActions = {};
+      const counterActors = [], mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
         const i = +k, mp = pMap[k].cMP || 0;
-        rememberAbilityKnowledge(playerKnownDotAbilities, null, k, pMap[k]);
+        rememberAbilityKnowledge(
+          playerKnownDotAbilities,
+          playerKnownReflectionAbilities,
+          k,
+          pMap[k]
+        );
         const playerName = keyToName.get(k);
         if (playerName && pMap[k].abilityHrid)
           ClassSystem.learnAbility(playerName, pMap[k].abilityHrid);
@@ -37259,6 +37334,7 @@ ${locks}` : ""}`;
             const completed = currentAction[i] || (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
             counterActors.push(k);
             completedActions[k] = completed;
+            activatePlayerReflection(k, completed, ts);
             activateDot(
               playerDotUntil,
               playerKnownDotAbilities,
@@ -37269,6 +37345,15 @@ ${locks}` : ""}`;
           }
           playersAtkCounter[i] = nextCounter;
         }
+        const damageCounter = monsterDamageCounter(pMap[k]), previousDamage = playersDmgCounter[i];
+        if (damageCounter !== void 0) {
+          if (previousDamage !== void 0 && damageCounter > previousDamage)
+            hitPlayers.add(k);
+          playersDmgCounter[i] = damageCounter;
+        }
+        const nextHP = Number(pMap[k].cHP);
+        if (Number.isFinite(nextHP) && playersHP[i] !== void 0 && nextHP < playersHP[i])
+          hitPlayers.add(k);
       }
       const counterActor = counterActors.length === 1 ? counterActors[0] : null;
       const castPlayer = mpDroppers.length === 1 ? mpDroppers[0] : null;
@@ -37354,8 +37439,14 @@ ${locks}` : ""}`;
         playersHP[i] = hp;
       }
       let attributedKey = null, attributedSource = "unknown";
+      const hitReflectors = idx.filter(
+        (k) => hitPlayers.has(k) && isPlayerReflecting(k, ts)
+      ), reflectors = monsterActors.length === 1 ? hitReflectors.length ? hitReflectors : idx.filter((k) => isPlayerReflecting(k, ts)) : [];
       const actionActor = counterActor !== null ? counterActor : castPlayer;
-      if (actionActor !== null) {
+      if (reflectors.length === 1) {
+        attributedKey = reflectors[0];
+        attributedSource = playerReflectSource[attributedKey] || "reflect";
+      } else if (actionActor !== null) {
         const action = completedActions[actionActor] || currentAction[+actionActor] || "unknown";
         const actorName = keyToName.get(actionActor), weapon = directWeaponEffectFor(actorName);
         if (actionDamageKind(action) !== "support") {
@@ -37483,6 +37574,24 @@ ${locks}` : ""}`;
             }
             Diagnostics.recordNominal();
           }
+        } else if (reflectors.length > 1) {
+          const share = tickDmg / reflectors.length;
+          reflectors.forEach((key) => {
+            const name = keyToName.get(key);
+            if (!name) return;
+            bus.dispatchEvent(
+              new CustomEvent("playerDamage", {
+                detail: {
+                  name,
+                  amount: share,
+                  source: playerReflectSource[key] || "reflect",
+                  ts,
+                  battleType
+                }
+              })
+            );
+          });
+          Diagnostics.recordNominal();
         } else {
           Diagnostics.recordOrphan(tickDmg);
         }

@@ -36,9 +36,13 @@ const SocketHook = (() => {
     monsterDotUntil = {};
   let playersMP = []; // baseline MP par index joueur (signal castPlayer)
   let playersAtkCounter = []; // 普通战斗攻击尝试计数器基线（完整更新才有）
+  let playersDmgCounter = []; // 玩家作为受击者的跳字计数器（用于识别反伤）
   let playersHP = []; // PV joueurs (détection heal)
   let playerKnownDotAbilities = {}; // 玩家槽位 → 本场已确认的持续伤害技能
   let playerDotUntil = {}; // 玩家槽位 → Map(技能 → 预计最后一跳时间)
+  let playerKnownReflectionAbilities = {}; // 玩家槽位 → 本场装备/观察到的反伤技能
+  let playerReflectUntil = {}; // 玩家槽位 → performance.now() 时间轴上的反伤到期点
+  let playerReflectSource = {}; // 玩家槽位 → 反伤技能 Hrid
   let currentAction = []; // ability courante par joueur, décalée d'un message :
   // les dégâts d'un cast à temps d'incantation sont
   // crédités au sort N-1 (breakdown par sort futur).
@@ -802,18 +806,111 @@ const SocketHook = (() => {
       (unit.isAutoAtk || unit.isAutoAttack ? "auto" : fallback)
     );
   }
-  function activateGuildReflection(slot, abilityHrid, ts) {
+  function activateReflection(
+    activeContainer,
+    sourceContainer,
+    slot,
+    abilityHrid,
+    ts,
+  ) {
     const duration = reflectionAbilityRules.get(String(abilityHrid || ""));
     if (duration) {
-      guildReflectUntil[slot] = Math.max(
-        guildReflectUntil[slot] || 0,
+      activeContainer[slot] = Math.max(
+        activeContainer[slot] || 0,
         ts + duration,
       );
-      guildReflectSource[slot] = String(abilityHrid);
+      sourceContainer[slot] = String(abilityHrid);
     }
+  }
+  function activateGuildReflection(slot, abilityHrid, ts) {
+    activateReflection(
+      guildReflectUntil,
+      guildReflectSource,
+      slot,
+      abilityHrid,
+      ts,
+    );
   }
   function isGuildReflecting(slot, ts) {
     return Number(guildReflectUntil[slot]) > ts;
+  }
+  function activatePlayerReflection(slot, abilityHrid, ts) {
+    activateReflection(
+      playerReflectUntil,
+      playerReflectSource,
+      slot,
+      abilityHrid,
+      ts,
+    );
+  }
+  function isPlayerReflecting(slot, ts) {
+    return Number(playerReflectUntil[slot]) > ts;
+  }
+  function learnPlayerReflectionState(slot, unit = {}) {
+    rememberAbilityKnowledge(
+      playerKnownDotAbilities,
+      playerKnownReflectionAbilities,
+      slot,
+      unit,
+    );
+    const nowWall = Date.now(),
+      nowPerf = performance.now();
+    let remaining = 0,
+      foundBuff = false;
+    Object.values(unit.combatBuffMap || {}).forEach((buff) => {
+      const type = normalizedReflectType(
+        (buff && buff.typeHrid) || (buff && buff.uniqueHrid),
+      );
+      if (!REFLECTION_TYPES.has(type)) return;
+      foundBuff = true;
+      const duration = durationToMs(buff.duration);
+      const started = Date.parse(buff.startTime || "");
+      const expires = Number.isFinite(started)
+        ? started + duration
+        : nowWall + duration;
+      remaining = Math.max(
+        remaining,
+        duration === 0 ? Infinity : expires - nowWall,
+      );
+      const unique = String((buff && buff.uniqueHrid) || ""),
+        byUnique = reflectionBuffSources.get(unique),
+        byType = [...(reflectionTypeSources.get(type) || [])],
+        known = [...(playerKnownReflectionAbilities[slot] || [])],
+        evidence = unique.toLowerCase();
+      const exact =
+        byUnique ||
+        (byType.length === 1 ? byType[0] : "") ||
+        (known.length === 1 ? known[0] : "") ||
+        (evidence.includes("spike_shell")
+          ? "/abilities/spike_shell"
+          : evidence.includes("retribution")
+            ? "/abilities/retribution"
+            : "");
+      if (exact) playerReflectSource[slot] = exact;
+    });
+    const stats = (unit.combatDetails && unit.combatDetails.combatStats) || {};
+    const permanent =
+      !foundBuff &&
+      (Number(stats.physicalThorns) ||
+        Number(stats.elementalThorns) ||
+        Number(stats.retaliation));
+    if (permanent) playerReflectUntil[slot] = Infinity;
+    else if (remaining > 0)
+      playerReflectUntil[slot] = Math.max(
+        playerReflectUntil[slot] || 0,
+        nowPerf + remaining,
+      );
+    if (!playerReflectSource[slot]) {
+      const known = [...(playerKnownReflectionAbilities[slot] || [])];
+      if (known.length === 1) playerReflectSource[slot] = known[0];
+    }
+  }
+  function learnPlayerReflectionUnit(unit = {}) {
+    const name = unit.name || (unit.character && unit.character.name);
+    if (!name) return;
+    for (const [slot, slotName] of keyToName) {
+      if (slotName === name) learnPlayerReflectionState(slot, unit);
+    }
   }
   function learnGuildReflectionState(unit = {}) {
     const name = unit.name || (unit.character && unit.character.name);
@@ -1617,9 +1714,13 @@ const SocketHook = (() => {
     monsterDotUntil = {};
     playersMP = [];
     playersAtkCounter = [];
+    playersDmgCounter = [];
     playersHP = [];
     playerKnownDotAbilities = {};
     playerDotUntil = {};
+    playerKnownReflectionAbilities = {};
+    playerReflectUntil = {};
+    playerReflectSource = {};
     currentAction = [];
     keyToName.clear();
     haveBattle = false;
@@ -1747,11 +1848,15 @@ const SocketHook = (() => {
         ? number
         : undefined;
     });
+    playersDmgCounter = (p.players || []).map((pl) => monsterDamageCounter(pl));
     playersHP = (p.players || []).map((pl) =>
       pl.currentHitpoints !== undefined ? pl.currentHitpoints : pl.cHP || 0,
     );
     playerKnownDotAbilities = {};
     playerDotUntil = {};
+    playerKnownReflectionAbilities = {};
+    playerReflectUntil = {};
+    playerReflectSource = {};
     keyToName.clear();
     const names = [];
     const classes = ClassSystem.registerPlayers(p.players || []);
@@ -1761,7 +1866,7 @@ const SocketHook = (() => {
         names.push(n);
         keyToName.set(String(i), n);
       }
-      rememberAbilityKnowledge(playerKnownDotAbilities, null, String(i), pl);
+      learnPlayerReflectionState(String(i), pl);
     });
     // preparingAbilityHrid : l'intention de cast au début de vague — le sort
     // en incantation dont les dégâts atterriront dans les premiers messages.
@@ -1813,11 +1918,17 @@ const SocketHook = (() => {
     //    MP 变化仅作为后备信号，因为普攻不耗蓝，而辅助技能也会耗蓝。
     const counterActors = [],
       mpDroppers = [],
-      completedActions = {};
+      completedActions = {},
+      hitPlayers = new Set();
     for (const k of idx) {
       const i = +k,
         mp = pMap[k].cMP || 0;
-      rememberAbilityKnowledge(playerKnownDotAbilities, null, k, pMap[k]);
+      rememberAbilityKnowledge(
+        playerKnownDotAbilities,
+        playerKnownReflectionAbilities,
+        k,
+        pMap[k],
+      );
       const playerName = keyToName.get(k);
       if (playerName && pMap[k].abilityHrid)
         ClassSystem.learnAbility(playerName, pMap[k].abilityHrid);
@@ -1836,6 +1947,7 @@ const SocketHook = (() => {
             (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
           counterActors.push(k);
           completedActions[k] = completed;
+          activatePlayerReflection(k, completed, ts);
           activateDot(
             playerDotUntil,
             playerKnownDotAbilities,
@@ -1846,6 +1958,20 @@ const SocketHook = (() => {
         }
         playersAtkCounter[i] = nextCounter;
       }
+      const damageCounter = monsterDamageCounter(pMap[k]),
+        previousDamage = playersDmgCounter[i];
+      if (damageCounter !== undefined) {
+        if (previousDamage !== undefined && damageCounter > previousDamage)
+          hitPlayers.add(k);
+        playersDmgCounter[i] = damageCounter;
+      }
+      const nextHP = Number(pMap[k].cHP);
+      if (
+        Number.isFinite(nextHP) &&
+        playersHP[i] !== undefined &&
+        nextHP < playersHP[i]
+      )
+        hitPlayers.add(k);
     }
     const counterActor = counterActors.length === 1 ? counterActors[0] : null;
     const castPlayer = mpDroppers.length === 1 ? mpDroppers[0] : null;
@@ -1948,8 +2074,20 @@ const SocketHook = (() => {
     // 施放者。治疗/辅助技能若与 DoT 同时结算，不再把怪物掉血记到治疗者。
     let attributedKey = null,
       attributedSource = "unknown";
+    const hitReflectors = idx.filter(
+        (k) => hitPlayers.has(k) && isPlayerReflecting(k, ts),
+      ),
+      reflectors =
+        monsterActors.length === 1
+          ? hitReflectors.length
+            ? hitReflectors
+            : idx.filter((k) => isPlayerReflecting(k, ts))
+          : [];
     const actionActor = counterActor !== null ? counterActor : castPlayer;
-    if (actionActor !== null) {
+    if (reflectors.length === 1) {
+      attributedKey = reflectors[0];
+      attributedSource = playerReflectSource[attributedKey] || "reflect";
+    } else if (actionActor !== null) {
       const action =
         completedActions[actionActor] ||
         currentAction[+actionActor] ||
@@ -2095,6 +2233,24 @@ const SocketHook = (() => {
           }
           Diagnostics.recordNominal();
         }
+      } else if (reflectors.length > 1) {
+        const share = tickDmg / reflectors.length;
+        reflectors.forEach((key) => {
+          const name = keyToName.get(key);
+          if (!name) return;
+          bus.dispatchEvent(
+            new CustomEvent("playerDamage", {
+              detail: {
+                name,
+                amount: share,
+                source: playerReflectSource[key] || "reflect",
+                ts,
+                battleType,
+              },
+            }),
+          );
+        });
+        Diagnostics.recordNominal();
       } else {
         Diagnostics.recordOrphan(tickDmg);
       }
@@ -2184,9 +2340,10 @@ const SocketHook = (() => {
         obj.type === "profile_shared"
           ? ClassSystem.learnProfile(obj)
           : ClassSystem.learnBattleUnit(obj);
-      if (obj.type === "battle_unit_fetched")
+      if (obj.type === "battle_unit_fetched") {
+        learnPlayerReflectionUnit(obj.unit || messageData.unit || {});
         learnGuildReflectionState(obj.unit || messageData.unit || {});
-      else learnProfileReflectionEquipment(obj);
+      } else learnProfileReflectionEquipment(obj);
       if (learned && learned.name && learned.classId !== "unknown") {
         bus.dispatchEvent(new CustomEvent("classLearned", { detail: learned }));
       }

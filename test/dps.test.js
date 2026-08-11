@@ -221,6 +221,16 @@ assert(
     DamageSources.isSupport("/abilities/mystic_aura"),
   "元素亲和或神秘光环没有被识别为纯辅助技能",
 );
+assert(
+  !DamageSources.isSupport("/abilities/mana_spring") &&
+    !DamageSources.isSupport("/abilities/natures_veil"),
+  "法力喷泉或菌幕仍被错误识别为纯辅助技能",
+);
+assert(
+  DamageSources.label("/abilities/mana_spring") === "法力喷泉" &&
+    DamageSources.label("/abilities/natures_veil") === "自然菌幕",
+  "法力喷泉或自然菌幕没有使用游戏当前的中文名称",
+);
 assert(Settings.getPanelOpacity() === 100, "面板不透明度默认值不是100%");
 Settings.setPanelOpacity(5);
 assert(Settings.getPanelOpacity() === 10, "面板不透明度没有限制最低10%");
@@ -667,6 +677,149 @@ assert(
   ),
   "技能伤害没有使用上一条准备动作记录具体技能来源",
 );
+
+// 法力喷泉与菌幕都同时包含伤害和增益/减益效果，不能因为附带辅助效果
+// 就吞掉直接伤害。两种技能都应按上一条准备动作进入来源明细。
+send({
+  type: "init_client_data",
+  abilityDetailMap: {
+    "/abilities/mana_spring": {
+      hrid: "/abilities/mana_spring",
+      abilityEffects: [
+        {
+          effectType: "/ability_effect_types/damage",
+          targetType: "allEnemies",
+        },
+        { effectType: "/ability_effect_types/buff", targetType: "allAllies" },
+      ],
+    },
+    "/abilities/natures_veil": {
+      hrid: "/abilities/natures_veil",
+      abilityEffects: [
+        {
+          effectType: "/ability_effect_types/damage",
+          targetType: "allEnemies",
+        },
+        {
+          effectType: "/ability_effect_types/debuff",
+          targetType: "allEnemies",
+        },
+      ],
+    },
+  },
+});
+for (const [abilityHrid, name] of [
+  ["/abilities/mana_spring", "喷泉甲"],
+  ["/abilities/natures_veil", "菌幕甲"],
+]) {
+  emitted.length = 0;
+  const caster = player(name, "magic", "water", "magic", 3500000000);
+  caster.attackAttemptCounter = 0;
+  caster.preparingAbilityHrid = abilityHrid;
+  send({
+    type: "new_battle",
+    combatStartTime: "hybrid-damage-" + name,
+    players: [caster],
+    monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
+  });
+  send({
+    type: "battle_updated",
+    pMap: {
+      0: {
+        cMP: 80,
+        cHP: 100,
+        atkCounter: 1,
+        abilityHrid: "/abilities/heal",
+      },
+    },
+    mMap: { 0: { cHP: 75 } },
+  });
+  assert(
+    emitted.some(
+      (event) =>
+        event[0] === "damage" &&
+        event[1] === name &&
+        event[2] === 25 &&
+        event[3] === abilityHrid,
+    ),
+    abilityHrid + " 的直接伤害没有进入技能来源明细",
+  );
+}
+
+// 普通战斗也必须像公会试炼一样识别反伤窗口。怪物完成攻击且自身掉血时，
+// 伤害归到刚生效的盾系技能，不再回退为普通攻击或持续伤害。
+for (const [abilityHrid, name] of [
+  ["/abilities/spike_shell", "甲壳盾"],
+  ["/abilities/retribution", "惩戒盾"],
+]) {
+  emitted.length = 0;
+  const shield = player(name, "smash", "physical", "defense", 3600000000);
+  shield.attackAttemptCounter = 0;
+  shield.damageSplatCounter = 0;
+  shield.preparingAbilityHrid = abilityHrid;
+  shield.combatAbilities = [{ abilityHrid }];
+  send({
+    type: "new_battle",
+    combatStartTime: "normal-reflect-" + name,
+    players: [shield],
+    monsters: [
+      {
+        currentHitpoints: 100,
+        attackAttemptCounter: 0,
+        isPreparingAutoAttack: true,
+      },
+    ],
+  });
+  send({
+    type: "battle_updated",
+    pMap: {
+      0: {
+        cMP: 80,
+        cHP: 100,
+        atkCounter: 1,
+        dmgCounter: 0,
+        abilityHrid: "/abilities/toughness",
+      },
+    },
+    mMap: { 0: { cHP: 100, atkCounter: 0, dmgCounter: 0 } },
+  });
+  send({
+    type: "battle_updated",
+    pMap: {
+      0: {
+        cMP: 80,
+        cHP: 90,
+        atkCounter: 1,
+        dmgCounter: 1,
+        abilityHrid: "/abilities/toughness",
+      },
+    },
+    mMap: {
+      0: {
+        cHP: 88,
+        atkCounter: 1,
+        dmgCounter: 1,
+        isAutoAtk: true,
+      },
+    },
+  });
+  assert(
+    emitted.some(
+      (event) =>
+        event[0] === "damage" &&
+        event[1] === name &&
+        event[2] === 12 &&
+        event[3] === abilityHrid,
+    ) &&
+      !emitted.some(
+        (event) =>
+          event[0] === "damage" &&
+          event[1] === name &&
+          ["auto", "dot"].includes(event[3]),
+      ),
+    abilityHrid + " 的普通战斗反伤仍被归到普通攻击或持续伤害",
+  );
+}
 
 // mayhem / pierce / blaze 都是直接造成 HP 下降的武器特效；只记录这三类，
 // 不把 curse、weaken 等状态型词条拆成伤害来源。
