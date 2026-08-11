@@ -222,6 +222,43 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
   assert.equal(result.complete, true);
 });
 
+test("market listings prefer direct market value over protected equipment value", () => {
+  const originals = {
+    fair: runtime.api.getFairValue,
+    asset: runtime.api.getAssetValue,
+    ask: runtime.api.getAskPrice,
+    bid: runtime.api.getBidPrice,
+    tax: runtime.api.getMarketTaxRate,
+  };
+  runtime.api.getFairValue = () => 100;
+  runtime.api.getAssetValue = () => 500;
+  runtime.api.getAskPrice = () => 120;
+  runtime.api.getBidPrice = () => 80;
+  runtime.api.getMarketTaxRate = () => 0;
+
+  assert.deepEqual(
+    calculateMarketListingValues([
+      {
+        itemHrid: "/items/enhanced_equipment",
+        enhancementLevel: 10,
+        isSell: true,
+        orderQuantity: 3,
+        filledQuantity: 0,
+        unclaimedItemCount: 2,
+      },
+    ]),
+    { fair: 500, ask: 600, bid: 400 },
+  );
+
+  Object.assign(runtime.api, {
+    getFairValue: originals.fair,
+    getAssetValue: originals.asset,
+    getAskPrice: originals.ask,
+    getBidPrice: originals.bid,
+    getMarketTaxRate: originals.tax,
+  });
+});
+
 test("a refined back item is included in equipped assets with its location", async () => {
   runtime.state.initData_characterItems = [
     {

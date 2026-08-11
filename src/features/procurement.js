@@ -792,14 +792,12 @@ function clearProductionUi() {
 function renderProductionProcurement() {
   const context = resolveActionPanel();
   if (!context) {
-    if (
-      !document.querySelector(
-        'div[class*="SkillActionDetail_skillActionDetail"]',
-      )
-    ) {
+    const houseModal = findActiveHouseModal();
+    if (!houseModal) {
       clearProductionUi();
+      return;
     }
-    renderHouseProcurement();
+    renderHouseProcurement(houseModal);
     return;
   }
   const settings = procurement.getSettings();
@@ -961,11 +959,73 @@ function findObjectWithItemRequirements(value, depth = 0, seen = new Set()) {
   return null;
 }
 
-function renderHouseProcurement() {
-  const modal = [
+function findActiveHouseModal() {
+  return [
     ...document.querySelectorAll('[class*="HousePanel_modalContent"]'),
-  ].find((candidate) => candidate.getClientRects().length);
-  if (!modal || modal.querySelector(`#${PRODUCTION_ID}`)) return;
+  ].find(
+    (candidate) =>
+      candidate.getClientRects().length &&
+      candidate.querySelector('[class*="HousePanel_itemRequirements"]'),
+  );
+}
+
+function parseHouseCount(value) {
+  const normalized = String(value ?? "")
+    .replaceAll(",", "")
+    .trim();
+  const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+  if (Number.isFinite(compact) && compact >= 0) return compact;
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+  const number = Number(match?.[0]);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function houseItemHrid(element) {
+  const use = element?.querySelector("svg use");
+  const href =
+    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  const fragment = href.includes("#") ? href.split("#").at(-1) : href;
+  return procurement.normalizeItemHrid(fragment);
+}
+
+function extractHouseRequirementsFromDom(modal) {
+  const requirementsRoot = modal.querySelector(
+    '[class*="HousePanel_itemRequirements"]',
+  );
+  if (!requirementsRoot) return null;
+  let itemElements = [
+    ...requirementsRoot.querySelectorAll(
+      ':scope > [class*="Item_itemContainer"]',
+    ),
+  ];
+  if (!itemElements.length) {
+    itemElements = [
+      ...requirementsRoot.querySelectorAll(
+        '[class*="HousePanel_itemRequirementCell"] [class*="Item_itemContainer"]',
+      ),
+    ];
+  }
+  const inputElements = [
+    ...requirementsRoot.querySelectorAll(
+      ':scope > [class*="HousePanel_inputCount"]',
+    ),
+  ];
+  if (!itemElements.length || inputElements.length < itemElements.length) {
+    return null;
+  }
+  const requirements = itemElements.map((element, index) => ({
+    itemHrid: houseItemHrid(element),
+    enhancementLevel: 0,
+    count: parseHouseCount(inputElements[index]?.textContent),
+  }));
+  return requirements.every(
+    (requirement) => requirement.itemHrid && requirement.count > 0,
+  )
+    ? requirements
+    : null;
+}
+
+function extractHouseRequirementsFromFiber(modal) {
   let fiber = findReactFiber(modal);
   let requirements = null;
   for (let depth = 0; fiber && depth < 12 && !requirements; depth += 1) {
@@ -975,7 +1035,26 @@ function renderHouseProcurement() {
     });
     fiber = fiber.return;
   }
-  if (!requirements?.length) return;
+  return requirements?.length &&
+    requirements.every(
+      (requirement) =>
+        procurement.normalizeItemHrid(requirement?.itemHrid) &&
+        Number(requirement?.count) > 0,
+    )
+    ? requirements
+    : null;
+}
+
+function renderHouseProcurement(modal = findActiveHouseModal()) {
+  if (!modal) return;
+  const requirements =
+    extractHouseRequirementsFromDom(modal) ??
+    extractHouseRequirementsFromFiber(modal);
+  if (!requirements?.length) {
+    modal.querySelector(`#${PRODUCTION_ID}`)?.remove();
+    lastProductionSignature = "";
+    return;
+  }
   const materials = requirements.map((input) => {
     const owned = procurement.getEffectiveInventory(
       input.itemHrid,
@@ -997,6 +1076,25 @@ function renderHouseProcurement() {
         procurement.normalizeItemHrid(input.itemHrid) !== "/items/coin",
     };
   });
+  const signature = JSON.stringify([
+    "housing",
+    runtime.config.isZH,
+    materials.map((material) => [
+      material.itemHrid,
+      material.suggested,
+      material.owned,
+      material.shortage,
+      material.addableShortage,
+    ]),
+  ]);
+  if (
+    signature === lastProductionSignature &&
+    modal.querySelector(`#${PRODUCTION_ID}`)
+  ) {
+    return;
+  }
+  document.getElementById(PRODUCTION_ID)?.remove();
+  lastProductionSignature = signature;
   const root = document.createElement("section");
   root.id = PRODUCTION_ID;
   root.className = "mwi-procurement-summary-line";
@@ -1006,10 +1104,26 @@ function renderHouseProcurement() {
   root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? (runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade`) : t("房屋升级材料充足", "House materials ready")}</span>`;
   const add = document.createElement("button");
   add.className = "mwi-procurement-inline-button";
-  add.textContent = t("加入购物清单", "Add to shopping list");
-  add.disabled = !materials.some((material) => material.addableShortage > 0);
+  add.type = "button";
+  const addable = materials.filter(
+    (material) => material.purchasable && material.addableShortage > 0,
+  );
+  add.textContent = addable.length
+    ? t("加入购物清单", "Add to shopping list")
+    : t("已在清单中", "Already listed");
+  add.disabled = addable.length === 0;
   add.addEventListener("click", () => {
-    procurement.addRequirementsToCart(materials, "housing");
+    const result = procurement.addRequirementsToCart(materials, "housing");
+    showToast(
+      result.added
+        ? t(
+            `已加入 ${result.added} 种材料`,
+            `Added ${result.added} ${materialNoun(result.added)}`,
+          )
+        : t("没有新的缺料", "No new shortages"),
+    );
+    lastProductionSignature = "";
+    globalThis.queueMicrotask(() => renderHouseProcurement(modal));
   });
   root.append(add);
   const anchor =

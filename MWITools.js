@@ -20452,6 +20452,7 @@
     "/items/task_token",
     "/items/labyrinth_token"
   ]);
+  var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
@@ -20502,6 +20503,9 @@
       equipment?.typeHrid,
       equipment?.type
     ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+  }
+  function isEquipment(itemHrid) {
+    return Boolean(getItemDetails(itemHrid)?.equipmentDetail);
   }
   function getGuildCreditHrids() {
     if (guildCreditHridCache) return guildCreditHridCache;
@@ -20685,6 +20689,23 @@
     }
     return Number.isFinite(bestValue) ? bestValue : 0;
   }
+  function getEnhancedEquipmentCost(itemHrid, enhancementLevel, context, options = {}) {
+    if (!(enhancementLevel > 0) || !isEquipment(itemHrid) || typeof runtime.api.calculateEnhancementPlan !== "function") {
+      return 0;
+    }
+    const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
+    const plan = runtime.api.calculateEnhancementPlan({
+      itemHrid,
+      targetLevel: enhancementLevel,
+      forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
+      allowPhilosopherMirror: !backEquipment,
+      getFairValue: (hrid, level = 0) => {
+        const marketValue = runtime.api.getFairValue(hrid, level);
+        return marketValue > 0 ? marketValue : acquisitionCostValue(hrid, level, context);
+      }
+    });
+    return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
+  }
   function getShopCurrencyValue(currencyItemHrid, context) {
     let bestValue = 0;
     for (const detail of getShopDetails()) {
@@ -20718,28 +20739,29 @@
     const level = Number(enhancementLevel) || 0;
     const directFairValue = runtime.api.getFairValue(itemHrid, level);
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
+    const enhancedEquipment = level > 0 && isEquipment(itemHrid);
     const refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined");
-    const preferAcquisitionValue = options.forceAcquisitionValue === true || backEquipment && (level > 0 || refinedBackEquipment || settingEnabled("valueBackEquipmentWithProtectionMirror"));
-    const useProtectionMirrorValue = level > 0 && backEquipment;
-    const cacheMode = useProtectionMirrorValue ? "protection-mirror" : preferAcquisitionValue ? "acquisition" : "market";
+    const preferAcquisitionValue = options.forceAcquisitionValue === true || backEquipment && (refinedBackEquipment || settingEnabled("valueBackEquipmentWithProtectionMirror"));
+    const cacheMode = enhancedEquipment ? backEquipment ? "enhancement-protected-mirror" : "enhancement-protected" : preferAcquisitionValue ? "acquisition" : "market";
     const cacheKey = `${itemHrid}:${level}:${cacheMode}`;
     if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
     if (context.has(cacheKey)) return 0;
-    if (useProtectionMirrorValue) {
-      const plan = runtime.api.calculateEnhancementPlan?.({
+    if (enhancedEquipment) {
+      const enhancementCost = getEnhancedEquipmentCost(
         itemHrid,
-        targetLevel: level,
-        forcedProtectionItemHrid: "/items/mirror_of_protection",
-        allowPhilosopherMirror: false,
-        getFairValue: (hrid, targetLevel = 0) => {
-          const marketValue = runtime.api.getFairValue(hrid, targetLevel);
-          return marketValue > 0 ? marketValue : acquisitionCostValue(hrid, targetLevel, context);
-        }
-      });
-      if (plan?.status === "complete" && positiveNumber(plan.totalCost)) {
-        const value2 = positiveNumber(plan.totalCost);
+        level,
+        context,
+        options
+      );
+      if (enhancementCost > 0) {
+        const deviation = directFairValue > 0 ? Math.abs(directFairValue - enhancementCost) / enhancementCost : Number.POSITIVE_INFINITY;
+        const value2 = directFairValue > 0 && deviation <= ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION ? directFairValue : enhancementCost;
         assetValueCache.set(cacheKey, value2);
         return value2;
+      }
+      if (directFairValue > 0) {
+        assetValueCache.set(cacheKey, directFairValue);
+        return directFairValue;
       }
     }
     if (!preferAcquisitionValue && directFairValue > 0) {
@@ -21925,10 +21947,10 @@
     const totals = { fair: 0, ask: 0, bid: 0 };
     for (const listing of listings ?? []) {
       const enhancementLevel = listing.enhancementLevel ?? 0;
-      const assetValue = runtime.api.getAssetValue(
-        listing.itemHrid,
-        enhancementLevel
+      const directMarketValue = Number(
+        runtime.api.getFairValue?.(listing.itemHrid, enhancementLevel)
       );
+      const assetValue = Number.isFinite(directMarketValue) && directMarketValue > 0 ? directMarketValue : runtime.api.getAssetValue(listing.itemHrid, enhancementLevel);
       const askPrice = runtime.api.getAskPrice(
         listing.itemHrid,
         enhancementLevel
@@ -23701,8 +23723,13 @@ ${preview}`
       for (const nameElement of nameElements) {
         const host = nameElement.parentElement;
         if (!host) continue;
+        if (nameElement.closest('[class*="Header_characterInfo"]')) {
+          host.closest('[class*="Header_name"]')?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`)?.remove();
+          host.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`)?.remove();
+          continue;
+        }
         const profileRoot = nameElement.closest(
-          '[class*="Header_characterInfo"],[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]'
+          '[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]'
         );
         const profileNameBlock = profileRoot ? nameElement.closest('[class*="Header_name"]') : null;
         const badgeMount = profileNameBlock || host;
@@ -23776,12 +23803,22 @@ ${preview}`
       const tbody = table.tBodies?.[0];
       if (!tbody) return;
       const rows = [...tbody.rows];
+      const currentCharacterName2 = normalizedName(
+        runtime.state.currentCharacterName
+      );
       rows.sort((left, right) => {
         const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
         const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
+        const normalizedLeftName = normalizedName(leftName);
+        const normalizedRightName = normalizedName(rightName);
+        if (currentCharacterName2) {
+          const leftIsCurrent = normalizedLeftName === currentCharacterName2;
+          const rightIsCurrent = normalizedRightName === currentCharacterName2;
+          if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
+        }
         return compareRateRows(
-          rowsByName.get(normalizedName(leftName)),
-          rowsByName.get(normalizedName(rightName)),
+          rowsByName.get(normalizedLeftName),
+          rowsByName.get(normalizedRightName),
           state.sortMode
         );
       });
@@ -27902,12 +27939,12 @@ ${preview}`
   function renderProductionProcurement() {
     const context = resolveActionPanel();
     if (!context) {
-      if (!document.querySelector(
-        'div[class*="SkillActionDetail_skillActionDetail"]'
-      )) {
+      const houseModal = findActiveHouseModal();
+      if (!houseModal) {
         clearProductionUi();
+        return;
       }
-      renderHouseProcurement();
+      renderHouseProcurement(houseModal);
       return;
     }
     const settings2 = procurement.getSettings();
@@ -28047,11 +28084,62 @@ ${locks}` : ""}`;
     }
     return null;
   }
-  function renderHouseProcurement() {
-    const modal = [
+  function findActiveHouseModal() {
+    return [
       ...document.querySelectorAll('[class*="HousePanel_modalContent"]')
-    ].find((candidate) => candidate.getClientRects().length);
-    if (!modal || modal.querySelector(`#${PRODUCTION_ID}`)) return;
+    ].find(
+      (candidate) => candidate.getClientRects().length && candidate.querySelector('[class*="HousePanel_itemRequirements"]')
+    );
+  }
+  function parseHouseCount(value) {
+    const normalized = String(value ?? "").replaceAll(",", "").trim();
+    const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+    if (Number.isFinite(compact) && compact >= 0) return compact;
+    const match = normalized.match(/-?\d+(?:\.\d+)?/);
+    const number2 = Number(match?.[0]);
+    return Number.isFinite(number2) && number2 >= 0 ? number2 : null;
+  }
+  function houseItemHrid(element) {
+    const use = element?.querySelector("svg use");
+    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const fragment = href.includes("#") ? href.split("#").at(-1) : href;
+    return procurement.normalizeItemHrid(fragment);
+  }
+  function extractHouseRequirementsFromDom(modal) {
+    const requirementsRoot = modal.querySelector(
+      '[class*="HousePanel_itemRequirements"]'
+    );
+    if (!requirementsRoot) return null;
+    let itemElements = [
+      ...requirementsRoot.querySelectorAll(
+        ':scope > [class*="Item_itemContainer"]'
+      )
+    ];
+    if (!itemElements.length) {
+      itemElements = [
+        ...requirementsRoot.querySelectorAll(
+          '[class*="HousePanel_itemRequirementCell"] [class*="Item_itemContainer"]'
+        )
+      ];
+    }
+    const inputElements = [
+      ...requirementsRoot.querySelectorAll(
+        ':scope > [class*="HousePanel_inputCount"]'
+      )
+    ];
+    if (!itemElements.length || inputElements.length < itemElements.length) {
+      return null;
+    }
+    const requirements = itemElements.map((element, index) => ({
+      itemHrid: houseItemHrid(element),
+      enhancementLevel: 0,
+      count: parseHouseCount(inputElements[index]?.textContent)
+    }));
+    return requirements.every(
+      (requirement) => requirement.itemHrid && requirement.count > 0
+    ) ? requirements : null;
+  }
+  function extractHouseRequirementsFromFiber(modal) {
     let fiber = findReactFiber(modal);
     let requirements = null;
     for (let depth = 0; fiber && depth < 12 && !requirements; depth += 1) {
@@ -28061,7 +28149,18 @@ ${locks}` : ""}`;
       });
       fiber = fiber.return;
     }
-    if (!requirements?.length) return;
+    return requirements?.length && requirements.every(
+      (requirement) => procurement.normalizeItemHrid(requirement?.itemHrid) && Number(requirement?.count) > 0
+    ) ? requirements : null;
+  }
+  function renderHouseProcurement(modal = findActiveHouseModal()) {
+    if (!modal) return;
+    const requirements = extractHouseRequirementsFromDom(modal) ?? extractHouseRequirementsFromFiber(modal);
+    if (!requirements?.length) {
+      modal.querySelector(`#${PRODUCTION_ID}`)?.remove();
+      lastProductionSignature = "";
+      return;
+    }
     const materials = requirements.map((input) => {
       const owned = procurement.getEffectiveInventory(
         input.itemHrid,
@@ -28080,6 +28179,22 @@ ${locks}` : ""}`;
         purchasable: procurement.normalizeItemHrid(input.itemHrid) !== "/items/coin"
       };
     });
+    const signature = JSON.stringify([
+      "housing",
+      runtime.config.isZH,
+      materials.map((material) => [
+        material.itemHrid,
+        material.suggested,
+        material.owned,
+        material.shortage,
+        material.addableShortage
+      ])
+    ]);
+    if (signature === lastProductionSignature && modal.querySelector(`#${PRODUCTION_ID}`)) {
+      return;
+    }
+    document.getElementById(PRODUCTION_ID)?.remove();
+    lastProductionSignature = signature;
     const root = document.createElement("section");
     root.id = PRODUCTION_ID;
     root.className = "mwi-procurement-summary-line";
@@ -28089,10 +28204,22 @@ ${locks}` : ""}`;
     root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t6("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
-    add.textContent = t6("加入购物清单", "Add to shopping list");
-    add.disabled = !materials.some((material) => material.addableShortage > 0);
+    add.type = "button";
+    const addable = materials.filter(
+      (material) => material.purchasable && material.addableShortage > 0
+    );
+    add.textContent = addable.length ? t6("加入购物清单", "Add to shopping list") : t6("已在清单中", "Already listed");
+    add.disabled = addable.length === 0;
     add.addEventListener("click", () => {
-      procurement.addRequirementsToCart(materials, "housing");
+      const result = procurement.addRequirementsToCart(materials, "housing");
+      showToast(
+        result.added ? t6(
+          `已加入 ${result.added} 种材料`,
+          `Added ${result.added} ${materialNoun(result.added)}`
+        ) : t6("没有新的缺料", "No new shortages")
+      );
+      lastProductionSignature = "";
+      globalThis.queueMicrotask(() => renderHouseProcurement(modal));
     });
     root.append(add);
     const anchor = modal.querySelector('[class*="HousePanel_upgradeButton"]') ?? modal.lastElementChild;
@@ -32148,7 +32275,7 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-planner.js
   var ENHANCEMENT_PROFILE = Object.freeze({
-    playerLevel: 135,
+    playerLevel: 140,
     houseLevel: 8,
     tool: { hrid: "/items/celestial_enhancer", enhancementLevel: 12 },
     top: { hrid: "/items/enhancers_top", enhancementLevel: 10 },

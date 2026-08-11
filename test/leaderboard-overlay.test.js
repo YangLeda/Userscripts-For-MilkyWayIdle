@@ -125,8 +125,11 @@ test("renders top-100 ranking badges beside matching character names", async () 
   const bobBadges = document.querySelector(
     ".Header_name__test > [data-mwi-leaderboard-badges]",
   );
-  assert.equal(bobBadges.dataset.mwiLeaderboardPlacement, "profile");
-  assert.equal(bobBadges.previousElementSibling, bobName.parentElement);
+  assert.equal(bobBadges, null);
+  assert.equal(
+    bobName.parentElement.querySelector("[data-mwi-leaderboard-badges]"),
+    null,
+  );
   assert.equal(
     document
       .querySelector('[data-name="Outside"]')
@@ -265,6 +268,44 @@ test("adds a sortable experience-rate column and restores official order", async
     null,
   );
   assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
+});
+
+test("keeps the current character pinned while sorting every leaderboard mode", async () => {
+  runtime.state.currentCharacterName = "Charlie";
+  document.body.innerHTML = `
+    <table class="LeaderboardPanel_leaderboardTable__test">
+      <thead><tr><th>角色</th></tr></thead>
+      <tbody>
+        <tr><td><span class="CharacterName_name__test" data-name="Charlie">Charlie</span></td></tr>
+        <tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr>
+        <tr><td><span class="CharacterName_name__test" data-name="Bob">Bob</span></td></tr>
+      </tbody>
+    </table>`;
+  const overlay = create({ document });
+  overlay.enhanceLeaderboard({
+    category: "milking",
+    rows: [
+      { characterName: "Alice", rank: 1, xpPerHour: 100 },
+      { characterName: "Bob", rank: 2, xpPerHour: 200 },
+      { characterName: "Charlie", rank: 50, xpPerHour: 150 },
+    ],
+  });
+  await settle();
+  const header = document.querySelector("[data-mwi-leaderboard-rate-header]");
+
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+  header.click();
+  await settle();
+  assert.deepEqual(rowNames(), ["Charlie", "Bob", "Alice"]);
+  header.click();
+  await settle();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+  header.click();
+  await settle();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+
+  overlay.destroy();
+  runtime.state.currentCharacterName = "";
 });
 
 test("unsupported total-leaderboard tabs clear stale XP rates and sorting", async () => {

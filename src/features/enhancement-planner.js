@@ -1,7 +1,7 @@
 import { runtime } from "../core/runtime.js";
 
 export const ENHANCEMENT_PROFILE = Object.freeze({
-  playerLevel: 135,
+  playerLevel: 140,
   houseLevel: 8,
   tool: { hrid: "/items/celestial_enhancer", enhancementLevel: 12 },
   top: { hrid: "/items/enhancers_top", enhancementLevel: 10 },

@@ -225,8 +225,16 @@ function createOverlay(options = {}) {
     for (const nameElement of nameElements) {
       const host = nameElement.parentElement;
       if (!host) continue;
+      if (nameElement.closest('[class*="Header_characterInfo"]')) {
+        host
+          .closest('[class*="Header_name"]')
+          ?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`)
+          ?.remove();
+        host.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`)?.remove();
+        continue;
+      }
       const profileRoot = nameElement.closest(
-        '[class*="Header_characterInfo"],[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]',
+        '[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]',
       );
       const profileNameBlock = profileRoot
         ? nameElement.closest('[class*="Header_name"]')
@@ -330,6 +338,9 @@ function createOverlay(options = {}) {
     const tbody = table.tBodies?.[0];
     if (!tbody) return;
     const rows = [...tbody.rows];
+    const currentCharacterName = normalizedName(
+      runtime.state.currentCharacterName,
+    );
     rows.sort((left, right) => {
       const leftName = left
         .querySelector('[class*="CharacterName_name"][data-name]')
@@ -337,9 +348,16 @@ function createOverlay(options = {}) {
       const rightName = right
         .querySelector('[class*="CharacterName_name"][data-name]')
         ?.getAttribute("data-name");
+      const normalizedLeftName = normalizedName(leftName);
+      const normalizedRightName = normalizedName(rightName);
+      if (currentCharacterName) {
+        const leftIsCurrent = normalizedLeftName === currentCharacterName;
+        const rightIsCurrent = normalizedRightName === currentCharacterName;
+        if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
+      }
       return compareRateRows(
-        rowsByName.get(normalizedName(leftName)),
-        rowsByName.get(normalizedName(rightName)),
+        rowsByName.get(normalizedLeftName),
+        rowsByName.get(normalizedRightName),
         state.sortMode,
       );
     });

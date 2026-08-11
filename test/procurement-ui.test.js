@@ -32,6 +32,7 @@ runtime.config.isZH = false;
 runtime.state.initData_itemDetailMap = {
   "/items/nail": { name: "Nail" },
   "/items/board": { name: "Board" },
+  "/items/coin": { name: "Coin" },
 };
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/board": {
@@ -154,6 +155,115 @@ test("sufficient materials keep their remaining quantity", () => {
   const badge = document.querySelector(".mwi-procurement-badge");
   assert.equal(badge.dataset.state, "ready");
   assert.match(badge.textContent, /^(余|Spare) /);
+});
+
+test("house materials use DOM requirements and add only net shortages", async () => {
+  document
+    .querySelector('[class*="SkillActionDetail_regularComponent"]')
+    ?.remove();
+  runtime.api.procurement.removeFromCart("/items/board");
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 3,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.state.initData_actionDetailMap["/actions/crafting/house_lock"] = {
+    hrid: "/actions/crafting/house_lock",
+    name: "House lock fixture",
+    inputItems: [],
+    outputItems: [],
+  };
+  const lockPlan = runtime.api.procurement.createPlan(
+    "/actions/crafting/house_lock",
+    1,
+    [
+      {
+        itemHrid: "/items/board",
+        enhancementLevel: 0,
+        suggested: 2,
+        purchasable: true,
+      },
+    ],
+  );
+
+  const createHouse = () => {
+    const modal = document.createElement("section");
+    modal.className = "HousePanel_modalContent__fixture";
+    modal.innerHTML = `
+      <div class="HousePanel_itemRequirements__fixture">
+        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#board"></use></svg></div>
+        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
+        <span class="HousePanel_inventoryCount__fixture">3</span>
+        <span class="HousePanel_inventoryCount__fixture">999</span>
+        <span class="HousePanel_inputCount__fixture">10</span>
+        <span class="HousePanel_inputCount__fixture">500</span>
+      </div>
+      <button class="HousePanel_upgradeButton__fixture">Upgrade</button>`;
+    modal.getClientRects = () => [{}];
+    document.body.append(modal);
+    return modal;
+  };
+
+  let modal = createHouse();
+  runtime.api.renderProductionProcurement();
+  let summary = modal.querySelector("#mwitools-procurement-production");
+  assert.match(summary.textContent, /Missing 1 material/);
+  assert.equal(summary.querySelector("button").disabled, false);
+  assert.equal(
+    summary.nextElementSibling.matches('[class*="HousePanel_upgradeButton"]'),
+    true,
+  );
+
+  summary.querySelector("button").click();
+  await Promise.resolve();
+  assert.equal(runtime.api.procurement.getCartItem("/items/board").quantity, 9);
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/board").source,
+    "housing",
+  );
+  assert.equal(runtime.api.procurement.getCartItem("/items/coin"), null);
+  summary = modal.querySelector("#mwitools-procurement-production");
+  assert.equal(summary.querySelector("button").disabled, true);
+  assert.match(summary.querySelector("button").textContent, /Already listed/);
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    modal.querySelectorAll("#mwitools-procurement-production").length,
+    1,
+  );
+
+  modal.remove();
+  modal = createHouse();
+  runtime.api.renderProductionProcurement();
+  assert.ok(modal.querySelector("#mwitools-procurement-production"));
+
+  runtime.config.isZH = true;
+  runtime.api.renderProductionProcurement();
+  assert.match(
+    modal.querySelector("#mwitools-procurement-production").textContent,
+    /房屋升级缺少 1 种材料/,
+  );
+  runtime.config.isZH = false;
+
+  runtime.api.procurement.removePlan(lockPlan.id);
+  runtime.api.procurement.removeFromCart("/items/board");
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 10,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.api.renderProductionProcurement();
+  summary = modal.querySelector("#mwitools-procurement-production");
+  assert.match(summary.textContent, /House materials ready/);
+  assert.equal(summary.querySelector("button").disabled, true);
+  modal.remove();
 });
 
 test("a manually opened marketplace does not show the shopping navigation bar", () => {

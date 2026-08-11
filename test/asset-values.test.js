@@ -299,6 +299,45 @@ test("non-tradable token assets are classified separately", () => {
   );
 });
 
+test("enhanced equipment uses cost only outside the twenty-percent market band", () => {
+  const originalPlanner = runtime.api.calculateEnhancementPlan;
+  runtime.api.calculateEnhancementPlan = () => ({
+    status: "complete",
+    totalCost: 100_000,
+  });
+
+  const setMarketValue = (value) => {
+    runtime.state.marketItemValues["/items/test_sword"] =
+      value == null ? {} : { 5: value };
+    runtime.api.invalidateAssetValueCache();
+  };
+  setMarketValue(80_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 80_000);
+  setMarketValue(120_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 120_000);
+  setMarketValue(79_999);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 100_000);
+  setMarketValue(120_001);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 100_000);
+  setMarketValue(null);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 100_000);
+
+  runtime.api.calculateEnhancementPlan = () => ({ status: "unavailable" });
+  setMarketValue(40_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 40_000);
+
+  runtime.state.marketItemValues["/items/test_sword"] = {
+    0: 30_000,
+    5: 40_000,
+  };
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 0), 30_000);
+
+  runtime.api.calculateEnhancementPlan = originalPlanner;
+  runtime.state.marketItemValues["/items/test_sword"] = { 5: 40_000 };
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("non-refined and refined back gear keep acquisition and enhancement value", () => {
   const originalPlanner = runtime.api.calculateEnhancementPlan;
   runtime.api.calculateEnhancementPlan = (options) => {
@@ -366,7 +405,9 @@ test("back equipment can use forced protection-mirror enhancement value", () => 
     123_456,
   );
   assert.equal(received.itemHrid, "/items/artificer_cape_refined");
-  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 40_000);
+  assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 123_456);
+  assert.equal(received.forcedProtectionItemHrid, null);
+  assert.equal(received.allowPhilosopherMirror, true);
   assert.equal(
     runtime.api.isBackEquipment(
       "/items/unknown_back_item",

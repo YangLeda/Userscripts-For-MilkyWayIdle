@@ -78,15 +78,15 @@ test("fixed profile derives all requested equipment, house and tea buffs", () =>
     bonusMultiplierTable: MULTIPLIERS,
   });
 
-  assert.equal(stats.effectiveLevel, 143);
+  assert.equal(stats.effectiveLevel, 148);
   assert.equal(stats.toolSuccess, 0.058128);
   assert.equal(stats.gloveSpeed, 0.129);
   assert.equal(stats.topSpeed, 0.129);
   assert.equal(stats.bottomsSpeed, 0.129);
   assert.equal(stats.capeSpeed, 0.0928);
   assert.equal(stats.blessedChance, 0.01);
-  assert.ok(Math.abs(stats.successBonus - 0.083628) < 1e-12);
-  assert.ok(Math.abs(stats.speedBonus - 1.0498) < 1e-12);
+  assert.ok(Math.abs(stats.successBonus - 0.086128) < 1e-12);
+  assert.ok(Math.abs(stats.speedBonus - 1.0998) < 1e-12);
 });
 
 test("normal flow matches the reference Markov expectation", () => {

@@ -46,10 +46,13 @@ export function calculateMarketListingValues(listings) {
   const totals = { fair: 0, ask: 0, bid: 0 };
   for (const listing of listings ?? []) {
     const enhancementLevel = listing.enhancementLevel ?? 0;
-    const assetValue = runtime.api.getAssetValue(
-      listing.itemHrid,
-      enhancementLevel,
+    const directMarketValue = Number(
+      runtime.api.getFairValue?.(listing.itemHrid, enhancementLevel),
     );
+    const assetValue =
+      Number.isFinite(directMarketValue) && directMarketValue > 0
+        ? directMarketValue
+        : runtime.api.getAssetValue(listing.itemHrid, enhancementLevel);
     const askPrice = runtime.api.getAskPrice(
       listing.itemHrid,
       enhancementLevel,

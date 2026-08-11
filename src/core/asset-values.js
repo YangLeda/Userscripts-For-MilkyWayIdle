@@ -8,6 +8,7 @@ const SHOP_CURRENCY_HRIDS = new Set([
   "/items/task_token",
   "/items/labyrinth_token",
 ]);
+const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
 
 const assetValueCache = new Map();
 const assetLiquidationCache = new Map();
@@ -69,6 +70,10 @@ function isBackEquipment(itemHrid, itemLocationHrid = "") {
     equipment?.typeHrid,
     equipment?.type,
   ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+}
+
+function isEquipment(itemHrid) {
+  return Boolean(getItemDetails(itemHrid)?.equipmentDetail);
 }
 
 function getGuildCreditHrids() {
@@ -293,6 +298,37 @@ function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
   return Number.isFinite(bestValue) ? bestValue : 0;
 }
 
+function getEnhancedEquipmentCost(
+  itemHrid,
+  enhancementLevel,
+  context,
+  options = {},
+) {
+  if (
+    !(enhancementLevel > 0) ||
+    !isEquipment(itemHrid) ||
+    typeof runtime.api.calculateEnhancementPlan !== "function"
+  ) {
+    return 0;
+  }
+  const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
+  const plan = runtime.api.calculateEnhancementPlan({
+    itemHrid,
+    targetLevel: enhancementLevel,
+    forcedProtectionItemHrid: backEquipment
+      ? "/items/mirror_of_protection"
+      : null,
+    allowPhilosopherMirror: !backEquipment,
+    getFairValue: (hrid, level = 0) => {
+      const marketValue = runtime.api.getFairValue(hrid, level);
+      return marketValue > 0
+        ? marketValue
+        : acquisitionCostValue(hrid, level, context);
+    },
+  });
+  return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
+}
+
 function getShopCurrencyValue(currencyItemHrid, context) {
   let bestValue = 0;
   for (const detail of getShopDetails()) {
@@ -338,17 +374,18 @@ function getAssetValueInternal(
   const level = Number(enhancementLevel) || 0;
   const directFairValue = runtime.api.getFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
+  const enhancedEquipment = level > 0 && isEquipment(itemHrid);
   const refinedBackEquipment =
     backEquipment && String(itemHrid).endsWith("_refined");
   const preferAcquisitionValue =
     options.forceAcquisitionValue === true ||
     (backEquipment &&
-      (level > 0 ||
-        refinedBackEquipment ||
+      (refinedBackEquipment ||
         settingEnabled("valueBackEquipmentWithProtectionMirror")));
-  const useProtectionMirrorValue = level > 0 && backEquipment;
-  const cacheMode = useProtectionMirrorValue
-    ? "protection-mirror"
+  const cacheMode = enhancedEquipment
+    ? backEquipment
+      ? "enhancement-protected-mirror"
+      : "enhancement-protected"
     : preferAcquisitionValue
       ? "acquisition"
       : "market";
@@ -356,23 +393,29 @@ function getAssetValueInternal(
   if (assetValueCache.has(cacheKey)) return assetValueCache.get(cacheKey);
   if (context.has(cacheKey)) return 0;
 
-  if (useProtectionMirrorValue) {
-    const plan = runtime.api.calculateEnhancementPlan?.({
+  if (enhancedEquipment) {
+    const enhancementCost = getEnhancedEquipmentCost(
       itemHrid,
-      targetLevel: level,
-      forcedProtectionItemHrid: "/items/mirror_of_protection",
-      allowPhilosopherMirror: false,
-      getFairValue: (hrid, targetLevel = 0) => {
-        const marketValue = runtime.api.getFairValue(hrid, targetLevel);
-        return marketValue > 0
-          ? marketValue
-          : acquisitionCostValue(hrid, targetLevel, context);
-      },
-    });
-    if (plan?.status === "complete" && positiveNumber(plan.totalCost)) {
-      const value = positiveNumber(plan.totalCost);
+      level,
+      context,
+      options,
+    );
+    if (enhancementCost > 0) {
+      const deviation =
+        directFairValue > 0
+          ? Math.abs(directFairValue - enhancementCost) / enhancementCost
+          : Number.POSITIVE_INFINITY;
+      const value =
+        directFairValue > 0 &&
+        deviation <= ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION
+          ? directFairValue
+          : enhancementCost;
       assetValueCache.set(cacheKey, value);
       return value;
+    }
+    if (directFairValue > 0) {
+      assetValueCache.set(cacheKey, directFairValue);
+      return directFairValue;
     }
   }
 
