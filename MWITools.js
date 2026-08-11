@@ -12535,6 +12535,27 @@ ${preview}`
     return true;
   }
 
+  // src/core/dom-utils.js
+  function escapeHtml(value) {
+    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+  function findItemsSpriteBase() {
+    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
+      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
+        try {
+          return new URL(entry.name).pathname;
+        } catch {
+          return entry.name;
+        }
+      }
+    }
+    const use = document.querySelector(
+      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
+    );
+    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    return href.includes("#") ? href.split("#")[0] : "";
+  }
+
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
   var STYLE_ID5 = "mwitools-production-profit-panel-style";
@@ -12543,9 +12564,6 @@ ${preview}`
   var activePanel = null;
   function t5(zh, en) {
     return runtime.config.isZH ? zh : en;
-  }
-  function escapeHtml(value) {
-    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function formatNumber2(value, digits = 1) {
     if (!Number.isFinite(Number(value))) return "—";
@@ -12579,22 +12597,6 @@ ${preview}`
   }
   function actionName(actionHrid, detail) {
     return (runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : detail?.name) ?? detail?.name ?? actionHrid?.split("/").at(-1) ?? "—";
-  }
-  function findItemsSpriteBase() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
   }
   function renderItemIcon(itemHrid, name) {
     const bare = String(itemHrid ?? "").split("/").at(-1);
@@ -14510,9 +14512,6 @@ ${preview}`
   function exactNumber(value) {
     return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
   }
-  function escapeHtml2(value) {
-    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-  }
   function addStyles5() {
     if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
@@ -14604,30 +14603,14 @@ ${preview}`
       return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
   }
-  function findItemsSpriteBase2() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function renderItemIcon2(item) {
     const bare = procurement.normalizeItemHrid(item.itemHrid).split("/").at(-1);
-    const sprite = findItemsSpriteBase2();
+    const sprite = findItemsSpriteBase();
     if (!bare || !sprite) {
-      return `<span class="item-icon-fallback">${escapeHtml2((item.name || "?").trim().charAt(0) || "?")}</span>`;
+      return `<span class="item-icon-fallback">${escapeHtml((item.name || "?").trim().charAt(0) || "?")}</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml2(item.name)}"><use href="${escapeHtml2(href)}" xlink:href="${escapeHtml2(href)}"></use></svg>`;
+    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml(item.name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
   }
   function renderShell() {
     if (!shadow) return;
@@ -14680,7 +14663,7 @@ ${preview}`
       row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
       <button class="item-icon" title="${t7("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml2(item.name)}">${escapeHtml2(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
@@ -14779,7 +14762,7 @@ ${preview}`
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml2(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber3(plan.progress)} / ${formatNumber3(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
       <div class="plan-actions"><button data-action="count">${t7("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t7("重新打开", "Reopen") : t7("完成", "Complete")}</button><button data-action="remove">${t7("删除", "Delete")}</button></div>`;
@@ -14956,7 +14939,7 @@ ${preview}`
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml2(t7(zh, en))}${description ? `<small>${escapeHtml2(t7(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml(t7(zh, en))}${description ? `<small>${escapeHtml(t7(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
@@ -15426,7 +15409,7 @@ ${locks}` : ""}`;
       for (const stage of chain.stages) {
         const row = document.createElement("label");
         row.className = "mwi-procurement-chain-stage";
-        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml2(stage.actionHrid)}"><span>${escapeHtml2(stage.name)}</span><span>×${formatNumber3(stage.count)}</span>`;
+        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml(stage.actionHrid)}"><span>${escapeHtml(stage.name)}</span><span>×${formatNumber3(stage.count)}</span>`;
         list.append(row);
       }
       details.append(heading, list);

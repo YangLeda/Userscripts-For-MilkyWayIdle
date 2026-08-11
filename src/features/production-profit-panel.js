@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import { positionAnchoredPanel } from "../core/panel-position.js";
+import { escapeHtml, findItemsSpriteBase } from "../core/dom-utils.js";
 
 const PANEL_ID = "mwitools-production-profit-panel";
 const STYLE_ID = "mwitools-production-profit-panel-style";
@@ -10,15 +11,6 @@ let activePanel = null;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function formatNumber(value, digits = 1) {
@@ -75,25 +67,6 @@ function actionName(actionHrid, detail) {
     actionHrid?.split("/").at(-1) ??
     "—"
   );
-}
-
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
 }
 
 function renderItemIcon(itemHrid, name) {

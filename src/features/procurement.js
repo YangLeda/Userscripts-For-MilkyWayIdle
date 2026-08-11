@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { escapeHtml, findItemsSpriteBase } from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -41,15 +42,6 @@ function formatNumber(value) {
 
 function exactNumber(value) {
   return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function addStyles() {
@@ -150,25 +142,6 @@ function pendingItems() {
       if (a.starred !== b.starred) return a.starred ? -1 : 1;
       return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
-}
-
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
 }
 
 function renderItemIcon(item) {
