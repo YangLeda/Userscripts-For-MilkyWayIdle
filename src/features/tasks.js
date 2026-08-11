@@ -1,5 +1,9 @@
 import { runtime } from "../core/runtime.js";
 import "../core/train-planning.js";
+import {
+  resolveTaskCards,
+  taskCardTaskId,
+} from "../core/task-card-resolution.js";
 
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
@@ -51,16 +55,7 @@ function t(zh, en) {
 }
 
 function taskId(task) {
-  return String(
-    task?.id ??
-      task?.characterQuestID ??
-      task?.characterQuestId ??
-      task?.questID ??
-      task?.questId ??
-      task?.characterTaskID ??
-      task?.characterTaskId ??
-      "",
-  );
+  return taskCardTaskId(task);
 }
 
 function combatModeStorageKey() {
@@ -681,7 +676,9 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
       pageNewTaskIds.add(id);
     }
     pageTaskIds.set(index, id);
-    card.dataset.mwitoolsTaskId = id;
+    if (card.dataset.mwitoolsTaskId !== id) {
+      card.dataset.mwitoolsTaskId = id;
+    }
   });
   for (const id of [...pageNewTaskIds]) {
     if (!activeIds.has(id)) pageNewTaskIds.delete(id);
@@ -719,10 +716,10 @@ function ensureCombatModeToggle() {
     taskListParent.insertAdjacentElement("beforebegin", controls);
   }
   for (const button of controls.querySelectorAll("button[data-mode]")) {
-    button.setAttribute(
-      "aria-pressed",
-      String(button.dataset.mode === combatGroupMode),
-    );
+    const pressed = String(button.dataset.mode === combatGroupMode);
+    if (button.getAttribute("aria-pressed") !== pressed) {
+      button.setAttribute("aria-pressed", pressed);
+    }
   }
 }
 
@@ -742,6 +739,8 @@ function ungroupCards() {
       card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
       delete card.dataset.mwitoolsOriginalOrder;
       delete card.dataset.mwitoolsOriginalIndex;
+      delete card.dataset.mwitoolsTaskIndex;
+      delete card.dataset.mwitoolsTaskId;
       delete card.dataset.mwitoolsCollapsed;
       delete card.dataset.mwitoolsProfession;
       delete card.dataset.mwitoolsLocation;
@@ -1234,7 +1233,11 @@ function renderTasks() {
   }
   cards = cards.filter((card) => card.parentElement === taskListParent);
   const tasks = runtime.state.characterQuests ?? [];
-  const cardTasks = cards.map((card, index) => tasks[index] ?? {});
+  const cardEntries = resolveTaskCards(cards, tasks, {
+    taskActionHrid,
+    taskRemaining,
+  });
+  const cardTasks = cardEntries.map(({ task }) => task);
   syncPageNewTasks(cards, cardTasks, enteredNewTaskPage);
   ensureCombatModeToggle();
   const signature = taskRenderSignature(cards, cardTasks);
@@ -1258,9 +1261,12 @@ function renderTasks() {
   originalCards.forEach((card, index) => {
     if (!("mwitoolsOriginalOrder" in card.dataset))
       card.dataset.mwitoolsOriginalOrder = card.style.order;
-    const originalIndex = String(index);
-    if (card.dataset.mwitoolsOriginalIndex !== originalIndex) {
-      card.dataset.mwitoolsOriginalIndex = originalIndex;
+    if (!("mwitoolsOriginalIndex" in card.dataset)) {
+      card.dataset.mwitoolsOriginalIndex = String(index);
+    }
+    const taskIndex = String(cardEntries[index]?.taskIndex ?? -1);
+    if (card.dataset.mwitoolsTaskIndex !== taskIndex) {
+      card.dataset.mwitoolsTaskIndex = taskIndex;
     }
     if ("mwitoolsLocation" in card.dataset) {
       delete card.dataset.mwitoolsLocation;
@@ -1317,7 +1323,41 @@ runtime.features.register({
       lastTaskRenderSignature = "";
       renderTasks();
     });
-    scope.interval(renderTasks, 500);
+    let renderPending = false;
+    const scheduleRender = () => {
+      if (renderPending) return;
+      renderPending = true;
+      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+        renderPending = false;
+        renderTasks();
+      });
+    };
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
+        return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
+          .filter((node) => node?.nodeType === 1)
+          .some(
+            (node) =>
+              node.matches?.('[class*="TasksPanel_taskList"]') ||
+              node.querySelector?.('[class*="TasksPanel_taskList"]'),
+          );
+      });
+      if (relevant) scheduleRender();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    scope.add(runtime.onMessage("quests_updated", scheduleRender));
+    scope.add(() => {
+      renderPending = false;
+    });
     scope.add(cleanupTasks);
   },
 });

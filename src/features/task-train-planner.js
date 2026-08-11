@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { resolveTaskCards } from "../core/task-card-resolution.js";
 
 const STYLE_ID = "mwitools-task-train-planner-style";
 const CONTROL_CLASS = "mwi-task-train-planner";
@@ -141,10 +142,12 @@ function render() {
   if (!cards.length) return;
   const quests = runtime.state.characterQuests ?? [];
   const { entries } = collectTaskTrainGroups(quests);
-  for (const card of cards) {
-    const fallbackIndex = cards.indexOf(card);
-    const index = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
-    const entry = entries[index];
+  const resolvedCards = resolveTaskCards(cards, quests, {
+    taskActionHrid,
+    taskRemaining,
+  });
+  for (const { card, taskIndex } of resolvedCards) {
+    const entry = entries[taskIndex];
     const action = card.querySelector(ACTION_SELECTOR);
     if (!action) continue;
     const signature = entry
@@ -200,7 +203,40 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     render();
-    scope.interval(render, 500);
+    let pending = false;
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+        pending = false;
+        render();
+      });
+    };
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some((record) => {
+          const target =
+            record.target?.nodeType === 1
+              ? record.target
+              : record.target?.parentElement;
+          if (target?.closest?.(TASK_SELECTOR)) return true;
+          return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
+            .filter((node) => node?.nodeType === 1)
+            .some(
+              (node) =>
+                node.matches?.(TASK_SELECTOR) ||
+                node.querySelector?.(TASK_SELECTOR),
+            );
+        })
+      ) {
+        schedule();
+      }
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
+    scope.add(runtime.onMessage("quests_updated", schedule));
     scope.add(cleanup);
   },
 });

@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveTaskCards,
+  taskCardTaskId,
+} from "../core/task-card-resolution.js";
 
 const STYLE_ID = "mwitools-task-new-style";
 const TASK_SELECTOR =
@@ -6,16 +10,7 @@ const TASK_SELECTOR =
 const liveTaskNewStates = new Map();
 
 export function questId(quest) {
-  return String(
-    quest?.id ??
-      quest?.characterQuestID ??
-      quest?.characterQuestId ??
-      quest?.questID ??
-      quest?.questId ??
-      quest?.characterTaskID ??
-      quest?.characterTaskId ??
-      "",
-  );
+  return taskCardTaskId(quest);
 }
 
 function isRemoved(quest) {
@@ -157,9 +152,11 @@ runtime.features.register({
       }
       if (changed) writeTaskNewState(storageKey, state);
       const cards = [...document.querySelectorAll(TASK_SELECTOR)];
-      cards.forEach((card, index) => {
-        const task =
-          quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
+      const resolvedCards = resolveTaskCards(cards, quests, {
+        taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
+        taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
+      });
+      resolvedCards.forEach(({ card, task }) => {
         const id = questId(task);
         const fresh = Boolean(
           id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id),
@@ -177,6 +174,16 @@ runtime.features.register({
       });
     };
 
+    let pending = false;
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+        pending = false;
+        render();
+      });
+    };
+
     scope.add(
       runtime.onMessage("quests_updated", (payload) => {
         const updates =
@@ -189,12 +196,36 @@ runtime.features.register({
           if (!liveIds.has(id)) state.fresh.delete(id);
         }
         writeTaskNewState(storageKey, state);
-        render();
+        schedule();
       }),
     );
+    const observer = new MutationObserver((records) => {
+      if (
+        records.some((record) => {
+          const target =
+            record.target?.nodeType === 1
+              ? record.target
+              : record.target?.parentElement;
+          if (target?.closest?.(TASK_SELECTOR)) return true;
+          return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
+            .filter((node) => node?.nodeType === 1)
+            .some(
+              (node) =>
+                node.matches?.(TASK_SELECTOR) ||
+                node.querySelector?.(TASK_SELECTOR),
+            );
+        })
+      ) {
+        schedule();
+      }
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     render();
-    scope.interval(render, 350);
     scope.add(() => {
+      pending = false;
       if (liveTaskNewStates.get(storageKey) === state) {
         liveTaskNewStates.delete(storageKey);
       }

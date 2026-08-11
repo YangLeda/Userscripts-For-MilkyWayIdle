@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveTaskCards,
+  taskCardTaskId,
+} from "../core/task-card-resolution.js";
 
 const TASK_SELECTOR =
   '[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
@@ -8,15 +12,7 @@ const ACTION_DETAIL_SELECTOR =
 const RETURN_TTL_MS = 30_000;
 
 export function taskIdentity(task) {
-  const value =
-    task?.id ??
-    task?.characterQuestID ??
-    task?.characterQuestId ??
-    task?.questID ??
-    task?.questId ??
-    task?.characterTaskID ??
-    task?.characterTaskId;
-  return value === null || value === undefined ? "" : String(value);
+  return taskCardTaskId(task);
 }
 
 function scrollContainerFor(element) {
@@ -34,15 +30,26 @@ function scrollContainerFor(element) {
 
 export function captureTaskReturnContext(card, quests, now = Date.now()) {
   if (!card) return null;
-  const index = Number(card.dataset.mwitoolsOriginalIndex);
-  const resolvedIndex = Number.isInteger(index)
-    ? index
-    : [...document.querySelectorAll(TASK_SELECTOR)].indexOf(card);
-  const task = quests?.[resolvedIndex];
+  const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+  const resolved = resolveTaskCards(cards, quests, {
+    taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
+    taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
+  }).find((entry) => entry.card === card);
+  const originalIndex = Number(card.dataset.mwitoolsOriginalIndex);
+  const taskIndex =
+    Number.isInteger(resolved?.taskIndex) && resolved.taskIndex >= 0
+      ? resolved.taskIndex
+      : Number.isInteger(originalIndex)
+        ? originalIndex
+        : cards.indexOf(card);
+  const originalSlot = Number.isInteger(originalIndex)
+    ? originalIndex
+    : cards.indexOf(card);
+  const task = resolved?.task ?? quests?.[taskIndex];
   const scroller = scrollContainerFor(card);
   return {
     taskId: taskIdentity(task),
-    originalIndex: resolvedIndex,
+    originalIndex: originalSlot,
     profession:
       card.dataset.mwitoolsProfession ??
       card.closest("[data-profession]")?.dataset.profession ??
@@ -129,13 +136,13 @@ function openTasksPage() {
 
 function findTaskCard(context) {
   const cards = [...document.querySelectorAll(TASK_SELECTOR)];
-  const quests = runtime.state.characterQuests ?? [];
   if (context.taskId) {
-    const matched = cards.find((card, cardIndex) => {
-      const index = Number(card.dataset.mwitoolsOriginalIndex);
-      const task = quests[Number.isInteger(index) ? index : cardIndex];
-      return taskIdentity(task) === context.taskId;
-    });
+    const matched =
+      cards.find((card) => card.dataset.mwitoolsTaskId === context.taskId) ??
+      resolveTaskCards(cards, runtime.state.characterQuests ?? [], {
+        taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
+        taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
+      }).find(({ task }) => taskIdentity(task) === context.taskId)?.card;
     if (matched) return matched;
     return null;
   }

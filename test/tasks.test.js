@@ -577,6 +577,115 @@ test("production-chain tasks stay together when automatic sorting is disabled", 
   ]);
 });
 
+test("shuffled quest data still keeps the brush chain together", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const quests = [
+    {
+      id: 41,
+      actionHrid: "/actions/cheesesmithing/unrelated_tool",
+      goalCount: 5,
+      currentCount: 0,
+    },
+    {
+      id: 42,
+      actionHrid: "/actions/cheesesmithing/crimson_brush",
+      goalCount: 5,
+      currentCount: 0,
+    },
+    {
+      id: 43,
+      actionHrid: "/actions/cheesesmithing/rainbow_brush",
+      goalCount: 5,
+      currentCount: 0,
+    },
+    {
+      id: 44,
+      actionHrid: "/actions/cheesesmithing/burble_brush",
+      goalCount: 5,
+      currentCount: 0,
+    },
+  ];
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__shuffled";
+  list.innerHTML = [
+    card("奶酪锻造 - 彩虹刷子", "0 / 5"),
+    card("奶酪锻造 - 无关工具", "0 / 5"),
+    card("奶酪锻造 - 深紫刷子", "0 / 5"),
+    card("奶酪锻造 - 绛红刷子", "0 / 5"),
+  ].join("");
+  const cards = [...list.querySelectorAll(TASK_SELECTOR)];
+  [quests[2], quests[0], quests[3], quests[1]].forEach((quest, index) => {
+    cards[index].__reactFiber$task = {
+      return: { stateNode: { props: { characterQuest: quest } } },
+    };
+  });
+  document.body.appendChild(list);
+  runtime.state.initData_actionCategoryDetailMap = {
+    "/action_categories/cheesesmithing/tools": { sortIndex: 1 },
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/cheesesmithing/burble_brush": {
+      hrid: "/actions/cheesesmithing/burble_brush",
+      name: "Burble Brush",
+      type: "/action_types/cheesesmithing",
+      category: "/action_categories/cheesesmithing/tools",
+      outputItems: [{ itemHrid: "/items/burble_brush", count: 1 }],
+      sortIndex: 1,
+    },
+    "/actions/cheesesmithing/crimson_brush": {
+      hrid: "/actions/cheesesmithing/crimson_brush",
+      name: "Crimson Brush",
+      type: "/action_types/cheesesmithing",
+      category: "/action_categories/cheesesmithing/tools",
+      upgradeItemHrid: "/items/burble_brush",
+      outputItems: [{ itemHrid: "/items/crimson_brush", count: 1 }],
+      sortIndex: 2,
+    },
+    "/actions/cheesesmithing/rainbow_brush": {
+      hrid: "/actions/cheesesmithing/rainbow_brush",
+      name: "Rainbow Brush",
+      type: "/action_types/cheesesmithing",
+      category: "/action_categories/cheesesmithing/tools",
+      upgradeItemHrid: "/items/crimson_brush",
+      outputItems: [{ itemHrid: "/items/rainbow_brush", count: 1 }],
+      sortIndex: 3,
+    },
+    "/actions/cheesesmithing/unrelated_tool": {
+      hrid: "/actions/cheesesmithing/unrelated_tool",
+      name: "Unrelated Tool",
+      type: "/action_types/cheesesmithing",
+      category: "/action_categories/cheesesmithing/tools",
+      outputItems: [{ itemHrid: "/items/unrelated_tool", count: 1 }],
+      sortIndex: 4,
+    },
+  };
+  runtime.state.characterQuests = quests;
+  runtime.settings.settingsMap.taskAutoSort.isTrue = false;
+
+  runtime.api.renderTasks();
+
+  const orderedCards = cards.sort(
+    (left, right) => Number(left.style.order) - Number(right.style.order),
+  );
+  assert.deepEqual(
+    orderedCards.map(
+      (taskCard) =>
+        taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
+    ),
+    [
+      "奶酪锻造 - 深紫刷子",
+      "奶酪锻造 - 绛红刷子",
+      "奶酪锻造 - 彩虹刷子",
+      "奶酪锻造 - 无关工具",
+    ],
+  );
+  assert.equal(
+    cards.find((taskCard) => taskCard.textContent.includes("彩虹刷子")).dataset
+      .mwitoolsTaskIndex,
+    "2",
+  );
+});
+
 test("unchanged task polling performs no repeated DOM writes", async () => {
   runtime.api.renderTasks();
   await new Promise((resolve) => setTimeout(resolve, 0));

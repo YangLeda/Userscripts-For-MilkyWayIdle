@@ -180,6 +180,72 @@ test("skill navigation click is accepted while the target action panel mounts", 
   document.body.replaceChildren();
 });
 
+test("DOM action navigation opens the skill and exact action card", async () => {
+  document.body.innerHTML = `<div class="NavigationBar_navigationLink__test"><svg><use href="#crafting"></use></svg>Crafting</div>`;
+  const navigation = document.querySelector(
+    '[class*="NavigationBar_navigationLink"]',
+  );
+  let opened = 0;
+  navigation.addEventListener("click", () => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="SkillAction_skillAction__test"><div class="SkillAction_name__test">Board</div><svg><use href="#board"></use></svg></div>`,
+    );
+    document
+      .querySelector('[class*="SkillAction_skillAction"]')
+      .addEventListener("click", () => {
+        opened += 1;
+      });
+  });
+  assert.equal(train.navigateToTrainAction("/actions/crafting/board"), true);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(opened, 1);
+  document.body.replaceChildren();
+});
+
+test("shop navigation falls back to native DOM and only prefills quantity", async () => {
+  document.body.innerHTML = `<div class="NavigationBar_navigationLink__test"><svg><use href="#shop"></use></svg>Shop</div>`;
+  const navigation = document.querySelector(
+    '[class*="NavigationBar_navigationLink"]',
+  );
+  let purchases = 0;
+  navigation.addEventListener("click", () => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="ShopPanel_shopPanel__test"><div class="ShopPanel_shopItem__test"><div class="ShopPanel_name__test">Board</div><svg><use href="#board"></use></svg></div></div>`,
+    );
+    document
+      .querySelector('[class*="ShopPanel_shopItem"]')
+      .addEventListener("click", () => {
+        const modal = document.createElement("div");
+        modal.className = "ShopPanel_modalContent__test";
+        modal.innerHTML = `<input type="number" value="1"><button type="button">Buy</button>`;
+        modal.querySelector("button").addEventListener("click", () => {
+          purchases += 1;
+        });
+        document.body.appendChild(modal);
+      });
+  });
+  const plan = {
+    cycle: false,
+    truncated: false,
+    steps: [
+      {
+        kind: "shop",
+        shopHrid: "/shop_items/board",
+        outputHrid: "/items/board",
+        count: 4,
+      },
+    ],
+  };
+  assert.equal(train.startTrain(plan), true);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(document.querySelector('input[type="number"]').value, "4");
+  assert.equal(purchases, 0);
+  train.cancelTrain();
+  document.body.replaceChildren();
+});
+
 test("step shopping accumulates shared materials without buying train intermediates", async () => {
   runtime.api.procurement.clearCart({ includeStarred: true });
   const plan = planning.createTrainPlan(

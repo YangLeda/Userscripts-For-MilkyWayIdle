@@ -24322,7 +24322,9 @@ ${preview}`
           container = documentRef.createElement("span");
           container.setAttribute(BADGE_CONTAINER_ATTRIBUTE, "");
         }
-        container.dataset.mwiLeaderboardPlacement = placement;
+        if (container.dataset.mwiLeaderboardPlacement !== placement) {
+          container.dataset.mwiLeaderboardPlacement = placement;
+        }
         if (profilePlacement) {
           const profileName = profileNameBlock ? nameElement.closest('[class*="CharacterName_characterName"]') || nameElement : nameElement;
           if (container.parentElement !== badgeMount || container.previousElementSibling !== profileName) {
@@ -30049,6 +30051,7 @@ ${locks}` : ""}`;
   ];
   var activeTrain = null;
   var scanPending = false;
+  var navigationRequestId = 0;
   function raf(callback) {
     return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
   }
@@ -30171,7 +30174,7 @@ ${locks}` : ""}`;
     return modal;
   }
   function fiberKey(element) {
-    return Object.keys(element ?? {}).find(
+    return Object.getOwnPropertyNames(element ?? {}).find(
       (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
     );
   }
@@ -30179,23 +30182,82 @@ ${locks}` : ""}`;
     const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
     if (pageGlobal3.mwi?.game) instances.push(pageGlobal3.mwi.game);
-    const gamePage = document.querySelector(
-      '[class*="GamePage_gamePage"],[class^="GamePage"]'
-    );
-    const key = fiberKey(gamePage);
-    let fiber = key ? gamePage[key] : null;
-    while (fiber) {
+    const fibers = [];
+    const rootElement = document.getElementById("root");
+    for (const root of [
+      rootElement?._reactRootContainer?.current,
+      rootElement?._reactRootContainer?._internalRoot?.current
+    ]) {
+      if (root) fibers.push(root);
+    }
+    for (const element of [
+      rootElement,
+      document.querySelector('[class*="GamePage_gamePage"]'),
+      document.body
+    ]) {
+      for (const key of Object.getOwnPropertyNames(element ?? {})) {
+        if (key.startsWith("__reactContainer$") || key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")) {
+          fibers.push(element[key]?.current ?? element[key]);
+        }
+      }
+    }
+    const visited = /* @__PURE__ */ new Set();
+    while (fibers.length && visited.size < 5e4) {
+      const fiber = fibers.pop();
+      if (!fiber || visited.has(fiber)) continue;
+      visited.add(fiber);
       const instance = fiber.stateNode;
       if (instance && (typeof instance.setState === "function" || ACTION_NAVIGATION_HANDLERS.some(
         (handler) => typeof instance[handler] === "function"
       )) && !instances.includes(instance)) {
         instances.push(instance);
       }
-      fiber = fiber.return;
+      if (fiber.return) fibers.push(fiber.return);
+      if (fiber.child) fibers.push(fiber.child);
+      if (fiber.sibling) fibers.push(fiber.sibling);
     }
     return instances;
   }
+  function nativeNavigationLink(fragment, labelPattern) {
+    return [
+      ...document.querySelectorAll('[class*="NavigationBar_navigationLink"]')
+    ].filter(
+      (candidate) => [...candidate.classList].some(
+        (name) => name.startsWith("NavigationBar_navigationLink__")
+      )
+    ).find((candidate) => {
+      const hrefs = [...candidate.querySelectorAll("use")].map(
+        (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+      ).join(" ").toLowerCase();
+      return fragment && hrefs.includes(`#${fragment.toLowerCase()}`) || labelPattern?.test(candidate.textContent ?? "");
+    });
+  }
+  function clickActionCard(actionHrid) {
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
+    const bare = String(outputHrid ?? "").split("/").at(-1);
+    const names = new Set(
+      [
+        detail?.name,
+        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null
+      ].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
+    );
+    const card = [
+      ...document.querySelectorAll('[class*="SkillAction_skillAction"]')
+    ].filter(visible).find((candidate) => {
+      const hrefs = [...candidate.querySelectorAll("use")].map(
+        (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+      );
+      const name = String(
+        candidate.querySelector('[class*="SkillAction_name"]')?.textContent ?? ""
+      ).replaceAll(/\s+/g, " ").trim();
+      return bare && hrefs.some((href) => href.endsWith(`#${bare}`)) || names.has(name);
+    });
+    card?.click();
+    return Boolean(card);
+  }
   function navigateToTrainAction(actionHrid) {
+    const requestId = ++navigationRequestId;
     const invoke = () => {
       for (const game of gameInstances()) {
         for (const name of ACTION_NAVIGATION_HANDLERS) {
@@ -30210,38 +30272,71 @@ ${locks}` : ""}`;
       return false;
     };
     const skill = String(actionHrid).match(/^\/actions\/([^/]+)\//)?.[1];
+    if (clickActionCard(actionHrid)) return true;
     const navigation = [
-      ...document.querySelectorAll("button,a,[data-target]")
+      ...document.querySelectorAll(
+        '[class*="NavigationBar_navigationLink"],button,a,[data-target]'
+      )
     ].find((candidate) => {
       const identity = [
         candidate.getAttribute("data-target"),
         candidate.getAttribute("href"),
         candidate.getAttribute("aria-label"),
-        candidate.id
+        candidate.id,
+        ...[...candidate.querySelectorAll?.("use") ?? []].map(
+          (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+        )
       ].filter(Boolean).join(" ").toLowerCase();
       return skill && identity.includes(skill);
     });
     if (navigation) {
       navigation.click();
-      setTimeout(invoke, 150);
+      const startedTrain = activeTrain;
+      const deadline = Date.now() + TRAIN_TIMEOUT_MS;
+      const open = () => {
+        if (requestId !== navigationRequestId) return;
+        if (startedTrain && activeTrain !== startedTrain) return;
+        if (clickActionCard(actionHrid)) return;
+        if (invoke()) return;
+        if (Date.now() < deadline) setTimeout(open, 100);
+      };
+      setTimeout(open, 150);
       return true;
     }
     return invoke();
   }
   function navigateToTrainShop(step) {
+    const requestId = ++navigationRequestId;
     const game = gameInstances().find(
-      (instance) => typeof instance.setState === "function"
+      (instance) => typeof instance.setState === "function" && instance.state?.navTarget !== void 0
     );
-    if (!game || !step?.shopHrid) return false;
-    try {
-      if (game.state?.navTarget !== "shop") game.setState({ navTarget: "shop" });
-    } catch {
-      return false;
+    if (!step?.shopHrid) return false;
+    let navigationAccepted = false;
+    if (game) {
+      try {
+        if (game.state?.navTarget !== "shop")
+          game.setState({ navTarget: "shop" });
+        navigationAccepted = true;
+      } catch {
+      }
     }
-    let attempts = 60;
+    if (!navigationAccepted) {
+      const navigation = nativeNavigationLink("shop", /^(商店|shop)$/i);
+      if (!navigation) return false;
+      navigation.click();
+      navigationAccepted = true;
+    }
+    const deadline = Date.now() + TRAIN_TIMEOUT_MS;
     const open = () => {
-      if (!activeTrain || attempts-- <= 0) return;
-      const panel = document.querySelector('[class*="ShopPanel_shopPanel"]');
+      if (requestId !== navigationRequestId) return;
+      if (!activeTrain || Date.now() >= deadline) return;
+      const panel = [
+        ...document.querySelectorAll('[class*="ShopPanel_shopPanel"]')
+      ].find(visible);
+      if (!panel) {
+        setTimeout(open, 100);
+        return;
+      }
       const key = fiberKey(panel);
       let fiber = key ? panel[key] : null;
       let instance = null;
@@ -30252,22 +30347,54 @@ ${locks}` : ""}`;
         }
         fiber = fiber.return;
       }
-      if (!instance) {
-        raf(open);
+      const quantity = Math.max(1, Math.ceil(Number(step.count) || 1));
+      if (instance) {
+        try {
+          instance.setState({
+            shopItemHrid: step.shopHrid,
+            shopItemQuantity: quantity,
+            shopItemQuantityError: null
+          });
+          return;
+        } catch {
+        }
+      }
+      const bare = String(step.outputHrid ?? "").split("/").at(-1);
+      const itemName3 = localizedItem(step.outputHrid);
+      const shopItem = [
+        ...panel.querySelectorAll('[class*="ShopPanel_shopItem"]')
+      ].filter(visible).find((candidate) => {
+        const hrefs = [...candidate.querySelectorAll("use")].map(
+          (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+        );
+        const name = String(
+          candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ?? ""
+        ).trim();
+        return bare && hrefs.some((href) => href.endsWith(`#${bare}`)) || name === itemName3;
+      });
+      if (!shopItem) {
+        setTimeout(open, 100);
         return;
       }
-      try {
-        instance.setState({
-          shopItemHrid: step.shopHrid,
-          shopItemQuantity: Math.max(1, Math.ceil(Number(step.count) || 1)),
-          shopItemQuantityError: null
-        });
-      } catch {
-        cancelTrain(t8("商店面板无法预填", "Could not prefill the shop"));
-      }
+      shopItem.click();
+      const fill = () => {
+        if (requestId !== navigationRequestId) return;
+        if (!activeTrain || Date.now() >= deadline) return;
+        const input = [
+          ...document.querySelectorAll(
+            '[class*="ShopPanel"] input[type="number"],[class*="Modal_modal"] input[type="number"]'
+          )
+        ].find(visible);
+        if (input) {
+          setInput(input, quantity);
+          return;
+        }
+        setTimeout(fill, 100);
+      };
+      raf(fill);
     };
     raf(open);
-    return true;
+    return navigationAccepted;
   }
   function setInput(input, value) {
     if (!input || !Number.isFinite(value) || value <= 0) return false;
@@ -30498,6 +30625,7 @@ ${locks}` : ""}`;
   }
   function cancelTrain(reason = "") {
     if (!activeTrain) return false;
+    navigationRequestId += 1;
     clearTrainListeners();
     clearTimeout(activeTrain.timeout);
     activeTrain = null;
@@ -30508,6 +30636,7 @@ ${locks}` : ""}`;
   }
   function finishTrain() {
     if (!activeTrain) return false;
+    navigationRequestId += 1;
     clearTrainListeners();
     clearTimeout(activeTrain.timeout);
     activeTrain = null;
@@ -30650,6 +30779,134 @@ ${locks}` : ""}`;
     }
   });
 
+  // src/core/task-card-resolution.js
+  var NAME_SELECTOR = '[class*="RandomTask_name"]';
+  function normalize(value) {
+    return String(value ?? "").replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
+  }
+  function taskCardTaskId(task) {
+    const value = task?.id ?? task?.characterQuestID ?? task?.characterQuestId ?? task?.questID ?? task?.questId ?? task?.characterTaskID ?? task?.characterTaskId;
+    return value === null || value === void 0 ? "" : String(value);
+  }
+  function fiberQuest(card) {
+    const key = Object.getOwnPropertyNames(card ?? {}).find(
+      (name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$")
+    );
+    let fiber = key ? card[key] : null;
+    for (let depth = 0; fiber && depth < 24; depth += 1) {
+      for (const props of [
+        fiber.memoizedProps,
+        fiber.pendingProps,
+        fiber.stateNode?.props
+      ]) {
+        const quest = props?.characterQuest ?? props?.quest ?? props?.task;
+        if (quest && typeof quest === "object") return quest;
+      }
+      fiber = fiber.return;
+    }
+    return null;
+  }
+  function cardActionLabel(card) {
+    const title = String(card?.querySelector(NAME_SELECTOR)?.textContent ?? "");
+    return normalize(title.split(/\s[-–]\s/).at(-1));
+  }
+  function cardRemaining(card) {
+    const text = String(card?.textContent ?? "");
+    const match = text.match(
+      /(?:进度|progress)\s*:?\s*([\d,.]+)\s*\/\s*([\d,.]+)/i
+    );
+    if (!match) return null;
+    const current = Number(match[1].replaceAll(",", ""));
+    const target = Number(match[2].replaceAll(",", ""));
+    return Number.isFinite(current) && Number.isFinite(target) ? Math.max(0, target - current) : null;
+  }
+  function actionLabels(actionHrid) {
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return new Set(
+      [
+        detail?.name,
+        runtime.data.ZHActionNames?.[actionHrid],
+        String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " ")
+      ].map(normalize).filter(Boolean)
+    );
+  }
+  function semanticCandidates(card, quests, taskActionHrid3, taskRemaining3) {
+    const label = cardActionLabel(card);
+    const remaining = cardRemaining(card);
+    let candidates = quests.map((task, taskIndex) => ({
+      task,
+      taskIndex,
+      taskId: taskCardTaskId(task),
+      actionHrid: taskActionHrid3(task)
+    })).filter(
+      ({ actionHrid }) => label ? actionLabels(actionHrid).has(label) : false
+    );
+    if (remaining !== null) {
+      const progressMatches = candidates.filter(
+        ({ task }) => Number(taskRemaining3(task)) === remaining
+      );
+      if (progressMatches.length) candidates = progressMatches;
+    }
+    return candidates;
+  }
+  function resolveTaskCards(cards, quests, { taskActionHrid: taskActionHrid3, taskRemaining: taskRemaining3 }) {
+    const questList = Array.isArray(quests) ? quests : [];
+    const byId = new Map(
+      questList.map((task, taskIndex) => [taskCardTaskId(task), { task, taskIndex }]).filter(([id]) => id)
+    );
+    const used = /* @__PURE__ */ new Set();
+    const rows = [...cards].map((card, originalIndex) => {
+      let resolved = null;
+      const fiberTask = fiberQuest(card);
+      const fiberId = taskCardTaskId(fiberTask);
+      if (fiberId && byId.has(fiberId)) resolved = byId.get(fiberId);
+      else if (fiberTask) {
+        const taskIndex = questList.indexOf(fiberTask);
+        if (taskIndex >= 0) resolved = { task: fiberTask, taskIndex };
+      }
+      if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
+      return {
+        card,
+        originalIndex,
+        resolved
+      };
+    });
+    for (const row of rows) {
+      if (row.resolved) continue;
+      const candidates = semanticCandidates(
+        row.card,
+        questList,
+        taskActionHrid3,
+        taskRemaining3
+      ).filter(({ taskIndex }) => !used.has(taskIndex));
+      if (!candidates.length) continue;
+      const priorId = String(row.card.dataset.mwitoolsTaskId ?? "");
+      row.resolved = candidates.find(({ taskId: taskId2 }) => taskId2 && taskId2 === priorId) ?? candidates[0];
+      used.add(row.resolved.taskIndex);
+    }
+    for (const row of rows) {
+      if (row.resolved) continue;
+      const unused = questList.map((task, taskIndex) => ({ task, taskIndex })).filter(({ taskIndex }) => !used.has(taskIndex));
+      const positional = unused.find(
+        ({ taskIndex }) => questList.length === rows.length && taskIndex === row.originalIndex
+      );
+      row.resolved = positional ?? (unused.length === 1 ? unused[0] : null);
+      if (row.resolved) used.add(row.resolved.taskIndex);
+    }
+    return rows.map(({ card, originalIndex, resolved }) => {
+      const task = resolved?.task ?? {};
+      const taskIndex = Number.isInteger(resolved?.taskIndex) ? resolved.taskIndex : -1;
+      return {
+        card,
+        task,
+        taskId: taskCardTaskId(task),
+        taskIndex,
+        originalIndex,
+        actionHrid: taskActionHrid3(task)
+      };
+    });
+  }
+
   // src/features/tasks.js
   var STYLE_ID9 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
@@ -30697,9 +30954,7 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   function taskId(task) {
-    return String(
-      task?.id ?? task?.characterQuestID ?? task?.characterQuestId ?? task?.questID ?? task?.questId ?? task?.characterTaskID ?? task?.characterTaskId ?? ""
-    );
+    return taskCardTaskId(task);
   }
   function combatModeStorageKey() {
     const server = globalThis.location?.hostname ?? "unknown";
@@ -31190,7 +31445,9 @@ ${locks}` : ""}`;
         pageNewTaskIds.add(id);
       }
       pageTaskIds.set(index, id);
-      card.dataset.mwitoolsTaskId = id;
+      if (card.dataset.mwitoolsTaskId !== id) {
+        card.dataset.mwitoolsTaskId = id;
+      }
     });
     for (const id of [...pageNewTaskIds]) {
       if (!activeIds.has(id)) pageNewTaskIds.delete(id);
@@ -31227,10 +31484,10 @@ ${locks}` : ""}`;
       taskListParent.insertAdjacentElement("beforebegin", controls);
     }
     for (const button of controls.querySelectorAll("button[data-mode]")) {
-      button.setAttribute(
-        "aria-pressed",
-        String(button.dataset.mode === combatGroupMode)
-      );
+      const pressed = String(button.dataset.mode === combatGroupMode);
+      if (button.getAttribute("aria-pressed") !== pressed) {
+        button.setAttribute("aria-pressed", pressed);
+      }
     }
   }
   function ungroupCards() {
@@ -31243,6 +31500,8 @@ ${locks}` : ""}`;
       card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
       delete card.dataset.mwitoolsOriginalOrder;
       delete card.dataset.mwitoolsOriginalIndex;
+      delete card.dataset.mwitoolsTaskIndex;
+      delete card.dataset.mwitoolsTaskId;
       delete card.dataset.mwitoolsCollapsed;
       delete card.dataset.mwitoolsProfession;
       delete card.dataset.mwitoolsLocation;
@@ -31665,7 +31924,11 @@ ${locks}` : ""}`;
     }
     cards = cards.filter((card) => card.parentElement === taskListParent);
     const tasks = runtime.state.characterQuests ?? [];
-    const cardTasks = cards.map((card, index) => tasks[index] ?? {});
+    const cardEntries = resolveTaskCards(cards, tasks, {
+      taskActionHrid,
+      taskRemaining
+    });
+    const cardTasks = cardEntries.map(({ task }) => task);
     syncPageNewTasks(cards, cardTasks, enteredNewTaskPage);
     ensureCombatModeToggle();
     const signature = taskRenderSignature(cards, cardTasks);
@@ -31680,9 +31943,12 @@ ${locks}` : ""}`;
     originalCards.forEach((card, index) => {
       if (!("mwitoolsOriginalOrder" in card.dataset))
         card.dataset.mwitoolsOriginalOrder = card.style.order;
-      const originalIndex = String(index);
-      if (card.dataset.mwitoolsOriginalIndex !== originalIndex) {
-        card.dataset.mwitoolsOriginalIndex = originalIndex;
+      if (!("mwitoolsOriginalIndex" in card.dataset)) {
+        card.dataset.mwitoolsOriginalIndex = String(index);
+      }
+      const taskIndex = String(cardEntries[index]?.taskIndex ?? -1);
+      if (card.dataset.mwitoolsTaskIndex !== taskIndex) {
+        card.dataset.mwitoolsTaskIndex = taskIndex;
       }
       if ("mwitoolsLocation" in card.dataset) {
         delete card.dataset.mwitoolsLocation;
@@ -31733,7 +31999,34 @@ ${locks}` : ""}`;
         lastTaskRenderSignature = "";
         renderTasks();
       });
-      scope.interval(renderTasks, 500);
+      let renderPending = false;
+      const scheduleRender = () => {
+        if (renderPending) return;
+        renderPending = true;
+        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+          renderPending = false;
+          renderTasks();
+        });
+      };
+      const observer = new MutationObserver((records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
+          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+            (node) => node.matches?.('[class*="TasksPanel_taskList"]') || node.querySelector?.('[class*="TasksPanel_taskList"]')
+          );
+        });
+        if (relevant) scheduleRender();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        characterData: true,
+        subtree: true
+      });
+      scope.add(runtime.onMessage("quests_updated", scheduleRender));
+      scope.add(() => {
+        renderPending = false;
+      });
       scope.add(cleanupTasks);
     }
   });
@@ -31888,10 +32181,12 @@ ${locks}` : ""}`;
     if (!cards.length) return;
     const quests = runtime.state.characterQuests ?? [];
     const { entries } = collectTaskTrainGroups(quests);
-    for (const card of cards) {
-      const fallbackIndex = cards.indexOf(card);
-      const index = Number(card.dataset.mwitoolsOriginalIndex ?? fallbackIndex);
-      const entry = entries[index];
+    const resolvedCards = resolveTaskCards(cards, quests, {
+      taskActionHrid: taskActionHrid2,
+      taskRemaining: taskRemaining2
+    });
+    for (const { card, taskIndex } of resolvedCards) {
+      const entry = entries[taskIndex];
       const action = card.querySelector(ACTION_SELECTOR);
       if (!action) continue;
       const signature = entry ? [entry.state, entry.root, entry.remaining, runtime.config.isZH].join(
@@ -31939,7 +32234,31 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addStyles8();
       render();
-      scope.interval(render, 500);
+      let pending = false;
+      const schedule = () => {
+        if (pending) return;
+        pending = true;
+        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+          pending = false;
+          render();
+        });
+      };
+      const observer = new MutationObserver((records) => {
+        if (records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(TASK_SELECTOR2)) return true;
+          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+            (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
+          );
+        })) {
+          schedule();
+        }
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
+      scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(cleanup3);
     }
   });
@@ -31953,9 +32272,7 @@ ${locks}` : ""}`;
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
-    return String(
-      quest?.id ?? quest?.characterQuestID ?? quest?.characterQuestId ?? quest?.questID ?? quest?.questId ?? quest?.characterTaskID ?? quest?.characterTaskId ?? ""
-    );
+    return taskCardTaskId(quest);
   }
   function isRemoved(quest) {
     return Boolean(
@@ -32068,8 +32385,11 @@ ${locks}` : ""}`;
         }
         if (changed) writeTaskNewState(storageKey, state);
         const cards = [...document.querySelectorAll(TASK_SELECTOR3)];
-        cards.forEach((card, index) => {
-          const task = quests[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {};
+        const resolvedCards = resolveTaskCards(cards, quests, {
+          taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
+          taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0
+        });
+        resolvedCards.forEach(({ card, task }) => {
           const id = questId(task);
           const fresh = Boolean(
             id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id)
@@ -32086,6 +32406,15 @@ ${locks}` : ""}`;
           }
         });
       };
+      let pending = false;
+      const schedule = () => {
+        if (pending) return;
+        pending = true;
+        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
+          pending = false;
+          render2();
+        });
+      };
       scope.add(
         runtime.onMessage("quests_updated", (payload) => {
           const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
@@ -32097,12 +32426,27 @@ ${locks}` : ""}`;
             if (!liveIds.has(id)) state.fresh.delete(id);
           }
           writeTaskNewState(storageKey, state);
-          render2();
+          schedule();
         })
       );
+      const observer = new MutationObserver((records) => {
+        if (records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(TASK_SELECTOR3)) return true;
+          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+            (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
+          );
+        })) {
+          schedule();
+        }
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
       render2();
-      scope.interval(render2, 350);
       scope.add(() => {
+        pending = false;
         if (liveTaskNewStates.get(storageKey) === state) {
           liveTaskNewStates.delete(storageKey);
         }
@@ -32132,8 +32476,7 @@ ${locks}` : ""}`;
   var ACTION_DETAIL_SELECTOR = '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';
   var RETURN_TTL_MS = 3e4;
   function taskIdentity(task) {
-    const value = task?.id ?? task?.characterQuestID ?? task?.characterQuestId ?? task?.questID ?? task?.questId ?? task?.characterTaskID ?? task?.characterTaskId;
-    return value === null || value === void 0 ? "" : String(value);
+    return taskCardTaskId(task);
   }
   function scrollContainerFor(element) {
     for (let current = element; current; current = current.parentElement) {
@@ -32146,13 +32489,19 @@ ${locks}` : ""}`;
   }
   function captureTaskReturnContext(card, quests, now = Date.now()) {
     if (!card) return null;
-    const index = Number(card.dataset.mwitoolsOriginalIndex);
-    const resolvedIndex = Number.isInteger(index) ? index : [...document.querySelectorAll(TASK_SELECTOR4)].indexOf(card);
-    const task = quests?.[resolvedIndex];
+    const cards = [...document.querySelectorAll(TASK_SELECTOR4)];
+    const resolved = resolveTaskCards(cards, quests, {
+      taskActionHrid: (task2) => runtime.api.taskActionHrid?.(task2),
+      taskRemaining: (task2) => runtime.api.taskRemaining?.(task2) ?? 0
+    }).find((entry) => entry.card === card);
+    const originalIndex = Number(card.dataset.mwitoolsOriginalIndex);
+    const taskIndex = Number.isInteger(resolved?.taskIndex) && resolved.taskIndex >= 0 ? resolved.taskIndex : Number.isInteger(originalIndex) ? originalIndex : cards.indexOf(card);
+    const originalSlot = Number.isInteger(originalIndex) ? originalIndex : cards.indexOf(card);
+    const task = resolved?.task ?? quests?.[taskIndex];
     const scroller = scrollContainerFor(card);
     return {
       taskId: taskIdentity(task),
-      originalIndex: resolvedIndex,
+      originalIndex: originalSlot,
       profession: card.dataset.mwitoolsProfession ?? card.closest("[data-profession]")?.dataset.profession ?? "",
       scrollTop: Number(scroller?.scrollTop) || 0,
       expiresAt: now + RETURN_TTL_MS,
@@ -32221,13 +32570,11 @@ ${locks}` : ""}`;
   }
   function findTaskCard(context) {
     const cards = [...document.querySelectorAll(TASK_SELECTOR4)];
-    const quests = runtime.state.characterQuests ?? [];
     if (context.taskId) {
-      const matched = cards.find((card, cardIndex) => {
-        const index = Number(card.dataset.mwitoolsOriginalIndex);
-        const task = quests[Number.isInteger(index) ? index : cardIndex];
-        return taskIdentity(task) === context.taskId;
-      });
+      const matched = cards.find((card) => card.dataset.mwitoolsTaskId === context.taskId) ?? resolveTaskCards(cards, runtime.state.characterQuests ?? [], {
+        taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
+        taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0
+      }).find(({ task }) => taskIdentity(task) === context.taskId)?.card;
       if (matched) return matched;
       return null;
     }
@@ -38153,7 +38500,7 @@ ${locks}` : ""}`;
       "/abilities/toughness",
       "/abilities/vampirism"
     ]);
-    function normalize(source) {
+    function normalize2(source) {
       const value = String(source || "").trim();
       if (!value || value === "idle") return "unknown";
       return value;
@@ -38170,16 +38517,16 @@ ${locks}` : ""}`;
       return { weapon: decode(parts[0]), action: decode(parts[1]) };
     }
     function isCombined(source) {
-      return normalize(source).startsWith("combined:");
+      return normalize2(source).startsWith("combined:");
     }
     function isSupport(source) {
-      return supportAbilities.has(normalize(source));
+      return supportAbilities.has(normalize2(source));
     }
     function canonical(source, playerName = "") {
-      const value = normalize(source);
+      const value = normalize2(source);
       if (value.startsWith("combined:")) {
         const { weapon, action } = decodeCombined(value);
-        return isSupport(action) ? normalize(weapon) : normalize(action);
+        return isSupport(action) ? normalize2(weapon) : normalize2(action);
       }
       if (isSupport(value)) {
         const weapon = String(ClassSystem.getWeapon(playerName) || "");
@@ -38188,7 +38535,7 @@ ${locks}` : ""}`;
       return value;
     }
     function label(source) {
-      const value = normalize(source), english = Settings.getLanguage() === "en";
+      const value = normalize2(source), english = Settings.getLanguage() === "en";
       if (labels[value]) return labels[value][english ? 1 : 0];
       if (value.startsWith("dot:")) {
         const ability = value.slice(4), abilityName = labels[ability] ? labels[ability][english ? 1 : 0] : ability.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -38207,7 +38554,7 @@ ${locks}` : ""}`;
       return tail || labels.unknown;
     }
     function icon(source, playerName = "") {
-      const value = normalize(source);
+      const value = normalize2(source);
       if (value.startsWith("dot:")) {
         const ability = value.slice(4);
         return ability.startsWith("/abilities/") ? GameAssets.ability(ability) : combatIcon();
@@ -38226,7 +38573,7 @@ ${locks}` : ""}`;
         return ClassSystem.get(playerName).icon || combatIcon();
       return combatIcon();
     }
-    return { normalize, canonical, isCombined, isSupport, label, icon };
+    return { normalize: normalize2, canonical, isCombined, isSupport, label, icon };
   })();
   var TakenSources = /* @__PURE__ */ (() => {
     function encode(monsterName, monsterHrid, ability) {

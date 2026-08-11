@@ -23,6 +23,7 @@ const ACTION_NAVIGATION_HANDLERS = [
 
 let activeTrain = null;
 let scanPending = false;
+let navigationRequestId = 0;
 
 function raf(callback) {
   return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
@@ -162,7 +163,7 @@ export function showTrainDetail(plan, currentIndex = null) {
 }
 
 function fiberKey(element) {
-  return Object.keys(element ?? {}).find(
+  return Object.getOwnPropertyNames(element ?? {}).find(
     (key) =>
       key.startsWith("__reactFiber$") ||
       key.startsWith("__reactInternalInstance$"),
@@ -173,12 +174,34 @@ function gameInstances() {
   const pageGlobal = globalThis.unsafeWindow ?? globalThis;
   const instances = [];
   if (pageGlobal.mwi?.game) instances.push(pageGlobal.mwi.game);
-  const gamePage = document.querySelector(
-    '[class*="GamePage_gamePage"],[class^="GamePage"]',
-  );
-  const key = fiberKey(gamePage);
-  let fiber = key ? gamePage[key] : null;
-  while (fiber) {
+  const fibers = [];
+  const rootElement = document.getElementById("root");
+  for (const root of [
+    rootElement?._reactRootContainer?.current,
+    rootElement?._reactRootContainer?._internalRoot?.current,
+  ]) {
+    if (root) fibers.push(root);
+  }
+  for (const element of [
+    rootElement,
+    document.querySelector('[class*="GamePage_gamePage"]'),
+    document.body,
+  ]) {
+    for (const key of Object.getOwnPropertyNames(element ?? {})) {
+      if (
+        key.startsWith("__reactContainer$") ||
+        key.startsWith("__reactFiber$") ||
+        key.startsWith("__reactInternalInstance$")
+      ) {
+        fibers.push(element[key]?.current ?? element[key]);
+      }
+    }
+  }
+  const visited = new Set();
+  while (fibers.length && visited.size < 50_000) {
+    const fiber = fibers.pop();
+    if (!fiber || visited.has(fiber)) continue;
+    visited.add(fiber);
     const instance = fiber.stateNode;
     if (
       instance &&
@@ -190,12 +213,77 @@ function gameInstances() {
     ) {
       instances.push(instance);
     }
-    fiber = fiber.return;
+    if (fiber.return) fibers.push(fiber.return);
+    if (fiber.child) fibers.push(fiber.child);
+    if (fiber.sibling) fibers.push(fiber.sibling);
   }
   return instances;
 }
 
+function nativeNavigationLink(fragment, labelPattern) {
+  return [
+    ...document.querySelectorAll('[class*="NavigationBar_navigationLink"]'),
+  ]
+    .filter((candidate) =>
+      [...candidate.classList].some((name) =>
+        name.startsWith("NavigationBar_navigationLink__"),
+      ),
+    )
+    .find((candidate) => {
+      const hrefs = [...candidate.querySelectorAll("use")]
+        .map(
+          (use) =>
+            use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+        )
+        .join(" ")
+        .toLowerCase();
+      return (
+        (fragment && hrefs.includes(`#${fragment.toLowerCase()}`)) ||
+        labelPattern?.test(candidate.textContent ?? "")
+      );
+    });
+}
+
+function clickActionCard(actionHrid) {
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
+  const bare = String(outputHrid ?? "")
+    .split("/")
+    .at(-1);
+  const names = new Set(
+    [
+      detail?.name,
+      runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
+    ]
+      .filter(Boolean)
+      .map((name) => String(name).replaceAll(/\s+/g, " ").trim()),
+  );
+  const card = [
+    ...document.querySelectorAll('[class*="SkillAction_skillAction"]'),
+  ]
+    .filter(visible)
+    .find((candidate) => {
+      const hrefs = [...candidate.querySelectorAll("use")].map(
+        (use) =>
+          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      );
+      const name = String(
+        candidate.querySelector('[class*="SkillAction_name"]')?.textContent ??
+          "",
+      )
+        .replaceAll(/\s+/g, " ")
+        .trim();
+      return (
+        (bare && hrefs.some((href) => href.endsWith(`#${bare}`))) ||
+        names.has(name)
+      );
+    });
+  card?.click();
+  return Boolean(card);
+}
+
 export function navigateToTrainAction(actionHrid) {
+  const requestId = ++navigationRequestId;
   const invoke = () => {
     for (const game of gameInstances()) {
       for (const name of ACTION_NAVIGATION_HANDLERS) {
@@ -211,14 +299,21 @@ export function navigateToTrainAction(actionHrid) {
     return false;
   };
   const skill = String(actionHrid).match(/^\/actions\/([^/]+)\//)?.[1];
+  if (clickActionCard(actionHrid)) return true;
   const navigation = [
-    ...document.querySelectorAll("button,a,[data-target]"),
+    ...document.querySelectorAll(
+      '[class*="NavigationBar_navigationLink"],button,a,[data-target]',
+    ),
   ].find((candidate) => {
     const identity = [
       candidate.getAttribute("data-target"),
       candidate.getAttribute("href"),
       candidate.getAttribute("aria-label"),
       candidate.id,
+      ...[...(candidate.querySelectorAll?.("use") ?? [])].map(
+        (use) =>
+          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      ),
     ]
       .filter(Boolean)
       .join(" ")
@@ -227,7 +322,16 @@ export function navigateToTrainAction(actionHrid) {
   });
   if (navigation) {
     navigation.click();
-    setTimeout(invoke, 150);
+    const startedTrain = activeTrain;
+    const deadline = Date.now() + TRAIN_TIMEOUT_MS;
+    const open = () => {
+      if (requestId !== navigationRequestId) return;
+      if (startedTrain && activeTrain !== startedTrain) return;
+      if (clickActionCard(actionHrid)) return;
+      if (invoke()) return;
+      if (Date.now() < deadline) setTimeout(open, 100);
+    };
+    setTimeout(open, 150);
     // Opening the skill page is a valid first navigation stage. Arrival is
     // verified from the mounted action panel by the normal train scanner.
     return true;
@@ -236,19 +340,40 @@ export function navigateToTrainAction(actionHrid) {
 }
 
 export function navigateToTrainShop(step) {
+  const requestId = ++navigationRequestId;
   const game = gameInstances().find(
-    (instance) => typeof instance.setState === "function",
+    (instance) =>
+      typeof instance.setState === "function" &&
+      instance.state?.navTarget !== undefined,
   );
-  if (!game || !step?.shopHrid) return false;
-  try {
-    if (game.state?.navTarget !== "shop") game.setState({ navTarget: "shop" });
-  } catch {
-    return false;
+  if (!step?.shopHrid) return false;
+  let navigationAccepted = false;
+  if (game) {
+    try {
+      if (game.state?.navTarget !== "shop")
+        game.setState({ navTarget: "shop" });
+      navigationAccepted = true;
+    } catch {
+      // Fall back to the native shop navigation below.
+    }
   }
-  let attempts = 60;
+  if (!navigationAccepted) {
+    const navigation = nativeNavigationLink("shop", /^(商店|shop)$/i);
+    if (!navigation) return false;
+    navigation.click();
+    navigationAccepted = true;
+  }
+  const deadline = Date.now() + TRAIN_TIMEOUT_MS;
   const open = () => {
-    if (!activeTrain || attempts-- <= 0) return;
-    const panel = document.querySelector('[class*="ShopPanel_shopPanel"]');
+    if (requestId !== navigationRequestId) return;
+    if (!activeTrain || Date.now() >= deadline) return;
+    const panel = [
+      ...document.querySelectorAll('[class*="ShopPanel_shopPanel"]'),
+    ].find(visible);
+    if (!panel) {
+      setTimeout(open, 100);
+      return;
+    }
     const key = fiberKey(panel);
     let fiber = key ? panel[key] : null;
     let instance = null;
@@ -259,22 +384,64 @@ export function navigateToTrainShop(step) {
       }
       fiber = fiber.return;
     }
-    if (!instance) {
-      raf(open);
+    const quantity = Math.max(1, Math.ceil(Number(step.count) || 1));
+    if (instance) {
+      try {
+        instance.setState({
+          shopItemHrid: step.shopHrid,
+          shopItemQuantity: quantity,
+          shopItemQuantityError: null,
+        });
+        return;
+      } catch {
+        // Use the visible shop card and native quantity input instead.
+      }
+    }
+    const bare = String(step.outputHrid ?? "")
+      .split("/")
+      .at(-1);
+    const itemName = localizedItem(step.outputHrid);
+    const shopItem = [
+      ...panel.querySelectorAll('[class*="ShopPanel_shopItem"]'),
+    ]
+      .filter(visible)
+      .find((candidate) => {
+        const hrefs = [...candidate.querySelectorAll("use")].map(
+          (use) =>
+            use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+        );
+        const name = String(
+          candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ??
+            "",
+        ).trim();
+        return (
+          (bare && hrefs.some((href) => href.endsWith(`#${bare}`))) ||
+          name === itemName
+        );
+      });
+    if (!shopItem) {
+      setTimeout(open, 100);
       return;
     }
-    try {
-      instance.setState({
-        shopItemHrid: step.shopHrid,
-        shopItemQuantity: Math.max(1, Math.ceil(Number(step.count) || 1)),
-        shopItemQuantityError: null,
-      });
-    } catch {
-      cancelTrain(t("商店面板无法预填", "Could not prefill the shop"));
-    }
+    shopItem.click();
+    const fill = () => {
+      if (requestId !== navigationRequestId) return;
+      if (!activeTrain || Date.now() >= deadline) return;
+      const input = [
+        ...document.querySelectorAll(
+          '[class*="ShopPanel"] input[type="number"],[class*="Modal_modal"] input[type="number"]',
+        ),
+      ].find(visible);
+      if (input) {
+        setInput(input, quantity);
+        return;
+      }
+      setTimeout(fill, 100);
+    };
+    raf(fill);
   };
   raf(open);
-  return true;
+  return navigationAccepted;
 }
 
 function setInput(input, value) {
@@ -538,6 +705,7 @@ export function startTrain(plan, options = {}) {
 
 export function cancelTrain(reason = "") {
   if (!activeTrain) return false;
+  navigationRequestId += 1;
   clearTrainListeners();
   clearTimeout(activeTrain.timeout);
   activeTrain = null;
@@ -549,6 +717,7 @@ export function cancelTrain(reason = "") {
 
 export function finishTrain() {
   if (!activeTrain) return false;
+  navigationRequestId += 1;
   clearTrainListeners();
   clearTimeout(activeTrain.timeout);
   activeTrain = null;

@@ -269,7 +269,9 @@ function createOverlay(options = {}) {
         container = documentRef.createElement("span");
         container.setAttribute(BADGE_CONTAINER_ATTRIBUTE, "");
       }
-      container.dataset.mwiLeaderboardPlacement = placement;
+      if (container.dataset.mwiLeaderboardPlacement !== placement) {
+        container.dataset.mwiLeaderboardPlacement = placement;
+      }
       if (profilePlacement) {
         const profileName = profileNameBlock
           ? nameElement.closest('[class*="CharacterName_characterName"]') ||
