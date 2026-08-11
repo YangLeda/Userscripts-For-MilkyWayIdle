@@ -20,6 +20,15 @@ runtime.state.itemEnNameToHridMap = {
   Milk: "/items/milk",
   Coin: "/items/coin",
   Chest: "/items/chest",
+  Scroll: "/items/scroll",
+  "Cowbell Bag": "/items/cowbell_bag",
+};
+runtime.state.initData_itemDetailMap = {
+  "/items/milk": { isTradable: true },
+  "/items/coin": {},
+  "/items/chest": { isOpenable: true },
+  "/items/scroll": { scrollDetail: {} },
+  "/items/cowbell_bag": { isTradable: true, isOpenable: true },
 };
 
 function inventory(category, item) {
@@ -35,7 +44,16 @@ test("regular inventory items resolve their market target and enhancement", () =
   });
 });
 
-test("currencies and loot never resolve a market target", () => {
+test("non-tradable currency, loot, and scrolls never resolve a market target", () => {
   assert.equal(inventoryItemTarget(inventory("Currencies", "Coin")), null);
   assert.equal(inventoryItemTarget(inventory("Loots", "Chest")), null);
+  assert.equal(inventoryItemTarget(inventory("Scrolls", "Scroll")), null);
+});
+
+test("a tradable loot item still opens its real market", () => {
+  assert.deepEqual(inventoryItemTarget(inventory("Loots", "Cowbell Bag")), {
+    itemHrid: "/items/cowbell_bag",
+    enhancementLevel: 7,
+    categoryName: "Loots",
+  });
 });

@@ -23,6 +23,8 @@ import "./features/action-dashboard.js";
 import "./features/procurement.js";
 import "./features/tasks.js";
 import "./features/task-new-badge.js";
+import "./features/task-auto-return.js";
+import "./features/ability-book-calculator.js";
 import "./features/inventory-market-double-click.js";
 import "./features/feedback/index.js";
 import "./features/guild-xp.js";

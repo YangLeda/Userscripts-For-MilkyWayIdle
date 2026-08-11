@@ -968,7 +968,7 @@
     },
     skillbook: {
       id: "skillbook",
-      desc: isZH ? "技能书的物品词典面板显示：到多少级还需要多少本技能书" : "Item dictionary of skill books: Number of books needed to reach target skill level.",
+      desc: isZH ? "在技能书市场和物品词典显示实时升级需求" : "Show live ability-book requirements in the market and item dictionary.",
       isTrue: true
     },
     ThirdPartyLinks: {
@@ -1034,6 +1034,11 @@
     taskNewBadge: {
       id: "taskNewBadge",
       desc: isZH ? "新领取任务显示高亮和新角标" : "Highlight newly received tasks.",
+      isTrue: true
+    },
+    taskAutoReturn: {
+      id: "taskAutoReturn",
+      desc: isZH ? "从任务前往动作后自动返回原任务位置" : "Return to the originating task after leaving its action.",
       isTrue: true
     },
     inventoryMarketDoubleClick: {
@@ -1431,6 +1436,14 @@
       "Show a yellow badge and highlight on newly received tasks until the task card is clicked."
     ],
     [
+      "taskAutoReturn",
+      "tasks",
+      "任务自动返回",
+      "Task auto-return",
+      "从任务卡前往动作后，在提交或关闭动作时返回原任务分类和位置。",
+      "Return to the originating task group and position after submitting or closing its action."
+    ],
+    [
       "taskMaterials",
       "tasks",
       "任务材料完成量",
@@ -1617,10 +1630,10 @@
     [
       "skillbook",
       "tools",
-      "技能书需求",
-      "Ability book requirements",
-      "在技能书词典中计算升到目标等级还需要多少本。",
-      "Calculate books needed to reach a target ability level in the item dictionary."
+      "技能书计算器",
+      "Ability book calculator",
+      "在技能书市场和物品词典实时计算解锁、升级所需本数与参考购买成本。",
+      "Calculate live unlock, leveling, and reference purchase requirements in ability-book markets and the item dictionary."
     ]
   ];
   var settingsCatalog = Object.fromEntries(
@@ -23459,7 +23472,7 @@ ${preview}`
   function badgeTier(rank) {
     const value = Number(rank);
     if (!Number.isInteger(value) || value < 1 || value > 100) return null;
-    if (value <= 20) return "diamond";
+    if (value <= 20) return "rainbow";
     if (value <= 50) return "gold";
     if (value <= 80) return "silver";
     return "bronze";
@@ -23510,7 +23523,7 @@ ${preview}`
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
-    .mwi-lb-badge--diamond{border-color:transparent;color:#f4fbff;background:linear-gradient(rgba(10,17,30,.92),rgba(10,17,30,.92)) padding-box,conic-gradient(from 35deg,#fff 0 8%,#78d9ff 16%,#c6b7ff 29%,#f8ffff 43%,#66bdf4 57%,#e9fcff 72%,#93e9ff 86%,#fff) border-box;box-shadow:0 0 6px rgba(116,213,255,.5),inset 0 0 3px rgba(255,255,255,.16)}
+    .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
@@ -23787,6 +23800,12 @@ ${preview}`
         scheduleRefresh();
         return true;
       },
+      clearLeaderboard() {
+        if (!state.currentLeaderboard) return;
+        removeRateColumn();
+        state.currentLeaderboard = null;
+        state.sortMode = "official";
+      },
       setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
         const nextBadges = Boolean(badges);
         const nextRates = Boolean(rates);
@@ -23846,6 +23865,10 @@ ${preview}`
         };
         instance?.enhanceLeaderboard(leaderboard);
         return true;
+      },
+      clearLeaderboard() {
+        leaderboard = null;
+        instance?.clearLeaderboard();
       },
       setDisplay(next = {}) {
         display = {
@@ -24036,7 +24059,13 @@ ${preview}`
     };
     const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
       const normalized = normalizeLeaderboardPayload(payload);
-      if (!normalized) return;
+      if (!normalized) {
+        if (payload?.type === "leaderboard_updated" && payload?.leaderboardType === "standard") {
+          currentLeaderboard = null;
+          controller.clearLeaderboard();
+        }
+        return;
+      }
       currentLeaderboard = normalized;
       if (!categories[normalized.category]) {
         categories = {
@@ -29279,17 +29308,594 @@ ${locks}` : ""}`;
     }
   });
 
+  // src/features/task-auto-return.js
+  var TASK_SELECTOR3 = '[class*="RandomTask_randomTask"]';
+  var TASK_LIST_SELECTOR = '[class*="TasksPanel_taskList"]';
+  var ACTION_DETAIL_SELECTOR = '[class*="SkillActionDetail_regularComponent"],[class*="SkillActionDetail_skillActionDetail"],[class*="ActionDetail_actionDetail"],[class*="SkillActionDetail_modalContent"],[class*="ActionDetail_modalContent"]';
+  var RETURN_TTL_MS = 3e4;
+  function taskIdentity(task) {
+    const value = task?.id ?? task?.characterQuestID ?? task?.characterQuestId ?? task?.questID ?? task?.questId ?? task?.characterTaskID ?? task?.characterTaskId;
+    return value === null || value === void 0 ? "" : String(value);
+  }
+  function scrollContainerFor(element) {
+    for (let current = element; current; current = current.parentElement) {
+      const style = globalThis.getComputedStyle?.(current);
+      if (current.scrollHeight > current.clientHeight && /auto|scroll/.test(`${style?.overflowY ?? ""} ${style?.overflow ?? ""}`)) {
+        return current;
+      }
+    }
+    return document.scrollingElement ?? document.documentElement;
+  }
+  function captureTaskReturnContext(card, quests, now = Date.now()) {
+    if (!card) return null;
+    const index = Number(card.dataset.mwitoolsOriginalIndex);
+    const resolvedIndex = Number.isInteger(index) ? index : [...document.querySelectorAll(TASK_SELECTOR3)].indexOf(card);
+    const task = quests?.[resolvedIndex];
+    const scroller = scrollContainerFor(card);
+    return {
+      taskId: taskIdentity(task),
+      originalIndex: resolvedIndex,
+      profession: card.dataset.mwitoolsProfession ?? card.closest("[data-profession]")?.dataset.profession ?? "",
+      scrollTop: Number(scroller?.scrollTop) || 0,
+      expiresAt: now + RETURN_TTL_MS,
+      sawAction: false
+    };
+  }
+  function buttonText(button) {
+    return String(
+      runtime.api.getOriTextFromElement?.(button) ?? button?.textContent ?? ""
+    ).replaceAll(/\s+/g, " ").trim();
+  }
+  function isGoButton(button) {
+    return /^(前往|go)$/i.test(buttonText(button));
+  }
+  function isCommitButton(button) {
+    const text = buttonText(button);
+    return /^(添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)$/i.test(
+      text
+    );
+  }
+  function findGameHost() {
+    const roots = [];
+    const push = (value) => {
+      const root = value?.current ?? value;
+      if (root && typeof root === "object" && !roots.includes(root))
+        roots.push(root);
+    };
+    const rootElement = document.getElementById("root");
+    push(rootElement?._reactRootContainer?.current);
+    push(rootElement?._reactRootContainer?._internalRoot?.current);
+    for (const element of [rootElement, document.body]) {
+      for (const key of Object.getOwnPropertyNames(element ?? {})) {
+        if (key.startsWith("__reactContainer") || key.startsWith("__reactFiber") || key.startsWith("__reactInternalInstance")) {
+          push(element[key]);
+        }
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    while (roots.length && seen.size < 5e4) {
+      const fiber = roots.pop();
+      if (!fiber || seen.has(fiber)) continue;
+      seen.add(fiber);
+      const host = fiber.stateNode;
+      if (typeof host?.handleChangeNavTarget === "function" && typeof host?.setState === "function") {
+        return host;
+      }
+      if (fiber.child) roots.push(fiber.child);
+      if (fiber.sibling) roots.push(fiber.sibling);
+    }
+    return null;
+  }
+  function openTasksPage() {
+    const host = findGameHost();
+    if (host) {
+      host.handleChangeNavTarget("tasks");
+      return true;
+    }
+    const buttons = document.querySelectorAll(
+      'nav button,[class*="Nav"] button,[class*="nav"] button'
+    );
+    const taskButton = [...buttons].find(
+      (button) => /^(任务|tasks)$/i.test(buttonText(button))
+    );
+    taskButton?.click();
+    return Boolean(taskButton);
+  }
+  function findTaskCard(context) {
+    const cards = [...document.querySelectorAll(TASK_SELECTOR3)];
+    const quests = runtime.state.characterQuests ?? [];
+    if (context.taskId) {
+      const matched = cards.find((card, cardIndex) => {
+        const index = Number(card.dataset.mwitoolsOriginalIndex);
+        const task = quests[Number.isInteger(index) ? index : cardIndex];
+        return taskIdentity(task) === context.taskId;
+      });
+      if (matched) return matched;
+      return null;
+    }
+    return cards[context.originalIndex] ?? null;
+  }
+  function expandTaskProfession(card, profession) {
+    const key = card?.dataset.mwitoolsProfession ?? profession;
+    if (!key) return;
+    const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
+    const group = groups.find(
+      (candidate) => candidate.dataset.profession === key
+    );
+    const header = group?.querySelector(".mwi-task-profession-header");
+    if (header?.getAttribute("aria-expanded") === "false") header.click();
+  }
+  function restoreTaskPosition(context) {
+    const card = findTaskCard(context);
+    if (card) {
+      expandTaskProfession(card, context.profession);
+      card.scrollIntoView?.({ block: "center", inline: "nearest" });
+      return true;
+    }
+    const list = document.querySelector(TASK_LIST_SELECTOR);
+    const scroller = scrollContainerFor(list);
+    if (list && scroller) {
+      scroller.scrollTop = context.scrollTop;
+      return true;
+    }
+    return false;
+  }
+  runtime.features.register({
+    id: "taskAutoReturn",
+    setting: "taskAutoReturn",
+    scope: "character",
+    initialize({ scope }) {
+      let pending = null;
+      let expiryTimer = null;
+      let returnTimer = null;
+      let restoreTimer = null;
+      const clearTimers = () => {
+        if (expiryTimer !== null) clearTimeout(expiryTimer);
+        if (returnTimer !== null) clearTimeout(returnTimer);
+        if (restoreTimer !== null) clearTimeout(restoreTimer);
+        expiryTimer = returnTimer = restoreTimer = null;
+      };
+      const clearPending = () => {
+        clearTimers();
+        pending = null;
+      };
+      const armExpiry = () => {
+        if (expiryTimer !== null) clearTimeout(expiryTimer);
+        expiryTimer = setTimeout(clearPending, RETURN_TTL_MS);
+      };
+      const returnToOrigin = () => {
+        if (!pending || pending.expiresAt <= Date.now()) {
+          clearPending();
+          return;
+        }
+        const context = pending;
+        clearPending();
+        openTasksPage();
+        let attempts = 0;
+        const restore = () => {
+          restoreTimer = null;
+          if (restoreTaskPosition(context) || attempts >= 40) return;
+          attempts += 1;
+          restoreTimer = setTimeout(restore, 50);
+        };
+        restoreTimer = setTimeout(restore, 0);
+      };
+      const scheduleReturn = (delay = 0) => {
+        if (!pending) return;
+        if (returnTimer !== null) clearTimeout(returnTimer);
+        returnTimer = setTimeout(() => {
+          returnTimer = null;
+          returnToOrigin();
+        }, delay);
+      };
+      const observeAction = () => {
+        if (!pending) return;
+        const action = document.querySelector(ACTION_DETAIL_SELECTOR);
+        if (action) pending.sawAction = true;
+        else if (pending.sawAction) scheduleReturn();
+      };
+      scope.event(
+        document,
+        "click",
+        (event) => {
+          const button = event.target?.closest?.("button");
+          if (!button) return;
+          const card = button.closest(TASK_SELECTOR3);
+          if (card && isGoButton(button)) {
+            pending = captureTaskReturnContext(
+              card,
+              runtime.state.characterQuests ?? []
+            );
+            if (pending) armExpiry();
+            return;
+          }
+          if (pending && button.closest(ACTION_DETAIL_SELECTOR) && isCommitButton(button)) {
+            scheduleReturn(500);
+          }
+        },
+        true
+      );
+      const observer = new MutationObserver(observeAction);
+      scope.observer(observer, document.body, { childList: true, subtree: true });
+      scope.add(clearPending);
+    }
+  });
+
+  // src/features/ability-book-calculator.js
+  var STYLE_ID9 = "mwitools-ability-book-calculator-style";
+  var PANEL_CLASS = "mwi-ability-book-calculator";
+  var MARKET_SELECTOR = '[class*="MarketplacePanel_marketplacePanel"]';
+  var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
+  function t8(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function finite(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const number2 = Number(value);
+    return Number.isFinite(number2) ? number2 : null;
+  }
+  function maxAbilityLevel(levelExperienceTable) {
+    if (!Array.isArray(levelExperienceTable)) return 0;
+    for (let index = levelExperienceTable.length - 1; index >= 1; index -= 1) {
+      if (finite(levelExperienceTable[index]) !== null) return index;
+    }
+    return 0;
+  }
+  function calculateAbilityBookRequirement({
+    isLearned,
+    currentLevel,
+    currentExperience,
+    targetLevel,
+    experienceGain,
+    levelExperienceTable
+  }) {
+    const maximumLevel = maxAbilityLevel(levelExperienceTable);
+    const target = Number(targetLevel);
+    const level = finite(currentLevel);
+    const experience = finite(currentExperience);
+    const perBook = finite(experienceGain);
+    if (!Number.isInteger(target) || target < 1 || target > maximumLevel || level === null || experience === null || perBook === null || perBook <= 0) {
+      return { status: "invalid", maximumLevel };
+    }
+    const targetExperience = finite(levelExperienceTable[target]);
+    if (targetExperience === null) return { status: "invalid", maximumLevel };
+    if (isLearned && (level >= target || experience >= targetExperience)) {
+      return {
+        status: "reached",
+        maximumLevel,
+        targetExperience,
+        unlockBooks: 0,
+        levelingBooks: 0,
+        totalBooks: 0
+      };
+    }
+    const unlockBooks = isLearned ? 0 : 1;
+    const levelingBooks = Math.ceil(
+      Math.max(0, targetExperience - experience) / perBook
+    );
+    return {
+      status: "ready",
+      maximumLevel,
+      targetExperience,
+      unlockBooks,
+      levelingBooks,
+      totalBooks: unlockBooks + levelingBooks
+    };
+  }
+  function normalizeItemHrid2(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    return raw.startsWith("/items/") ? raw : `/items/${raw.split("/").at(-1)}`;
+  }
+  function itemHridFromIcon(root) {
+    const preferred = root?.querySelectorAll?.(
+      '[class*="MarketplacePanel_currentItem"] svg use,[class*="MarketplacePanel_itemContainer"] svg use,[class*="ItemDictionary_item"] svg use'
+    );
+    const icons = preferred?.length ? preferred : root?.querySelectorAll?.("svg use") ?? [];
+    for (const use of icons) {
+      const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
+      const fragment = href.split("#").at(-1);
+      const itemHrid = normalizeItemHrid2(fragment);
+      if (runtime.state.initData_itemDetailMap?.[itemHrid]) return itemHrid;
+    }
+    return "";
+  }
+  function itemHridFromTitle(root) {
+    const title = root?.querySelector?.('[class*="ItemDictionary_title"],h1,h2');
+    const name = String(
+      runtime.api.getOriTextFromElement?.(title) ?? title?.textContent ?? ""
+    ).trim();
+    if (!name) return "";
+    const mapped = runtime.state.itemEnNameToHridMap?.[name];
+    if (mapped) return mapped;
+    const translatedItem = runtime.data.ZHToItemHridMap?.[name];
+    if (translatedItem) return translatedItem;
+    const translated = runtime.api.getOthersFromZhName?.(name);
+    if (String(translated ?? "").startsWith("/abilities/")) {
+      return String(translated).replace("/abilities/", "/items/");
+    }
+    return normalizeItemHrid2(translated);
+  }
+  function resolveAbilityBookItem(root) {
+    const itemHrid = itemHridFromIcon(root) || itemHridFromTitle(root);
+    return runtime.state.initData_itemDetailMap?.[itemHrid]?.abilityBookDetail ? itemHrid : "";
+  }
+  function abilityRecord(abilityHrid) {
+    const source = runtime.state.initData_characterAbilities;
+    if (source === null || source === void 0) return { ready: false };
+    const records = Array.isArray(source) ? source : Object.values(source);
+    const record = records.find(
+      (candidate) => (candidate?.abilityHrid ?? candidate?.hrid) === abilityHrid
+    );
+    if (!record) {
+      return { ready: true, isLearned: false, level: 0, experience: 0 };
+    }
+    const experience = finite(
+      record.experience ?? record.totalExperience ?? record.experiencePoints
+    );
+    if (experience === null) return { ready: false };
+    let level = finite(record.level);
+    if (level === null) {
+      level = 0;
+      const table = runtime.state.initData_levelExperienceTable ?? [];
+      for (let index = 1; index < table.length; index += 1) {
+        if (finite(table[index]) !== null && experience >= Number(table[index])) {
+          level = index;
+        }
+      }
+    }
+    return { ready: true, isLearned: true, level, experience };
+  }
+  function calculatorData(itemHrid) {
+    const item = runtime.state.initData_itemDetailMap?.[itemHrid];
+    const detail = item?.abilityBookDetail;
+    const table = runtime.state.initData_levelExperienceTable;
+    if (!detail || !Array.isArray(table)) return { ready: false };
+    const abilityHrid = detail.abilityHrid ?? itemHrid.replace("/items/", "/abilities/");
+    const characterAbility = abilityRecord(abilityHrid);
+    if (!characterAbility.ready) return { ready: false };
+    return {
+      ready: true,
+      itemHrid,
+      experienceGain: finite(detail.experienceGain),
+      maximumLevel: maxAbilityLevel(table),
+      levelExperienceTable: table,
+      ...characterAbility
+    };
+  }
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID9;
+    style.textContent = `
+    .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
+    .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
+    .${PANEL_CLASS} .mwi-book-target{display:flex;align-items:center;gap:6px}
+    .${PANEL_CLASS} input{width:68px;box-sizing:border-box;border:1px solid rgba(255,255,255,.2);border-radius:4px;background:rgba(0,0,0,.25);color:inherit;padding:3px 5px}
+    .${PANEL_CLASS} .mwi-book-result,.${PANEL_CLASS} .mwi-book-cost,.${PANEL_CLASS} .mwi-book-state{grid-column:1/-1}
+    .${PANEL_CLASS} .mwi-book-result{font-weight:650;color:#9fd7ab}
+    .${PANEL_CLASS}[data-status="invalid"] .mwi-book-result{color:#ff9c8f}
+    .${PANEL_CLASS} .mwi-book-muted{color:var(--color-text-secondary,#aaa)}
+    @media(max-width:700px){.${PANEL_CLASS}{grid-template-columns:1fr;gap:4px}.${PANEL_CLASS}>*{grid-column:1!important}}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function createPanel(surface, onTargetChange) {
+    const panel = document.createElement("section");
+    panel.className = PANEL_CLASS;
+    panel.dataset.surface = surface;
+    const title = document.createElement("div");
+    title.className = "mwi-book-title";
+    const state = document.createElement("div");
+    state.className = "mwi-book-state";
+    const perBook = document.createElement("div");
+    perBook.className = "mwi-book-muted mwi-book-per-book";
+    const target = document.createElement("label");
+    target.className = "mwi-book-target";
+    const targetText = document.createElement("span");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.step = "1";
+    input.addEventListener("input", () => onTargetChange(panel, input.value));
+    target.append(targetText, input);
+    const result = document.createElement("div");
+    result.className = "mwi-book-result";
+    result.setAttribute("aria-live", "polite");
+    const cost = document.createElement("div");
+    cost.className = "mwi-book-cost mwi-book-muted";
+    panel.append(title, state, perBook, target, result, cost);
+    return panel;
+  }
+  function setPanelText(panel, selector, value) {
+    const element = panel.querySelector(selector);
+    if (element && element.textContent !== value) element.textContent = value;
+  }
+  function updatePanel(panel, itemHrid, targetValues) {
+    panel.dataset.itemHrid = itemHrid;
+    setPanelText(
+      panel,
+      ".mwi-book-title",
+      t8("技能书计算器", "Ability book calculator")
+    );
+    const data = calculatorData(itemHrid);
+    const input = panel.querySelector("input");
+    const targetLabel = panel.querySelector(".mwi-book-target span");
+    targetLabel.textContent = t8("目标等级", "Target level");
+    input.setAttribute("aria-label", targetLabel.textContent);
+    if (!data.ready || !data.experienceGain || !data.maximumLevel) {
+      panel.dataset.status = "waiting";
+      input.disabled = true;
+      setPanelText(
+        panel,
+        ".mwi-book-state",
+        t8("等待角色与技能书数据", "Waiting for character and ability-book data")
+      );
+      setPanelText(panel, ".mwi-book-per-book", "");
+      setPanelText(panel, ".mwi-book-result", "—");
+      setPanelText(panel, ".mwi-book-cost", "");
+      return;
+    }
+    input.disabled = false;
+    input.min = "1";
+    input.max = String(data.maximumLevel);
+    const defaultTarget = Math.min(
+      data.maximumLevel,
+      Math.max(1, Number(data.level) + 1)
+    );
+    let target = Number(targetValues.get(itemHrid) ?? defaultTarget);
+    if (!Number.isInteger(target)) target = defaultTarget;
+    if (String(input.value) !== String(target)) input.value = String(target);
+    targetValues.set(itemHrid, target);
+    const exact = runtime.api.formatExactNumber ?? ((value) => String(value));
+    setPanelText(
+      panel,
+      ".mwi-book-state",
+      data.isLearned ? t8(
+        `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
+        `Current Lv.${data.level} · total XP ${exact(data.experience)}`
+      ) : t8("当前：未学习", "Current: not learned")
+    );
+    setPanelText(
+      panel,
+      ".mwi-book-per-book",
+      t8(
+        `每本增加 ${exact(data.experienceGain)} 经验`,
+        `${exact(data.experienceGain)} XP per book`
+      )
+    );
+    const requirement = calculateAbilityBookRequirement({
+      isLearned: data.isLearned,
+      currentLevel: data.level,
+      currentExperience: data.experience,
+      targetLevel: target,
+      experienceGain: data.experienceGain,
+      levelExperienceTable: data.levelExperienceTable
+    });
+    panel.dataset.status = requirement.status;
+    let resultText;
+    if (requirement.status === "invalid") {
+      resultText = t8(
+        `目标等级必须为 1–${data.maximumLevel} 的整数`,
+        `Target level must be an integer from 1 to ${data.maximumLevel}`
+      );
+    } else if (requirement.status === "reached") {
+      resultText = t8("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+    } else if (requirement.unlockBooks) {
+      resultText = t8(
+        `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
+        `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
+      );
+    } else {
+      resultText = t8(
+        `升级还需 ${requirement.totalBooks} 本`,
+        `${requirement.totalBooks} books needed to level`
+      );
+    }
+    setPanelText(panel, ".mwi-book-result", resultText);
+    const books = requirement.totalBooks;
+    const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
+    let costText = "";
+    if (requirement.status !== "invalid") {
+      costText = books === 0 ? t8("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t8(
+        `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低卖价 ${runtime.api.numberFormatter(ask)}/本）`,
+        `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
+      ) : t8(
+        "参考购买成本：暂无卖价",
+        "Reference purchase cost: no ask price"
+      );
+    }
+    setPanelText(panel, ".mwi-book-cost", costText);
+  }
+  function visiblePanels(selector) {
+    const panels = [...document.querySelectorAll(selector)];
+    const visible = panels.filter((panel) => panel.getClientRects().length);
+    return visible.length ? visible : panels;
+  }
+  function marketAnchor(panel) {
+    return panel.querySelector(
+      '[class*="MarketplacePanel_currentItem"],[class*="MarketplacePanel_itemContainer"]'
+    ) ?? panel.firstElementChild;
+  }
+  runtime.features.register({
+    id: "skillbook",
+    setting: "skillbook",
+    scope: "character",
+    initialize({ scope }) {
+      addStyles7();
+      const targetValues = /* @__PURE__ */ new Map();
+      let refreshTimer2 = null;
+      const updateSurface = (container, itemHrid, surface) => {
+        let panel = container.querySelector(
+          `.${PANEL_CLASS}[data-surface="${surface}"]`
+        );
+        if (!panel) {
+          panel = createPanel(surface, (changedPanel, value) => {
+            targetValues.set(changedPanel.dataset.itemHrid, Number(value));
+            updatePanel(
+              changedPanel,
+              changedPanel.dataset.itemHrid,
+              targetValues
+            );
+          });
+          if (surface === "market") {
+            marketAnchor(container)?.insertAdjacentElement("afterend", panel);
+            if (!panel.isConnected) container.appendChild(panel);
+          } else {
+            container.appendChild(panel);
+          }
+        }
+        updatePanel(panel, itemHrid, targetValues);
+      };
+      const refresh = () => {
+        for (const panel of visiblePanels(MARKET_SELECTOR)) {
+          const itemHrid = resolveAbilityBookItem(panel);
+          const existing = panel.querySelector(
+            `.${PANEL_CLASS}[data-surface="market"]`
+          );
+          if (itemHrid) updateSurface(panel, itemHrid, "market");
+          else existing?.remove();
+        }
+        for (const panel of visiblePanels(DICTIONARY_SELECTOR)) {
+          const itemHrid = resolveAbilityBookItem(panel);
+          const existing = panel.querySelector(
+            `.${PANEL_CLASS}[data-surface="dictionary"]`
+          );
+          if (itemHrid) updateSurface(panel, itemHrid, "dictionary");
+          else existing?.remove();
+        }
+      };
+      const schedule = () => {
+        if (refreshTimer2 !== null) return;
+        refreshTimer2 = setTimeout(() => {
+          refreshTimer2 = null;
+          refresh();
+        }, 50);
+      };
+      const observer = new MutationObserver(schedule);
+      scope.observer(observer, document.body, { childList: true, subtree: true });
+      for (const type of [
+        "init_client_data",
+        "init_character_data",
+        "abilities_updated",
+        "character_abilities_updated",
+        "action_completed",
+        "market_item_values_updated",
+        "market_item_order_books_updated"
+      ]) {
+        scope.add(runtime.onMessage(type, schedule));
+      }
+      scope.add(() => {
+        if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
+        document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
+        document.getElementById(STYLE_ID9)?.remove();
+      });
+      refresh();
+    }
+  });
+
   // src/features/inventory-market-double-click.js
   var INVENTORY_SELECTOR = 'div[class*="Inventory_items"]';
   var ITEM_SELECTOR = 'div[class*="Item_itemContainer"]';
-  var EXCLUDED_CATEGORIES = /* @__PURE__ */ new Set([
-    "Currencies",
-    "Currency",
-    "Loots",
-    "Loot",
-    "货币",
-    "战利品"
-  ]);
   function inventoryItemTarget(target) {
     const item = target?.closest?.(ITEM_SELECTOR);
     if (!item?.closest(INVENTORY_SELECTOR)) return null;
@@ -29302,7 +29908,6 @@ ${locks}` : ""}`;
     const categoryName = String(
       runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? ""
     ).trim();
-    if (EXCLUDED_CATEGORIES.has(categoryName)) return null;
     const icon = item.querySelector("svg[aria-label]");
     let itemName2 = icon?.getAttribute("aria-label")?.trim();
     if (!itemName2) return null;
@@ -29310,7 +29915,8 @@ ${locks}` : ""}`;
       itemName2 = runtime.api.getItemEnNameFromZhName?.(itemName2) ?? itemName2;
     }
     const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName2];
-    if (!itemHrid || itemHrid === "/items/coin") return null;
+    const itemDetail = runtime.state.initData_itemDetailMap?.[itemHrid];
+    if (!itemHrid || itemDetail?.isTradable !== true) return null;
     const levelText = item.querySelector('[class*="Item_enhancementLevel"]')?.textContent ?? "";
     const enhancementLevel = Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
     return { itemHrid, enhancementLevel, categoryName };
@@ -29343,7 +29949,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -29400,10 +30006,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t8(...labels);
+    if (labels) return t9(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t8(
+      return t9(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -29467,7 +30073,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t8("意见反馈服务请求超时", "Feedback service request timed out")
+            t9("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -29484,7 +30090,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t8(
+            localizeErrorDetail(payload?.detail) || t9(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -29502,7 +30108,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t8("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t9("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -29516,9 +30122,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t8("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t9("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t8("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t9("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -29531,21 +30137,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t8("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t9("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t8("图片链接过长", "The image link is too long"));
+        throw new Error(t9("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t8("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t9("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t8("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t9("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -29648,8 +30254,8 @@ ${locks}` : ""}`;
   // src/features/feedback/panel.js
   var ROOT_ID = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID9 = "mwitools-feedback-style";
-  function t9(zh, en) {
+  var STYLE_ID10 = "mwitools-feedback-style";
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -29658,12 +30264,12 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t9(...labels[status]) : status;
+    return labels[status] ? t10(...labels[status]) : status;
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
@@ -29704,23 +30310,23 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles7();
+      addStyles8();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t9("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t9("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t9("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t9("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t9("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t10("MWITools 意见反馈", "MWITools Feedback")}">
+        <header class="mwi-feedback-head"><h2>${t10("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t10("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t10("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t10("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
         <div class="mwi-feedback-body">
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t9("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t10("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t9("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t9("功能建议", "Feature request")}</option><option value="other">${t9("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t9("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t9("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t9("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t9("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t9("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t9("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t9("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t9("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t9("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t10("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t10("功能建议", "Feature request")}</option><option value="other">${t10("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t10("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t10("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t10("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t10("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t10("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t10("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t10("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t10("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t10("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -29762,7 +30368,7 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t9("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        button.innerHTML = `<span>✉</span><span>${t10("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
         this.scope.event(button, "click", () => this.open());
       }
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
@@ -29829,12 +30435,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t9("正在提交…", "Submitting…");
+      error.textContent = t10("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t9("请填写标题和详细说明。", "Enter a title and details.")
+            t10("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -29854,7 +30460,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t9("已保存反馈。", "Feedback saved.");
+        error.textContent = t10("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -29867,7 +30473,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t9(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t10(
         "提交",
         "Submit"
       );
@@ -29900,13 +30506,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t9(
+      node.textContent = errorMessage ? t10(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t9(
+      ) : this.quota ? t10(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t9("额度暂时不可用", "Quota unavailable");
+      ) : t10("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -29921,7 +30527,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t9("还没有提交过反馈。", "No feedback yet.")
+            t10("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -29955,7 +30561,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t9("返回列表", "Back")}`
+          `← ${t10("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -29969,29 +30575,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t9("详细说明", "Details"), item.detail)
+          this.textSection(t10("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t9("复现步骤", "Steps to reproduce"),
+              t10("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t9("预期结果", "Expected result"),
+              t10("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t9("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t10("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t9("图片", "Image")} ${index + 1}：${url}`
+              `${t10("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -30002,7 +30608,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t9("留言", "Messages")));
+        messages.append(makeElement("h4", "", t10("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -30010,7 +30616,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t9("管理员", "Admin") : t9("我", "Me")
+              message.actor === "admin" ? t10("管理员", "Admin") : t10("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -30022,7 +30628,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t9("暂无留言", "No messages")
+              t10("暂无留言", "No messages")
             )
           );
         }
@@ -30030,7 +30636,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t9("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t10("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -30039,9 +30645,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t9("补充留言…", "Add a message…");
+          input.placeholder = t10("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t9("发送", "Send"));
+          const send = makeElement("button", "", t10("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -30062,7 +30668,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t9(
+              t10(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -30099,7 +30705,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t9(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t10(
         "保存修改",
         "Save changes"
       );
@@ -30110,10 +30716,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID9)?.remove();
+      document.getElementById(STYLE_ID10)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID9 };
+  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID10 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -30162,11 +30768,11 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID10 = "mwitools-guild-xp-style";
+  var STYLE_ID11 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
-  function t10(zh, en) {
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -30285,10 +30891,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -30329,7 +30935,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t10("待再次采样", "Awaiting another sample") : t10("样本不足", "Not enough data");
+      return waiting ? t11("待再次采样", "Awaiting another sample") : t11("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -30363,7 +30969,7 @@ ${locks}` : ""}`;
     svg.classList.add("mwi-guild-trend");
     svg.setAttribute("viewBox", "0 0 400 58");
     svg.setAttribute("preserveAspectRatio", "none");
-    const label = t10(
+    const label = t11(
       "公会经验获取速度（XP/小时）",
       "Guild XP gain rate (XP/hour)"
     );
@@ -30445,10 +31051,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t10("公会经验进度", "Guild XP progress");
+    title.textContent = t11("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t10("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t10("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t11("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t11("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -30463,21 +31069,21 @@ ${locks}` : ""}`;
     const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
     const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
     grid.append(
-      metric2(t10("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
+      metric2(t11("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
       metric2(
-        t10("最近 XP/h", "Recent XP/h"),
+        t11("最近 XP/h", "Recent XP/h"),
         rateText(rates?.recent, !rates?.lastSampleAt)
       ),
-      metric2(t10("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t10("24 小时平均", "24-hour average"), rateText(rates?.day)),
+      metric2(t11("1 小时平均", "1-hour average"), rateText(rates?.hour)),
+      metric2(t11("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
-        t10("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t10("样本不足", "Not enough data")
+        t11("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t11("样本不足", "Not enough data")
       )
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t10(
+    trendLabel.textContent = t11(
       "最近 7 天经验获取速度（XP/小时）",
       "XP gain rate over the last 7 days (XP/hour)"
     );
@@ -30489,7 +31095,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t10("当前闲置", "Idle now")} (${idle.length}) · ${t10(
+      label.textContent = `${t11("当前闲置", "Idle now")} (${idle.length}) · ${t11(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -30511,8 +31117,8 @@ ${locks}` : ""}`;
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
       for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t10("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t10("24 小时 XP/h", "24h XP/h")]
+        ["mwi-guild-recent-head", t11("最近 XP/h", "Recent XP/h")],
+        ["mwi-guild-day-head", t11("24 小时 XP/h", "24h XP/h")]
       ].entries()) {
         const cell = document.createElement("th");
         cell.className = className;
@@ -30524,7 +31130,7 @@ ${locks}` : ""}`;
         cell.append(labelNode, sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t10("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t11("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -30626,10 +31232,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t10("最近 XP/h", "Recent XP/h")
+          textContent: t11("最近 XP/h", "Recent XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t10("24 小时 XP/h", "24h XP/h")
+          textContent: t11("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -30707,7 +31313,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles8();
+      addStyles9();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -30722,7 +31328,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles8();
+        addStyles9();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -30758,7 +31364,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   async function handleBattleSummary(message) {
@@ -30990,7 +31596,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t11("全部", "All")}</option>
+            <option value="1">${t12("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31011,7 +31617,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t11("全部", "All")}</option>
+            <option value="1000">${t12("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31032,33 +31638,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t11("全部", "All")}</option>
-                <option value="attack">${t11("攻击", "Attack")}</option>
-                <option value="melee">${t11("近战", "Melee")}</option>
-                <option value="defense">${t11("防御", "Defense")}</option>
-                <option value="ranged">${t11("远程", "Ranged")}</option>
-                <option value="magic">${t11("魔法", "Magic")}</option>
-                <option value="others">${t11("其他", "Others")}</option>
+                <option value="all">${t12("全部", "All")}</option>
+                <option value="attack">${t12("攻击", "Attack")}</option>
+                <option value="melee">${t12("近战", "Melee")}</option>
+                <option value="defense">${t12("防御", "Defense")}</option>
+                <option value="ranged">${t12("远程", "Ranged")}</option>
+                <option value="magic">${t12("魔法", "Magic")}</option>
+                <option value="others">${t12("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t11("全部", "All")}</option>
-                <option value="main_hand">${t11("主手", "Main Hand")}</option>
-                <option value="off_hand">${t11("副手", "Off Hand")}</option>
-                <option value="two_hand">${t11("双手", "Two Hand")}</option>
-                <option value="head">${t11("头部", "Head")}</option>
-                <option value="body">${t11("身体", "Body")}</option>
-                <option value="hands">${t11("手部", "Hands")}</option>
-                <option value="legs">${t11("腿部", "Legs")}</option>
-                <option value="feet">${t11("脚部", "Feet")}</option>
-                <option value="neck">${t11("项链", "Neck")}</option>
-                <option value="earrings">${t11("耳饰", "Earrings")}</option>
-                <option value="ring">${t11("戒指", "Ring")}</option>
-                <option value="pouch">${t11("袋子", "Pouch")}</option>
-                <option value="back">${t11("背部", "Back")}</option>
+                <option value="all">${t12("全部", "All")}</option>
+                <option value="main_hand">${t12("主手", "Main Hand")}</option>
+                <option value="off_hand">${t12("副手", "Off Hand")}</option>
+                <option value="two_hand">${t12("双手", "Two Hand")}</option>
+                <option value="head">${t12("头部", "Head")}</option>
+                <option value="body">${t12("身体", "Body")}</option>
+                <option value="hands">${t12("手部", "Hands")}</option>
+                <option value="legs">${t12("腿部", "Legs")}</option>
+                <option value="feet">${t12("脚部", "Feet")}</option>
+                <option value="neck">${t12("项链", "Neck")}</option>
+                <option value="earrings">${t12("耳饰", "Earrings")}</option>
+                <option value="ring">${t12("戒指", "Ring")}</option>
+                <option value="pouch">${t12("袋子", "Pouch")}</option>
+                <option value="back">${t12("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -31185,123 +31791,13 @@ ${locks}` : ""}`;
       }
     }
   }
-  var waitForItemDict = () => {
-    const targetNode = document.querySelector("div.GamePage_gamePage__ixiPl");
-    if (targetNode) {
-      console.log("start observe item dict");
-      const itemDictPanelObserver = new MutationObserver(async function(mutations) {
-        for (const mutation of mutations) {
-          for (const added of mutation.addedNodes) {
-            if (added?.classList?.contains("ItemDictionary_modalWrapper__1Ywn2") && added.querySelector("div.ItemDictionary_modalContent__WvEBY")) {
-              handleItemDict(
-                added.querySelector("div.ItemDictionary_modalContent__WvEBY")
-              );
-            }
-          }
-        }
-      });
-      itemDictPanelObserver.observe(targetNode, {
-        attributes: false,
-        childList: true,
-        subtree: true
-      });
-    } else {
-      setTimeout(waitForItemDict, 200);
-    }
-  };
-  async function handleItemDict(panel) {
-    let abilityHrid = null;
-    if (runtime.config.isZHInGameSetting) {
-      abilityHrid = runtime.api.getOthersFromZhName(
-        panel.querySelector("h1.ItemDictionary_title__27cTd").textContent
-      );
-    } else {
-      const itemName2 = runtime.api.getOriTextFromElement(
-        panel.querySelector("h1.ItemDictionary_title__27cTd")
-      ).toLowerCase().replaceAll(" ", "_").replaceAll("'", "");
-      for (const skillHrid of Object.keys(
-        runtime.state.initData_abilityDetailMap
-      )) {
-        if (skillHrid.includes("/" + itemName2)) {
-          abilityHrid = skillHrid;
-        }
-      }
-    }
-    if (!abilityHrid) {
-      return;
-    }
-    const itemHrid = abilityHrid.replace("/abilities/", "/items/");
-    const abilityPerBookExp = runtime.state.initData_itemDetailMap[itemHrid]?.abilityBookDetail?.experienceGain;
-    let currentLevel = 0;
-    let currentExp = 0;
-    for (const a of Object.values(runtime.state.initData_characterAbilities)) {
-      if (a.abilityHrid === abilityHrid) {
-        currentLevel = a.level;
-        currentExp = a.experience;
-      }
-    }
-    const getNeedBooksToLevel = (currentLevel2, currentExp2, targetLevel, abilityPerBookExp2) => {
-      const needExp = runtime.state.initData_levelExperienceTable[targetLevel] - currentExp2;
-      let needBooks = needExp / abilityPerBookExp2;
-      if (currentLevel2 === 0) {
-        needBooks += 1;
-      }
-      return (Math.ceil(needBooks * 10) / 10).toFixed(1);
-    };
-    let numBooks = getNeedBooksToLevel(
-      currentLevel,
-      currentExp,
-      currentLevel + 1,
-      abilityPerBookExp
-    );
-    const marketAPIJson = await runtime.api.fetchMarketJSON();
-    const ask = marketAPIJson.marketData[itemHrid][0].a || 0;
-    const bid = marketAPIJson.marketData[itemHrid][0].b || 0;
-    let hTMLStr = `<div id="tillLevel" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; text-align: left;">${runtime.config.isZH ? "到 " : "To "}<input id="tillLevelInput" type="number" value="${currentLevel + 1}" min="${currentLevel + 1}" max="200">${runtime.config.isZH ? " 级还需 " : " level need "}
-    <span id="tillLevelNumber">${numBooks} (${runtime.api.numberFormatter(numBooks * ask)} / ${runtime.api.numberFormatter(numBooks * bid)})</span>
-    <div>${runtime.config.isZH ? " 本书 (刷新网页更新当前等级)" : " books (Refresh page to update current level.)"}</div>
-    </div>`;
-    panel.insertAdjacentHTML("beforeend", hTMLStr);
-    const tillLevelInput = panel.querySelector("input#tillLevelInput");
-    const tillLevelNumber = panel.querySelector("span#tillLevelNumber");
-    tillLevelInput.onchange = () => {
-      const targetLevel = Number(tillLevelInput.value);
-      if (targetLevel > currentLevel && targetLevel <= 200) {
-        let numBooks2 = getNeedBooksToLevel(
-          currentLevel,
-          currentExp,
-          targetLevel,
-          abilityPerBookExp
-        );
-        tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
-      } else {
-        tillLevelNumber.textContent = t11("错误", "Error");
-      }
-    };
-    tillLevelInput.addEventListener("keyup", function(evt) {
-      const targetLevel = Number(tillLevelInput.value);
-      if (targetLevel > currentLevel && targetLevel <= 200) {
-        let numBooks2 = getNeedBooksToLevel(
-          currentLevel,
-          currentExp,
-          targetLevel,
-          abilityPerBookExp
-        );
-        tillLevelNumber.textContent = `${numBooks2} (${runtime.api.numberFormatter(numBooks2 * ask)} / ${runtime.api.numberFormatter(numBooks2 * bid)})`;
-      } else {
-        tillLevelNumber.textContent = t11("错误", "Error");
-      }
-    });
-  }
   Object.assign(runtime.api, {
     handleBattleSummary,
     addItemLevels,
     addMarketFilterButtons,
     handleMarketItemFilter,
     handleTaskCard,
-    addIndexToMaps,
-    waitForItemDict,
-    handleItemDict
+    addIndexToMaps
   });
   Object.defineProperties(runtime.state, {
     onlyShowItemsAboveLevel: {
@@ -32051,17 +32547,17 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID11 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID12 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 8;
   var activePanel2 = null;
-  function t12(zh, en) {
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -32095,7 +32591,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number2)) return "—";
     const rounded = Math.round(number2);
     const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number2, digits)} ${t12("个", "pcs")}`;
+    return `${compactNumber(number2, digits)} ${t13("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -32118,11 +32614,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t12(
+      text: t13(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t12(
+      title: t13(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -32131,28 +32627,28 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t12("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t12("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t12(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t12("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t12(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t12("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t13("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t13("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t13(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t13("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t13(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t13("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t12("总成本", "Total cost"),
+        t13("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t12("耗时", "Time"),
+        t13("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t12("开始保护", "Protect from"), normalStart),
+      metric3(t13("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t12("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t13("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -32223,7 +32719,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles9();
+    addStyles10();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -33000,9 +33496,9 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID12 = "mwitools-important-update-style";
+  var STYLE_ID13 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t13(value) {
+  function t14(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -33093,10 +33589,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -33114,7 +33610,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles10();
+    addStyles11();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -33126,8 +33622,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t13(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t13(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t14(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    banner.querySelector(".mwi-update-banner-message").textContent = t14(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
     action.href = manifest.url || GREASY_FORK_URL;
@@ -33157,7 +33653,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID12)?.remove();
+        document.getElementById(STYLE_ID13)?.remove();
       });
     }
   });
@@ -35253,9 +35749,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t14 = 0;
-        playerKills.forEach((v) => t14 += v);
-        return t14;
+        let t15 = 0;
+        playerKills.forEach((v) => t15 += v);
+        return t15;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -35511,12 +36007,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t14) {
-      const low = t14.toLowerCase();
+    function looksLikeNoise(t15) {
+      const low = t15.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t14)) return true;
-      if (/^\d+%?$/.test(t14)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t14)) return true;
+      if (/^lv\.?\d+$/i.test(t15)) return true;
+      if (/^\d+%?$/.test(t15)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t15)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -35538,14 +36034,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t14) => t14 && !looksLikeNoise(t14) && !/^trial\s/i.test(t14));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t15) => t15 && !looksLikeNoise(t15) && !/^trial\s/i.test(t15));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t14, i) => {
-        resolved.set(String(i + offset), t14);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t15, i) => {
+        resolved.set(String(i + offset), t15);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -35613,7 +36109,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t14) => t14.length > 0)) {
+          if (texts.some((t15) => t15.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -35649,10 +36145,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t14 = c.textContent.trim();
-            if (t14.length >= 2 && t14.length <= 20 && !looksLikeNoise(t14)) {
+            const t15 = c.textContent.trim();
+            if (t15.length >= 2 && t15.length <= 20 && !looksLikeNoise(t15)) {
               nameLikeCount++;
-              texts.push(t14.slice(0, 20));
+              texts.push(t15.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -37129,11 +37625,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t14 = el2.textContent.trim();
-        if (!t14 || t14.length < 2 || t14.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t14);
+        const t15 = el2.textContent.trim();
+        if (!t15 || t15.length < 2 || t15.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t15);
         let cssEllipsis = false;
-        if (!literalEllipsis && t14.length <= 20 && !t14.includes(" ") && !looksLikeNoise(t14)) {
+        if (!literalEllipsis && t15.length <= 20 && !t15.includes(" ") && !looksLikeNoise(t15)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -39582,10 +40078,10 @@ ${locks}` : ""}`;
         ])
       ];
       for (const c of containers) {
-        const t14 = c.textContent;
-        if (t14.includes("Combat Zones") || t14.includes("战斗区域") || t14.includes("戰鬥區域"))
+        const t15 = c.textContent;
+        if (t15.includes("Combat Zones") || t15.includes("战斗区域") || t15.includes("戰鬥區域"))
           return c;
-        if (t14.includes("Labyrinth") && t14.includes("Room") && t14.includes("Automation") || t14.includes("迷宫") && (t14.includes("房间") || t14.includes("自动化")) || t14.includes("迷宮") && (t14.includes("房間") || t14.includes("自動化")))
+        if (t15.includes("Labyrinth") && t15.includes("Room") && t15.includes("Automation") || t15.includes("迷宫") && (t15.includes("房间") || t15.includes("自动化")) || t15.includes("迷宮") && (t15.includes("房間") || t15.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -39891,10 +40387,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t14) => {
+      TYPES.forEach((t15) => {
         const btn = document.createElement("button");
-        btn.textContent = t14.label;
-        const active = historyFilter === t14.id;
+        btn.textContent = t15.label;
+        const active = historyFilter === t15.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -39908,7 +40404,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t14.id;
+          historyFilter = t15.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -40032,8 +40528,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t14) => t14.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t14) => t14.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t15) => t15.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t15) => t15.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -41776,12 +42272,6 @@ ${locks}` : ""}`;
   ]) {
     adapters[id] = {};
   }
-  adapters.skillbook = {
-    scope: "character",
-    initialize() {
-      runtime.api.waitForItemDict?.();
-    }
-  };
   adapters.ThirdPartyLinks = {
     initialize({ scope }) {
       runtime.api.add3rdPartyLinks?.();

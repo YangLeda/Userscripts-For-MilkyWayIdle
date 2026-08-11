@@ -222,6 +222,37 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
   assert.equal(result.complete, true);
 });
 
+test("a refined back item is included in equipped assets with its location", async () => {
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/artificer_cape_refined",
+      itemLocationHrid: "/item_locations/back",
+      enhancementLevel: 8,
+      count: 1,
+    },
+  ];
+  runtime.state.initData_myMarketListings = [];
+  let received;
+  runtime.api.getAssetValue = (itemHrid, enhancementLevel, options) => {
+    received = { itemHrid, enhancementLevel, options };
+    return 777;
+  };
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.getSelfBuildScores = async () => ({
+    assets: { allHouses: 0, allAbilities: 0 },
+  });
+  runtime.api.getGuildShrineValue = () => 0;
+
+  const result = await getAssetSnapshot();
+  assert.equal(result.values.equipment, 777);
+  assert.deepEqual(received, {
+    itemHrid: "/items/artificer_cape_refined",
+    enhancementLevel: 8,
+    options: { itemLocationHrid: "/item_locations/back" },
+  });
+});
+
 test("unknown legacy components never become fake zero-valued percentages", () => {
   const values = normalizeAssetValues(
     { equipment: 1, inventory: 2, marketListings: 3, total: 99 },

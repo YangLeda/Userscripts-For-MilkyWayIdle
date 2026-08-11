@@ -27,6 +27,7 @@ runtime.state.marketItemValues = {
   "/items/task_drop_b": { 0: 200 },
   "/items/labyrinth_reward": { 0: 4000 },
   "/items/test_cape": { 5: 50_000 },
+  "/items/artificer_cape_refined": { 5: 60_000 },
   "/items/test_sword": { 5: 40_000 },
 };
 runtime.state.initData_itemDetailMap = {
@@ -75,6 +76,9 @@ runtime.state.initData_itemDetailMap = {
   "/items/task_crate": { sellPrice: 5 },
   "/items/test_cape": {
     equipmentDetail: { equipmentSlotHrid: "/item_locations/back" },
+  },
+  "/items/artificer_cape_refined": {
+    equipmentDetail: { type: "/equipment_types/back" },
   },
   "/items/test_sword": {
     equipmentDetail: { equipmentSlotHrid: "/item_locations/main_hand" },
@@ -293,6 +297,12 @@ test("back equipment can use forced protection-mirror enhancement value", () => 
     "/items/mirror_of_protection",
   );
   assert.equal(received.allowPhilosopherMirror, false);
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(
+    runtime.api.getAssetValue("/items/artificer_cape_refined", 5),
+    123_456,
+  );
+  assert.equal(received.itemHrid, "/items/artificer_cape_refined");
   assert.equal(runtime.api.getAssetValue("/items/test_sword", 5), 40_000);
   assert.equal(
     runtime.api.isBackEquipment(

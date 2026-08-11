@@ -57,7 +57,7 @@ function normalizedName(value) {
 function badgeTier(rank) {
   const value = Number(rank);
   if (!Number.isInteger(value) || value < 1 || value > 100) return null;
-  if (value <= 20) return "diamond";
+  if (value <= 20) return "rainbow";
   if (value <= 50) return "gold";
   if (value <= 80) return "silver";
   return "bronze";
@@ -114,7 +114,7 @@ function ensureStyles(documentRef) {
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
-    .mwi-lb-badge--diamond{border-color:transparent;color:#f4fbff;background:linear-gradient(rgba(10,17,30,.92),rgba(10,17,30,.92)) padding-box,conic-gradient(from 35deg,#fff 0 8%,#78d9ff 16%,#c6b7ff 29%,#f8ffff 43%,#66bdf4 57%,#e9fcff 72%,#93e9ff 86%,#fff) border-box;box-shadow:0 0 6px rgba(116,213,255,.5),inset 0 0 3px rgba(255,255,255,.16)}
+    .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
@@ -471,6 +471,12 @@ function createOverlay(options = {}) {
       scheduleRefresh();
       return true;
     },
+    clearLeaderboard() {
+      if (!state.currentLeaderboard) return;
+      removeRateColumn();
+      state.currentLeaderboard = null;
+      state.sortMode = "official";
+    },
     setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
       const nextBadges = Boolean(badges);
       const nextRates = Boolean(rates);
@@ -537,6 +543,10 @@ function create(options = {}) {
       };
       instance?.enhanceLeaderboard(leaderboard);
       return true;
+    },
+    clearLeaderboard() {
+      leaderboard = null;
+      instance?.clearLeaderboard();
     },
     setDisplay(next = {}) {
       display = {
@@ -769,7 +779,16 @@ function startIntegratedService() {
   };
   const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
     const normalized = normalizeLeaderboardPayload(payload);
-    if (!normalized) return;
+    if (!normalized) {
+      if (
+        payload?.type === "leaderboard_updated" &&
+        payload?.leaderboardType === "standard"
+      ) {
+        currentLeaderboard = null;
+        controller.clearLeaderboard();
+      }
+      return;
+    }
     currentLeaderboard = normalized;
     if (!categories[normalized.category]) {
       categories = {

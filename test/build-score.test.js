@@ -74,6 +74,15 @@ runtime.state.initData_itemDetailMap = {
     },
   },
   "/items/unknown_equipment": { equipmentDetail: {} },
+  "/items/artificer_cape_refined": {
+    equipmentDetail: {
+      type: "/equipment_types/back",
+      combatStats: {},
+      noncombatStats: { craftingSpeed: 0.058 },
+      combatEnhancementBonuses: {},
+      noncombatEnhancementBonuses: { craftingSpeed: 0.0058 },
+    },
+  },
 };
 runtime.state.initData_houseRoomDetailMap = Object.fromEntries(
   allHouseHrids.map((houseHrid) => [
@@ -137,6 +146,7 @@ runtime.state.marketItemValues = {
   "/items/hybrid_ring": { 3: 30_000_000 },
   "/items/future_combat_tool": { 4: 40_000_000 },
   "/items/unknown_equipment": { 0: 50_000_000 },
+  "/items/artificer_cape_refined": { 6: 12_000_000 },
 };
 const additionalToolTypes = [
   "milking",
@@ -190,6 +200,24 @@ test("equipment data separates combat, skilling, tools and dual-use gear", () =>
   assert.deepEqual(
     runtime.api.classifyEquippedItem(runtime.state.initData_characterItems[3]),
     { isTool: true, isCombat: false, isSkilling: true },
+  );
+});
+
+test("refined back equipment contributes its enhanced value to gear score", () => {
+  assert.deepEqual(
+    runtime.api.calculateGearScores([
+      {
+        itemHrid: "/items/artificer_cape_refined",
+        itemLocationHrid: "/item_locations/back",
+        enhancementLevel: 6,
+        count: 1,
+      },
+    ]),
+    {
+      combatEquipment: 0,
+      skillingTools: 0,
+      skillingEquipment: 12,
+    },
   );
 });
 

@@ -89,12 +89,6 @@ for (const id of [
   adapters[id] = {};
 }
 
-adapters.skillbook = {
-  scope: "character",
-  initialize() {
-    runtime.api.waitForItemDict?.();
-  },
-};
 adapters.ThirdPartyLinks = {
   initialize({ scope }) {
     runtime.api.add3rdPartyLinks?.();

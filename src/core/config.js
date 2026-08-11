@@ -204,8 +204,8 @@ let settingsMap = {
   skillbook: {
     id: "skillbook",
     desc: isZH
-      ? "技能书的物品词典面板显示：到多少级还需要多少本技能书"
-      : "Item dictionary of skill books: Number of books needed to reach target skill level.",
+      ? "在技能书市场和物品词典显示实时升级需求"
+      : "Show live ability-book requirements in the market and item dictionary.",
     isTrue: true,
   },
   ThirdPartyLinks: {
@@ -291,6 +291,13 @@ let settingsMap = {
     desc: isZH
       ? "新领取任务显示高亮和新角标"
       : "Highlight newly received tasks.",
+    isTrue: true,
+  },
+  taskAutoReturn: {
+    id: "taskAutoReturn",
+    desc: isZH
+      ? "从任务前往动作后自动返回原任务位置"
+      : "Return to the originating task after leaving its action.",
     isTrue: true,
   },
   inventoryMarketDoubleClick: {
@@ -700,6 +707,14 @@ const catalogRows = [
     "Show a yellow badge and highlight on newly received tasks until the task card is clicked.",
   ],
   [
+    "taskAutoReturn",
+    "tasks",
+    "任务自动返回",
+    "Task auto-return",
+    "从任务卡前往动作后，在提交或关闭动作时返回原任务分类和位置。",
+    "Return to the originating task group and position after submitting or closing its action.",
+  ],
+  [
     "taskMaterials",
     "tasks",
     "任务材料完成量",
@@ -886,10 +901,10 @@ const catalogRows = [
   [
     "skillbook",
     "tools",
-    "技能书需求",
-    "Ability book requirements",
-    "在技能书词典中计算升到目标等级还需要多少本。",
-    "Calculate books needed to reach a target ability level in the item dictionary.",
+    "技能书计算器",
+    "Ability book calculator",
+    "在技能书市场和物品词典实时计算解锁、升级所需本数与参考购买成本。",
+    "Calculate live unlock, leveling, and reference purchase requirements in ability-book markets and the item dictionary.",
   ],
 ];
 

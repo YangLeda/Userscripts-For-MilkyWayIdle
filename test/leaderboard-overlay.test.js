@@ -56,7 +56,7 @@ function rowNames() {
 test("exports the standalone overlay API and formatting helpers", () => {
   assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.0");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
-  assert.equal(badgeTier(1), "diamond");
+  assert.equal(badgeTier(1), "rainbow");
   assert.equal(badgeTier(35), "gold");
   assert.equal(badgeTier(70), "silver");
   assert.equal(badgeTier(100), "bronze");
@@ -164,7 +164,7 @@ test("renders fame with the game XP-buff icon and reads value1", async () => {
   const overlay = create({ document });
   overlay.setRankings({ fame_points: { rows: normalized.rows } });
   await settle();
-  const badge = document.querySelector(".mwi-lb-badge--diamond");
+  const badge = document.querySelector(".mwi-lb-badge--rainbow");
   assert.equal(badge.textContent, "#8");
   assert.equal(
     badge.querySelector("use").getAttribute("href"),
@@ -267,6 +267,41 @@ test("adds a sortable experience-rate column and restores official order", async
   assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
 });
 
+test("unsupported total-leaderboard tabs clear stale XP rates and sorting", async () => {
+  document.body.innerHTML = `
+    <table class="LeaderboardPanel_leaderboardTable__test">
+      <thead><tr><th>角色</th></tr></thead>
+      <tbody>
+        <tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr>
+        <tr><td><span class="CharacterName_name__test" data-name="Bob">Bob</span></td></tr>
+      </tbody>
+    </table>`;
+  const overlay = create({ document });
+  overlay.enhanceLeaderboard({
+    category: "milking",
+    rows: [
+      { characterName: "Alice", rank: 1, xpPerHour: 100 },
+      { characterName: "Bob", rank: 2, xpPerHour: 200 },
+    ],
+  });
+  await settle();
+  document.querySelector("[data-mwi-leaderboard-rate-header]").click();
+  await settle();
+  assert.deepEqual(rowNames(), ["Bob", "Alice"]);
+
+  overlay.clearLeaderboard();
+  assert.equal(
+    document.querySelector("[data-mwi-leaderboard-rate-header]"),
+    null,
+  );
+  assert.equal(
+    document.querySelector("[data-mwi-leaderboard-rate-cell]"),
+    null,
+  );
+  assert.deepEqual(rowNames(), ["Alice", "Bob"]);
+  overlay.destroy();
+});
+
 test("the feature anonymously loads, caches, and applies leaderboard data", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   await runtime.settings.set("leaderboardXpRate", false, { persist: false });
@@ -330,6 +365,33 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
     document.querySelector("[data-mwi-leaderboard-rate-cell]").textContent,
     "123.4K",
   );
+
+  runtime.dispatchMessage({
+    type: "leaderboard_updated",
+    leaderboardType: "standard",
+    leaderboardCategory: "task_points",
+    leaderboard: {
+      type: "standard",
+      category: "task_points",
+      rows: [{ id: 2, name: "Bob", rank: 1, value1: 999 }],
+    },
+  });
+  await settle();
+  assert.equal(
+    document.querySelector("[data-mwi-leaderboard-rate-cell]"),
+    null,
+  );
+  runtime.dispatchMessage({
+    type: "leaderboard_updated",
+    leaderboardType: "standard",
+    leaderboardCategory: "milking",
+    leaderboard: {
+      type: "standard",
+      category: "milking",
+      rows: [{ id: 1, name: "Alice", rank: 7, value1: 100, value2: 1000 }],
+    },
+  });
+  await settle();
 
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   assert.equal(document.querySelector(".mwi-lb-badge"), null);
