@@ -15,7 +15,16 @@ export async function getProductionBanner() {
   ).trimEnd();
 }
 
-export async function buildUserscript({ banner, outfile }) {
+export async function getDevelopmentBanner() {
+  return (await getProductionBanner())
+    .replace(/^\/\/ @name\s+MWITools$/m, "// @name         MWITools (dev)")
+    .replace(
+      /^\/\/ @namespace\s+.*$/m,
+      "// @namespace    https://fishingidle.com/mwitools-dev",
+    );
+}
+
+export async function buildUserscript({ banner, outfile, minify = false }) {
   await build({
     absWorkingDir: projectRoot,
     entryPoints: ["src/main.js"],
@@ -24,7 +33,8 @@ export async function buildUserscript({ banner, outfile }) {
     format: "iife",
     target: ["chrome100"],
     charset: "utf8",
-    minify: false,
+    minify,
+    keepNames: minify,
     sourcemap: false,
     legalComments: "inline",
     treeShaking: false,

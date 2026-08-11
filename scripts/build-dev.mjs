@@ -2,12 +2,11 @@ import path from "node:path";
 
 import {
   buildUserscript,
-  getProductionBanner,
+  getDevelopmentBanner,
   projectRoot,
 } from "./userscript-build.mjs";
 
 await buildUserscript({
-  banner: await getProductionBanner(),
-  outfile: path.join(projectRoot, "MWITools.js"),
-  minify: true,
+  banner: await getDevelopmentBanner(),
+  outfile: path.join(projectRoot, "MWITools.dev.user.js"),
 });

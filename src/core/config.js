@@ -152,6 +152,34 @@ let settingsMap = {
       : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
     isTrue: true,
   },
+  lootChestEstimate: {
+    id: "lootChestEstimate",
+    desc: isZH
+      ? "战利品宝箱悬浮窗显示开箱期望价值"
+      : "Show expected opening value for loot chests.",
+    isTrue: true,
+  },
+  lootSellAtAsk: {
+    id: "lootSellAtAsk",
+    desc: isZH
+      ? "宝箱产物按卖单挂单价格估值；关闭则按买单立即卖出"
+      : "Value chest drops at ask; off values immediate sales at bid.",
+    isTrue: false,
+  },
+  lootBuyAtAsk: {
+    id: "lootBuyAtAsk",
+    desc: isZH
+      ? "钥匙和碎片按卖单立即买入；关闭则按买单挂单买入"
+      : "Buy keys and fragments at ask; off values bid buy orders.",
+    isTrue: true,
+  },
+  lootKeyFromFragments: {
+    id: "lootKeyFromFragments",
+    desc: isZH
+      ? "钥匙按碎片自制成本计算；关闭则按成品钥匙买入价"
+      : "Use fragment crafting cost for keys; off buys finished keys.",
+    isTrue: false,
+  },
   expPercentage: {
     id: "expPercentage",
     desc: isZH
@@ -689,6 +717,38 @@ const catalogRows = [
     "Show recovery rate, cost per recovery, and maximum daily use.",
   ],
   [
+    "lootChestEstimate",
+    "market",
+    "宝箱价值估算",
+    "Loot chest estimate",
+    "在战利品宝箱悬浮窗显示概率加权的开箱期望，并可固定面板调整估值方式。",
+    "Show probability-weighted opening value for loot chests and pin the panel to adjust valuation.",
+  ],
+  [
+    "lootSellAtAsk",
+    "market",
+    "宝箱产物挂单卖出",
+    "List chest drops at ask",
+    "开启：按卖单挂单价估值；关闭：按买单立即卖出价估值。",
+    "On: value drops at ask; off: value immediate sales at bid.",
+  ],
+  [
+    "lootBuyAtAsk",
+    "market",
+    "钥匙材料立即买入",
+    "Buy key materials immediately",
+    "开启：按卖单立即买入钥匙或碎片；关闭：按买单挂单买入。",
+    "On: buy keys or fragments at ask; off: place buy orders at bid.",
+  ],
+  [
+    "lootKeyFromFragments",
+    "market",
+    "钥匙碎片自制",
+    "Craft keys from fragments",
+    "开启：按实际配方和碎片成本自制钥匙；关闭：购买成品钥匙。",
+    "On: craft keys from their actual recipe; off: buy finished keys.",
+  ],
+  [
     "marketFilter",
     "market",
     "装备筛选",
@@ -960,6 +1020,10 @@ const settingParents = {
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
+  lootChestEstimate: "itemTooltip_prices",
+  lootSellAtAsk: "lootChestEstimate",
+  lootBuyAtAsk: "lootChestEstimate",
+  lootKeyFromFragments: "lootChestEstimate",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",

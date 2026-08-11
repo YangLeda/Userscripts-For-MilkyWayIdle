@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 
 const dom = new JSDOM(
   `<!doctype html><html><head></head><body>
+    <div id="guild-shop" class="GuildPanel_shopTab__test"></div>
     <div class="GuildPanel_exchangeModalContent__test">
       <svg aria-label="Green Guild Credit"><use href="/items.svg#green_guild_credit"></use></svg>
       <svg aria-label="Cheese"><use href="/items.svg#cheese"></use></svg>
@@ -30,10 +31,30 @@ const {
   quoteGuildCreditAsk,
   readGuildExchangeContext,
   renderGuildCreditAdvisor,
+  renderGuildCreditRecommendations,
 } = await import("../src/features/guild-credit-advisor.js");
 
+const CREDIT_NAMES = [
+  "Green",
+  "Brown",
+  "White",
+  "Blue",
+  "Purple",
+  "Red",
+  "Silver",
+  "Gold",
+];
+const creditHrids = CREDIT_NAMES.map(
+  (name) => `/items/${name.toLowerCase()}_guild_credit`,
+);
+
 runtime.state.initData_itemDetailMap = {
-  "/items/green_guild_credit": { name: "Green Guild Credit" },
+  ...Object.fromEntries(
+    CREDIT_NAMES.map((name, index) => [
+      creditHrids[index],
+      { name: `${name} Guild Credit` },
+    ]),
+  ),
   "/items/milk": {
     name: "Milk",
     guildCreditConversions: [
@@ -54,20 +75,43 @@ runtime.state.initData_itemDetailMap = {
       },
     ],
   },
+  "/items/shared_material": {
+    name: "Shared Material",
+    guildCreditConversions: creditHrids.slice(1).map((creditItemHrid) => ({
+      creditItemHrid,
+      itemCount: 1,
+      creditCount: 1,
+    })),
+  },
 };
 Object.assign(runtime.state.itemEnNameToHridMap, {
-  "Green Guild Credit": "/items/green_guild_credit",
+  ...Object.fromEntries(
+    CREDIT_NAMES.map((name, index) => [
+      `${name} Guild Credit`,
+      creditHrids[index],
+    ]),
+  ),
   Milk: "/items/milk",
   Cheese: "/items/cheese",
+  "Shared Material": "/items/shared_material",
 });
 runtime.state.marketApiJson = {
   timestamp: 1,
   marketData: {
     "/items/milk": { 0: { a: 100, b: 90 } },
     "/items/cheese": { 0: { a: 300, b: 250 } },
+    "/items/shared_material": { 0: { a: 700, b: 650 } },
   },
 };
 runtime.api.ensureMarketValueSource = async () => true;
+
+const guildShop = document.querySelector("#guild-shop");
+for (const [index, name] of CREDIT_NAMES.entries()) {
+  const tile = document.createElement("div");
+  tile.className = "GuildPanel_guildTile__test";
+  tile.innerHTML = `<svg aria-label="${name} Guild Credit"><use href="/items.svg#${creditHrids[index].split("/").at(-1)}"></use></svg>`;
+  guildShop.append(tile);
+}
 
 test("guild exchange context resolves the credit, selected item and batches", () => {
   assert.deepEqual(
@@ -125,4 +169,21 @@ test("guild advisor shows the cheapest ask conversion and selected premium", asy
     document.querySelectorAll("#mwitools-guild-credit-advisor").length,
     1,
   );
+});
+
+test("guild shop shows all eight credit recommendations beside modal details", async () => {
+  const rendered = await renderGuildCreditRecommendations();
+  await renderGuildCreditRecommendations();
+  assert.equal(rendered.summaries.length, 8);
+  assert.equal(
+    document.querySelectorAll(".mwi-guild-credit-recommendation").length,
+    8,
+  );
+  assert.match(rendered.summaries[0].textContent, /牛奶/);
+  for (const summary of rendered.summaries.slice(1)) {
+    assert.match(summary.textContent, /Shared Material/);
+    assert.match(summary.textContent, /≈700\/点/);
+  }
+  assert.ok(rendered.advisor);
+  assert.match(rendered.advisor.textContent, /最优：牛奶/);
 });

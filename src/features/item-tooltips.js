@@ -418,7 +418,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
-    runtime.api.hideProductionProfitPanel?.();
+    runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
   }
@@ -503,10 +503,19 @@ async function handleTooltipItem(tooltip) {
 
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
 
-  if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
+  const dropMap = runtime.state.initData_openableLootDropMap;
+  const isOpenable = Boolean(
+    dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid],
+  );
+  if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
+    runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+  } else if (
+    !isOpenable &&
+    runtime.settings.settingsMap.itemTooltip_profit.isTrue
+  ) {
     runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
   } else {
-    runtime.api.hideProductionProfitPanel?.();
+    runtime.api.dismissHoverPanel?.();
   }
 
   // Make sure the tooltip is fully visible in the viewport
@@ -624,6 +633,17 @@ runtime.features.register({
     };
     attach();
     scope.interval(attach, 250);
+    scope.event(
+      document,
+      "dblclick",
+      (event) => {
+        if (event.button && event.button !== 0) return;
+        if (!runtime.api.pinActiveLootChestPanel?.()) return;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      true,
+    );
     scope.add(() => {
       tooltipObserver.disconnect();
       for (const style of styles) style?.remove?.();
@@ -648,7 +668,7 @@ for (const id of ["itemTooltip_profit", "showConsumTips"]) {
       scope.event(document, "mouseout", (event) => {
         const card = gatheringCardFromEventTarget(event.target);
         if (!card || card.contains(event.relatedTarget)) return;
-        runtime.api.hideProductionProfitPanel?.();
+        runtime.api.dismissHoverPanel?.();
       });
     },
   });

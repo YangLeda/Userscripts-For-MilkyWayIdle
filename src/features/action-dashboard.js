@@ -1,6 +1,8 @@
 import { runtime } from "../core/runtime.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
+const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
+const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -53,6 +55,11 @@ function addStyles() {
     .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
+    .mwi-production-quick-inputs { display:grid; gap:3px; width:100%; min-width:0; margin:3px 0 1px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-production-quick-row { display:flex; min-width:0; align-items:center; gap:3px; }
+    .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
+    .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
+    .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
     @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:2px 8px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -328,6 +335,124 @@ function setReactInputValue(input, value) {
   input.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
+function removeProductionQuickInputs() {
+  document
+    .querySelectorAll(".mwi-production-quick-inputs")
+    .forEach((element) => element.remove());
+}
+
+function quickButtonPrototype(panel, input) {
+  const container =
+    input?.closest('div[class*="SkillActionDetail_maxActionCountInput"]') ??
+    panel;
+  return [...(container?.querySelectorAll("button") ?? [])].find(
+    (button) => !button.classList.contains("mwi-production-quick-button"),
+  );
+}
+
+function applyProductionQuickCount(input, count) {
+  if (!input?.isConnected || !Number.isSafeInteger(count) || count <= 0) return;
+  setReactInputValue(input, String(count));
+  input.dispatchEvent(
+    new (input.ownerDocument?.defaultView?.Event ?? Event)("change", {
+      bubbles: true,
+    }),
+  );
+  renderProductionPanel();
+}
+
+function createProductionQuickRow({
+  panel,
+  input,
+  id,
+  label,
+  values,
+  resolveCount,
+}) {
+  const row = document.createElement("div");
+  row.id = id;
+  row.className = "mwi-production-quick-row";
+  const caption = document.createElement("span");
+  caption.className = "mwi-production-quick-label";
+  caption.textContent = label;
+  const buttons = document.createElement("div");
+  buttons.className = "mwi-production-quick-buttons";
+  const prototype = quickButtonPrototype(panel, input);
+  for (const value of values) {
+    const button =
+      prototype?.cloneNode(false) ?? document.createElement("button");
+    button.type = "button";
+    button.classList.add("mwi-production-quick-button");
+    button.textContent = runtime.api.numberFormatter(value);
+    button.dataset.quickValue = String(value);
+    button.addEventListener("click", () => {
+      const count = resolveCount(value);
+      applyProductionQuickCount(input, count);
+    });
+    buttons.append(button);
+  }
+  row.append(caption, buttons);
+  return row;
+}
+
+function renderProductionQuickInputs() {
+  addStyles();
+  const panel = findActionPanel();
+  const input = getCountInput(panel);
+  const actionHrid = resolvePanelAction(panel);
+  document.querySelectorAll(".mwi-production-quick-inputs").forEach((host) => {
+    if (!panel?.contains(host)) host.remove();
+  });
+  if (!panel || !input || !actionHrid || !isProductionAction(actionHrid)) {
+    panel?.querySelector(".mwi-production-quick-inputs")?.remove();
+    return null;
+  }
+  const countGroup = input.closest(
+    'div[class*="SkillActionDetail_maxActionCountInput"]',
+  );
+  if (!countGroup) return null;
+
+  let host = panel.querySelector(".mwi-production-quick-inputs");
+  const duration = getProductionPanelDuration(panel);
+  if (!host) {
+    host = document.createElement("div");
+    host.className = "mwi-production-quick-inputs";
+    const hours = createProductionQuickRow({
+      panel,
+      input,
+      id: "quickInputHourButtons",
+      label: t("时长", "Hours"),
+      values: QUICK_HOURS,
+      resolveCount: (hoursValue) => {
+        const liveDuration = getProductionPanelDuration(panel);
+        return Number.isFinite(liveDuration) && liveDuration > 0
+          ? Math.max(1, Math.round((hoursValue * 3_600) / liveDuration))
+          : 0;
+      },
+    });
+    const counts = createProductionQuickRow({
+      panel,
+      input,
+      id: "quickInputCountButtons",
+      label: t("次数", "Count"),
+      values: QUICK_COUNTS,
+      resolveCount: (count) => count,
+    });
+    host.append(hours, counts);
+    countGroup.insertAdjacentElement("afterend", host);
+  }
+  host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
+    button.disabled = !Number.isFinite(duration) || duration <= 0;
+    button.title = button.disabled
+      ? t("无法读取当前单次耗时", "Current action duration unavailable")
+      : t(
+          `按当前 ${duration}s/次换算`,
+          `Based on the current ${duration}s per action`,
+        );
+  });
+  return host;
+}
+
 function syncMaxButton(panel, input, maxCraftable) {
   let button = panel?.querySelector(".mwi-max-action-button");
   const infinityButton = findInfinityButton(panel, input);
@@ -576,6 +701,7 @@ function removeActionUi() {
     );
   document.querySelector("#mwi-production-summary")?.remove();
   document.querySelector(".mwi-max-action-button")?.remove();
+  removeProductionQuickInputs();
 }
 
 runtime.features.register({
@@ -609,6 +735,18 @@ runtime.features.register({
 });
 
 runtime.features.register({
+  id: "actionPanel_totalTime_quickInputs",
+  setting: "actionPanel_totalTime_quickInputs",
+  scope: "character",
+  dependsOn: ["actionPanel_totalTime"],
+  initialize({ scope }) {
+    renderProductionQuickInputs();
+    scope.interval(renderProductionQuickInputs, 350);
+    scope.add(removeProductionQuickInputs);
+  },
+});
+
+runtime.features.register({
   id: "productionSummary",
   setting: "productionSummary",
   scope: "character",
@@ -638,5 +776,7 @@ Object.assign(runtime.api, {
   getProductionPanelDuration,
   getLiveActionTiming,
   resolveProductionAction: resolvePanelAction,
+  renderProductionQuickInputs,
+  removeProductionQuickInputs,
   removeActionUi,
 });

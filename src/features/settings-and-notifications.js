@@ -249,6 +249,7 @@ function createSettingCard(definition, options = {}) {
   toggle.className = "mwi-setting-toggle";
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
+  checkbox.dataset.settingId = definition.id;
   checkbox.checked = Boolean(setting.isTrue);
   if (definition.parent) {
     checkbox.disabled = !areSettingParentsEnabled(definition);
@@ -298,7 +299,17 @@ function createSettingCard(definition, options = {}) {
   const stopStatusListener = runtime.features.onStatusChange((id) => {
     if (id === definition.id) setStatus();
   });
-  card._mwitoolsCleanup = stopStatusListener;
+  const stopSettingListener = runtime.settings.onChange(
+    definition.id,
+    (value) => {
+      checkbox.checked = Boolean(value);
+      setStatus();
+    },
+  );
+  card._mwitoolsCleanup = () => {
+    stopStatusListener?.();
+    stopSettingListener?.();
+  };
   return card;
 }
 

@@ -158,6 +158,7 @@ function addStyles() {
     .mwi-profit-valuation-row[data-mode="fair"] { --mwi-valuation-color:#74a9ef; }
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
+    .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:10.5px; font-weight:750; line-height:1.2; }
@@ -169,6 +170,32 @@ function addStyles() {
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
+    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
+    #${PANEL_ID}.mwi-profit-pinned { pointer-events:auto; }
+    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
+    .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
+    .mwi-loot-controls { display:flex; flex-direction:column; gap:5px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
+    .mwi-loot-control { display:flex; min-height:24px; align-items:center; gap:8px; }
+    .mwi-loot-control-label { min-width:0; flex:1; color:#edf0f4; font-size:10.5px; font-weight:600; }
+    .mwi-loot-control-state { color:var(--color-text-secondary,#aeb4bf); font-size:9.5px; white-space:nowrap; }
+    .mwi-loot-switch { position:relative; width:36px; height:20px; flex:0 0 36px; }
+    .mwi-loot-switch input { position:absolute; opacity:0; pointer-events:none; }
+    .mwi-loot-switch span { position:absolute; inset:0; border-radius:999px; cursor:pointer; background:#555; transition:.16s; }
+    .mwi-loot-switch span::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:.16s; }
+    .mwi-loot-switch input:checked + span { background:var(--color-primary,#70a8ff); }
+    .mwi-loot-switch input:checked + span::after { transform:translateX(16px); }
+    .mwi-loot-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px; margin-top:8px; }
+    .mwi-loot-cell { position:relative; display:flex; min-width:0; align-items:center; gap:6px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(255,255,255,.03); }
+    .mwi-loot-cell.unpriced { opacity:.6; }
+    .mwi-loot-cell.best-redemption { border-color:rgba(255,193,74,.86); background:linear-gradient(135deg,rgba(255,185,55,.16),rgba(255,255,255,.035)); box-shadow:0 0 0 1px rgba(255,184,55,.12),0 0 14px rgba(255,171,42,.12); }
+    .mwi-loot-best-badge { position:absolute; top:-6px; right:-4px; z-index:1; padding:1px 5px; border:1px solid rgba(255,211,112,.72); border-radius:999px; background:#7b5410; color:#fff3cf; font-size:8px; font-weight:750; line-height:1.35; white-space:nowrap; }
+    .mwi-loot-cell-icon { position:relative; flex:0 0 26px; width:26px; height:26px; }
+    .mwi-loot-cell-icon .mwi-profit-icon,.mwi-loot-cell-icon .mwi-profit-icon-fallback { width:26px; height:26px; }
+    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:8px; line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
+    .mwi-loot-cell-main { min-width:0; }
+    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:10.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:10px; font-weight:650; }
+    .mwi-loot-cell.unpriced .mwi-loot-cell-value { color:var(--color-text-secondary,#9ba2ad); }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
@@ -443,6 +470,172 @@ function renderPanel(panel, itemHrid, projection, options = {}) {
   );
 }
 
+function renderLootChestDropCell(drop) {
+  const name = itemName(drop.itemHrid);
+  const chance =
+    drop.dropRate >= 1
+      ? t("必得", "100%")
+      : `${formatNumber(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+  const countRange =
+    drop.minCount === drop.maxCount
+      ? formatNumber(drop.minCount, 0)
+      : `${formatNumber(drop.minCount, 0)}–${formatNumber(drop.maxCount, 0)}`;
+  const redemptions = drop.redemptions ?? [];
+  const redemptionLines = redemptions.map((route) => {
+    const tokenName = itemName(route.tokenItemHrid);
+    return `${t("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber(route.tokenCount, 0)} → ${formatNumber(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t("代币", "token")}`;
+  });
+  const sourceLabel =
+    drop.valueSource === "redemption"
+      ? t("最佳兑换折算", "Best redemption")
+      : drop.nested
+        ? t("开箱期望", "Opening EV")
+        : t("单价", "Unit");
+  const title = [
+    `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}`,
+    `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t("无价", "No price")} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`,
+    ...redemptionLines,
+  ].join("\n");
+  const valueText = drop.priced
+    ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}`
+    : t("无价", "No price");
+  return `
+    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml(drop.itemHrid)}" title="${escapeHtml(title)}">
+      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t("最佳兑换", "Best Exchange")}</span>` : ""}
+      <div class="mwi-loot-cell-icon">
+        ${renderItemIcon(drop.itemHrid, name)}
+        <span class="mwi-loot-cell-chance">${escapeHtml(chance)}</span>
+      </div>
+      <div class="mwi-loot-cell-main">
+        <div class="mwi-loot-cell-name">${escapeHtml(name)}</div>
+        <div class="mwi-loot-cell-value">${escapeHtml(valueText)}</div>
+      </div>
+    </div>`;
+}
+
+function renderLootSwitch(setting, label, state, checked) {
+  return `<div class="mwi-loot-control">
+    <span class="mwi-loot-control-label">${escapeHtml(label)}</span>
+    <span class="mwi-loot-control-state">${escapeHtml(state)}</span>
+    <label class="mwi-loot-switch">
+      <input type="checkbox" data-mwi-loot-setting="${setting}" aria-label="${escapeHtml(label)}"${checked ? " checked" : ""}>
+      <span aria-hidden="true"></span>
+    </label>
+  </div>`;
+}
+
+function renderLootChestControls(config, hasKey) {
+  const controls = [
+    renderLootSwitch(
+      "lootSellAtAsk",
+      t("产物卖出", "Sell drops"),
+      config.sellAtAsk ? t("挂卖单", "List at ask") : t("立即卖出", "Sell now"),
+      config.sellAtAsk,
+    ),
+  ];
+  if (hasKey) {
+    controls.push(
+      renderLootSwitch(
+        "lootBuyAtAsk",
+        t("钥匙或碎片", "Key or fragments"),
+        config.buyAtAsk ? t("立即买入", "Buy now") : t("挂买单", "Place bid"),
+        config.buyAtAsk,
+      ),
+      renderLootSwitch(
+        "lootKeyFromFragments",
+        t("钥匙来源", "Key source"),
+        config.fromFragments
+          ? t("碎片自制", "Craft fragments")
+          : t("购买成品", "Buy finished"),
+        config.fromFragments,
+      ),
+    );
+  }
+  return `<div class="mwi-loot-controls">${controls.join("")}</div>`;
+}
+
+function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
+  const pinned = Boolean(options.pinned);
+  const productName = itemName(itemHrid);
+  const hasKey = Boolean(chest.keyItemHrid);
+  const statusClass = chest.complete ? "complete" : "partial";
+  const statusLabel = chest.complete
+    ? t("完整计价", "Fully priced")
+    : t("部分计价", "Partial pricing");
+  panel.dataset.status = statusClass;
+  panel.classList.toggle("mwi-profit-pinned", pinned);
+  panel.innerHTML = `
+    <header class="mwi-profit-header">
+      <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
+      <div class="mwi-profit-header-main">
+        <div class="mwi-profit-title">${escapeHtml(productName)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(hasKey ? t("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t("开箱期望", "Opening estimate"))}</div>
+      </div>
+      <div class="mwi-profit-status ${statusClass}">${statusLabel}</div>
+      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
+    </header>`;
+
+  if (pinned) {
+    panel.insertAdjacentHTML(
+      "beforeend",
+      renderLootChestControls(chest.config, hasKey),
+    );
+  }
+
+  const cells = chest.drops.map(renderLootChestDropCell).join("");
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<section class="mwi-profit-card income" style="margin:12px;">
+      <div class="mwi-profit-card-title"><span>${t("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t("无可计价产出", "No priced drops")}</div>`}
+    </section>`,
+  );
+
+  const sellLabel = chest.config.sellAtAsk
+    ? t("挂卖单", "List at ask")
+    : t("立即卖出", "Sell now");
+  const keyLabel = !hasKey
+    ? t("无需钥匙", "No key")
+    : chest.config.fromFragments
+      ? t("碎片自制", "Crafted from fragments")
+      : t("购买成品", "Buy finished");
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="mwi-profit-valuations">
+      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
+        <div class="mwi-profit-valuation-name">
+          <div class="mwi-profit-valuation-title">${t("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-state">${escapeHtml(`${sellLabel} · ${keyLabel}`)}</div>
+        </div>
+        ${renderValuationMetric(t("毛期望价值", "Gross value"), chest.grossValue)}
+        ${renderValuationMetric(t("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${renderValuationMetric(t("净期望价值", "Net value"), chest.netValue, true)}
+      </section>
+    </div>`,
+  );
+
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="mwi-profit-hint">${t(
+      pinned
+        ? "开关会立即重算并保存；高亮卡片是每枚代币回报最高的兑换物品。"
+        : "双击固定面板后可调整买卖方向和钥匙来源；高亮卡片是每枚代币回报最高的兑换物品。",
+      pinned
+        ? "Switches recalculate and save immediately; highlighted cards are the best return per token."
+        : "Double-click to pin and adjust pricing; highlighted cards are the best return per token.",
+    )}</div>`,
+  );
+
+  if (chest.missing.length) {
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<div class="mwi-profit-warning">${escapeHtml(
+        `${t("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`,
+      )}</div>`,
+    );
+  }
+}
+
 function clamp(value, minimum, maximum) {
   return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
 }
@@ -512,11 +705,60 @@ function hideProductionProfitPanel() {
   state.resizeObserver?.disconnect();
   globalThis.removeEventListener?.("resize", state.position);
   globalThis.removeEventListener?.("scroll", state.position, true);
+  if (state.outsideHandler) {
+    document.removeEventListener("mousedown", state.outsideHandler, true);
+  }
+  for (const stop of state.settingStops ?? []) stop?.();
   state.panel?.remove();
   activePanel = null;
 }
 
+function createPanelElement() {
+  const panel = document.createElement("aside");
+  panel.id = PANEL_ID;
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-live", "polite");
+  return panel;
+}
+
+function mountPanel(anchor, panel, extraState = {}) {
+  const pinned = Boolean(extraState.pinned);
+  anchor.insertAdjacentElement("afterend", panel);
+  const position = () =>
+    globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
+  let mutationObserver = null;
+  let resizeObserver = null;
+  if (!pinned) {
+    mutationObserver = new MutationObserver(() => {
+      if (!anchor.isConnected) hideProductionProfitPanel();
+    });
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    resizeObserver = globalThis.ResizeObserver
+      ? new globalThis.ResizeObserver(position)
+      : null;
+    resizeObserver?.observe(anchor);
+    resizeObserver?.observe(panel);
+    globalThis.addEventListener?.("resize", position);
+    globalThis.addEventListener?.("scroll", position, true);
+  }
+  activePanel = {
+    anchor,
+    panel,
+    position,
+    mutationObserver,
+    resizeObserver,
+    pinned,
+    ...extraState,
+  };
+  position();
+  if (pinned && document.body && panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
+  return panel;
+}
+
 function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+  if (activePanel?.pinned) return null;
   const actionHrid =
     options.actionHrid ??
     runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
@@ -531,43 +773,95 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     itemHrid ??
     runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
   if (!primaryItemHrid) return null;
-  const panel = document.createElement("aside");
-  panel.id = PANEL_ID;
-  panel.setAttribute("role", "status");
-  panel.setAttribute("aria-live", "polite");
+  const panel = createPanelElement();
   renderPanel(panel, primaryItemHrid, projection, {
     directAction: Boolean(options.actionHrid),
   });
-  anchor.insertAdjacentElement("afterend", panel);
-
-  const position = () =>
-    globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
-  const mutationObserver = new MutationObserver(() => {
-    if (!anchor.isConnected) hideProductionProfitPanel();
-  });
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
-  const resizeObserver = globalThis.ResizeObserver
-    ? new globalThis.ResizeObserver(position)
-    : null;
-  resizeObserver?.observe(anchor);
-  resizeObserver?.observe(panel);
-  activePanel = {
-    anchor,
+  return mountPanel(anchor, panel, {
     itemHrid: primaryItemHrid,
     actionHrid,
-    mutationObserver,
-    panel,
-    position,
-    resizeObserver,
-  };
-  globalThis.addEventListener?.("resize", position);
-  globalThis.addEventListener?.("scroll", position, true);
-  position();
+  });
+}
+
+function showLootChestPanel(anchor, itemHrid, options = {}) {
+  const pinned = Boolean(options.pinned);
+  if (!pinned && activePanel?.pinned) return null;
+  const chest = runtime.api.projectLootChest?.(itemHrid);
+  if (!anchor?.isConnected || !chest) {
+    hideProductionProfitPanel();
+    return null;
+  }
+  hideProductionProfitPanel();
+  addStyles();
+  const panel = createPanelElement();
+  renderLootChestPanel(panel, itemHrid, chest, { pinned });
+  mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
+  if (pinned) attachLootChestControls(panel, itemHrid);
   return panel;
+}
+
+function attachLootChestControls(panel, itemHrid) {
+  const rerender = () => {
+    const chest = runtime.api.projectLootChest?.(itemHrid);
+    if (activePanel?.panel !== panel || !chest) return;
+    renderLootChestPanel(panel, itemHrid, chest, { pinned: true });
+  };
+  panel.addEventListener("click", (event) => {
+    if (!event.target.closest?.("[data-mwi-loot-close]")) return;
+    event.stopPropagation();
+    hideProductionProfitPanel();
+  });
+  panel.addEventListener("change", (event) => {
+    const input = event.target.closest?.("input[data-mwi-loot-setting]");
+    if (!input) return;
+    event.stopPropagation();
+    void runtime.settings.set?.(input.dataset.mwiLootSetting, input.checked);
+  });
+  const settingStops = [
+    "lootSellAtAsk",
+    "lootBuyAtAsk",
+    "lootKeyFromFragments",
+  ].map((settingId) => runtime.settings.onChange?.(settingId, rerender));
+  settingStops.push(
+    runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
+      if (!enabled) hideProductionProfitPanel();
+    }),
+  );
+  if (activePanel?.panel === panel) activePanel.settingStops = settingStops;
+
+  const outsideHandler = (event) => {
+    if (!activePanel?.pinned || activePanel.panel !== panel) return;
+    if (panel.contains(event.target)) return;
+    hideProductionProfitPanel();
+  };
+  globalThis.setTimeout?.(() => {
+    if (activePanel?.panel !== panel) return;
+    document.addEventListener("mousedown", outsideHandler, true);
+    activePanel.outsideHandler = outsideHandler;
+  }, 0);
+}
+
+function pinActiveLootChestPanel() {
+  const state = activePanel;
+  if (!state || state.pinned || state.kind !== "loot" || !state.itemHrid) {
+    return false;
+  }
+  if (!state.anchor?.isConnected) return false;
+  return Boolean(
+    showLootChestPanel(state.anchor, state.itemHrid, { pinned: true }),
+  );
+}
+
+function dismissHoverPanel() {
+  if (activePanel?.pinned) return;
+  hideProductionProfitPanel();
 }
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,
+  dismissHoverPanel,
+  pinActiveLootChestPanel,
   positionProductionProfitPanel: positionPanel,
+  showLootChestPanel,
   showProductionProfitPanel,
 });

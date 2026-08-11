@@ -70,13 +70,6 @@ const adapters = {
         .forEach((host) => host.classList.remove("mwi-equipment-warning-host"));
     },
   },
-  actionPanel_totalTime_quickInputs: {
-    scope: "character",
-    dependsOn: ["actionPanel_totalTime"],
-    cleanup() {
-      removeAll("#quickInputHourButtons,#quickInputCountButtons");
-    },
-  },
   actionPanel_foragingTotal: {
     scope: "character",
     dependsOn: ["actionPanel_totalTime"],

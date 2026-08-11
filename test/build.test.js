@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import {
+  getDevelopmentBanner,
+  getProductionBanner,
+} from "../scripts/userscript-build.mjs";
+
 const output = await readFile(
   new URL("../MWITools.js", import.meta.url),
   "utf8",
@@ -54,11 +59,31 @@ test("generated userscript has a single valid metadata block", () => {
     output,
     /script_current_assets|script_api_fail_alert|script_api_fail_popout/,
   );
-  assert.match(output, /VERSION = "1\.0\.51"/);
+  assert.match(output, /["']1\.0\.51["']/);
   assert.match(output, /__MWI_DPS/);
 });
 
 test("generated userscript is standalone JavaScript", () => {
   assert.doesNotMatch(output, /sourceMappingURL=/);
   assert.doesNotThrow(() => new vm.Script(output));
+});
+
+test("development metadata only changes the userscript identity", async () => {
+  const productionBanner = await getProductionBanner();
+  const developmentBanner = await getDevelopmentBanner();
+
+  assert.match(developmentBanner, /^\/\/ @name\s+MWITools \(dev\)$/m);
+  assert.match(
+    developmentBanner,
+    /^\/\/ @namespace\s+https:\/\/fishingidle\.com\/mwitools-dev$/m,
+  );
+
+  const normalizeIdentity = (banner) =>
+    banner
+      .replace(/^\/\/ @name\s+.*$/m, "// @name <identity>")
+      .replace(/^\/\/ @namespace\s+.*$/m, "// @namespace <identity>");
+  assert.equal(
+    normalizeIdentity(developmentBanner),
+    normalizeIdentity(productionBanner),
+  );
 });

@@ -14,7 +14,7 @@ Requirements: Node.js 22 and npm.
 
 ```bash
 npm ci
-npm run build
+npm run build:dev
 ```
 
 Source code is organized by responsibility:
@@ -24,7 +24,9 @@ Source code is organized by responsibility:
 - `src/features/`: inventory, actions, tooltips, marketplace, combat, settings and external-tool integrations.
 - `src/main.js`: page routing and startup order.
 
-`npm run build` bundles the modules as a readable UTF-8 IIFE, prepends `src/userscript-banner.txt`, and replaces the root `MWITools.js`. It does not minify or emit a source map.
+`npm run build:dev` bundles the modules as a readable UTF-8 IIFE and writes the ignored local file `MWITools.dev.user.js`. Its userscript name and namespace are separate from production so both builds cannot be confused in Tampermonkey.
+
+`npm run build` creates the canonical release file `MWITools.js`. The release build is minified without a source map, while keeping function and class names for useful production stack traces. It does not mangle object properties or remove runtime logs. Both builds prepend metadata derived from `src/userscript-banner.txt` and otherwise use the same bundling settings.
 
 Before committing a change, run:
 

@@ -138,7 +138,9 @@ function getGuildTokenValue(context) {
 }
 
 function getDropRecords(itemHrid) {
-  const entry = runtime.state.initData_openableLootDropMap?.[itemHrid];
+  const dropMap = runtime.state.initData_openableLootDropMap;
+  const entry =
+    dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid];
   if (Array.isArray(entry)) return entry;
   return entry?.drops ?? entry?.dropTable ?? entry?.items ?? [];
 }
@@ -218,6 +220,320 @@ function getShopDetails() {
     runtime.state.initData_taskShopItemDetailMap,
     runtime.state.initData_labyrinthShopItemDetailMap,
   ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
+}
+
+function getLootConfig(overrides = {}) {
+  const settings = runtime.settings.settingsMap ?? {};
+  return {
+    sellAtAsk: Boolean(settings.lootSellAtAsk?.isTrue),
+    buyAtAsk: settings.lootBuyAtAsk?.isTrue !== false,
+    fromFragments: Boolean(settings.lootKeyFromFragments?.isTrue),
+    ...overrides,
+  };
+}
+
+function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
+  if (itemHrid === "/items/coin") return 1;
+  const price = sellAtAsk
+    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+  if (!(price > 0)) return 0;
+  const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
+  return price * Math.max(0, 1 - taxRate);
+}
+
+function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
+  if (itemHrid === "/items/coin") return 1;
+  return buyAtAsk
+    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+}
+
+function lootDropIdentity(itemHrid, enhancementLevel = 0) {
+  return `${itemHrid}:${Number(enhancementLevel) || 0}`;
+}
+
+function normalizeLootDrops(itemHrid) {
+  return getDropRecords(itemHrid).flatMap((drop) => {
+    const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+    if (!dropItemHrid) return [];
+    const rawDropRate = Array.isArray(drop.dropRate)
+      ? drop.dropRate[0]
+      : drop.dropRate;
+    const dropRate = Number.isFinite(Number(rawDropRate))
+      ? Math.max(0, Number(rawDropRate))
+      : 1;
+    const minimum = Number(drop.minCount ?? drop.count ?? 1);
+    const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return [];
+    const enhancementLevel = Number(drop.enhancementLevel ?? 0) || 0;
+    return [
+      {
+        itemHrid: dropItemHrid,
+        enhancementLevel,
+        dropRate,
+        minCount: minimum,
+        maxCount: maximum,
+        expectedCount: dropRate * (minimum + maximum) * 0.5,
+      },
+    ];
+  });
+}
+
+function getLootKeyCost(keyItemHrid, config) {
+  if (!keyItemHrid) {
+    return { value: 0, complete: true, source: "none", missing: [] };
+  }
+  if (!config.fromFragments) {
+    const value = lootPurchaseValue(keyItemHrid, 0, config.buyAtAsk);
+    return {
+      value,
+      complete: value > 0,
+      source: "finished",
+      missing: value > 0 ? [] : [keyItemHrid],
+    };
+  }
+
+  let bestValue = Number.POSITIVE_INFINITY;
+  let sawRecipe = false;
+  const missing = new Set();
+  for (const [, action] of entriesOfMap(
+    runtime.state.initData_actionDetailMap,
+  )) {
+    const outputCount = (action?.outputItems ?? []).reduce((total, output) => {
+      const outputHrid = output?.itemHrid ?? output?.hrid;
+      const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
+      return outputHrid === keyItemHrid && outputLevel === 0
+        ? total + positiveNumber(output.count ?? 1)
+        : total;
+    }, 0);
+    if (!outputCount) continue;
+    sawRecipe = true;
+
+    const inputs = [...(action?.inputItems ?? [])];
+    const upgradeItemHrid = action?.upgradeItemHrid;
+    if (
+      upgradeItemHrid &&
+      !inputs.some(
+        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
+      )
+    ) {
+      inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
+    }
+
+    let totalCost = 0;
+    let complete = true;
+    for (const input of inputs) {
+      const inputHrid = input?.itemHrid ?? input?.hrid;
+      const count = positiveNumber(input?.count);
+      if (!inputHrid || !count) continue;
+      const unitValue = lootPurchaseValue(
+        inputHrid,
+        Number(input?.enhancementLevel ?? 0) || 0,
+        config.buyAtAsk,
+      );
+      if (!(unitValue > 0)) {
+        complete = false;
+        missing.add(inputHrid);
+        continue;
+      }
+      totalCost += count * unitValue;
+    }
+    if (complete) bestValue = Math.min(bestValue, totalCost / outputCount);
+  }
+
+  return {
+    value: Number.isFinite(bestValue) ? bestValue : 0,
+    complete: Number.isFinite(bestValue),
+    source: "fragments",
+    missing: Number.isFinite(bestValue)
+      ? []
+      : [...missing, ...(sawRecipe ? [] : [keyItemHrid])],
+  };
+}
+
+function getBestLootRedemptions(drops, config) {
+  const displayedItems = new Set(
+    drops.map((drop) => lootDropIdentity(drop.itemHrid, drop.enhancementLevel)),
+  );
+  const tokenHrids = new Set(
+    drops
+      .map((drop) => drop.itemHrid)
+      .filter((itemHrid) => SHOP_CURRENCY_HRIDS.has(itemHrid)),
+  );
+  const bestByToken = new Map();
+  if (!tokenHrids.size) return bestByToken;
+
+  for (const detail of getShopDetails()) {
+    const costs = normalizeCostRecords(detail);
+    const rewards = normalizeRewardRecords(detail);
+    if (!costs.length || rewards.length !== 1) continue;
+    const reward = rewards[0];
+    const rewardItemHrid = reward?.itemHrid ?? reward?.hrid;
+    const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
+    const rewardCount = positiveNumber(reward?.count ?? 1);
+    if (
+      !rewardItemHrid ||
+      !rewardCount ||
+      !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))
+    ) {
+      continue;
+    }
+    const rewardUnitValue = lootSaleValue(
+      rewardItemHrid,
+      rewardLevel,
+      config.sellAtAsk,
+    );
+    if (!(rewardUnitValue > 0)) continue;
+
+    for (const tokenItemHrid of tokenHrids) {
+      const tokenCount = costs.reduce((total, cost) => {
+        const costHrid = cost?.itemHrid ?? cost?.hrid;
+        return costHrid === tokenItemHrid
+          ? total + positiveNumber(cost.count)
+          : total;
+      }, 0);
+      if (!tokenCount) continue;
+
+      let otherCostValue = 0;
+      let complete = true;
+      for (const cost of costs) {
+        const costHrid = cost?.itemHrid ?? cost?.hrid;
+        const count = positiveNumber(cost?.count);
+        if (!costHrid || !count || costHrid === tokenItemHrid) continue;
+        const unitValue = lootPurchaseValue(
+          costHrid,
+          Number(cost?.enhancementLevel ?? 0) || 0,
+          config.buyAtAsk,
+        );
+        if (!(unitValue > 0)) {
+          complete = false;
+          break;
+        }
+        otherCostValue += count * unitValue;
+      }
+      if (!complete) continue;
+
+      const totalValue = Math.max(
+        0,
+        rewardUnitValue * rewardCount - otherCostValue,
+      );
+      const valuePerToken = totalValue / tokenCount;
+      if (!(valuePerToken > 0)) continue;
+      const candidate = {
+        tokenItemHrid,
+        tokenCount,
+        rewardItemHrid,
+        rewardEnhancementLevel: rewardLevel,
+        rewardCount,
+        rewardUnitValue,
+        totalValue,
+        valuePerToken,
+      };
+      const current = bestByToken.get(tokenItemHrid);
+      if (
+        !current ||
+        valuePerToken > current.valuePerToken ||
+        (valuePerToken === current.valuePerToken &&
+          rewardItemHrid.localeCompare(current.rewardItemHrid) < 0)
+      ) {
+        bestByToken.set(tokenItemHrid, candidate);
+      }
+    }
+  }
+  return bestByToken;
+}
+
+function projectLootChestInternal(itemHrid, config, visited) {
+  if (visited.has(itemHrid)) return null;
+  const normalizedDrops = normalizeLootDrops(itemHrid);
+  if (!normalizedDrops.length) return null;
+  visited.add(itemHrid);
+
+  const bestRedemptions = getBestLootRedemptions(normalizedDrops, config);
+  const rows = [];
+  let grossValue = 0;
+  for (const drop of normalizedDrops) {
+    const marketValue = lootSaleValue(
+      drop.itemHrid,
+      drop.enhancementLevel,
+      config.sellAtAsk,
+    );
+    const tokenRedemption = bestRedemptions.get(drop.itemHrid) ?? null;
+    let unitValue = marketValue;
+    let valueSource = marketValue > 0 ? "market" : "missing";
+    let nested = false;
+    if (!(unitValue > 0) && tokenRedemption) {
+      unitValue = tokenRedemption.valuePerToken;
+      valueSource = "redemption";
+    }
+    if (!(unitValue > 0)) {
+      const nestedProjection = projectLootChestInternal(
+        drop.itemHrid,
+        config,
+        visited,
+      );
+      if (
+        nestedProjection?.complete &&
+        Number.isFinite(nestedProjection.netValue)
+      ) {
+        unitValue = Math.max(0, nestedProjection.netValue);
+        valueSource = "nested";
+        nested = true;
+      }
+    }
+    const value = drop.expectedCount * unitValue;
+    grossValue += value;
+    const redemptions = [...bestRedemptions.values()].filter(
+      (route) =>
+        route.rewardItemHrid === drop.itemHrid &&
+        route.rewardEnhancementLevel === drop.enhancementLevel,
+    );
+    rows.push({
+      ...drop,
+      unitValue,
+      value,
+      priced: unitValue > 0,
+      nested,
+      valueSource,
+      tokenRedemption,
+      redemptions,
+    });
+  }
+
+  const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+  const key = getLootKeyCost(keyItemHrid, config);
+  const missing = new Set(
+    rows
+      .filter((row) => row.expectedCount > 0 && !row.priced)
+      .map((row) => row.itemHrid),
+  );
+  for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
+  const complete = missing.size === 0 && key.complete;
+  const netValue = key.complete ? grossValue - key.value : null;
+  visited.delete(itemHrid);
+  return {
+    itemHrid,
+    keyItemHrid,
+    config,
+    drops: rows.sort((left, right) => right.value - left.value),
+    redemptions: [...bestRedemptions.values()],
+    grossValue,
+    keyCost: key.value,
+    keySource: key.source,
+    keyComplete: key.complete,
+    netValue,
+    complete,
+    missing: [...missing],
+  };
+}
+
+function projectLootChest(itemHrid, overrides = {}) {
+  return projectLootChestInternal(
+    itemHrid,
+    getLootConfig(overrides),
+    new Set(),
+  );
 }
 
 function acquisitionCostValue(itemHrid, enhancementLevel, context) {
@@ -964,6 +1280,7 @@ Object.assign(runtime.api, {
   getAssetValue,
   getAssetLiquidationValue,
   getGuildShrineValue,
+  projectLootChest,
   isBackEquipment,
   isNonTradableTokenAsset,
   invalidateAssetValueCache,

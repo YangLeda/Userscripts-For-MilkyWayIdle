@@ -180,6 +180,12 @@ test("card settings render every visible setting with nested children and search
   );
   assert.match(root.textContent, /牛铃计入总资产/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
+  const lootSellToggle = root.querySelector(
+    'input[data-setting-id="lootSellAtAsk"]',
+  );
+  assert.ok(lootSellToggle);
+  await runtime.settings.set("lootSellAtAsk", true);
+  assert.equal(lootSellToggle.checked, true);
 
   const search = root.querySelector(".mwi-settings-search");
   search.value = "Idle members";

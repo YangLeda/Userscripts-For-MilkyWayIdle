@@ -3,6 +3,9 @@ import { runtime } from "../core/runtime.js";
 const CARD_ID = "mwitools-guild-credit-advisor";
 const STYLE_ID = "mwitools-guild-credit-advisor-style";
 const MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
+const SHOP_SELECTOR = '[class*="GuildPanel_shopTab"]';
+const TILE_SELECTOR = '[class*="GuildPanel_guildTile"]';
+const SUMMARY_CLASS = "mwi-guild-credit-recommendation";
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -21,6 +24,12 @@ function isVisible(element) {
 
 export function findGuildExchangeModal(documentRef = document) {
   return [...documentRef.querySelectorAll(MODAL_SELECTOR)]
+    .filter(isVisible)
+    .at(-1);
+}
+
+function findGuildShop(documentRef = document) {
+  return [...documentRef.querySelectorAll(SHOP_SELECTOR)]
     .filter(isVisible)
     .at(-1);
 }
@@ -166,6 +175,20 @@ export function evaluateGuildCreditConversion(conversion, targetCredits = 1) {
   };
 }
 
+export function evaluateGuildCreditOptions(creditItemHrid, targetCredits = 1) {
+  return collectGuildCreditConversions(creditItemHrid)
+    .map((conversion) =>
+      evaluateGuildCreditConversion(conversion, targetCredits),
+    )
+    .filter(({ available }) => available)
+    .sort(
+      (left, right) =>
+        left.costPerCredit - right.costPerCredit ||
+        left.totalCost - right.totalCost ||
+        itemName(left.itemHrid).localeCompare(itemName(right.itemHrid)),
+    );
+}
+
 function itemName(itemHrid) {
   const detail = runtime.state.initData_itemDetailMap?.[itemHrid];
   if (runtime.config.isZH) {
@@ -187,9 +210,59 @@ function addStyles() {
     #${CARD_ID} .mwi-guild-advisor-row strong{color:var(--color-text-primary,#eee);text-align:right}
     #${CARD_ID} .mwi-guild-advisor-selected{margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.12)}
     #${CARD_ID} .mwi-guild-advisor-note{margin-top:6px;color:var(--color-text-secondary,#aaa);font-size:.66rem}
+    .${SUMMARY_CLASS}{display:flex;min-width:0;align-items:center;gap:4px;margin-top:4px;padding:3px 5px;border:1px solid rgba(255,180,60,.3);border-radius:4px;background:rgba(255,170,45,.08);color:var(--color-text-secondary,#bbb);font-size:.62rem;line-height:1.2;pointer-events:none}
+    .${SUMMARY_CLASS} strong{min-width:0;overflow:hidden;color:${runtime.config.SCRIPT_COLOR_MAIN};font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .${SUMMARY_CLASS} span{margin-left:auto;flex:0 0 auto;color:var(--color-text-primary,#eee);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .${SUMMARY_CLASS}.mwi-guild-credit-unavailable{color:var(--color-text-secondary,#999);border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.03)}
     @media(max-width:1150px){#${CARD_ID}{position:relative;top:auto;left:auto;width:auto;margin-top:8px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
+}
+
+function creditHridFromTile(tile) {
+  const validCredits = guildCreditHrids();
+  return [...tile.querySelectorAll("svg[aria-label]")]
+    .map(itemHridFromIcon)
+    .find((itemHrid) => validCredits.has(itemHrid));
+}
+
+function renderGuildCreditOverview() {
+  const shop = findGuildShop();
+  document.querySelectorAll(`.${SUMMARY_CLASS}`).forEach((summary) => {
+    if (!shop?.contains(summary)) summary.remove();
+  });
+  if (!shop) return [];
+  const summaries = [];
+  for (const tile of shop.querySelectorAll(TILE_SELECTOR)) {
+    const creditItemHrid = creditHridFromTile(tile);
+    const existing = tile.querySelector(`:scope > .${SUMMARY_CLASS}`);
+    if (!creditItemHrid) {
+      existing?.remove();
+      continue;
+    }
+    const best = evaluateGuildCreditOptions(creditItemHrid)[0];
+    const summary = existing ?? document.createElement("div");
+    summary.className = SUMMARY_CLASS;
+    summary.replaceChildren();
+    if (best) {
+      const name = document.createElement("strong");
+      name.textContent = `${t("推荐", "Best")} · ${itemName(best.itemHrid)}`;
+      const value = document.createElement("span");
+      value.textContent = `${best.estimated ? "≈" : ""}${runtime.api.numberFormatter(best.costPerCredit)}/${t("点", "credit")}`;
+      summary.title = t(
+        `兑换 ${runtime.api.formatExactNumber(best.producedCredits)} 点需要 ${runtime.api.formatExactNumber(best.requiredItems)} 个${itemName(best.itemHrid)}，总成本 ${runtime.api.formatExactNumber(best.totalCost)}`,
+        `${runtime.api.formatExactNumber(best.requiredItems)} ${itemName(best.itemHrid)} for ${runtime.api.formatExactNumber(best.producedCredits)} credits; total cost ${runtime.api.formatExactNumber(best.totalCost)}`,
+      );
+      summary.append(name, value);
+    } else {
+      summary.classList.add("mwi-guild-credit-unavailable");
+      summary.textContent = t("暂无有效市场报价", "No usable market quote");
+      summary.removeAttribute("title");
+    }
+    if (!existing) tile.append(summary);
+    summaries.push(summary);
+  }
+  return summaries;
 }
 
 function appendRow(parent, label, value) {
@@ -203,7 +276,7 @@ function appendRow(parent, label, value) {
   parent.appendChild(row);
 }
 
-export async function renderGuildCreditAdvisor() {
+export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
   const modal = findGuildExchangeModal();
   if (!modal) {
     document.getElementById(CARD_ID)?.remove();
@@ -214,7 +287,9 @@ export async function renderGuildCreditAdvisor() {
     document.getElementById(CARD_ID)?.remove();
     return null;
   }
-  if (!(await runtime.api.ensureMarketValueSource?.())) return null;
+  if (!marketReady && !(await runtime.api.ensureMarketValueSource?.())) {
+    return null;
+  }
 
   const conversions = collectGuildCreditConversions(context.creditItemHrid);
   const selectedConversion = conversions.find(
@@ -223,17 +298,10 @@ export async function renderGuildCreditAdvisor() {
   const targetCredits = selectedConversion
     ? selectedConversion.creditCount * context.batchCount
     : 1;
-  const evaluated = conversions
-    .map((conversion) =>
-      evaluateGuildCreditConversion(conversion, targetCredits),
-    )
-    .filter(({ available }) => available)
-    .sort(
-      (left, right) =>
-        left.costPerCredit - right.costPerCredit ||
-        left.totalCost - right.totalCost ||
-        itemName(left.itemHrid).localeCompare(itemName(right.itemHrid)),
-    );
+  const evaluated = evaluateGuildCreditOptions(
+    context.creditItemHrid,
+    targetCredits,
+  );
   const best = evaluated[0];
 
   addStyles();
@@ -327,8 +395,26 @@ export async function renderGuildCreditAdvisor() {
   return card;
 }
 
+export async function renderGuildCreditRecommendations() {
+  if (!findGuildShop() && !findGuildExchangeModal()) {
+    cleanup();
+    return null;
+  }
+  if (!(await runtime.api.ensureMarketValueSource?.())) {
+    cleanup();
+    return null;
+  }
+  addStyles();
+  const summaries = renderGuildCreditOverview();
+  const advisor = await renderGuildCreditAdvisor({ marketReady: true });
+  return { summaries, advisor };
+}
+
 function cleanup() {
   document.getElementById(CARD_ID)?.remove();
+  document
+    .querySelectorAll(`.${SUMMARY_CLASS}`)
+    .forEach((element) => element.remove());
   document.getElementById(STYLE_ID)?.remove();
 }
 
@@ -342,7 +428,7 @@ runtime.features.register({
       if (frame !== null) return;
       const run = () => {
         frame = null;
-        void renderGuildCreditAdvisor();
+        void renderGuildCreditRecommendations();
       };
       if (typeof globalThis.requestAnimationFrame === "function") {
         frame = globalThis.requestAnimationFrame(run);
@@ -352,13 +438,18 @@ runtime.features.register({
     };
     const observer = new MutationObserver((mutations) => {
       const activeModal = findGuildExchangeModal();
+      const activeShop = findGuildShop();
       const relevant = mutations.some((mutation) => {
-        if (mutation.target?.closest?.(`#${CARD_ID}`)) return false;
+        if (mutation.target?.closest?.(`#${CARD_ID},.${SUMMARY_CLASS}`))
+          return false;
         const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
         if (
           changedNodes.length > 0 &&
           changedNodes.every(
-            (node) => node?.id === CARD_ID || node?.closest?.(`#${CARD_ID}`),
+            (node) =>
+              node?.id === CARD_ID ||
+              node?.classList?.contains(SUMMARY_CLASS) ||
+              node?.closest?.(`#${CARD_ID},.${SUMMARY_CLASS}`),
           )
         ) {
           return false;
@@ -370,10 +461,19 @@ runtime.features.register({
         ) {
           return true;
         }
+        if (
+          activeShop &&
+          (mutation.target === activeShop ||
+            activeShop.contains?.(mutation.target))
+        ) {
+          return true;
+        }
         return changedNodes.some(
           (node) =>
             node?.matches?.(MODAL_SELECTOR) ||
-            node?.querySelector?.(MODAL_SELECTOR),
+            node?.matches?.(SHOP_SELECTOR) ||
+            node?.querySelector?.(MODAL_SELECTOR) ||
+            node?.querySelector?.(SHOP_SELECTOR),
         );
       });
       if (relevant) schedule();
@@ -406,4 +506,5 @@ runtime.features.register({
 
 Object.assign(runtime.api, {
   renderGuildCreditAdvisor,
+  renderGuildCreditRecommendations,
 });

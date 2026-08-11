@@ -15,6 +15,7 @@ const dom = new JSDOM(
       <div class="SkillActionDetail_actionContainer__test">
         <div class="SkillActionDetail_maxActionCountInput__test">
           <input class="Input_input__native" value="300">
+          <button class="Button_button__native Button_small__native">∞</button>
         </div>
       </div>
       <div class="SkillActionDetail_dropTable__test"></div>
@@ -62,17 +63,27 @@ runtime.api.getTeaBuffsByActionHrid = () => ({ efficiency: 0 });
 runtime.api.getItemEffiBuffByActionHrid = () => 0;
 runtime.api.timeReadable = (seconds) => `${Math.round(seconds)}s`;
 
-test("production details only add the compact native target-level control", async () => {
+test("production details add target-level and working quick-input controls", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',
   );
   await runtime.api.handleActionPanel(panel);
   await runtime.api.handleActionPanel(panel);
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionQuickInputs();
 
   assert.equal(document.querySelectorAll("#mwi-level-progress").length, 1);
   assert.equal(document.querySelector("#showTotalTime"), null);
-  assert.equal(document.querySelector("#quickInputHourButtons"), null);
-  assert.equal(document.querySelector("#quickInputCountButtons"), null);
+  assert.equal(document.querySelectorAll("#quickInputHourButtons").length, 1);
+  assert.equal(document.querySelectorAll("#quickInputCountButtons").length, 1);
+  assert.equal(
+    document.querySelectorAll("#quickInputHourButtons button").length,
+    10,
+  );
+  assert.equal(
+    document.querySelectorAll("#quickInputCountButtons button").length,
+    6,
+  );
 
   const levelInput = document.querySelector("#tillLevelInput");
   assert.ok(levelInput.classList.contains("Input_input__native"));
@@ -93,6 +104,27 @@ test("production details only add the compact native target-level control", asyn
     ).value,
     "300",
   );
+
+  document
+    .querySelector('#quickInputHourButtons button[data-quick-value="0.5"]')
+    .click();
+  assert.equal(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+    "295",
+  );
+  document
+    .querySelector('#quickInputCountButtons button[data-quick-value="1000"]')
+    .click();
+  assert.equal(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+    "1000",
+  );
+  runtime.api.removeProductionQuickInputs();
+  assert.equal(document.querySelector(".mwi-production-quick-inputs"), null);
   levelInput.value = "102";
   levelInput.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   assert.equal(
@@ -109,6 +141,12 @@ test("production details only add the compact native target-level control", asyn
   await runtime.api.handleActionPanel(panel);
   assert.equal(document.querySelectorAll("#mwi-level-progress").length, 1);
   assert.equal(document.querySelectorAll(".mwi-native-level-stat").length, 4);
+
+  panel
+    .querySelector('div[class*="SkillActionDetail_maxActionCountInput"]')
+    .remove();
+  runtime.api.renderProductionQuickInputs();
+  assert.equal(document.querySelector(".mwi-production-quick-inputs"), null);
 });
 
 test("efficiency follows the game's authoritative buff maps", () => {
