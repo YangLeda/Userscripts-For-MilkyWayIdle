@@ -12555,6 +12555,31 @@ ${preview}`
     const href = spriteUseHref(use);
     return href.includes("#") ? href.split("#")[0] : "";
   }
+  function waitForElement(selector, onFound, options = {}) {
+    const intervalMs = Number(options.intervalMs) || 200;
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 3e4;
+    let timer = null;
+    let elapsed = 0;
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const check = () => {
+      const element = document.querySelector(selector);
+      if (element) {
+        stop();
+        onFound(element);
+        return true;
+      }
+      elapsed += intervalMs;
+      if (timeoutMs > 0 && elapsed >= timeoutMs) stop();
+      return false;
+    };
+    if (!check()) timer = setInterval(check, intervalMs);
+    return stop;
+  }
   function spriteUseHref(element, { includeSrc = false } = {}) {
     return element?.getAttribute("href") ?? element?.getAttribute("xlink:href") ?? (includeSrc ? element?.getAttribute("src") : null) ?? "";
   }
@@ -30904,31 +30929,26 @@ ${locks}` : ""}`;
 
   // src/features/external-tools.js
   function addImportButtonForAmvoidguy() {
-    const checkElem = () => {
-      const selectedElement = document.querySelector(`button#buttonImportExport`);
-      if (selectedElement) {
-        clearInterval(timer);
-        let button = document.createElement("button");
-        selectedElement.parentNode.parentElement.parentElement.insertBefore(
-          button,
-          selectedElement.parentElement.parentElement.nextSibling
-        );
-        button.textContent = runtime.config.isZH ? "单人/组队导入(刷新游戏网页更新人物数据)" : "Import solo/group (Refresh game page to update character set)";
-        button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-        button.style.padding = "5px";
-        button.onclick = function() {
-          console.log("Importer: Import button onclick");
-          const getPriceButton = document.querySelector(`button#buttonGetPrices`);
-          if (getPriceButton) {
-            console.log("Click getPriceButton");
-            getPriceButton.click();
-          }
-          importDataForAmvoidguy(button);
-          return false;
-        };
-      }
-    };
-    let timer = setInterval(checkElem, 200);
+    waitForElement(`button#buttonImportExport`, (selectedElement) => {
+      let button = document.createElement("button");
+      selectedElement.parentNode.parentElement.parentElement.insertBefore(
+        button,
+        selectedElement.parentElement.parentElement.nextSibling
+      );
+      button.textContent = runtime.config.isZH ? "单人/组队导入(刷新游戏网页更新人物数据)" : "Import solo/group (Refresh game page to update character set)";
+      button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+      button.style.padding = "5px";
+      button.onclick = function() {
+        console.log("Importer: Import button onclick");
+        const getPriceButton = document.querySelector(`button#buttonGetPrices`);
+        if (getPriceButton) {
+          console.log("Click getPriceButton");
+          getPriceButton.click();
+        }
+        importDataForAmvoidguy(button);
+        return false;
+      };
+    });
   }
   async function importDataForAmvoidguy(button) {
     const [
@@ -31701,27 +31721,22 @@ ${locks}` : ""}`;
     }
   }
   function addImportButtonForMooneycalc() {
-    const checkElem = () => {
-      const selectedElement = document.querySelector(`div[role="tablist"]`);
-      if (selectedElement) {
-        clearInterval(timer);
-        const button = document.createElement("button");
-        selectedElement.parentNode.insertBefore(
-          button,
-          selectedElement.nextSibling
-        );
-        button.textContent = runtime.config.isZH ? "导入人物数据 (刷新游戏网页更新人物数据)" : "Import character settings (Refresh game page to update character settings)";
-        button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-        button.style.color = "black";
-        button.style.padding = "5px";
-        button.onclick = function() {
-          console.log("Mooneycalc-Importer: Button onclick");
-          importDataForMooneycalc(button);
-          return false;
-        };
-      }
-    };
-    let timer = setInterval(checkElem, 200);
+    waitForElement(`div[role="tablist"]`, (selectedElement) => {
+      const button = document.createElement("button");
+      selectedElement.parentNode.insertBefore(
+        button,
+        selectedElement.nextSibling
+      );
+      button.textContent = runtime.config.isZH ? "导入人物数据 (刷新游戏网页更新人物数据)" : "Import character settings (Refresh game page to update character settings)";
+      button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+      button.style.color = "black";
+      button.style.padding = "5px";
+      button.onclick = function() {
+        console.log("Mooneycalc-Importer: Button onclick");
+        importDataForMooneycalc(button);
+        return false;
+      };
+    });
   }
   async function importDataForMooneycalc(button) {
     const characterData = JSON.parse(GM_getValue("init_character_data", ""));
@@ -31766,12 +31781,9 @@ ${locks}` : ""}`;
     return runtime.api.timeReadable?.(sec) ?? `${Math.round(hours)}h`;
   }
   function addExportButton(obj) {
-    const checkElem = () => {
-      const selectedElement = document.querySelector(
-        `div.SharableProfile_overviewTab__W4dCV`
-      );
-      if (selectedElement) {
-        clearInterval(timer);
+    waitForElement(
+      `div[class*="SharableProfile_overviewTab"]`,
+      (selectedElement) => {
         const button = document.createElement("button");
         selectedElement.appendChild(button);
         button.textContent = runtime.config.isZH ? "导出人物到剪贴板" : "Export to clipboard";
@@ -31829,10 +31841,8 @@ ${locks}` : ""}`;
           button.textContent = runtime.config.isZH ? "已复制" : "Copied";
           return false;
         };
-        return false;
       }
-    };
-    let timer = setInterval(checkElem, 200);
+    );
   }
   var addImportButtonFor9Battles = addImportButtonForAmvoidguy;
   Object.assign(runtime.api, {

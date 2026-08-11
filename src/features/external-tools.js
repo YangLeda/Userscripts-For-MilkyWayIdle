@@ -1,35 +1,31 @@
 import { runtime } from "../core/runtime.js";
+import { waitForElement } from "../core/dom-utils.js";
 
 /* 为 https://amvoidguy.github.io/MWICombatSimulatorTest/ 添加导入按钮 */
 // Parts of code regarding group export are by Ratatatata (https://greasyfork.org/en/scripts/507255).
 function addImportButtonForAmvoidguy() {
-  const checkElem = () => {
-    const selectedElement = document.querySelector(`button#buttonImportExport`);
-    if (selectedElement) {
-      clearInterval(timer);
-      let button = document.createElement("button");
-      selectedElement.parentNode.parentElement.parentElement.insertBefore(
-        button,
-        selectedElement.parentElement.parentElement.nextSibling,
-      );
-      button.textContent = runtime.config.isZH
-        ? "单人/组队导入(刷新游戏网页更新人物数据)"
-        : "Import solo/group (Refresh game page to update character set)";
-      button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-      button.style.padding = "5px";
-      button.onclick = function () {
-        console.log("Importer: Import button onclick");
-        const getPriceButton = document.querySelector(`button#buttonGetPrices`);
-        if (getPriceButton) {
-          console.log("Click getPriceButton");
-          getPriceButton.click();
-        }
-        importDataForAmvoidguy(button);
-        return false;
-      };
-    }
-  };
-  let timer = setInterval(checkElem, 200);
+  waitForElement(`button#buttonImportExport`, (selectedElement) => {
+    let button = document.createElement("button");
+    selectedElement.parentNode.parentElement.parentElement.insertBefore(
+      button,
+      selectedElement.parentElement.parentElement.nextSibling,
+    );
+    button.textContent = runtime.config.isZH
+      ? "单人/组队导入(刷新游戏网页更新人物数据)"
+      : "Import solo/group (Refresh game page to update character set)";
+    button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+    button.style.padding = "5px";
+    button.onclick = function () {
+      console.log("Importer: Import button onclick");
+      const getPriceButton = document.querySelector(`button#buttonGetPrices`);
+      if (getPriceButton) {
+        console.log("Click getPriceButton");
+        getPriceButton.click();
+      }
+      importDataForAmvoidguy(button);
+      return false;
+    };
+  });
 }
 
 async function importDataForAmvoidguy(button) {
@@ -1027,29 +1023,24 @@ function calculateTill(
 }
 
 function addImportButtonForMooneycalc() {
-  const checkElem = () => {
-    const selectedElement = document.querySelector(`div[role="tablist"]`);
-    if (selectedElement) {
-      clearInterval(timer);
-      const button = document.createElement("button");
-      selectedElement.parentNode.insertBefore(
-        button,
-        selectedElement.nextSibling,
-      );
-      button.textContent = runtime.config.isZH
-        ? "导入人物数据 (刷新游戏网页更新人物数据)"
-        : "Import character settings (Refresh game page to update character settings)";
-      button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-      button.style.color = "black";
-      button.style.padding = "5px";
-      button.onclick = function () {
-        console.log("Mooneycalc-Importer: Button onclick");
-        importDataForMooneycalc(button);
-        return false;
-      };
-    }
-  };
-  let timer = setInterval(checkElem, 200);
+  waitForElement(`div[role="tablist"]`, (selectedElement) => {
+    const button = document.createElement("button");
+    selectedElement.parentNode.insertBefore(
+      button,
+      selectedElement.nextSibling,
+    );
+    button.textContent = runtime.config.isZH
+      ? "导入人物数据 (刷新游戏网页更新人物数据)"
+      : "Import character settings (Refresh game page to update character settings)";
+    button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
+    button.style.color = "black";
+    button.style.padding = "5px";
+    button.onclick = function () {
+      console.log("Mooneycalc-Importer: Button onclick");
+      importDataForMooneycalc(button);
+      return false;
+    };
+  });
 }
 
 async function importDataForMooneycalc(button) {
@@ -1119,13 +1110,9 @@ function hoursToReadableString(hours) {
 }
 
 function addExportButton(obj) {
-  const checkElem = () => {
-    const selectedElement = document.querySelector(
-      `div.SharableProfile_overviewTab__W4dCV`,
-    );
-    if (selectedElement) {
-      clearInterval(timer);
-
+  waitForElement(
+    `div[class*="SharableProfile_overviewTab"]`,
+    (selectedElement) => {
       const button = document.createElement("button");
       selectedElement.appendChild(button);
       button.textContent = runtime.config.isZH
@@ -1189,10 +1176,8 @@ function addExportButton(obj) {
         button.textContent = runtime.config.isZH ? "已复制" : "Copied";
         return false;
       };
-      return false;
-    }
-  };
-  let timer = setInterval(checkElem, 200);
+    },
+  );
 }
 
 // The legacy router retained a mwisim branch but no separate implementation;

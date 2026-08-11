@@ -32,6 +32,38 @@ export function findItemsSpriteBase() {
   return href.includes("#") ? href.split("#")[0] : "";
 }
 
+// Poll for an element matching `selector` and invoke `onFound(element)` once it
+// appears. Polling stops after the element is found or after `timeoutMs`, so a
+// selector that never matches cannot leave an interval running forever. Returns
+// a cancel function. Runs the check once immediately before scheduling.
+export function waitForElement(selector, onFound, options = {}) {
+  const intervalMs = Number(options.intervalMs) || 200;
+  const timeoutMs = Number.isFinite(options.timeoutMs)
+    ? options.timeoutMs
+    : 30_000;
+  let timer = null;
+  let elapsed = 0;
+  const stop = () => {
+    if (timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+  const check = () => {
+    const element = document.querySelector(selector);
+    if (element) {
+      stop();
+      onFound(element);
+      return true;
+    }
+    elapsed += intervalMs;
+    if (timeoutMs > 0 && elapsed >= timeoutMs) stop();
+    return false;
+  };
+  if (!check()) timer = setInterval(check, intervalMs);
+  return stop;
+}
+
 // Read the sprite reference from an SVG <use> (or icon) element, preferring the
 // modern `href` and falling back to the legacy `xlink:href`. Pass includeSrc to
 // also accept an <img>-style `src`. Returns "" when the element is missing or
