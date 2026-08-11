@@ -13312,6 +13312,7 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     return panel;
   }
   function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+    if (activePanel?.pinned) return null;
     const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
     if (!anchor?.isConnected || !actionHrid) {
       hideProductionProfitPanel();
@@ -13333,6 +13334,7 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
   }
   function showLootChestPanel(anchor, itemHrid, options = {}) {
     const pinned = Boolean(options.pinned);
+    if (!pinned && activePanel?.pinned) return null;
     const chest = runtime.api.projectLootChest?.(itemHrid);
     if (!anchor?.isConnected || !chest) {
       hideProductionProfitPanel();
@@ -13389,8 +13391,13 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     if (!anchor?.isConnected) return false;
     return Boolean(showLootChestPanel(anchor, itemHrid, { pinned: true }));
   }
+  function dismissHoverPanel() {
+    if (activePanel?.pinned) return;
+    hideProductionProfitPanel();
+  }
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
+    dismissHoverPanel,
     positionProductionProfitPanel: positionPanel,
     showProductionProfitPanel,
     showLootChestPanel,
@@ -13734,7 +13741,7 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
       'div[class*="ItemTooltipText_name"] span'
     );
     if (itemNameElems.length > 1) {
-      runtime.api.hideProductionProfitPanel?.();
+      runtime.api.dismissHoverPanel?.();
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
     }
@@ -13803,7 +13810,7 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
     } else if (!isOpenable && runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
       runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
     } else {
-      runtime.api.hideProductionProfitPanel?.();
+      runtime.api.dismissHoverPanel?.();
     }
     const tootip = insertAfterElem.closest(".MuiTooltip-popper");
     const fixOverflow = (tootip2) => {
@@ -13945,7 +13952,7 @@ ${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatM
         scope.event(document, "mouseout", (event) => {
           const card = gatheringCardFromEventTarget(event.target);
           if (!card || card.contains(event.relatedTarget)) return;
-          runtime.api.hideProductionProfitPanel?.();
+          runtime.api.dismissHoverPanel?.();
         });
       }
     });

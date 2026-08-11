@@ -415,7 +415,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
-    runtime.api.hideProductionProfitPanel?.();
+    runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
   }
@@ -513,7 +513,7 @@ async function handleTooltipItem(tooltip) {
   ) {
     runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
   } else {
-    runtime.api.hideProductionProfitPanel?.();
+    runtime.api.dismissHoverPanel?.();
   }
 
   // Make sure the tooltip is fully visible in the viewport
@@ -669,7 +669,7 @@ for (const id of ["itemTooltip_profit", "showConsumTips"]) {
       scope.event(document, "mouseout", (event) => {
         const card = gatheringCardFromEventTarget(event.target);
         if (!card || card.contains(event.relatedTarget)) return;
-        runtime.api.hideProductionProfitPanel?.();
+        runtime.api.dismissHoverPanel?.();
       });
     },
   });

@@ -257,3 +257,29 @@ test("a pinned panel survives its anchor tooltip being removed", () => {
   );
   runtime.api.hideProductionProfitPanel();
 });
+
+test("hovering other items does not disturb a pinned panel", () => {
+  const anchor = document.querySelector("#anchor");
+  const pinned = runtime.api.showLootChestPanel(anchor, "/items/locked_chest", {
+    pinned: true,
+  });
+  // Hover-driven calls (new item tooltip / mouse leaving) must be ignored.
+  runtime.api.dismissHoverPanel();
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  const other = document.createElement("div");
+  document.body.appendChild(other);
+  assert.equal(
+    runtime.api.showLootChestPanel(other, "/items/small_treasure_chest"),
+    null,
+  );
+  assert.equal(
+    runtime.api.showProductionProfitPanel(other, "/items/coin"),
+    null,
+  );
+  // The original pinned panel is still the active one.
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    pinned,
+  );
+  runtime.api.hideProductionProfitPanel();
+});

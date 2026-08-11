@@ -671,6 +671,8 @@ function createPanelElement() {
 }
 
 function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+  // A pinned panel stays until closed explicitly; ignore hover-driven panels.
+  if (activePanel?.pinned) return null;
   const actionHrid =
     options.actionHrid ??
     runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
@@ -697,6 +699,9 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
 
 function showLootChestPanel(anchor, itemHrid, options = {}) {
   const pinned = Boolean(options.pinned);
+  // A hover panel must not replace or close an already-pinned one; only an
+  // explicit pinned request (double-click) may take over.
+  if (!pinned && activePanel?.pinned) return null;
   const chest = runtime.api.projectLootChest?.(itemHrid);
   if (!anchor?.isConnected || !chest) {
     hideProductionProfitPanel();
@@ -762,8 +767,16 @@ function pinActiveLootChestPanel() {
   return Boolean(showLootChestPanel(anchor, itemHrid, { pinned: true }));
 }
 
+// Hover-driven "hide" (mouse leaving an item): a no-op while a panel is pinned
+// so moving the cursor to other items does not dismiss the pinned panel.
+function dismissHoverPanel() {
+  if (activePanel?.pinned) return;
+  hideProductionProfitPanel();
+}
+
 Object.assign(runtime.api, {
   hideProductionProfitPanel,
+  dismissHoverPanel,
   positionProductionProfitPanel: positionPanel,
   showProductionProfitPanel,
   showLootChestPanel,
