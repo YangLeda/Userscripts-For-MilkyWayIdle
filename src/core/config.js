@@ -152,6 +152,27 @@ let settingsMap = {
       : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
     isTrue: true,
   },
+  lootKeyFromFragments: {
+    id: "lootKeyFromFragments",
+    desc: isZH
+      ? "开箱期望：按钥匙碎片自制成本计算钥匙 [依赖生产利润]"
+      : "Loot estimate: value the key by its fragment crafting cost. [Depends on production profit]",
+    isTrue: false,
+  },
+  lootBuyAtAsk: {
+    id: "lootBuyAtAsk",
+    desc: isZH
+      ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid) [依赖生产利润]"
+      : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right). [Depends on production profit]",
+    isTrue: true,
+  },
+  lootSellAtAsk: {
+    id: "lootSellAtAsk",
+    desc: isZH
+      ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid) [依赖生产利润]"
+      : "Loot estimate: sell drops at ask (left); off sells at bid (right). [Depends on production profit]",
+    isTrue: false,
+  },
   expPercentage: {
     id: "expPercentage",
     desc: isZH
@@ -677,8 +698,8 @@ const catalogRows = [
     "market",
     "悬浮生产利润",
     "Tooltip production profit",
-    "在可生产物品的悬浮窗显示材料成本和预计利润。",
-    "Show material cost and estimated profit for craftable items.",
+    "在可生产物品的悬浮窗显示材料成本和预计利润；战利品宝箱显示开箱期望价值。",
+    "Show material cost and estimated profit for craftable items, and expected loot value for openable chests.",
   ],
   [
     "showConsumTips",
@@ -687,6 +708,30 @@ const catalogRows = [
     "Consumable efficiency",
     "显示回血回魔速度、单位回复成本和每天最多用量。",
     "Show recovery rate, cost per recovery, and maximum daily use.",
+  ],
+  [
+    "lootKeyFromFragments",
+    "market",
+    "钥匙按碎片自制",
+    "Craft keys from fragments",
+    "开箱期望按钥匙碎片自制成本计算钥匙，而非直接收成品钥匙。",
+    "Value the key by its fragment crafting cost instead of a finished key.",
+  ],
+  [
+    "lootBuyAtAsk",
+    "market",
+    "钥匙/碎片买入方向",
+    "Key purchase side",
+    "开：按卖单价（左, ask）立即买入；关：按买单价（右, bid）挂单买入。",
+    "On: buy at ask (left) immediately; off: buy at bid (right) with a limit order.",
+  ],
+  [
+    "lootSellAtAsk",
+    "market",
+    "开箱产物卖出方向",
+    "Loot sell side",
+    "开：产物按卖单价（左, ask）挂单卖出；关：按买单价（右, bid）立即卖出。",
+    "On: sell drops at ask (left) with a limit order; off: sell at bid (right) immediately.",
   ],
   [
     "marketFilter",
@@ -960,6 +1005,9 @@ const settingParents = {
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
+  lootKeyFromFragments: "itemTooltip_profit",
+  lootBuyAtAsk: "itemTooltip_profit",
+  lootSellAtAsk: "itemTooltip_profit",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",

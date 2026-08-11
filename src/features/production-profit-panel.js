@@ -148,6 +148,16 @@ function addStyles() {
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
+    .mwi-loot-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px; margin-top:8px; }
+    .mwi-loot-cell { display:flex; min-width:0; align-items:center; gap:6px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(255,255,255,.03); }
+    .mwi-loot-cell.unpriced { opacity:.6; }
+    .mwi-loot-cell-icon { position:relative; flex:0 0 26px; width:26px; height:26px; }
+    .mwi-loot-cell-icon .mwi-profit-icon,.mwi-loot-cell-icon .mwi-profit-icon-fallback { width:26px; height:26px; }
+    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:8px; line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
+    .mwi-loot-cell-main { min-width:0; }
+    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:10.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:10px; font-weight:650; }
+    .mwi-loot-cell.unpriced .mwi-loot-cell-value { color:var(--color-text-secondary,#9ba2ad); }
     @media(max-width:760px){#${PANEL_ID}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -440,6 +450,144 @@ function hideProductionProfitPanel() {
   activePanel = null;
 }
 
+function renderLootChestDropCell(drop) {
+  const name = itemName(drop.itemHrid);
+  const chance =
+    drop.dropRate >= 1
+      ? t("必得", "100%")
+      : `${formatNumber(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+  const countRange =
+    drop.minCount === drop.maxCount
+      ? formatNumber(drop.minCount, 0)
+      : `${formatNumber(drop.minCount, 0)}–${formatNumber(drop.maxCount, 0)}`;
+  // The full breakdown lives in the title so nothing is lost in the compact
+  // cell (the hover panel cannot be scrolled).
+  const title = `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}\n${t("单价", "Unit")}: ${formatMoney(drop.unitValue)} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`;
+  const valueText = drop.priced
+    ? formatMoney(drop.value)
+    : t("无价", "No price");
+  return `
+    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}" data-item-hrid="${escapeHtml(drop.itemHrid)}" title="${escapeHtml(title)}">
+      <div class="mwi-loot-cell-icon">
+        ${renderItemIcon(drop.itemHrid, name)}
+        <span class="mwi-loot-cell-chance">${escapeHtml(chance)}</span>
+      </div>
+      <div class="mwi-loot-cell-main">
+        <div class="mwi-loot-cell-name">${escapeHtml(name)}</div>
+        <div class="mwi-loot-cell-value">${escapeHtml(valueText)}</div>
+      </div>
+    </div>`;
+}
+
+function renderLootChestPanel(panel, itemHrid, chest) {
+  const productName = itemName(itemHrid);
+  const hasKey = Boolean(chest.keyItemHrid);
+  const subtitle = hasKey
+    ? `${t("开箱期望", "Opening estimate")} · ${t("已扣钥匙成本", "Net of key cost")}`
+    : t("开箱期望", "Opening estimate");
+  panel.dataset.status = "complete";
+  panel.innerHTML = `
+    <header class="mwi-profit-header">
+      <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
+      <div class="mwi-profit-header-main">
+        <div class="mwi-profit-title">${escapeHtml(productName)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(subtitle)}</div>
+      </div>
+    </header>`;
+
+  const cells = chest.drops.map(renderLootChestDropCell).join("");
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<section class="mwi-profit-card income" style="margin:12px;">
+      <div class="mwi-profit-card-title"><span>${t("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t("无可计价产出", "No priced drops")}</div>`}
+    </section>`,
+  );
+
+  const config = chest.config ?? {};
+  const sellLabel = config.sellAtAsk
+    ? t("卖单挂单(左)", "Sell order (left)")
+    : t("买单立即(右)", "Buy order (right)");
+  const buyLabel = config.buyAtAsk
+    ? t("卖单立即(左)", "Sell order (left)")
+    : t("买单挂单(右)", "Buy order (right)");
+  const metrics = [
+    renderValuationMetric(t("毛期望价值", "Gross value"), chest.grossValue),
+  ];
+  if (hasKey) {
+    const keySource = config.fromFragments
+      ? t("碎片自制", "Crafted from fragments")
+      : t("成品买入", "Finished key");
+    metrics.push(
+      renderValuationMetric(
+        `${t("钥匙成本", "Key cost")} (${escapeHtml(keySource)})`,
+        chest.keyCost,
+      ),
+      renderValuationMetric(t("净期望价值", "Net value"), chest.netValue, true),
+    );
+  }
+  const stateLine = hasKey
+    ? `${t("产物", "Drops")}: ${sellLabel} · ${t("钥匙", "Key")}: ${buyLabel} · ${escapeHtml(itemName(chest.keyItemHrid))}`
+    : `${t("产物卖出", "Drops sold at")}: ${sellLabel}`;
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="mwi-profit-valuations">
+      <section class="mwi-profit-valuation-row" data-mode="fair">
+        <div class="mwi-profit-valuation-name">
+          <div class="mwi-profit-valuation-title">${t("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-state">${escapeHtml(stateLine)}</div>
+        </div>
+        ${metrics.join("")}
+      </section>
+    </div>`,
+  );
+
+  if (chest.missing.length) {
+    const names = chest.missing.map(itemName).join("、");
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<div class="mwi-profit-warning" style="margin:0 12px 12px;">${t("以下产出没有市场价，已从期望中排除：", "These drops have no market price and were excluded: ")}${escapeHtml(names)}</div>`,
+    );
+  }
+}
+
+// Insert the panel after the anchor and wire up the shared lifecycle: keep it
+// positioned on resize/scroll and remove it when the anchor leaves the DOM.
+function mountPanel(anchor, panel, extraState = {}) {
+  anchor.insertAdjacentElement("afterend", panel);
+  const position = () =>
+    globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
+  const mutationObserver = new MutationObserver(() => {
+    if (!anchor.isConnected) hideProductionProfitPanel();
+  });
+  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  const resizeObserver = globalThis.ResizeObserver
+    ? new globalThis.ResizeObserver(position)
+    : null;
+  resizeObserver?.observe(anchor);
+  resizeObserver?.observe(panel);
+  activePanel = {
+    anchor,
+    panel,
+    position,
+    mutationObserver,
+    resizeObserver,
+    ...extraState,
+  };
+  globalThis.addEventListener?.("resize", position);
+  globalThis.addEventListener?.("scroll", position, true);
+  position();
+  return panel;
+}
+
+function createPanelElement() {
+  const panel = document.createElement("aside");
+  panel.id = PANEL_ID;
+  panel.setAttribute("role", "status");
+  panel.setAttribute("aria-live", "polite");
+  return panel;
+}
+
 function showProductionProfitPanel(anchor, itemHrid, options = {}) {
   const actionHrid =
     options.actionHrid ??
@@ -455,43 +603,32 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     itemHrid ??
     runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
   if (!primaryItemHrid) return null;
-  const panel = document.createElement("aside");
-  panel.id = PANEL_ID;
-  panel.setAttribute("role", "status");
-  panel.setAttribute("aria-live", "polite");
+  const panel = createPanelElement();
   renderPanel(panel, primaryItemHrid, projection, {
     directAction: Boolean(options.actionHrid),
   });
-  anchor.insertAdjacentElement("afterend", panel);
-
-  const position = () =>
-    globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
-  const mutationObserver = new MutationObserver(() => {
-    if (!anchor.isConnected) hideProductionProfitPanel();
-  });
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
-  const resizeObserver = globalThis.ResizeObserver
-    ? new globalThis.ResizeObserver(position)
-    : null;
-  resizeObserver?.observe(anchor);
-  resizeObserver?.observe(panel);
-  activePanel = {
-    anchor,
+  return mountPanel(anchor, panel, {
     itemHrid: primaryItemHrid,
     actionHrid,
-    mutationObserver,
-    panel,
-    position,
-    resizeObserver,
-  };
-  globalThis.addEventListener?.("resize", position);
-  globalThis.addEventListener?.("scroll", position, true);
-  position();
-  return panel;
+  });
+}
+
+function showLootChestPanel(anchor, itemHrid) {
+  const chest = runtime.api.projectLootChest?.(itemHrid);
+  if (!anchor?.isConnected || !chest) {
+    hideProductionProfitPanel();
+    return null;
+  }
+  hideProductionProfitPanel();
+  addStyles();
+  const panel = createPanelElement();
+  renderLootChestPanel(panel, itemHrid, chest);
+  return mountPanel(anchor, panel, { itemHrid });
 }
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,
   positionProductionProfitPanel: positionPanel,
   showProductionProfitPanel,
+  showLootChestPanel,
 });

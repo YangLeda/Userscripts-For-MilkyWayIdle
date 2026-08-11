@@ -174,6 +174,126 @@ function getOpenableValue(itemHrid, context) {
   return Math.max(0, total - keyCraftingCost);
 }
 
+// Break an openable item (treasure chest, key box, ...) into a per-drop
+// expected-value estimate for the hover panel. Returns null when the item has
+// no loot table. Gross is the summed drop value; net subtracts the key cost.
+// Loot valuation follows player-chosen market sides (config, not fixed modes):
+//   drops sell at ask (left) or bid (right); keys/fragments buy at ask (left)
+//   or bid (right). Left = the sell-order column, right = the buy-order column.
+
+// After-tax proceeds from selling one unit on the chosen side.
+function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
+  const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
+  const price = sellAtAsk
+    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+  return price * Math.max(0, 1 - taxRate);
+}
+
+// Price paid to buy one unit on the chosen side (purchases are untaxed).
+function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
+  return buyAtAsk
+    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+}
+
+// Cost to obtain one key. Either buy the finished key on the chosen side, or —
+// when the player collects fragments — craft it, valuing every fragment input
+// at its purchase price on the same side.
+function lootKeyCost(keyItemHrid, { buyAtAsk, fromFragments }) {
+  if (!keyItemHrid) return 0;
+  if (!fromFragments) return lootPurchaseValue(keyItemHrid, 0, buyAtAsk);
+  for (const [, action] of entriesOfMap(
+    runtime.state.initData_actionDetailMap,
+  )) {
+    const outputs = Array.isArray(action?.outputItems)
+      ? action.outputItems
+      : [];
+    const outputCount = outputs.reduce((total, output) => {
+      const outputHrid = output?.itemHrid ?? output?.hrid;
+      return outputHrid === keyItemHrid
+        ? total + positiveNumber(output.count ?? 1)
+        : total;
+    }, 0);
+    if (!outputCount) continue;
+    let cost = 0;
+    for (const input of action?.inputItems ?? []) {
+      const inputHrid = input?.itemHrid ?? input?.hrid;
+      const count = positiveNumber(input?.count);
+      if (!inputHrid || !count) continue;
+      cost += count * lootPurchaseValue(inputHrid, 0, buyAtAsk);
+    }
+    if (cost > 0) return cost / outputCount;
+  }
+  // No fragment recipe found; fall back to buying the finished key.
+  return lootPurchaseValue(keyItemHrid, 0, buyAtAsk);
+}
+
+function lootConfig() {
+  const settings = runtime.settings.settingsMap;
+  return {
+    sellAtAsk: Boolean(settings.lootSellAtAsk?.isTrue),
+    buyAtAsk: settings.lootBuyAtAsk?.isTrue !== false,
+    fromFragments: Boolean(settings.lootKeyFromFragments?.isTrue),
+  };
+}
+
+function projectLootChest(itemHrid, overrides = {}) {
+  const drops = getDropRecords(itemHrid);
+  if (!Array.isArray(drops) || !drops.length) return null;
+  const config = { ...lootConfig(), ...overrides };
+  const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+  const rows = [];
+  let grossValue = 0;
+
+  for (const drop of drops) {
+    const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+    if (!dropItemHrid) continue;
+    const rawDropRate = Array.isArray(drop.dropRate)
+      ? drop.dropRate[0]
+      : drop.dropRate;
+    const dropRate = Number.isFinite(Number(rawDropRate))
+      ? Math.max(0, Number(rawDropRate))
+      : 1;
+    const minimum = Number(drop.minCount ?? drop.count ?? 1);
+    const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+    const enhancementLevel = drop.enhancementLevel ?? 0;
+    const expectedCount = dropRate * (minimum + maximum) * 0.5;
+    const unitValue = lootSaleValue(
+      dropItemHrid,
+      enhancementLevel,
+      config.sellAtAsk,
+    );
+    const value = expectedCount * unitValue;
+    grossValue += value;
+    rows.push({
+      itemHrid: dropItemHrid,
+      enhancementLevel,
+      dropRate,
+      minCount: minimum,
+      maxCount: maximum,
+      expectedCount,
+      unitValue,
+      value,
+      priced: unitValue > 0,
+    });
+  }
+  rows.sort((left, right) => right.value - left.value);
+
+  const keyCost = lootKeyCost(keyItemHrid, config);
+  return {
+    itemHrid,
+    keyItemHrid,
+    config,
+    drops: rows,
+    grossValue,
+    keyCost,
+    netValue: grossValue - keyCost,
+    missing: rows.filter((row) => !row.priced).map((row) => row.itemHrid),
+  };
+}
+
 function isPersonalBuffScroll(itemHrid) {
   return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
 }
@@ -964,6 +1084,7 @@ Object.assign(runtime.api, {
   getAssetValue,
   getAssetLiquidationValue,
   getGuildShrineValue,
+  projectLootChest,
   isBackEquipment,
   isNonTradableTokenAsset,
   invalidateAssetValueCache,

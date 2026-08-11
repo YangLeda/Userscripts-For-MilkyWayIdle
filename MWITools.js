@@ -931,6 +931,21 @@
       desc: isZH ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量" : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
       isTrue: true
     },
+    lootKeyFromFragments: {
+      id: "lootKeyFromFragments",
+      desc: isZH ? "开箱期望：按钥匙碎片自制成本计算钥匙 [依赖生产利润]" : "Loot estimate: value the key by its fragment crafting cost. [Depends on production profit]",
+      isTrue: false
+    },
+    lootBuyAtAsk: {
+      id: "lootBuyAtAsk",
+      desc: isZH ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid) [依赖生产利润]" : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right). [Depends on production profit]",
+      isTrue: true
+    },
+    lootSellAtAsk: {
+      id: "lootSellAtAsk",
+      desc: isZH ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid) [依赖生产利润]" : "Loot estimate: sell drops at ask (left); off sells at bid (right). [Depends on production profit]",
+      isTrue: false
+    },
     expPercentage: {
       id: "expPercentage",
       desc: isZH ? "左侧栏显示：技能经验百分比" : "Left sidebar: Percentages of exp of the skill levels.",
@@ -1402,8 +1417,8 @@
       "market",
       "悬浮生产利润",
       "Tooltip production profit",
-      "在可生产物品的悬浮窗显示材料成本和预计利润。",
-      "Show material cost and estimated profit for craftable items."
+      "在可生产物品的悬浮窗显示材料成本和预计利润；战利品宝箱显示开箱期望价值。",
+      "Show material cost and estimated profit for craftable items, and expected loot value for openable chests."
     ],
     [
       "showConsumTips",
@@ -1412,6 +1427,30 @@
       "Consumable efficiency",
       "显示回血回魔速度、单位回复成本和每天最多用量。",
       "Show recovery rate, cost per recovery, and maximum daily use."
+    ],
+    [
+      "lootKeyFromFragments",
+      "market",
+      "钥匙按碎片自制",
+      "Craft keys from fragments",
+      "开箱期望按钥匙碎片自制成本计算钥匙，而非直接收成品钥匙。",
+      "Value the key by its fragment crafting cost instead of a finished key."
+    ],
+    [
+      "lootBuyAtAsk",
+      "market",
+      "钥匙/碎片买入方向",
+      "Key purchase side",
+      "开：按卖单价（左, ask）立即买入；关：按买单价（右, bid）挂单买入。",
+      "On: buy at ask (left) immediately; off: buy at bid (right) with a limit order."
+    ],
+    [
+      "lootSellAtAsk",
+      "market",
+      "开箱产物卖出方向",
+      "Loot sell side",
+      "开：产物按卖单价（左, ask）挂单卖出；关：按买单价（右, bid）立即卖出。",
+      "On: sell drops at ask (left) with a limit order; off: sell at bid (right) immediately."
     ],
     [
       "marketFilter",
@@ -1683,6 +1722,9 @@
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
+    lootKeyFromFragments: "itemTooltip_profit",
+    lootBuyAtAsk: "itemTooltip_profit",
+    lootSellAtAsk: "itemTooltip_profit",
     taskMaterials: "taskInsights",
     taskQueueProgress: "taskInsights",
     taskAutoSort: "taskInsights",
@@ -6813,6 +6855,94 @@
     if (!(keyCraftingCost > 0)) return 0;
     return Math.max(0, total - keyCraftingCost);
   }
+  function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
+    const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
+    const price = sellAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    return price * Math.max(0, 1 - taxRate);
+  }
+  function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
+    return buyAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+  }
+  function lootKeyCost(keyItemHrid, { buyAtAsk, fromFragments }) {
+    if (!keyItemHrid) return 0;
+    if (!fromFragments) return lootPurchaseValue(keyItemHrid, 0, buyAtAsk);
+    for (const [, action] of entriesOfMap(
+      runtime.state.initData_actionDetailMap
+    )) {
+      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
+      const outputCount = outputs.reduce((total, output) => {
+        const outputHrid = output?.itemHrid ?? output?.hrid;
+        return outputHrid === keyItemHrid ? total + positiveNumber2(output.count ?? 1) : total;
+      }, 0);
+      if (!outputCount) continue;
+      let cost = 0;
+      for (const input of action?.inputItems ?? []) {
+        const inputHrid = input?.itemHrid ?? input?.hrid;
+        const count = positiveNumber2(input?.count);
+        if (!inputHrid || !count) continue;
+        cost += count * lootPurchaseValue(inputHrid, 0, buyAtAsk);
+      }
+      if (cost > 0) return cost / outputCount;
+    }
+    return lootPurchaseValue(keyItemHrid, 0, buyAtAsk);
+  }
+  function lootConfig() {
+    const settings2 = runtime.settings.settingsMap;
+    return {
+      sellAtAsk: Boolean(settings2.lootSellAtAsk?.isTrue),
+      buyAtAsk: settings2.lootBuyAtAsk?.isTrue !== false,
+      fromFragments: Boolean(settings2.lootKeyFromFragments?.isTrue)
+    };
+  }
+  function projectLootChest(itemHrid, overrides = {}) {
+    const drops = getDropRecords(itemHrid);
+    if (!Array.isArray(drops) || !drops.length) return null;
+    const config = { ...lootConfig(), ...overrides };
+    const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+    const rows = [];
+    let grossValue = 0;
+    for (const drop of drops) {
+      const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+      if (!dropItemHrid) continue;
+      const rawDropRate = Array.isArray(drop.dropRate) ? drop.dropRate[0] : drop.dropRate;
+      const dropRate = Number.isFinite(Number(rawDropRate)) ? Math.max(0, Number(rawDropRate)) : 1;
+      const minimum = Number(drop.minCount ?? drop.count ?? 1);
+      const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+      const enhancementLevel = drop.enhancementLevel ?? 0;
+      const expectedCount = dropRate * (minimum + maximum) * 0.5;
+      const unitValue = lootSaleValue(
+        dropItemHrid,
+        enhancementLevel,
+        config.sellAtAsk
+      );
+      const value = expectedCount * unitValue;
+      grossValue += value;
+      rows.push({
+        itemHrid: dropItemHrid,
+        enhancementLevel,
+        dropRate,
+        minCount: minimum,
+        maxCount: maximum,
+        expectedCount,
+        unitValue,
+        value,
+        priced: unitValue > 0
+      });
+    }
+    rows.sort((left, right) => right.value - left.value);
+    const keyCost = lootKeyCost(keyItemHrid, config);
+    return {
+      itemHrid,
+      keyItemHrid,
+      config,
+      drops: rows,
+      grossValue,
+      keyCost,
+      netValue: grossValue - keyCost,
+      missing: rows.filter((row) => !row.priced).map((row) => row.itemHrid)
+    };
+  }
   function isPersonalBuffScroll(itemHrid) {
     return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
   }
@@ -7459,6 +7589,7 @@
     getAssetValue,
     getAssetLiquidationValue,
     getGuildShrineValue,
+    projectLootChest,
     isBackEquipment,
     isNonTradableTokenAsset,
     invalidateAssetValueCache,
@@ -12710,6 +12841,16 @@ ${preview}`
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
+    .mwi-loot-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(112px,1fr)); gap:6px; margin-top:8px; }
+    .mwi-loot-cell { display:flex; min-width:0; align-items:center; gap:6px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(255,255,255,.03); }
+    .mwi-loot-cell.unpriced { opacity:.6; }
+    .mwi-loot-cell-icon { position:relative; flex:0 0 26px; width:26px; height:26px; }
+    .mwi-loot-cell-icon .mwi-profit-icon,.mwi-loot-cell-icon .mwi-profit-icon-fallback { width:26px; height:26px; }
+    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:8px; line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
+    .mwi-loot-cell-main { min-width:0; }
+    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:10.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:10px; font-weight:650; }
+    .mwi-loot-cell.unpriced .mwi-loot-cell-value { color:var(--color-text-secondary,#9ba2ad); }
     @media(max-width:760px){#${PANEL_ID2}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -12960,24 +13101,85 @@ ${preview}`
     state.panel?.remove();
     activePanel = null;
   }
-  function showProductionProfitPanel(anchor, itemHrid, options = {}) {
-    const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
-    if (!anchor?.isConnected || !actionHrid) {
-      hideProductionProfitPanel();
-      return null;
+  function renderLootChestDropCell(drop) {
+    const name = itemName2(drop.itemHrid);
+    const chance = drop.dropRate >= 1 ? t5("必得", "100%") : `${formatNumber2(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+    const countRange = drop.minCount === drop.maxCount ? formatNumber2(drop.minCount, 0) : `${formatNumber2(drop.minCount, 0)}–${formatNumber2(drop.maxCount, 0)}`;
+    const title = `${name}
+${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} · ${t5("期望", "Expected")}: ${formatNumber2(drop.expectedCount, 2)}
+${t5("单价", "Unit")}: ${formatMoney(drop.unitValue)} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t5("无价", "No price")}`;
+    const valueText = drop.priced ? formatMoney(drop.value) : t5("无价", "No price");
+    return `
+    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}" data-item-hrid="${escapeHtml(drop.itemHrid)}" title="${escapeHtml(title)}">
+      <div class="mwi-loot-cell-icon">
+        ${renderItemIcon(drop.itemHrid, name)}
+        <span class="mwi-loot-cell-chance">${escapeHtml(chance)}</span>
+      </div>
+      <div class="mwi-loot-cell-main">
+        <div class="mwi-loot-cell-name">${escapeHtml(name)}</div>
+        <div class="mwi-loot-cell-value">${escapeHtml(valueText)}</div>
+      </div>
+    </div>`;
+  }
+  function renderLootChestPanel(panel, itemHrid, chest) {
+    const productName = itemName2(itemHrid);
+    const hasKey = Boolean(chest.keyItemHrid);
+    const subtitle = hasKey ? `${t5("开箱期望", "Opening estimate")} · ${t5("已扣钥匙成本", "Net of key cost")}` : t5("开箱期望", "Opening estimate");
+    panel.dataset.status = "complete";
+    panel.innerHTML = `
+    <header class="mwi-profit-header">
+      <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
+      <div class="mwi-profit-header-main">
+        <div class="mwi-profit-title">${escapeHtml(productName)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(subtitle)}</div>
+      </div>
+    </header>`;
+    const cells = chest.drops.map(renderLootChestDropCell).join("");
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<section class="mwi-profit-card income" style="margin:12px;">
+      <div class="mwi-profit-card-title"><span>${t5("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t5("无可计价产出", "No priced drops")}</div>`}
+    </section>`
+    );
+    const config = chest.config ?? {};
+    const sellLabel = config.sellAtAsk ? t5("卖单挂单(左)", "Sell order (left)") : t5("买单立即(右)", "Buy order (right)");
+    const buyLabel = config.buyAtAsk ? t5("卖单立即(左)", "Sell order (left)") : t5("买单挂单(右)", "Buy order (right)");
+    const metrics = [
+      renderValuationMetric(t5("毛期望价值", "Gross value"), chest.grossValue)
+    ];
+    if (hasKey) {
+      const keySource = config.fromFragments ? t5("碎片自制", "Crafted from fragments") : t5("成品买入", "Finished key");
+      metrics.push(
+        renderValuationMetric(
+          `${t5("钥匙成本", "Key cost")} (${escapeHtml(keySource)})`,
+          chest.keyCost
+        ),
+        renderValuationMetric(t5("净期望价值", "Net value"), chest.netValue, true)
+      );
     }
-    hideProductionProfitPanel();
-    addStyles3();
-    const projection = runtime.api.projectAction(actionHrid, 1);
-    const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
-    if (!primaryItemHrid) return null;
-    const panel = document.createElement("aside");
-    panel.id = PANEL_ID2;
-    panel.setAttribute("role", "status");
-    panel.setAttribute("aria-live", "polite");
-    renderPanel(panel, primaryItemHrid, projection, {
-      directAction: Boolean(options.actionHrid)
-    });
+    const stateLine = hasKey ? `${t5("产物", "Drops")}: ${sellLabel} · ${t5("钥匙", "Key")}: ${buyLabel} · ${escapeHtml(itemName2(chest.keyItemHrid))}` : `${t5("产物卖出", "Drops sold at")}: ${sellLabel}`;
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<div class="mwi-profit-valuations">
+      <section class="mwi-profit-valuation-row" data-mode="fair">
+        <div class="mwi-profit-valuation-name">
+          <div class="mwi-profit-valuation-title">${t5("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-state">${escapeHtml(stateLine)}</div>
+        </div>
+        ${metrics.join("")}
+      </section>
+    </div>`
+    );
+    if (chest.missing.length) {
+      const names = chest.missing.map(itemName2).join("、");
+      panel.insertAdjacentHTML(
+        "beforeend",
+        `<div class="mwi-profit-warning" style="margin:0 12px 12px;">${t5("以下产出没有市场价，已从期望中排除：", "These drops have no market price and were excluded: ")}${escapeHtml(names)}</div>`
+      );
+    }
+  }
+  function mountPanel(anchor, panel, extraState = {}) {
     anchor.insertAdjacentElement("afterend", panel);
     const position = () => globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
     const mutationObserver = new MutationObserver(() => {
@@ -12989,22 +13191,61 @@ ${preview}`
     resizeObserver?.observe(panel);
     activePanel = {
       anchor,
-      itemHrid: primaryItemHrid,
-      actionHrid,
-      mutationObserver,
       panel,
       position,
-      resizeObserver
+      mutationObserver,
+      resizeObserver,
+      ...extraState
     };
     globalThis.addEventListener?.("resize", position);
     globalThis.addEventListener?.("scroll", position, true);
     position();
     return panel;
   }
+  function createPanelElement() {
+    const panel = document.createElement("aside");
+    panel.id = PANEL_ID2;
+    panel.setAttribute("role", "status");
+    panel.setAttribute("aria-live", "polite");
+    return panel;
+  }
+  function showProductionProfitPanel(anchor, itemHrid, options = {}) {
+    const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+    if (!anchor?.isConnected || !actionHrid) {
+      hideProductionProfitPanel();
+      return null;
+    }
+    hideProductionProfitPanel();
+    addStyles3();
+    const projection = runtime.api.projectAction(actionHrid, 1);
+    const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
+    if (!primaryItemHrid) return null;
+    const panel = createPanelElement();
+    renderPanel(panel, primaryItemHrid, projection, {
+      directAction: Boolean(options.actionHrid)
+    });
+    return mountPanel(anchor, panel, {
+      itemHrid: primaryItemHrid,
+      actionHrid
+    });
+  }
+  function showLootChestPanel(anchor, itemHrid) {
+    const chest = runtime.api.projectLootChest?.(itemHrid);
+    if (!anchor?.isConnected || !chest) {
+      hideProductionProfitPanel();
+      return null;
+    }
+    hideProductionProfitPanel();
+    addStyles3();
+    const panel = createPanelElement();
+    renderLootChestPanel(panel, itemHrid, chest);
+    return mountPanel(anchor, panel, { itemHrid });
+  }
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     positionProductionProfitPanel: positionPanel,
-    showProductionProfitPanel
+    showProductionProfitPanel,
+    showLootChestPanel
   });
 
   // src/features/item-tooltips.js
@@ -13406,7 +13647,11 @@ ${preview}`
     }
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
     if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-      runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+      if (runtime.state.initData_openableLootDropMap?.[itemHrid]) {
+        runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+      } else {
+        runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+      }
     } else {
       runtime.api.hideProductionProfitPanel?.();
     }

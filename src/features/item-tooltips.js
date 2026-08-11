@@ -501,7 +501,13 @@ async function handleTooltipItem(tooltip) {
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
 
   if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-    runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+    // Openable items (treasure chests, key boxes) get an expected-loot panel;
+    // everything else falls back to the production-profit projection.
+    if (runtime.state.initData_openableLootDropMap?.[itemHrid]) {
+      runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+    } else {
+      runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+    }
   } else {
     runtime.api.hideProductionProfitPanel?.();
   }
