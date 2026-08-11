@@ -10,7 +10,7 @@ function persistSettings() {
   const values = Object.fromEntries(
     Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
       id,
-      setting.type === "choice" ? setting.value : Boolean(setting.isTrue),
+      Boolean(setting.isTrue),
     ]),
   );
   localStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values }));
@@ -25,15 +25,6 @@ function persistSettings() {
 function applyStoredSetting(id, value) {
   const setting = runtime.settings.settingsMap[id];
   if (!setting) return;
-  if (setting.type === "choice") {
-    const allowed = new Set(
-      (runtime.settings.catalog[id]?.options ?? []).map(
-        (option) => option.value,
-      ),
-    );
-    if (allowed.has(String(value))) setting.value = String(value);
-    return;
-  }
   setting.isTrue = Boolean(value);
 }
 
@@ -74,10 +65,7 @@ function readSettings() {
       );
       for (const option of Object.values(legacy ?? {})) {
         if (!option?.id) continue;
-        applyStoredSetting(
-          option.id,
-          option.type === "choice" ? option.value : option.isTrue,
-        );
+        applyStoredSetting(option.id, option.isTrue);
       }
     } catch (error) {
       console.warn("[MWITools] Could not migrate legacy settings", error);
@@ -133,19 +121,12 @@ function addSettingsStyles() {
     .mwi-setting-toggle span::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:.16s; }
     .mwi-setting-toggle input:checked + span { background:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
     .mwi-setting-toggle input:checked + span::after { transform:translateX(16px); }
-    .mwi-setting-choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-column:1 / 5; grid-row:2; gap:6px; margin-top:2px; }
-    .mwi-setting-choice { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:2px 7px; box-sizing:border-box; min-width:0; padding:7px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(0,0,0,.16); cursor:pointer; }
-    .mwi-setting-choice:has(input:checked) { border-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); background:rgba(255,165,0,.08); }
-    .mwi-setting-choice:has(input:disabled) { cursor:not-allowed; }
-    .mwi-setting-choice input { grid-column:1; grid-row:1 / 3; margin:2px 0 0; accent-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
-    .mwi-setting-choice-title { grid-column:2; grid-row:1; font-size:.75rem; font-weight:650; line-height:1.25; }
-    .mwi-setting-choice-description { grid-column:2; grid-row:2; color:var(--color-text-secondary,#aaa); font-size:.67rem; line-height:1.35; }
     .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:.68rem; color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
     .mwi-setting-more summary { display:inline-block; cursor:pointer; color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); list-style-position:inside; }
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-choices { grid-template-columns:1fr; grid-column:1 / 3; grid-row:4; } }
+    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
   styleHost.appendChild(style);
 }
@@ -205,7 +186,6 @@ function areSettingParentsEnabled(definition) {
 
 function createSettingCard(definition, options = {}) {
   const setting = runtime.settings.settingsMap[definition.id];
-  const isChoice = setting.type === "choice";
   const children = Object.values(runtime.settings.catalog).filter(
     (candidate) => candidate.parent === definition.id,
   );
@@ -218,12 +198,6 @@ function createSettingCard(definition, options = {}) {
     definition.title?.en,
     definition.summary?.zh,
     definition.summary?.en,
-    ...(definition.options ?? []).flatMap((option) => [
-      option.label?.zh,
-      option.label?.en,
-      option.description?.zh,
-      option.description?.en,
-    ]),
     ...descendants.flatMap((child) => [
       child.title?.zh,
       child.title?.en,
@@ -266,57 +240,21 @@ function createSettingCard(definition, options = {}) {
   setStatus();
   const titleLine = document.createElement("div");
   titleLine.className = "mwi-setting-title-line";
-  titleLine.append(title);
-  if (!isChoice) titleLine.append(status);
+  titleLine.append(title, status);
   copy.append(titleLine, summary);
 
-  let control;
-  let checkbox = null;
-  let choiceInputs = [];
-  if (isChoice) {
-    const choices = document.createElement("div");
-    choices.className = "mwi-setting-choices";
-    choices.setAttribute("role", "radiogroup");
-    choices.setAttribute("aria-label", localizedText(definition.title));
-    for (const optionDefinition of definition.options ?? []) {
-      const option = document.createElement("label");
-      option.className = "mwi-setting-choice";
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = `mwi-setting-${definition.id}`;
-      radio.value = optionDefinition.value;
-      radio.checked = setting.value === optionDefinition.value;
-      if (definition.parent) {
-        radio.disabled = !areSettingParentsEnabled(definition);
-      }
-      const optionTitle = document.createElement("span");
-      optionTitle.className = "mwi-setting-choice-title";
-      optionTitle.textContent = localizedText(optionDefinition.label);
-      const optionDescription = document.createElement("span");
-      optionDescription.className = "mwi-setting-choice-description";
-      optionDescription.textContent = localizedText(
-        optionDefinition.description,
-      );
-      option.append(radio, optionTitle, optionDescription);
-      choices.append(option);
-      choiceInputs.push(radio);
-    }
-    control = choices;
-  } else {
-    const toggle = document.createElement("label");
-    toggle.className = "mwi-setting-toggle";
-    checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = Boolean(setting.isTrue);
-    if (definition.parent) {
-      checkbox.disabled = !areSettingParentsEnabled(definition);
-    }
-    checkbox.setAttribute("aria-label", localizedText(definition.title));
-    const track = document.createElement("span");
-    toggle.append(checkbox, track);
-    control = toggle;
+  const toggle = document.createElement("label");
+  toggle.className = "mwi-setting-toggle";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = Boolean(setting.isTrue);
+  if (definition.parent) {
+    checkbox.disabled = !areSettingParentsEnabled(definition);
   }
-  if ((!isChoice && definition.details) || children.length) {
+  checkbox.setAttribute("aria-label", localizedText(definition.title));
+  const track = document.createElement("span");
+  toggle.append(checkbox, track);
+  if (definition.details || children.length) {
     const details = document.createElement("details");
     details.className = "mwi-setting-more";
     const detailsSummary = document.createElement("summary");
@@ -338,33 +276,25 @@ function createSettingCard(definition, options = {}) {
     }
     copy.append(details);
   }
-  row.append(copy, control);
+  row.append(copy, toggle);
   card.append(row);
 
-  if (choiceInputs.length) {
-    for (const radio of choiceInputs) {
-      radio.addEventListener("change", () => {
-        if (radio.checked) runtime.settings.set(definition.id, radio.value);
-      });
+  checkbox.addEventListener("change", async () => {
+    await runtime.settings.set(definition.id, checkbox.checked);
+    if (
+      definition.id === "forceMWIToolsDisplayZH" ||
+      definition.id === "useOrangeAsMainColor" ||
+      children.length
+    ) {
+      applyVisualSettings();
+      renderSettings(document.querySelector("#script_settings"));
+      return;
     }
-  } else {
-    checkbox.addEventListener("change", async () => {
-      await runtime.settings.set(definition.id, checkbox.checked);
-      if (
-        definition.id === "forceMWIToolsDisplayZH" ||
-        definition.id === "useOrangeAsMainColor" ||
-        children.length
-      ) {
-        applyVisualSettings();
-        renderSettings(document.querySelector("#script_settings"));
-        return;
-      }
-      setStatus();
-    });
-  }
+    setStatus();
+  });
 
   const stopStatusListener = runtime.features.onStatusChange((id) => {
-    if (!isChoice && id === definition.id) setStatus();
+    if (id === definition.id) setStatus();
   });
   card._mwitoolsCleanup = stopStatusListener;
   return card;

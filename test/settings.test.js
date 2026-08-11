@@ -63,7 +63,8 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(stored.values.showDamage, false);
   assert.equal(stored.values.showDamageGraph, undefined);
   assert.equal(stored.values.damageGraphTransparentBackground, undefined);
-  assert.equal(stored.values.profitValuationMode, "fair");
+  assert.equal(stored.values.profitValuationMode, undefined);
+  assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
   assert.equal(
     Object.keys(stored.values).length,
     Object.keys(runtime.settings.settingsMap).length,
@@ -77,19 +78,6 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
       .notifiEmptyAction,
     true,
   );
-  await runtime.settings.set("profitValuationMode", "aggressive");
-  assert.equal(runtime.settings.get("profitValuationMode"), "aggressive");
-  assert.equal(
-    JSON.parse(localStorage.getItem("MWITools_settings_v2")).values
-      .profitValuationMode,
-    "aggressive",
-  );
-  assert.equal(
-    JSON.parse(localStorage.getItem("script_settingsMap")).profitValuationMode
-      .value,
-    "aggressive",
-  );
-  await runtime.settings.set("profitValuationMode", "fair");
   assert.equal(
     JSON.parse(localStorage.getItem("script_settingsMap")).notifiEmptyAction
       .isTrue,
@@ -124,36 +112,10 @@ test("card settings render every visible setting with nested children and search
   const root = document.querySelector("#script_settings");
   assert.equal(root.dataset.mwitoolsVersion, "2");
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 10);
-  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 47);
+  assert.equal(root.querySelectorAll(".mwi-setting-card").length, 46);
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
-  const valuationChoices = root.querySelector(
-    '[role="radiogroup"][aria-label="利润估值口径"]',
-  );
-  assert.ok(valuationChoices);
-  assert.equal(root.querySelector('select[aria-label="利润估值口径"]'), null);
-  const valuationInputs = [
-    ...valuationChoices.querySelectorAll('input[type="radio"]'),
-  ];
-  assert.deepEqual(
-    valuationInputs.map((input) => input.value),
-    ["conservative", "fair", "aggressive"],
-  );
-  assert.equal(
-    valuationChoices.querySelector('input[value="fair"]').checked,
-    true,
-  );
-  assert.match(valuationChoices.textContent, /最低卖单价买入/);
-  assert.match(valuationChoices.textContent, /服务器市场价值/);
-  assert.match(valuationChoices.textContent, /最高买单价挂单买入/);
-  const aggressiveChoice = valuationChoices.querySelector(
-    'input[value="aggressive"]',
-  );
-  aggressiveChoice.checked = true;
-  aggressiveChoice.dispatchEvent(
-    new dom.window.Event("change", { bubbles: true }),
-  );
-  assert.equal(runtime.settings.get("profitValuationMode"), "aggressive");
-  await runtime.settings.set("profitValuationMode", "fair");
+  assert.doesNotMatch(root.textContent, /利润估值口径/);
+  assert.equal(root.querySelector('[role="radiogroup"]'), null);
   const topLevelCards = root.querySelectorAll(
     ".mwi-settings-grid > .mwi-setting-card",
   );

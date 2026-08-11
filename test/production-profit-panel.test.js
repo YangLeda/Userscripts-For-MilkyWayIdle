@@ -67,7 +67,7 @@ function nativeTooltip() {
   return document.querySelector("#native-tooltip");
 }
 
-test("profit UI displays only the selected valuation", async () => {
+test("profit UI displays three valuation rows with revenue, costs, and profit", () => {
   const anchor = nativeTooltip();
   const original = anchor.innerHTML;
   const panel = runtime.api.showProductionProfitPanel(
@@ -83,26 +83,39 @@ test("profit UI displays only the selected valuation", async () => {
   assert.match(panel.textContent, /当前玩家/);
   assert.match(panel.textContent, /产出/);
   assert.match(panel.textContent, /未使用茶饮/);
-  const hourlyProfit = [...panel.querySelectorAll(".mwi-profit-metric")]
-    .find((metric) => metric.textContent.includes("净利润/小时"))
-    .querySelector(".mwi-profit-metric-value");
-  assert.equal(hourlyProfit.textContent, "28.8K");
-  assert.equal(hourlyProfit.title, "28,800");
-  assert.doesNotMatch(hourlyProfit.textContent, /~/);
-
-  await runtime.settings.set("profitValuationMode", "aggressive", {
-    persist: false,
-  });
-  const aggressiveHourlyProfit = [
-    ...panel.querySelectorAll(".mwi-profit-metric"),
-  ]
-    .find((metric) => metric.textContent.includes("净利润/小时"))
-    .querySelector(".mwi-profit-metric-value");
-  assert.equal(aggressiveHourlyProfit.textContent, "35.3K");
-  assert.equal(aggressiveHourlyProfit.title, "35,280");
-  await runtime.settings.set("profitValuationMode", "fair", {
-    persist: false,
-  });
+  const rows = [...panel.querySelectorAll(".mwi-profit-valuation-row")];
+  assert.equal(rows.length, 3);
+  assert.deepEqual(
+    rows.map((row) => row.dataset.mode),
+    ["fair", "conservative", "aggressive"],
+  );
+  assert.match(rows[0].textContent, /市价/);
+  assert.match(rows[1].textContent, /效率（高买低卖）/);
+  assert.match(rows[2].textContent, /贪心（低买高卖）/);
+  for (const row of rows) {
+    assert.match(row.textContent, /税后收入\/动作/);
+    assert.match(row.textContent, /材料成本\/动作/);
+    assert.match(row.textContent, /茶饮成本\/动作/);
+    assert.match(row.textContent, /总成本\/动作/);
+    assert.match(row.textContent, /净利润\/动作/);
+    assert.match(row.textContent, /净利润\/天/);
+  }
+  const profitValue = (mode, label) =>
+    [
+      ...panel
+        .querySelector(`[data-mode="${mode}"]`)
+        .querySelectorAll(".mwi-profit-valuation-metric"),
+    ]
+      .find((metric) => metric.textContent.includes(label))
+      .querySelector(".mwi-profit-valuation-value");
+  assert.equal(profitValue("fair", "净利润/动作").textContent, "80");
+  assert.equal(profitValue("fair", "净利润/天").textContent, "691.2K");
+  assert.equal(profitValue("fair", "净利润/天").title, "691,200");
+  assert.equal(profitValue("conservative", "净利润/动作").textContent, "80");
+  assert.equal(profitValue("aggressive", "净利润/动作").textContent, "98");
+  assert.equal(profitValue("aggressive", "净利润/天").textContent, "846.7K");
+  assert.equal(panel.querySelector(".mwi-profit-summary"), null);
+  assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
   assert.equal(
     document.querySelectorAll("#mwitools-production-profit-panel").length,
     1,

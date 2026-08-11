@@ -116,7 +116,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
@@ -153,19 +153,28 @@ function addStyles() {
     .mwi-profit-stat-list { width:100%; }
     .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:9.5px; }
     .mwi-profit-stat strong { color:#edf0f4; font-weight:650; }
-    .mwi-profit-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; padding:0 12px 12px; }
-    .mwi-profit-metric { min-width:0; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(255,255,255,.035); text-align:center; }
-    .mwi-profit-metric-label { color:var(--color-text-secondary,#9da5b0); font-size:9px; }
-    .mwi-profit-metric-value { margin-top:3px; color:#fff; font-size:12px; font-weight:700; overflow-wrap:anywhere; }
-    .mwi-profit-metric.profit { border-color:rgba(75,194,124,.24); background:rgba(55,160,97,.09); }
-    .mwi-profit-metric.profit .mwi-profit-metric-value { color:#82dfa4; }
+    .mwi-profit-valuations { display:flex; flex-direction:column; gap:7px; padding:0 12px 12px; }
+    .mwi-profit-valuation-row { display:grid; grid-template-columns:132px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:8px; background:rgba(255,255,255,.03); }
+    .mwi-profit-valuation-row[data-mode="fair"] { --mwi-valuation-color:#74a9ef; }
+    .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
+    .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
+    .mwi-profit-valuation-row.incomplete { opacity:.72; }
+    .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:2px; padding:8px 10px; border-right:1px solid rgba(255,255,255,.08); }
+    .mwi-profit-valuation-title { color:#fff; font-size:11px; font-weight:750; line-height:1.25; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:8.5px; line-height:1.25; }
+    .mwi-profit-valuation-metric { min-width:0; padding:8px 5px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
+    .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
+    .mwi-profit-valuation-label { min-height:2.4em; color:var(--color-text-secondary,#9da5b0); font-size:8.5px; line-height:1.2; }
+    .mwi-profit-valuation-value { margin-top:3px; color:#fff; font-size:11px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
+    .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
-    @media(max-width:760px){#${PANEL_ID}{max-height:70vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){#${PANEL_ID}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -183,7 +192,9 @@ function renderItemRow(item, type) {
   if (item.isUpgradeItem) kind = t("前置", "Base");
   if (item.kind === "essence") kind = t("精华", "Essence");
   if (item.kind === "rare") kind = t("稀有", "Rare");
-  const priceLabel = isInput ? t("买价", "Ask") : t("税后卖价", "Net bid");
+  const priceLabel = isInput
+    ? t("市价", "Market value")
+    : t("税后市价", "Net market value");
   return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -198,8 +209,65 @@ function renderItemRow(item, type) {
     </div>`;
 }
 
-function renderMetric(label, value, profit = false, exactValue = null) {
-  return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
+function renderValuationMetric(label, value, profit = false) {
+  return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
+}
+
+const VALUATION_ROWS = [
+  {
+    mode: "fair",
+    title: { zh: "市价", en: "Market value" },
+    explanation: {
+      zh: "服务器市场价值",
+      en: "Server market value",
+    },
+  },
+  {
+    mode: "conservative",
+    title: { zh: "效率（高买低卖）", en: "Efficiency (buy high, sell low)" },
+    explanation: {
+      zh: "卖单买入 · 买单卖出",
+      en: "Buy at ask · sell at bid",
+    },
+  },
+  {
+    mode: "aggressive",
+    title: { zh: "贪心（低买高卖）", en: "Greedy (buy low, sell high)" },
+    explanation: {
+      zh: "买单买入 · 卖单卖出",
+      en: "Buy at bid · sell at ask",
+    },
+  },
+];
+
+function valuationText(value) {
+  return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
+}
+
+function renderValuationRow(definition, valuation) {
+  const complete = Boolean(valuation?.complete);
+  const totalCost = complete
+    ? valuation.materialCostPerAction + valuation.teaCostPerAction
+    : null;
+  const profitPerDay = complete ? valuation.profitPerHour * 24 : null;
+  const state = complete
+    ? definition.explanation
+    : {
+        zh: `缺价：${(valuation?.missingPrices ?? []).map(itemName).join("、") || "—"}`,
+        en: `Missing: ${(valuation?.missingPrices ?? []).map(itemName).join(", ") || "—"}`,
+      };
+  return `<section class="mwi-profit-valuation-row${complete ? "" : " incomplete"}" data-mode="${definition.mode}">
+    <div class="mwi-profit-valuation-name">
+      <div class="mwi-profit-valuation-title">${escapeHtml(valuationText(definition.title))}</div>
+      <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(state))}</div>
+    </div>
+    ${renderValuationMetric(t("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t("净利润/天", "Net profit/day"), profitPerDay, true)}
+  </section>`;
 }
 
 function statusInfo(projection) {
@@ -209,10 +277,24 @@ function statusInfo(projection) {
       label: t("玩家数据未就绪", "Player data pending"),
     };
   }
-  if (projection.status === "incomplete") {
+  const valuations = VALUATION_ROWS.map(
+    ({ mode }) => projection.valuations?.[mode],
+  );
+  const completeCount = valuations.filter(
+    (valuation) => valuation?.complete,
+  ).length;
+  if (completeCount === 0) {
     return { className: "incomplete", label: t("无法计算", "Unavailable") };
   }
-  if (projection.isPartial) {
+  if (completeCount < valuations.length) {
+    return {
+      className: "partial",
+      label: t("部分口径缺价", "Some prices missing"),
+    };
+  }
+  if (
+    valuations.some((valuation) => valuation?.unpricedByproducts?.length > 0)
+  ) {
     return { className: "partial", label: t("部分计价", "Partial pricing") };
   }
   return { className: "complete", label: t("完整计价", "Fully priced") };
@@ -299,26 +381,39 @@ function renderPanel(panel, itemHrid, projection) {
 
   panel.insertAdjacentHTML(
     "beforeend",
-    `<div class="mwi-profit-summary">
-      ${renderMetric(t("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction), false, projection.materialCostPerAction)}
-      ${renderMetric(t("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
-      ${renderMetric(t("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
-      ${renderMetric(t("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
-      ${renderMetric(t("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
-      ${renderMetric(t("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
-      ${renderMetric(t("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
-      ${renderMetric(t("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber(projection.secondsPerAction, 3)}s` : "—")}
+    `<div class="mwi-profit-valuations">
+      ${VALUATION_ROWS.map((definition) => renderValuationRow(definition, projection.valuations?.[definition.mode])).join("")}
     </div>`,
   );
 
-  if (projection.status === "incomplete") {
-    const names = (projection.missingPrices ?? []).map(itemName).join("、");
+  const missingValuations = VALUATION_ROWS.filter(
+    ({ mode }) => !projection.valuations?.[mode]?.complete,
+  );
+  if (missingValuations.length) {
+    const details = missingValuations
+      .map((definition) => {
+        const names = (
+          projection.valuations?.[definition.mode]?.missingPrices ?? []
+        )
+          .map(itemName)
+          .join(runtime.config.isZH ? "、" : ", ");
+        return `${valuationText(definition.title)}：${names || "—"}`;
+      })
+      .join(runtime.config.isZH ? "；" : "; ");
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-warning">${t("缺少必需市场价格，利润暂不计算：", "Missing required market prices; profit is unavailable: ")}${escapeHtml(names || "—")}</div>`,
+      `<div class="mwi-profit-warning">${t("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${escapeHtml(details)}</div>`,
     );
-  } else if (projection.unpricedByproducts?.length) {
-    const names = projection.unpricedByproducts.map(itemName).join("、");
+  } else {
+    const unpricedByproducts = [
+      ...new Set(
+        VALUATION_ROWS.flatMap(
+          ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? [],
+        ),
+      ),
+    ];
+    if (!unpricedByproducts.length) return;
+    const names = unpricedByproducts.map(itemName).join("、");
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-warning">${t("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`,
@@ -439,20 +534,6 @@ function showProductionProfitPanel(anchor, itemHrid) {
   position();
   return panel;
 }
-
-runtime.settings.onChange?.("profitValuationMode", () => {
-  if (!activePanel?.anchor?.isConnected || !activePanel.panel) return;
-  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(
-    activePanel.itemHrid,
-  );
-  if (!actionHrid) return;
-  renderPanel(
-    activePanel.panel,
-    activePanel.itemHrid,
-    runtime.api.projectAction(actionHrid, 1),
-  );
-  activePanel.position();
-});
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,

@@ -93,7 +93,7 @@ runtime.api.getFairValue = (itemHrid) => {
   return netSell > 0 ? netSell / 0.95 : 0;
 };
 
-test("Chinese crafting dialogs render the selected profit valuation", async () => {
+test("Chinese crafting dialogs keep the market-value profit", () => {
   runtime.api.renderProductionPanel();
 
   const card = document.querySelector("#mwi-production-summary");
@@ -108,15 +108,9 @@ test("Chinese crafting dialogs render the selected profit valuation", async () =
   assert.match(card.textContent, /本次总耗时30s/);
   assert.match(card.textContent, /本次总净利润400/);
 
-  await runtime.settings.set("profitValuationMode", "aggressive", {
-    persist: false,
-  });
   runtime.api.renderProductionPanel();
-  assert.match(card.textContent, /本次总净利润490/);
+  assert.match(card.textContent, /本次总净利润400/);
   assert.doesNotMatch(card.textContent, /~/);
-  await runtime.settings.set("profitValuationMode", "fair", {
-    persist: false,
-  });
 
   const extension = document.createElement("section");
   extension.dataset.mwitoolsProductionExtension = "true";

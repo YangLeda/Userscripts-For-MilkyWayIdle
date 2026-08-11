@@ -83,29 +83,18 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
 });
 
-test("profit valuation mode selects conservative, fair, or aggressive prices", () => {
-  const setting = runtime.settings.settingsMap.profitValuationMode;
+test("projection exposes market, high-buy-low-sell, and low-buy-high-sell valuations", () => {
   const originalFairValue = runtime.api.getFairValue;
   runtime.api.getFairValue = (itemHrid) =>
     itemHrid === "/items/input" ? 9 : itemHrid === "/items/output" ? 110 : 0;
 
-  setting.value = "conservative";
-  assert.equal(
-    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
-    80,
-  );
-  setting.value = "fair";
-  assert.equal(
-    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
-    86.5,
-  );
-  setting.value = "aggressive";
-  assert.equal(
-    runtime.api.projectAction("/actions/crafting/test", 1).netProfitPerAction,
-    98,
-  );
+  const result = runtime.api.projectAction("/actions/crafting/test", 1);
+  assert.equal(result.netProfitPerAction, 86.5);
+  assert.equal(result.valuations.conservative.netProfitPerAction, 80);
+  assert.equal(result.valuations.fair.netProfitPerAction, 86.5);
+  assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
+  assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
 
-  setting.value = "fair";
   runtime.api.getFairValue = originalFairValue;
 });
 

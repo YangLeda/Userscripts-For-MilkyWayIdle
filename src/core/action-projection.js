@@ -262,11 +262,6 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
 
 const PROFIT_VALUATION_MODES = new Set(["conservative", "fair", "aggressive"]);
 
-function getProfitValuationMode() {
-  const mode = String(runtime.settings.get?.("profitValuationMode") ?? "fair");
-  return PROFIT_VALUATION_MODES.has(mode) ? mode : "fair";
-}
-
 function getPrice(itemHrid, kind, mode) {
   let value = 0;
   if (mode === "conservative") {
@@ -431,7 +426,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     Number.isFinite(maxCraftable) &&
     (infinite || maxCraftable < normalizedCount);
 
-  const valuationMode = getProfitValuationMode();
+  const valuationMode = "fair";
   const optionalOutputs = getOptionalOutputs(actionHrid, detail);
   const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
 

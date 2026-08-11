@@ -1030,12 +1030,6 @@
       desc: isZH ? "生产面板显示净利润" : "Show net profit in production panels.",
       isTrue: true
     },
-    profitValuationMode: {
-      id: "profitValuationMode",
-      desc: isZH ? "生产利润估值口径" : "Production profit valuation mode.",
-      type: "choice",
-      value: "fair"
-    },
     taskInsights: {
       id: "taskInsights",
       desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
@@ -1274,14 +1268,6 @@
       "Production net profit",
       "按所选估值口径显示每次、每小时、每天和本次输入数量对应的税后净利润。",
       "Show after-tax net profit per action, hour, day, and entered quantity using the selected valuation mode."
-    ],
-    [
-      "profitValuationMode",
-      "production",
-      "利润估值口径",
-      "Profit valuation mode",
-      "保守按即时成交，公允按市场价值，激进按挂单成交；默认使用公允。",
-      "Conservative uses immediate execution, fair uses market value, and aggressive uses limit orders. Fair is the default."
     ],
     [
       "actionPanel_foragingTotal",
@@ -1584,42 +1570,12 @@
       }
     ])
   );
-  Object.assign(settingsCatalog.profitValuationMode, {
-    type: "choice",
-    options: [
-      {
-        value: "conservative",
-        label: { zh: "保守", en: "Conservative" },
-        description: {
-          zh: "材料和饮料按最低卖单价买入；产物和副产物按最高买单价卖出并扣税，模拟全部立即成交。",
-          en: "Buy materials and drinks at the lowest ask; sell outputs and byproducts at the highest bid after tax, modeling immediate execution."
-        }
-      },
-      {
-        value: "fair",
-        label: { zh: "公允（默认）", en: "Fair (default)" },
-        description: {
-          zh: "材料、饮料、产物和副产物均按服务器市场价值计算；缺失时取买卖单中间价（仅一侧有价则用该价），出售收入再扣税。",
-          en: "Use the server market value for every item; if absent, use the bid/ask midpoint or the available side, then deduct tax from sale revenue."
-        }
-      },
-      {
-        value: "aggressive",
-        label: { zh: "激进", en: "Aggressive" },
-        description: {
-          zh: "材料和饮料按最高买单价挂单买入；产物和副产物按最低卖单价挂单卖出并扣税，假设挂单最终成交。",
-          en: "Buy materials and drinks with limit orders at the highest bid; sell outputs and byproducts at the lowest ask after tax, assuming the orders eventually fill."
-        }
-      }
-    ]
-  });
   var settingParents = {
     actionBarProfit: "totalActionTime",
     actionQueue: "totalActionTime",
     actionPanel_foragingTotal: "actionPanel_totalTime",
     productionSummary: "actionPanel_totalTime",
     productionProfit: "actionPanel_totalTime",
-    profitValuationMode: "productionProfit",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
@@ -1641,27 +1597,14 @@
   }
   settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
   var settingListeners = /* @__PURE__ */ new Map();
-  function normalizeSettingValue(id, value) {
-    const setting = settingsMap[id];
-    if (!setting) return void 0;
-    if (setting.type !== "choice") return Boolean(value);
-    const allowed = new Set(
-      (settingsCatalog[id]?.options ?? []).map((option) => option.value)
-    );
-    const candidate = String(value ?? "");
-    return allowed.has(candidate) ? candidate : setting.value;
-  }
   function getSetting(id) {
-    const setting = settingsMap[id];
-    return setting?.type === "choice" ? setting.value : setting?.isTrue;
+    return settingsMap[id]?.isTrue;
   }
   async function setSetting(id, value, options = {}) {
-    const setting = settingsMap[id];
-    if (!setting) return false;
-    const normalized = normalizeSettingValue(id, value);
-    const previous = getSetting(id);
-    if (setting.type === "choice") setting.value = normalized;
-    else setting.isTrue = normalized;
+    if (!settingsMap[id]) return false;
+    const normalized = Boolean(value);
+    const previous = settingsMap[id].isTrue;
+    settingsMap[id].isTrue = normalized;
     if (previous === normalized && !options.force) return true;
     if (options.persist !== false) runtime.api.persistSettings?.();
     for (const listener of settingListeners.get(id) ?? []) {
@@ -18930,10 +18873,6 @@
     };
   }
   var PROFIT_VALUATION_MODES = /* @__PURE__ */ new Set(["conservative", "fair", "aggressive"]);
-  function getProfitValuationMode() {
-    const mode = String(runtime.settings.get?.("profitValuationMode") ?? "fair");
-    return PROFIT_VALUATION_MODES.has(mode) ? mode : "fair";
-  }
   function getPrice(itemHrid, kind, mode) {
     let value = 0;
     if (mode === "conservative") {
@@ -19065,7 +19004,7 @@
     const executableCount = respectInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
     const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && (infinite || maxCraftable < normalizedCount);
-    const valuationMode = getProfitValuationMode();
+    const valuationMode = "fair";
     const optionalOutputs = getOptionalOutputs(actionHrid, detail);
     const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
     function calculateValuation(mode) {
@@ -24734,7 +24673,7 @@ ${preview}`
     const style = document.createElement("style");
     style.id = STYLE_ID4;
     style.textContent = `
-    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(620px,calc(100vw - 24px)); max-height:min(75vh,680px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID2} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
@@ -24771,19 +24710,28 @@ ${preview}`
     .mwi-profit-stat-list { width:100%; }
     .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:9.5px; }
     .mwi-profit-stat strong { color:#edf0f4; font-weight:650; }
-    .mwi-profit-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; padding:0 12px 12px; }
-    .mwi-profit-metric { min-width:0; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(255,255,255,.035); text-align:center; }
-    .mwi-profit-metric-label { color:var(--color-text-secondary,#9da5b0); font-size:9px; }
-    .mwi-profit-metric-value { margin-top:3px; color:#fff; font-size:12px; font-weight:700; overflow-wrap:anywhere; }
-    .mwi-profit-metric.profit { border-color:rgba(75,194,124,.24); background:rgba(55,160,97,.09); }
-    .mwi-profit-metric.profit .mwi-profit-metric-value { color:#82dfa4; }
+    .mwi-profit-valuations { display:flex; flex-direction:column; gap:7px; padding:0 12px 12px; }
+    .mwi-profit-valuation-row { display:grid; grid-template-columns:132px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:8px; background:rgba(255,255,255,.03); }
+    .mwi-profit-valuation-row[data-mode="fair"] { --mwi-valuation-color:#74a9ef; }
+    .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
+    .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
+    .mwi-profit-valuation-row.incomplete { opacity:.72; }
+    .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:2px; padding:8px 10px; border-right:1px solid rgba(255,255,255,.08); }
+    .mwi-profit-valuation-title { color:#fff; font-size:11px; font-weight:750; line-height:1.25; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:8.5px; line-height:1.25; }
+    .mwi-profit-valuation-metric { min-width:0; padding:8px 5px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
+    .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
+    .mwi-profit-valuation-label { min-height:2.4em; color:var(--color-text-secondary,#9da5b0); font-size:8.5px; line-height:1.2; }
+    .mwi-profit-valuation-value { margin-top:3px; color:#fff; font-size:11px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
+    .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
-    @media(max-width:760px){#${PANEL_ID2}{max-height:70vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){#${PANEL_ID2}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -24800,7 +24748,7 @@ ${preview}`
     if (item.isUpgradeItem) kind = t3("前置", "Base");
     if (item.kind === "essence") kind = t3("精华", "Essence");
     if (item.kind === "rare") kind = t3("稀有", "Rare");
-    const priceLabel = isInput ? t3("买价", "Ask") : t3("税后卖价", "Net bid");
+    const priceLabel = isInput ? t3("市价", "Market value") : t3("税后市价", "Net market value");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -24814,8 +24762,58 @@ ${preview}`
       </div>
     </div>`;
   }
-  function renderMetric(label, value, profit = false, exactValue = null) {
-    return `<div class="mwi-profit-metric${profit ? " profit" : ""}"><div class="mwi-profit-metric-label">${escapeHtml(label)}</div><div class="mwi-profit-metric-value"${numberTitleAttribute(exactValue)}>${escapeHtml(value)}</div></div>`;
+  function renderValuationMetric(label, value, profit = false) {
+    return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
+  }
+  var VALUATION_ROWS = [
+    {
+      mode: "fair",
+      title: { zh: "市价", en: "Market value" },
+      explanation: {
+        zh: "服务器市场价值",
+        en: "Server market value"
+      }
+    },
+    {
+      mode: "conservative",
+      title: { zh: "效率（高买低卖）", en: "Efficiency (buy high, sell low)" },
+      explanation: {
+        zh: "卖单买入 · 买单卖出",
+        en: "Buy at ask · sell at bid"
+      }
+    },
+    {
+      mode: "aggressive",
+      title: { zh: "贪心（低买高卖）", en: "Greedy (buy low, sell high)" },
+      explanation: {
+        zh: "买单买入 · 卖单卖出",
+        en: "Buy at bid · sell at ask"
+      }
+    }
+  ];
+  function valuationText(value) {
+    return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
+  }
+  function renderValuationRow(definition, valuation) {
+    const complete = Boolean(valuation?.complete);
+    const totalCost = complete ? valuation.materialCostPerAction + valuation.teaCostPerAction : null;
+    const profitPerDay = complete ? valuation.profitPerHour * 24 : null;
+    const state = complete ? definition.explanation : {
+      zh: `缺价：${(valuation?.missingPrices ?? []).map(itemName).join("、") || "—"}`,
+      en: `Missing: ${(valuation?.missingPrices ?? []).map(itemName).join(", ") || "—"}`
+    };
+    return `<section class="mwi-profit-valuation-row${complete ? "" : " incomplete"}" data-mode="${definition.mode}">
+    <div class="mwi-profit-valuation-name">
+      <div class="mwi-profit-valuation-title">${escapeHtml(valuationText(definition.title))}</div>
+      <div class="mwi-profit-valuation-state">${escapeHtml(valuationText(state))}</div>
+    </div>
+    ${renderValuationMetric(t3("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t3("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t3("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t3("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t3("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t3("净利润/天", "Net profit/day"), profitPerDay, true)}
+  </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
@@ -24824,10 +24822,22 @@ ${preview}`
         label: t3("玩家数据未就绪", "Player data pending")
       };
     }
-    if (projection.status === "incomplete") {
+    const valuations = VALUATION_ROWS.map(
+      ({ mode }) => projection.valuations?.[mode]
+    );
+    const completeCount = valuations.filter(
+      (valuation) => valuation?.complete
+    ).length;
+    if (completeCount === 0) {
       return { className: "incomplete", label: t3("无法计算", "Unavailable") };
     }
-    if (projection.isPartial) {
+    if (completeCount < valuations.length) {
+      return {
+        className: "partial",
+        label: t3("部分口径缺价", "Some prices missing")
+      };
+    }
+    if (valuations.some((valuation) => valuation?.unpricedByproducts?.length > 0)) {
       return { className: "partial", label: t3("部分计价", "Partial pricing") };
     }
     return { className: "complete", label: t3("完整计价", "Fully priced") };
@@ -24902,25 +24912,32 @@ ${preview}`
     );
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-summary">
-      ${renderMetric(t3("材料成本/动作", "Materials/action"), formatMoney(projection.materialCostPerAction), false, projection.materialCostPerAction)}
-      ${renderMetric(t3("茶饮成本/动作", "Drinks/action"), formatMoney(projection.teaCostPerAction), false, projection.teaCostPerAction)}
-      ${renderMetric(t3("主产物收入/动作", "Primary/action"), formatMoney(projection.primaryRevenuePerAction), false, projection.primaryRevenuePerAction)}
-      ${renderMetric(t3("副产物收入/动作", "Byproducts/action"), formatMoney(projection.byproductRevenuePerAction), false, projection.byproductRevenuePerAction)}
-      ${renderMetric(t3("净利润/动作", "Profit/action"), formatMoney(projection.netProfitPerAction), true, projection.netProfitPerAction)}
-      ${renderMetric(t3("净利润/小时", "Profit/hour"), formatMoney(projection.profitPerHour), true, projection.profitPerHour)}
-      ${renderMetric(t3("净利润/天", "Profit/day"), formatMoney(projection.profitPerHour === null ? null : projection.profitPerHour * 24), true, projection.profitPerHour === null ? null : projection.profitPerHour * 24)}
-      ${renderMetric(t3("有效周期", "Effective cycle"), projection.secondsPerAction ? `${formatNumber2(projection.secondsPerAction, 3)}s` : "—")}
+      `<div class="mwi-profit-valuations">
+      ${VALUATION_ROWS.map((definition) => renderValuationRow(definition, projection.valuations?.[definition.mode])).join("")}
     </div>`
     );
-    if (projection.status === "incomplete") {
-      const names = (projection.missingPrices ?? []).map(itemName).join("、");
+    const missingValuations = VALUATION_ROWS.filter(
+      ({ mode }) => !projection.valuations?.[mode]?.complete
+    );
+    if (missingValuations.length) {
+      const details = missingValuations.map((definition) => {
+        const names = (projection.valuations?.[definition.mode]?.missingPrices ?? []).map(itemName).join(runtime.config.isZH ? "、" : ", ");
+        return `${valuationText(definition.title)}：${names || "—"}`;
+      }).join(runtime.config.isZH ? "；" : "; ");
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-warning">${t3("缺少必需市场价格，利润暂不计算：", "Missing required market prices; profit is unavailable: ")}${escapeHtml(names || "—")}</div>`
+        `<div class="mwi-profit-warning">${t3("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${escapeHtml(details)}</div>`
       );
-    } else if (projection.unpricedByproducts?.length) {
-      const names = projection.unpricedByproducts.map(itemName).join("、");
+    } else {
+      const unpricedByproducts = [
+        ...new Set(
+          VALUATION_ROWS.flatMap(
+            ({ mode }) => projection.valuations?.[mode]?.unpricedByproducts ?? []
+          )
+        )
+      ];
+      if (!unpricedByproducts.length) return;
+      const names = unpricedByproducts.map(itemName).join("、");
       panel.insertAdjacentHTML(
         "beforeend",
         `<div class="mwi-profit-warning">${t3("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${escapeHtml(names)}</div>`
@@ -25028,19 +25045,6 @@ ${preview}`
     position();
     return panel;
   }
-  runtime.settings.onChange?.("profitValuationMode", () => {
-    if (!activePanel?.anchor?.isConnected || !activePanel.panel) return;
-    const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(
-      activePanel.itemHrid
-    );
-    if (!actionHrid) return;
-    renderPanel(
-      activePanel.panel,
-      activePanel.itemHrid,
-      runtime.api.projectAction(actionHrid, 1)
-    );
-    activePanel.position();
-  });
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     positionProductionProfitPanel: positionPanel,
@@ -31827,7 +31831,7 @@ ${locks}` : ""}`;
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
         id,
-        setting.type === "choice" ? setting.value : Boolean(setting.isTrue)
+        Boolean(setting.isTrue)
       ])
     );
     localStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values }));
@@ -31839,15 +31843,6 @@ ${locks}` : ""}`;
   function applyStoredSetting(id, value) {
     const setting = runtime.settings.settingsMap[id];
     if (!setting) return;
-    if (setting.type === "choice") {
-      const allowed = new Set(
-        (runtime.settings.catalog[id]?.options ?? []).map(
-          (option) => option.value
-        )
-      );
-      if (allowed.has(String(value))) setting.value = String(value);
-      return;
-    }
     setting.isTrue = Boolean(value);
   }
   function applyVisualSettings() {
@@ -31877,10 +31872,7 @@ ${locks}` : ""}`;
         );
         for (const option of Object.values(legacy ?? {})) {
           if (!option?.id) continue;
-          applyStoredSetting(
-            option.id,
-            option.type === "choice" ? option.value : option.isTrue
-          );
+          applyStoredSetting(option.id, option.isTrue);
         }
       } catch (error) {
         console.warn("[MWITools] Could not migrate legacy settings", error);
@@ -31931,19 +31923,12 @@ ${locks}` : ""}`;
     .mwi-setting-toggle span::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:.16s; }
     .mwi-setting-toggle input:checked + span { background:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
     .mwi-setting-toggle input:checked + span::after { transform:translateX(16px); }
-    .mwi-setting-choices { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-column:1 / 5; grid-row:2; gap:6px; margin-top:2px; }
-    .mwi-setting-choice { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:2px 7px; box-sizing:border-box; min-width:0; padding:7px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(0,0,0,.16); cursor:pointer; }
-    .mwi-setting-choice:has(input:checked) { border-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); background:rgba(255,165,0,.08); }
-    .mwi-setting-choice:has(input:disabled) { cursor:not-allowed; }
-    .mwi-setting-choice input { grid-column:1; grid-row:1 / 3; margin:2px 0 0; accent-color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
-    .mwi-setting-choice-title { grid-column:2; grid-row:1; font-size:.75rem; font-weight:650; line-height:1.25; }
-    .mwi-setting-choice-description { grid-column:2; grid-row:2; color:var(--color-text-secondary,#aaa); font-size:.67rem; line-height:1.35; }
     .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:.68rem; color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
     .mwi-setting-more summary { display:inline-block; cursor:pointer; color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); list-style-position:inside; }
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-choices { grid-template-columns:1fr; grid-column:1 / 3; grid-row:4; } }
+    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
     styleHost.appendChild(style);
   }
@@ -31995,7 +31980,6 @@ ${locks}` : ""}`;
   }
   function createSettingCard(definition, options = {}) {
     const setting = runtime.settings.settingsMap[definition.id];
-    const isChoice = setting.type === "choice";
     const children = Object.values(runtime.settings.catalog).filter(
       (candidate) => candidate.parent === definition.id
     );
@@ -32008,12 +31992,6 @@ ${locks}` : ""}`;
       definition.title?.en,
       definition.summary?.zh,
       definition.summary?.en,
-      ...(definition.options ?? []).flatMap((option) => [
-        option.label?.zh,
-        option.label?.en,
-        option.description?.zh,
-        option.description?.en
-      ]),
       ...descendants.flatMap((child) => [
         child.title?.zh,
         child.title?.en,
@@ -32053,56 +32031,20 @@ ${locks}` : ""}`;
     setStatus();
     const titleLine = document.createElement("div");
     titleLine.className = "mwi-setting-title-line";
-    titleLine.append(title);
-    if (!isChoice) titleLine.append(status);
+    titleLine.append(title, status);
     copy.append(titleLine, summary);
-    let control;
-    let checkbox = null;
-    let choiceInputs = [];
-    if (isChoice) {
-      const choices = document.createElement("div");
-      choices.className = "mwi-setting-choices";
-      choices.setAttribute("role", "radiogroup");
-      choices.setAttribute("aria-label", localizedText(definition.title));
-      for (const optionDefinition of definition.options ?? []) {
-        const option = document.createElement("label");
-        option.className = "mwi-setting-choice";
-        const radio = document.createElement("input");
-        radio.type = "radio";
-        radio.name = `mwi-setting-${definition.id}`;
-        radio.value = optionDefinition.value;
-        radio.checked = setting.value === optionDefinition.value;
-        if (definition.parent) {
-          radio.disabled = !areSettingParentsEnabled(definition);
-        }
-        const optionTitle = document.createElement("span");
-        optionTitle.className = "mwi-setting-choice-title";
-        optionTitle.textContent = localizedText(optionDefinition.label);
-        const optionDescription = document.createElement("span");
-        optionDescription.className = "mwi-setting-choice-description";
-        optionDescription.textContent = localizedText(
-          optionDefinition.description
-        );
-        option.append(radio, optionTitle, optionDescription);
-        choices.append(option);
-        choiceInputs.push(radio);
-      }
-      control = choices;
-    } else {
-      const toggle = document.createElement("label");
-      toggle.className = "mwi-setting-toggle";
-      checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = Boolean(setting.isTrue);
-      if (definition.parent) {
-        checkbox.disabled = !areSettingParentsEnabled(definition);
-      }
-      checkbox.setAttribute("aria-label", localizedText(definition.title));
-      const track = document.createElement("span");
-      toggle.append(checkbox, track);
-      control = toggle;
+    const toggle = document.createElement("label");
+    toggle.className = "mwi-setting-toggle";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = Boolean(setting.isTrue);
+    if (definition.parent) {
+      checkbox.disabled = !areSettingParentsEnabled(definition);
     }
-    if (!isChoice && definition.details || children.length) {
+    checkbox.setAttribute("aria-label", localizedText(definition.title));
+    const track = document.createElement("span");
+    toggle.append(checkbox, track);
+    if (definition.details || children.length) {
       const details = document.createElement("details");
       details.className = "mwi-setting-more";
       const detailsSummary = document.createElement("summary");
@@ -32118,27 +32060,19 @@ ${locks}` : ""}`;
       }
       copy.append(details);
     }
-    row.append(copy, control);
+    row.append(copy, toggle);
     card.append(row);
-    if (choiceInputs.length) {
-      for (const radio of choiceInputs) {
-        radio.addEventListener("change", () => {
-          if (radio.checked) runtime.settings.set(definition.id, radio.value);
-        });
+    checkbox.addEventListener("change", async () => {
+      await runtime.settings.set(definition.id, checkbox.checked);
+      if (definition.id === "forceMWIToolsDisplayZH" || definition.id === "useOrangeAsMainColor" || children.length) {
+        applyVisualSettings();
+        renderSettings(document.querySelector("#script_settings"));
+        return;
       }
-    } else {
-      checkbox.addEventListener("change", async () => {
-        await runtime.settings.set(definition.id, checkbox.checked);
-        if (definition.id === "forceMWIToolsDisplayZH" || definition.id === "useOrangeAsMainColor" || children.length) {
-          applyVisualSettings();
-          renderSettings(document.querySelector("#script_settings"));
-          return;
-        }
-        setStatus();
-      });
-    }
+      setStatus();
+    });
     const stopStatusListener = runtime.features.onStatusChange((id) => {
-      if (!isChoice && id === definition.id) setStatus();
+      if (id === definition.id) setStatus();
     });
     card._mwitoolsCleanup = stopStatusListener;
     return card;
