@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { spriteUseHref } from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-ability-book-calculator-style";
 const PANEL_CLASS = "mwi-ability-book-calculator";
@@ -86,8 +87,7 @@ function itemHridFromIcon(root) {
     ? preferred
     : (root?.querySelectorAll?.("svg use") ?? []);
   for (const use of icons) {
-    const href =
-      use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     const fragment = href.split("#").at(-1);
     const itemHrid = normalizeItemHrid(fragment);
     if (runtime.state.initData_itemDetailMap?.[itemHrid]) return itemHrid;

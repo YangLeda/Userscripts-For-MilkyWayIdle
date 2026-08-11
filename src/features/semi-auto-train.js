@@ -1,5 +1,5 @@
 import { runtime } from "../core/runtime.js";
-import { reactFiberKey } from "../core/dom-utils.js";
+import { reactFiberKey, spriteUseHref } from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
@@ -279,10 +279,7 @@ function nativeNavigationLink(fragment, labelPattern) {
     )
     .find((candidate) => {
       const hrefs = [...candidate.querySelectorAll("use")]
-        .map(
-          (use) =>
-            use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
-        )
+        .map((use) => spriteUseHref(use))
         .join(" ")
         .toLowerCase();
       return (
@@ -311,9 +308,8 @@ function clickActionCard(actionHrid) {
   ]
     .filter(visible)
     .find((candidate) => {
-      const hrefs = [...candidate.querySelectorAll("use")].map(
-        (use) =>
-          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      const hrefs = [...candidate.querySelectorAll("use")].map((use) =>
+        spriteUseHref(use),
       );
       const name = String(
         candidate.querySelector('[class*="SkillAction_name"]')?.textContent ??
@@ -358,9 +354,8 @@ export function navigateToTrainAction(actionHrid) {
       candidate.getAttribute("href"),
       candidate.getAttribute("aria-label"),
       candidate.id,
-      ...[...(candidate.querySelectorAll?.("use") ?? [])].map(
-        (use) =>
-          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      ...[...(candidate.querySelectorAll?.("use") ?? [])].map((use) =>
+        spriteUseHref(use),
       ),
     ]
       .filter(Boolean)
@@ -406,9 +401,8 @@ function findTrainShopItem(panel, step) {
     )
     .filter(visible)
     .find((candidate) => {
-      const hrefs = [...candidate.querySelectorAll("use")].map(
-        (use) =>
-          use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "",
+      const hrefs = [...candidate.querySelectorAll("use")].map((use) =>
+        spriteUseHref(use),
       );
       const name = String(
         candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ?? "",

@@ -12552,8 +12552,11 @@ ${preview}`
     const use = document.querySelector(
       'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
     );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     return href.includes("#") ? href.split("#")[0] : "";
+  }
+  function spriteUseHref(element, { includeSrc = false } = {}) {
+    return element?.getAttribute("href") ?? element?.getAttribute("xlink:href") ?? (includeSrc ? element?.getAttribute("src") : null) ?? "";
   }
   function reactFiberKey(element, { includeContainer = false } = {}) {
     return Object.getOwnPropertyNames(element ?? {}).find(
@@ -15226,7 +15229,7 @@ ${preview}`
   }
   function itemHridFromRequirement(element) {
     const use = element?.querySelector("svg use");
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     const fragment = href.includes("#") ? href.split("#").at(-1) : href;
     return procurement.normalizeItemHrid(fragment);
   }
@@ -15462,7 +15465,7 @@ ${locks}` : ""}`;
   }
   function houseItemHrid(element) {
     const use = element?.querySelector("svg use");
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     const fragment = href.includes("#") ? href.split("#").at(-1) : href;
     return procurement.normalizeItemHrid(fragment);
   }
@@ -15730,7 +15733,7 @@ ${locks}` : ""}`;
     const current = panel?.querySelector(
       '[class*="MarketplacePanel_currentItem"] svg use, [class*="MarketplacePanel_itemContainer"] svg use'
     );
-    const href = current?.getAttribute("href") ?? current?.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(current);
     const fragment = href.split("#").at(-1);
     return fragment ? procurement.normalizeItemHrid(fragment) : "";
   }
@@ -15762,7 +15765,7 @@ ${locks}` : ""}`;
     );
     let scrollTarget = null;
     for (const use of panel.querySelectorAll("svg use")) {
-      const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
+      const href = spriteUseHref(use);
       const matched = [...pending].find((bare) => href.includes(bare));
       if (!matched) continue;
       const host = use.closest('[class*="Item_itemContainer"]') ?? use.parentElement;
@@ -15784,7 +15787,7 @@ ${locks}` : ""}`;
       const header = modal.querySelector('[class*="MarketplacePanel_header"]')?.textContent ?? "";
       if (!/立即购买|购买挂牌|购买订单|buy|purchase/i.test(header)) continue;
       const use = modal.querySelector("svg use");
-      const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+      const href = spriteUseHref(use);
       const itemHrid = procurement.normalizeItemHrid(href.split("#").at(-1));
       const item = procurement.getCartItems().find((candidate) => candidate.itemHrid === itemHrid);
       const input = modal.querySelector(
@@ -16229,9 +16232,7 @@ ${locks}` : ""}`;
         (name) => name.startsWith("NavigationBar_navigationLink__")
       )
     ).find((candidate) => {
-      const hrefs = [...candidate.querySelectorAll("use")].map(
-        (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
-      ).join(" ").toLowerCase();
+      const hrefs = [...candidate.querySelectorAll("use")].map((use) => spriteUseHref(use)).join(" ").toLowerCase();
       return fragment && hrefs.includes(`#${fragment.toLowerCase()}`) || labelPattern?.test(candidate.textContent ?? "");
     });
   }
@@ -16249,7 +16250,7 @@ ${locks}` : ""}`;
       ...document.querySelectorAll('[class*="SkillAction_skillAction"]')
     ].filter(visible).find((candidate) => {
       const hrefs = [...candidate.querySelectorAll("use")].map(
-        (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+        (use) => spriteUseHref(use)
       );
       const name = String(
         candidate.querySelector('[class*="SkillAction_name"]')?.textContent ?? ""
@@ -16287,7 +16288,7 @@ ${locks}` : ""}`;
         candidate.getAttribute("aria-label"),
         candidate.id,
         ...[...candidate.querySelectorAll?.("use") ?? []].map(
-          (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+          (use) => spriteUseHref(use)
         )
       ].filter(Boolean).join(" ").toLowerCase();
       return skill && identity.includes(skill);
@@ -16320,7 +16321,7 @@ ${locks}` : ""}`;
       )
     ).filter(visible).find((candidate) => {
       const hrefs = [...candidate.querySelectorAll("use")].map(
-        (use) => use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? ""
+        (use) => spriteUseHref(use)
       );
       const name = String(
         candidate.querySelector('[class*="ShopPanel_name"]')?.textContent ?? ""
@@ -18928,7 +18929,7 @@ ${locks}` : ""}`;
     );
     const icons = preferred?.length ? preferred : root?.querySelectorAll?.("svg use") ?? [];
     for (const use of icons) {
-      const href = use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
+      const href = spriteUseHref(use);
       const fragment = href.split("#").at(-1);
       const itemHrid = normalizeItemHrid3(fragment);
       if (runtime.state.initData_itemDetailMap?.[itemHrid]) return itemHrid;

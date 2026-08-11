@@ -28,9 +28,21 @@ export function findItemsSpriteBase() {
   const use = document.querySelector(
     'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
   );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  const href = spriteUseHref(use);
   return href.includes("#") ? href.split("#")[0] : "";
+}
+
+// Read the sprite reference from an SVG <use> (or icon) element, preferring the
+// modern `href` and falling back to the legacy `xlink:href`. Pass includeSrc to
+// also accept an <img>-style `src`. Returns "" when the element is missing or
+// carries none of them.
+export function spriteUseHref(element, { includeSrc = false } = {}) {
+  return (
+    element?.getAttribute("href") ??
+    element?.getAttribute("xlink:href") ??
+    (includeSrc ? element?.getAttribute("src") : null) ??
+    ""
+  );
 }
 
 // Find the property key React attaches to a DOM node (`__reactFiber$...`, or

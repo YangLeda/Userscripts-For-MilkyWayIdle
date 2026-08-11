@@ -3,6 +3,7 @@ import {
   escapeHtml,
   findItemsSpriteBase,
   findReactFiber,
+  spriteUseHref,
 } from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-procurement-style";
@@ -825,8 +826,7 @@ function parseRequirementNumber(text) {
 
 function itemHridFromRequirement(element) {
   const use = element?.querySelector("svg use");
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  const href = spriteUseHref(use);
   const fragment = href.includes("#") ? href.split("#").at(-1) : href;
   return procurement.normalizeItemHrid(fragment);
 }
@@ -1107,8 +1107,7 @@ function parseHouseCount(value) {
 
 function houseItemHrid(element) {
   const use = element?.querySelector("svg use");
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  const href = spriteUseHref(use);
   const fragment = href.includes("#") ? href.split("#").at(-1) : href;
   return procurement.normalizeItemHrid(fragment);
 }
@@ -1423,8 +1422,7 @@ function detectMarketItem(panel) {
   const current = panel?.querySelector(
     '[class*="MarketplacePanel_currentItem"] svg use, [class*="MarketplacePanel_itemContainer"] svg use',
   );
-  const href =
-    current?.getAttribute("href") ?? current?.getAttribute("xlink:href") ?? "";
+  const href = spriteUseHref(current);
   const fragment = href.split("#").at(-1);
   return fragment ? procurement.normalizeItemHrid(fragment) : "";
 }
@@ -1466,8 +1464,7 @@ function highlightMarketItems(panel, scroll = false) {
   );
   let scrollTarget = null;
   for (const use of panel.querySelectorAll("svg use")) {
-    const href =
-      use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     const matched = [...pending].find((bare) => href.includes(bare));
     if (!matched) continue;
     const host =
@@ -1497,8 +1494,7 @@ function prefillPurchaseModal() {
       "";
     if (!/立即购买|购买挂牌|购买订单|buy|purchase/i.test(header)) continue;
     const use = modal.querySelector("svg use");
-    const href =
-      use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    const href = spriteUseHref(use);
     const itemHrid = procurement.normalizeItemHrid(href.split("#").at(-1));
     const item = procurement
       .getCartItems()
