@@ -1,6 +1,6 @@
 import { runtime } from "../core/runtime.js";
 
-const OVERLAY_VERSION = "1.1.0";
+const OVERLAY_VERSION = "1.2.0";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
@@ -29,6 +29,7 @@ const DEFAULT_CATEGORIES = [
   ["melee", { zh: "近战", en: "Melee" }],
   ["ranged", { zh: "远程", en: "Ranged" }],
   ["magic", { zh: "魔法", en: "Magic" }],
+  ["fame_points", { zh: "名望", en: "Fame" }],
 ];
 
 let activeInstances = 0;
@@ -56,7 +57,7 @@ function normalizedName(value) {
 function badgeTier(rank) {
   const value = Number(rank);
   if (!Number.isInteger(value) || value < 1 || value > 100) return null;
-  if (value <= 20) return "rainbow";
+  if (value <= 20) return "diamond";
   if (value <= 50) return "gold";
   if (value <= 80) return "silver";
   return "bronze";
@@ -113,7 +114,7 @@ function ensureStyles(documentRef) {
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
-    .mwi-lb-badge--rainbow{border-color:transparent;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box}
+    .mwi-lb-badge--diamond{border-color:transparent;color:#f4fbff;background:linear-gradient(rgba(10,17,30,.92),rgba(10,17,30,.92)) padding-box,conic-gradient(from 35deg,#fff 0 8%,#78d9ff 16%,#c6b7ff 29%,#f8ffff 43%,#66bdf4 57%,#e9fcff 72%,#93e9ff 86%,#fff) border-box;box-shadow:0 0 6px rgba(116,213,255,.5),inset 0 0 3px rgba(255,255,255,.16)}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
@@ -122,6 +123,31 @@ function ensureStyles(documentRef) {
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
   mount.append(style);
+}
+
+function createBadgeIcon(documentRef, category, iconBaseUrl) {
+  if (category !== "fame_points") {
+    const icon = documentRef.createElement("img");
+    icon.className = "mwi-lb-badge-icon";
+    icon.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
+    icon.alt = "";
+    icon.setAttribute("aria-hidden", "true");
+    return icon;
+  }
+
+  const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.classList.add("mwi-lb-badge-icon");
+  icon.setAttribute("viewBox", "0 0 40 40");
+  icon.setAttribute("aria-hidden", "true");
+  const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
+  const miscSprite =
+    [...documentRef.querySelectorAll("use")]
+      .map((element) => element.getAttribute("href") || "")
+      .find((href) => href.includes("misc_sprite"))
+      ?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
+  use.setAttribute("href", `${miscSprite}#experience`);
+  icon.append(use);
+  return icon;
 }
 
 function createOverlay(options = {}) {
@@ -146,6 +172,8 @@ function createOverlay(options = {}) {
     sortMode: "official",
     refreshPending: false,
     destroyed: false,
+    showBadges: options.showBadges !== false,
+    showRates: options.showRates !== false,
   };
 
   ensureStyles(documentRef);
@@ -162,7 +190,7 @@ function createOverlay(options = {}) {
         if (!index.has(name)) index.set(name, []);
         index.get(name).push({
           category,
-          label: categoryLabel(categoryLabels[category], category),
+          label: categoryLabels[category],
           rank,
           tier,
           capturedAt: snapshot.receivedAt || snapshot.capturedAt || null,
@@ -190,6 +218,7 @@ function createOverlay(options = {}) {
   }
 
   function renderNameBadges() {
+    if (!state.showBadges) return;
     const nameElements = documentRef.querySelectorAll(
       '[class*="CharacterName_name"][data-name]',
     );
@@ -216,13 +245,16 @@ function createOverlay(options = {}) {
         state.nameIndex.get(
           normalizedName(nameElement.getAttribute("data-name")),
         ) || [];
-      if (!badges.length) {
+      const visibleBadges = nameElement.closest('[class*="ChatMessage_name"]')
+        ? badges.slice(0, 3)
+        : badges;
+      if (!visibleBadges.length) {
         container?.remove();
         continue;
       }
       const profilePlacement = Boolean(profileRoot);
       const placement = profilePlacement ? "profile" : "inline";
-      const signature = badgeSignature(badges);
+      const signature = badgeSignature(visibleBadges);
       const previousPlacement =
         container?.dataset.mwiLeaderboardPlacement || "";
       if (!container) {
@@ -247,18 +279,15 @@ function createOverlay(options = {}) {
       if (container.dataset.mwiLeaderboardSignature === signature) continue;
       container.dataset.mwiLeaderboardSignature = signature;
       container.replaceChildren(
-        ...badges.map((item) => {
+        ...visibleBadges.map((item) => {
           const badge = documentRef.createElement("span");
           badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}`;
-          const icon = documentRef.createElement("img");
-          icon.className = "mwi-lb-badge-icon";
-          icon.src = `${iconBaseUrl}/${encodeURIComponent(item.category)}.png`;
-          icon.alt = "";
-          icon.setAttribute("aria-hidden", "true");
+          const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
+          const label = categoryLabel(item.label, item.category);
           badge.title = runtime.config.isZH
-            ? `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`
-            : `${item.label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            ? `${label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}`
+            : `${label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
           return badge;
         }),
       );
@@ -320,6 +349,7 @@ function createOverlay(options = {}) {
   }
 
   function renderLeaderboardRateColumn() {
+    if (!state.showRates) return;
     const current = state.currentLeaderboard;
     if (!current) return;
     const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
@@ -369,8 +399,25 @@ function createOverlay(options = {}) {
 
   function refresh() {
     if (state.destroyed) return;
-    renderNameBadges();
-    renderLeaderboardRateColumn();
+    if (state.showBadges) renderNameBadges();
+    if (state.showRates) renderLeaderboardRateColumn();
+  }
+
+  function removeBadges() {
+    documentRef
+      .querySelectorAll(`[${BADGE_CONTAINER_ATTRIBUTE}]`)
+      .forEach((element) => element.remove());
+  }
+
+  function removeRateColumn() {
+    const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
+    if (table && state.currentLeaderboard) {
+      state.sortMode = "official";
+      applyTableSort(table, currentRowsByName());
+    }
+    documentRef
+      .querySelectorAll(`[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`)
+      .forEach((element) => element.remove());
   }
 
   function scheduleRefresh() {
@@ -424,20 +471,21 @@ function createOverlay(options = {}) {
       scheduleRefresh();
       return true;
     },
+    setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
+      const nextBadges = Boolean(badges);
+      const nextRates = Boolean(rates);
+      if (state.showBadges && !nextBadges) removeBadges();
+      if (state.showRates && !nextRates) removeRateColumn();
+      state.showBadges = nextBadges;
+      state.showRates = nextRates;
+      scheduleRefresh();
+    },
     destroy() {
       if (state.destroyed) return;
       state.destroyed = true;
       observer.disconnect();
-      state.sortMode = "official";
-      const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
-      if (table && state.currentLeaderboard) {
-        applyTableSort(table, currentRowsByName());
-      }
-      documentRef
-        .querySelectorAll(
-          `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`,
-        )
-        .forEach((element) => element.remove());
+      removeBadges();
+      removeRateColumn();
       activeInstances = Math.max(0, activeInstances - 1);
       if (activeInstances === 0) documentRef.getElementById(STYLE_ID)?.remove();
     },
@@ -449,6 +497,10 @@ function create(options = {}) {
   let destroyed = false;
   let rankings = null;
   let leaderboard = null;
+  let display = {
+    badges: options.showBadges !== false,
+    rates: options.showRates !== false,
+  };
   const allowedCategories = new Set(
     (Array.isArray(options.categories) && options.categories.length
       ? options.categories
@@ -458,7 +510,11 @@ function create(options = {}) {
 
   const mount = () => {
     if (destroyed || instance || !featureEnabled) return;
-    instance = createOverlay(options);
+    instance = createOverlay({
+      ...options,
+      showBadges: display.badges,
+      showRates: display.rates,
+    });
     if (rankings) instance.setRankings(rankings);
     if (leaderboard) instance.enhanceLeaderboard(leaderboard);
   };
@@ -481,6 +537,13 @@ function create(options = {}) {
       };
       instance?.enhanceLeaderboard(leaderboard);
       return true;
+    },
+    setDisplay(next = {}) {
+      display = {
+        badges: next.badges ?? display.badges,
+        rates: next.rates ?? display.rates,
+      };
+      instance?.setDisplay(display);
     },
     destroy() {
       if (destroyed) return;
@@ -536,14 +599,19 @@ function normalizeLeaderboardPayload(payload) {
     return null;
   }
   const rows = leaderboard.rows
-    .map((row) => ({
-      characterId: Number(row?.characterId ?? row?.id),
-      characterName: String(row?.characterName ?? row?.name ?? "").trim(),
-      rank: Number(row?.rank),
-      level: Number(row?.level ?? row?.value1),
-      experience: Number(row?.experience ?? row?.value2),
-      xpPerHour: validExperienceRate(row?.xpPerHour),
-    }))
+    .map((row) => {
+      const fame = category === "fame_points";
+      return {
+        characterId: Number(row?.characterId ?? row?.id),
+        characterName: String(row?.characterName ?? row?.name ?? "").trim(),
+        rank: Number(row?.rank),
+        level: fame ? 0 : Number(row?.level ?? row?.value1),
+        experience: Number(
+          row?.experience ?? (fame ? row?.value1 : row?.value2),
+        ),
+        xpPerHour: validExperienceRate(row?.xpPerHour),
+      };
+    })
     .filter(
       (row) =>
         row.characterName &&
@@ -657,65 +725,117 @@ try {
   pageGlobal.MWILeaderboardOverlay = leaderboardOverlayApi;
 }
 
+const integratedModes = new Set();
+let integratedService = null;
+
+function integratedDisplay() {
+  return {
+    badges: integratedModes.has("badges"),
+    rates: integratedModes.has("rates"),
+  };
+}
+
+function startIntegratedService() {
+  const initialDisplay = integratedDisplay();
+  const controller = create({
+    showBadges: initialDisplay.badges,
+    showRates: initialDisplay.rates,
+  });
+  let categories = loadCachedCategories();
+  let currentLeaderboard = null;
+  let active = true;
+  let activeRequest = null;
+  controller.setRankings(categories);
+
+  const applyCurrentLeaderboard = () => {
+    if (!currentLeaderboard) return;
+    controller.enhanceLeaderboard({
+      category: currentLeaderboard.category,
+      rows:
+        categories[currentLeaderboard.category]?.rows ??
+        currentLeaderboard.rows,
+    });
+  };
+  const refreshRankings = async () => {
+    const response = await requestLeaderboardCategories((request) => {
+      activeRequest = request;
+    });
+    activeRequest = null;
+    if (!active || !response) return;
+    categories = response;
+    saveCachedCategories(categories);
+    controller.setRankings(categories);
+    applyCurrentLeaderboard();
+  };
+  const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
+    const normalized = normalizeLeaderboardPayload(payload);
+    if (!normalized) return;
+    currentLeaderboard = normalized;
+    if (!categories[normalized.category]) {
+      categories = {
+        ...categories,
+        [normalized.category]: {
+          receivedAt: new Date().toISOString(),
+          rows: normalized.rows,
+        },
+      };
+      controller.setRankings(categories);
+    }
+    applyCurrentLeaderboard();
+  });
+  const interval = setInterval(
+    () => void refreshRankings(),
+    LEADERBOARD_REFRESH_INTERVAL,
+  );
+  void refreshRankings();
+
+  return {
+    controller,
+    stop() {
+      active = false;
+      clearInterval(interval);
+      stopMessages();
+      activeRequest?.abort?.();
+      controller.destroy();
+    },
+  };
+}
+
+function activateIntegratedMode(mode) {
+  integratedModes.add(mode);
+  if (!featureEnabled) {
+    featureEnabled = true;
+    for (const controller of controllers) controller._mount();
+  }
+  if (!integratedService) integratedService = startIntegratedService();
+  else integratedService.controller.setDisplay(integratedDisplay());
+
+  return () => {
+    integratedModes.delete(mode);
+    if (integratedModes.size) {
+      integratedService?.controller.setDisplay(integratedDisplay());
+      return;
+    }
+    integratedService?.stop();
+    integratedService = null;
+    featureEnabled = false;
+    for (const controller of controllers) controller._unmount();
+  };
+}
+
 runtime.features.register({
   id: "leaderboardOverlay",
   setting: "leaderboardOverlay",
-  initialize({ scope }) {
-    featureEnabled = true;
-    for (const controller of controllers) controller._mount();
-    const controller = create();
-    let categories = loadCachedCategories();
-    let currentLeaderboard = null;
-    let active = true;
-    let activeRequest = null;
-    controller.setRankings(categories);
+  initialize() {
+    return activateIntegratedMode("badges");
+  },
+});
 
-    const applyCurrentLeaderboard = () => {
-      if (!currentLeaderboard) return;
-      controller.enhanceLeaderboard({
-        category: currentLeaderboard.category,
-        rows:
-          categories[currentLeaderboard.category]?.rows ??
-          currentLeaderboard.rows,
-      });
-    };
-    const refreshRankings = async () => {
-      const response = await requestLeaderboardCategories((request) => {
-        activeRequest = request;
-      });
-      activeRequest = null;
-      if (!active || !response) return;
-      categories = response;
-      saveCachedCategories(categories);
-      controller.setRankings(categories);
-      applyCurrentLeaderboard();
-    };
-    const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
-      const normalized = normalizeLeaderboardPayload(payload);
-      if (!normalized) return;
-      currentLeaderboard = normalized;
-      if (!categories[normalized.category]) {
-        categories = {
-          ...categories,
-          [normalized.category]: {
-            receivedAt: new Date().toISOString(),
-            rows: normalized.rows,
-          },
-        };
-        controller.setRankings(categories);
-      }
-      applyCurrentLeaderboard();
-    });
-    scope.add(stopMessages);
-    void refreshRankings();
-    scope.interval(() => void refreshRankings(), LEADERBOARD_REFRESH_INTERVAL);
-    scope.add(() => {
-      active = false;
-      activeRequest?.abort?.();
-      controller.destroy();
-      featureEnabled = false;
-      for (const controller of controllers) controller._unmount();
-    });
+runtime.features.register({
+  id: "leaderboardXpRate",
+  setting: "leaderboardXpRate",
+  initialize() {
+    return activateIntegratedMode("rates");
   },
 });
 

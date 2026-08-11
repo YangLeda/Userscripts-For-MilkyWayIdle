@@ -371,6 +371,13 @@ let settingsMap = {
       : "Show leaderboard rank badges beside character names.",
     isTrue: true,
   },
+  leaderboardXpRate: {
+    id: "leaderboardXpRate",
+    desc: isZH
+      ? "排行榜显示每小时经验速率"
+      : "Show XP rates on standard leaderboards.",
+    isTrue: true,
+  },
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -841,8 +848,16 @@ const catalogRows = [
     "leaderboard",
     "排行榜名次徽章",
     "Leaderboard rank badges",
-    "显示信息采集助手提供的技能排行榜名次徽章，并增强排行榜经验速率列。",
-    "Show skill leaderboard badges supplied by the data collector and enhance leaderboards with XP rates.",
+    "在角色名字旁显示信息采集助手提供的技能与名望排行榜名次徽章。",
+    "Show skill and fame leaderboard rank badges supplied by the data collector beside character names.",
+  ],
+  [
+    "leaderboardXpRate",
+    "leaderboard",
+    "排行榜经验速率",
+    "Leaderboard XP rates",
+    "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
+    "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges.",
   ],
   [
     "guildCreditConversionsSort",

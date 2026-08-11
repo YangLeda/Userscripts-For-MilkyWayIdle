@@ -114,12 +114,38 @@ test("the settings catalog exposes every persisted feature switch", () => {
 });
 
 test("card settings render every visible setting with nested children and search", async (t) => {
-  document.body.innerHTML =
-    '<div class="SettingsPanel_profileTab__test"></div>';
+  document.body.innerHTML = `
+    <div class="SettingsPanel_settingsPanel__test">
+      <div role="tablist">
+        <button class="MuiTab-root Mui-selected" role="tab" aria-selected="true">Profile</button>
+        <button class="MuiTab-root" role="tab" aria-selected="false">Account</button>
+        <span class="MuiTabs-indicator" style="left: 0px; width: 80px"></span>
+      </div>
+      <div class="TabsComponent_tabPanelsContainer__test">
+        <div class="TabPanel_tabPanel__test SettingsPanel_profileTab__test"></div>
+        <div class="TabPanel_tabPanel__test TabPanel_hidden__test"></div>
+      </div>
+    </div>`;
   await runtime.features.enable("settingsUi");
   t.after(() => runtime.features.disable("settingsUi"));
   const root = document.querySelector("#script_settings");
-  assert.equal(root.dataset.mwitoolsVersion, "2");
+  const customTab = document.querySelector("[data-mwitools-settings-tab]");
+  const customPanel = document.querySelector("[data-mwitools-settings-panel]");
+  assert.equal(root.dataset.mwitoolsVersion, "3");
+  assert.equal(customTab.textContent, "MWITools");
+  assert.equal(customPanel.contains(root), true);
+  assert.equal(
+    document.querySelector(".SettingsPanel_profileTab__test").contains(root),
+    false,
+  );
+  assert.equal(customPanel.hidden, true);
+  customTab.click();
+  assert.equal(customTab.getAttribute("aria-selected"), "true");
+  assert.equal(customPanel.hidden, false);
+  assert.equal(
+    document.querySelector(".SettingsPanel_profileTab__test").hidden,
+    true,
+  );
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 10);
   assert.equal(
     root.querySelectorAll(".mwi-setting-card").length,
@@ -164,7 +190,20 @@ test("card settings render every visible setting with nested children and search
     ["公会"],
   );
   assert.match(root.textContent, /排行榜与排名/);
+  const profileTab = document.querySelector(
+    'button[role="tab"]:not([data-mwitools-settings-tab])',
+  );
+  profileTab.click();
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.equal(customPanel.hidden, true);
+  assert.equal(profileTab.getAttribute("aria-selected"), "true");
+  assert.equal(
+    document.querySelectorAll("[data-mwitools-settings-tab]").length,
+    1,
+  );
   await runtime.features.disable("settingsUi");
+  assert.equal(document.querySelector("[data-mwitools-settings-tab]"), null);
+  assert.equal(document.querySelector("[data-mwitools-settings-panel]"), null);
 });
 
 test("market autofill selects semantic plus and minus buttons", () => {

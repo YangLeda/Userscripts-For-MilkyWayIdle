@@ -26,12 +26,19 @@ globalThis.GM = {
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 runtime.config.isZH = true;
-const { badgeTier, compareRateRows, create, formatExperienceRate } =
-  await import("../src/features/leaderboard-overlay.js");
+const {
+  badgeTier,
+  compareRateRows,
+  create,
+  formatExperienceRate,
+  normalizeLeaderboardPayload,
+} = await import("../src/features/leaderboard-overlay.js");
 await runtime.features.enable("leaderboardOverlay");
+await runtime.features.enable("leaderboardXpRate");
 
 after(async () => {
   await runtime.features.disable("leaderboardOverlay");
+  await runtime.features.disable("leaderboardXpRate");
 });
 
 function settle() {
@@ -47,9 +54,9 @@ function rowNames() {
 }
 
 test("exports the standalone overlay API and formatting helpers", () => {
-  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.1.0");
+  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.0");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
-  assert.equal(badgeTier(1), "rainbow");
+  assert.equal(badgeTier(1), "diamond");
   assert.equal(badgeTier(35), "gold");
   assert.equal(badgeTier(70), "silver");
   assert.equal(badgeTier(100), "bronze");
@@ -137,6 +144,69 @@ test("renders top-100 ranking badges beside matching character names", async () 
   assert.equal(document.querySelector("[data-mwi-leaderboard-badges]"), null);
 });
 
+test("renders fame with the game XP-buff icon and reads value1", async () => {
+  document.body.innerHTML = `
+    <svg><use href="/static/media/misc_sprite.current.svg#coins"></use></svg>
+    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+  const normalized = normalizeLeaderboardPayload({
+    type: "leaderboard_updated",
+    leaderboardType: "standard",
+    leaderboardCategory: "fame_points",
+    leaderboard: {
+      type: "standard",
+      category: "fame_points",
+      rows: [{ id: 1, name: "Alice", rank: 8, value1: 987_654, value2: 0 }],
+    },
+  });
+  assert.equal(normalized.rows[0].level, 0);
+  assert.equal(normalized.rows[0].experience, 987_654);
+
+  const overlay = create({ document });
+  overlay.setRankings({ fame_points: { rows: normalized.rows } });
+  await settle();
+  const badge = document.querySelector(".mwi-lb-badge--diamond");
+  assert.equal(badge.textContent, "#8");
+  assert.equal(
+    badge.querySelector("use").getAttribute("href"),
+    "/static/media/misc_sprite.current.svg#experience",
+  );
+  overlay.destroy();
+});
+
+test("chat names show only the three best-ranked badges", async () => {
+  document.body.innerHTML = `
+    <span class="ChatMessage_name__test">
+      <span class="CharacterName_name__test" data-name="Alice">Alice</span>
+    </span>
+    <div>
+      <span class="CharacterName_name__test" data-name="Alice">Alice</span>
+    </div>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    milking: { rows: [{ characterName: "Alice", rank: 25 }] },
+    crafting: { rows: [{ characterName: "Alice", rank: 6 }] },
+    attack: { rows: [{ characterName: "Alice", rank: 2 }] },
+    magic: { rows: [{ characterName: "Alice", rank: 4 }] },
+    fame_points: { rows: [{ characterName: "Alice", rank: 1 }] },
+  });
+  await settle();
+
+  const containers = document.querySelectorAll("[data-mwi-leaderboard-badges]");
+  assert.deepEqual(
+    [...containers[0].querySelectorAll(".mwi-lb-badge")].map(
+      (badge) => badge.textContent,
+    ),
+    ["#1", "#2", "#4"],
+  );
+  assert.deepEqual(
+    [...containers[1].querySelectorAll(".mwi-lb-badge")].map(
+      (badge) => badge.textContent,
+    ),
+    ["#1", "#2", "#4", "#6", "#25"],
+  );
+  overlay.destroy();
+});
+
 test("adds a sortable experience-rate column and restores official order", async () => {
   document.body.innerHTML = `
     <table class="LeaderboardPanel_leaderboardTable__test">
@@ -199,6 +269,7 @@ test("adds a sortable experience-rate column and restores official order", async
 
 test("the feature anonymously loads, caches, and applies leaderboard data", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  await runtime.settings.set("leaderboardXpRate", false, { persist: false });
   localStorage.removeItem("MWITools_leaderboard_overlay_cache_v1");
   document.body.innerHTML = `
     <div><span class="CharacterName_name__test" data-name="Alice">Alice</span></div>
@@ -234,6 +305,7 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
     return { abort() {} };
   };
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
+  await runtime.settings.set("leaderboardXpRate", true, { persist: false });
   await settle();
   assert.equal(requestOptions.url.endsWith("/api/v1/leaderboards"), true);
   assert.equal(requestOptions.headers, undefined);
@@ -258,6 +330,17 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
 
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   assert.equal(document.querySelector(".mwi-lb-badge"), null);
+  assert.ok(document.querySelector("[data-mwi-leaderboard-rate-cell]"));
+  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
+  await runtime.settings.set("leaderboardXpRate", false, { persist: false });
+  await settle();
+  assert.ok(document.querySelector(".mwi-lb-badge"));
+  assert.equal(
+    document.querySelector("[data-mwi-leaderboard-rate-cell]"),
+    null,
+  );
+
+  await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   leaderboardRequest = (options) => {
     globalThis.queueMicrotask(() => options.onerror?.());
     return { abort() {} };
@@ -265,10 +348,13 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   await settle();
   assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
+  await runtime.settings.set("leaderboardXpRate", true, { persist: false });
 });
 
 test("leaderboard copy follows the MWITools language", async () => {
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
+  await runtime.settings.set("leaderboardXpRate", false, { persist: false });
+  localStorage.removeItem("MWITools_leaderboard_overlay_cache_v1");
   runtime.config.isZH = false;
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   document.body.innerHTML = `
@@ -283,5 +369,4 @@ test("leaderboard copy follows the MWITools language", async () => {
   overlay.destroy();
   await runtime.settings.set("leaderboardOverlay", false, { persist: false });
   runtime.config.isZH = true;
-  await runtime.settings.set("leaderboardOverlay", true, { persist: false });
 });

@@ -1106,6 +1106,11 @@
       desc: isZH ? "角色名字旁显示排行榜名次徽章" : "Show leaderboard rank badges beside character names.",
       isTrue: true
     },
+    leaderboardXpRate: {
+      id: "leaderboardXpRate",
+      desc: isZH ? "排行榜显示每小时经验速率" : "Show XP rates on standard leaderboards.",
+      isTrue: true
+    },
     forceMWIToolsDisplayZH: {
       id: "forceMWIToolsDisplayZH",
       desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -1574,8 +1579,16 @@
       "leaderboard",
       "排行榜名次徽章",
       "Leaderboard rank badges",
-      "显示信息采集助手提供的技能排行榜名次徽章，并增强排行榜经验速率列。",
-      "Show skill leaderboard badges supplied by the data collector and enhance leaderboards with XP rates."
+      "在角色名字旁显示信息采集助手提供的技能与名望排行榜名次徽章。",
+      "Show skill and fame leaderboard rank badges supplied by the data collector beside character names."
+    ],
+    [
+      "leaderboardXpRate",
+      "leaderboard",
+      "排行榜经验速率",
+      "Leaderboard XP rates",
+      "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
+      "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges."
     ],
     [
       "guildCreditConversionsSort",
@@ -23288,7 +23301,7 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.1.0";
+  var OVERLAY_VERSION = "1.2.0";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v1";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
@@ -23313,7 +23326,8 @@ ${preview}`
     ["defense", { zh: "防御", en: "Defense" }],
     ["melee", { zh: "近战", en: "Melee" }],
     ["ranged", { zh: "远程", en: "Ranged" }],
-    ["magic", { zh: "魔法", en: "Magic" }]
+    ["magic", { zh: "魔法", en: "Magic" }],
+    ["fame_points", { zh: "名望", en: "Fame" }]
   ];
   var activeInstances = 0;
   var featureEnabled = false;
@@ -23333,7 +23347,7 @@ ${preview}`
   function badgeTier(rank) {
     const value = Number(rank);
     if (!Number.isInteger(value) || value < 1 || value > 100) return null;
-    if (value <= 20) return "rainbow";
+    if (value <= 20) return "diamond";
     if (value <= 50) return "gold";
     if (value <= 80) return "silver";
     return "bronze";
@@ -23384,7 +23398,7 @@ ${preview}`
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
-    .mwi-lb-badge--rainbow{border-color:transparent;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box}
+    .mwi-lb-badge--diamond{border-color:transparent;color:#f4fbff;background:linear-gradient(rgba(10,17,30,.92),rgba(10,17,30,.92)) padding-box,conic-gradient(from 35deg,#fff 0 8%,#78d9ff 16%,#c6b7ff 29%,#f8ffff 43%,#66bdf4 57%,#e9fcff 72%,#93e9ff 86%,#fff) border-box;box-shadow:0 0 6px rgba(116,213,255,.5),inset 0 0 3px rgba(255,255,255,.16)}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
@@ -23393,6 +23407,25 @@ ${preview}`
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
     mount.append(style);
+  }
+  function createBadgeIcon(documentRef, category, iconBaseUrl) {
+    if (category !== "fame_points") {
+      const icon2 = documentRef.createElement("img");
+      icon2.className = "mwi-lb-badge-icon";
+      icon2.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
+      icon2.alt = "";
+      icon2.setAttribute("aria-hidden", "true");
+      return icon2;
+    }
+    const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.classList.add("mwi-lb-badge-icon");
+    icon.setAttribute("viewBox", "0 0 40 40");
+    icon.setAttribute("aria-hidden", "true");
+    const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
+    const miscSprite = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes("misc_sprite"))?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
+    use.setAttribute("href", `${miscSprite}#experience`);
+    icon.append(use);
+    return icon;
   }
   function createOverlay(options = {}) {
     const documentRef = options.document ?? (typeof document !== "undefined" ? document : null);
@@ -23411,7 +23444,9 @@ ${preview}`
       currentLeaderboard: null,
       sortMode: "official",
       refreshPending: false,
-      destroyed: false
+      destroyed: false,
+      showBadges: options.showBadges !== false,
+      showRates: options.showRates !== false
     };
     ensureStyles(documentRef);
     function rebuildNameIndex() {
@@ -23426,7 +23461,7 @@ ${preview}`
           if (!index.has(name)) index.set(name, []);
           index.get(name).push({
             category,
-            label: categoryLabel(categoryLabels[category], category),
+            label: categoryLabels[category],
             rank,
             tier,
             capturedAt: snapshot.receivedAt || snapshot.capturedAt || null
@@ -23447,6 +23482,7 @@ ${preview}`
       return badges.map((item) => `${item.category}:${item.rank}:${item.capturedAt || ""}`).join("|");
     }
     function renderNameBadges() {
+      if (!state.showBadges) return;
       const nameElements = documentRef.querySelectorAll(
         '[class*="CharacterName_name"][data-name]'
       );
@@ -23466,13 +23502,14 @@ ${preview}`
         const badges = state.nameIndex.get(
           normalizedName(nameElement.getAttribute("data-name"))
         ) || [];
-        if (!badges.length) {
+        const visibleBadges = nameElement.closest('[class*="ChatMessage_name"]') ? badges.slice(0, 3) : badges;
+        if (!visibleBadges.length) {
           container?.remove();
           continue;
         }
         const profilePlacement = Boolean(profileRoot);
         const placement = profilePlacement ? "profile" : "inline";
-        const signature = badgeSignature(badges);
+        const signature = badgeSignature(visibleBadges);
         const previousPlacement = container?.dataset.mwiLeaderboardPlacement || "";
         if (!container) {
           container = documentRef.createElement("span");
@@ -23490,16 +23527,13 @@ ${preview}`
         if (container.dataset.mwiLeaderboardSignature === signature) continue;
         container.dataset.mwiLeaderboardSignature = signature;
         container.replaceChildren(
-          ...badges.map((item) => {
+          ...visibleBadges.map((item) => {
             const badge = documentRef.createElement("span");
             badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}`;
-            const icon = documentRef.createElement("img");
-            icon.className = "mwi-lb-badge-icon";
-            icon.src = `${iconBaseUrl}/${encodeURIComponent(item.category)}.png`;
-            icon.alt = "";
-            icon.setAttribute("aria-hidden", "true");
+            const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
             badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
-            badge.title = runtime.config.isZH ? `${item.label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}` : `${item.label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
+            const label = categoryLabel(item.label, item.category);
+            badge.title = runtime.config.isZH ? `${label}排行榜第 ${item.rank} 名${item.capturedAt ? ` · ${item.capturedAt}` : ""}` : `${label} leaderboard rank #${item.rank}${item.capturedAt ? ` · ${item.capturedAt}` : ""}`;
             return badge;
           })
         );
@@ -23544,6 +23578,7 @@ ${preview}`
       }
     }
     function renderLeaderboardRateColumn() {
+      if (!state.showRates) return;
       const current = state.currentLeaderboard;
       if (!current) return;
       const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
@@ -23582,8 +23617,19 @@ ${preview}`
     }
     function refresh() {
       if (state.destroyed) return;
-      renderNameBadges();
-      renderLeaderboardRateColumn();
+      if (state.showBadges) renderNameBadges();
+      if (state.showRates) renderLeaderboardRateColumn();
+    }
+    function removeBadges() {
+      documentRef.querySelectorAll(`[${BADGE_CONTAINER_ATTRIBUTE}]`).forEach((element) => element.remove());
+    }
+    function removeRateColumn() {
+      const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
+      if (table && state.currentLeaderboard) {
+        state.sortMode = "official";
+        applyTableSort(table, currentRowsByName());
+      }
+      documentRef.querySelectorAll(`[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`).forEach((element) => element.remove());
     }
     function scheduleRefresh() {
       if (state.destroyed || state.refreshPending) return;
@@ -23629,18 +23675,21 @@ ${preview}`
         scheduleRefresh();
         return true;
       },
+      setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
+        const nextBadges = Boolean(badges);
+        const nextRates = Boolean(rates);
+        if (state.showBadges && !nextBadges) removeBadges();
+        if (state.showRates && !nextRates) removeRateColumn();
+        state.showBadges = nextBadges;
+        state.showRates = nextRates;
+        scheduleRefresh();
+      },
       destroy() {
         if (state.destroyed) return;
         state.destroyed = true;
         observer.disconnect();
-        state.sortMode = "official";
-        const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
-        if (table && state.currentLeaderboard) {
-          applyTableSort(table, currentRowsByName());
-        }
-        documentRef.querySelectorAll(
-          `[${BADGE_CONTAINER_ATTRIBUTE}],[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`
-        ).forEach((element) => element.remove());
+        removeBadges();
+        removeRateColumn();
         activeInstances = Math.max(0, activeInstances - 1);
         if (activeInstances === 0) documentRef.getElementById(STYLE_ID2)?.remove();
       }
@@ -23651,12 +23700,20 @@ ${preview}`
     let destroyed = false;
     let rankings = null;
     let leaderboard = null;
+    let display = {
+      badges: options.showBadges !== false,
+      rates: options.showRates !== false
+    };
     const allowedCategories = new Set(
       (Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES).map(([category]) => category)
     );
     const mount = () => {
       if (destroyed || instance || !featureEnabled) return;
-      instance = createOverlay(options);
+      instance = createOverlay({
+        ...options,
+        showBadges: display.badges,
+        showRates: display.rates
+      });
       if (rankings) instance.setRankings(rankings);
       if (leaderboard) instance.enhanceLeaderboard(leaderboard);
     };
@@ -23677,6 +23734,13 @@ ${preview}`
         };
         instance?.enhanceLeaderboard(leaderboard);
         return true;
+      },
+      setDisplay(next = {}) {
+        display = {
+          badges: next.badges ?? display.badges,
+          rates: next.rates ?? display.rates
+        };
+        instance?.setDisplay(display);
       },
       destroy() {
         if (destroyed) return;
@@ -23720,14 +23784,19 @@ ${preview}`
     if (leaderboard?.type !== "standard" || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
       return null;
     }
-    const rows = leaderboard.rows.map((row) => ({
-      characterId: Number(row?.characterId ?? row?.id),
-      characterName: String(row?.characterName ?? row?.name ?? "").trim(),
-      rank: Number(row?.rank),
-      level: Number(row?.level ?? row?.value1),
-      experience: Number(row?.experience ?? row?.value2),
-      xpPerHour: validExperienceRate(row?.xpPerHour)
-    })).filter(
+    const rows = leaderboard.rows.map((row) => {
+      const fame = category === "fame_points";
+      return {
+        characterId: Number(row?.characterId ?? row?.id),
+        characterName: String(row?.characterName ?? row?.name ?? "").trim(),
+        rank: Number(row?.rank),
+        level: fame ? 0 : Number(row?.level ?? row?.value1),
+        experience: Number(
+          row?.experience ?? (fame ? row?.value1 : row?.value2)
+        ),
+        xpPerHour: validExperienceRate(row?.xpPerHour)
+      };
+    }).filter(
       (row) => row.characterName && Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= 100
     );
     return rows.length ? { category, rows } : null;
@@ -23816,62 +23885,107 @@ ${preview}`
   } catch {
     pageGlobal2.MWILeaderboardOverlay = leaderboardOverlayApi;
   }
+  var integratedModes = /* @__PURE__ */ new Set();
+  var integratedService = null;
+  function integratedDisplay() {
+    return {
+      badges: integratedModes.has("badges"),
+      rates: integratedModes.has("rates")
+    };
+  }
+  function startIntegratedService() {
+    const initialDisplay = integratedDisplay();
+    const controller = create({
+      showBadges: initialDisplay.badges,
+      showRates: initialDisplay.rates
+    });
+    let categories = loadCachedCategories();
+    let currentLeaderboard = null;
+    let active = true;
+    let activeRequest = null;
+    controller.setRankings(categories);
+    const applyCurrentLeaderboard = () => {
+      if (!currentLeaderboard) return;
+      controller.enhanceLeaderboard({
+        category: currentLeaderboard.category,
+        rows: categories[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
+      });
+    };
+    const refreshRankings = async () => {
+      const response = await requestLeaderboardCategories((request2) => {
+        activeRequest = request2;
+      });
+      activeRequest = null;
+      if (!active || !response) return;
+      categories = response;
+      saveCachedCategories(categories);
+      controller.setRankings(categories);
+      applyCurrentLeaderboard();
+    };
+    const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
+      const normalized = normalizeLeaderboardPayload(payload);
+      if (!normalized) return;
+      currentLeaderboard = normalized;
+      if (!categories[normalized.category]) {
+        categories = {
+          ...categories,
+          [normalized.category]: {
+            receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            rows: normalized.rows
+          }
+        };
+        controller.setRankings(categories);
+      }
+      applyCurrentLeaderboard();
+    });
+    const interval = setInterval(
+      () => void refreshRankings(),
+      LEADERBOARD_REFRESH_INTERVAL
+    );
+    void refreshRankings();
+    return {
+      controller,
+      stop() {
+        active = false;
+        clearInterval(interval);
+        stopMessages();
+        activeRequest?.abort?.();
+        controller.destroy();
+      }
+    };
+  }
+  function activateIntegratedMode(mode) {
+    integratedModes.add(mode);
+    if (!featureEnabled) {
+      featureEnabled = true;
+      for (const controller of controllers) controller._mount();
+    }
+    if (!integratedService) integratedService = startIntegratedService();
+    else integratedService.controller.setDisplay(integratedDisplay());
+    return () => {
+      integratedModes.delete(mode);
+      if (integratedModes.size) {
+        integratedService?.controller.setDisplay(integratedDisplay());
+        return;
+      }
+      integratedService?.stop();
+      integratedService = null;
+      featureEnabled = false;
+      for (const controller of controllers) controller._unmount();
+    };
+  }
   runtime.features.register({
     id: "leaderboardOverlay",
     setting: "leaderboardOverlay",
-    initialize({ scope }) {
-      featureEnabled = true;
-      for (const controller2 of controllers) controller2._mount();
-      const controller = create();
-      let categories = loadCachedCategories();
-      let currentLeaderboard = null;
-      let active = true;
-      let activeRequest = null;
-      controller.setRankings(categories);
-      const applyCurrentLeaderboard = () => {
-        if (!currentLeaderboard) return;
-        controller.enhanceLeaderboard({
-          category: currentLeaderboard.category,
-          rows: categories[currentLeaderboard.category]?.rows ?? currentLeaderboard.rows
-        });
-      };
-      const refreshRankings = async () => {
-        const response = await requestLeaderboardCategories((request2) => {
-          activeRequest = request2;
-        });
-        activeRequest = null;
-        if (!active || !response) return;
-        categories = response;
-        saveCachedCategories(categories);
-        controller.setRankings(categories);
-        applyCurrentLeaderboard();
-      };
-      const stopMessages = runtime.onMessage("leaderboard_updated", (payload) => {
-        const normalized = normalizeLeaderboardPayload(payload);
-        if (!normalized) return;
-        currentLeaderboard = normalized;
-        if (!categories[normalized.category]) {
-          categories = {
-            ...categories,
-            [normalized.category]: {
-              receivedAt: (/* @__PURE__ */ new Date()).toISOString(),
-              rows: normalized.rows
-            }
-          };
-          controller.setRankings(categories);
-        }
-        applyCurrentLeaderboard();
-      });
-      scope.add(stopMessages);
-      void refreshRankings();
-      scope.interval(() => void refreshRankings(), LEADERBOARD_REFRESH_INTERVAL);
-      scope.add(() => {
-        active = false;
-        activeRequest?.abort?.();
-        controller.destroy();
-        featureEnabled = false;
-        for (const controller2 of controllers) controller2._unmount();
-      });
+    initialize() {
+      return activateIntegratedMode("badges");
+    }
+  });
+  runtime.features.register({
+    id: "leaderboardXpRate",
+    setting: "leaderboardXpRate",
+    initialize() {
+      return activateIntegratedMode("rates");
     }
   });
 
@@ -32009,6 +32123,8 @@ ${locks}` : ""}`;
   var BACK_MIRROR_DEFAULT_MIGRATION_KEY = "MWITools_back_mirror_default_enabled_v1";
   var SETTINGS_STYLE_ID = "mwitools-settings-style";
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
+  var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
+  var SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
   function persistSettings() {
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
@@ -32076,6 +32192,8 @@ ${locks}` : ""}`;
     style.id = SETTINGS_STYLE_ID;
     style.textContent = `
     #script_settings { width:100%; margin-top:14px; color:var(--color-text-primary,#eee); }
+    [${SETTINGS_PANEL_ATTRIBUTE}] { width:100%; box-sizing:border-box; }
+    [${SETTINGS_TAB_ATTRIBUTE}][aria-selected="true"] { color:var(--color-primary,#fff); }
     .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
     .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
     .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:.78rem; line-height:1.35; }
@@ -32317,20 +32435,129 @@ ${locks}` : ""}`;
       }
     });
   }
-  function ensureSettingsPanel() {
-    const target = document.querySelector(
-      'div[class*="SettingsPanel_profileTab"]'
+  function restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab) {
+    const customTab = tabList?.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+    const customPanel = panelsContainer?.querySelector(
+      `[${SETTINGS_PANEL_ATTRIBUTE}]`
     );
-    if (!target) return;
-    let root = target.querySelector("#script_settings");
-    if (root?.dataset.mwitoolsVersion === "2") return;
+    if (!customTab || !customPanel) return;
+    customTab.setAttribute("aria-selected", "false");
+    customTab.tabIndex = -1;
+    customTab.classList.remove("Mui-selected");
+    customPanel.hidden = true;
+    const nativeTabs = [
+      ...tabList.querySelectorAll(
+        'button[role="tab"]:not([data-mwitools-settings-tab])'
+      )
+    ];
+    if (selectedTab) {
+      for (const tab of nativeTabs) {
+        const selected = tab === selectedTab;
+        tab.setAttribute("aria-selected", String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        tab.classList.toggle("Mui-selected", selected);
+      }
+    }
+    for (const panel of panelsContainer.children) {
+      if (panel !== customPanel) panel.hidden = false;
+    }
+    const indicator = tabList.querySelector('[class*="MuiTabs-indicator"]');
+    if (indicator?.dataset.mwitoolsOriginalStyle != null) {
+      const originalStyle = indicator.dataset.mwitoolsOriginalStyle;
+      if (originalStyle) indicator.setAttribute("style", originalStyle);
+      else indicator.removeAttribute("style");
+      delete indicator.dataset.mwitoolsOriginalStyle;
+    }
+  }
+  function ensureSettingsPanel() {
+    const settingsPanel = document.querySelector(
+      '[class*="SettingsPanel_settingsPanel"]'
+    );
+    const tabList = settingsPanel?.querySelector('[role="tablist"]');
+    const nativePanels = [
+      ...settingsPanel?.querySelectorAll(
+        '[class*="TabPanel_tabPanel"]:not([data-mwitools-settings-panel])'
+      ) ?? []
+    ];
+    const panelsContainer = settingsPanel?.querySelector(
+      '[class*="TabsComponent_tabPanelsContainer"]'
+    ) ?? nativePanels[0]?.parentElement;
+    const nativeTabs = [
+      ...tabList?.querySelectorAll(
+        'button[role="tab"]:not([data-mwitools-settings-tab])'
+      ) ?? []
+    ];
+    if (!tabList || !panelsContainer || !nativeTabs.length || !nativePanels.length)
+      return;
+    let customTab = tabList.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+    if (!customTab) {
+      customTab = nativeTabs.at(-1).cloneNode(true);
+      customTab.removeAttribute("id");
+      customTab.removeAttribute("aria-controls");
+      customTab.setAttribute(SETTINGS_TAB_ATTRIBUTE, "");
+      customTab.setAttribute("aria-selected", "false");
+      customTab.tabIndex = -1;
+      customTab.classList.remove("Mui-selected");
+      customTab.textContent = "MWITools";
+      tabList.append(customTab);
+    }
+    let customPanel = panelsContainer.querySelector(
+      `[${SETTINGS_PANEL_ATTRIBUTE}]`
+    );
+    if (!customPanel) {
+      customPanel = document.createElement("div");
+      customPanel.className = nativePanels[0].className;
+      customPanel.setAttribute(SETTINGS_PANEL_ATTRIBUTE, "");
+      customPanel.setAttribute("role", "tabpanel");
+      customPanel.hidden = true;
+      panelsContainer.append(customPanel);
+    }
+    let root = document.querySelector("#script_settings");
     if (!root) {
       root = document.createElement("div");
       root.id = "script_settings";
-      target.appendChild(root);
     }
-    root.dataset.mwitoolsVersion = "2";
-    renderSettings(root);
+    if (root.parentElement !== customPanel) customPanel.append(root);
+    if (root.dataset.mwitoolsVersion !== "3") {
+      root.dataset.mwitoolsVersion = "3";
+      renderSettings(root);
+    }
+    if (!customTab._mwitoolsActivateSettings) {
+      const activate = () => {
+        for (const tab of nativeTabs) {
+          tab.setAttribute("aria-selected", "false");
+          tab.tabIndex = -1;
+          tab.classList.remove("Mui-selected");
+        }
+        for (const panel of nativePanels) panel.hidden = true;
+        customTab.setAttribute("aria-selected", "true");
+        customTab.tabIndex = 0;
+        customTab.classList.add("Mui-selected");
+        customPanel.hidden = false;
+        const indicator = tabList.querySelector('[class*="MuiTabs-indicator"]');
+        if (indicator) {
+          if (indicator.dataset.mwitoolsOriginalStyle == null) {
+            indicator.dataset.mwitoolsOriginalStyle = indicator.getAttribute("style") ?? "";
+          }
+          indicator.style.left = `${customTab.offsetLeft}px`;
+          indicator.style.width = `${customTab.offsetWidth}px`;
+        }
+      };
+      customTab.addEventListener("click", activate);
+      customTab._mwitoolsActivateSettings = activate;
+    }
+    if (!tabList._mwitoolsRestoreSettings) {
+      const restore = (event) => {
+        if (event.target.closest?.(`[${SETTINGS_TAB_ATTRIBUTE}]`)) return;
+        const selectedTab = event.target.closest?.('button[role="tab"]');
+        if (!selectedTab) return;
+        setTimeout(
+          () => restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab)
+        );
+      };
+      tabList.addEventListener("click", restore);
+      tabList._mwitoolsRestoreSettings = restore;
+    }
   }
   function getEquipmentWarning() {
     const currentActionHrid = runtime.state.currentActionsHridList?.[0]?.actionHrid;
@@ -32558,6 +32785,14 @@ ${locks}` : ""}`;
         for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
           card._mwitoolsCleanup?.();
         }
+        const customTab = document.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+        const tabList = customTab?.parentElement;
+        if (tabList?._mwitoolsRestoreSettings) {
+          tabList.removeEventListener("click", tabList._mwitoolsRestoreSettings);
+          delete tabList._mwitoolsRestoreSettings;
+        }
+        customTab?.remove();
+        document.querySelector(`[${SETTINGS_PANEL_ATTRIBUTE}]`)?.remove();
         root?.remove();
         document.getElementById(SETTINGS_STYLE_ID)?.remove();
       });

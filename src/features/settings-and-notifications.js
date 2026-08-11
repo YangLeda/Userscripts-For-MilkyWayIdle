@@ -5,6 +5,8 @@ const BACK_MIRROR_DEFAULT_MIGRATION_KEY =
   "MWITools_back_mirror_default_enabled_v1";
 const SETTINGS_STYLE_ID = "mwitools-settings-style";
 const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
+const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
+const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
 
 function persistSettings() {
   const values = Object.fromEntries(
@@ -92,6 +94,8 @@ function addSettingsStyles() {
   style.id = SETTINGS_STYLE_ID;
   style.textContent = `
     #script_settings { width:100%; margin-top:14px; color:var(--color-text-primary,#eee); }
+    [${SETTINGS_PANEL_ATTRIBUTE}] { width:100%; box-sizing:border-box; }
+    [${SETTINGS_TAB_ATTRIBUTE}][aria-selected="true"] { color:var(--color-primary,#fff); }
     .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
     .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
     .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:.78rem; line-height:1.35; }
@@ -370,20 +374,142 @@ function renderSettings(root) {
   });
 }
 
-function ensureSettingsPanel() {
-  const target = document.querySelector(
-    'div[class*="SettingsPanel_profileTab"]',
+function restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab) {
+  const customTab = tabList?.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+  const customPanel = panelsContainer?.querySelector(
+    `[${SETTINGS_PANEL_ATTRIBUTE}]`,
   );
-  if (!target) return;
-  let root = target.querySelector("#script_settings");
-  if (root?.dataset.mwitoolsVersion === "2") return;
+  if (!customTab || !customPanel) return;
+  customTab.setAttribute("aria-selected", "false");
+  customTab.tabIndex = -1;
+  customTab.classList.remove("Mui-selected");
+  customPanel.hidden = true;
+  const nativeTabs = [
+    ...tabList.querySelectorAll(
+      'button[role="tab"]:not([data-mwitools-settings-tab])',
+    ),
+  ];
+  if (selectedTab) {
+    for (const tab of nativeTabs) {
+      const selected = tab === selectedTab;
+      tab.setAttribute("aria-selected", String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+      tab.classList.toggle("Mui-selected", selected);
+    }
+  }
+  for (const panel of panelsContainer.children) {
+    if (panel !== customPanel) panel.hidden = false;
+  }
+  const indicator = tabList.querySelector('[class*="MuiTabs-indicator"]');
+  if (indicator?.dataset.mwitoolsOriginalStyle != null) {
+    const originalStyle = indicator.dataset.mwitoolsOriginalStyle;
+    if (originalStyle) indicator.setAttribute("style", originalStyle);
+    else indicator.removeAttribute("style");
+    delete indicator.dataset.mwitoolsOriginalStyle;
+  }
+}
+
+function ensureSettingsPanel() {
+  const settingsPanel = document.querySelector(
+    '[class*="SettingsPanel_settingsPanel"]',
+  );
+  const tabList = settingsPanel?.querySelector('[role="tablist"]');
+  const nativePanels = [
+    ...(settingsPanel?.querySelectorAll(
+      '[class*="TabPanel_tabPanel"]:not([data-mwitools-settings-panel])',
+    ) ?? []),
+  ];
+  const panelsContainer =
+    settingsPanel?.querySelector(
+      '[class*="TabsComponent_tabPanelsContainer"]',
+    ) ?? nativePanels[0]?.parentElement;
+  const nativeTabs = [
+    ...(tabList?.querySelectorAll(
+      'button[role="tab"]:not([data-mwitools-settings-tab])',
+    ) ?? []),
+  ];
+  if (
+    !tabList ||
+    !panelsContainer ||
+    !nativeTabs.length ||
+    !nativePanels.length
+  )
+    return;
+
+  let customTab = tabList.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+  if (!customTab) {
+    customTab = nativeTabs.at(-1).cloneNode(true);
+    customTab.removeAttribute("id");
+    customTab.removeAttribute("aria-controls");
+    customTab.setAttribute(SETTINGS_TAB_ATTRIBUTE, "");
+    customTab.setAttribute("aria-selected", "false");
+    customTab.tabIndex = -1;
+    customTab.classList.remove("Mui-selected");
+    customTab.textContent = "MWITools";
+    tabList.append(customTab);
+  }
+
+  let customPanel = panelsContainer.querySelector(
+    `[${SETTINGS_PANEL_ATTRIBUTE}]`,
+  );
+  if (!customPanel) {
+    customPanel = document.createElement("div");
+    customPanel.className = nativePanels[0].className;
+    customPanel.setAttribute(SETTINGS_PANEL_ATTRIBUTE, "");
+    customPanel.setAttribute("role", "tabpanel");
+    customPanel.hidden = true;
+    panelsContainer.append(customPanel);
+  }
+
+  let root = document.querySelector("#script_settings");
   if (!root) {
     root = document.createElement("div");
     root.id = "script_settings";
-    target.appendChild(root);
   }
-  root.dataset.mwitoolsVersion = "2";
-  renderSettings(root);
+  if (root.parentElement !== customPanel) customPanel.append(root);
+  if (root.dataset.mwitoolsVersion !== "3") {
+    root.dataset.mwitoolsVersion = "3";
+    renderSettings(root);
+  }
+
+  if (!customTab._mwitoolsActivateSettings) {
+    const activate = () => {
+      for (const tab of nativeTabs) {
+        tab.setAttribute("aria-selected", "false");
+        tab.tabIndex = -1;
+        tab.classList.remove("Mui-selected");
+      }
+      for (const panel of nativePanels) panel.hidden = true;
+      customTab.setAttribute("aria-selected", "true");
+      customTab.tabIndex = 0;
+      customTab.classList.add("Mui-selected");
+      customPanel.hidden = false;
+      const indicator = tabList.querySelector('[class*="MuiTabs-indicator"]');
+      if (indicator) {
+        if (indicator.dataset.mwitoolsOriginalStyle == null) {
+          indicator.dataset.mwitoolsOriginalStyle =
+            indicator.getAttribute("style") ?? "";
+        }
+        indicator.style.left = `${customTab.offsetLeft}px`;
+        indicator.style.width = `${customTab.offsetWidth}px`;
+      }
+    };
+    customTab.addEventListener("click", activate);
+    customTab._mwitoolsActivateSettings = activate;
+  }
+
+  if (!tabList._mwitoolsRestoreSettings) {
+    const restore = (event) => {
+      if (event.target.closest?.(`[${SETTINGS_TAB_ATTRIBUTE}]`)) return;
+      const selectedTab = event.target.closest?.('button[role="tab"]');
+      if (!selectedTab) return;
+      setTimeout(() =>
+        restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab),
+      );
+    };
+    tabList.addEventListener("click", restore);
+    tabList._mwitoolsRestoreSettings = restore;
+  }
 }
 
 function getEquipmentWarning() {
@@ -695,6 +821,14 @@ runtime.features.register({
       for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
         card._mwitoolsCleanup?.();
       }
+      const customTab = document.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
+      const tabList = customTab?.parentElement;
+      if (tabList?._mwitoolsRestoreSettings) {
+        tabList.removeEventListener("click", tabList._mwitoolsRestoreSettings);
+        delete tabList._mwitoolsRestoreSettings;
+      }
+      customTab?.remove();
+      document.querySelector(`[${SETTINGS_PANEL_ATTRIBUTE}]`)?.remove();
       root?.remove();
       document.getElementById(SETTINGS_STYLE_ID)?.remove();
     });
