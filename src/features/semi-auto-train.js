@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { reactFiberKey } from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
@@ -215,14 +216,6 @@ export function showTrainDetail(plan, currentIndex = null) {
   });
   document.body.appendChild(modal);
   return modal;
-}
-
-function fiberKey(element) {
-  return Object.getOwnPropertyNames(element ?? {}).find(
-    (key) =>
-      key.startsWith("__reactFiber$") ||
-      key.startsWith("__reactInternalInstance$"),
-  );
 }
 
 function gameInstances() {
@@ -462,7 +455,7 @@ export function navigateToTrainShop(step) {
       setTimeout(open, 100);
       return;
     }
-    const key = fiberKey(panel);
+    const key = reactFiberKey(panel);
     let fiber = key ? panel[key] : null;
     let instance = null;
     while (fiber) {

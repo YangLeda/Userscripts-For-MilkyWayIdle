@@ -1,4 +1,5 @@
 import { runtime } from "./runtime.js";
+import { reactFiberKey } from "./dom-utils.js";
 
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
 
@@ -22,11 +23,7 @@ export function taskCardTaskId(task) {
 }
 
 function fiberQuest(card) {
-  const key = Object.getOwnPropertyNames(card ?? {}).find(
-    (name) =>
-      name.startsWith("__reactFiber$") ||
-      name.startsWith("__reactInternalInstance$"),
-  );
+  const key = reactFiberKey(card);
   let fiber = key ? card[key] : null;
   for (let depth = 0; fiber && depth < 24; depth += 1) {
     for (const props of [

@@ -32,3 +32,24 @@ export function findItemsSpriteBase() {
     use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
   return href.includes("#") ? href.split("#")[0] : "";
 }
+
+// Find the property key React attaches to a DOM node (`__reactFiber$...`, or
+// the legacy `__reactInternalInstance$...`). Pass includeContainer to also
+// match the `__reactContainer$...` key present on React root elements. The
+// prefix match is intentionally loose (no trailing "$") so it covers every
+// existing call site's behavior.
+export function reactFiberKey(element, { includeContainer = false } = {}) {
+  return Object.getOwnPropertyNames(element ?? {}).find(
+    (key) =>
+      key.startsWith("__reactFiber") ||
+      key.startsWith("__reactInternalInstance") ||
+      (includeContainer && key.startsWith("__reactContainer")),
+  );
+}
+
+// Return the React fiber attached to a DOM node, or null when absent.
+export function findReactFiber(element, options) {
+  if (!element) return null;
+  const key = reactFiberKey(element, options);
+  return key ? element[key] : null;
+}

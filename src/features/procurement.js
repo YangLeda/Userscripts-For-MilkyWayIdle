@@ -1,5 +1,9 @@
 import { runtime } from "../core/runtime.js";
-import { escapeHtml, findItemsSpriteBase } from "../core/dom-utils.js";
+import {
+  escapeHtml,
+  findItemsSpriteBase,
+  findReactFiber,
+} from "../core/dom-utils.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -1058,16 +1062,6 @@ function renderProductionProcurement() {
       ) ?? context.input.parentElement;
     anchor.insertAdjacentElement("afterend", root);
   }
-}
-
-function findReactFiber(element) {
-  if (!element) return null;
-  const key = Object.getOwnPropertyNames(element).find(
-    (candidate) =>
-      candidate.startsWith("__reactFiber") ||
-      candidate.startsWith("__reactInternalInstance"),
-  );
-  return key ? element[key] : null;
 }
 
 function findObjectWithItemRequirements(value, depth = 0, seen = new Set()) {

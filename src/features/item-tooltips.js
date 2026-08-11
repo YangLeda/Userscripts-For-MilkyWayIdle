@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { reactFiberKey } from "../core/dom-utils.js";
 
 /* 显示当前动作总时间 */
 const showTotalActionTime = () => {
@@ -132,14 +133,6 @@ const GATHERING_CARD_SELECTOR = [
   '[class*="SkillAction_skillAction"]',
   '[class*="GatheringProductionSkillPanel_action"]',
 ].join(",");
-
-function reactFiberKey(element) {
-  return Object.keys(element ?? {}).find(
-    (key) =>
-      key.startsWith("__reactFiber$") ||
-      key.startsWith("__reactInternalInstance$"),
-  );
-}
 
 function gatheringActionHrid(value) {
   const hrid = String(value ?? "");

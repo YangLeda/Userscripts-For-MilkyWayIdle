@@ -12555,6 +12555,16 @@ ${preview}`
     const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
     return href.includes("#") ? href.split("#")[0] : "";
   }
+  function reactFiberKey(element, { includeContainer = false } = {}) {
+    return Object.getOwnPropertyNames(element ?? {}).find(
+      (key) => key.startsWith("__reactFiber") || key.startsWith("__reactInternalInstance") || includeContainer && key.startsWith("__reactContainer")
+    );
+  }
+  function findReactFiber(element, options) {
+    if (!element) return null;
+    const key = reactFiberKey(element, options);
+    return key ? element[key] : null;
+  }
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
@@ -13080,11 +13090,6 @@ ${preview}`
     '[class*="SkillAction_skillAction"]',
     '[class*="GatheringProductionSkillPanel_action"]'
   ].join(",");
-  function reactFiberKey(element) {
-    return Object.keys(element ?? {}).find(
-      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
-    );
-  }
   function gatheringActionHrid(value) {
     const hrid = String(value ?? "");
     const detail = runtime.state.initData_actionDetailMap?.[hrid];
@@ -15424,13 +15429,6 @@ ${locks}` : ""}`;
       anchor.insertAdjacentElement("afterend", root);
     }
   }
-  function findReactFiber(element) {
-    if (!element) return null;
-    const key = Object.getOwnPropertyNames(element).find(
-      (candidate) => candidate.startsWith("__reactFiber") || candidate.startsWith("__reactInternalInstance")
-    );
-    return key ? element[key] : null;
-  }
   function findObjectWithItemRequirements(value, depth = 0, seen = /* @__PURE__ */ new Set()) {
     if (!value || typeof value !== "object" || depth > 5 || seen.has(value)) {
       return null;
@@ -16183,11 +16181,6 @@ ${locks}` : ""}`;
     document.body.appendChild(modal);
     return modal;
   }
-  function fiberKey(element) {
-    return Object.getOwnPropertyNames(element ?? {}).find(
-      (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
-    );
-  }
   function gameInstances() {
     const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
@@ -16367,7 +16360,7 @@ ${locks}` : ""}`;
         setTimeout(open, 100);
         return;
       }
-      const key = fiberKey(panel);
+      const key = reactFiberKey(panel);
       let fiber = key ? panel[key] : null;
       let instance = null;
       while (fiber) {
@@ -16902,9 +16895,7 @@ ${locks}` : ""}`;
     return value === null || value === void 0 ? "" : String(value);
   }
   function fiberQuest(card) {
-    const key = Object.getOwnPropertyNames(card ?? {}).find(
-      (name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$")
-    );
+    const key = reactFiberKey(card);
     let fiber = key ? card[key] : null;
     for (let depth = 0; fiber && depth < 24; depth += 1) {
       for (const props of [
