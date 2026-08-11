@@ -259,7 +259,7 @@ function renderValuationRow(definition, valuation) {
     </div>
     ${renderValuationMetric(t("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
     ${renderValuationMetric(t("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
     ${renderValuationMetric(t("总成本/动作", "Total cost/action"), totalCost)}
     ${renderValuationMetric(t("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
     ${renderValuationMetric(t("净利润/天", "Net profit/day"), profitPerDay, true)}
@@ -369,7 +369,7 @@ function renderPanel(panel, itemHrid, projection) {
           <div class="mwi-profit-stat"><span>${t("动作速度", "Action speed")}</span><strong>${formatPercent(projection.speedPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t("综合效率", "Efficiency")}</span><strong>${formatPercent(projection.efficiencyPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t("动作/小时", "Actions/hour")}</span><strong>${formatNumber(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">

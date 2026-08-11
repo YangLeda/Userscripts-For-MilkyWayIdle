@@ -6,6 +6,8 @@ import { AssetHistoryChart } from "./20-chart.js";
 const TAB_ID = "mwitools-asset-history-tab";
 const PANEL_ID = "mwitools-asset-history-panel";
 const STYLE_ID = "mwitools-asset-history-style";
+const MOBILE_BUTTON_ID = "mwitools-asset-history-mobile-button";
+const MOBILE_SHELL_ID = "mwitools-asset-history-mobile-shell";
 
 export const ASSET_SHARE_TEMPLATE_COUNT = 12;
 
@@ -230,6 +232,14 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    #${MOBILE_BUTTON_ID} { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); z-index:2147483000; min-width:54px; padding:8px 12px; border:1px solid rgba(0,198,255,.72); border-radius:999px; background:#14243a; box-shadow:0 5px 18px rgba(0,0,0,.45); color:#72dcff; font:700 13px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+    #${MOBILE_BUTTON_ID}[data-active="true"] { background:#00c6ff; color:#0b1522; }
+    #${MOBILE_SHELL_ID} { position:fixed; inset:0; z-index:2147483001; display:flex; min-width:0; flex-direction:column; background:#111b2b; }
+    #${MOBILE_SHELL_ID}[hidden] { display:none!important; }
+    .mwi-asset-mobile-header { display:flex; min-height:46px; flex:0 0 auto; align-items:center; justify-content:space-between; gap:12px; padding:env(safe-area-inset-top,0px) 12px 0; border-bottom:1px solid rgba(255,255,255,.1); background:#101927; color:#f2f5f9; }
+    .mwi-asset-mobile-title { font-size:15px; font-weight:750; }
+    .mwi-asset-mobile-close { width:36px; height:36px; padding:0; border:0; background:transparent; color:#e9edf4; font:26px/36px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+    #${MOBILE_SHELL_ID} #${PANEL_ID} { min-height:0; flex:1 1 auto; max-height:none; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
     .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
@@ -322,6 +332,14 @@ function findPanelShell(tab) {
     navigationBranch = shell;
   }
   return null;
+}
+
+function isCompactViewport() {
+  const view = globalThis.window ?? globalThis;
+  return (
+    view.matchMedia?.("(max-width: 760px)")?.matches ??
+    Number(view.innerWidth) <= 760
+  );
 }
 
 function createCard(label, valueId, metaId = "") {
@@ -718,7 +736,10 @@ class AssetHistoryPanel {
 
 export function createAssetHistoryUi({ scope, store, scopeKey }) {
   let active = false;
+  let mountMode = null;
   let tab = null;
+  let mobileButton = null;
+  let mobileShell = null;
   let host = null;
   let panel = null;
   let shell = null;
@@ -740,7 +761,16 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       tab.dataset.active = String(active);
       tab.setAttribute("aria-selected", String(active));
     }
+    if (mobileButton) {
+      mobileButton.dataset.active = String(active);
+      mobileButton.setAttribute("aria-expanded", String(active));
+    }
+    if (mobileShell) mobileShell.hidden = !active;
     if (host) host.hidden = !active;
+    if (mountMode === "mobile") {
+      if (active) panel?.update(runtime.api.getLatestAssetSnapshot?.());
+      return;
+    }
     if (!active) {
       restoreNative();
       return;
@@ -770,21 +800,19 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     panel = null;
     tab?.remove();
     host?.remove();
+    mobileButton?.remove();
+    mobileShell?.remove();
+    mountMode = null;
     tab = null;
+    mobileButton = null;
+    mobileShell = null;
     host = null;
     shell = null;
     navigationBranch = null;
   };
 
-  const ensureMounted = () => {
-    if (tab?.isConnected && host?.isConnected) {
-      if (active) setActive(true);
-      return;
-    }
-    teardownMount();
-    const loadout = findLoadoutTab();
-    const found = loadout && findPanelShell(loadout);
-    if (!loadout || !found) return;
+  const mountNative = (loadout, found) => {
+    mountMode = "native";
     ({ shell, navigationBranch } = found);
     tab = loadout.cloneNode(false);
     tab.id = TAB_ID;
@@ -806,6 +834,79 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     panel.update(runtime.api.getLatestAssetSnapshot?.());
   };
 
+  const mountMobile = () => {
+    mountMode = "mobile";
+    mobileButton = document.createElement("button");
+    mobileButton.id = MOBILE_BUTTON_ID;
+    mobileButton.type = "button";
+    mobileButton.textContent = t("盈亏", "P/L");
+    mobileButton.dataset.active = "false";
+    mobileButton.setAttribute("aria-expanded", "false");
+    mobileButton.setAttribute(
+      "aria-label",
+      t("打开盈亏页面", "Open profit and loss page"),
+    );
+    mobileButton.addEventListener("click", () => setActive(true));
+
+    mobileShell = document.createElement("section");
+    mobileShell.id = MOBILE_SHELL_ID;
+    mobileShell.hidden = true;
+    mobileShell.setAttribute("role", "dialog");
+    mobileShell.setAttribute("aria-modal", "true");
+    mobileShell.setAttribute(
+      "aria-label",
+      t("每日资产盈亏", "Daily asset profit and loss"),
+    );
+    const header = document.createElement("header");
+    header.className = "mwi-asset-mobile-header";
+    const title = document.createElement("div");
+    title.className = "mwi-asset-mobile-title";
+    title.textContent = t("每日资产盈亏", "Daily asset P/L");
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "mwi-asset-mobile-close";
+    close.textContent = "×";
+    close.setAttribute("aria-label", t("关闭盈亏页面", "Close P/L page"));
+    close.addEventListener("click", () => setActive(false));
+    header.append(title, close);
+
+    host = document.createElement("section");
+    host.id = PANEL_ID;
+    host.hidden = true;
+    mobileShell.append(header, host);
+    document.body.append(mobileButton, mobileShell);
+    panel = new AssetHistoryPanel(host, store, scopeKey);
+    panel.update(runtime.api.getLatestAssetSnapshot?.());
+  };
+
+  const ensureMounted = () => {
+    const loadout = findLoadoutTab();
+    const found = loadout && findPanelShell(loadout);
+    if (loadout && found) {
+      if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
+        if (active) setActive(true);
+        return;
+      }
+      teardownMount();
+      mountNative(loadout, found);
+      return;
+    }
+    if (isCompactViewport()) {
+      if (
+        mountMode === "mobile" &&
+        mobileButton?.isConnected &&
+        mobileShell?.isConnected &&
+        host?.isConnected
+      ) {
+        return;
+      }
+      teardownMount();
+      mountMobile();
+      return;
+    }
+    if (mountMode !== null) teardownMount();
+  };
+
   addStyles();
   ensureMounted();
   scope.interval(ensureMounted, 500);
@@ -821,6 +922,11 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     },
     true,
   );
+  scope.event(document, "keydown", (event) => {
+    if (active && mountMode === "mobile" && event.key === "Escape") {
+      setActive(false);
+    }
+  });
 
   return {
     update(snapshot) {

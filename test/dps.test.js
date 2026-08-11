@@ -64,6 +64,21 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+GameAssets.scan();
+const originalQuerySelectorAll = document.querySelectorAll.bind(document);
+let assetDomScans = 0;
+document.querySelectorAll = (selector) => {
+  if (selector === "svg use,img") assetDomScans += 1;
+  return originalQuerySelectorAll(selector);
+};
+GameAssets.item("/items/cheese");
+GameAssets.ability("/abilities/firestorm");
+document.querySelectorAll = originalQuerySelectorAll;
+assert(
+  assetDomScans === 0,
+  "生成多个 DPS 图标时不应在同一刷新周期重复扫描整个 DOM",
+);
+
 assert(
   formatDamage(999) === "999" &&
     formatDamage(1000) === "1.0K" &&

@@ -33,6 +33,8 @@ const GameAssets = (() => {
       avatars: "75a98d25",
     },
     bases = new Map();
+  let lastScanAt = Number.NEGATIVE_INFINITY;
+  const SCAN_INTERVAL_MS = 5000;
   function remember(raw) {
     const value = String(raw || ""),
       match = value.match(
@@ -40,7 +42,20 @@ const GameAssets = (() => {
       );
     if (match) bases.set(match[2].toLowerCase(), match[1]);
   }
-  function scan() {
+  function scan(force = true) {
+    const now =
+      typeof performance !== "undefined" &&
+      typeof performance.now === "function"
+        ? performance.now()
+        : Date.now();
+    if (
+      !force &&
+      (bases.size >= Object.keys(fallback).length ||
+        now - lastScanAt < SCAN_INTERVAL_MS)
+    ) {
+      return;
+    }
+    lastScanAt = now;
     try {
       if (
         typeof performance !== "undefined" &&
@@ -70,7 +85,7 @@ const GameAssets = (() => {
     } catch (ignore) {}
   }
   function sprite(kind, id) {
-    scan();
+    scan(false);
     const base =
       bases.get(kind) ||
       "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
@@ -88,7 +103,7 @@ const GameAssets = (() => {
     item: (id) => sprite("items", id),
     misc: (id) => sprite("misc", id),
     avatar: (id) => sprite("avatars", id),
-    scan,
+    scan: () => scan(true),
   };
 })();
 const SKILL_MODE_ICONS = {

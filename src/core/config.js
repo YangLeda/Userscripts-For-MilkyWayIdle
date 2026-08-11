@@ -47,8 +47,8 @@ let settingsMap = {
   displayCapMM: {
     id: "displayCapMM",
     desc: isZH
-      ? "限制最高支持M量级（之前最高B量级）"
-      : "Values are capped at the million level, which used to be billion.",
+      ? "大数统一使用 M，不显示 B 或 T"
+      : "Keep large values in millions instead of using B or T.",
     isTrue: false,
   },
   totalActionTime: {
@@ -482,6 +482,14 @@ const catalogRows = [
     "Use orange accents",
     "让辅助信息更贴近游戏的暖色主题。",
     "Use a warm accent color for MWITools information.",
+  ],
+  [
+    "displayCapMM",
+    "general",
+    "大数只显示 M",
+    "Show large values in M",
+    "开启后，十亿和万亿数值继续换算为 M，例如 1.2B 显示为 1,200M；关闭时正常使用 K/M/B/T。",
+    "When enabled, billions and trillions stay in millions; for example, 1.2B is shown as 1,200M. When disabled, K/M/B/T are used normally.",
   ],
   [
     "notifiEmptyAction",
@@ -924,8 +932,6 @@ const settingParents = {
 for (const [id, parent] of Object.entries(settingParents)) {
   if (settingsCatalog[id]) settingsCatalog[id].parent = parent;
 }
-
-settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
 
 const settingListeners = new Map();
 

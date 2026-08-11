@@ -5,6 +5,10 @@ const TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
+let lastRenderedCards = [];
+let lastTaskRenderSignature = "";
+let lastActionDetails = null;
+let lastActionCategories = null;
 const collapsedProfessions = new Set();
 
 const PROFESSIONS = [
@@ -490,8 +494,11 @@ function updateGroupCollapsedState(group, profession) {
   const collapsed = collapsedProfessions.has(profession.key);
   const header = group.querySelector(".mwi-task-profession-header");
   const body = group.querySelector(".mwi-task-profession-body");
-  header.setAttribute("aria-expanded", String(!collapsed));
-  body.hidden = collapsed;
+  const expanded = String(!collapsed);
+  if (header.getAttribute("aria-expanded") !== expanded) {
+    header.setAttribute("aria-expanded", expanded);
+  }
+  if (body.hidden !== collapsed) body.hidden = collapsed;
 }
 
 function ensureProfessionGroup(parent, profession) {
@@ -600,20 +607,23 @@ function groupCards(cards, tasks) {
     activeKeys.add(profession.key);
     const group = ensureProfessionGroup(taskListParent, profession);
     if (!group.isConnected) taskListParent.appendChild(group);
-    group.querySelector(".mwi-task-profession-title").textContent = runtime
-      .config.isZH
-      ? profession.zh
-      : profession.en;
-    group.querySelector(".mwi-task-profession-count").textContent = String(
-      matching.length,
-    );
-    group.style.order = String(nextOrder.value++);
+    const title = runtime.config.isZH ? profession.zh : profession.en;
+    const titleNode = group.querySelector(".mwi-task-profession-title");
+    if (titleNode.textContent !== title) titleNode.textContent = title;
+    const count = String(matching.length);
+    const countNode = group.querySelector(".mwi-task-profession-count");
+    if (countNode.textContent !== count) countNode.textContent = count;
+    const groupOrder = String(nextOrder.value++);
+    if (group.style.order !== groupOrder) group.style.order = groupOrder;
     updateGroupCollapsedState(group, profession);
     for (const row of matching) {
-      row.card.dataset.mwitoolsProfession = profession.key;
-      row.card.dataset.mwitoolsCollapsed = String(
-        collapsedProfessions.has(profession.key),
-      );
+      if (row.card.dataset.mwitoolsProfession !== profession.key) {
+        row.card.dataset.mwitoolsProfession = profession.key;
+      }
+      const collapsed = String(collapsedProfessions.has(profession.key));
+      if (row.card.dataset.mwitoolsCollapsed !== collapsed) {
+        row.card.dataset.mwitoolsCollapsed = collapsed;
+      }
     }
     if (profession.key === "combat") {
       renderCombatGroups(taskListParent, matching, nextOrder);
@@ -697,12 +707,37 @@ function applyPendingMerge() {
   runtime.state.pendingMergedTask = null;
 }
 
+function taskRenderSignature(cards, tasks) {
+  const settings = [
+    runtime.config.isZH,
+    runtime.settings.get("taskAutoSort"),
+    runtime.settings.get("taskIcons"),
+    [...collapsedProfessions].sort().join(","),
+  ];
+  const rows = cards.map((card, index) => {
+    const task = tasks[index] ?? {};
+    return [
+      taskActionHrid(task) ?? "",
+      visibleTaskTitle(card),
+      isCompletedCard(card, task) ? "1" : "0",
+      card.dataset.mwitoolsProfession ?? "",
+      card.dataset.mwitoolsCollapsed ?? "",
+    ].join("\u001f");
+  });
+  return [...settings, ...rows].join("\u001e");
+}
+
 function renderTasks() {
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
+    applyPendingMerge();
     if (taskListParent && !taskListParent.isConnected) {
       originalCards = [];
       taskListParent = null;
+      lastRenderedCards = [];
+      lastTaskRenderSignature = "";
+      lastActionDetails = null;
+      lastActionCategories = null;
     }
     return;
   }
@@ -717,22 +752,45 @@ function renderTasks() {
     taskListParent = observedParent;
   }
   cards = cards.filter((card) => card.parentElement === taskListParent);
+  const tasks = runtime.state.characterQuests ?? [];
+  const cardTasks = cards.map((card, index) => tasks[index] ?? {});
+  const signature = taskRenderSignature(cards, cardTasks);
+  const sameCards =
+    cards.length === lastRenderedCards.length &&
+    cards.every((card, index) => card === lastRenderedCards[index]);
+  const actionDetails = runtime.state.initData_actionDetailMap;
+  const actionCategories = runtime.state.initData_actionCategoryDetailMap;
+  if (
+    !enteredNewTaskPage &&
+    sameCards &&
+    actionDetails === lastActionDetails &&
+    actionCategories === lastActionCategories &&
+    signature === lastTaskRenderSignature
+  ) {
+    applyPendingMerge();
+    return;
+  }
+
   originalCards = [...cards];
   originalCards.forEach((card, index) => {
     if (!("mwitoolsOriginalOrder" in card.dataset))
       card.dataset.mwitoolsOriginalOrder = card.style.order;
-    card.dataset.mwitoolsOriginalIndex = String(index);
-    delete card.dataset.mwitoolsLocation;
+    const originalIndex = String(index);
+    if (card.dataset.mwitoolsOriginalIndex !== originalIndex) {
+      card.dataset.mwitoolsOriginalIndex = originalIndex;
+    }
+    if ("mwitoolsLocation" in card.dataset) {
+      delete card.dataset.mwitoolsLocation;
+    }
   });
-  const tasks = runtime.state.characterQuests ?? [];
-  const cardTasks = cards.map(
-    (card, index) =>
-      tasks[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {},
-  );
   cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
   wireMergeButtons(cards, cardTasks);
   groupCards(cards, cardTasks);
   applyPendingMerge();
+  lastRenderedCards = [...cards];
+  lastActionDetails = actionDetails;
+  lastActionCategories = actionCategories;
+  lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
 }
 
 function cleanupTasks() {
@@ -749,6 +807,10 @@ function cleanupTasks() {
   originalCards = [];
   taskListParent = null;
   pageClassifications = new Map();
+  lastRenderedCards = [];
+  lastTaskRenderSignature = "";
+  lastActionDetails = null;
+  lastActionCategories = null;
   collapsedProfessions.clear();
 }
 

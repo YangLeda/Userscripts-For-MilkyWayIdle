@@ -377,7 +377,7 @@ function start(scope) {
   scope.interval(() => {
     Session.advanceBuckets();
     persistActive();
-    renderSelectedPanels();
+    if (KikiMeter.isOpen()) renderSelectedPanels();
   }, 250);
 
   Object.assign(MWI, {

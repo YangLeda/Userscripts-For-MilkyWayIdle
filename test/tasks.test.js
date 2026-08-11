@@ -370,3 +370,51 @@ test("auto sort keeps tasks from the same full production chain together", () =>
     "奶酪锻造 - 无关工具",
   ]);
 });
+
+test("unchanged task polling performs no repeated DOM writes", async () => {
+  runtime.api.renderTasks();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const list = document.querySelector('[class*="TasksPanel_taskList"]');
+  const records = [];
+  const observer = new dom.window.MutationObserver((mutations) =>
+    records.push(...mutations),
+  );
+  observer.observe(list, { attributes: true, childList: true, subtree: true });
+
+  runtime.api.renderTasks();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  observer.disconnect();
+  assert.equal(records.length, 0);
+});
+
+test("producer lookups build the action output index only once per action map", () => {
+  const originalMap = runtime.state.initData_actionDetailMap;
+  const originalExpectedOutputs = runtime.api.getExpectedOutputs;
+  let outputReads = 0;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/cached": {
+      hrid: "/actions/crafting/cached",
+      outputItems: [{ itemHrid: "/items/cached", count: 2 }],
+    },
+    "/actions/crafting/other": {
+      hrid: "/actions/crafting/other",
+      outputItems: [{ itemHrid: "/items/other", count: 1 }],
+    },
+  };
+  runtime.api.getExpectedOutputs = (detail) => {
+    outputReads += 1;
+    return originalExpectedOutputs(detail);
+  };
+
+  assert.equal(
+    runtime.api.procurement.getProducerAction("/items/cached").actionHrid,
+    "/actions/crafting/cached",
+  );
+  const readsAfterBuild = outputReads;
+  runtime.api.procurement.getProducerAction("/items/cached");
+  runtime.api.procurement.getProducerAction("/items/other");
+  assert.equal(outputReads, readsAfterBuild);
+
+  runtime.api.getExpectedOutputs = originalExpectedOutputs;
+  runtime.state.initData_actionDetailMap = originalMap;
+});

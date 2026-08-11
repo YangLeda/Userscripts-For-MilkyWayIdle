@@ -255,6 +255,35 @@ test("material-limited infinite production shows a finite live remainder", () =>
   active.style.transform = "matrix(0.7, 0, 0, 1, 0, 0)";
 });
 
+test("enhancement actions use the finite amount shown in the native header", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren();
+  const nativeName = document.createElement("span");
+  nativeName.textContent = "骑士盾 +3 (2937)";
+  host.append(nativeName);
+  runtime.state.initData_actionDetailMap["/actions/enhancing"] = {
+    hrid: "/actions/enhancing",
+    name: "Enhancing",
+    type: "/action_types/enhancing",
+    baseTimeCost: 6_000_000_000,
+  };
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/enhancing",
+      hasMaxCount: false,
+      maxCount: 0,
+    },
+  ];
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.match(dashboard.textContent, /剩余 2\.94K/);
+  assert.doesNotMatch(dashboard.textContent, /∞/);
+  assert.doesNotMatch(dashboard.textContent, /预计完成 —/);
+  assert.match(dashboard.querySelector("span").title, /强化栏/);
+});
+
 test("equipment warnings float below community buffs without moving action content", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   document.querySelector("#mwi-action-dashboard")?.remove();

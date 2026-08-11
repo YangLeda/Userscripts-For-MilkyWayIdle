@@ -81,6 +81,19 @@ function getLiveActionTiming(host) {
   return { durationPerAction, currentCycleRemaining };
 }
 
+function getNativeEnhancementCount(host, action) {
+  if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
+  const nativeText = [...(host?.childNodes ?? [])]
+    .filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard")
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .trim();
+  const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+  if (!match) return null;
+  const count = Number(match[1].replace(/\D/g, ""));
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
 function getProductionPanelDuration(panel) {
   for (const value of panel?.querySelectorAll(
     'div[class*="SkillActionDetail_value"]',
@@ -109,10 +122,15 @@ function renderActionDashboard() {
   }
   const current = actions[0];
   const timing = getLiveActionTiming(host);
-  const projection = runtime.api.projectAction(current, undefined, {
-    durationPerAction: timing.durationPerAction,
-    currentCycleRemainingSeconds: timing.currentCycleRemaining,
-  });
+  const enhancementCount = getNativeEnhancementCount(host, current);
+  const projection = runtime.api.projectAction(
+    current,
+    enhancementCount ?? undefined,
+    {
+      durationPerAction: timing.durationPerAction,
+      currentCycleRemainingSeconds: timing.currentCycleRemaining,
+    },
+  );
   let root = host.querySelector("#mwi-action-dashboard");
   if (!root) {
     root = document.createElement("div");
@@ -152,6 +170,11 @@ function renderActionDashboard() {
     remaining.title = t(
       "已按当前库存中的可用原料计算",
       "Limited by materials currently in inventory",
+    );
+  } else if (enhancementCount !== null) {
+    remaining.title = t(
+      "已按强化栏当前可处理数量计算",
+      "Based on the amount currently available for enhancement",
     );
   }
   const currentTime = document.createElement("span");

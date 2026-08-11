@@ -65,6 +65,8 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(stored.values.damageGraphTransparentBackground, undefined);
   assert.equal(stored.values.profitValuationMode, undefined);
   assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
+  assert.equal(runtime.settings.catalog.displayCapMM.hidden, undefined);
+  assert.equal(runtime.settings.catalog.displayCapMM.group, "general");
   assert.equal(
     Object.keys(stored.values).length,
     Object.keys(runtime.settings.settingsMap).length,

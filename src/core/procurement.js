@@ -49,6 +49,8 @@ let activeCharacterId = "";
 let activeStorageKey = "";
 let ready = false;
 let settings = loadSettings();
+let producerActionSource = null;
+let producerActionIndex = null;
 
 function clone(value) {
   return value == null ? value : globalThis.structuredClone(value);
@@ -475,16 +477,23 @@ function calculateRequirements(actionHrid, count, options = {}) {
 
 function getProducerAction(itemHrid) {
   const target = normalizeItemHrid(itemHrid);
-  for (const [actionHrid, detail] of Object.entries(
-    runtime.state.initData_actionDetailMap ?? {},
-  )) {
-    const output = runtime.api
-      .getExpectedOutputs?.(detail)
-      ?.find((candidate) => normalizeItemHrid(candidate.itemHrid) === target);
-    if (output)
-      return { actionHrid, detail, outputCount: Number(output.count) || 1 };
+  const actionDetails = runtime.state.initData_actionDetailMap ?? {};
+  if (producerActionSource !== actionDetails || !producerActionIndex) {
+    producerActionSource = actionDetails;
+    producerActionIndex = new Map();
+    for (const [actionHrid, detail] of Object.entries(actionDetails)) {
+      for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
+        const outputHrid = normalizeItemHrid(output.itemHrid);
+        if (!outputHrid || producerActionIndex.has(outputHrid)) continue;
+        producerActionIndex.set(outputHrid, {
+          actionHrid,
+          detail,
+          outputCount: Number(output.count) || 1,
+        });
+      }
+    }
   }
-  return null;
+  return producerActionIndex.get(target) ?? null;
 }
 
 function mergeMaterial(target, material) {

@@ -853,7 +853,7 @@
     },
     displayCapMM: {
       id: "displayCapMM",
-      desc: isZH ? "限制最高支持M量级（之前最高B量级）" : "Values are capped at the million level, which used to be billion.",
+      desc: isZH ? "大数统一使用 M，不显示 B 或 T" : "Keep large values in millions instead of using B or T.",
       isTrue: false
     },
     totalActionTime: {
@@ -1213,6 +1213,14 @@
       "Use orange accents",
       "让辅助信息更贴近游戏的暖色主题。",
       "Use a warm accent color for MWITools information."
+    ],
+    [
+      "displayCapMM",
+      "general",
+      "大数只显示 M",
+      "Show large values in M",
+      "开启后，十亿和万亿数值继续换算为 M，例如 1.2B 显示为 1,200M；关闭时正常使用 K/M/B/T。",
+      "When enabled, billions and trillions stay in millions; for example, 1.2B is shown as 1,200M. When disabled, K/M/B/T are used normally."
     ],
     [
       "notifiEmptyAction",
@@ -1652,7 +1660,6 @@
   for (const [id, parent] of Object.entries(settingParents)) {
     if (settingsCatalog[id]) settingsCatalog[id].parent = parent;
   }
-  settingsCatalog.displayCapMM = { id: "displayCapMM", hidden: true };
   var settingListeners = /* @__PURE__ */ new Map();
   function getSetting(id) {
     return settingsMap[id]?.isTrue;
@@ -18432,11 +18439,12 @@
       { value: 1e9, symbol: "B" },
       { value: 1e12, symbol: "T" }
     ];
-    let unit = [...units].reverse().find(({ value: size }) => absolute >= size);
+    const capAtMillions = absolute >= 1e6 && runtime.settings.get?.("displayCapMM");
+    let unit = capAtMillions ? units[1] : [...units].reverse().find(({ value: size }) => absolute >= size);
     let scaled = number2 / unit.value;
     let rounded = Number(scaled.toFixed(maximumFractionDigits));
     const index = units.indexOf(unit);
-    if (Math.abs(rounded) >= 1e3 && index < units.length - 1) {
+    if (!capAtMillions && Math.abs(rounded) >= 1e3 && index < units.length - 1) {
       unit = units[index + 1];
       scaled = number2 / unit.value;
       rounded = Number(scaled.toFixed(maximumFractionDigits));
@@ -19380,6 +19388,8 @@
   var activeStorageKey = "";
   var ready = false;
   var settings = loadSettings();
+  var producerActionSource = null;
+  var producerActionIndex = null;
   function clone(value) {
     return value == null ? value : globalThis.structuredClone(value);
   }
@@ -19721,14 +19731,23 @@
   }
   function getProducerAction(itemHrid) {
     const target = normalizeItemHrid(itemHrid);
-    for (const [actionHrid, detail] of Object.entries(
-      runtime.state.initData_actionDetailMap ?? {}
-    )) {
-      const output = runtime.api.getExpectedOutputs?.(detail)?.find((candidate) => normalizeItemHrid(candidate.itemHrid) === target);
-      if (output)
-        return { actionHrid, detail, outputCount: Number(output.count) || 1 };
+    const actionDetails = runtime.state.initData_actionDetailMap ?? {};
+    if (producerActionSource !== actionDetails || !producerActionIndex) {
+      producerActionSource = actionDetails;
+      producerActionIndex = /* @__PURE__ */ new Map();
+      for (const [actionHrid, detail] of Object.entries(actionDetails)) {
+        for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
+          const outputHrid = normalizeItemHrid(output.itemHrid);
+          if (!outputHrid || producerActionIndex.has(outputHrid)) continue;
+          producerActionIndex.set(outputHrid, {
+            actionHrid,
+            detail,
+            outputCount: Number(output.count) || 1
+          });
+        }
+      }
     }
-    return null;
+    return producerActionIndex.get(target) ?? null;
   }
   function mergeMaterial(target, material) {
     const key = itemKey(material.itemHrid, material.enhancementLevel);
@@ -22446,6 +22465,8 @@
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
   var STYLE_ID = "mwitools-asset-history-style";
+  var MOBILE_BUTTON_ID = "mwitools-asset-history-mobile-button";
+  var MOBILE_SHELL_ID = "mwitools-asset-history-mobile-shell";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
@@ -22606,6 +22627,14 @@
     style.id = STYLE_ID;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { background:#00c6ff!important; color:#0b1522!important; box-shadow:0 0 10px rgba(0,198,255,.45); }
+    #${MOBILE_BUTTON_ID} { position:fixed; right:12px; bottom:calc(env(safe-area-inset-bottom,0px) + 72px); z-index:2147483000; min-width:54px; padding:8px 12px; border:1px solid rgba(0,198,255,.72); border-radius:999px; background:#14243a; box-shadow:0 5px 18px rgba(0,0,0,.45); color:#72dcff; font:700 13px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+    #${MOBILE_BUTTON_ID}[data-active="true"] { background:#00c6ff; color:#0b1522; }
+    #${MOBILE_SHELL_ID} { position:fixed; inset:0; z-index:2147483001; display:flex; min-width:0; flex-direction:column; background:#111b2b; }
+    #${MOBILE_SHELL_ID}[hidden] { display:none!important; }
+    .mwi-asset-mobile-header { display:flex; min-height:46px; flex:0 0 auto; align-items:center; justify-content:space-between; gap:12px; padding:env(safe-area-inset-top,0px) 12px 0; border-bottom:1px solid rgba(255,255,255,.1); background:#101927; color:#f2f5f9; }
+    .mwi-asset-mobile-title { font-size:15px; font-weight:750; }
+    .mwi-asset-mobile-close { width:36px; height:36px; padding:0; border:0; background:transparent; color:#e9edf4; font:26px/36px system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; cursor:pointer; }
+    #${MOBILE_SHELL_ID} #${PANEL_ID} { min-height:0; flex:1 1 auto; max-height:none; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
     .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
@@ -22686,6 +22715,10 @@
       navigationBranch = shell2;
     }
     return null;
+  }
+  function isCompactViewport() {
+    const view = globalThis.window ?? globalThis;
+    return view.matchMedia?.("(max-width: 760px)")?.matches ?? Number(view.innerWidth) <= 760;
   }
   function createCard(label, valueId, metaId = "") {
     return `<div class="mwi-asset-card"><div class="mwi-asset-card-label">${label}</div><div class="mwi-asset-card-value" id="${valueId}">—</div>${metaId ? `<div class="mwi-asset-card-meta" id="${metaId}"></div>` : ""}</div>`;
@@ -23011,7 +23044,10 @@ ${preview}`
   };
   function createAssetHistoryUi({ scope, store, scopeKey }) {
     let active = false;
+    let mountMode = null;
     let tab = null;
+    let mobileButton = null;
+    let mobileShell = null;
     let host = null;
     let panel = null;
     let shell2 = null;
@@ -23031,7 +23067,16 @@ ${preview}`
         tab.dataset.active = String(active);
         tab.setAttribute("aria-selected", String(active));
       }
+      if (mobileButton) {
+        mobileButton.dataset.active = String(active);
+        mobileButton.setAttribute("aria-expanded", String(active));
+      }
+      if (mobileShell) mobileShell.hidden = !active;
       if (host) host.hidden = !active;
+      if (mountMode === "mobile") {
+        if (active) panel?.update(runtime.api.getLatestAssetSnapshot?.());
+        return;
+      }
       if (!active) {
         restoreNative();
         return;
@@ -23056,20 +23101,18 @@ ${preview}`
       panel = null;
       tab?.remove();
       host?.remove();
+      mobileButton?.remove();
+      mobileShell?.remove();
+      mountMode = null;
       tab = null;
+      mobileButton = null;
+      mobileShell = null;
       host = null;
       shell2 = null;
       navigationBranch = null;
     };
-    const ensureMounted = () => {
-      if (tab?.isConnected && host?.isConnected) {
-        if (active) setActive(true);
-        return;
-      }
-      teardownMount();
-      const loadout = findLoadoutTab();
-      const found = loadout && findPanelShell(loadout);
-      if (!loadout || !found) return;
+    const mountNative = (loadout, found) => {
+      mountMode = "native";
       ({ shell: shell2, navigationBranch } = found);
       tab = loadout.cloneNode(false);
       tab.id = TAB_ID;
@@ -23090,6 +23133,70 @@ ${preview}`
       panel = new AssetHistoryPanel(host, store, scopeKey);
       panel.update(runtime.api.getLatestAssetSnapshot?.());
     };
+    const mountMobile = () => {
+      mountMode = "mobile";
+      mobileButton = document.createElement("button");
+      mobileButton.id = MOBILE_BUTTON_ID;
+      mobileButton.type = "button";
+      mobileButton.textContent = t2("盈亏", "P/L");
+      mobileButton.dataset.active = "false";
+      mobileButton.setAttribute("aria-expanded", "false");
+      mobileButton.setAttribute(
+        "aria-label",
+        t2("打开盈亏页面", "Open profit and loss page")
+      );
+      mobileButton.addEventListener("click", () => setActive(true));
+      mobileShell = document.createElement("section");
+      mobileShell.id = MOBILE_SHELL_ID;
+      mobileShell.hidden = true;
+      mobileShell.setAttribute("role", "dialog");
+      mobileShell.setAttribute("aria-modal", "true");
+      mobileShell.setAttribute(
+        "aria-label",
+        t2("每日资产盈亏", "Daily asset profit and loss")
+      );
+      const header = document.createElement("header");
+      header.className = "mwi-asset-mobile-header";
+      const title = document.createElement("div");
+      title.className = "mwi-asset-mobile-title";
+      title.textContent = t2("每日资产盈亏", "Daily asset P/L");
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "mwi-asset-mobile-close";
+      close.textContent = "×";
+      close.setAttribute("aria-label", t2("关闭盈亏页面", "Close P/L page"));
+      close.addEventListener("click", () => setActive(false));
+      header.append(title, close);
+      host = document.createElement("section");
+      host.id = PANEL_ID;
+      host.hidden = true;
+      mobileShell.append(header, host);
+      document.body.append(mobileButton, mobileShell);
+      panel = new AssetHistoryPanel(host, store, scopeKey);
+      panel.update(runtime.api.getLatestAssetSnapshot?.());
+    };
+    const ensureMounted = () => {
+      const loadout = findLoadoutTab();
+      const found = loadout && findPanelShell(loadout);
+      if (loadout && found) {
+        if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
+          if (active) setActive(true);
+          return;
+        }
+        teardownMount();
+        mountNative(loadout, found);
+        return;
+      }
+      if (isCompactViewport()) {
+        if (mountMode === "mobile" && mobileButton?.isConnected && mobileShell?.isConnected && host?.isConnected) {
+          return;
+        }
+        teardownMount();
+        mountMobile();
+        return;
+      }
+      if (mountMode !== null) teardownMount();
+    };
     addStyles();
     ensureMounted();
     scope.interval(ensureMounted, 500);
@@ -23105,6 +23212,11 @@ ${preview}`
       },
       true
     );
+    scope.event(document, "keydown", (event) => {
+      if (active && mountMode === "mobile" && event.key === "Escape") {
+        setActive(false);
+      }
+    });
     return {
       update(snapshot) {
         panel?.update(snapshot);
@@ -25478,7 +25590,7 @@ ${preview}`
     </div>
     ${renderValuationMetric(t4("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
     ${renderValuationMetric(t4("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t4("茶饮成本/动作", "Drinks/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t4("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
     ${renderValuationMetric(t4("总成本/动作", "Total cost/action"), totalCost)}
     ${renderValuationMetric(t4("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
     ${renderValuationMetric(t4("净利润/天", "Net profit/day"), profitPerDay, true)}
@@ -25572,7 +25684,7 @@ ${preview}`
           <div class="mwi-profit-stat"><span>${t4("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t4("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
           <div class="mwi-profit-stat"><span>${t4("动作/小时", "Actions/hour")}</span><strong>${formatNumber2(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t4("茶费/小时", "Drinks/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t4("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
@@ -26656,6 +26768,14 @@ ${preview}`
     const currentCycleRemaining = Number.isFinite(progress) ? durationPerAction * (1 - Math.min(1, Math.max(0, progress))) : durationPerAction;
     return { durationPerAction, currentCycleRemaining };
   }
+  function getNativeEnhancementCount(host, action) {
+    if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
+    const nativeText = [...host?.childNodes ?? []].filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard").map((node) => node.textContent ?? "").join(" ").trim();
+    const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+    if (!match) return null;
+    const count = Number(match[1].replace(/\D/g, ""));
+    return Number.isSafeInteger(count) && count >= 0 ? count : null;
+  }
   function getProductionPanelDuration(panel) {
     for (const value of panel?.querySelectorAll(
       'div[class*="SkillActionDetail_value"]'
@@ -26678,10 +26798,15 @@ ${preview}`
     }
     const current = actions[0];
     const timing = getLiveActionTiming(host);
-    const projection = runtime.api.projectAction(current, void 0, {
-      durationPerAction: timing.durationPerAction,
-      currentCycleRemainingSeconds: timing.currentCycleRemaining
-    });
+    const enhancementCount = getNativeEnhancementCount(host, current);
+    const projection = runtime.api.projectAction(
+      current,
+      enhancementCount ?? void 0,
+      {
+        durationPerAction: timing.durationPerAction,
+        currentCycleRemainingSeconds: timing.currentCycleRemaining
+      }
+    );
     let root = host.querySelector("#mwi-action-dashboard");
     if (!root) {
       root = document.createElement("div");
@@ -26717,6 +26842,11 @@ ${preview}`
       remaining.title = t5(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
+      );
+    } else if (enhancementCount !== null) {
+      remaining.title = t5(
+        "已按强化栏当前可处理数量计算",
+        "Based on the amount currently available for enhancement"
       );
     }
     const currentTime = document.createElement("span");
@@ -28263,6 +28393,10 @@ ${locks}` : ""}`;
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
+  var lastRenderedCards = [];
+  var lastTaskRenderSignature = "";
+  var lastActionDetails = null;
+  var lastActionCategories = null;
   var collapsedProfessions = /* @__PURE__ */ new Set();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
@@ -28648,8 +28782,11 @@ ${locks}` : ""}`;
     const collapsed = collapsedProfessions.has(profession.key);
     const header = group.querySelector(".mwi-task-profession-header");
     const body = group.querySelector(".mwi-task-profession-body");
-    header.setAttribute("aria-expanded", String(!collapsed));
-    body.hidden = collapsed;
+    const expanded = String(!collapsed);
+    if (header.getAttribute("aria-expanded") !== expanded) {
+      header.setAttribute("aria-expanded", expanded);
+    }
+    if (body.hidden !== collapsed) body.hidden = collapsed;
   }
   function ensureProfessionGroup(parent, profession) {
     let group = parent.querySelector(
@@ -28744,17 +28881,23 @@ ${locks}` : ""}`;
       activeKeys.add(profession.key);
       const group = ensureProfessionGroup(taskListParent, profession);
       if (!group.isConnected) taskListParent.appendChild(group);
-      group.querySelector(".mwi-task-profession-title").textContent = runtime.config.isZH ? profession.zh : profession.en;
-      group.querySelector(".mwi-task-profession-count").textContent = String(
-        matching.length
-      );
-      group.style.order = String(nextOrder.value++);
+      const title = runtime.config.isZH ? profession.zh : profession.en;
+      const titleNode = group.querySelector(".mwi-task-profession-title");
+      if (titleNode.textContent !== title) titleNode.textContent = title;
+      const count = String(matching.length);
+      const countNode = group.querySelector(".mwi-task-profession-count");
+      if (countNode.textContent !== count) countNode.textContent = count;
+      const groupOrder = String(nextOrder.value++);
+      if (group.style.order !== groupOrder) group.style.order = groupOrder;
       updateGroupCollapsedState(group, profession);
       for (const row of matching) {
-        row.card.dataset.mwitoolsProfession = profession.key;
-        row.card.dataset.mwitoolsCollapsed = String(
-          collapsedProfessions.has(profession.key)
-        );
+        if (row.card.dataset.mwitoolsProfession !== profession.key) {
+          row.card.dataset.mwitoolsProfession = profession.key;
+        }
+        const collapsed = String(collapsedProfessions.has(profession.key));
+        if (row.card.dataset.mwitoolsCollapsed !== collapsed) {
+          row.card.dataset.mwitoolsCollapsed = collapsed;
+        }
       }
       if (profession.key === "combat") {
         renderCombatGroups(taskListParent, matching, nextOrder);
@@ -28826,12 +28969,36 @@ ${locks}` : ""}`;
     );
     runtime.state.pendingMergedTask = null;
   }
+  function taskRenderSignature(cards, tasks) {
+    const settings2 = [
+      runtime.config.isZH,
+      runtime.settings.get("taskAutoSort"),
+      runtime.settings.get("taskIcons"),
+      [...collapsedProfessions].sort().join(",")
+    ];
+    const rows = cards.map((card, index) => {
+      const task = tasks[index] ?? {};
+      return [
+        taskActionHrid(task) ?? "",
+        visibleTaskTitle(card),
+        isCompletedCard(card, task) ? "1" : "0",
+        card.dataset.mwitoolsProfession ?? "",
+        card.dataset.mwitoolsCollapsed ?? ""
+      ].join("");
+    });
+    return [...settings2, ...rows].join("");
+  }
   function renderTasks() {
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
     if (!cards.length) {
+      applyPendingMerge();
       if (taskListParent && !taskListParent.isConnected) {
         originalCards = [];
         taskListParent = null;
+        lastRenderedCards = [];
+        lastTaskRenderSignature = "";
+        lastActionDetails = null;
+        lastActionCategories = null;
       }
       return;
     }
@@ -28844,21 +29011,36 @@ ${locks}` : ""}`;
       taskListParent = observedParent;
     }
     cards = cards.filter((card) => card.parentElement === taskListParent);
+    const tasks = runtime.state.characterQuests ?? [];
+    const cardTasks = cards.map((card, index) => tasks[index] ?? {});
+    const signature = taskRenderSignature(cards, cardTasks);
+    const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
+    const actionDetails = runtime.state.initData_actionDetailMap;
+    const actionCategories = runtime.state.initData_actionCategoryDetailMap;
+    if (!enteredNewTaskPage && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature) {
+      applyPendingMerge();
+      return;
+    }
     originalCards = [...cards];
     originalCards.forEach((card, index) => {
       if (!("mwitoolsOriginalOrder" in card.dataset))
         card.dataset.mwitoolsOriginalOrder = card.style.order;
-      card.dataset.mwitoolsOriginalIndex = String(index);
-      delete card.dataset.mwitoolsLocation;
+      const originalIndex = String(index);
+      if (card.dataset.mwitoolsOriginalIndex !== originalIndex) {
+        card.dataset.mwitoolsOriginalIndex = originalIndex;
+      }
+      if ("mwitoolsLocation" in card.dataset) {
+        delete card.dataset.mwitoolsLocation;
+      }
     });
-    const tasks = runtime.state.characterQuests ?? [];
-    const cardTasks = cards.map(
-      (card, index) => tasks[Number(card.dataset.mwitoolsOriginalIndex ?? index)] ?? {}
-    );
     cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
     wireMergeButtons(cards, cardTasks);
     groupCards(cards, cardTasks);
     applyPendingMerge();
+    lastRenderedCards = [...cards];
+    lastActionDetails = actionDetails;
+    lastActionCategories = actionCategories;
+    lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
   }
   function cleanupTasks() {
     ungroupCards();
@@ -28870,6 +29052,10 @@ ${locks}` : ""}`;
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
+    lastRenderedCards = [];
+    lastTaskRenderSignature = "";
+    lastActionDetails = null;
+    lastActionCategories = null;
     collapsedProfessions.clear();
   }
   runtime.features.register({
@@ -32187,7 +32373,6 @@ ${locks}` : ""}`;
         console.warn("[MWITools] Could not migrate legacy settings", error);
       }
     }
-    runtime.settings.settingsMap.displayCapMM.isTrue = false;
     if (!localStorage.getItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY)) {
       runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
       localStorage.setItem(BACK_MIRROR_DEFAULT_MIGRATION_KEY, "1");
@@ -33005,7 +33190,7 @@ ${locks}` : ""}`;
   var VERSION = "1.0.51";
   var TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";
   var ACCENT = "#d4af37";
-  var GameAssets = /* @__PURE__ */ (() => {
+  var GameAssets = (() => {
     const fallback = {
       abilities: "fdd1b4de",
       skills: "3bb4d936",
@@ -33013,13 +33198,20 @@ ${locks}` : ""}`;
       misc: "6560b17a",
       avatars: "75a98d25"
     }, bases = /* @__PURE__ */ new Map();
+    let lastScanAt = Number.NEGATIVE_INFINITY;
+    const SCAN_INTERVAL_MS = 5e3;
     function remember(raw) {
       const value = String(raw || ""), match = value.match(
         /(?:https?:\/\/[^/]+)?(\/static\/media\/(abilities|skills|items|misc|avatars)_sprite\.[^/#]+\.svg)/i
       );
       if (match) bases.set(match[2].toLowerCase(), match[1]);
     }
-    function scan() {
+    function scan(force = true) {
+      const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+      if (!force && (bases.size >= Object.keys(fallback).length || now - lastScanAt < SCAN_INTERVAL_MS)) {
+        return;
+      }
+      lastScanAt = now;
       try {
         if (typeof performance !== "undefined" && typeof performance.getEntriesByType === "function")
           performance.getEntriesByType("resource").forEach((entry) => remember(entry.name));
@@ -33036,7 +33228,7 @@ ${locks}` : ""}`;
       }
     }
     function sprite(kind, id) {
-      scan();
+      scan(false);
       const base = bases.get(kind) || "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
       return base + "#" + String(id || "").split("/").pop();
     }
@@ -33046,7 +33238,7 @@ ${locks}` : ""}`;
       item: (id) => sprite("items", id),
       misc: (id) => sprite("misc", id),
       avatar: (id) => sprite("avatars", id),
-      scan
+      scan: () => scan(true)
     };
   })();
   var SKILL_MODE_ICONS = {
@@ -40440,7 +40632,7 @@ ${locks}` : ""}`;
     scope.interval(() => {
       Session.advanceBuckets();
       persistActive();
-      renderSelectedPanels();
+      if (KikiMeter.isOpen()) renderSelectedPanels();
     }, 250);
     Object.assign(MWI, {
       enabled: true,

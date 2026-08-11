@@ -171,6 +171,49 @@ test("盈亏 is a singleton native sibling and restores game content on tab swit
   assert.equal(document.querySelector("#mwitools-asset-history-panel"), null);
 });
 
+test("mobile always has a dedicated P/L page launcher", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 390,
+  });
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+
+  const launcher = document.querySelector(
+    "#mwitools-asset-history-mobile-button",
+  );
+  const mobilePage = document.querySelector(
+    "#mwitools-asset-history-mobile-shell",
+  );
+  assert.ok(launcher);
+  assert.equal(launcher.textContent, "盈亏");
+  assert.equal(launcher.getAttribute("aria-label"), "打开盈亏页面");
+  assert.equal(mobilePage.hidden, true);
+
+  launcher.click();
+  assert.equal(mobilePage.hidden, false);
+  assert.equal(
+    document.querySelector("#mwitools-asset-history-panel").hidden,
+    false,
+  );
+  assert.match(mobilePage.textContent, /每日资产盈亏/);
+  mobilePage.querySelector(".mwi-asset-mobile-close").click();
+  assert.equal(mobilePage.hidden, true);
+
+  ui.destroy();
+  scope.cleanup();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 1024,
+  });
+});
+
 test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", () => {
   document.body.replaceChildren();
   intervals.clear();

@@ -31,6 +31,16 @@ test("unified numbers use K/M/B/T, promote rounded boundaries and keep exact tit
   assert.equal(element.title, "12,345,678,901");
 });
 
+test("optional million cap keeps billion and trillion values in M", () => {
+  runtime.settings.settingsMap.displayCapMM.isTrue = true;
+  assert.equal(runtime.api.numberFormatter(1_200_000_000), "1,200M");
+  assert.equal(runtime.api.numberFormatter(1_250_000_000_000), "1,250,000M");
+  assert.equal(runtime.api.numberFormatter(12_500_000), "12.5M");
+  assert.equal(runtime.api.numberFormatter(12_500), "12.5K");
+  runtime.settings.settingsMap.displayCapMM.isTrue = false;
+  assert.equal(runtime.api.numberFormatter(1_200_000_000), "1.2B");
+});
+
 test("market endpoints and refresh intervals follow the current server", () => {
   assert.equal(
     runtime.api.getMarketApiUrl("test.milkywayidle.com"),

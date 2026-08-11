@@ -141,6 +141,22 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
 
   const dpsPanel = document.querySelector("#kikimeter-panel");
   installBoxMetrics(dpsPanel, 330, 212);
+  let hiddenPanelMutations = 0;
+  const hiddenPanelObserver = new dom.window.MutationObserver(
+    (records) => (hiddenPanelMutations += records.length),
+  );
+  hiddenPanelObserver.observe(dpsPanel, {
+    attributes: true,
+    childList: true,
+    subtree: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 320));
+  hiddenPanelObserver.disconnect();
+  assert.equal(
+    hiddenPanelMutations,
+    0,
+    "closed DPS panels must not be rebuilt by the 250ms timer",
+  );
   launcher.click();
   assert.equal(dpsPanel.style.display, "flex");
   assert.ok(Number.parseFloat(dpsPanel.style.left) >= 4);

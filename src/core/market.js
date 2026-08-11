@@ -163,11 +163,19 @@ function numberFormatter(value, digits = 2) {
     { value: 1e9, symbol: "B" },
     { value: 1e12, symbol: "T" },
   ];
-  let unit = [...units].reverse().find(({ value: size }) => absolute >= size);
+  const capAtMillions =
+    absolute >= 1e6 && runtime.settings.get?.("displayCapMM");
+  let unit = capAtMillions
+    ? units[1]
+    : [...units].reverse().find(({ value: size }) => absolute >= size);
   let scaled = number / unit.value;
   let rounded = Number(scaled.toFixed(maximumFractionDigits));
   const index = units.indexOf(unit);
-  if (Math.abs(rounded) >= 1_000 && index < units.length - 1) {
+  if (
+    !capAtMillions &&
+    Math.abs(rounded) >= 1_000 &&
+    index < units.length - 1
+  ) {
     unit = units[index + 1];
     scaled = number / unit.value;
     rounded = Number(scaled.toFixed(maximumFractionDigits));

@@ -128,6 +128,18 @@ test("profit UI displays three valuation rows with revenue, costs, and profit", 
   );
 });
 
+test("English valuation labels use Tea cost", () => {
+  runtime.config.isZH = false;
+  const panel = runtime.api.showProductionProfitPanel(
+    nativeTooltip(),
+    "/items/panel-output",
+  );
+  assert.match(panel.textContent, /Tea cost\/action/);
+  assert.match(panel.textContent, /Tea cost\/hour/);
+  assert.doesNotMatch(panel.textContent, /Drinks\//);
+  runtime.config.isZH = true;
+});
+
 test("missing price details appear only in the bottom warning", () => {
   const getBidPrice = runtime.api.getBidPrice;
   runtime.api.getBidPrice = () => 0;
