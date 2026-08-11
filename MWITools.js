@@ -28262,6 +28262,7 @@ ${locks}` : ""}`;
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
   var originalCards = [];
   var taskListParent = null;
+  var pageClassifications = /* @__PURE__ */ new Map();
   var collapsedProfessions = /* @__PURE__ */ new Set();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
@@ -28610,17 +28611,25 @@ ${locks}` : ""}`;
   }
   function orderedRows(cards, tasks) {
     const chains = productionDepth(tasks);
-    const rows = cards.map((card, index) => ({
-      card,
-      task: tasks[index],
-      profession: isCompletedCard(card, tasks[index]) ? COMPLETED_PROFESSION : professionForCard(card, tasks[index]),
-      info: actionSortInfo(
-        tasks[index],
-        Number(card.dataset.mwitoolsOriginalIndex ?? index)
-      ),
-      depth: chains?.depths.get(taskActionHrid(tasks[index])) ?? 0,
-      chain: chains?.groups.get(taskActionHrid(tasks[index])) ?? index
-    }));
+    const rows = cards.map((card, index) => {
+      const task = tasks[index];
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+      const completed = isCompletedCard(card, task);
+      const previous = pageClassifications.get(slot);
+      const computedProfession = completed ? COMPLETED_PROFESSION : professionForCard(card, task);
+      const profession = !completed && previous && !previous.completed ? previous.profession : computedProfession;
+      const location2 = profession.key === "combat" ? !completed && previous?.profession.key === "combat" ? previous.location : combatLocationForCard(card, task) : null;
+      pageClassifications.set(slot, { completed, profession, location: location2 });
+      return {
+        card,
+        task,
+        profession,
+        location: location2,
+        info: actionSortInfo(task, slot),
+        depth: chains?.depths.get(taskActionHrid(task)) ?? 0,
+        chain: chains?.groups.get(taskActionHrid(task)) ?? index
+      };
+    });
     rows.sort((left, right) => {
       const professionOrder = left.profession.order - right.profession.order;
       if (professionOrder) return professionOrder;
@@ -28677,7 +28686,7 @@ ${locks}` : ""}`;
   function renderCombatGroups(parent, rows, nextOrder) {
     const locations = /* @__PURE__ */ new Map();
     for (const row of rows) {
-      const location2 = combatLocationForCard(row.card, row.task);
+      const location2 = row.location ?? combatLocationForCard(row.card, row.task);
       if (!locations.has(location2.key))
         locations.set(location2.key, { location: location2, rows: [] });
       locations.get(location2.key).rows.push(row);
@@ -28831,6 +28840,7 @@ ${locks}` : ""}`;
     if (enteredNewTaskPage) {
       ungroupCards();
       originalCards = [];
+      pageClassifications = /* @__PURE__ */ new Map();
       taskListParent = observedParent;
     }
     cards = cards.filter((card) => card.parentElement === taskListParent);
@@ -28859,6 +28869,7 @@ ${locks}` : ""}`;
     document.getElementById(STYLE_ID7)?.remove();
     originalCards = [];
     taskListParent = null;
+    pageClassifications = /* @__PURE__ */ new Map();
     collapsedProfessions.clear();
   }
   runtime.features.register({

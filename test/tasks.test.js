@@ -231,6 +231,61 @@ test("re-entering a rebuilt task page never moves new cards into a detached page
   }
 });
 
+test("a reset task keeps its current category until the task page is re-entered", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__reset">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 20")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { actionHrid: "/actions/crafting/lumber" },
+    { actionHrid: "/actions/milking/cow" },
+  ];
+  runtime.api.renderTasks();
+
+  const resetList = document.querySelector(".TasksPanel_taskList__reset");
+  const resetCard = resetList.querySelector(TASK_SELECTOR);
+  resetCard.querySelector('div[class*="RandomTask_name"]').textContent =
+    "挤奶 - 新奶牛";
+  runtime.state.characterQuests[0] = {
+    actionHrid: "/actions/milking/cow",
+  };
+  runtime.api.renderTasks();
+
+  assert.equal(resetCard.dataset.mwitoolsProfession, "crafting");
+  assert.deepEqual(
+    [...resetList.querySelectorAll(".mwi-task-profession-title")].map(
+      (title) => title.textContent,
+    ),
+    ["已完成", "挤奶", "制作"],
+  );
+
+  resetList.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__reset-reentered">
+      ${card("挤奶 - 新奶牛", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 20")}
+    </div>`,
+  );
+  runtime.api.renderTasks();
+  assert.equal(
+    document.querySelectorAll(
+      '.TasksPanel_taskList__reset-reentered [data-mwitools-profession="milking"]',
+    ).length,
+    2,
+  );
+  assert.equal(
+    document.querySelector(
+      '.TasksPanel_taskList__reset-reentered [data-profession="crafting"]',
+    ),
+    null,
+  );
+});
+
 test("auto sort keeps tasks from the same full production chain together", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(

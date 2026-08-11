@@ -4,6 +4,7 @@ const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]';
 let originalCards = [];
 let taskListParent = null;
+let pageClassifications = new Map();
 const collapsedProfessions = new Set();
 
 const PROFESSIONS = [
@@ -433,19 +434,35 @@ function ungroupCards() {
 
 function orderedRows(cards, tasks) {
   const chains = productionDepth(tasks);
-  const rows = cards.map((card, index) => ({
-    card,
-    task: tasks[index],
-    profession: isCompletedCard(card, tasks[index])
+  const rows = cards.map((card, index) => {
+    const task = tasks[index];
+    const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+    const completed = isCompletedCard(card, task);
+    const previous = pageClassifications.get(slot);
+    const computedProfession = completed
       ? COMPLETED_PROFESSION
-      : professionForCard(card, tasks[index]),
-    info: actionSortInfo(
-      tasks[index],
-      Number(card.dataset.mwitoolsOriginalIndex ?? index),
-    ),
-    depth: chains?.depths.get(taskActionHrid(tasks[index])) ?? 0,
-    chain: chains?.groups.get(taskActionHrid(tasks[index])) ?? index,
-  }));
+      : professionForCard(card, task);
+    const profession =
+      !completed && previous && !previous.completed
+        ? previous.profession
+        : computedProfession;
+    const location =
+      profession.key === "combat"
+        ? !completed && previous?.profession.key === "combat"
+          ? previous.location
+          : combatLocationForCard(card, task)
+        : null;
+    pageClassifications.set(slot, { completed, profession, location });
+    return {
+      card,
+      task,
+      profession,
+      location,
+      info: actionSortInfo(task, slot),
+      depth: chains?.depths.get(taskActionHrid(task)) ?? 0,
+      chain: chains?.groups.get(taskActionHrid(task)) ?? index,
+    };
+  });
   rows.sort((left, right) => {
     const professionOrder = left.profession.order - right.profession.order;
     if (professionOrder) return professionOrder;
@@ -513,7 +530,7 @@ function ensureProfessionGroup(parent, profession) {
 function renderCombatGroups(parent, rows, nextOrder) {
   const locations = new Map();
   for (const row of rows) {
-    const location = combatLocationForCard(row.card, row.task);
+    const location = row.location ?? combatLocationForCard(row.card, row.task);
     if (!locations.has(location.key))
       locations.set(location.key, { location, rows: [] });
     locations.get(location.key).rows.push(row);
@@ -696,6 +713,7 @@ function renderTasks() {
   if (enteredNewTaskPage) {
     ungroupCards();
     originalCards = [];
+    pageClassifications = new Map();
     taskListParent = observedParent;
   }
   cards = cards.filter((card) => card.parentElement === taskListParent);
@@ -730,6 +748,7 @@ function cleanupTasks() {
   document.getElementById(STYLE_ID)?.remove();
   originalCards = [];
   taskListParent = null;
+  pageClassifications = new Map();
   collapsedProfessions.clear();
 }
 
