@@ -238,6 +238,46 @@ function lootConfig() {
   };
 }
 
+// Net expected value of opening one of `itemHrid` (gross drops minus key cost),
+// clamped at 0. `visited` breaks reference cycles between nested chests.
+function lootChestNetValue(itemHrid, config, visited) {
+  if (visited.has(itemHrid)) return 0;
+  const drops = getDropRecords(itemHrid);
+  if (!Array.isArray(drops) || !drops.length) return 0;
+  visited.add(itemHrid);
+  let gross = 0;
+  for (const drop of drops) {
+    const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+    if (!dropItemHrid) continue;
+    const rawDropRate = Array.isArray(drop.dropRate)
+      ? drop.dropRate[0]
+      : drop.dropRate;
+    const dropRate = Number.isFinite(Number(rawDropRate))
+      ? Math.max(0, Number(rawDropRate))
+      : 1;
+    const minimum = Number(drop.minCount ?? drop.count ?? 1);
+    const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+    if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+    const expectedCount = dropRate * (minimum + maximum) * 0.5;
+    gross +=
+      expectedCount *
+      lootUnitValue(dropItemHrid, drop.enhancementLevel ?? 0, config, visited);
+  }
+  const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+  const keyCost = lootKeyCost(keyItemHrid, config);
+  visited.delete(itemHrid);
+  return Math.max(0, gross - keyCost);
+}
+
+// Per-unit value of a drop. Prefer its market sale price; when it has none but
+// is itself openable (e.g. a non-tradable chest that drops another chest), fall
+// back to the recursive net opening value so nested chests still count.
+function lootUnitValue(itemHrid, enhancementLevel, config, visited) {
+  const sale = lootSaleValue(itemHrid, enhancementLevel, config.sellAtAsk);
+  if (sale > 0) return sale;
+  return lootChestNetValue(itemHrid, config, visited);
+}
+
 function projectLootChest(itemHrid, overrides = {}) {
   const drops = getDropRecords(itemHrid);
   if (!Array.isArray(drops) || !drops.length) return null;
@@ -245,6 +285,9 @@ function projectLootChest(itemHrid, overrides = {}) {
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
   const rows = [];
   let grossValue = 0;
+  // Seed the cycle guard with this chest so a chest that can drop itself does
+  // not recurse forever.
+  const visited = new Set([itemHrid]);
 
   for (const drop of drops) {
     const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
@@ -260,11 +303,16 @@ function projectLootChest(itemHrid, overrides = {}) {
     if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
     const enhancementLevel = drop.enhancementLevel ?? 0;
     const expectedCount = dropRate * (minimum + maximum) * 0.5;
-    const unitValue = lootSaleValue(
+    const marketValue = lootSaleValue(
       dropItemHrid,
       enhancementLevel,
       config.sellAtAsk,
     );
+    // Non-tradable nested chests have no sale price; value them by opening.
+    const nested = marketValue <= 0;
+    const unitValue = nested
+      ? lootChestNetValue(dropItemHrid, config, visited)
+      : marketValue;
     const value = expectedCount * unitValue;
     grossValue += value;
     rows.push({
@@ -277,6 +325,7 @@ function projectLootChest(itemHrid, overrides = {}) {
       unitValue,
       value,
       priced: unitValue > 0,
+      nested: nested && unitValue > 0,
     });
   }
   rows.sort((left, right) => right.value - left.value);

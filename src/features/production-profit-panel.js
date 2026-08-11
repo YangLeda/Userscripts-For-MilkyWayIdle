@@ -143,6 +143,7 @@ function addStyles() {
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
+    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
@@ -462,9 +463,13 @@ function renderLootChestDropCell(drop) {
       : `${formatNumber(drop.minCount, 0)}–${formatNumber(drop.maxCount, 0)}`;
   // The full breakdown lives in the title so nothing is lost in the compact
   // cell (the hover panel cannot be scrolled).
-  const title = `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}\n${t("单价", "Unit")}: ${formatMoney(drop.unitValue)} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`;
+  // Nested non-tradable chests are valued by their own opening expectation.
+  const unitLabel = drop.nested
+    ? `${t("开箱期望", "Opening EV")} ${formatMoney(drop.unitValue)}`
+    : `${t("单价", "Unit")}: ${formatMoney(drop.unitValue)}`;
+  const title = `${name}${drop.nested ? ` (${t("嵌套宝箱", "Nested chest")})` : ""}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}\n${unitLabel} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`;
   const valueText = drop.priced
-    ? formatMoney(drop.value)
+    ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}`
     : t("无价", "No price");
   return `
     <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}" data-item-hrid="${escapeHtml(drop.itemHrid)}" title="${escapeHtml(title)}">
@@ -540,6 +545,14 @@ function renderLootChestPanel(panel, itemHrid, chest) {
         ${metrics.join("")}
       </section>
     </div>`,
+  );
+
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="mwi-profit-hint">${t(
+      "可在 MWITools 设置的“市场”分组中调整钥匙来源与买卖方向。",
+      "Adjust key source and buy/sell sides in the Market group of MWITools settings.",
+    )}</div>`,
   );
 
   if (chest.missing.length) {

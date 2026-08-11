@@ -39,6 +39,9 @@ runtime.state.initData_itemDetailMap = {
   "/items/key": { name: "Key" },
   "/items/key_fragment": { name: "Key Fragment" },
   "/items/prize": { name: "Prize" },
+  "/items/outer_chest": { name: "Outer Chest" },
+  "/items/inner_chest": { name: "Inner Chest" },
+  "/items/loop_chest": { name: "Loop Chest" },
 };
 runtime.state.initData_openableLootDropMap = {
   "/items/small_treasure_chest": [
@@ -48,6 +51,19 @@ runtime.state.initData_openableLootDropMap = {
   ],
   "/items/locked_chest": [
     { itemHrid: "/items/prize", dropRate: 1, minCount: 1, maxCount: 1 },
+  ],
+  // inner_chest is non-tradable (not in PRICES) but drops coins.
+  "/items/inner_chest": [
+    { itemHrid: "/items/coin", dropRate: 1, minCount: 100, maxCount: 100 },
+  ],
+  // outer_chest drops the non-tradable inner_chest → value it recursively.
+  "/items/outer_chest": [
+    { itemHrid: "/items/inner_chest", dropRate: 0.5, minCount: 1, maxCount: 1 },
+  ],
+  // loop_chest can drop itself → cycle guard must terminate.
+  "/items/loop_chest": [
+    { itemHrid: "/items/loop_chest", dropRate: 1, minCount: 1, maxCount: 1 },
+    { itemHrid: "/items/coin", dropRate: 1, minCount: 10, maxCount: 10 },
   ],
 };
 // A key is crafted from 5 fragments.
@@ -124,6 +140,30 @@ test("fragment crafting values the key from its fragment inputs", () => {
   setLoot({ sell: "bid", buy: "bid", fragments: true });
   const bidChest = runtime.api.projectLootChest("/items/locked_chest");
   assert.equal(bidChest.keyCost, 120);
+});
+
+test("non-tradable nested chests are valued by their opening expectation", () => {
+  // Sell coins at bid (0.8). inner_chest has no price but drops 100 coins:
+  //   inner opening EV = 100 * 0.8 = 80.
+  // outer_chest drops inner at 0.5 chance → 0.5 * 80 = 40.
+  setLoot({ sell: "bid", buy: "ask", fragments: false });
+  const chest = runtime.api.projectLootChest("/items/outer_chest");
+  const inner = chest.drops.find((d) => d.itemHrid === "/items/inner_chest");
+  assert.ok(inner);
+  assert.equal(inner.nested, true);
+  assert.equal(inner.unitValue, 80);
+  assert.equal(inner.value, 40);
+  assert.equal(chest.grossValue, 40);
+  // The nested chest counts as priced, so it is not listed as missing.
+  assert.deepEqual(chest.missing, []);
+});
+
+test("a self-dropping chest terminates instead of recursing forever", () => {
+  setLoot({ sell: "bid", buy: "ask", fragments: false });
+  const chest = runtime.api.projectLootChest("/items/loop_chest");
+  // The self-drop resolves to 0 (cycle guard); only the coins contribute:
+  //   10 coins * 0.8 = 8.
+  assert.equal(chest.grossValue, 8);
 });
 
 test("projectLootChest returns null for non-openable items", () => {

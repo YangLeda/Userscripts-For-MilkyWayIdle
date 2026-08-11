@@ -933,17 +933,17 @@
     },
     lootKeyFromFragments: {
       id: "lootKeyFromFragments",
-      desc: isZH ? "开箱期望：按钥匙碎片自制成本计算钥匙 [依赖生产利润]" : "Loot estimate: value the key by its fragment crafting cost. [Depends on production profit]",
+      desc: isZH ? "开箱期望：按钥匙碎片自制成本计算钥匙" : "Loot estimate: value the key by its fragment crafting cost.",
       isTrue: false
     },
     lootBuyAtAsk: {
       id: "lootBuyAtAsk",
-      desc: isZH ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid) [依赖生产利润]" : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right). [Depends on production profit]",
+      desc: isZH ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid)" : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right).",
       isTrue: true
     },
     lootSellAtAsk: {
       id: "lootSellAtAsk",
-      desc: isZH ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid) [依赖生产利润]" : "Loot estimate: sell drops at ask (left); off sells at bid (right). [Depends on production profit]",
+      desc: isZH ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid)" : "Loot estimate: sell drops at ask (left); off sells at bid (right).",
       isTrue: false
     },
     expPercentage: {
@@ -1722,9 +1722,6 @@
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
     showConsumTips: "itemTooltip_prices",
-    lootKeyFromFragments: "itemTooltip_profit",
-    lootBuyAtAsk: "itemTooltip_profit",
-    lootSellAtAsk: "itemTooltip_profit",
     taskMaterials: "taskInsights",
     taskQueueProgress: "taskInsights",
     taskAutoSort: "taskInsights",
@@ -6894,6 +6891,33 @@
       fromFragments: Boolean(settings2.lootKeyFromFragments?.isTrue)
     };
   }
+  function lootChestNetValue(itemHrid, config, visited) {
+    if (visited.has(itemHrid)) return 0;
+    const drops = getDropRecords(itemHrid);
+    if (!Array.isArray(drops) || !drops.length) return 0;
+    visited.add(itemHrid);
+    let gross = 0;
+    for (const drop of drops) {
+      const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
+      if (!dropItemHrid) continue;
+      const rawDropRate = Array.isArray(drop.dropRate) ? drop.dropRate[0] : drop.dropRate;
+      const dropRate = Number.isFinite(Number(rawDropRate)) ? Math.max(0, Number(rawDropRate)) : 1;
+      const minimum = Number(drop.minCount ?? drop.count ?? 1);
+      const maximum = Number(drop.maxCount ?? drop.count ?? minimum);
+      if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
+      const expectedCount = dropRate * (minimum + maximum) * 0.5;
+      gross += expectedCount * lootUnitValue(dropItemHrid, drop.enhancementLevel ?? 0, config, visited);
+    }
+    const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+    const keyCost = lootKeyCost(keyItemHrid, config);
+    visited.delete(itemHrid);
+    return Math.max(0, gross - keyCost);
+  }
+  function lootUnitValue(itemHrid, enhancementLevel, config, visited) {
+    const sale = lootSaleValue(itemHrid, enhancementLevel, config.sellAtAsk);
+    if (sale > 0) return sale;
+    return lootChestNetValue(itemHrid, config, visited);
+  }
   function projectLootChest(itemHrid, overrides = {}) {
     const drops = getDropRecords(itemHrid);
     if (!Array.isArray(drops) || !drops.length) return null;
@@ -6901,6 +6925,7 @@
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
     const rows = [];
     let grossValue = 0;
+    const visited = /* @__PURE__ */ new Set([itemHrid]);
     for (const drop of drops) {
       const dropItemHrid = drop?.itemHrid ?? drop?.hrid;
       if (!dropItemHrid) continue;
@@ -6911,11 +6936,13 @@
       if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) continue;
       const enhancementLevel = drop.enhancementLevel ?? 0;
       const expectedCount = dropRate * (minimum + maximum) * 0.5;
-      const unitValue = lootSaleValue(
+      const marketValue = lootSaleValue(
         dropItemHrid,
         enhancementLevel,
         config.sellAtAsk
       );
+      const nested = marketValue <= 0;
+      const unitValue = nested ? lootChestNetValue(dropItemHrid, config, visited) : marketValue;
       const value = expectedCount * unitValue;
       grossValue += value;
       rows.push({
@@ -6927,7 +6954,8 @@
         expectedCount,
         unitValue,
         value,
-        priced: unitValue > 0
+        priced: unitValue > 0,
+        nested: nested && unitValue > 0
       });
     }
     rows.sort((left, right) => right.value - left.value);
@@ -12836,6 +12864,7 @@ ${preview}`
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
+    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
@@ -13105,10 +13134,11 @@ ${preview}`
     const name = itemName2(drop.itemHrid);
     const chance = drop.dropRate >= 1 ? t5("必得", "100%") : `${formatNumber2(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
     const countRange = drop.minCount === drop.maxCount ? formatNumber2(drop.minCount, 0) : `${formatNumber2(drop.minCount, 0)}–${formatNumber2(drop.maxCount, 0)}`;
-    const title = `${name}
+    const unitLabel = drop.nested ? `${t5("开箱期望", "Opening EV")} ${formatMoney(drop.unitValue)}` : `${t5("单价", "Unit")}: ${formatMoney(drop.unitValue)}`;
+    const title = `${name}${drop.nested ? ` (${t5("嵌套宝箱", "Nested chest")})` : ""}
 ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} · ${t5("期望", "Expected")}: ${formatNumber2(drop.expectedCount, 2)}
-${t5("单价", "Unit")}: ${formatMoney(drop.unitValue)} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t5("无价", "No price")}`;
-    const valueText = drop.priced ? formatMoney(drop.value) : t5("无价", "No price");
+${unitLabel} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t5("无价", "No price")}`;
+    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t5("无价", "No price");
     return `
     <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}" data-item-hrid="${escapeHtml(drop.itemHrid)}" title="${escapeHtml(title)}">
       <div class="mwi-loot-cell-icon">
@@ -13170,6 +13200,13 @@ ${t5("单价", "Unit")}: ${formatMoney(drop.unitValue)} · ${t5("期望价值", 
         ${metrics.join("")}
       </section>
     </div>`
+    );
+    panel.insertAdjacentHTML(
+      "beforeend",
+      `<div class="mwi-profit-hint">${t5(
+        "可在 MWITools 设置的“市场”分组中调整钥匙来源与买卖方向。",
+        "Adjust key source and buy/sell sides in the Market group of MWITools settings."
+      )}</div>`
     );
     if (chest.missing.length) {
       const names = chest.missing.map(itemName2).join("、");

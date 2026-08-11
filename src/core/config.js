@@ -155,22 +155,22 @@ let settingsMap = {
   lootKeyFromFragments: {
     id: "lootKeyFromFragments",
     desc: isZH
-      ? "开箱期望：按钥匙碎片自制成本计算钥匙 [依赖生产利润]"
-      : "Loot estimate: value the key by its fragment crafting cost. [Depends on production profit]",
+      ? "开箱期望：按钥匙碎片自制成本计算钥匙"
+      : "Loot estimate: value the key by its fragment crafting cost.",
     isTrue: false,
   },
   lootBuyAtAsk: {
     id: "lootBuyAtAsk",
     desc: isZH
-      ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid) [依赖生产利润]"
-      : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right). [Depends on production profit]",
+      ? "开箱期望：钥匙/碎片按卖单(左, ask)买入；关闭则按买单(右, bid)"
+      : "Loot estimate: buy keys/fragments at ask (left); off buys at bid (right).",
     isTrue: true,
   },
   lootSellAtAsk: {
     id: "lootSellAtAsk",
     desc: isZH
-      ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid) [依赖生产利润]"
-      : "Loot estimate: sell drops at ask (left); off sells at bid (right). [Depends on production profit]",
+      ? "开箱期望：产物按卖单(左, ask)卖出；关闭则按买单(右, bid)"
+      : "Loot estimate: sell drops at ask (left); off sells at bid (right).",
     isTrue: false,
   },
   expPercentage: {
@@ -1005,9 +1005,6 @@ const settingParents = {
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   showConsumTips: "itemTooltip_prices",
-  lootKeyFromFragments: "itemTooltip_profit",
-  lootBuyAtAsk: "itemTooltip_profit",
-  lootSellAtAsk: "itemTooltip_profit",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",
