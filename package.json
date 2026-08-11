@@ -3,6 +3,9 @@
   "version": "26.2.21",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "format": "prettier --write src scripts test test-support eslint.config.js package.json",
