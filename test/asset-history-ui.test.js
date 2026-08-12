@@ -42,11 +42,11 @@ const {
   pasteAssetShareToChat,
 } = await import("../src/features/asset-history/30-panel.js");
 
-function gameShell() {
+function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) {
   const shell = document.createElement("main");
   shell.className = "CharacterManagement_characterManagement__test";
   shell.innerHTML = `
-    <nav class="MuiTabs-flexContainer"><button role="tab" type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">库存</button><button role="tab" type="button" aria-selected="false">装备</button><button role="tab" type="button" aria-selected="false">技能</button><button role="tab" type="button" id="house" aria-selected="false">房屋</button><button role="tab" type="button" id="loadout" aria-selected="false">配装 <span>0</span></button></nav>
+    <nav class="MuiTabs-flexContainer"><button role="tab" type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">${labels[0]}</button><button role="tab" type="button" aria-selected="false">${labels[1]}</button><button role="tab" type="button" aria-selected="false">${labels[2]}</button><button role="tab" type="button" id="house" aria-selected="false">${labels[3]}</button><button role="tab" type="button" id="loadout" aria-selected="false">${labels[4]} <span>0</span></button></nav>
     <section class="Inventory_panel__test"><input placeholder="物品搜索"></section>
   `;
   const nativeTabs = [...shell.querySelectorAll('button[role="tab"]')];
@@ -63,6 +63,32 @@ function gameShell() {
   document.body.appendChild(shell);
   return shell;
 }
+
+test("P/L mounts beside character tabs in non-English game languages", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell([
+    "Inventario",
+    "Equipo",
+    "Habilidades",
+    "Casa",
+    "Configuraciones",
+  ]);
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+
+  const tab = document.querySelector("#mwitools-asset-history-tab");
+  assert.ok(tab);
+  assert.equal(tab.previousElementSibling, shell.querySelector("#loadout"));
+  assert.equal(tab.parentElement, shell.querySelector("nav"));
+
+  ui.destroy();
+  scope.cleanup();
+});
 
 test("asset sharing provides separate Chinese and English profit/loss phrases", () => {
   assert.ok(ASSET_SHARE_TEMPLATE_COUNT >= 10);

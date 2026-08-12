@@ -26474,6 +26474,7 @@ ${values.map((item) => item.date).join("\n")}`
   function findCharacterManagementLoadoutTab() {
     const groups = /* @__PURE__ */ new Map();
     for (const button of document.querySelectorAll('button[role="tab"],button')) {
+      if (button.id === TAB_ID) continue;
       const parent = button.parentElement;
       if (!parent) continue;
       if (!groups.has(parent)) groups.set(parent, []);
@@ -26481,7 +26482,20 @@ ${values.map((item) => item.date).join("\n")}`
     }
     const candidates = [];
     for (const [parent, buttons] of groups) {
-      const matched = Object.fromEntries(
+      const inCharacterManagement = Boolean(
+        parent.closest('[class*="CharacterManagement_characterManagement"]')
+      );
+      const nativeTabs = buttons.filter(
+        (button) => button.matches('[role="tab"]')
+      );
+      const structuralMatch = inCharacterManagement && nativeTabs.length >= 5;
+      const matched = structuralMatch ? {
+        inventory: nativeTabs[0],
+        equipment: nativeTabs[1],
+        skills: nativeTabs[2],
+        house: nativeTabs[3],
+        loadout: nativeTabs.at(-1)
+      } : Object.fromEntries(
         Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
           key,
           buttons.find((button) => pattern.test(buttonLabel(button)))
@@ -26495,12 +26509,9 @@ ${values.map((item) => item.date).join("\n")}`
       if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
       const rect = parent.getBoundingClientRect?.();
       const visible2 = Boolean(rect && rect.width > 0 && rect.height > 0);
-      const inCharacterManagement = Boolean(
-        parent.closest('[class*="CharacterManagement_characterManagement"]')
-      );
       candidates.push({
         button: matched.loadout,
-        score: Number(visible2) * 4 + Number(inCharacterManagement) * 2
+        score: Number(visible2) * 4 + Number(inCharacterManagement) * 2 + Number(structuralMatch) * 8
       });
     }
     candidates.sort((a, b) => b.score - a.score);
@@ -35125,9 +35136,17 @@ ${locks}` : ""}`;
       TRAIN_TIMEOUT_MS
     );
   }
-  function queueButton(panel) {
-    return [...panel.querySelectorAll(`${BUTTONS_SELECTOR} button,button`)].find(
+  function queueSubmissionHost(panel) {
+    const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
+    if (buttonsContainer) return buttonsContainer;
+    return [...panel.querySelectorAll("button")].find(
       (button) => /添加到队列|add to queue/i.test(button.textContent ?? "")
+    );
+  }
+  function isNativeQueueSubmission(event, host) {
+    const button = event.target?.closest?.("button");
+    return Boolean(
+      button && host.contains(button) && !button.closest(`.${CONTROL_CLASS}`) && !button.disabled && button.getAttribute("aria-disabled") !== "true"
     );
   }
   function activeStepCount(context) {
@@ -35261,12 +35280,16 @@ ${locks}` : ""}`;
         );
       }
     }
-    const button = queueButton(context.panel);
-    if (button && button !== activeTrain.queueButton) {
+    const submissionHost = queueSubmissionHost(context.panel);
+    if (submissionHost && submissionHost !== activeTrain.queueButton) {
       clearTrainListeners();
-      activeTrain.queueButton = button;
-      activeTrain.queueListener = () => notifyCurrentTrainStepQueued(context);
-      button.addEventListener("click", activeTrain.queueListener, true);
+      activeTrain.queueButton = submissionHost;
+      activeTrain.queueListener = (event) => {
+        if (isNativeQueueSubmission(event, submissionHost)) {
+          notifyCurrentTrainStepQueued(context);
+        }
+      };
+      submissionHost.addEventListener("click", activeTrain.queueListener, true);
     }
     maybeAutoAddCurrentStep(context);
     resetTrainTimeout();
@@ -38238,7 +38261,8 @@ ${locks}` : ""}`;
           "兼容游戏全部九种内置语言；库存、悬浮窗、任务、行动、市场和 DPS 等功能现在会直接使用游戏当前语言的官方词表，不再因繁体中文或其他语言名称不同而失效。",
           "移除作用有限的消耗品回复速度、单位回复成本和理论每日用量显示。",
           "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
-          "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。"
+          "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。",
+          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38255,7 +38279,8 @@ ${locks}` : ""}`;
           "Added compatibility with all nine built-in game languages. Inventory, tooltips, tasks, actions, marketplace tools, DPS, and related features now use the official dictionary for the active game language instead of failing on Traditional Chinese or other localized names.",
           "Removed the low-value consumable recovery-rate, cost-per-recovery, and theoretical daily-use display.",
           "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
-          "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths."
+          "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths.",
+          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language."
         ])
       })
     })

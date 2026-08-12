@@ -298,6 +298,7 @@ const CHARACTER_TAB_PATTERNS = {
 function findCharacterManagementLoadoutTab() {
   const groups = new Map();
   for (const button of document.querySelectorAll('button[role="tab"],button')) {
+    if (button.id === TAB_ID) continue;
     const parent = button.parentElement;
     if (!parent) continue;
     if (!groups.has(parent)) groups.set(parent, []);
@@ -305,12 +306,27 @@ function findCharacterManagementLoadoutTab() {
   }
   const candidates = [];
   for (const [parent, buttons] of groups) {
-    const matched = Object.fromEntries(
-      Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
-        key,
-        buttons.find((button) => pattern.test(buttonLabel(button))),
-      ]),
+    const inCharacterManagement = Boolean(
+      parent.closest('[class*="CharacterManagement_characterManagement"]'),
     );
+    const nativeTabs = buttons.filter((button) =>
+      button.matches('[role="tab"]'),
+    );
+    const structuralMatch = inCharacterManagement && nativeTabs.length >= 5;
+    const matched = structuralMatch
+      ? {
+          inventory: nativeTabs[0],
+          equipment: nativeTabs[1],
+          skills: nativeTabs[2],
+          house: nativeTabs[3],
+          loadout: nativeTabs.at(-1),
+        }
+      : Object.fromEntries(
+          Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
+            key,
+            buttons.find((button) => pattern.test(buttonLabel(button))),
+          ]),
+        );
     const supportingTabs = [
       matched.equipment,
       matched.skills,
@@ -319,12 +335,12 @@ function findCharacterManagementLoadoutTab() {
     if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
     const rect = parent.getBoundingClientRect?.();
     const visible = Boolean(rect && rect.width > 0 && rect.height > 0);
-    const inCharacterManagement = Boolean(
-      parent.closest('[class*="CharacterManagement_characterManagement"]'),
-    );
     candidates.push({
       button: matched.loadout,
-      score: Number(visible) * 4 + Number(inCharacterManagement) * 2,
+      score:
+        Number(visible) * 4 +
+        Number(inCharacterManagement) * 2 +
+        Number(structuralMatch) * 8,
     });
   }
   candidates.sort((a, b) => b.score - a.score);
