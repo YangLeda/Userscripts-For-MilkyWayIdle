@@ -257,8 +257,8 @@ function updatePanel(panel, itemHrid, targetValues) {
     ".mwi-book-state",
     data.isLearned
       ? t(
-          `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
-          `Current Lv.${data.level} · total XP ${exact(data.experience)}`,
+          `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
+          `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`,
         )
       : t("当前：未学习", "Current: not learned"),
   );
@@ -266,8 +266,8 @@ function updatePanel(panel, itemHrid, targetValues) {
     panel,
     ".mwi-book-per-book",
     t(
-      `每本增加 ${exact(data.experienceGain)} 经验`,
-      `${exact(data.experienceGain)} XP per book`,
+      `每本增加 ${exact(data.experienceGain, 0)} 经验`,
+      `${exact(data.experienceGain, 0)} XP per book`,
     ),
   );
   const requirement = calculateAbilityBookRequirement({

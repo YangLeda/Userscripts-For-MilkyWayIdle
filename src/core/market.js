@@ -222,12 +222,16 @@ function getNumberLocale() {
   return runtime.config.isZH ? "zh-CN" : "en-US";
 }
 
-function formatExactNumber(value) {
+function formatExactNumber(value, fractionDigits = 20) {
   if (value === null || value === undefined || value === "") return "—";
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
+  const maximumFractionDigits = Math.min(
+    20,
+    Math.max(0, Math.floor(Number(fractionDigits) || 0)),
+  );
   return new Intl.NumberFormat(getNumberLocale(), {
-    maximumFractionDigits: 20,
+    maximumFractionDigits,
     useGrouping: true,
   }).format(number);
 }

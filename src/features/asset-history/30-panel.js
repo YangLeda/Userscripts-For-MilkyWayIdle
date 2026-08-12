@@ -684,7 +684,7 @@ class AssetHistoryPanel {
       const node = this.host.querySelector(selector);
       node.textContent = formatNumber(value, signed);
       node.title = Number.isFinite(value)
-        ? runtime.api.formatExactNumber(value)
+        ? runtime.api.formatExactNumber(value, 0)
         : "";
       node.className = `mwi-asset-card-value ${className}`.trim();
     };
@@ -721,7 +721,7 @@ class AssetHistoryPanel {
           Number.isFinite(currentValue) && Number.isFinite(previousValue)
             ? currentValue - previousValue
             : null;
-        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
         return row;
       }),
     );
@@ -736,7 +736,7 @@ class AssetHistoryPanel {
       ...entries.map(([dayKey, record]) => {
         const row = document.createElement("tr");
         const total = record?.values?.total;
-        row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
+        row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
         row
           .querySelector("[data-edit]")
           .addEventListener("click", () => this.openEditor(dayKey));

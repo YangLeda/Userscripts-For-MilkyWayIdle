@@ -340,7 +340,7 @@ export class AssetCenter {
   }
 
   metric(label, value, className = "") {
-    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
   }
 
   renderChartPage(page) {

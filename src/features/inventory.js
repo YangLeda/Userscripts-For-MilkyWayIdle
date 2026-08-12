@@ -273,7 +273,7 @@ function addInventorySummaryStyles() {
 }
 
 function numberHtml(value) {
-  return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+  return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
 }
 
 function syncInventorySummaryTypography(invElem, summary) {
@@ -404,7 +404,7 @@ function addInventoryCategoryValues(
 
     const value = document.createElement("span");
     value.className = "mwi-inventory-category-value";
-    value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
+    value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total, 0)}`;
     value.textContent = `${runtime.config.isZH ? "价值" : "Value"} ${runtime.api.numberFormatter(total)}`;
     heading.appendChild(value);
   }

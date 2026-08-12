@@ -118,6 +118,79 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
 });
 
+test("crafting-cost projection applies Artisan reduction, concentration, and drink cost", () => {
+  const previous = {
+    actions: runtime.state.initData_actionDetailMap,
+    items: runtime.state.initData_itemDetailMap,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...previous.actions,
+    "/actions/crafting/key": {
+      hrid: "/actions/crafting/key",
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      inputItems: [
+        { itemHrid: "/items/input", count: 2 },
+        { itemHrid: "/items/key_base", count: 2 },
+      ],
+      upgradeItemHrid: "/items/key_base",
+      outputItems: [{ itemHrid: "/items/key", count: 2 }],
+    },
+  };
+  runtime.state.initData_itemDetailMap = {
+    ...previous.items,
+    "/items/artisan_tea": {
+      consumableDetail: {
+        buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
+      },
+    },
+    "/items/guzzling_pouch": {
+      equipmentDetail: {
+        noncombatStats: { drinkConcentration: 0.5 },
+        noncombatEnhancementBonuses: { drinkConcentration: 0.5 },
+      },
+    },
+  };
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/artisan_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {
+    back: { itemHrid: "/items/guzzling_pouch", enhancementLevel: 0 },
+  };
+
+  try {
+    const result = runtime.api.projectActionCraftingCost(
+      "/actions/crafting/key",
+      {
+        getUnitPrice: (itemHrid) =>
+          ({
+            "/items/input": 10,
+            "/items/key_base": 20,
+            "/items/artisan_tea": 100,
+          })[itemHrid] ?? 0,
+      },
+    );
+
+    assert.equal(result.status, "complete");
+    assert.equal(result.teaEffects.concentrationMultiplier, 1.5);
+    assert.ok(Math.abs(result.teaEffects.lessResource - 0.15) < 1e-12);
+    assert.ok(Math.abs(result.inputs[0].effectiveCount - 1.7) < 1e-12);
+    assert.ok(Math.abs(result.inputs[1].effectiveCount - 2.7) < 1e-12);
+    assert.equal(result.materialCostPerAction, 71);
+    assert.equal(result.drinks[0].countPerHour, 18);
+    assert.equal(result.teaCostPerAction, 5);
+    assert.equal(result.totalCostPerAction, 76);
+    assert.deepEqual(result.outputs, [{ itemHrid: "/items/key", count: 2 }]);
+  } finally {
+    runtime.state.initData_actionDetailMap = previous.actions;
+    runtime.state.initData_itemDetailMap = previous.items;
+    runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+    runtime.state.currentEquipmentMap = previous.equipment;
+  }
+});
+
 test("production resolver maps gathering drop tables and excludes combat loot", () => {
   assert.equal(
     runtime.api.resolveProductionActionByItemHrid("/items/rainbow_milk"),

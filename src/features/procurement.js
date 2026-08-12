@@ -451,6 +451,12 @@ const SETTING_SECTIONS = [
   {
     title: ["界面与快捷键", "Interface & shortcut"],
     rows: [
+      [
+        "autoExpandOnAddEnabled",
+        "加购后自动展开",
+        "Expand after adding",
+        "bool",
+      ],
       ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
       ["resetHandle", "重置把手位置", "Reset handle position", "button"],
       ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"],
@@ -502,6 +508,10 @@ const SETTING_DESCRIPTIONS = {
   autoCollapseEnabled: [
     "所有项目补齐后收起购物车",
     "Collapse after every item is fulfilled",
+  ],
+  autoExpandOnAddEnabled: [
+    "任意入口成功加购后展开并显示清单",
+    "Open the cart list after any successful add",
   ],
   safetyLevel: [
     "为工匠茶的随机省料准备余量",
@@ -1749,7 +1759,15 @@ function handleShortcut(event) {
 }
 
 function subscribeProcurement(scope) {
-  const rerender = () => {
+  const rerender = ({ reason, added } = {}) => {
+    if (
+      reason === "add" &&
+      Number(added) > 0 &&
+      procurement.getSettings().autoExpandOnAddEnabled
+    ) {
+      drawerOpen = true;
+      activeTab = "cart";
+    }
     renderShell();
     lastProductionSignature = "";
     renderProductionProcurement();

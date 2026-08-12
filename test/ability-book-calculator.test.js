@@ -32,7 +32,7 @@ runtime.state.initData_itemDetailMap = {
     name: "Fireball Book",
     abilityBookDetail: {
       abilityHrid: "/abilities/fireball_book",
-      experienceGain: 30,
+      experienceGain: 30.4,
     },
   },
 };
@@ -155,12 +155,13 @@ test("only the dictionary keeps one live bilingual calculator", async () => {
     {
       abilityHrid: "/abilities/fireball_book",
       level: 1,
-      experience: 40,
+      experience: 40.6,
     },
   ];
   runtime.dispatchMessage({ type: "abilities_updated" });
   await settle();
-  assert.match(dictionary.textContent, /当前 Lv\.1 · 总经验 40/);
+  assert.match(dictionary.textContent, /当前 Lv\.1 · 总经验 41/);
+  assert.match(dictionary.textContent, /每本增加 30 经验/);
   assert.match(dictionary.textContent, /升级还需 2 本/);
 
   runtime.config.isZH = false;

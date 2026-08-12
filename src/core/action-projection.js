@@ -199,6 +199,7 @@ function getEffectiveOutputs(detail, teaEffects) {
 function getDirectInputs(detail) {
   const inputs = asArray(detail?.inputItems).map((item) => ({
     itemHrid: item.itemHrid,
+    enhancementLevel: Number(item.enhancementLevel ?? 0) || 0,
     count: Number(item.count) || 0,
     isUpgradeItem: false,
     upgradeItemCount: 0,
@@ -217,6 +218,7 @@ function getDirectInputs(detail) {
     } else {
       inputs.push({
         itemHrid: detail.upgradeItemHrid,
+        enhancementLevel: 0,
         count: 1,
         isUpgradeItem: true,
         upgradeItemCount: 1,
@@ -361,6 +363,122 @@ function getEffectiveTeaEffects(actionHrid) {
       0,
       base.upgradedProduct * concentrationMultiplier,
     ),
+  };
+}
+
+function projectActionCraftingCost(actionOrHrid, options = {}) {
+  const action =
+    typeof actionOrHrid === "string"
+      ? { actionHrid: actionOrHrid }
+      : (actionOrHrid ?? {});
+  const actionHrid = action.actionHrid ?? action.hrid;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!actionHrid || !detail) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      missing: ["actionData"],
+      missingPrices: [],
+    };
+  }
+  if (!isPlayerDataReady()) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+      missingPrices: [],
+    };
+  }
+
+  const teaEffects = getEffectiveTeaEffects(actionHrid);
+  if (!teaEffects) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+      missingPrices: [],
+    };
+  }
+
+  const getUnitPrice =
+    typeof options.getUnitPrice === "function"
+      ? options.getUnitPrice
+      : () => null;
+  const missingPrices = [];
+  const inputs = getDirectInputs(detail).map((input) => {
+    const effectiveCount = getEffectiveInputCount(
+      input,
+      teaEffects.lessResource,
+    );
+    const unitPrice = Number(
+      getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0),
+    );
+    if (!(unitPrice > 0)) missingPrices.push(input.itemHrid);
+    return {
+      ...input,
+      effectiveCount,
+      unitPrice: unitPrice > 0 ? unitPrice : null,
+      valuePerAction: unitPrice > 0 ? effectiveCount * unitPrice : null,
+    };
+  });
+  const materialCostPerAction = inputs.reduce(
+    (total, input) => total + (input.valuePerAction ?? 0),
+    0,
+  );
+
+  const timing = getEffectiveSeconds(actionHrid, detail, options);
+  const secondsPerAction = timing?.secondsPerAction ?? null;
+  const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+  const drinks = teaEffects.drinks.map((drink) => {
+    const unitPrice = Number(getUnitPrice(drink.itemHrid, 0));
+    if (!(unitPrice > 0)) missingPrices.push(drink.itemHrid);
+    const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+    const costPerHour = unitPrice > 0 ? unitPrice * countPerHour : null;
+    return {
+      ...drink,
+      unitPrice: unitPrice > 0 ? unitPrice : null,
+      countPerHour,
+      costPerHour,
+    };
+  });
+  const requiresTiming = drinks.length > 0;
+  const teaCostPerHour = drinks.reduce(
+    (total, drink) => total + (drink.costPerHour ?? 0),
+    0,
+  );
+  const teaCostPerAction = actionsPerHour
+    ? teaCostPerHour / actionsPerHour
+    : requiresTiming
+      ? null
+      : 0;
+  const complete =
+    missingPrices.length === 0 && (!requiresTiming || actionsPerHour !== null);
+  const totalCostPerAction = complete
+    ? materialCostPerAction + teaCostPerAction
+    : null;
+
+  return {
+    status: complete ? "complete" : "incomplete",
+    complete,
+    actionHrid,
+    detail,
+    inputs,
+    outputs: getExpectedOutputs(detail),
+    drinks,
+    teaEffects: { ...teaEffects, drinks },
+    secondsPerAction,
+    actionsPerHour,
+    materialCostPerAction,
+    teaCostPerHour,
+    teaCostPerAction,
+    totalCostPerAction,
+    missing: requiresTiming && !actionsPerHour ? ["actionTiming"] : [],
+    missingPrices: [...new Set(missingPrices)],
   };
 }
 
@@ -925,6 +1043,7 @@ Object.assign(runtime.api, {
   getDirectInputs,
   getActionRemainingCount: getActionCount,
   isPlayerProjectionDataReady: isPlayerDataReady,
+  projectActionCraftingCost,
   projectAction,
   projectQueue,
   resolveProductionActionByItemHrid,

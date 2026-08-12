@@ -20,6 +20,8 @@ export const ANNOUNCEMENTS = Object.freeze([
         "生产利润悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端改为 800 毫秒长按，并支持滑动取消与点外关闭。",
         "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
         "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。",
+        "资产与吃书经验不再显示浮点尾数；宝箱碎片自制钥匙会计入工匠减耗、浓缩倍率和泡饮成本，并可选择忽略所有牛铃价值。",
+        "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。",
       ]),
       en: Object.freeze([
         "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -31,6 +33,8 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Production profit tooltips now require holding Ctrl by default, with any single key configurable in settings. Touch devices use an 800 ms long press with movement cancellation and outside-tap dismissal.",
         "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
         "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further.",
+        "Asset and ability-book XP displays no longer show floating-point tails. Fragment-crafted key estimates now include Artisan reduction, concentration, and drink costs, with an option to ignore all Cowbell value.",
+        "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition.",
       ]),
     }),
   }),

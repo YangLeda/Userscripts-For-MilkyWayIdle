@@ -187,6 +187,13 @@ let settingsMap = {
       : "Use fragment crafting cost for keys; off buys finished keys.",
     isTrue: false,
   },
+  lootIgnoreCowbells: {
+    id: "lootIgnoreCowbells",
+    desc: isZH
+      ? "宝箱估值忽略牛铃及牛铃袋的价值"
+      : "Ignore Cowbell and Cowbell Bag value in loot estimates.",
+    isTrue: false,
+  },
   expPercentage: {
     id: "expPercentage",
     desc: isZH
@@ -794,8 +801,16 @@ const catalogRows = [
     "market",
     "钥匙碎片自制",
     "Craft keys from fragments",
-    "开启：按实际配方和碎片成本自制钥匙；关闭：购买成品钥匙。",
-    "On: craft keys from their actual recipe; off: buy finished keys.",
+    "开启：按实际配方、工匠减耗、浓缩倍率和泡饮成本自制钥匙；关闭：购买成品钥匙。",
+    "On: craft keys using the recipe, Artisan reduction, concentration, and drink costs; off: buy finished keys.",
+  ],
+  [
+    "lootIgnoreCowbells",
+    "market",
+    "宝箱估值忽略牛铃",
+    "Ignore Cowbells in loot",
+    "开启后，所有直接或嵌套宝箱中的牛铃和牛铃袋均保留掉落显示，但价值按零计算。",
+    "Keep Cowbell and Cowbell Bag drops visible but value them at zero in direct and nested loot estimates.",
   ],
   [
     "marketFilter",
@@ -1074,6 +1089,7 @@ const settingParents = {
   lootSellAtAsk: "lootChestEstimate",
   lootBuyAtAsk: "lootChestEstimate",
   lootKeyFromFragments: "lootChestEstimate",
+  lootIgnoreCowbells: "lootChestEstimate",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",

@@ -973,6 +973,11 @@
       desc: isZH ? "钥匙按碎片自制成本计算；关闭则按成品钥匙买入价" : "Use fragment crafting cost for keys; off buys finished keys.",
       isTrue: false
     },
+    lootIgnoreCowbells: {
+      id: "lootIgnoreCowbells",
+      desc: isZH ? "宝箱估值忽略牛铃及牛铃袋的价值" : "Ignore Cowbell and Cowbell Bag value in loot estimates.",
+      isTrue: false
+    },
     expPercentage: {
       id: "expPercentage",
       desc: isZH ? "左侧栏显示：技能经验百分比" : "Left sidebar: Percentages of exp of the skill levels.",
@@ -1518,8 +1523,16 @@
       "market",
       "钥匙碎片自制",
       "Craft keys from fragments",
-      "开启：按实际配方和碎片成本自制钥匙；关闭：购买成品钥匙。",
-      "On: craft keys from their actual recipe; off: buy finished keys."
+      "开启：按实际配方、工匠减耗、浓缩倍率和泡饮成本自制钥匙；关闭：购买成品钥匙。",
+      "On: craft keys using the recipe, Artisan reduction, concentration, and drink costs; off: buy finished keys."
+    ],
+    [
+      "lootIgnoreCowbells",
+      "market",
+      "宝箱估值忽略牛铃",
+      "Ignore Cowbells in loot",
+      "开启后，所有直接或嵌套宝箱中的牛铃和牛铃袋均保留掉落显示，但价值按零计算。",
+      "Keep Cowbell and Cowbell Bag drops visible but value them at zero in direct and nested loot estimates."
     ],
     [
       "marketFilter",
@@ -1796,6 +1809,7 @@
     lootSellAtAsk: "lootChestEstimate",
     lootBuyAtAsk: "lootChestEstimate",
     lootKeyFromFragments: "lootChestEstimate",
+    lootIgnoreCowbells: "lootChestEstimate",
     taskMaterials: "taskInsights",
     taskQueueProgress: "taskInsights",
     taskAutoSort: "taskInsights",
@@ -18720,12 +18734,16 @@
   function getNumberLocale() {
     return runtime.config.isZH ? "zh-CN" : "en-US";
   }
-  function formatExactNumber(value) {
+  function formatExactNumber(value, fractionDigits = 20) {
     if (value === null || value === void 0 || value === "") return "—";
     const number2 = Number(value);
     if (!Number.isFinite(number2)) return "—";
+    const maximumFractionDigits = Math.min(
+      20,
+      Math.max(0, Math.floor(Number(fractionDigits) || 0))
+    );
     return new Intl.NumberFormat(getNumberLocale(), {
-      maximumFractionDigits: 20,
+      maximumFractionDigits,
       useGrouping: true
     }).format(number2);
   }
@@ -19212,6 +19230,7 @@
   function getDirectInputs(detail) {
     const inputs = asArray(detail?.inputItems).map((item) => ({
       itemHrid: item.itemHrid,
+      enhancementLevel: Number(item.enhancementLevel ?? 0) || 0,
       count: Number(item.count) || 0,
       isUpgradeItem: false,
       upgradeItemCount: 0
@@ -19230,6 +19249,7 @@
       } else {
         inputs.push({
           itemHrid: detail.upgradeItemHrid,
+          enhancementLevel: 0,
           count: 1,
           isUpgradeItem: true,
           upgradeItemCount: 1
@@ -19353,6 +19373,104 @@
         0,
         base.upgradedProduct * concentrationMultiplier
       )
+    };
+  }
+  function projectActionCraftingCost(actionOrHrid, options = {}) {
+    const action = typeof actionOrHrid === "string" ? { actionHrid: actionOrHrid } : actionOrHrid ?? {};
+    const actionHrid = action.actionHrid ?? action.hrid;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!actionHrid || !detail) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        missing: ["actionData"],
+        missingPrices: []
+      };
+    }
+    if (!isPlayerDataReady()) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        detail,
+        missing: ["playerData"],
+        missingPrices: []
+      };
+    }
+    const teaEffects = getEffectiveTeaEffects(actionHrid);
+    if (!teaEffects) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        detail,
+        missing: ["playerData"],
+        missingPrices: []
+      };
+    }
+    const getUnitPrice = typeof options.getUnitPrice === "function" ? options.getUnitPrice : () => null;
+    const missingPrices = [];
+    const inputs = getDirectInputs(detail).map((input) => {
+      const effectiveCount = getEffectiveInputCount(
+        input,
+        teaEffects.lessResource
+      );
+      const unitPrice = Number(
+        getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0)
+      );
+      if (!(unitPrice > 0)) missingPrices.push(input.itemHrid);
+      return {
+        ...input,
+        effectiveCount,
+        unitPrice: unitPrice > 0 ? unitPrice : null,
+        valuePerAction: unitPrice > 0 ? effectiveCount * unitPrice : null
+      };
+    });
+    const materialCostPerAction = inputs.reduce(
+      (total, input) => total + (input.valuePerAction ?? 0),
+      0
+    );
+    const timing = getEffectiveSeconds(actionHrid, detail, options);
+    const secondsPerAction = timing?.secondsPerAction ?? null;
+    const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+    const drinks = teaEffects.drinks.map((drink) => {
+      const unitPrice = Number(getUnitPrice(drink.itemHrid, 0));
+      if (!(unitPrice > 0)) missingPrices.push(drink.itemHrid);
+      const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+      const costPerHour = unitPrice > 0 ? unitPrice * countPerHour : null;
+      return {
+        ...drink,
+        unitPrice: unitPrice > 0 ? unitPrice : null,
+        countPerHour,
+        costPerHour
+      };
+    });
+    const requiresTiming = drinks.length > 0;
+    const teaCostPerHour = drinks.reduce(
+      (total, drink) => total + (drink.costPerHour ?? 0),
+      0
+    );
+    const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : requiresTiming ? null : 0;
+    const complete = missingPrices.length === 0 && (!requiresTiming || actionsPerHour !== null);
+    const totalCostPerAction = complete ? materialCostPerAction + teaCostPerAction : null;
+    return {
+      status: complete ? "complete" : "incomplete",
+      complete,
+      actionHrid,
+      detail,
+      inputs,
+      outputs: getExpectedOutputs(detail),
+      drinks,
+      teaEffects: { ...teaEffects, drinks },
+      secondsPerAction,
+      actionsPerHour,
+      materialCostPerAction,
+      teaCostPerHour,
+      teaCostPerAction,
+      totalCostPerAction,
+      missing: requiresTiming && !actionsPerHour ? ["actionTiming"] : [],
+      missingPrices: [...new Set(missingPrices)]
     };
   }
   function isPlayerDataReady() {
@@ -19822,6 +19940,7 @@
     getDirectInputs,
     getActionRemainingCount: getActionCount,
     isPlayerProjectionDataReady: isPlayerDataReady,
+    projectActionCraftingCost,
     projectAction,
     projectQueue,
     resolveProductionActionByItemHrid
@@ -19840,6 +19959,7 @@
     createPlansByDefault: true,
     inventorySyncEnabled: true,
     autoCollapseEnabled: true,
+    autoExpandOnAddEnabled: false,
     locateEnabled: true,
     autoPrefillEnabled: true,
     purchaseNavEnabled: true,
@@ -20042,7 +20162,7 @@
     refreshPlanProgress();
     ready = Boolean(activeCharacterId2);
     emit("character:change", { characterId: activeCharacterId2 });
-    emit("cart:change", { items: getCartItems() });
+    emit("cart:change", { reason: "load", added: 0, items: getCartItems() });
     emit("plan:change", { plans: getPlans() });
     if (ready) emit("ready", { characterId: activeCharacterId2 });
   }
@@ -20394,9 +20514,9 @@
       item ? { ...item, name: resolveItemName(item.itemHrid) || item.name } : null
     );
   }
-  function saveCartAndEmit() {
+  function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
     persistData();
-    emit("cart:change", { items: getCartItems() });
+    emit("cart:change", { reason, added, items: getCartItems() });
   }
   function addToCart(input) {
     const rows = Array.isArray(input) ? input : [input];
@@ -20426,7 +20546,7 @@
       });
       added += 1;
     }
-    if (added) saveCartAndEmit();
+    if (added) saveCartAndEmit({ reason: "add", added });
     return { ok: added > 0, added, skipped };
   }
   function addRequirementsToCart(materials, source = "material") {
@@ -20585,18 +20705,25 @@
     if (!settings.autoRestockEnabled) return;
     const now = Date.now();
     let changed = false;
+    let added = 0;
     for (const row of cart.values()) {
       if (!row.starred || !row.threshold || row.manualOverrideUntil > now)
         continue;
       const owned = getInventoryCount2(row.itemHrid, row.enhancementLevel);
       const required = Math.max(0, row.threshold - owned);
       if (required !== row.quantity) {
+        if (required > row.quantity) added += 1;
         row.quantity = required;
         row.baselineStock = owned;
         changed = true;
       }
     }
-    if (changed) saveCartAndEmit();
+    if (changed) {
+      saveCartAndEmit({
+        reason: added ? "add" : "update",
+        added
+      });
+    }
   }
   function getPlans() {
     refreshPlanProgress();
@@ -21252,6 +21379,10 @@
     "/items/task_token",
     "/items/labyrinth_token"
   ]);
+  var COWBELL_VALUE_HRIDS = /* @__PURE__ */ new Set([
+    "/items/cowbell",
+    "/items/bag_of_10_cowbells"
+  ]);
   var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
   var MAX_ACQUISITION_DEPTH = 12;
   var assetValueCache = /* @__PURE__ */ new Map();
@@ -21431,6 +21562,7 @@
       sellAtAsk: Boolean(settings2.lootSellAtAsk?.isTrue),
       buyAtAsk: settings2.lootBuyAtAsk?.isTrue !== false,
       fromFragments: Boolean(settings2.lootKeyFromFragments?.isTrue),
+      ignoreCowbells: Boolean(settings2.lootIgnoreCowbells?.isTrue),
       ...overrides
     };
   }
@@ -21490,7 +21622,7 @@
     let bestValue = Number.POSITIVE_INFINITY;
     let sawRecipe = false;
     const missing = /* @__PURE__ */ new Set();
-    for (const [, action] of entriesOfMap(
+    for (const [actionMapHrid, action] of entriesOfMap(
       runtime.state.initData_actionDetailMap
     )) {
       const outputCount = (action?.outputItems ?? []).reduce((total, output) => {
@@ -21500,30 +21632,21 @@
       }, 0);
       if (!outputCount) continue;
       sawRecipe = true;
-      const inputs = [...action?.inputItems ?? []];
-      const upgradeItemHrid = action?.upgradeItemHrid;
-      if (upgradeItemHrid) {
-        inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
-      }
-      let totalCost = 0;
-      let complete = true;
-      for (const input of inputs) {
-        const inputHrid = input?.itemHrid ?? input?.hrid;
-        const count = positiveNumber2(input?.count);
-        if (!inputHrid || !count) continue;
-        const unitValue = lootPurchaseValue(
-          inputHrid,
-          Number(input?.enhancementLevel ?? 0) || 0,
-          config.buyAtAsk
+      const actionHrid = action?.hrid ?? action?.actionHrid ?? actionMapHrid;
+      const projection = runtime.api.projectActionCraftingCost?.(actionHrid, {
+        getUnitPrice: (inputHrid, enhancementLevel = 0) => lootPurchaseValue(inputHrid, enhancementLevel, config.buyAtAsk)
+      });
+      if (projection?.complete && Number.isFinite(projection.totalCostPerAction)) {
+        bestValue = Math.min(
+          bestValue,
+          projection.totalCostPerAction / outputCount
         );
-        if (!(unitValue > 0)) {
-          complete = false;
-          missing.add(inputHrid);
-          continue;
-        }
-        totalCost += count * unitValue;
+        continue;
       }
-      if (complete) bestValue = Math.min(bestValue, totalCost / outputCount);
+      for (const missingItemHrid of projection?.missingPrices ?? []) {
+        missing.add(missingItemHrid);
+      }
+      if (!projection || projection.missing?.length) missing.add(keyItemHrid);
     }
     return {
       value: Number.isFinite(bestValue) ? bestValue : 0,
@@ -21549,7 +21672,7 @@
       const rewardItemHrid = reward?.itemHrid ?? reward?.hrid;
       const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
       const rewardCount = positiveNumber2(reward?.count ?? 1);
-      if (!rewardItemHrid || !rewardCount || !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))) {
+      if (!rewardItemHrid || !rewardCount || config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(rewardItemHrid) || !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))) {
         continue;
       }
       const rewardUnitValue = lootSaleValue(
@@ -21615,6 +21738,7 @@
     const rows = [];
     let grossValue = 0;
     for (const drop of normalizedDrops) {
+      const cowbellExcluded = config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(drop.itemHrid);
       const nestedChest = normalizeLootDrops(drop.itemHrid).length > 0;
       const marketValue = lootSaleValue(
         drop.itemHrid,
@@ -21629,7 +21753,11 @@
       let priced = false;
       let nestedMissing = [];
       let pendingSelfReference = false;
-      if (nestedChest && drop.itemHrid === itemHrid) {
+      if (cowbellExcluded) {
+        unitValue = 0;
+        valueSource = "excluded";
+        priced = true;
+      } else if (nestedChest && drop.itemHrid === itemHrid) {
         pendingSelfReference = true;
       } else if (nestedChest) {
         const nestedProjection = projectLootChestInternal(
@@ -24776,7 +24904,7 @@
     });
   }
   function formatTooltip(value) {
-    return runtime.api.formatExactNumber?.(value) ?? String(value);
+    return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
   }
   var AssetHistoryChart = class {
     constructor(canvas, fallback) {
@@ -25283,7 +25411,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       return { entries, current, previous, change };
     }
     metric(label, value, className = "") {
-      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
     }
     renderChartPage(page) {
       const { entries, current, previous, change } = this.summaryValues();
@@ -26269,7 +26397,7 @@ ${preview}`
       const setNumber = (selector, value, { signed = false, className = "" } = {}) => {
         const node = this.host.querySelector(selector);
         node.textContent = formatNumber(value, signed);
-        node.title = Number.isFinite(value) ? runtime.api.formatExactNumber(value) : "";
+        node.title = Number.isFinite(value) ? runtime.api.formatExactNumber(value, 0) : "";
         node.className = `mwi-asset-card-value ${className}`.trim();
       };
       setNumber("#mwi-asset-current-total", current.total);
@@ -26296,7 +26424,7 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -26310,7 +26438,7 @@ ${preview}`
         ...entries.map(([dayKey, record]) => {
           const row = document.createElement("tr");
           const total = record?.values?.total;
-          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
           row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
           row.querySelector("[data-delete]").addEventListener("click", () => {
             if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
@@ -28246,7 +28374,7 @@ ${preview}`
     (document.head ?? document.documentElement).appendChild(style);
   }
   function numberHtml(value) {
-    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
   function syncInventorySummaryTypography(invElem, summary) {
     const categoryTitle = invElem.querySelector(
@@ -28338,7 +28466,7 @@ ${preview}`
       heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
       const value = document.createElement("span");
       value.className = "mwi-inventory-category-value";
-      value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
+      value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total, 0)}`;
       value.textContent = `${runtime.config.isZH ? "价值" : "Value"} ${runtime.api.numberFormatter(total)}`;
       heading.appendChild(value);
     }
@@ -30190,7 +30318,7 @@ ${preview}`
       const tokenName = itemName3(route.tokenItemHrid);
       return `${t5("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t5("代币", "token")}`;
     });
-    const sourceLabel = drop.valueSource === "redemption" ? t5("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : drop.valueSource === "zero" ? t5("封印计为 0", "Seal valued at 0") : drop.nested ? t5("开箱期望", "Opening EV") : t5("单价", "Unit");
+    const sourceLabel = drop.valueSource === "redemption" ? t5("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t5("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t5("封印计为 0", "Seal valued at 0") : drop.nested ? t5("开箱期望", "Opening EV") : t5("单价", "Unit");
     const title = [
       `${name}
 ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} · ${t5("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
@@ -30228,6 +30356,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         t5("产物卖出", "Sell drops"),
         config.sellAtAsk ? t5("挂卖单", "List at ask") : t5("立即卖出", "Sell now"),
         config.sellAtAsk
+      ),
+      renderLootSwitch(
+        "lootIgnoreCowbells",
+        t5("牛铃价值", "Cowbell value"),
+        config.ignoreCowbells ? t5("忽略", "Ignored") : t5("计入", "Included"),
+        config.ignoreCowbells
       )
     ];
     if (hasKey) {
@@ -30500,7 +30634,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const settingStops = [
       "lootSellAtAsk",
       "lootBuyAtAsk",
-      "lootKeyFromFragments"
+      "lootKeyFromFragments",
+      "lootIgnoreCowbells"
     ].map((settingId) => runtime.settings.onChange?.(settingId, rerender));
     settingStops.push(
       runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
@@ -32925,6 +33060,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     {
       title: ["界面与快捷键", "Interface & shortcut"],
       rows: [
+        [
+          "autoExpandOnAddEnabled",
+          "加购后自动展开",
+          "Expand after adding",
+          "bool"
+        ],
         ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
         ["resetHandle", "重置把手位置", "Reset handle position", "button"],
         ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"]
@@ -32975,6 +33116,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     autoCollapseEnabled: [
       "所有项目补齐后收起购物车",
       "Collapse after every item is fulfilled"
+    ],
+    autoExpandOnAddEnabled: [
+      "任意入口成功加购后展开并显示清单",
+      "Open the cart list after any successful add"
     ],
     safetyLevel: [
       "为工匠茶的随机省料准备余量",
@@ -34026,7 +34171,11 @@ ${locks}` : ""}`;
     openMarketplace(fallback.itemHrid, fallback.enhancementLevel);
   }
   function subscribeProcurement(scope) {
-    const rerender = () => {
+    const rerender = ({ reason, added } = {}) => {
+      if (reason === "add" && Number(added) > 0 && procurement.getSettings().autoExpandOnAddEnabled) {
+        drawerOpen = true;
+        activeTab = "cart";
+      }
       renderShell();
       lastProductionSignature = "";
       renderProductionProcurement();
@@ -37508,16 +37657,16 @@ ${locks}` : ""}`;
       panel,
       ".mwi-book-state",
       data.isLearned ? t11(
-        `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
-        `Current Lv.${data.level} · total XP ${exact(data.experience)}`
+        `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
+        `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`
       ) : t11("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
       t11(
-        `每本增加 ${exact(data.experienceGain)} 经验`,
-        `${exact(data.experienceGain)} XP per book`
+        `每本增加 ${exact(data.experienceGain, 0)} 经验`,
+        `${exact(data.experienceGain, 0)} XP per book`
       )
     );
     const requirement = calculateAbilityBookRequirement({
@@ -37704,7 +37853,9 @@ ${locks}` : ""}`;
           "修复点金、分解、转化和解精炼的完成时间：现在会结合所选物品批量、催化剂、金币、完成次数和当前周期计算，缺少选择时不再显示无穷大。",
           "生产利润悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端改为 800 毫秒长按，并支持滑动取消与点外关闭。",
           "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
-          "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。"
+          "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。",
+          "资产与吃书经验不再显示浮点尾数；宝箱碎片自制钥匙会计入工匠减耗、浓缩倍率和泡饮成本，并可选择忽略所有牛铃价值。",
+          "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -37715,7 +37866,9 @@ ${locks}` : ""}`;
           "Fixed completion times for Coinify, Decompose, Transmute, and Unrefine by accounting for the selected stack, bulk size, catalyst, coins, completed count, and current cycle. Missing selections no longer appear as infinite.",
           "Production profit tooltips now require holding Ctrl by default, with any single key configurable in settings. Touch devices use an 800 ms long press with movement cancellation and outside-tap dismissal.",
           "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
-          "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further."
+          "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further.",
+          "Asset and ability-book XP displays no longer show floating-point tails. Fragment-crafted key estimates now include Artisan reduction, concentration, and drink costs, with an option to ignore all Cowbell value.",
+          "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition."
         ])
       })
     })

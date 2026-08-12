@@ -45,6 +45,7 @@ test("legacy settings merge into current defaults", () => {
     runtime.settings.settingsMap.includeCowbellsInAssets.isTrue,
     false,
   );
+  assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
     false,
@@ -228,6 +229,7 @@ test("card settings render every visible setting with nested children and search
     /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
   );
   assert.match(root.textContent, /牛铃计入总资产/);
+  assert.match(root.textContent, /宝箱估值忽略牛铃/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
   assert.match(root.textContent, /购物车与采购/);
   const lootSellToggle = root.querySelector(

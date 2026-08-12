@@ -70,6 +70,7 @@ test("procurement owns a standalone three-tab shell outside global settings", as
   );
   host.shadowRoot.querySelector('.tab[data-tab="settings"]').click();
   assert.doesNotMatch(host.shadowRoot.textContent, /[\u3400-\u9fff]/);
+  assert.match(host.shadowRoot.textContent, /Expand after adding/);
   host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
   assert.equal(
     Object.values(runtime.settings.catalog).some((setting) =>
@@ -127,6 +128,50 @@ test("shopping drawer opens only from an explicit cart-handle click", () => {
 
   host.shadowRoot.querySelector(".close").click();
   assert.equal(drawer.dataset.open, "false");
+});
+
+test("optional auto-expand opens the cart only after successful additions", () => {
+  const host = document.querySelector("#mwitools-procurement-host");
+  const drawer = host.shadowRoot.querySelector(".drawer");
+  const close = host.shadowRoot.querySelector(".close");
+  runtime.api.procurement.clearCart({ includeStarred: true });
+
+  assert.equal(
+    runtime.api.procurement.getSettings().autoExpandOnAddEnabled,
+    false,
+  );
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/nail",
+    quantity: 1,
+  });
+  assert.equal(drawer.dataset.open, "false");
+  runtime.api.procurement.removeFromCart("/items/nail");
+
+  runtime.api.procurement.setSetting("autoExpandOnAddEnabled", true);
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/coin",
+    quantity: 1,
+  });
+  assert.equal(drawer.dataset.open, "false");
+
+  runtime.api.procurement.addToCart([
+    { itemHrid: "/items/nail", quantity: 2 },
+    { itemHrid: "/items/board", quantity: 1 },
+  ]);
+  assert.equal(drawer.dataset.open, "true");
+  assert.equal(
+    host.shadowRoot.querySelector('.tab[data-tab="cart"]').dataset.active,
+    "true",
+  );
+
+  close.click();
+  runtime.api.procurement.setCartItemQuantity("/items/nail", 3);
+  assert.equal(drawer.dataset.open, "false");
+  runtime.api.procurement.removeFromCart("/items/nail");
+  assert.equal(drawer.dataset.open, "false");
+
+  runtime.api.procurement.removeFromCart("/items/board");
+  runtime.api.procurement.setSetting("autoExpandOnAddEnabled", false);
 });
 
 test("production procurement augments the existing summary instead of creating another card", () => {

@@ -483,11 +483,13 @@ function renderLootChestDropCell(drop) {
       ? t("最佳兑换折算", "Best redemption")
       : drop.valueSource === "derived"
         ? t("派生期望值", "Derived expected value")
-        : drop.valueSource === "zero"
-          ? t("封印计为 0", "Seal valued at 0")
-          : drop.nested
-            ? t("开箱期望", "Opening EV")
-            : t("单价", "Unit");
+        : drop.valueSource === "excluded"
+          ? t("牛铃已忽略", "Cowbells ignored")
+          : drop.valueSource === "zero"
+            ? t("封印计为 0", "Seal valued at 0")
+            : drop.nested
+              ? t("开箱期望", "Opening EV")
+              : t("单价", "Unit");
   const title = [
     `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}`,
     `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t("无价", "No price")} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`,
@@ -528,6 +530,12 @@ function renderLootChestControls(config, hasKey) {
       t("产物卖出", "Sell drops"),
       config.sellAtAsk ? t("挂卖单", "List at ask") : t("立即卖出", "Sell now"),
       config.sellAtAsk,
+    ),
+    renderLootSwitch(
+      "lootIgnoreCowbells",
+      t("牛铃价值", "Cowbell value"),
+      config.ignoreCowbells ? t("忽略", "Ignored") : t("计入", "Included"),
+      config.ignoreCowbells,
     ),
   ];
   if (hasKey) {
@@ -842,6 +850,7 @@ function attachLootChestControls(panel, itemHrid) {
     "lootSellAtAsk",
     "lootBuyAtAsk",
     "lootKeyFromFragments",
+    "lootIgnoreCowbells",
   ].map((settingId) => runtime.settings.onChange?.(settingId, rerender));
   settingStops.push(
     runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
