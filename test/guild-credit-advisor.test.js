@@ -31,6 +31,7 @@ const {
   collectGuildCreditConversions,
   evaluateGuildCreditConversion,
   evaluateGuildCreditReplacement,
+  findVisibleItemSelector,
   positionGuildCreditAdvisor,
   quoteGuildCreditAsk,
   quoteGuildCreditBid,
@@ -254,7 +255,47 @@ test("the selected best option is tagged and reported as already optimal", async
   assert.match(shadowText(host), /当前方案已是单位信用成本最优/);
 });
 
-test("advisor placement tries right, left, bottom, top and overlay", async () => {
+test("the advisor stays visible and moves above an open item selector", async () => {
+  setOrderBooks();
+  const selector = document.createElement("section");
+  selector.className = "ItemSelector_menu__test";
+  selector.innerHTML = '<input placeholder="物品搜索">';
+  document.body.append(selector);
+  const shell = document.querySelector('[class*="Modal_modalContainer"]');
+  selector.getBoundingClientRect = () => ({
+    left: 40,
+    right: 396,
+    top: 197,
+    bottom: 650,
+    width: 356,
+    height: 453,
+  });
+  shell.getBoundingClientRect = () => ({
+    left: 67,
+    right: 465,
+    top: 56,
+    bottom: 390,
+    width: 398,
+    height: 334,
+  });
+  globalThis.innerWidth = 542;
+  globalThis.innerHeight = 650;
+  assert.equal(findVisibleItemSelector(), selector);
+  const host = await renderGuildCreditAdvisor();
+  host.getBoundingClientRect = () => ({ width: 400, height: 340 });
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(host.dataset.placement, "top-compressed");
+  assert.equal(host.style.top, "12px");
+  assert.equal(host.style.maxHeight, "173px");
+  assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), host);
+
+  selector.hidden = true;
+  assert.equal(findVisibleItemSelector(), undefined);
+  assert.equal(await renderGuildCreditAdvisor(), host);
+  selector.remove();
+});
+
+test("advisor placement tries right, left, top and overlay without using bottom", async () => {
   setOrderBooks();
   const host = await renderGuildCreditAdvisor();
   const shell = document.querySelector('[class*="Modal_modalContainer"]');
@@ -289,26 +330,13 @@ test("advisor placement tries right, left, bottom, top and overlay", async () =>
   shell.getBoundingClientRect = () => ({
     left: 100,
     right: 500,
-    top: 40,
-    bottom: 300,
-    width: 400,
-    height: 260,
-  });
-  globalThis.innerWidth = 600;
-  globalThis.innerHeight = 700;
-  assert.equal(positionGuildCreditAdvisor(), true);
-  assert.equal(host.dataset.placement, "bottom");
-  assert.equal(host.style.top, "312px");
-
-  shell.getBoundingClientRect = () => ({
-    left: 100,
-    right: 500,
     top: 250,
     bottom: 450,
     width: 400,
     height: 200,
   });
   globalThis.innerHeight = 500;
+  globalThis.innerWidth = 600;
   assert.equal(positionGuildCreditAdvisor(), true);
   assert.equal(host.dataset.placement, "top");
   assert.equal(host.style.top, "18px");
@@ -323,7 +351,7 @@ test("advisor placement tries right, left, bottom, top and overlay", async () =>
   });
   assert.equal(positionGuildCreditAdvisor(), true);
   assert.equal(host.dataset.placement, "overlay");
-  assert.equal(host.style.top, "268px");
+  assert.equal(host.style.top, "100px");
 });
 
 test("main guild shop never receives recommendation summaries", async () => {

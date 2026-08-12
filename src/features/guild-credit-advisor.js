@@ -4,9 +4,9 @@ const CARD_ID = "mwitools-guild-credit-advisor";
 const LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style";
 const LEGACY_SUMMARY_CLASS = "mwi-guild-credit-recommendation";
 const MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
+const ITEM_SELECTOR = '[class*="ItemSelector_menu"]';
 const VIEWPORT_MARGIN = 12;
 const PANEL_GAP = 12;
-const MOBILE_BREAKPOINT = 760;
 
 const CREDIT_COLORS = {
   green: "#43c4ad",
@@ -51,13 +51,28 @@ function formatExact(value) {
 }
 
 function isVisible(element) {
-  if (!element?.isConnected || element.hidden) return false;
-  const style = element.ownerDocument?.defaultView?.getComputedStyle?.(element);
-  return style?.display !== "none" && style?.visibility !== "hidden";
+  if (!element?.isConnected) return false;
+  for (let current = element; current; current = current.parentElement) {
+    if (current.hidden || current.getAttribute?.("aria-hidden") === "true") {
+      return false;
+    }
+    const style =
+      current.ownerDocument?.defaultView?.getComputedStyle?.(current);
+    if (style?.display === "none" || style?.visibility === "hidden") {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function findGuildExchangeModal(documentRef = document) {
   return [...documentRef.querySelectorAll(MODAL_SELECTOR)]
+    .filter(isVisible)
+    .at(-1);
+}
+
+export function findVisibleItemSelector(documentRef = document) {
+  return [...documentRef.querySelectorAll(ITEM_SELECTOR)]
     .filter(isVisible)
     .at(-1);
 }
@@ -551,6 +566,16 @@ function viewportSize() {
   };
 }
 
+function overlapsRect({ left, top, width, height }, blocker) {
+  if (!(blocker?.width > 0) || !(blocker?.height > 0)) return false;
+  return !(
+    left + width <= blocker.left ||
+    left >= blocker.right ||
+    top + height <= blocker.top ||
+    top >= blocker.bottom
+  );
+}
+
 export function positionGuildCreditAdvisor() {
   const state = advisorPositionState;
   if (!state?.host?.isConnected || !state.anchor?.isConnected) return false;
@@ -559,24 +584,56 @@ export function positionGuildCreditAdvisor() {
   const viewport = viewportSize();
   const width = hostRect.width || Math.min(400, viewport.width - 24);
   const height = hostRect.height || Math.min(260, viewport.height - 24);
+  const selectorRect = findVisibleItemSelector()?.getBoundingClientRect?.();
+  const sideTop = clamp(
+    anchorRect.top,
+    VIEWPORT_MARGIN,
+    viewport.height - height - VIEWPORT_MARGIN,
+  );
+  const rightCandidate = {
+    left: anchorRect.right + PANEL_GAP,
+    top: sideTop,
+    width,
+    height,
+  };
+  const leftCandidate = {
+    left: anchorRect.left - PANEL_GAP - width,
+    top: sideTop,
+    width,
+    height,
+  };
+  const topCandidate = {
+    left: clamp(
+      anchorRect.left + (anchorRect.width - width) / 2,
+      VIEWPORT_MARGIN,
+      viewport.width - width - VIEWPORT_MARGIN,
+    ),
+    top: anchorRect.top - PANEL_GAP - height,
+    width,
+    height,
+  };
   const fitsRight =
-    anchorRect.right + PANEL_GAP + width <= viewport.width - VIEWPORT_MARGIN;
-  const fitsLeft = anchorRect.left - PANEL_GAP - width >= VIEWPORT_MARGIN;
-  const fitsBottom =
-    anchorRect.bottom + PANEL_GAP + height <= viewport.height - VIEWPORT_MARGIN;
-  const fitsTop = anchorRect.top - PANEL_GAP - height >= VIEWPORT_MARGIN;
-  const mobile = viewport.width <= MOBILE_BREAKPOINT;
+    rightCandidate.left + width <= viewport.width - VIEWPORT_MARGIN &&
+    !overlapsRect(rightCandidate, selectorRect);
+  const fitsLeft =
+    leftCandidate.left >= VIEWPORT_MARGIN &&
+    !overlapsRect(leftCandidate, selectorRect);
+  const fitsTop =
+    topCandidate.top >= VIEWPORT_MARGIN &&
+    !overlapsRect(topCandidate, selectorRect);
+  const selectorTopSpace = selectorRect
+    ? selectorRect.top - PANEL_GAP - VIEWPORT_MARGIN
+    : 0;
+  const fitsCompressedTop = selectorTopSpace > 0;
   let placement;
-  if (mobile) {
-    placement = fitsBottom ? "bottom" : fitsTop ? "top" : "overlay";
-  } else if (fitsRight) {
+  if (fitsRight) {
     placement = "right";
   } else if (fitsLeft) {
     placement = "left";
-  } else if (fitsBottom) {
-    placement = "bottom";
   } else if (fitsTop) {
     placement = "top";
+  } else if (fitsCompressedTop) {
+    placement = "top-compressed";
   } else {
     placement = "overlay";
   }
@@ -585,43 +642,20 @@ export function positionGuildCreditAdvisor() {
   let top;
   let maxHeight = viewport.height - VIEWPORT_MARGIN * 2;
   if (placement === "right") {
-    left = anchorRect.right + PANEL_GAP;
-    top = clamp(
-      anchorRect.top,
-      VIEWPORT_MARGIN,
-      viewport.height - height - VIEWPORT_MARGIN,
-    );
+    ({ left, top } = rightCandidate);
   } else if (placement === "left") {
-    left = anchorRect.left - PANEL_GAP - width;
+    ({ left, top } = leftCandidate);
+  } else if (placement === "top") {
+    ({ left, top } = topCandidate);
+    maxHeight = anchorRect.top - PANEL_GAP - VIEWPORT_MARGIN;
+  } else if (placement === "top-compressed") {
+    left = topCandidate.left;
+    maxHeight = selectorTopSpace;
+    top = selectorRect.top - PANEL_GAP - Math.min(height, maxHeight);
+  } else {
+    left = topCandidate.left;
     top = clamp(
       anchorRect.top,
-      VIEWPORT_MARGIN,
-      viewport.height - height - VIEWPORT_MARGIN,
-    );
-  } else if (placement === "bottom") {
-    left = clamp(
-      anchorRect.left + (anchorRect.width - width) / 2,
-      VIEWPORT_MARGIN,
-      viewport.width - width - VIEWPORT_MARGIN,
-    );
-    top = anchorRect.bottom + PANEL_GAP;
-    maxHeight = viewport.height - top - VIEWPORT_MARGIN;
-  } else if (placement === "top") {
-    left = clamp(
-      anchorRect.left + (anchorRect.width - width) / 2,
-      VIEWPORT_MARGIN,
-      viewport.width - width - VIEWPORT_MARGIN,
-    );
-    maxHeight = anchorRect.top - PANEL_GAP - VIEWPORT_MARGIN;
-    top = anchorRect.top - PANEL_GAP - Math.min(height, maxHeight);
-  } else {
-    left = clamp(
-      anchorRect.left + (anchorRect.width - width) / 2,
-      VIEWPORT_MARGIN,
-      viewport.width - width - VIEWPORT_MARGIN,
-    );
-    top = clamp(
-      anchorRect.bottom + PANEL_GAP,
       VIEWPORT_MARGIN,
       viewport.height - height - VIEWPORT_MARGIN,
     );
@@ -629,7 +663,11 @@ export function positionGuildCreditAdvisor() {
   state.host.dataset.placement = placement;
   state.host.style.left = `${Math.round(left)}px`;
   state.host.style.top = `${Math.round(top)}px`;
-  state.host.style.maxHeight = `${Math.max(72, Math.round(maxHeight))}px`;
+  state.host.style.maxHeight = `${
+    placement === "top-compressed"
+      ? Math.max(1, Math.round(maxHeight))
+      : Math.max(72, Math.round(maxHeight))
+  }px`;
   return true;
 }
 
@@ -798,15 +836,19 @@ runtime.features.register({
         }
         if (
           mutation.type === "attributes" &&
-          (mutation.target?.matches?.(MODAL_SELECTOR) ||
-            mutation.target?.querySelector?.(MODAL_SELECTOR))
+          (mutation.target?.matches?.(`${MODAL_SELECTOR},${ITEM_SELECTOR}`) ||
+            mutation.target?.querySelector?.(
+              `${MODAL_SELECTOR},${ITEM_SELECTOR}`,
+            ))
         ) {
           return true;
         }
         return [...mutation.addedNodes, ...mutation.removedNodes].some(
           (node) =>
             node?.matches?.(MODAL_SELECTOR) ||
-            node?.querySelector?.(MODAL_SELECTOR),
+            node?.matches?.(ITEM_SELECTOR) ||
+            node?.querySelector?.(MODAL_SELECTOR) ||
+            node?.querySelector?.(ITEM_SELECTOR),
         );
       });
       if (relevant) schedule();
