@@ -40567,12 +40567,37 @@ ${locks}` : ""}`;
       }
     }
   });
+  function scanOnDemand(scope, scan2, messages = []) {
+    let coalesced = 0;
+    let trailing = 0;
+    const flush = () => {
+      coalesced = 0;
+      scan2();
+    };
+    const scheduleSoon = () => {
+      if (coalesced) return;
+      coalesced = setTimeout(flush, 0);
+    };
+    const onInteraction = () => {
+      scheduleSoon();
+      clearTimeout(trailing);
+      trailing = setTimeout(scan2, 250);
+    };
+    scan2();
+    scope.event(document, "click", onInteraction, true);
+    for (const message of messages) {
+      scope.add(runtime.onMessage(message, scheduleSoon));
+    }
+    scope.add(() => {
+      clearTimeout(coalesced);
+      clearTimeout(trailing);
+    });
+  }
   runtime.features.register({
     id: "itemIconLevel",
     setting: "itemIconLevel",
     initialize({ scope }) {
-      addItemLevels();
-      scope.interval(addItemLevels, 500);
+      scanOnDemand(scope, addItemLevels, ["items_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_itemLevel,.script_key").forEach((node) => node.remove())
       );
@@ -40591,8 +40616,7 @@ ${locks}` : ""}`;
     id: "marketFilter",
     setting: "marketFilter",
     initialize({ scope }) {
-      addMarketFilterButtons();
-      scope.interval(addMarketFilterButtons, 500);
+      scanOnDemand(scope, addMarketFilterButtons);
       scope.add(() => document.querySelector("#script_filters")?.remove());
     }
   });
@@ -40601,8 +40625,7 @@ ${locks}` : ""}`;
     setting: "taskMapIndex",
     scope: "character",
     initialize({ scope }) {
-      handleTaskCard();
-      scope.interval(handleTaskCard, 500);
+      scanOnDemand(scope, handleTaskCard, ["quests_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_taskMapIndex").forEach((node) => node.remove())
       );
@@ -40612,8 +40635,7 @@ ${locks}` : ""}`;
     id: "mapIndex",
     setting: "mapIndex",
     initialize({ scope }) {
-      addIndexToMaps();
-      scope.interval(addIndexToMaps, 500);
+      scanOnDemand(scope, addIndexToMaps);
       scope.add(
         () => document.querySelectorAll(".script_mapIndex").forEach((node) => node.remove())
       );

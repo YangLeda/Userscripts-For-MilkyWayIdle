@@ -65,3 +65,36 @@ test("battle summary keeps encounters and XP while hiding iron-cow revenue", asy
   assert.doesNotMatch(summary.textContent, /revenue|Raw coins/i);
   assert.equal(marketFetches, 1, "iron mode must not request market data");
 });
+
+test("icon decorations run on interaction, not on a perpetual poll", async () => {
+  const tabMarkup = (label) =>
+    `<button class="MuiButtonBase-root MuiTab-root MuiTab-textColorPrimary css-1q2h7u5"><span class="MuiBadge-root TabsComponent_badge__1Du26 css-1rzb3uu">${label}</span></button>`;
+  document.body.innerHTML = `<div class="MainPanel_subPanelContainer__1i-H9"><div class="CombatPanel_tabsComponentContainer__GsQlg"><div class="MuiTabs-root MuiTabs-vertical css-6x4ics" id="tabs">${tabMarkup("A")}</div></div></div>`;
+  const tabs = document.querySelector("#tabs");
+
+  await runtime.features.enable("mapIndex");
+  // The initial scan on enable decorates whatever is already rendered.
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 1);
+
+  // A newly rendered tab must NOT be decorated without an interaction — proving
+  // there is no background poll picking it up.
+  tabs.insertAdjacentHTML("beforeend", tabMarkup("B"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    tabs.querySelectorAll(".script_mapIndex").length,
+    1,
+    "a poll would have decorated the new tab; on-demand scanning must not",
+  );
+
+  // A click switches panels, so it triggers a rescan that decorates the tab.
+  document.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    tabs.querySelectorAll(".script_mapIndex").length,
+    2,
+    "a click must trigger a rescan",
+  );
+
+  await runtime.features.disable("mapIndex");
+  assert.equal(document.querySelectorAll(".script_mapIndex").length, 0);
+});

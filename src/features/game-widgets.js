@@ -579,12 +579,47 @@ Object.defineProperties(runtime.state, {
   },
 });
 
+// Run `scan` on demand instead of polling forever. These decorations attach to
+// game-rendered nodes that only appear when the user navigates (a click, which
+// switches the panel on screen) or when the underlying data changes (a WS
+// message such as items_updated / quests_updated). Between those, nothing new
+// can need decorating, so there is no reason to keep scanning — an idle player
+// who never clicks triggers zero scans. Scans are coalesced so a burst (e.g.
+// loot arriving during combat) costs at most one pass per tick, and a click
+// also schedules a short trailing pass to catch React's asynchronous re-render
+// of the freshly opened panel.
+function scanOnDemand(scope, scan, messages = []) {
+  let coalesced = 0;
+  let trailing = 0;
+  const flush = () => {
+    coalesced = 0;
+    scan();
+  };
+  const scheduleSoon = () => {
+    if (coalesced) return;
+    coalesced = setTimeout(flush, 0);
+  };
+  const onInteraction = () => {
+    scheduleSoon();
+    clearTimeout(trailing);
+    trailing = setTimeout(scan, 250);
+  };
+  scan();
+  scope.event(document, "click", onInteraction, true);
+  for (const message of messages) {
+    scope.add(runtime.onMessage(message, scheduleSoon));
+  }
+  scope.add(() => {
+    clearTimeout(coalesced);
+    clearTimeout(trailing);
+  });
+}
+
 runtime.features.register({
   id: "itemIconLevel",
   setting: "itemIconLevel",
   initialize({ scope }) {
-    addItemLevels();
-    scope.interval(addItemLevels, 500);
+    scanOnDemand(scope, addItemLevels, ["items_updated"]);
     scope.add(() =>
       document
         .querySelectorAll(".script_itemLevel,.script_key")
@@ -608,8 +643,7 @@ runtime.features.register({
   id: "marketFilter",
   setting: "marketFilter",
   initialize({ scope }) {
-    addMarketFilterButtons();
-    scope.interval(addMarketFilterButtons, 500);
+    scanOnDemand(scope, addMarketFilterButtons);
     scope.add(() => document.querySelector("#script_filters")?.remove());
   },
 });
@@ -619,8 +653,7 @@ runtime.features.register({
   setting: "taskMapIndex",
   scope: "character",
   initialize({ scope }) {
-    handleTaskCard();
-    scope.interval(handleTaskCard, 500);
+    scanOnDemand(scope, handleTaskCard, ["quests_updated"]);
     scope.add(() =>
       document
         .querySelectorAll(".script_taskMapIndex")
@@ -633,8 +666,7 @@ runtime.features.register({
   id: "mapIndex",
   setting: "mapIndex",
   initialize({ scope }) {
-    addIndexToMaps();
-    scope.interval(addIndexToMaps, 500);
+    scanOnDemand(scope, addIndexToMaps);
     scope.add(() =>
       document
         .querySelectorAll(".script_mapIndex")
