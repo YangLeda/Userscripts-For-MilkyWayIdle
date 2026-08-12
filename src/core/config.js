@@ -96,7 +96,7 @@ let settingsMap = {
   invWorth: {
     id: "invWorth",
     desc: isZH
-      ? "仓库搜索栏下方显示：仓库和着装评分总结"
+      ? "库存搜索栏下方显示：库存和着装评分总结"
       : "Below inventory search bar: Inventory and gear score summary.",
     isTrue: true,
   },
@@ -114,7 +114,7 @@ let settingsMap = {
   },
   invSort: {
     id: "invSort",
-    desc: isZH ? "仓库显示：仓库物品排序" : "Inventory: Sort inventory items.",
+    desc: isZH ? "库存显示：库存物品排序" : "Inventory: Sort inventory items.",
     isTrue: true,
   },
   guildCreditConversionsSort: {
@@ -134,8 +134,8 @@ let settingsMap = {
   itemTooltip_prices: {
     id: "itemTooltip_prices",
     desc: isZH
-      ? "物品悬浮窗显示：服务器市场价值和订单簿价格"
-      : "Item tooltip: Server market value and orderbook prices.",
+      ? "物品悬浮窗显示：市场价值和订单簿价格"
+      : "Item tooltip: Market value and order book prices.",
     isTrue: true,
   },
   itemTooltip_profit: {
@@ -260,7 +260,7 @@ let settingsMap = {
   checkEquipment: {
     id: "checkEquipment",
     desc: isZH
-      ? "页面上方显示：战斗时穿了生产装备，或者生产时没有穿对应的生产装备而仓库里有，红字警告"
+      ? "页面上方显示：战斗时穿了生产装备，或者生产时没有穿对应的生产装备而库存里有，红字警告"
       : "Top: Alert when fighting with production equipment equipped, or producing while matching equipment is unequipped in inventory.",
     isTrue: true,
   },
@@ -665,7 +665,7 @@ const catalogRows = [
     "inventory",
     "按价值整理库存",
     "Sort inventory by value",
-    "可按服务器价值、卖价或买价整理库存，并显示整堆价值。",
+    "可按市场价值、出售价或收购价整理库存，并显示整堆价值。",
     "Sort inventory by server value, ask, or bid and show each stack value.",
   ],
   [
@@ -697,7 +697,7 @@ const catalogRows = [
     "market",
     "悬浮价格",
     "Tooltip prices",
-    "在物品悬浮窗显示服务器价值和当前买卖价格。",
+    "在物品悬浮窗显示市场价值和当前出售价、收购价。",
     "Show server value and current ask and bid prices in item tooltips.",
   ],
   [
@@ -905,7 +905,7 @@ const catalogRows = [
     "combat",
     "错装提醒",
     "Equipment warning",
-    "战斗穿生产装或生产漏穿仓库中的对应装备时发出提醒。",
+    "战斗穿生产装或生产漏穿库存中的对应装备时发出提醒。",
     "Warn about skilling gear in combat or useful unequipped gear while skilling.",
   ],
   [
@@ -1061,7 +1061,12 @@ async function setSetting(id, value, options = {}) {
     try {
       listener(normalized, previous);
     } catch (error) {
-      console.error(`[MWITools] Setting listener failed for ${id}`, error);
+      console.error(
+        isZH
+          ? `[MWITools] 设置 ${id} 的监听器执行失败`
+          : `[MWITools] Setting listener failed for ${id}`,
+        error,
+      );
     }
   }
   await runtime.features.syncSetting(id);

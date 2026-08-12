@@ -197,6 +197,6 @@ test("missing character data waits and missing prices do not hide book counts", 
   runtime.dispatchMessage({ type: "character_abilities_updated" });
   await settle();
   assert.match(dictionary.textContent, /解锁 1 \+ 升级 0 = 合计 1 本/);
-  assert.match(dictionary.textContent, /参考购买成本：暂无卖价/);
+  assert.match(dictionary.textContent, /参考购买成本：暂无出售价/);
   await runtime.features.disable("skillbook");
 });

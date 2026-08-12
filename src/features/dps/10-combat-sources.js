@@ -1629,24 +1629,38 @@ const DamageSources = (() => {
     }
     if (value.startsWith("combined:")) {
       const { weapon, action } = decodeCombined(value);
+      const weaponName = label(weapon);
       return (
         label(action) +
         "（" +
         (english ? "includes " : "含") +
-        label(weapon) +
+        (english
+          ? weaponName
+          : weaponName.startsWith("武器特效：")
+            ? weaponName.slice(5) + "特效"
+            : weaponName) +
         "）"
       );
     }
     if (value.startsWith("/items/")) {
-      if (itemLabels[value]) return itemLabels[value][english ? 1 : 0];
-      const englishName = value
-        .split("/")
-        .pop()
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (char) => char.toUpperCase());
-      return Settings.getLanguage() === "en"
-        ? englishName + " Effect"
-        : "武器特效：" + englishName;
+      const itemDetailMap = runtime.state.initData_itemDetailMap;
+      const itemDetail =
+        itemDetailMap instanceof Map
+          ? itemDetailMap.get(value)
+          : itemDetailMap?.[value];
+      const englishName =
+        String(itemDetail?.name || "").trim() ||
+        itemLabels[value]?.[1] ||
+        value
+          .split("/")
+          .pop()
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (char) => char.toUpperCase());
+      const chineseName =
+        runtime.data.ZHItemNames?.[value] ||
+        itemLabels[value]?.[0] ||
+        englishName;
+      return english ? englishName + " Effect" : "武器特效：" + chineseName;
     }
     const tail = value
       .split("/")
@@ -1715,6 +1729,10 @@ const TakenSources = (() => {
     };
   }
   function monsterLabel(detail) {
+    if (Settings.getLanguage() !== "en") {
+      const officialName = runtime.data.ZHOthersDic?.[detail.monsterHrid];
+      if (officialName) return officialName;
+    }
     if (detail.monsterName) return detail.monsterName;
     const tail = String(detail.monsterHrid || "")
       .split("/")

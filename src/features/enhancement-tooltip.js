@@ -17,7 +17,7 @@ function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
   const ask = runtime.api.getAskPrice(itemHrid, enhancementLevel);
   const bid = runtime.api.getBidPrice(itemHrid, enhancementLevel);
   const valueRow = document.createElement("div");
-  valueRow.textContent = `${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}`;
+  valueRow.textContent = `${runtime.config.isZH ? "市场价值: " : "Market value: "}${fairValue > 0 ? runtime.api.numberFormatter(fairValue) : "-"}`;
   const priceRow = document.createElement("div");
   priceRow.textContent = `${runtime.config.isZH ? "价格: " : "Price: "}${runtime.api.numberFormatter(ask)} / ${runtime.api.numberFormatter(bid)}`;
   wrapper.append(valueRow, priceRow);

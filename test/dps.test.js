@@ -205,6 +205,19 @@ assert(
   DamageSources.label("dot:/abilities/fireball") === "持续伤害（火球）",
   "持续伤害明细没有复用官方技能名",
 );
+runtime.state.initData_itemDetailMap = {
+  "/items/sundering_crossbow": { name: "Sundering Crossbow" },
+};
+assert(
+  DamageSources.label("/items/sundering_crossbow") === "武器特效：裂空之弩",
+  "武器特效没有优先使用游戏官方物品汉化",
+);
+Settings.setLanguage("en");
+assert(
+  DamageSources.label("/items/sundering_crossbow") ===
+    "Sundering Crossbow Effect",
+  "英文武器特效没有优先读取客户端物品名称",
+);
 runtime.state.initData_abilityDetailMap = {
   "/abilities/future_ability": { name: "Future Ability" },
 };
@@ -220,7 +233,7 @@ assert(
 );
 assert(
   DamageSources.label("combined:%2Fitems%2Fsundering_crossbow|auto") ===
-    "普通攻击（含裂空弩特效）",
+    "普通攻击（含裂空之弩特效）",
   "裂空弩的直接武器附伤没有显示为“攻击（含武器特效）”",
 );
 assert(

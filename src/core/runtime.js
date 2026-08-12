@@ -57,7 +57,12 @@ function createCleanupScope() {
         try {
           callback();
         } catch (error) {
-          console.error("[MWITools] Feature cleanup failed", error);
+          console.error(
+            runtime.config.isZH
+              ? "[MWITools] 功能清理失败"
+              : "[MWITools] Feature cleanup failed",
+            error,
+          );
         }
       }
       callbacks.clear();
@@ -77,7 +82,12 @@ function emitFeatureStatus(id) {
     try {
       listener(id, snapshot);
     } catch (error) {
-      console.error("[MWITools] Feature status listener failed", error);
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 功能状态监听器执行失败"
+          : "[MWITools] Feature status listener failed",
+        error,
+      );
     }
   }
 }
@@ -152,7 +162,12 @@ async function initializeFeature(id) {
       scope: null,
       instanceCleanup: null,
     });
-    console.error(`[MWITools] Failed to initialize feature ${id}`, error);
+    console.error(
+      runtime.config.isZH
+        ? `[MWITools] 功能 ${id} 启动失败`
+        : `[MWITools] Failed to initialize feature ${id}`,
+      error,
+    );
     emitFeatureStatus(id);
     return false;
   }
@@ -169,7 +184,12 @@ async function disableFeature(id) {
       await state.instanceCleanup?.();
       await definition?.cleanup?.({ runtime, characterId: activeCharacterId });
     } catch (error) {
-      console.error(`[MWITools] Failed to clean up feature ${id}`, error);
+      console.error(
+        runtime.config.isZH
+          ? `[MWITools] 功能 ${id} 清理失败`
+          : `[MWITools] Failed to clean up feature ${id}`,
+        error,
+      );
     }
     state.scope?.cleanup();
   }
@@ -201,12 +221,19 @@ export const runtime = {
         const result = feature.start();
         result?.catch?.((error) =>
           console.error(
-            `[MWITools] Startup hook failed: ${feature.name}`,
+            runtime.config.isZH
+              ? `[MWITools] 启动钩子执行失败：${feature.name}`
+              : `[MWITools] Startup hook failed: ${feature.name}`,
             error,
           ),
         );
       } catch (error) {
-        console.error(`[MWITools] Startup hook failed: ${feature.name}`, error);
+        console.error(
+          runtime.config.isZH
+            ? `[MWITools] 启动钩子执行失败：${feature.name}`
+            : `[MWITools] Startup hook failed: ${feature.name}`,
+          error,
+        );
       }
     }
     runtimeStarted = true;
@@ -234,7 +261,9 @@ export const runtime = {
         handler(payload, rawMessage);
       } catch (error) {
         console.error(
-          `[MWITools] Message handler failed for ${payload.type}`,
+          runtime.config.isZH
+            ? `[MWITools] 消息 ${payload.type} 的处理器执行失败`
+            : `[MWITools] Message handler failed for ${payload.type}`,
           error,
         );
       }

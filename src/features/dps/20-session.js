@@ -1,4 +1,4 @@
-import { el } from "./00-bootstrap.js";
+import { Settings, el } from "./00-bootstrap.js";
 import { ClassSystem, DamageSources } from "./10-combat-sources.js";
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -327,7 +327,13 @@ const Session = (() => {
       };
     },
     restore(s) {
-      if (!s || s.schemaVersion !== 2) throw new Error("不支持的战斗缓存格式");
+      if (!s || s.schemaVersion !== 2) {
+        throw new Error(
+          Settings.getLanguage() === "en"
+            ? "Unsupported combat cache format"
+            : "不支持的战斗缓存格式",
+        );
+      }
       meta = { ...(s.meta || {}) };
       teamDamage = Number(s.teamDamage) || 0;
       elapsedOffset = (Number(s.durationMs) || 0) / 1000;

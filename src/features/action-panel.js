@@ -25,7 +25,11 @@ function addActionPanelStyles() {
 const waitForActionPanelParent = () => {
   const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
   if (targetNode) {
-    console.log("start observe action panel");
+    console.log(
+      runtime.config.isZH
+        ? "[MWITools] 开始监听行动面板。"
+        : "[MWITools] Started observing the action panel.",
+    );
     const actionPanelObserver = new MutationObserver(async function (
       mutations,
     ) {
@@ -448,7 +452,13 @@ function getActionEfficiencyDetails(actionHrid) {
 function getTotalEffiPercentage(actionHrid, debug = false) {
   const details = getActionEfficiencyDetails(actionHrid);
   if (debug) {
-    console.log("getTotalEffiPercentage", actionHrid, details);
+    console.log(
+      runtime.config.isZH
+        ? "[MWITools] 行动总效率明细"
+        : "[MWITools] Total action efficiency details",
+      actionHrid,
+      details,
+    );
   }
   return Number.isFinite(details.total) ? details.total : 0;
 }

@@ -1,4 +1,5 @@
 import { runtime } from "./runtime.js";
+import { actionName, itemName } from "./localization.js";
 
 const DATA_VERSION = 1;
 const SETTINGS_KEY = "MWITools_procurement_settings_v1";
@@ -61,7 +62,12 @@ function emit(type, detail = {}) {
     try {
       listener(clone(detail));
     } catch (error) {
-      console.error(`[MWITools] Procurement ${type} listener failed`, error);
+      console.error(
+        runtime.config.isZH
+          ? `[MWITools] 采购事件 ${type} 的监听器执行失败`
+          : `[MWITools] Procurement ${type} listener failed`,
+        error,
+      );
     }
   }
 }
@@ -211,7 +217,12 @@ function loadCharacterData(characterId) {
         if (plan?.id) plans.set(plan.id, plan);
       }
     } catch (error) {
-      console.warn("[MWITools] Could not load procurement data", error);
+      console.warn(
+        runtime.config.isZH
+          ? "[MWITools] 无法加载采购数据"
+          : "[MWITools] Could not load procurement data",
+        error,
+      );
     }
   }
   rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
@@ -225,29 +236,13 @@ function loadCharacterData(characterId) {
 
 function resolveItemName(rawItemHrid) {
   const itemHrid = normalizeItemHrid(rawItemHrid);
-  const localized = runtime.config.isZH
-    ? runtime.data.ZHItemNames?.[itemHrid]
-    : null;
-  return (
-    localized ??
-    runtime.state.initData_itemDetailMap?.[itemHrid]?.name ??
-    itemHrid.split("/").at(-1)?.replaceAll("_", " ") ??
-    itemHrid
-  );
+  return itemName(itemHrid, { fallback: itemHrid });
 }
 
 function resolveActionName(actionHrid) {
   const normalized = String(actionHrid ?? "").trim();
   if (!normalized) return "";
-  const localized = runtime.config.isZH
-    ? runtime.data.ZHActionNames?.[normalized]
-    : null;
-  return (
-    localized ??
-    runtime.state.initData_actionDetailMap?.[normalized]?.name ??
-    normalized.split("/").at(-1)?.replaceAll("_", " ") ??
-    normalized
-  );
+  return actionName(normalized, { fallback: normalized });
 }
 
 function inventoryEntryKey(item) {

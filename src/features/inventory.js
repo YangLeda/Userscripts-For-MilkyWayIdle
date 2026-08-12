@@ -310,7 +310,12 @@ const INVENTORY_CATEGORY_ALIASES = {
   "/item_categories/loot": ["loot", "loots", "战利品"],
   "/item_categories/scroll": ["scroll", "scrolls", "卷轴"],
   "/item_categories/labyrinth": ["labyrinth", "迷宫"],
-  "/item_categories/dungeon_key": ["dungeon key", "dungeon keys", "地下城钥匙"],
+  "/item_categories/dungeon_key": [
+    "dungeon key",
+    "dungeon keys",
+    "地牢钥匙",
+    "地下城钥匙",
+  ],
   "/item_categories/food": ["food", "foods", "食物"],
   "/item_categories/drink": ["drink", "drinks", "饮料"],
   "/item_categories/ability_book": ["ability book", "ability books", "技能书"],
@@ -702,7 +707,11 @@ async function addInvSortButton(invElem) {
   if (showSort) {
     const priceData = await runtime.api.fetchMarketJSON();
     if (!priceData?.marketData) {
-      console.error("addInvSortButton fetchMarketJSON null");
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 市场数据不可用，无法创建库存排序按钮。"
+          : "[MWITools] Market data is unavailable; inventory sort controls were not created.",
+      );
       return;
     }
   }

@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { localize } from "../core/localization.js";
 
 const OVERLAY_VERSION = "1.2.0";
 const LEADERBOARD_API_URL =
@@ -154,7 +155,12 @@ function createOverlay(options = {}) {
   const documentRef =
     options.document ?? (typeof document !== "undefined" ? document : null);
   if (!documentRef) {
-    throw new Error("MWILeaderboardOverlay requires a document");
+    throw new Error(
+      localize(
+        "排行榜浮层需要可用的页面文档。",
+        "MWILeaderboardOverlay requires a document.",
+      ),
+    );
   }
   const categoryEntries =
     Array.isArray(options.categories) && options.categories.length
@@ -453,7 +459,12 @@ function createOverlay(options = {}) {
     documentRef.defaultView?.MutationObserver ||
     (typeof MutationObserver !== "undefined" ? MutationObserver : null);
   if (!Observer) {
-    throw new Error("MWILeaderboardOverlay requires MutationObserver");
+    throw new Error(
+      localize(
+        "排行榜浮层需要 MutationObserver 支持。",
+        "MWILeaderboardOverlay requires MutationObserver.",
+      ),
+    );
   }
   const observer = new Observer(() => scheduleRefresh());
   const observe = () => {
@@ -686,7 +697,12 @@ function saveCachedCategories(categories) {
       JSON.stringify({ schemaVersion: 1, cachedAt: Date.now(), categories }),
     );
   } catch (error) {
-    console.warn("[MWITools] Unable to cache leaderboard rankings", error);
+    console.warn(
+      runtime.config.isZH
+        ? "[MWITools] 无法缓存排行榜名次"
+        : "[MWITools] Unable to cache leaderboard rankings",
+      error,
+    );
   }
 }
 

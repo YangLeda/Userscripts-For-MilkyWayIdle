@@ -1430,7 +1430,9 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
     }
   }
   console.warn(
-    "[MWITools] Failed to open shopping item in marketplace",
+    runtime.config.isZH
+      ? "[MWITools] 无法在市场中打开购物清单物品。"
+      : "[MWITools] Failed to open the shopping-list item in the marketplace.",
     lastError,
   );
   showToast(t("市场跳转失败", "Marketplace navigation failed"));

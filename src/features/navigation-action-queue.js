@@ -123,7 +123,11 @@ function handleActionQueueMenueCalculateTime(added) {
     actionDivList.length !==
     runtime.state.currentActionsHridList.length - 1
   ) {
-    console.error("handleActionQueueTooltip action queue length inconsistency");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 行动队列提示中的行动数量不一致。"
+        : "[MWITools] Action count mismatch in the action queue tooltip.",
+    );
     return;
   }
 
@@ -179,7 +183,11 @@ function handleActionQueueMenueCalculateTime(added) {
 
 function getOriTextFromElement(element) {
   if (!element) {
-    console.error("getTextFromElement null elem");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 无法读取空元素的文字。"
+        : "[MWITools] Cannot read text from a missing element.",
+    );
     return "";
   }
   return element.getAttribute("script_translatedfrom") || element.textContent;

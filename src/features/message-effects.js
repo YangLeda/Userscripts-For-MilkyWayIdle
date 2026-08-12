@@ -61,7 +61,9 @@ runtime.onMessage("profile_shared", (payload) => {
     const parsed = JSON.parse(stored);
     if (!parsed?.filter) {
       console.error(
-        "Found invalid profileExportList in store. profileExportList cleared.",
+        runtime.config.isZH
+          ? "[MWITools] 已保存的资料导出列表无效，现已清空。"
+          : "[MWITools] The saved profile export list was invalid and has been cleared.",
       );
       GM_setValue("profile_export_list", JSON.stringify([]));
     }

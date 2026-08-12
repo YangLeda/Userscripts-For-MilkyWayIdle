@@ -250,7 +250,12 @@ function loadMarketItemValuesFromStorage() {
     const pageGlobal = globalThis.unsafeWindow ?? globalThis;
     parsed = pageGlobal.localStorageUtil?.getMarketItemValues?.() ?? null;
   } catch (error) {
-    console.error("Unable to read market values through the game cache", error);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 无法从游戏缓存读取市场价值"
+        : "[MWITools] Unable to read market values from the game cache",
+      error,
+    );
   }
   parsed ??= parseStoredMarketItemValues(
     globalThis.localStorage?.getItem("marketItemValues"),
@@ -268,7 +273,12 @@ function validateMarketJsonFetch(jsonValue, isSave = false) {
   try {
     if (typeof jsonValue === "string") jsonObj = JSON.parse(jsonValue);
   } catch (error) {
-    console.error("validateMarketJson failed to parse JSON:", error.message);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 市场数据 JSON 解析失败："
+        : "[MWITools] Failed to parse market data JSON:",
+      error.message,
+    );
     return null;
   }
   if (!jsonObj?.timestamp || !jsonObj?.marketData) return null;
@@ -296,9 +306,11 @@ function validateMarketJsonFetch(jsonValue, isSave = false) {
   return jsonObj;
 }
 
-function setMarketFetchFailure(reason) {
+function setMarketFetchFailure(reasonZh, reasonEn) {
   console.warn(
-    `[MWITools] ${reason}; using cached market data when available.`,
+    runtime.config.isZH
+      ? `[MWITools] ${reasonZh}；将优先使用可用的市场缓存。`
+      : `[MWITools] ${reasonEn}; using cached market data when available.`,
   );
 }
 
@@ -334,7 +346,12 @@ function requestMarketJson() {
       const result = sendRequest(options);
       if (result?.then) result.then(finish).catch(() => finish(null));
     } catch (error) {
-      console.error("fetchMarketJSON request failed", error);
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 市场数据请求失败"
+          : "[MWITools] Market data request failed",
+        error,
+      );
       finish(null);
     }
   });
@@ -375,7 +392,7 @@ async function fetchMarketJSON(forceFetch = false) {
     return jsonObj;
   }
 
-  setMarketFetchFailure("market API fetch failed");
+  setMarketFetchFailure("市场 API 请求失败", "Market API request failed");
   if (cachedJson) {
     const cached = validateMarketJsonFetch(cachedJson, false);
     if (cached) return cached;

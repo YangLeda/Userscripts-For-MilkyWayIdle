@@ -40,7 +40,12 @@ function writeFallback(records) {
   try {
     globalThis.localStorage?.setItem(FALLBACK_KEY, JSON.stringify(records));
   } catch (error) {
-    console.warn("[MWITools] Unable to save XP history fallback", error);
+    console.warn(
+      runtime.config.isZH
+        ? "[MWITools] 无法保存经验历史备用数据"
+        : "[MWITools] Unable to save XP history fallback",
+      error,
+    );
   }
 }
 

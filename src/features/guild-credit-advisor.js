@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  itemName as localizedItemName,
+  localize,
+} from "../core/localization.js";
 
 const CARD_ID = "mwitools-guild-credit-advisor";
 const LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style";
@@ -23,7 +27,7 @@ let advisorPositionState = null;
 let advisorPositionFrame = null;
 
 function t(zh, en) {
-  return runtime.config.isZH ? zh : en;
+  return localize(zh, en);
 }
 
 function escapeHtml(value) {
@@ -374,11 +378,7 @@ export function evaluateGuildCreditReplacement(
 }
 
 function itemName(itemHrid) {
-  const detail = runtime.state.initData_itemDetailMap?.[itemHrid];
-  if (runtime.config.isZH) {
-    return runtime.data.ZHItemNames?.[itemHrid] ?? detail?.name ?? itemHrid;
-  }
-  return detail?.name ?? itemHrid;
+  return localizedItemName(itemHrid, { fallback: itemHrid });
 }
 
 function findItemsSpriteBase() {
@@ -576,9 +576,33 @@ function overlapsRect({ left, top, width, height }, blocker) {
   );
 }
 
+function restoreGuildExchangeAnchor(state = advisorPositionState) {
+  if (!state?.anchor || state.originalTranslate === undefined) return;
+  if (state.originalTranslate) {
+    state.anchor.style.setProperty(
+      "translate",
+      state.originalTranslate,
+      state.originalTranslatePriority,
+    );
+  } else {
+    state.anchor.style.removeProperty("translate");
+  }
+  state.shiftY = 0;
+}
+
+function shiftGuildExchangeAnchor(state, shiftY) {
+  const amount = Math.max(0, Math.round(shiftY));
+  if (!amount) return;
+  state.anchor.style.setProperty("translate", `0 ${amount}px`, "important");
+  state.shiftY = amount;
+}
+
 export function positionGuildCreditAdvisor() {
   const state = advisorPositionState;
   if (!state?.host?.isConnected || !state.anchor?.isConnected) return false;
+  // Restore synchronously before measuring so repeated positioning never adds
+  // the previous offset again. Both writes happen before the browser paints.
+  restoreGuildExchangeAnchor(state);
   const anchorRect = state.anchor.getBoundingClientRect();
   const hostRect = state.host.getBoundingClientRect();
   const viewport = viewportSize();
@@ -668,6 +692,13 @@ export function positionGuildCreditAdvisor() {
       ? Math.max(1, Math.round(maxHeight))
       : Math.max(72, Math.round(maxHeight))
   }px`;
+  if (placement === "top-compressed" || placement === "overlay") {
+    const visibleHeight = Math.min(height, maxHeight);
+    shiftGuildExchangeAnchor(
+      state,
+      top + visibleHeight + PANEL_GAP - anchorRect.top,
+    );
+  }
   return true;
 }
 
@@ -693,6 +724,7 @@ function clearGuildCreditAdvisorPosition() {
     }
     advisorPositionFrame = null;
   }
+  restoreGuildExchangeAnchor();
   advisorPositionState?.resizeObserver?.disconnect();
   advisorPositionState = null;
 }
@@ -710,7 +742,14 @@ function mountGuildCreditAdvisor(host, modal) {
       : null;
     resizeObserver?.observe(anchor);
     resizeObserver?.observe(host);
-    advisorPositionState = { anchor, host, resizeObserver };
+    advisorPositionState = {
+      anchor,
+      host,
+      resizeObserver,
+      originalTranslate: anchor.style.getPropertyValue("translate"),
+      originalTranslatePriority: anchor.style.getPropertyPriority("translate"),
+      shiftY: 0,
+    };
   }
   positionGuildCreditAdvisor();
 }

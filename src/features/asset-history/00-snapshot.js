@@ -188,7 +188,12 @@ export async function refreshAssetSnapshot() {
         try {
           listener(snapshot);
         } catch (error) {
-          console.error("[MWITools] Asset snapshot listener failed", error);
+          console.error(
+            runtime.config.isZH
+              ? "[MWITools] 资产快照监听器执行失败。"
+              : "[MWITools] Asset snapshot listener failed.",
+            error,
+          );
         }
       }
       return snapshot;

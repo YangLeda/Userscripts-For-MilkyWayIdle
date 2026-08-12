@@ -2067,7 +2067,11 @@ const ZHToOthersMap = inverseKV(ZHOthersDic);
 function getItemEnNameFromZhName(zhName) {
   const itemHrid = ZHToItemHridMap[zhName];
   if (!itemHrid) {
-    console.log("Can not find EN name for item " + zhName);
+    console.log(
+      runtime.config.isZH
+        ? `[MWITools] 找不到物品“${zhName}”对应的英文名称。`
+        : `[MWITools] Cannot find the English item name for “${zhName}”.`,
+    );
     return "";
   }
   let enName;
@@ -2077,7 +2081,11 @@ function getItemEnNameFromZhName(zhName) {
     return "";
   }
   if (!enName) {
-    console.log("Can not find EN name for itemHrid " + itemHrid);
+    console.log(
+      runtime.config.isZH
+        ? `[MWITools] 找不到物品 ${itemHrid} 的英文名称。`
+        : `[MWITools] Cannot find the English item name for ${itemHrid}.`,
+    );
     return "";
   }
   return enName;
@@ -2086,7 +2094,11 @@ function getItemEnNameFromZhName(zhName) {
 function getActionEnNameFromZhName(zhName) {
   const actionHrid = ZHToActionHridMap[zhName];
   if (!actionHrid) {
-    console.log("Can not find EN name for action " + zhName);
+    console.log(
+      runtime.config.isZH
+        ? `[MWITools] 找不到行动“${zhName}”对应的英文名称。`
+        : `[MWITools] Cannot find the English action name for “${zhName}”.`,
+    );
     return "";
   }
   let enName;
@@ -2096,7 +2108,11 @@ function getActionEnNameFromZhName(zhName) {
     return "";
   }
   if (!enName) {
-    console.log("Can not find EN name for actionHrid " + actionHrid);
+    console.log(
+      runtime.config.isZH
+        ? `[MWITools] 找不到行动 ${actionHrid} 的英文名称。`
+        : `[MWITools] Cannot find the English action name for ${actionHrid}.`,
+    );
     return "";
   }
   return enName;

@@ -308,11 +308,11 @@ function updatePanel(panel, itemHrid, targetValues) {
         ? t("参考购买成本：0", "Reference purchase cost: 0")
         : ask > 0
           ? t(
-              `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低卖价 ${runtime.api.numberFormatter(ask)}/本）`,
+              `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低出售价 ${runtime.api.numberFormatter(ask)}/本）`,
               `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`,
             )
           : t(
-              "参考购买成本：暂无卖价",
+              "参考购买成本：暂无出售价",
               "Reference purchase cost: no ask price",
             );
   }

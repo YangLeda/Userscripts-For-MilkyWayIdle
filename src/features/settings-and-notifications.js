@@ -57,7 +57,12 @@ function readSettings() {
       loadedV2 = true;
     }
   } catch (error) {
-    console.warn("[MWITools] Could not read v2 settings", error);
+    console.warn(
+      runtime.config.isZH
+        ? "[MWITools] 无法读取新版设置。"
+        : "[MWITools] Could not read v2 settings.",
+      error,
+    );
   }
 
   if (!loadedV2) {
@@ -70,7 +75,12 @@ function readSettings() {
         applyStoredSetting(option.id, option.isTrue);
       }
     } catch (error) {
-      console.warn("[MWITools] Could not migrate legacy settings", error);
+      console.warn(
+        runtime.config.isZH
+          ? "[MWITools] 无法迁移旧版设置。"
+          : "[MWITools] Could not migrate legacy settings.",
+        error,
+      );
     }
   }
 
@@ -707,13 +717,21 @@ function hasItemHridInInv(hrid) {
 /* 空闲时弹窗通知 */
 function notificate() {
   if (typeof GM_notification === "undefined" || !GM_notification) {
-    console.error("notificate null GM_notification");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 当前环境不支持系统通知。"
+        : "[MWITools] System notifications are unavailable.",
+    );
     return;
   }
   if (runtime.state.currentActionsHridList.length > 0) {
     return;
   }
-  console.log("notificate empty action");
+  console.log(
+    runtime.config.isZH
+      ? "[MWITools] 行动队列为空，发送系统通知。"
+      : "[MWITools] Action queue is empty; sending a notification.",
+  );
   GM_notification({
     text: runtime.config.isZH ? "动作队列为空" : "Action queue is empty.",
     title: "MWITools",
@@ -726,7 +744,11 @@ const waitForMarketOrders = () => {
     ".MarketplacePanel_marketListings__1GCyQ",
   );
   if (element) {
-    console.log("start observe market order");
+    console.log(
+      runtime.config.isZH
+        ? "[MWITools] 开始监听市场订单窗口。"
+        : "[MWITools] Started observing market order dialogs.",
+    );
     new MutationObserver((mutationsList) => {
       mutationsList.forEach((mutation) => {
         mutation.addedNodes.forEach((node) => {
@@ -757,7 +779,11 @@ function handleMarketNewOrder(node) {
     ".MarketplacePanel_inputContainer__3xmB2 .MarketplacePanel_priceInputs__3iWxy",
   );
   if (!label || !inputDiv) {
-    console.error("handleMarketNewOrder can not find elements");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 市场订单窗口缺少价格输入控件。"
+        : "[MWITools] The market order dialog is missing price controls.",
+    );
     return;
   }
 
@@ -787,7 +813,11 @@ function handleMarketNewOrder(node) {
     label.parentElement.textContent.includes("购买")
   ) {
     if (!clickAdjustmentButton("increase")) {
-      console.error("handleMarketNewOrder cannot find increase price button");
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 未找到提高收购价按钮。"
+          : "[MWITools] The increase-bid-price button was not found.",
+      );
     }
   } else if (
     runtime.api
@@ -797,7 +827,11 @@ function handleMarketNewOrder(node) {
     label.parentElement.textContent.includes("出售")
   ) {
     if (!clickAdjustmentButton("decrease")) {
-      console.error("handleMarketNewOrder cannot find decrease price button");
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 未找到降低出售价按钮。"
+          : "[MWITools] The decrease-ask-price button was not found.",
+      );
     }
   }
 }

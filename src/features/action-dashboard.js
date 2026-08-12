@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { itemName } from "../core/localization.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
@@ -57,14 +58,7 @@ function findItemsSpriteBase() {
 }
 
 function outputItemName(itemHrid) {
-  return (
-    (runtime.config.isZH
-      ? runtime.data.ZHItemNames?.[itemHrid]
-      : runtime.state.initData_itemDetailMap?.[itemHrid]?.name) ??
-    runtime.state.initData_itemDetailMap?.[itemHrid]?.name ??
-    itemHrid?.split("/").at(-1) ??
-    "?"
-  );
+  return itemName(itemHrid, { fallback: "?" });
 }
 
 function createProductionOutput(output) {

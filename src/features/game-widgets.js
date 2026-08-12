@@ -9,7 +9,11 @@ async function handleBattleSummary(message) {
   const marketJson = await runtime.api.fetchMarketJSON();
   let hasMarketJson = true;
   if (!marketJson) {
-    console.error("handleBattleSummary null marketAPI");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 市场数据不可用，战斗总结将不显示市场收益。"
+        : "[MWITools] Market data is unavailable; market revenue is omitted from the battle summary.",
+    );
     hasMarketJson = false;
   }
   let totalPriceAsk = 0;
@@ -28,7 +32,9 @@ async function handleBattleSummary(message) {
           runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
       } else {
         console.log(
-          "handleBattleSummary failed to read price of " + loot.itemHrid,
+          runtime.config.isZH
+            ? `[MWITools] 无法读取战利品价格：${loot.itemHrid}`
+            : `[MWITools] Could not read the loot price: ${loot.itemHrid}`,
         );
       }
     }
@@ -166,13 +172,19 @@ async function handleBattleSummary(message) {
         });
       } else {
         console.error(
-          "handleBattleSummary unable to display average exp due to null battleDurationSec",
+          runtime.config.isZH
+            ? "[MWITools] 战斗时长无效，无法显示平均经验。"
+            : "[MWITools] Battle duration is invalid; average XP cannot be displayed.",
         );
       }
     } else if (tryTimes <= 10) {
       setTimeout(findElem, 200);
     } else {
-      console.error("handleBattleSummary: Elem not found after 10 tries.");
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 重试 10 次后仍未找到战斗总结。"
+          : "[MWITools] Battle summary was not found after 10 attempts.",
+      );
     }
   }
 }

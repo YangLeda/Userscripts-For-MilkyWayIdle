@@ -2,6 +2,7 @@ import { runtime } from "./core/runtime.js";
 import "./core/config.js";
 import "./data/translations.js";
 import "./core/state.js";
+import "./core/localization.js";
 import "./core/market.js";
 import "./core/action-projection.js";
 import "./core/procurement.js";
@@ -103,7 +104,11 @@ function startGame() {
     "MWITools_marketAPI_ApiVersion",
   );
   if (!storedApiVersion || parseInt(storedApiVersion) < currentApiVersion) {
-    console.log("Clearing API cache due to ApiVersion update");
+    console.log(
+      runtime.config.isZH
+        ? "[MWITools] 市场 API 版本已更新，正在清理旧缓存。"
+        : "[MWITools] Market API version changed; clearing the old cache.",
+    );
     localStorage.setItem("MWITools_marketAPI_timestamp", JSON.stringify(0));
     localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(null));
     localStorage.setItem(

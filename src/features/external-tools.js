@@ -18,10 +18,18 @@ function addImportButtonForAmvoidguy() {
       button.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
       button.style.padding = "5px";
       button.onclick = function () {
-        console.log("Importer: Import button onclick");
+        console.log(
+          runtime.config.isZH
+            ? "[MWITools] 已点击战斗模拟器导入按钮。"
+            : "[MWITools] Combat simulator import button clicked.",
+        );
         const getPriceButton = document.querySelector(`button#buttonGetPrices`);
         if (getPriceButton) {
-          console.log("Click getPriceButton");
+          console.log(
+            runtime.config.isZH
+              ? "[MWITools] 正在刷新战斗模拟器价格。"
+              : "[MWITools] Refreshing combat simulator prices.",
+          );
           getPriceButton.click();
         }
         importDataForAmvoidguy(button);
@@ -220,7 +228,9 @@ function constructGroupExportObj() {
           );
           if (profileList.length !== 1) {
             console.log(
-              "Can not find stored profile for " + member.characterID,
+              runtime.config.isZH
+                ? `[MWITools] 找不到角色 ${member.characterID} 的已保存资料。`
+                : `[MWITools] Cannot find a saved profile for character ${member.characterID}.`,
             );
             playerIDs[i - 1] = runtime.config.isZH
               ? "需要点开资料"
@@ -750,7 +760,11 @@ function handleResultForAmvoidguy(expNodes, parentDiv) {
   let data = GM_getValue("init_character_data", null);
   let obj = JSON.parse(data);
   if (!obj || !obj.characterSkills || !obj.currentTimestamp) {
-    console.error("handleResult no character localstorage");
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 无法导出：本地没有角色数据。"
+        : "[MWITools] Export failed because no character data is stored locally.",
+    );
     return;
   }
 
@@ -1043,7 +1057,11 @@ function addImportButtonForMooneycalc() {
       button.style.color = "black";
       button.style.padding = "5px";
       button.onclick = function () {
-        console.log("Mooneycalc-Importer: Button onclick");
+        console.log(
+          runtime.config.isZH
+            ? "[MWITools] 已点击 Mooneycalc 导入按钮。"
+            : "[MWITools] Mooneycalc import button clicked.",
+        );
         importDataForMooneycalc(button);
         return false;
       };
@@ -1159,7 +1177,11 @@ function addExportButton(obj) {
           );
           let profile = null;
           if (profileList.length !== 1) {
-            console.log("Can not find stored profile for " + playerID);
+            console.log(
+              runtime.config.isZH
+                ? `[MWITools] 找不到角色 ${playerID} 的已保存资料。`
+                : `[MWITools] Cannot find a saved profile for character ${playerID}.`,
+            );
             return;
           }
           profile = profileList[0];

@@ -31,23 +31,43 @@ const KikiMeter = (() => {
   const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
   const localizeReason = (reason) => {
     const labels = {
-      旧版记录: "Legacy record",
-      归档: "Archived",
-      断线续传: "Reconnect continuation",
-      进入下一层: "Entered next tier",
-      继续战斗: "Combat continued",
-      开始另一场战斗: "Another combat started",
-      手动结束: "Ended manually",
-      公会试炼阶段结束: "Guild Trial stage ended",
-      切换角色: "Character switched",
-      连接中断: "Connection interrupted",
-      页面关闭: "Page closed",
-      页面恢复: "Page resumed",
-      战斗: "Combat",
+      legacy: ["旧版记录", "Legacy record"],
+      archived: ["归档", "Archived"],
+      reconnect: ["断线续传", "Reconnect continuation"],
+      nextTier: ["进入下一层", "Entered next tier"],
+      continued: ["继续战斗", "Combat continued"],
+      anotherCombat: ["开始另一场战斗", "Another combat started"],
+      manual: ["手动结束", "Ended manually"],
+      trialEnded: ["公会试炼阶段结束", "Guild Trial stage ended"],
+      characterSwitched: ["切换角色", "Character switched"],
+      disconnected: ["连接中断", "Connection interrupted"],
+      pageClosed: ["页面关闭", "Page closed"],
+      pageResumed: ["页面恢复", "Page resumed"],
+      combat: ["战斗", "Combat"],
     };
-    return Settings.getLanguage() === "en"
-      ? labels[reason] || reason || "Combat"
-      : reason || "战斗";
+    const aliases = {
+      旧版记录: "legacy",
+      归档: "archived",
+      断线续传: "reconnect",
+      进入下一层: "nextTier",
+      继续战斗: "continued",
+      开始另一场战斗: "anotherCombat",
+      手动结束: "manual",
+      公会试炼阶段结束: "trialEnded",
+      切换角色: "characterSwitched",
+      连接中断: "disconnected",
+      页面关闭: "pageClosed",
+      页面恢复: "pageResumed",
+      开始战斗: "combat",
+      战斗结束: "combat",
+      战斗: "combat",
+    };
+    const pair = labels[aliases[reason] || reason];
+    return (
+      pair?.[Settings.getLanguage() === "en" ? 1 : 0] ||
+      reason ||
+      langText("战斗", "Combat")
+    );
   };
   const PANEL_LAYOUT_VERSION = 2,
     DEFAULT_PANEL_HEIGHT = 212,
@@ -580,8 +600,10 @@ const KikiMeter = (() => {
       fontSize: "10px",
       lineHeight: "1.45",
     });
-    trialClassNotice.textContent =
-      "点击战斗界面中的人物，可准确识别职业并永久缓存。";
+    trialClassNotice.textContent = langText(
+      "点击战斗界面中的人物，可准确识别职业并永久缓存。",
+      "Click a character in the battle view to identify and cache their class.",
+    );
     p.appendChild(trialClassNotice);
 
     // Zone joueurs
@@ -1624,7 +1646,7 @@ const KikiMeter = (() => {
             paddingLeft: "9px",
           });
           line.textContent = langText(
-            `片段 ${i + 1}｜${f.reason || "战斗"}｜${formatDuration((f.durationMs || 0) / 1000)}｜伤害 ${formatDamage(f.teamDamage || 0)}`,
+            `片段 ${i + 1}｜${localizeReason(f.reason)}｜${formatDuration((f.durationMs || 0) / 1000)}｜伤害 ${formatDamage(f.teamDamage || 0)}`,
             `Fragment ${i + 1} | ${localizeReason(f.reason)} | ${formatDuration((f.durationMs || 0) / 1000)} | Damage ${formatDamage(f.teamDamage || 0)}`,
           );
           details.appendChild(line);

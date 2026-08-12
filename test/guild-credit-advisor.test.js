@@ -287,11 +287,13 @@ test("the advisor stays visible and moves above an open item selector", async ()
   assert.equal(host.dataset.placement, "top-compressed");
   assert.equal(host.style.top, "12px");
   assert.equal(host.style.maxHeight, "173px");
+  assert.equal(shell.style.getPropertyValue("translate"), "0 141px");
   assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), host);
 
   selector.hidden = true;
   assert.equal(findVisibleItemSelector(), undefined);
   assert.equal(await renderGuildCreditAdvisor(), host);
+  assert.equal(shell.style.getPropertyValue("translate"), "0 352px");
   selector.remove();
 });
 
@@ -313,6 +315,7 @@ test("advisor placement tries right, left, top and overlay without using bottom"
   assert.equal(positionGuildCreditAdvisor(), true);
   assert.equal(host.dataset.placement, "right");
   assert.equal(host.style.left, "512px");
+  assert.equal(shell.style.getPropertyValue("translate"), "");
 
   shell.getBoundingClientRect = () => ({
     left: 300,
@@ -352,6 +355,7 @@ test("advisor placement tries right, left, top and overlay without using bottom"
   assert.equal(positionGuildCreditAdvisor(), true);
   assert.equal(host.dataset.placement, "overlay");
   assert.equal(host.style.top, "100px");
+  assert.equal(shell.style.getPropertyValue("translate"), "0 232px");
 });
 
 test("main guild shop never receives recommendation summaries", async () => {
@@ -370,6 +374,13 @@ test("closing the exchange modal removes the external advisor", async () => {
   const shell = document.querySelector('[class*="Modal_modalContainer"]');
   shell.remove();
   assert.equal(await renderGuildCreditRecommendations(), null);
+  document.body.append(shell);
+  shell.style.setProperty("translate", "3px 4px");
+  await renderGuildCreditAdvisor();
+  assert.notEqual(shell.style.getPropertyValue("translate"), "3px 4px");
+  shell.remove();
+  assert.equal(await renderGuildCreditRecommendations(), null);
   assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), null);
+  assert.equal(shell.style.getPropertyValue("translate"), "3px 4px");
   document.body.append(shell);
 });

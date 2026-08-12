@@ -85,8 +85,14 @@ function requestManifest() {
     return globalThis
       .fetch(MANIFEST_URL, { cache: "no-store" })
       .then((response) => {
-        if (!response.ok)
-          throw new Error(`Update manifest HTTP ${response.status}`);
+        if (!response.ok) {
+          throw new Error(
+            t({
+              zh: `更新清单请求失败（HTTP ${response.status}）`,
+              en: `Update manifest request failed (HTTP ${response.status})`,
+            }),
+          );
+        }
         return response.json();
       });
   }
@@ -94,7 +100,14 @@ function requestManifest() {
     const finish = (response) => {
       try {
         if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
-          reject(new Error(`Update manifest HTTP ${response?.status}`));
+          reject(
+            new Error(
+              t({
+                zh: `更新清单请求失败（HTTP ${response?.status}）`,
+                en: `Update manifest request failed (HTTP ${response?.status})`,
+              }),
+            ),
+          );
           return;
         }
         resolve(JSON.parse(response.responseText));
@@ -108,8 +121,24 @@ function requestManifest() {
         url: MANIFEST_URL,
         timeout: 5000,
         onload: finish,
-        onerror: () => reject(new Error("Update manifest request failed")),
-        ontimeout: () => reject(new Error("Update manifest request timed out")),
+        onerror: () =>
+          reject(
+            new Error(
+              t({
+                zh: "更新清单请求失败。",
+                en: "Update manifest request failed.",
+              }),
+            ),
+          ),
+        ontimeout: () =>
+          reject(
+            new Error(
+              t({
+                zh: "更新清单请求超时。",
+                en: "Update manifest request timed out.",
+              }),
+            ),
+          ),
       });
       result?.then?.(finish).catch(reject);
     } catch (error) {
@@ -122,7 +151,11 @@ async function getImportantUpdateManifest() {
   const cached = readCachedManifest();
   if (cached) return cached;
   const manifest = await requestManifest();
-  if (!manifest?.importantVersion) throw new Error("Invalid update manifest");
+  if (!manifest?.importantVersion) {
+    throw new Error(
+      t({ zh: "更新清单格式无效。", en: "Invalid update manifest." }),
+    );
+  }
   saveCachedManifest(manifest);
   return manifest;
 }
@@ -196,7 +229,9 @@ runtime.features.register({
       })
       .catch((error) => {
         console.info(
-          "[MWITools] Important update check unavailable",
+          runtime.config.isZH
+            ? "[MWITools] 暂时无法检查重要更新"
+            : "[MWITools] Important update check unavailable",
           error.message,
         );
       });

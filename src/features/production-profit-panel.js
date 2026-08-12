@@ -1,4 +1,9 @@
 import { runtime } from "../core/runtime.js";
+import {
+  actionName as localizedActionName,
+  itemName as localizedItemName,
+  localize,
+} from "../core/localization.js";
 
 const PANEL_ID = "mwitools-production-profit-panel";
 const STYLE_ID = "mwitools-production-profit-panel-style";
@@ -8,7 +13,7 @@ const PANEL_GAP = 10;
 let activePanel = null;
 
 function t(zh, en) {
-  return runtime.config.isZH ? zh : en;
+  return localize(zh, en);
 }
 
 function escapeHtml(value) {
@@ -55,25 +60,11 @@ function formatPercent(value) {
 }
 
 function itemName(itemHrid) {
-  return (
-    (runtime.config.isZH
-      ? runtime.data.ZHItemNames?.[itemHrid]
-      : runtime.state.initData_itemDetailMap?.[itemHrid]?.name) ??
-    runtime.state.initData_itemDetailMap?.[itemHrid]?.name ??
-    itemHrid?.split("/").at(-1) ??
-    "—"
-  );
+  return localizedItemName(itemHrid);
 }
 
 function actionName(actionHrid, detail) {
-  return (
-    (runtime.config.isZH
-      ? runtime.data.ZHActionNames?.[actionHrid]
-      : detail?.name) ??
-    detail?.name ??
-    actionHrid?.split("/").at(-1) ??
-    "—"
-  );
+  return localizedActionName(actionHrid, { detail });
 }
 
 function findItemsSpriteBase() {
@@ -249,8 +240,8 @@ const VALUATION_ROWS = [
     mode: "fair",
     title: { zh: "市价", en: "Market value" },
     explanation: {
-      zh: "服务器市场价值",
-      en: "Server market value",
+      zh: "市场价值",
+      en: "Market value",
     },
   },
   {

@@ -4,7 +4,11 @@ import { runtime } from "../core/runtime.js";
 const showTotalActionTime = () => {
   const targetNode = document.querySelector("div.Header_actionName__31-L2");
   if (targetNode) {
-    console.log("start observe action progress bar");
+    console.log(
+      runtime.config.isZH
+        ? "[MWITools] 开始监听行动进度栏。"
+        : "[MWITools] Started observing the action progress bar.",
+    );
     calculateTotalTime(targetNode);
     new MutationObserver((mutationsList) =>
       mutationsList.forEach((mutation) => {
@@ -455,14 +459,18 @@ async function handleTooltipItem(tooltip) {
   if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
     marketJson = await fetchMarketJSON();
     if (!marketJson || !marketJson.marketData) {
-      console.error("jsonObj null");
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 物品悬浮窗无法取得市场数据。"
+          : "[MWITools] Item tooltip market data is unavailable.",
+      );
     }
 
     ask = marketJson?.marketData[itemHrid]?.[0]?.a ?? 0;
     bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
     fairValue = runtime.api.getFairValue(itemHrid, 0);
     appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "服务器市场价值: " : "Server market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
+    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
     <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
@@ -553,7 +561,9 @@ function getActionHridFromItemName(name) {
   newName = newName.replace("Knight's Aegis", "Knights Aegis");
   if (!runtime.state.initData_actionDetailMap) {
     console.error(
-      "getActionHridFromItemName no initData_actionDetailMap: " + name,
+      runtime.config.isZH
+        ? `[MWITools] 无法按物品名称查找行动：行动数据尚未加载（${name}）。`
+        : `[MWITools] Cannot find an action by item name because action data is not loaded (${name}).`,
     );
     return null;
   }

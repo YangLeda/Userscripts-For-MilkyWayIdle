@@ -146,7 +146,12 @@ async function getSelfBuildScores() {
   try {
     abilityScore = await calculateAbilityScore();
   } catch (error) {
-    console.error("Error in calculateAbilityScore()", error);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 计算已装备技能评分失败。"
+        : "[MWITools] Failed to calculate equipped ability score.",
+      error,
+    );
   }
   // console.log("abilityScore " + abilityScore);
 
@@ -155,7 +160,12 @@ async function getSelfBuildScores() {
   try {
     allAbilityScore = await calculateAbilityScore(true);
   } catch (error) {
-    console.error("Error in calculateAbilityScore(true)", error);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 计算全部技能评分失败。"
+        : "[MWITools] Failed to calculate total ability score.",
+      error,
+    );
   }
   // console.log("allAbilityScore " + allAbilityScore);
 
@@ -363,14 +373,24 @@ async function getBuildScoreByProfile(profile_shared_obj) {
   try {
     abilityScore = await calculateSkill(profile_shared_obj);
   } catch (error) {
-    console.error("Error in calculate skill:", error);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 计算资料技能评分失败。"
+        : "[MWITools] Failed to calculate profile ability score.",
+      error,
+    );
   }
 
   let gearScores = emptyGearScores;
   try {
     gearScores = await calculateEquipment(profile_shared_obj);
   } catch (error) {
-    console.error("Error in calculateEquipment:", error);
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 计算资料装备评分失败。"
+        : "[MWITools] Failed to calculate profile equipment score.",
+      error,
+    );
   }
 
   return createScoreResult({
