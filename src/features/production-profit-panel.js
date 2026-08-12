@@ -107,7 +107,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
@@ -738,7 +738,17 @@ function mountPanel(anchor, panel, extraState = {}) {
     mutationObserver = new MutationObserver(() => {
       if (!anchor.isConnected) hideProductionProfitPanel();
     });
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    // Watch only the anchor's own container for its removal, never the whole
+    // document subtree. The game re-renders constantly (a single combat frame
+    // mutates hundreds of nodes); a `subtree` observer on <body> would wake
+    // this callback on every one of them just to re-check one node's
+    // connectivity. Tooltip anchors are portalled as direct children of
+    // <body>, and gathering-card anchors are removed from their own parent, so
+    // a non-subtree `childList` watch on the parent still catches the removal
+    // we care about while costing a fraction of the notifications.
+    mutationObserver.observe(anchor.parentNode ?? document.body, {
+      childList: true,
+    });
     resizeObserver = globalThis.ResizeObserver
       ? new globalThis.ResizeObserver(position)
       : null;
