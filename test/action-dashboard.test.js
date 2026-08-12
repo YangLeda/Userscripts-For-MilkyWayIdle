@@ -481,6 +481,30 @@ test("the top action bar reuses its nodes across polls and rewrites only changes
   assert.match(remaining.textContent, /剩余 3/);
 });
 
+test("resolveProductionAction skips panels without a name element quietly", () => {
+  const original = runtime.api.getOriTextFromElement;
+  let sawMissingElement = false;
+  runtime.api.getOriTextFromElement = (element) => {
+    if (!element) sawMissingElement = true;
+    return element?.textContent ?? "";
+  };
+  try {
+    const panel = document.createElement("div");
+    panel.className = "SkillActionDetail_regularComponent__test";
+    // No SkillActionDetail_name child: this is not a resolvable production
+    // panel, so it must bail out instead of logging on a missing element.
+    assert.equal(runtime.api.resolveProductionAction(panel), null);
+    assert.equal(runtime.api.resolveProductionAction(null), null);
+    assert.equal(
+      sawMissingElement,
+      false,
+      "must not hand a missing element to getOriTextFromElement",
+    );
+  } finally {
+    runtime.api.getOriTextFromElement = original;
+  }
+});
+
 test("the top action bar follows ordinal order and hides on header mismatch or combat", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   host.replaceChildren(
