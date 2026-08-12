@@ -463,7 +463,9 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     `<div class="TasksPanel_taskList__dungeons">
       ${card("击败 - 苍蝇", "0 / 10")}
       ${card("击败 - 水马", "0 / 10")}
+      ${card("击败 - 苍蝇", "0 / 10")}
       ${card("击败 - 奇幻洞穴", "0 / 1")}
+      ${card("击败 - 忍者龟", "0 / 10")}
     </div>`,
   );
   runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"] = {
@@ -475,9 +477,9 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       },
     },
   };
-  runtime.state.initData_actionDetailMap["/actions/combat/pirate_cove"] = {
-    hrid: "/actions/combat/pirate_cove",
-    name: "Pirate Cove",
+  runtime.state.initData_actionDetailMap["/actions/combat/sinister_circus"] = {
+    hrid: "/actions/combat/sinister_circus",
+    name: "Sinister Circus",
     type: "/action_types/combat",
     category: "/action_categories/combat/dungeons",
     sortIndex: 57,
@@ -486,16 +488,67 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       fightInfo: { monsters: ["/monsters/fly"] },
     },
   };
+  runtime.state.initData_actionDetailMap["/actions/combat/enchanted_fortress"] =
+    {
+      hrid: "/actions/combat/enchanted_fortress",
+      name: "Enchanted Fortress",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/dungeons",
+      sortIndex: 58,
+      combatZoneInfo: {
+        isDungeon: true,
+        fightInfo: { monsters: ["/monsters/aquahorse"] },
+      },
+    };
+  runtime.state.initData_actionDetailMap["/actions/combat/pirate_cove"] = {
+    hrid: "/actions/combat/pirate_cove",
+    name: "Pirate Cove",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 59,
+    combatZoneInfo: {
+      isDungeon: true,
+      fightInfo: { monsters: ["/monsters/fly"] },
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/combat/turtle"] = {
+    hrid: "/actions/combat/turtle",
+    name: "Turtle",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/aqua_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+  };
+  for (const [hrid, name] of [
+    ["/actions/combat/sorcerers_tower", "Sorcerer's Tower"],
+    ["/actions/combat/infernal_abyss", "Infernal Abyss"],
+  ]) {
+    runtime.state.initData_actionDetailMap[hrid] = {
+      hrid,
+      name,
+      type: "/action_types/combat",
+      category: `/action_categories/combat/${hrid.split("/").at(-1)}`,
+      combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 10 } },
+    };
+  }
   runtime.state.characterQuests = [
-    { id: "fly", actionHrid: "/actions/combat/fly" },
+    { id: "fly-1", actionHrid: "/actions/combat/fly" },
     { id: "horse", actionHrid: "/actions/combat/aquahorse" },
+    { id: "fly-2", actionHrid: "/actions/combat/fly" },
     { id: "den", actionHrid: "/actions/combat/chimerical_den" },
+    {
+      id: "turtle",
+      actionHrid: "/actions/combat/turtle",
+      monsterHrid: "/monsters/turtle",
+    },
   ];
   runtime.settings.settingsMap.taskNewBadge.isTrue = false;
   runtime.settings.settingsMap.taskIcons.isTrue = true;
   document.body.insertAdjacentHTML(
     "afterbegin",
-    `<svg style="display:none"><use href="/static/media/actions_sprite.test.svg#chimerical_den"></use></svg>`,
+    `<svg style="display:none">
+      <use href="/static/media/actions_sprite.test.svg#chimerical_den"></use>
+      <use href="/static/media/combat_monsters_sprite.test.svg#fly"></use>
+    </svg>`,
   );
   localStorage.setItem(
     "MWITools_task_combat_mode_v1:test.milkywayidle.com:tasks-test",
@@ -508,11 +561,11 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
   assert.equal(
     document.querySelectorAll('.mwi-task-combat-location[data-mode="dungeon"]')
       .length,
-    2,
+    5,
   );
   assert.equal(
     document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
-    4,
+    10,
   );
   const denMirror = [
     ...document.querySelectorAll('[data-mwitools-task-mirror="true"]'),
@@ -537,16 +590,68 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     denMirror.querySelectorAll(":scope > .mwi-task-bg--dungeon").length,
     1,
   );
+  assert.deepEqual(
+    [
+      ...new Set(
+        [...document.querySelectorAll(".mwi-task-bg--dungeon use")].map((use) =>
+          use.getAttribute("href").split("#").at(-1),
+        ),
+      ),
+    ].sort(),
+    ["chimerical_den", "enchanted_fortress", "pirate_cove", "sinister_circus"],
+  );
+  assert.ok(
+    [...document.querySelectorAll(".mwi-task-bg--dungeon use")].every((use) =>
+      use.getAttribute("href").split("#").at(-1),
+    ),
+    "dungeon artwork never uses an empty sprite fragment",
+  );
+  const nonDungeon = document.querySelector(
+    '.mwi-task-combat-location[data-location="non-dungeon-monsters"]',
+  );
+  assert.equal(
+    nonDungeon.querySelector(".mwi-task-combat-location-title-text")
+      .textContent,
+    "非地牢怪物 (1)",
+  );
+  assert.equal(nonDungeon.querySelectorAll(".mwi-task-bg--dungeon").length, 0);
+  assert.doesNotMatch(
+    document.querySelector(".TasksPanel_taskList__dungeons").textContent,
+    /其他战斗|Other combat/,
+  );
+  for (const [actionHrid, title] of [
+    ["/actions/combat/sorcerers_tower", "巫师之塔"],
+    ["/actions/combat/infernal_abyss", "地狱深渊"],
+  ]) {
+    const probe = document.createElement("div");
+    probe.innerHTML = card(`击败 - ${title}`, "0 / 10");
+    assert.equal(
+      dungeonLocationsForCard(probe.firstElementChild, { actionHrid })[0].key,
+      "non-dungeon-monsters",
+    );
+  }
+  const chimericalTitles = [
+    ...document.querySelector(
+      '.mwi-task-combat-location[data-location*="chimerical_den"] .mwi-task-dungeon-body',
+    ).children,
+  ].map(
+    (taskCard) =>
+      taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
+  );
+  assert.deepEqual(chimericalTitles.slice(0, 2), [
+    "击败 - 苍蝇",
+    "击败 - 苍蝇",
+  ]);
   assert.equal(
     document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
-    3,
+    5,
   );
   assert.equal(
     dungeonLocationsForCard(
       document.querySelector(TASK_SELECTOR),
       runtime.state.characterQuests[0],
     ).length,
-    2,
+    3,
   );
 
   const sourceFly = [...document.querySelectorAll(TASK_SELECTOR)].find(
@@ -575,6 +680,87 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
   );
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
   runtime.settings.settingsMap.taskIcons.isTrue = false;
+});
+
+test("combat monster grouping stays stable through reset and refreshes on re-entry", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__monster-order">
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 杰瑞", "0 / 10")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+    </div>`,
+  );
+  runtime.state.initData_actionDetailMap["/actions/combat/rat"] = {
+    hrid: "/actions/combat/rat",
+    name: "Rat",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/smelly_planet",
+    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+  };
+  runtime.state.characterQuests = [
+    { id: "stable-fly-1", actionHrid: "/actions/combat/fly" },
+    { id: "stable-rat", actionHrid: "/actions/combat/rat" },
+    { id: "stable-fly-2", actionHrid: "/actions/combat/fly" },
+  ];
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  localStorage.setItem(
+    "MWITools_task_combat_mode_v1:test.milkywayidle.com:tasks-test",
+    "planet",
+  );
+  runtime.api.renderTasks();
+
+  const orderedTitles = (root) =>
+    [...root.querySelectorAll(TASK_SELECTOR)]
+      .sort(
+        (left, right) => Number(left.style.order) - Number(right.style.order),
+      )
+      .map(
+        (taskCard) =>
+          taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
+      );
+  const list = document.querySelector(".TasksPanel_taskList__monster-order");
+  assert.deepEqual(orderedTitles(list), [
+    "击败 - 苍蝇",
+    "击败 - 苍蝇",
+    "击败 - 杰瑞",
+  ]);
+
+  const firstSlot = list.querySelector(TASK_SELECTOR);
+  const originalOrder = firstSlot.style.order;
+  firstSlot.querySelector("button").click();
+  firstSlot.querySelector('div[class*="RandomTask_name"]').textContent =
+    "击败 - 杰瑞";
+  runtime.state.characterQuests[0] = {
+    id: "reset-rat",
+    actionHrid: "/actions/combat/rat",
+  };
+  runtime.api.renderTasks();
+  assert.equal(firstSlot.style.order, originalOrder);
+  assert.deepEqual(orderedTitles(list), [
+    "击败 - 杰瑞",
+    "击败 - 苍蝇",
+    "击败 - 杰瑞",
+  ]);
+
+  list.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__monster-order-reentered">
+      ${card("击败 - 杰瑞", "0 / 10")}
+      ${card("击败 - 杰瑞", "0 / 10")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+    </div>`,
+  );
+  runtime.api.renderTasks();
+  assert.deepEqual(
+    orderedTitles(
+      document.querySelector(".TasksPanel_taskList__monster-order-reentered"),
+    ),
+    ["击败 - 杰瑞", "击败 - 杰瑞", "击败 - 苍蝇"],
+  );
+  runtime.settings.settingsMap.taskNewBadge.isTrue = true;
 });
 
 test("production-chain tasks stay together when automatic sorting is disabled", () => {

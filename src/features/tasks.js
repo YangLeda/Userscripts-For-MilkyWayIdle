@@ -174,11 +174,10 @@ async function loadTaskSpriteManifest() {
 function taskSpriteHref(kind, hrid) {
   scanTaskSpriteBases();
   const base = taskSpriteBases.get(kind);
-  return base
-    ? `${base}#${String(hrid ?? "")
-        .split("/")
-        .at(-1)}`
-    : "";
+  const symbol = String(hrid ?? "")
+    .split("/")
+    .at(-1);
+  return base && symbol ? `${base}#${symbol}` : "";
 }
 
 function addStyles() {
@@ -469,12 +468,15 @@ function decorateCard(card, task) {
   card.appendChild(background);
 }
 
-function addDungeonArtwork(card, actionHrid) {
+function addDungeonArtwork(card, location) {
   card.querySelector(":scope > .mwi-task-bg--dungeon")?.remove();
   const monster = card.querySelector(":scope > .mwi-task-bg");
-  monster?.classList.add("mwi-task-bg--monster");
+  monster?.classList.remove("mwi-task-bg--monster");
+  const actionHrid = location?.isDungeon ? location.actionHrid : "";
+  if (!actionHrid) return;
   const href = taskSpriteHref("actions", actionHrid);
   if (!href) return;
+  monster?.classList.add("mwi-task-bg--monster");
   const background = document.createElement("div");
   background.className = "mwi-task-bg mwi-task-bg--dungeon";
   background.dataset.spriteHref = href;
@@ -617,7 +619,7 @@ function combatLocationForCard(card, task) {
         : detail.name) ?? detail.name;
     return {
       key: `dungeon-${detail.hrid}`,
-      label: `${t("地牢", "Dungeon")} · ${name}`,
+      label: name ? `${t("地牢", "Dungeon")} · ${name}` : t("地牢", "Dungeon"),
       order: 10_000 + Number(detail.sortIndex ?? 0),
     };
   }
@@ -650,8 +652,8 @@ function combatLocationForCard(card, task) {
     };
   }
   return {
-    key: "combat-unresolved",
-    label: t("其他战斗", "Other combat"),
+    key: "non-dungeon-monsters",
+    label: t("非地牢怪物", "Non-dungeon monsters"),
     order: 99_999,
   };
 }
@@ -664,8 +666,19 @@ function dungeonLocation(detail) {
   return {
     key: `dungeon-${detail?.hrid}`,
     actionHrid: detail?.hrid ?? "",
-    label: name || t("未知地牢", "Unknown dungeon"),
+    isDungeon: true,
+    label: name || t("地牢", "Dungeon"),
     order: Number(detail?.sortIndex ?? 9999),
+  };
+}
+
+function nonDungeonLocation() {
+  return {
+    key: "non-dungeon-monsters",
+    actionHrid: "",
+    isDungeon: false,
+    label: t("非地牢怪物", "Non-dungeon monsters"),
+    order: 99_999,
   };
 }
 
@@ -676,15 +689,7 @@ export function dungeonLocationsForCard(card, task) {
     return [dungeonLocation(taskDetail)];
   }
   const monsterHrid = monsterHridForCard(card, task);
-  if (!monsterHrid) {
-    return [
-      {
-        key: "dungeon-unresolved",
-        label: t("其他战斗", "Other combat"),
-        order: 99_999,
-      },
-    ];
-  }
+  if (!monsterHrid) return [nonDungeonLocation()];
   const matches = Object.values(runtime.state.initData_actionDetailMap ?? {})
     .filter(
       (detail) =>
@@ -698,15 +703,7 @@ export function dungeonLocationsForCard(card, task) {
       (left, right) =>
         left.order - right.order || left.label.localeCompare(right.label),
     );
-  return matches.length
-    ? matches
-    : [
-        {
-          key: "dungeon-unresolved",
-          label: t("其他战斗", "Other combat"),
-          order: 99_999,
-        },
-      ];
+  return matches.length ? matches : [nonDungeonLocation()];
 }
 
 function actionSortInfo(task, originalIndex) {
@@ -891,11 +888,24 @@ function orderedRows(cards, tasks) {
           ? (previous.dungeonLocations ?? dungeonLocationsForCard(card, task))
           : dungeonLocationsForCard(card, task)
         : [];
+    const computedMonsterGroupKey =
+      profession.key === "combat"
+        ? monsterHridForCard(card, task) ||
+          taskActionHrid(task) ||
+          `combat-slot-${slot}`
+        : "";
+    const monsterGroupKey =
+      profession.key === "combat" &&
+      !completed &&
+      previous?.profession.key === "combat"
+        ? (previous.monsterGroupKey ?? computedMonsterGroupKey)
+        : computedMonsterGroupKey;
     pageClassifications.set(slot, {
       completed,
       profession,
       location,
       dungeonLocations,
+      monsterGroupKey,
     });
     return {
       card,
@@ -903,6 +913,7 @@ function orderedRows(cards, tasks) {
       profession,
       location,
       dungeonLocations,
+      monsterGroupKey,
       info: actionSortInfo(task, slot),
       depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
       chain: chains?.get(taskActionHrid(task))?.group ?? index,
@@ -990,7 +1001,7 @@ function mirrorTaskCard(source, location) {
   mirror.style.display = "";
   delete mirror.dataset.mwitoolsDungeonSource;
   delete mirror.dataset.mwitoolsCollapsed;
-  addDungeonArtwork(mirror, location?.actionHrid);
+  addDungeonArtwork(mirror, location);
   mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
   mirror.addEventListener("click", (event) => {
     event.preventDefault();
@@ -1005,6 +1016,27 @@ function mirrorTaskCard(source, location) {
     source.click();
   });
   return mirror;
+}
+
+function groupMatchingMonsters(rows) {
+  const firstSlotByMonster = new Map();
+  for (const row of rows) {
+    const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
+    const current = firstSlotByMonster.get(key);
+    if (current === undefined || row.info.originalIndex < current) {
+      firstSlotByMonster.set(key, row.info.originalIndex);
+    }
+  }
+  return [...rows].sort((left, right) => {
+    const leftKey =
+      left.monsterGroupKey || `combat-slot-${left.info.originalIndex}`;
+    const rightKey =
+      right.monsterGroupKey || `combat-slot-${right.info.originalIndex}`;
+    return (
+      firstSlotByMonster.get(leftKey) - firstSlotByMonster.get(rightKey) ||
+      left.info.originalIndex - right.info.originalIndex
+    );
+  });
 }
 
 function renderDungeonCombatGroups(parent, rows, nextOrder) {
@@ -1024,7 +1056,8 @@ function renderDungeonCombatGroups(parent, rows, nextOrder) {
       left.location.label.localeCompare(right.location.label),
   );
   const active = new Set();
-  for (const { location, rows: locationRows } of orderedLocations) {
+  for (const { location, rows: unsortedLocationRows } of orderedLocations) {
+    const locationRows = groupMatchingMonsters(unsortedLocationRows);
     active.add(location.key);
     let section = parent.querySelector(
       `:scope > .mwi-task-combat-location[data-location="${location.key}"]`,
@@ -1091,7 +1124,8 @@ function renderCombatGroups(parent, rows, nextOrder) {
       left.location.label.localeCompare(right.location.label),
   );
   const active = new Set();
-  for (const { location, rows: locationRows } of orderedLocations) {
+  for (const { location, rows: unsortedLocationRows } of orderedLocations) {
+    const locationRows = groupMatchingMonsters(unsortedLocationRows);
     active.add(location.key);
     let section = parent.querySelector(
       `:scope > .mwi-task-combat-location[data-location="${location.key}"]`,
