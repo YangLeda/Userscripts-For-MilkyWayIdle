@@ -9,7 +9,7 @@ const dom = new JSDOM(
     <div class="Modal_modalContainer__test">
       <div class="GuildPanel_exchangeModalContent__test">
         <svg aria-label="Green Guild Credit"><use href="/items.svg#green_guild_credit"></use></svg>
-        <svg aria-label="Cheese"><use href="/items.svg#cheese"></use></svg>
+        <svg class="selected-item" aria-label="Cheese"><use href="/items.svg#cheese"></use></svg>
         <input type="number" value="2">
       </div>
     </div>
@@ -30,159 +30,235 @@ await import("../src/core/market.js");
 const {
   collectGuildCreditConversions,
   evaluateGuildCreditConversion,
-  quoteGuildCreditAsk,
-  readGuildExchangeContext,
+  evaluateGuildCreditReplacement,
   positionGuildCreditAdvisor,
+  quoteGuildCreditAsk,
+  quoteGuildCreditBid,
+  readGuildExchangeContext,
   renderGuildCreditAdvisor,
   renderGuildCreditRecommendations,
 } = await import("../src/features/guild-credit-advisor.js");
 
-const CREDIT_NAMES = [
-  "Green",
-  "Brown",
-  "White",
-  "Blue",
-  "Purple",
-  "Red",
-  "Silver",
-  "Gold",
-];
-const creditHrids = CREDIT_NAMES.map(
-  (name) => `/items/${name.toLowerCase()}_guild_credit`,
-);
-
+const creditHrid = "/items/green_guild_credit";
 runtime.state.initData_itemDetailMap = {
-  ...Object.fromEntries(
-    CREDIT_NAMES.map((name, index) => [
-      creditHrids[index],
-      { name: `${name} Guild Credit` },
-    ]),
-  ),
+  [creditHrid]: { name: "Green Guild Credit" },
   "/items/milk": {
     name: "Milk",
     guildCreditConversions: [
-      {
-        creditItemHrid: "/items/green_guild_credit",
-        itemCount: 10,
-        creditCount: 2,
-      },
+      { creditItemHrid: creditHrid, itemCount: 10, creditCount: 2 },
     ],
   },
   "/items/cheese": {
     name: "Cheese",
     guildCreditConversions: [
-      {
-        creditItemHrid: "/items/green_guild_credit",
-        itemCount: 4,
-        creditCount: 2,
-      },
+      { creditItemHrid: creditHrid, itemCount: 4, creditCount: 2 },
     ],
   },
-  "/items/shared_material": {
-    name: "Shared Material",
-    guildCreditConversions: creditHrids.slice(1).map((creditItemHrid) => ({
-      creditItemHrid,
-      itemCount: 1,
-      creditCount: 1,
-    })),
+  "/items/yogurt": {
+    name: "Yogurt",
+    guildCreditConversions: [
+      { creditItemHrid: creditHrid, itemCount: 5, creditCount: 2 },
+    ],
+  },
+  "/items/flour": {
+    name: "Flour",
+    guildCreditConversions: [
+      { creditItemHrid: creditHrid, itemCount: 5, creditCount: 2 },
+    ],
   },
 };
 Object.assign(runtime.state.itemEnNameToHridMap, {
-  ...Object.fromEntries(
-    CREDIT_NAMES.map((name, index) => [
-      `${name} Guild Credit`,
-      creditHrids[index],
-    ]),
-  ),
+  "Green Guild Credit": creditHrid,
   Milk: "/items/milk",
   Cheese: "/items/cheese",
-  "Shared Material": "/items/shared_material",
+  Yogurt: "/items/yogurt",
+  Flour: "/items/flour",
 });
 runtime.state.marketApiJson = {
   timestamp: 1,
   marketData: {
     "/items/milk": { 0: { a: 100, b: 90 } },
-    "/items/cheese": { 0: { a: 300, b: 250 } },
-    "/items/shared_material": { 0: { a: 700, b: 650 } },
+    "/items/cheese": { 0: { a: 300, b: 500 } },
+    "/items/yogurt": { 0: { a: 300, b: 260 } },
+    "/items/flour": { 0: { a: 400, b: 350 } },
   },
 };
 runtime.api.ensureMarketValueSource = async () => true;
 
-const guildShop = document.querySelector("#guild-shop");
-for (const [index, name] of CREDIT_NAMES.entries()) {
-  const tile = document.createElement("div");
-  tile.className = "GuildPanel_guildTile__test";
-  tile.innerHTML = `<svg aria-label="${name} Guild Credit"><use href="/items.svg#${creditHrids[index].split("/").at(-1)}"></use></svg>`;
-  guildShop.append(tile);
+function setOrderBooks() {
+  const books = runtime.state.marketOrderBooks;
+  for (const key of Object.keys(books)) delete books[key];
+  Object.assign(books, {
+    "/items/milk": {
+      0: {
+        asks: [{ price: 100, quantity: 100 }],
+        bids: [{ price: 90, quantity: 100 }],
+      },
+    },
+    "/items/cheese": {
+      0: {
+        asks: [{ price: 300, quantity: 100 }],
+        bids: [{ price: 500, quantity: 100 }],
+      },
+    },
+    "/items/yogurt": {
+      0: {
+        asks: [{ price: 300, quantity: 100 }],
+        bids: [{ price: 260, quantity: 100 }],
+      },
+    },
+    "/items/flour": {
+      0: {
+        asks: [{ price: 400, quantity: 100 }],
+        bids: [{ price: 350, quantity: 100 }],
+      },
+    },
+  });
+}
+
+function modal() {
+  return document.querySelector(MODAL_SELECTOR);
+}
+
+const MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
+
+function selectItem(itemHrid, name) {
+  const icon = modal().querySelector(".selected-item");
+  icon.setAttribute("aria-label", name);
+  icon.querySelector("use").setAttribute("href", `/items.svg#${itemHrid}`);
+}
+
+function shadowText(host) {
+  return host?.shadowRoot?.textContent?.replaceAll(/\s+/g, " ").trim() ?? "";
+}
+
+function shadow(host, selector) {
+  return host.shadowRoot.querySelector(selector);
 }
 
 test("guild exchange context resolves the credit, selected item and batches", () => {
-  assert.deepEqual(
-    readGuildExchangeContext(
-      document.querySelector('[class*="GuildPanel_exchangeModalContent"]'),
-    ),
-    {
-      creditItemHrid: "/items/green_guild_credit",
-      selectedItemHrid: "/items/cheese",
-      batchCount: 2,
-    },
-  );
-  assert.equal(
-    collectGuildCreditConversions("/items/green_guild_credit").length,
-    2,
-  );
+  assert.deepEqual(readGuildExchangeContext(modal()), {
+    creditItemHrid: creditHrid,
+    selectedItemHrid: "/items/cheese",
+    batchCount: 2,
+  });
+  assert.equal(collectGuildCreditConversions(creditHrid).length, 4);
 });
 
-test("guild conversion quotes consume order-book depth and round batches", () => {
-  runtime.state.marketOrderBooks["/items/milk"] = {
-    0: { asks: [{ price: 100, quantity: 15 }] },
-  };
-  const milk = collectGuildCreditConversions("/items/green_guild_credit").find(
+test("guild conversion quotes consume asks and bids with loaded-depth semantics", () => {
+  setOrderBooks();
+  runtime.state.marketOrderBooks["/items/milk"][0].asks = [
+    { price: 90, quantity: 5 },
+    { price: 100, quantity: 15 },
+  ];
+  const milk = collectGuildCreditConversions(creditHrid).find(
     ({ itemHrid }) => itemHrid === "/items/milk",
   );
-  const result = evaluateGuildCreditConversion(milk, 3);
-  assert.equal(result.batches, 2);
-  assert.equal(result.requiredItems, 20);
-  assert.equal(result.available, false);
-
-  runtime.state.marketOrderBooks["/items/milk"][0].asks[0].quantity = 20;
   const available = evaluateGuildCreditConversion(milk, 3);
-  assert.equal(available.totalCost, 2_000);
-  assert.equal(available.producedCredits, 4);
-  assert.equal(available.costPerCredit, 500);
+  assert.equal(available.batches, 2);
+  assert.equal(available.requiredItems, 20);
+  assert.equal(available.totalCost, 1_950);
+  assert.equal(available.costPerCredit, 487.5);
 
-  delete runtime.state.marketOrderBooks["/items/cheese"];
-  assert.deepEqual(quoteGuildCreditAsk("/items/cheese", 4), {
+  runtime.state.marketOrderBooks["/items/milk"][0].asks[1].quantity = 14;
+  assert.equal(evaluateGuildCreditConversion(milk, 3).available, false);
+  assert.deepEqual(quoteGuildCreditBid("/items/cheese", 8), {
     available: true,
-    totalCost: 1_200,
+    grossValue: 4_000,
+    estimated: false,
+  });
+
+  delete runtime.state.marketOrderBooks["/items/flour"];
+  assert.deepEqual(quoteGuildCreditAsk("/items/flour", 5), {
+    available: true,
+    totalCost: 2_000,
     estimated: true,
   });
 });
 
-test("guild advisor shows the cheapest ask conversion and selected premium", async () => {
-  runtime.state.marketOrderBooks["/items/milk"] = {
-    0: { asks: [{ price: 100, quantity: 100 }] },
-  };
-  const card = await renderGuildCreditAdvisor();
-  assert.ok(card);
-  assert.match(card.textContent, /最优：牛奶/);
-  assert.match(card.textContent, /当前：奶酪/);
-  assert.match(card.textContent, /20\.0%/);
+test("sell-and-rebuy consumes bid depth, tax and whole exchange batches", () => {
+  setOrderBooks();
+  const conversions = collectGuildCreditConversions(creditHrid);
+  const selected = conversions.find(
+    ({ itemHrid }) => itemHrid === "/items/cheese",
+  );
+  const best = conversions.find(({ itemHrid }) => itemHrid === "/items/milk");
+  const result = evaluateGuildCreditReplacement(selected, 2, best);
+  assert.equal(result.status, "ok");
+  assert.equal(result.directCredits, 4);
+  assert.equal(result.saleQuantity, 8);
+  assert.equal(result.netSaleValue, 3_800);
+  assert.equal(result.replacement.requiredItems, 30);
+  assert.equal(result.replacement.producedCredits, 6);
+  assert.equal(result.difference, 2);
+
+  runtime.state.marketOrderBooks["/items/cheese"][0].bids[0].quantity = 7;
   assert.equal(
-    document.querySelectorAll("#mwitools-guild-credit-advisor").length,
-    1,
+    evaluateGuildCreditReplacement(selected, 2, best).status,
+    "no_sell_quote",
   );
-  const modal = document.querySelector(
-    '[class*="GuildPanel_exchangeModalContent"]',
+  assert.equal(
+    evaluateGuildCreditReplacement(best, 2, best).status,
+    "already_optimal",
   );
-  assert.equal(card.parentElement, document.body);
-  assert.equal(modal.contains(card), false);
-  assert.equal(modal.style.position, "");
 });
 
-test("guild advisor attaches right on desktop and below on mobile", async () => {
+test("advisor is a Shadow DOM external panel with a compact top three", async () => {
+  setOrderBooks();
+  selectItem("cheese", "Cheese");
+  const host = await renderGuildCreditAdvisor();
+  assert.ok(host?.shadowRoot);
+  assert.equal(host.parentElement, document.body);
+  assert.equal(modal().contains(host), false);
+  assert.equal(
+    shadow(host, ".ranking").querySelectorAll(".rank-row").length,
+    3,
+  );
+  assert.deepEqual(
+    [...host.shadowRoot.querySelectorAll(".ranking .name")].map(
+      (node) => node.textContent,
+    ),
+    ["牛奶", "奶酪", "酸奶"],
+  );
+  assert.equal(
+    shadow(host, ".ranking .rank-row:nth-child(2) .tag").textContent,
+    "当前",
+  );
+  assert.equal(shadow(host, ".current-row"), null);
+  assert.match(shadowText(host), /可多兑换 2 点信用/);
+  assert.equal(document.querySelectorAll(`#${host.id}`).length, 1);
+});
+
+test("a selected option outside the top three gets a separate current row", async () => {
+  setOrderBooks();
+  selectItem("flour", "Flour");
+  const host = await renderGuildCreditAdvisor();
+  assert.deepEqual(
+    [...host.shadowRoot.querySelectorAll(".ranking .name")].map(
+      (node) => node.textContent,
+    ),
+    ["牛奶", "奶酪", "酸奶"],
+  );
+  assert.equal(shadow(host, ".current-row .name").textContent, "Flour");
+  assert.equal(shadow(host, ".current-row .tag").textContent, "当前");
+});
+
+test("the selected best option is tagged and reported as already optimal", async () => {
+  setOrderBooks();
+  selectItem("milk", "Milk");
+  const host = await renderGuildCreditAdvisor();
+  assert.equal(
+    shadow(host, ".ranking .rank-row:first-child .tag").textContent,
+    "当前",
+  );
+  assert.match(shadowText(host), /当前方案已是单位信用成本最优/);
+});
+
+test("advisor placement tries right, left, bottom, top and overlay", async () => {
+  setOrderBooks();
+  const host = await renderGuildCreditAdvisor();
   const shell = document.querySelector('[class*="Modal_modalContainer"]');
-  const card = document.querySelector("#mwitools-guild-credit-advisor");
+  host.getBoundingClientRect = () => ({ width: 260, height: 220 });
   shell.getBoundingClientRect = () => ({
     left: 100,
     right: 500,
@@ -191,52 +267,81 @@ test("guild advisor attaches right on desktop and below on mobile", async () => 
     width: 400,
     height: 340,
   });
-  card.getBoundingClientRect = () => ({
-    left: 0,
-    right: 260,
-    top: 0,
-    bottom: 220,
-    width: 260,
-    height: 220,
-  });
   globalThis.innerWidth = 1_200;
   globalThis.innerHeight = 800;
   assert.equal(positionGuildCreditAdvisor(), true);
-  assert.equal(card.dataset.placement, "right");
-  assert.equal(card.style.left, "510px");
-  assert.equal(card.style.top, "80px");
+  assert.equal(host.dataset.placement, "right");
+  assert.equal(host.style.left, "512px");
 
-  globalThis.innerWidth = 600;
-  globalThis.innerHeight = 800;
+  shell.getBoundingClientRect = () => ({
+    left: 300,
+    right: 700,
+    top: 80,
+    bottom: 420,
+    width: 400,
+    height: 340,
+  });
+  globalThis.innerWidth = 800;
   assert.equal(positionGuildCreditAdvisor(), true);
-  assert.equal(card.dataset.placement, "bottom");
-  assert.equal(card.style.left, "100px");
-  assert.equal(card.style.top, "430px");
-  assert.equal(card.style.maxHeight, "358px");
-  await renderGuildCreditAdvisor();
+  assert.equal(host.dataset.placement, "left");
+  assert.equal(host.style.left, "28px");
+
+  shell.getBoundingClientRect = () => ({
+    left: 100,
+    right: 500,
+    top: 40,
+    bottom: 300,
+    width: 400,
+    height: 260,
+  });
+  globalThis.innerWidth = 600;
+  globalThis.innerHeight = 700;
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(host.dataset.placement, "bottom");
+  assert.equal(host.style.top, "312px");
+
+  shell.getBoundingClientRect = () => ({
+    left: 100,
+    right: 500,
+    top: 250,
+    bottom: 450,
+    width: 400,
+    height: 200,
+  });
+  globalThis.innerHeight = 500;
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(host.dataset.placement, "top");
+  assert.equal(host.style.top, "18px");
+
+  shell.getBoundingClientRect = () => ({
+    left: 100,
+    right: 500,
+    top: 100,
+    bottom: 450,
+    width: 400,
+    height: 350,
+  });
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(host.dataset.placement, "overlay");
+  assert.equal(host.style.top, "268px");
 });
 
-test("guild shop shows all eight credit recommendations beside modal details", async () => {
+test("main guild shop never receives recommendation summaries", async () => {
+  setOrderBooks();
   const rendered = await renderGuildCreditRecommendations();
-  await renderGuildCreditRecommendations();
-  assert.equal(rendered.summaries.length, 8);
+  assert.deepEqual(rendered.summaries, []);
+  assert.ok(rendered.advisor?.shadowRoot);
   assert.equal(
     document.querySelectorAll(".mwi-guild-credit-recommendation").length,
-    8,
+    0,
   );
-  assert.match(rendered.summaries[0].textContent, /牛奶/);
-  for (const summary of rendered.summaries.slice(1)) {
-    assert.match(summary.textContent, /Shared Material/);
-    assert.match(summary.textContent, /≈700\/点/);
-  }
-  assert.ok(rendered.advisor);
-  assert.match(rendered.advisor.textContent, /最优：牛奶/);
+  assert.equal(document.querySelector("#guild-shop").children.length, 0);
 });
 
 test("closing the exchange modal removes the external advisor", async () => {
   const shell = document.querySelector('[class*="Modal_modalContainer"]');
   shell.remove();
-  assert.equal(await renderGuildCreditAdvisor(), null);
+  assert.equal(await renderGuildCreditRecommendations(), null);
   assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), null);
   document.body.append(shell);
 });

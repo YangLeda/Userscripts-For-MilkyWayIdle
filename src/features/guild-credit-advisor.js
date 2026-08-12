@@ -1,14 +1,23 @@
 import { runtime } from "../core/runtime.js";
 
 const CARD_ID = "mwitools-guild-credit-advisor";
-const STYLE_ID = "mwitools-guild-credit-advisor-style";
+const LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style";
+const LEGACY_SUMMARY_CLASS = "mwi-guild-credit-recommendation";
 const MODAL_SELECTOR = '[class*="GuildPanel_exchangeModalContent"]';
-const SHOP_SELECTOR = '[class*="GuildPanel_shopTab"]';
-const TILE_SELECTOR = '[class*="GuildPanel_guildTile"]';
-const SUMMARY_CLASS = "mwi-guild-credit-recommendation";
 const VIEWPORT_MARGIN = 12;
-const PANEL_GAP = 10;
+const PANEL_GAP = 12;
 const MOBILE_BREAKPOINT = 760;
+
+const CREDIT_COLORS = {
+  green: "#43c4ad",
+  brown: "#b8885b",
+  white: "#dfe4f2",
+  blue: "#6ea9ff",
+  purple: "#a980e9",
+  red: "#e65d68",
+  silver: "#aeb9c9",
+  gold: "#d8a33c",
+};
 
 let advisorPositionState = null;
 let advisorPositionFrame = null;
@@ -17,9 +26,28 @@ function t(zh, en) {
   return runtime.config.isZH ? zh : en;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function positiveNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function formatNumber(value, digits = 2) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
+}
+
+function formatExact(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return runtime.api.formatExactNumber?.(Number(value)) ?? String(value);
 }
 
 function isVisible(element) {
@@ -30,12 +58,6 @@ function isVisible(element) {
 
 export function findGuildExchangeModal(documentRef = document) {
   return [...documentRef.querySelectorAll(MODAL_SELECTOR)]
-    .filter(isVisible)
-    .at(-1);
-}
-
-function findGuildShop(documentRef = document) {
-  return [...documentRef.querySelectorAll(SHOP_SELECTOR)]
     .filter(isVisible)
     .at(-1);
 }
@@ -113,7 +135,7 @@ export function collectGuildCreditConversions(creditItemHrid) {
   return result;
 }
 
-function normalizeAsk(order) {
+function normalizeOrder(order) {
   if (Array.isArray(order)) {
     return {
       price: positiveNumber(order[0]),
@@ -129,36 +151,74 @@ function normalizeAsk(order) {
   return { price: positiveNumber(order?.price), quantity };
 }
 
-export function quoteGuildCreditAsk(itemHrid, requiredItems) {
-  const levelBook =
+function marketLevelBook(itemHrid) {
+  return (
     runtime.state.marketOrderBooks?.[itemHrid]?.[0] ??
-    runtime.state.marketOrderBooks?.[itemHrid]?.["0"];
-  if (levelBook && Array.isArray(levelBook.asks)) {
-    let remaining = requiredItems;
-    let totalCost = 0;
-    const asks = levelBook.asks
-      .map(normalizeAsk)
-      .filter(({ price, quantity }) => price > 0 && quantity > 0)
-      .sort((left, right) => left.price - right.price);
-    for (const ask of asks) {
-      const quantity = Math.min(remaining, ask.quantity);
-      totalCost += quantity * ask.price;
-      remaining -= quantity;
+    runtime.state.marketOrderBooks?.[itemHrid]?.["0"] ??
+    null
+  );
+}
+
+function quoteOrderBook(itemHrid, quantity, side) {
+  const required = positiveNumber(quantity);
+  if (!required) {
+    return { available: false, totalValue: 0, estimated: false };
+  }
+  const levelBook = marketLevelBook(itemHrid);
+  const orders = levelBook?.[side];
+  if (levelBook) {
+    if (!Array.isArray(orders)) {
+      return { available: false, totalValue: 0, estimated: false };
+    }
+    let remaining = required;
+    let totalValue = 0;
+    const descending = side === "bids";
+    const normalized = orders
+      .map(normalizeOrder)
+      .filter(({ price, quantity: available }) => price > 0 && available > 0)
+      .sort((left, right) =>
+        descending ? right.price - left.price : left.price - right.price,
+      );
+    for (const order of normalized) {
+      const filled = Math.min(remaining, order.quantity);
+      totalValue += filled * order.price;
+      remaining -= filled;
       if (remaining <= 0) break;
     }
     return remaining <= 0
-      ? { available: true, totalCost, estimated: false }
-      : { available: false, totalCost: 0, estimated: false };
+      ? { available: true, totalValue, estimated: false }
+      : { available: false, totalValue: 0, estimated: false };
   }
-
-  const askPrice = positiveNumber(runtime.api.getAskPrice?.(itemHrid, 0));
-  return askPrice
+  const fallbackPrice = positiveNumber(
+    side === "bids"
+      ? runtime.api.getBidPrice?.(itemHrid, 0)
+      : runtime.api.getAskPrice?.(itemHrid, 0),
+  );
+  return fallbackPrice
     ? {
         available: true,
-        totalCost: askPrice * requiredItems,
+        totalValue: fallbackPrice * required,
         estimated: true,
       }
-    : { available: false, totalCost: 0, estimated: true };
+    : { available: false, totalValue: 0, estimated: true };
+}
+
+export function quoteGuildCreditAsk(itemHrid, requiredItems) {
+  const quote = quoteOrderBook(itemHrid, requiredItems, "asks");
+  return {
+    available: quote.available,
+    totalCost: quote.totalValue,
+    estimated: quote.estimated,
+  };
+}
+
+export function quoteGuildCreditBid(itemHrid, quantity) {
+  const quote = quoteOrderBook(itemHrid, quantity, "bids");
+  return {
+    available: quote.available,
+    grossValue: quote.totalValue,
+    estimated: quote.estimated,
+  };
 }
 
 export function evaluateGuildCreditConversion(conversion, targetCredits = 1) {
@@ -195,6 +255,109 @@ export function evaluateGuildCreditOptions(creditItemHrid, targetCredits = 1) {
     );
 }
 
+function affordableItemsFromAsks(itemHrid, budget) {
+  const availableBudget = positiveNumber(budget);
+  if (!availableBudget) return { quantity: 0, estimated: false };
+  const levelBook = marketLevelBook(itemHrid);
+  if (levelBook) {
+    if (!Array.isArray(levelBook.asks)) {
+      return { quantity: 0, estimated: false };
+    }
+    let remainingBudget = availableBudget;
+    let quantity = 0;
+    const asks = levelBook.asks
+      .map(normalizeOrder)
+      .filter(({ price, quantity: available }) => price > 0 && available > 0)
+      .sort((left, right) => left.price - right.price);
+    for (const ask of asks) {
+      const affordable = Math.floor(remainingBudget / ask.price);
+      const purchased = Math.min(ask.quantity, affordable);
+      if (purchased <= 0) break;
+      quantity += purchased;
+      remainingBudget -= purchased * ask.price;
+    }
+    return { quantity, estimated: false };
+  }
+  const askPrice = positiveNumber(runtime.api.getAskPrice?.(itemHrid, 0));
+  return {
+    quantity: askPrice ? Math.floor(availableBudget / askPrice) : 0,
+    estimated: Boolean(askPrice),
+  };
+}
+
+function buyGuildCreditsWithinBudget(conversion, budget) {
+  const affordable = affordableItemsFromAsks(conversion.itemHrid, budget);
+  const batches = Math.floor(affordable.quantity / conversion.itemCount);
+  if (batches <= 0) {
+    return {
+      available: false,
+      estimated: affordable.estimated,
+      batches: 0,
+      requiredItems: 0,
+      producedCredits: 0,
+      totalCost: 0,
+    };
+  }
+  const requiredItems = batches * conversion.itemCount;
+  const quote = quoteGuildCreditAsk(conversion.itemHrid, requiredItems);
+  return {
+    available: quote.available && quote.totalCost <= budget,
+    estimated: affordable.estimated || quote.estimated,
+    batches,
+    requiredItems,
+    producedCredits: batches * conversion.creditCount,
+    totalCost: quote.totalCost,
+  };
+}
+
+export function evaluateGuildCreditReplacement(
+  selectedConversion,
+  batchCount,
+  bestConversion,
+) {
+  const selectedBatches = Math.max(1, Math.floor(positiveNumber(batchCount)));
+  const directCredits = selectedBatches * selectedConversion.creditCount;
+  if (selectedConversion.itemHrid === bestConversion.itemHrid) {
+    return { status: "already_optimal", directCredits, difference: 0 };
+  }
+  const saleQuantity = selectedBatches * selectedConversion.itemCount;
+  const sale = quoteGuildCreditBid(selectedConversion.itemHrid, saleQuantity);
+  if (!sale.available) {
+    return { status: "no_sell_quote", directCredits, saleQuantity, sale };
+  }
+  const taxRate = Math.max(
+    0,
+    Math.min(
+      1,
+      Number(runtime.api.getMarketTaxRate?.(selectedConversion.itemHrid)) || 0,
+    ),
+  );
+  const netSaleValue = sale.grossValue * (1 - taxRate);
+  const replacement = buyGuildCreditsWithinBudget(bestConversion, netSaleValue);
+  if (!replacement.available) {
+    return {
+      status: "unaffordable",
+      directCredits,
+      saleQuantity,
+      taxRate,
+      netSaleValue,
+      sale,
+      replacement,
+    };
+  }
+  return {
+    status: "ok",
+    directCredits,
+    saleQuantity,
+    taxRate,
+    netSaleValue,
+    sale,
+    replacement,
+    difference: replacement.producedCredits - directCredits,
+    estimated: sale.estimated || replacement.estimated,
+  };
+}
+
 function itemName(itemHrid) {
   const detail = runtime.state.initData_itemDetailMap?.[itemHrid];
   if (runtime.config.isZH) {
@@ -203,25 +366,172 @@ function itemName(itemHrid) {
   return detail?.name ?? itemHrid;
 }
 
-function addStyles() {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    #${CARD_ID}{position:fixed;z-index:2147483000;width:min(260px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;padding:10px;border:1px solid rgba(255,180,60,.45);border-radius:7px;background:rgba(20,23,31,.97);color:var(--color-text-primary,#eee);font-size:.72rem;box-shadow:0 8px 24px rgba(0,0,0,.38);scrollbar-width:thin}
-    #${CARD_ID} .mwi-guild-advisor-title{margin-bottom:7px;color:${runtime.config.SCRIPT_COLOR_MAIN};font-size:.82rem;font-weight:750}
-    #${CARD_ID} .mwi-guild-advisor-best{padding:7px;border-radius:5px;background:rgba(255,170,45,.1)}
-    #${CARD_ID} .mwi-guild-advisor-name{font-weight:700}
-    #${CARD_ID} .mwi-guild-advisor-row{display:flex;justify-content:space-between;gap:8px;margin-top:4px;color:var(--color-text-secondary,#bbb)}
-    #${CARD_ID} .mwi-guild-advisor-row strong{color:var(--color-text-primary,#eee);text-align:right}
-    #${CARD_ID} .mwi-guild-advisor-selected{margin-top:7px;padding-top:7px;border-top:1px solid rgba(255,255,255,.12)}
-    #${CARD_ID} .mwi-guild-advisor-note{margin-top:6px;color:var(--color-text-secondary,#aaa);font-size:.66rem}
-    .${SUMMARY_CLASS}{display:flex;min-width:0;align-items:center;gap:4px;margin-top:4px;padding:3px 5px;border:1px solid rgba(255,180,60,.3);border-radius:4px;background:rgba(255,170,45,.08);color:var(--color-text-secondary,#bbb);font-size:.62rem;line-height:1.2;pointer-events:none}
-    .${SUMMARY_CLASS} strong{min-width:0;overflow:hidden;color:${runtime.config.SCRIPT_COLOR_MAIN};font-weight:700;text-overflow:ellipsis;white-space:nowrap}
-    .${SUMMARY_CLASS} span{margin-left:auto;flex:0 0 auto;color:var(--color-text-primary,#eee);font-variant-numeric:tabular-nums;white-space:nowrap}
-    .${SUMMARY_CLASS}.mwi-guild-credit-unavailable{color:var(--color-text-secondary,#999);border-color:rgba(255,255,255,.12);background:rgba(255,255,255,.03)}
+function findItemsSpriteBase() {
+  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
+    []) {
+    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
+      try {
+        return new URL(entry.name).pathname;
+      } catch {
+        return entry.name;
+      }
+    }
+  }
+  const use = document.querySelector(
+    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
+  );
+  const href =
+    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  return href.includes("#") ? href.split("#")[0] : "";
+}
+
+function itemIconMarkup(itemHrid, name) {
+  const sprite = findItemsSpriteBase();
+  const bare = String(itemHrid ?? "")
+    .split("/")
+    .at(-1);
+  if (!sprite || !bare) {
+    return `<span class="icon-fallback" aria-label="${escapeHtml(name)}">?</span>`;
+  }
+  const href = `${sprite}#${bare}`;
+  return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
+}
+
+function creditColor(creditItemHrid) {
+  const key = String(creditItemHrid ?? "")
+    .split("/")
+    .at(-1)
+    ?.split("_")[0];
+  return CREDIT_COLORS[key] ?? runtime.config.SCRIPT_COLOR_MAIN ?? "#43c4ad";
+}
+
+function advisorStyles() {
+  return `
+    :host{position:fixed;z-index:2147483000;display:block;width:min(400px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;color:#f4f5ff;font-family:inherit;font-size:12px;line-height:1.35}
+    *{box-sizing:border-box}
+    .advisor{display:flex;max-height:inherit;flex-direction:column;overflow:hidden;border:1px solid #414361;border-left:4px solid var(--mwi-credit-accent,#43c4ad);border-radius:8px;background:#171927;box-shadow:0 10px 30px rgba(0,0,0,.48)}
+    .head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:9px 11px;border-bottom:1px solid #414361;background:#24263e}
+    .title{display:grid;gap:2px;min-width:0;color:#fff;font-size:15px;font-weight:750}
+    .credit{display:flex;align-items:center;gap:5px;min-width:0;color:#c7cae4;font-size:10px;font-weight:500}
+    .credit::before{width:8px;height:8px;flex:0 0 8px;border-radius:2px;background:var(--mwi-credit-accent,#43c4ad);content:""}
+    .basis{padding-top:2px;color:#aeb1c9;font-size:10px;white-space:nowrap}
+    .body{min-height:0;overflow-x:hidden;overflow-y:auto;padding:7px;scrollbar-width:thin}
+    .ranking{display:grid;gap:5px}
+    .rank-row{display:grid;min-height:52px;grid-template-columns:22px 28px minmax(0,1fr) auto;align-items:center;gap:7px;padding:5px 7px;border:1px solid #3d3f5d;border-radius:6px;background:#202139}
+    .rank-row.best{border-color:color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 72%,#414361);background:color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 13%,#202139)}
+    .rank-row.current-row{margin-top:6px;border-style:dashed;background:#1d1f33}
+    .rank{display:grid;width:21px;height:21px;place-items:center;border:1px solid #555976;border-radius:50%;color:#c9cce2;font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .best .rank{border-color:var(--mwi-credit-accent,#43c4ad);background:var(--mwi-credit-accent,#43c4ad);color:#111827}
+    .item-icon,.icon-fallback{display:grid;width:28px;height:28px;place-items:center;overflow:hidden;border-radius:4px;background:#292b45;color:#c7cae4;font-weight:700}
+    .copy{display:grid;min-width:0;gap:2px}
+    .name-line{display:flex;min-width:0;align-items:center;gap:5px}
+    .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:12px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .tag{flex:0 0 auto;padding:1px 4px;border:1px solid color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 65%,#555976);border-radius:999px;color:var(--mwi-credit-accent,#43c4ad);font-size:8px;font-weight:700}
+    .meta{overflow:hidden;color:#aeb1c9;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+    .price{display:grid;justify-items:end;gap:1px;color:var(--mwi-credit-accent,#43c4ad);font:750 17px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+    .price small{color:#aeb1c9;font:500 8px/1.2 inherit}
+    .current-heading{margin:7px 2px 4px;color:#aeb1c9;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+    .summary{margin-top:7px;padding:7px 8px;border-top:1px solid #414361;border-radius:0 0 5px 5px;background:#1d1f31;color:#dfe1f4;font-size:10px;line-height:1.45;text-align:center}
+    .summary strong{color:var(--mwi-credit-accent,#43c4ad);font-size:12px}
+    .summary.warning strong{color:#ffd17c}
+    .estimate{margin-top:4px;color:#9296b0;font-size:9px;text-align:center}
+    .empty{padding:14px;color:#bfc2d9;text-align:center}
+    @media(max-width:760px){:host{width:min(400px,calc(100vw - 24px))}.head{padding:8px 9px}.body{padding:6px}.rank-row{min-height:48px;padding:4px 6px}.price{font-size:15px}}
   `;
-  (document.head ?? document.documentElement).appendChild(style);
+}
+
+function createAdvisorHost() {
+  let host = document.getElementById(CARD_ID);
+  if (host?.shadowRoot) return host;
+  host?.remove();
+  host = document.createElement("div");
+  host.id = CARD_ID;
+  const shadow = host.attachShadow({ mode: "open" });
+  const style = document.createElement("style");
+  style.textContent = advisorStyles();
+  const advisor = document.createElement("aside");
+  advisor.className = "advisor";
+  advisor.setAttribute("role", "complementary");
+  advisor.setAttribute("aria-live", "polite");
+  shadow.append(style, advisor);
+  return host;
+}
+
+function rankRowMarkup(
+  option,
+  index,
+  { current = false, separate = false } = {},
+) {
+  const name = itemName(option.itemHrid);
+  const pricePrefix = option.estimated ? "≈" : "";
+  const meta = t(
+    `${formatExact(option.requiredItems)} 个 · ${formatNumber(option.totalCost)} 总成本`,
+    `${formatExact(option.requiredItems)} items · ${formatNumber(option.totalCost)} total`,
+  );
+  return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
+    <span class="rank">${separate ? "—" : index + 1}</span>
+    ${itemIconMarkup(option.itemHrid, name)}
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t("当前", "Current"))}</span>` : ""}</span><span class="meta" title="${escapeHtml(meta)}">${escapeHtml(meta)}</span></span>
+    <span class="price" title="${escapeHtml(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml(formatNumber(option.costPerCredit))}<small>${escapeHtml(t("每信用点", "per credit"))}</small></span>
+  </div>`;
+}
+
+function replacementSummaryMarkup(result, best) {
+  if (!result) {
+    return `<div class="summary">${escapeHtml(t("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
+  }
+  if (result.status === "already_optimal") {
+    return `<div class="summary"><strong>${escapeHtml(t("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
+  }
+  if (result.status === "no_sell_quote") {
+    return `<div class="summary warning"><strong>${escapeHtml(t("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml(t("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
+  }
+  if (result.status === "unaffordable") {
+    return `<div class="summary warning"><strong>${escapeHtml(t("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
+  }
+  const name = itemName(best.itemHrid);
+  const difference = Number(result.difference) || 0;
+  let conclusion;
+  if (difference > 0) {
+    conclusion = t(
+      `卖出当前物品并改买${name}，可多兑换 ${formatExact(difference)} 点信用。`,
+      `Sell the selected items and buy ${name} to gain ${formatExact(difference)} more credits.`,
+    );
+  } else if (difference < 0) {
+    conclusion = t(
+      `直接兑换更划算；改买${name}会少 ${formatExact(-difference)} 点信用。`,
+      `Direct exchange is better; switching to ${name} yields ${formatExact(-difference)} fewer credits.`,
+    );
+  } else {
+    conclusion = t(
+      `直接兑换与改买${name}获得的信用点相同。`,
+      `Direct exchange and switching to ${name} yield the same credits.`,
+    );
+  }
+  return `<div class="summary"><strong>${escapeHtml(conclusion)}</strong><br>${escapeHtml(t(`税后可用 ${formatNumber(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
+}
+
+function advisorMarkup({ context, ranked, selected, replacement }) {
+  const top = ranked.slice(0, 3);
+  const creditName = itemName(context.creditItemHrid);
+  const selectedInTop = top.some(
+    ({ itemHrid }) => itemHrid === context.selectedItemHrid,
+  );
+  const ranking = top
+    .map((option, index) =>
+      rankRowMarkup(option, index, {
+        current: option.itemHrid === context.selectedItemHrid,
+      }),
+    )
+    .join("");
+  const current =
+    selected && !selectedInTop
+      ? `<div class="current-heading">${escapeHtml(t("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}`
+      : "";
+  const estimated =
+    ranked.some(({ estimated: value }) => value) || replacement?.estimated;
+  return `<header class="head"><span class="title">${escapeHtml(t("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml(creditName)}</span></span><span class="basis">${escapeHtml(t("按订单深度", "Order-book depth"))}</span></header>
+    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml(t("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml(t("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
 }
 
 function clamp(value, minimum, maximum) {
@@ -232,60 +542,94 @@ function findGuildExchangeAnchor(modal) {
   return modal.closest('[class*="Modal_modalContainer"]') ?? modal;
 }
 
+function viewportSize() {
+  return {
+    width:
+      Number(globalThis.innerWidth) || document.documentElement.clientWidth,
+    height:
+      Number(globalThis.innerHeight) || document.documentElement.clientHeight,
+  };
+}
+
 export function positionGuildCreditAdvisor() {
   const state = advisorPositionState;
-  if (!state?.card?.isConnected || !state.anchor?.isConnected) return false;
+  if (!state?.host?.isConnected || !state.anchor?.isConnected) return false;
   const anchorRect = state.anchor.getBoundingClientRect();
-  const cardRect = state.card.getBoundingClientRect();
-  const viewportWidth =
-    Number(globalThis.innerWidth) || document.documentElement.clientWidth;
-  const viewportHeight =
-    Number(globalThis.innerHeight) || document.documentElement.clientHeight;
-  const roomRight = viewportWidth - anchorRect.right - VIEWPORT_MARGIN;
-  const useBottom =
-    viewportWidth <= MOBILE_BREAKPOINT ||
-    roomRight < cardRect.width + PANEL_GAP;
+  const hostRect = state.host.getBoundingClientRect();
+  const viewport = viewportSize();
+  const width = hostRect.width || Math.min(400, viewport.width - 24);
+  const height = hostRect.height || Math.min(260, viewport.height - 24);
+  const fitsRight =
+    anchorRect.right + PANEL_GAP + width <= viewport.width - VIEWPORT_MARGIN;
+  const fitsLeft = anchorRect.left - PANEL_GAP - width >= VIEWPORT_MARGIN;
+  const fitsBottom =
+    anchorRect.bottom + PANEL_GAP + height <= viewport.height - VIEWPORT_MARGIN;
+  const fitsTop = anchorRect.top - PANEL_GAP - height >= VIEWPORT_MARGIN;
+  const mobile = viewport.width <= MOBILE_BREAKPOINT;
+  let placement;
+  if (mobile) {
+    placement = fitsBottom ? "bottom" : fitsTop ? "top" : "overlay";
+  } else if (fitsRight) {
+    placement = "right";
+  } else if (fitsLeft) {
+    placement = "left";
+  } else if (fitsBottom) {
+    placement = "bottom";
+  } else if (fitsTop) {
+    placement = "top";
+  } else {
+    placement = "overlay";
+  }
+
   let left;
   let top;
-  let maxHeight;
-
-  if (useBottom) {
-    const desiredTop = anchorRect.bottom + PANEL_GAP;
-    maxHeight = Math.max(
-      72,
-      Math.min(
-        viewportHeight - VIEWPORT_MARGIN * 2,
-        viewportHeight - desiredTop - VIEWPORT_MARGIN,
-      ),
-    );
-    const visibleHeight = Math.min(
-      cardRect.height || maxHeight,
-      viewportHeight - VIEWPORT_MARGIN * 2,
-    );
-    left = clamp(
-      anchorRect.left,
-      VIEWPORT_MARGIN,
-      viewportWidth - cardRect.width - VIEWPORT_MARGIN,
-    );
-    top = clamp(
-      desiredTop,
-      VIEWPORT_MARGIN,
-      viewportHeight - visibleHeight - VIEWPORT_MARGIN,
-    );
-    state.card.dataset.placement = "bottom";
-  } else {
+  let maxHeight = viewport.height - VIEWPORT_MARGIN * 2;
+  if (placement === "right") {
     left = anchorRect.right + PANEL_GAP;
     top = clamp(
       anchorRect.top,
       VIEWPORT_MARGIN,
-      viewportHeight - cardRect.height - VIEWPORT_MARGIN,
+      viewport.height - height - VIEWPORT_MARGIN,
     );
-    maxHeight = viewportHeight - VIEWPORT_MARGIN * 2;
-    state.card.dataset.placement = "right";
+  } else if (placement === "left") {
+    left = anchorRect.left - PANEL_GAP - width;
+    top = clamp(
+      anchorRect.top,
+      VIEWPORT_MARGIN,
+      viewport.height - height - VIEWPORT_MARGIN,
+    );
+  } else if (placement === "bottom") {
+    left = clamp(
+      anchorRect.left + (anchorRect.width - width) / 2,
+      VIEWPORT_MARGIN,
+      viewport.width - width - VIEWPORT_MARGIN,
+    );
+    top = anchorRect.bottom + PANEL_GAP;
+    maxHeight = viewport.height - top - VIEWPORT_MARGIN;
+  } else if (placement === "top") {
+    left = clamp(
+      anchorRect.left + (anchorRect.width - width) / 2,
+      VIEWPORT_MARGIN,
+      viewport.width - width - VIEWPORT_MARGIN,
+    );
+    maxHeight = anchorRect.top - PANEL_GAP - VIEWPORT_MARGIN;
+    top = anchorRect.top - PANEL_GAP - Math.min(height, maxHeight);
+  } else {
+    left = clamp(
+      anchorRect.left + (anchorRect.width - width) / 2,
+      VIEWPORT_MARGIN,
+      viewport.width - width - VIEWPORT_MARGIN,
+    );
+    top = clamp(
+      anchorRect.bottom + PANEL_GAP,
+      VIEWPORT_MARGIN,
+      viewport.height - height - VIEWPORT_MARGIN,
+    );
   }
-  state.card.style.left = `${Math.round(left)}px`;
-  state.card.style.top = `${Math.round(top)}px`;
-  state.card.style.maxHeight = `${Math.max(72, Math.round(maxHeight))}px`;
+  state.host.dataset.placement = placement;
+  state.host.style.left = `${Math.round(left)}px`;
+  state.host.style.top = `${Math.round(top)}px`;
+  state.host.style.maxHeight = `${Math.max(72, Math.round(maxHeight))}px`;
   return true;
 }
 
@@ -315,11 +659,11 @@ function clearGuildCreditAdvisorPosition() {
   advisorPositionState = null;
 }
 
-function mountGuildCreditAdvisor(card, modal) {
+function mountGuildCreditAdvisor(host, modal) {
   const anchor = findGuildExchangeAnchor(modal);
-  if (card.parentElement !== document.body) document.body.append(card);
+  if (host.parentElement !== document.body) document.body.append(host);
   if (
-    advisorPositionState?.card !== card ||
+    advisorPositionState?.host !== host ||
     advisorPositionState?.anchor !== anchor
   ) {
     clearGuildCreditAdvisorPosition();
@@ -327,8 +671,8 @@ function mountGuildCreditAdvisor(card, modal) {
       ? new globalThis.ResizeObserver(scheduleGuildCreditAdvisorPosition)
       : null;
     resizeObserver?.observe(anchor);
-    resizeObserver?.observe(card);
-    advisorPositionState = { anchor, card, resizeObserver };
+    resizeObserver?.observe(host);
+    advisorPositionState = { anchor, host, resizeObserver };
   }
   positionGuildCreditAdvisor();
 }
@@ -336,63 +680,6 @@ function mountGuildCreditAdvisor(card, modal) {
 function removeGuildCreditAdvisor() {
   clearGuildCreditAdvisorPosition();
   document.getElementById(CARD_ID)?.remove();
-}
-
-function creditHridFromTile(tile) {
-  const validCredits = guildCreditHrids();
-  return [...tile.querySelectorAll("svg[aria-label]")]
-    .map(itemHridFromIcon)
-    .find((itemHrid) => validCredits.has(itemHrid));
-}
-
-function renderGuildCreditOverview() {
-  const shop = findGuildShop();
-  document.querySelectorAll(`.${SUMMARY_CLASS}`).forEach((summary) => {
-    if (!shop?.contains(summary)) summary.remove();
-  });
-  if (!shop) return [];
-  const summaries = [];
-  for (const tile of shop.querySelectorAll(TILE_SELECTOR)) {
-    const creditItemHrid = creditHridFromTile(tile);
-    const existing = tile.querySelector(`:scope > .${SUMMARY_CLASS}`);
-    if (!creditItemHrid) {
-      existing?.remove();
-      continue;
-    }
-    const best = evaluateGuildCreditOptions(creditItemHrid)[0];
-    const summary = existing ?? document.createElement("div");
-    summary.className = SUMMARY_CLASS;
-    summary.replaceChildren();
-    if (best) {
-      const name = document.createElement("strong");
-      name.textContent = `${t("推荐", "Best")} · ${itemName(best.itemHrid)}`;
-      const value = document.createElement("span");
-      value.textContent = `${best.estimated ? "≈" : ""}${runtime.api.numberFormatter(best.costPerCredit)}/${t("点", "credit")}`;
-      summary.title = t(
-        `兑换 ${runtime.api.formatExactNumber(best.producedCredits)} 点需要 ${runtime.api.formatExactNumber(best.requiredItems)} 个${itemName(best.itemHrid)}，总成本 ${runtime.api.formatExactNumber(best.totalCost)}`,
-        `${runtime.api.formatExactNumber(best.requiredItems)} ${itemName(best.itemHrid)} for ${runtime.api.formatExactNumber(best.producedCredits)} credits; total cost ${runtime.api.formatExactNumber(best.totalCost)}`,
-      );
-      summary.append(name, value);
-    } else {
-      summary.classList.add("mwi-guild-credit-unavailable");
-      summary.textContent = t("暂无有效市场报价", "No usable market quote");
-      summary.removeAttribute("title");
-    }
-    if (!existing) tile.append(summary);
-    summaries.push(summary);
-  }
-  return summaries;
-}
-
-function appendRow(parent, label, value) {
-  const row = document.createElement("div");
-  row.className = "mwi-guild-advisor-row";
-  const labelNode = document.createElement("span");
-  labelNode.textContent = label;
-  const valueNode = document.createElement("strong");
-  valueNode.textContent = value;
-  row.append(labelNode, valueNode);
-  parent.appendChild(row);
 }
 
 export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
@@ -407,6 +694,7 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
     return null;
   }
   if (!marketReady && !(await runtime.api.ensureMarketValueSource?.())) {
+    removeGuildCreditAdvisor();
     return null;
   }
 
@@ -417,105 +705,45 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
   const targetCredits = selectedConversion
     ? selectedConversion.creditCount * context.batchCount
     : 1;
-  const evaluated = evaluateGuildCreditOptions(
+  const ranked = evaluateGuildCreditOptions(
     context.creditItemHrid,
     targetCredits,
   );
-  const best = evaluated[0];
+  const best = ranked[0];
+  const selected = selectedConversion
+    ? evaluateGuildCreditConversion(selectedConversion, targetCredits)
+    : null;
+  const replacement =
+    selectedConversion && best
+      ? evaluateGuildCreditReplacement(
+          selectedConversion,
+          context.batchCount,
+          best,
+        )
+      : null;
 
-  addStyles();
-  let card = document.getElementById(CARD_ID);
-  if (!card) {
-    card = document.createElement("aside");
-    card.id = CARD_ID;
-  }
-  card.replaceChildren();
-  const title = document.createElement("div");
-  title.className = "mwi-guild-advisor-title";
-  title.textContent = t("公会信用兑换性价比", "Guild credit value");
-  card.appendChild(title);
-
-  if (!best) {
-    const empty = document.createElement("div");
-    empty.textContent = t(
-      "没有可用的市场出售价或订单深度。",
-      "No usable market asks or order-book depth.",
-    );
-    card.appendChild(empty);
-    mountGuildCreditAdvisor(card, modal);
-    return card;
-  }
-
-  const bestBox = document.createElement("div");
-  bestBox.className = "mwi-guild-advisor-best";
-  const bestName = document.createElement("div");
-  bestName.className = "mwi-guild-advisor-name";
-  bestName.textContent = `${t("最优：", "Best: ")}${itemName(best.itemHrid)}`;
-  bestBox.appendChild(bestName);
-  appendRow(
-    bestBox,
-    t("每信用点", "Per credit"),
-    runtime.api.numberFormatter(best.costPerCredit),
+  const host = createAdvisorHost();
+  host.style.setProperty(
+    "--mwi-credit-accent",
+    creditColor(context.creditItemHrid),
   );
-  appendRow(
-    bestBox,
-    t("需要材料", "Items required"),
-    runtime.api.formatExactNumber(best.requiredItems),
+  const advisor = host.shadowRoot.querySelector(".advisor");
+  advisor.setAttribute(
+    "aria-label",
+    t("公会信用兑换推荐", "Guild Credit Exchange"),
   );
-  appendRow(
-    bestBox,
-    t("本批总成本", "Batch cost"),
-    runtime.api.numberFormatter(best.totalCost),
-  );
-  card.appendChild(bestBox);
-
-  if (selectedConversion) {
-    const selected = evaluateGuildCreditConversion(
-      selectedConversion,
-      targetCredits,
-    );
-    const selectedBox = document.createElement("div");
-    selectedBox.className = "mwi-guild-advisor-selected";
-    const selectedName = document.createElement("div");
-    selectedName.className = "mwi-guild-advisor-name";
-    selectedName.textContent = `${t("当前：", "Selected: ")}${itemName(selected.itemHrid)}`;
-    selectedBox.appendChild(selectedName);
-    if (selected.available) {
-      appendRow(
-        selectedBox,
-        t("每信用点", "Per credit"),
-        runtime.api.numberFormatter(selected.costPerCredit),
-      );
-      const premium =
-        best.costPerCredit > 0
-          ? ((selected.costPerCredit / best.costPerCredit - 1) * 100).toFixed(1)
-          : "0.0";
-      appendRow(selectedBox, t("比最优高", "Above best"), `${premium}%`);
-    } else {
-      appendRow(
-        selectedBox,
-        t("报价", "Quote"),
-        t("深度不足", "Insufficient depth"),
-      );
-    }
-    card.appendChild(selectedBox);
-  }
-
-  if (best.estimated || evaluated.some(({ estimated }) => estimated)) {
-    const note = document.createElement("div");
-    note.className = "mwi-guild-advisor-note";
-    note.textContent = t(
-      "未加载完整订单簿的物品按当前最低卖价估算。",
-      "Items without a loaded order book use the current lowest ask estimate.",
-    );
-    card.appendChild(note);
-  }
-  mountGuildCreditAdvisor(card, modal);
-  return card;
+  advisor.innerHTML = advisorMarkup({
+    context,
+    ranked,
+    selected,
+    replacement,
+  });
+  mountGuildCreditAdvisor(host, modal);
+  return host;
 }
 
 export async function renderGuildCreditRecommendations() {
-  if (!findGuildShop() && !findGuildExchangeModal()) {
+  if (!findGuildExchangeModal()) {
     cleanup();
     return null;
   }
@@ -523,18 +751,16 @@ export async function renderGuildCreditRecommendations() {
     cleanup();
     return null;
   }
-  addStyles();
-  const summaries = renderGuildCreditOverview();
   const advisor = await renderGuildCreditAdvisor({ marketReady: true });
-  return { summaries, advisor };
+  return { summaries: [], advisor };
 }
 
 function cleanup() {
   removeGuildCreditAdvisor();
+  document.getElementById(LEGACY_STYLE_ID)?.remove();
   document
-    .querySelectorAll(`.${SUMMARY_CLASS}`)
+    .querySelectorAll(`.${LEGACY_SUMMARY_CLASS}`)
     .forEach((element) => element.remove());
-  document.getElementById(STYLE_ID)?.remove();
 }
 
 runtime.features.register({
@@ -542,6 +768,10 @@ runtime.features.register({
   setting: "guildCreditConversionsSort",
   scope: "character",
   initialize({ scope }) {
+    document.getElementById(LEGACY_STYLE_ID)?.remove();
+    document
+      .querySelectorAll(`.${LEGACY_SUMMARY_CLASS}`)
+      .forEach((element) => element.remove());
     let frame = null;
     const schedule = () => {
       if (frame !== null) return;
@@ -557,47 +787,43 @@ runtime.features.register({
     };
     const observer = new MutationObserver((mutations) => {
       const activeModal = findGuildExchangeModal();
-      const activeShop = findGuildShop();
       const relevant = mutations.some((mutation) => {
-        if (mutation.target?.closest?.(`#${CARD_ID},.${SUMMARY_CLASS}`))
-          return false;
-        const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes];
-        if (
-          changedNodes.length > 0 &&
-          changedNodes.every(
-            (node) =>
-              node?.id === CARD_ID ||
-              node?.classList?.contains(SUMMARY_CLASS) ||
-              node?.closest?.(`#${CARD_ID},.${SUMMARY_CLASS}`),
-          )
-        ) {
-          return false;
-        }
         if (
           activeModal &&
           (mutation.target === activeModal ||
-            activeModal.contains?.(mutation.target))
+            activeModal.contains?.(mutation.target) ||
+            mutation.target?.contains?.(activeModal))
         ) {
           return true;
         }
         if (
-          activeShop &&
-          (mutation.target === activeShop ||
-            activeShop.contains?.(mutation.target))
+          mutation.type === "attributes" &&
+          (mutation.target?.matches?.(MODAL_SELECTOR) ||
+            mutation.target?.querySelector?.(MODAL_SELECTOR))
         ) {
           return true;
         }
-        return changedNodes.some(
+        return [...mutation.addedNodes, ...mutation.removedNodes].some(
           (node) =>
             node?.matches?.(MODAL_SELECTOR) ||
-            node?.matches?.(SHOP_SELECTOR) ||
-            node?.querySelector?.(MODAL_SELECTOR) ||
-            node?.querySelector?.(SHOP_SELECTOR),
+            node?.querySelector?.(MODAL_SELECTOR),
         );
       });
       if (relevant) schedule();
     });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    scope.observer(observer, document.body, {
+      attributes: true,
+      attributeFilter: [
+        "aria-hidden",
+        "aria-label",
+        "class",
+        "hidden",
+        "href",
+        "style",
+      ],
+      childList: true,
+      subtree: true,
+    });
     const scheduleFromModal = (event) => {
       if (event.target?.closest?.(MODAL_SELECTOR)) schedule();
     };
@@ -606,6 +832,11 @@ runtime.features.register({
     scope.event(
       globalThis.window ?? globalThis,
       "resize",
+      scheduleGuildCreditAdvisorPosition,
+    );
+    scope.event(
+      globalThis.window ?? globalThis,
+      "orientationchange",
       scheduleGuildCreditAdvisorPosition,
     );
     scope.event(
