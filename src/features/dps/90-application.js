@@ -233,8 +233,51 @@ function start(scope) {
     KikiMeter.renderView(view);
   }
 
+  // advanceBuckets is purely time-driven and idempotent, the DPS graph uses
+  // 2-second buckets, and persistActive self-throttles to 2s, so none of this
+  // needs a fixed fast poll. While the panel is open, scale the refresh to how
+  // long the current fight has run: a fresh fight's rolling average swings
+  // quickly and wants ~1s updates, but after ~5 minutes it barely moves, so
+  // 30s is plenty. Interval = 10% of the elapsed statistics duration, clamped
+  // to [1s, 30s] (10s elapsed -> 1s, 5min elapsed -> 30s cap). When the panel
+  // is closed nothing is drawn, so fall back to a coarse bookkeeping cadence.
+  const CLOSED_HEARTBEAT_MS = 5_000;
+  let heartbeatTimer = null;
+  function heartbeatDelay() {
+    if (!KikiMeter.isOpen()) return CLOSED_HEARTBEAT_MS;
+    const elapsedSeconds = Math.max(
+      0,
+      Number(Session.getElapsedSeconds?.()) || 0,
+    );
+    return Math.min(30_000, Math.max(1_000, elapsedSeconds * 100));
+  }
+  function scheduleHeartbeat(delay = heartbeatDelay()) {
+    clearTimeout(heartbeatTimer);
+    heartbeatTimer = setTimeout(runHeartbeat, delay);
+  }
+  function runHeartbeat() {
+    Session.advanceBuckets();
+    persistActive();
+    if (KikiMeter.isOpen()) renderSelectedPanels();
+    scheduleHeartbeat();
+  }
+  scope.add(() => clearTimeout(heartbeatTimer));
+  scheduleHeartbeat();
+
   KikiMeter.init({
-    onReset: () => resetSession("手动结束"),
+    onReset: () => {
+      resetSession("手动结束");
+      // A fresh session resets elapsed to ~0; re-arm so the new fight refreshes
+      // at the fast end of the curve instead of inheriting the previous delay.
+      scheduleHeartbeat();
+    },
+    onOpen: () => {
+      // Render immediately (the pending tick may be up to 30s away) and re-arm
+      // so the open cadence takes over from the coarse closed one at once.
+      Session.advanceBuckets();
+      renderSelectedPanels();
+      scheduleHeartbeat();
+    },
     onSegmentChange: renderSelectedPanels,
     onCopy: (btn) => {
       const compact = btn && btn.dataset.compactAction === "true",
@@ -373,12 +416,6 @@ function start(scope) {
       persistActive(true);
     }
   });
-
-  scope.interval(() => {
-    Session.advanceBuckets();
-    persistActive();
-    if (KikiMeter.isOpen()) renderSelectedPanels();
-  }, 250);
 
   Object.assign(MWI, {
     enabled: true,

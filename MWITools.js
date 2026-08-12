@@ -49325,6 +49325,7 @@ ${locks}` : ""}`;
       panel.style.display = "flex";
       placePanel();
       if (tabBtn) tabBtn.style.filter = "brightness(1.15)";
+      if (callbacks.onOpen) callbacks.onOpen();
       return true;
     }
     function buildToggle(label, initial, onChange) {
@@ -50469,8 +50470,38 @@ ${locks}` : ""}`;
       const view = ViewData.get();
       KikiMeter.renderView(view);
     }
+    const CLOSED_HEARTBEAT_MS = 5e3;
+    let heartbeatTimer = null;
+    function heartbeatDelay() {
+      if (!KikiMeter.isOpen()) return CLOSED_HEARTBEAT_MS;
+      const elapsedSeconds = Math.max(
+        0,
+        Number(Session.getElapsedSeconds?.()) || 0
+      );
+      return Math.min(3e4, Math.max(1e3, elapsedSeconds * 100));
+    }
+    function scheduleHeartbeat(delay = heartbeatDelay()) {
+      clearTimeout(heartbeatTimer);
+      heartbeatTimer = setTimeout(runHeartbeat, delay);
+    }
+    function runHeartbeat() {
+      Session.advanceBuckets();
+      persistActive();
+      if (KikiMeter.isOpen()) renderSelectedPanels();
+      scheduleHeartbeat();
+    }
+    scope.add(() => clearTimeout(heartbeatTimer));
+    scheduleHeartbeat();
     KikiMeter.init({
-      onReset: () => resetSession("手动结束"),
+      onReset: () => {
+        resetSession("手动结束");
+        scheduleHeartbeat();
+      },
+      onOpen: () => {
+        Session.advanceBuckets();
+        renderSelectedPanels();
+        scheduleHeartbeat();
+      },
       onSegmentChange: renderSelectedPanels,
       onCopy: (btn) => {
         const compact = btn && btn.dataset.compactAction === "true", original = btn && btn.textContent;
@@ -50590,11 +50621,6 @@ ${locks}` : ""}`;
         persistActive(true);
       }
     });
-    scope.interval(() => {
-      Session.advanceBuckets();
-      persistActive();
-      if (KikiMeter.isOpen()) renderSelectedPanels();
-    }, 250);
     Object.assign(MWI, {
       enabled: true,
       bus: SocketHook.bus,

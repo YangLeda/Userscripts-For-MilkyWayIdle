@@ -843,6 +843,9 @@ const KikiMeter = (() => {
     panel.style.display = "flex";
     placePanel();
     if (tabBtn) tabBtn.style.filter = "brightness(1.15)";
+    // Render immediately on open so the slower idle heartbeat cadence never
+    // leaves stale numbers on screen while the panel first appears.
+    if (callbacks.onOpen) callbacks.onOpen();
     return true;
   }
 
