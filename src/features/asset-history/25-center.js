@@ -129,6 +129,7 @@ export class AssetCenter {
     this.reportMode = "month";
     this.reportDate = new Date();
     this.chart = null;
+    this.hiddenChartDatasets = new Set();
     this.previousFocus = null;
     this.snapshot = null;
     addStyles();
@@ -252,6 +253,7 @@ export class AssetCenter {
     document.body.style.overflow = "";
     this.chart?.destroy();
     this.chart = null;
+    this.hiddenChartDatasets.clear();
     if (this.pendingWindowSize) {
       this.store.setPreferences({ windowSize: this.pendingWindowSize });
       this.pendingWindowSize = null;
@@ -392,6 +394,7 @@ export class AssetCenter {
     this.chart = new AssetHistoryChart(
       page.querySelector("[data-center-chart]"),
       page.querySelector("[data-chart-fallback]"),
+      { hiddenDatasets: this.hiddenChartDatasets },
     );
     this.drawCenterChart();
   }

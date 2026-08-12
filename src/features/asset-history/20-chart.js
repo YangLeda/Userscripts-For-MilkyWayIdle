@@ -67,11 +67,11 @@ function formatTooltip(value) {
 }
 
 export class AssetHistoryChart {
-  constructor(canvas, fallback) {
+  constructor(canvas, fallback, { hiddenDatasets = null } = {}) {
     this.canvas = canvas;
     this.fallback = fallback;
     this.instance = null;
-    this.hiddenDatasets = new Set();
+    this.hiddenDatasets = hiddenDatasets ?? new Set();
   }
 
   destroy() {
