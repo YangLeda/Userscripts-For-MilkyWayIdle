@@ -120,7 +120,7 @@ test("opinion center combines feedback and announcement unread states into one d
       },
       scope,
       announcements: announcementStore({
-        seen: item.announcementSeen ? ["26.4.6"] : [],
+        seen: item.announcementSeen ? ["26.4.7"] : [],
       }),
     });
     const button = panel.ensureButton();
@@ -190,7 +190,7 @@ test("opening feedback-only activity lands on My feedback", async () => {
       markRead: async () => {},
     },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
   panel.ensureButton();
   await panel.refresh();
@@ -226,7 +226,7 @@ test("failed feedback acknowledgements stay suppressed and retry on polling", as
       },
     },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
   const button = panel.ensureButton();
   await panel.refresh();
@@ -260,7 +260,7 @@ test("announcements remain usable when the feedback service is unavailable", asy
   await panel.open();
   assert.equal(button.dataset.unread, "false");
   assert.equal(announcements.unread().length, 0);
-  assert.match(panel.root.textContent, /26\.4\.6 更新公告/);
+  assert.match(panel.root.textContent, /26\.4\.7 更新公告/);
   scope.cleanup();
 });
 
@@ -308,11 +308,11 @@ test("announcement copy follows the MWITools language", () => {
   const panel = new FeedbackPanel({
     client: { list: async () => ({ items: [] }) },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
   runtime.config.isZH = false;
   panel.showTab("announcements");
-  assert.match(panel.root.textContent, /Version 26\.4\.6 update/);
+  assert.match(panel.root.textContent, /Version 26\.4\.7 update/);
   assert.match(panel.root.textContent, /Tasks now use a flat layout/);
   runtime.config.isZH = true;
   scope.cleanup();
@@ -323,7 +323,7 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   const panel = new FeedbackPanel({
     client: { list: async () => ({ items: [] }) },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
 
   const emphasized = panel.root.querySelector(
@@ -344,7 +344,7 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
 
 test("the current announcement covers every player-facing update bilingually", () => {
   const current = ANNOUNCEMENTS[0];
-  assert.equal(current.version, "26.4.6");
+  assert.equal(current.version, "26.4.7");
   assert.equal(current.body.zh.length, current.body.en.length);
   for (const pattern of [
     /铁牛模式适配/,

@@ -2,12 +2,12 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
-    id: "26.4.6",
-    version: "26.4.6",
-    publishedAt: "2026-08-12",
+    id: "26.4.7",
+    version: "26.4.7",
+    publishedAt: "2026-08-13",
     title: Object.freeze({
-      zh: "26.4.6 更新公告",
-      en: "Version 26.4.6 update",
+      zh: "26.4.7 更新公告",
+      en: "Version 26.4.7 update",
     }),
     emphasizedBodyIndexes: Object.freeze([6]),
     body: Object.freeze({
