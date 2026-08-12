@@ -278,6 +278,56 @@ test("mobile mounts P/L beside the visible character-management tabs", () => {
   });
 });
 
+test("mobile remounts P/L when a different character-management panel becomes visible", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 390,
+  });
+  const hiddenDesktopShell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+
+  assert.equal(
+    document.querySelector("#mwitools-asset-history-tab").parentElement,
+    hiddenDesktopShell.querySelector("nav"),
+  );
+
+  const visibleMobileShell = gameShell();
+  visibleMobileShell.querySelector("nav").getBoundingClientRect = () => ({
+    width: 356,
+    height: 24,
+  });
+  for (const callback of intervals.values()) callback();
+
+  const tab = document.querySelector("#mwitools-asset-history-tab");
+  assert.equal(tab.parentElement, visibleMobileShell.querySelector("nav"));
+  assert.equal(
+    tab.previousElementSibling,
+    visibleMobileShell.querySelector("#loadout"),
+  );
+  assert.equal(
+    hiddenDesktopShell.querySelector("#mwitools-asset-history-tab"),
+    null,
+  );
+  assert.equal(
+    document.querySelectorAll("#mwitools-asset-history-tab").length,
+    1,
+  );
+
+  ui.destroy();
+  scope.cleanup();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 1024,
+  });
+});
+
 test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", () => {
   document.body.replaceChildren();
   intervals.clear();

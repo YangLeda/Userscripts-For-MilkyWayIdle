@@ -769,6 +769,7 @@ function getEnhancedEquipmentCost(
     allowPhilosopherMirror: !backEquipment,
     getFairValue: (hrid, level = 0) =>
       acquisitionCostValue(hrid, level, context),
+    getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level),
   });
   return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
 }

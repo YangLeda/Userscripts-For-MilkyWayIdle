@@ -55,6 +55,7 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
     options.getFairValue("/items/labyrinth_refinement_shard", 0),
     25_000,
   );
+  assert.equal(options.getMarketValue("/items/chance_cape", 0), 0);
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");
   assert.equal(options.allowPhilosopherMirror, false);
 
@@ -68,6 +69,10 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   assert.equal(
     options.getFairValue("/items/advanced_attack_charm", 0),
     123_456,
+  );
+  assert.equal(
+    options.getMarketValue("/items/advanced_attack_charm", 0),
+    999_999,
   );
   assert.equal(options.forcedProtectionItemHrid, null);
   assert.equal(options.allowPhilosopherMirror, true);

@@ -249,6 +249,55 @@ test("planner compares resolved base cost with protection items and mirrors", ()
   assert.equal(basePlan.protectionUnitCost, 40_000);
 });
 
+test("enhancement and protection consumables use market values instead of acquisition costs", () => {
+  const acquisitionValues = prices({
+    "/items/target": 40_000,
+    "/items/material": 1,
+    "/items/special_protection": 1,
+    "/items/mirror_of_protection": 1,
+    "/items/philosophers_mirror": 1,
+    "/items/ultra_enhancing_tea": 1,
+    "/items/blessed_tea": 1,
+  });
+  const marketValues = prices({
+    "/items/target": 100_000,
+    "/items/material": 2_000,
+    "/items/special_protection": 50_000,
+    "/items/mirror_of_protection": 80_000,
+    "/items/philosophers_mirror": 1_000_000,
+    "/items/ultra_enhancing_tea": 1_500,
+    "/items/blessed_tea": 750,
+  });
+  const acquisitionCalls = [];
+  const marketCalls = [];
+  const plan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => {
+      acquisitionCalls.push(hrid);
+      return acquisitionValues[hrid] ?? 0;
+    },
+    getMarketValue: (hrid) => {
+      marketCalls.push(hrid);
+      return marketValues[hrid] ?? 0;
+    },
+  });
+
+  assert.equal(plan.status, "complete");
+  assert.deepEqual(acquisitionCalls, ["/items/target"]);
+  assert.ok(marketCalls.includes("/items/material"));
+  assert.ok(marketCalls.includes("/items/ultra_enhancing_tea"));
+  assert.ok(marketCalls.includes("/items/blessed_tea"));
+  assert.ok(marketCalls.includes("/items/target"));
+  assert.ok(marketCalls.includes("/items/special_protection"));
+  assert.ok(marketCalls.includes("/items/mirror_of_protection"));
+  assert.ok(marketCalls.includes("/items/philosophers_mirror"));
+  assert.equal(plan.protectionItemHrid, "/items/special_protection");
+  assert.equal(plan.protectionUnitCost, 50_000);
+});
+
 test("planner chooses philosopher protection and reports required enhancement inputs", () => {
   const values = prices({
     "/items/target": 1,

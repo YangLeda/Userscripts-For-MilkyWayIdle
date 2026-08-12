@@ -39,6 +39,8 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
       }) ||
       runtime.api.getFairValue(hrid, level) ||
       0,
+    getMarketValue: (hrid, level = 0) =>
+      runtime.api.getFairValue(hrid, level) || 0,
   };
 }
 

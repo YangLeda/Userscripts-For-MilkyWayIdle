@@ -422,6 +422,7 @@ export function calculateEnhancementPlan({
     .initData_enhancementLevelTotalBonusMultiplierTable,
   actionDetailMap = runtime.state.initData_actionDetailMap,
   getFairValue = runtime.api.getFairValue,
+  getMarketValue = getFairValue,
   projectAction = runtime.api.projectAction,
   forcedProtectionItemHrid = null,
   allowPhilosopherMirror = true,
@@ -446,28 +447,32 @@ export function calculateEnhancementPlan({
   if (!stats) return unavailableResult();
 
   const missing = new Set();
-  const price = (hrid, level = 0) => {
+  const resolvePrice = (resolver, hrid, level = 0) => {
     if (hrid === "/items/coin") return 1;
-    const value = finitePositive(getFairValue?.(hrid, level));
+    const value = finitePositive(resolver?.(hrid, level));
     if (!value) missing.add(hrid);
     return value;
   };
-  const basePrice = price(baseItemHrid, 0);
+  const acquisitionPrice = (hrid, level = 0) =>
+    resolvePrice(getFairValue, hrid, level);
+  const marketPrice = (hrid, level = 0) =>
+    resolvePrice(getMarketValue, hrid, level);
+  const basePrice = acquisitionPrice(baseItemHrid, 0);
   let materialCostPerAction = 0;
   let hasMissingRequiredPrice = !basePrice;
   for (const cost of item.enhancementCosts) {
-    const unitPrice = price(cost.itemHrid, 0);
+    const unitPrice = marketPrice(cost.itemHrid, 0);
     if (!unitPrice) hasMissingRequiredPrice = true;
     materialCostPerAction += unitPrice * Number(cost.count || 0);
   }
   let refinementCost = 0;
   for (const cost of refinementCostComponents(refiningRecipe, projectAction)) {
-    const unitPrice = price(cost.itemHrid, 0);
+    const unitPrice = acquisitionPrice(cost.itemHrid, 0);
     if (!unitPrice) hasMissingRequiredPrice = true;
     refinementCost += unitPrice * Number(cost.count || 0);
   }
-  const ultraTeaPrice = price("/items/ultra_enhancing_tea", 0);
-  const blessedTeaPrice = price("/items/blessed_tea", 0);
+  const ultraTeaPrice = marketPrice("/items/ultra_enhancing_tea", 0);
+  const blessedTeaPrice = marketPrice("/items/blessed_tea", 0);
   if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
   if (hasMissingRequiredPrice) return unavailableResult([...missing]);
 
@@ -484,22 +489,20 @@ export function calculateEnhancementPlan({
   if (forcedProtectionItemHrid) {
     considerProtection(
       forcedProtectionItemHrid,
-      price(forcedProtectionItemHrid, 0),
+      marketPrice(forcedProtectionItemHrid, 0),
     );
   } else {
-    // The equipment itself protects at the same fully resolved acquisition
-    // cost used for the base item, not a second direct-market lookup.
-    considerProtection(baseItemHrid, basePrice);
+    considerProtection(baseItemHrid, marketPrice(baseItemHrid, 0));
     for (const candidate of new Set(item.protectionItemHrids ?? [])) {
-      considerProtection(candidate, price(candidate, 0));
+      considerProtection(candidate, marketPrice(candidate, 0));
     }
     considerProtection(
       "/items/mirror_of_protection",
-      price("/items/mirror_of_protection", 0),
+      marketPrice("/items/mirror_of_protection", 0),
     );
   }
   const protectionPrice = protectionChoice?.value ?? 0;
-  const philosopherMirrorPrice = price("/items/philosophers_mirror", 0);
+  const philosopherMirrorPrice = marketPrice("/items/philosophers_mirror", 0);
   const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
   const ultraTeaCostPerAction =
     (stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds) *

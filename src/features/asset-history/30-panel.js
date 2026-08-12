@@ -953,7 +953,16 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     const loadout = findCharacterManagementLoadoutTab();
     const found = loadout && findPanelShell(loadout);
     if (loadout && found) {
-      if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
+      const mountedOnCurrentTabs =
+        tab?.parentElement === loadout.parentElement &&
+        tab?.previousElementSibling === loadout &&
+        host?.parentElement === found.shell;
+      if (
+        mountMode === "native" &&
+        tab?.isConnected &&
+        host?.isConnected &&
+        mountedOnCurrentTabs
+      ) {
         const otherSelected = navigationBranch?.querySelector(
           `button[aria-selected="true"]:not(#${TAB_ID}), button.Mui-selected:not(#${TAB_ID}), [role="tab"][aria-selected="true"]:not(#${TAB_ID})`,
         );
