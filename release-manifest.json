@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "importantVersion": "26.2",
+  "title": {
+    "zh": "MWITools 有重要更新",
+    "en": "Important MWITools update"
+  },
+  "message": {
+    "zh": "新版采用模块化架构，新增三档生产利润与稀有产物派生估值、排行榜名次徽章、战斗 Buff、资产历史、采购与完整升级链任务排序、DPS/HPS/承伤统计、重复脚本提醒，以及游戏内意见反馈；建议前往 Greasy Fork 更新。",
+    "en": "The modular rewrite adds three production-profit valuations with derived rare-drop values, leaderboard rank badges, battle buffs, asset history, procurement with full upgrade-chain task sorting, DPS/HPS/damage-taken tracking, duplicate-script warnings, and in-game feedback. Update on Greasy Fork."
+  },
+  "url": "https://greasyfork.org/zh-CN/scripts/494467-mwitools"
+}

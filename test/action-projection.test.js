@@ -1,0 +1,571 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { JSDOM } from "jsdom";
+
+const dom = new JSDOM("<!doctype html><body></body>", {
+  url: "https://www.milkywayidle.com/",
+});
+globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
+globalThis.location = dom.window.location;
+globalThis.window = dom.window;
+
+const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
+await import("../src/core/state.js");
+await import("../src/core/market.js");
+await import("../src/core/action-projection.js");
+await import("../src/core/asset-values.js");
+
+runtime.state.initData_actionDetailMap = {
+  "/actions/crafting/test": {
+    hrid: "/actions/crafting/test",
+    type: "/action_types/crafting",
+    baseTimeCost: 10_000_000_000,
+    inputItems: [{ itemHrid: "/items/input", count: 2 }],
+    outputItems: [{ itemHrid: "/items/output", count: 1 }],
+  },
+  "/actions/foraging/test": {
+    hrid: "/actions/foraging/test",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    inputItems: [],
+    outputItems: [{ itemHrid: "/items/output", count: 1 }],
+  },
+  "/actions/milking/rainbow-cow": {
+    hrid: "/actions/milking/rainbow-cow",
+    type: "/action_types/milking",
+    sortIndex: 10,
+    baseTimeCost: 10_000_000_000,
+    dropTable: [
+      {
+        itemHrid: "/items/rainbow_milk",
+        dropRate: 0.5,
+        minCount: 2,
+        maxCount: 4,
+      },
+    ],
+  },
+  "/actions/combat/rainbow-cow": {
+    hrid: "/actions/combat/rainbow-cow",
+    type: "/action_types/combat",
+    sortIndex: 1,
+    dropTable: [
+      {
+        itemHrid: "/items/rainbow_milk",
+        dropRate: 1,
+        minCount: 99,
+        maxCount: 99,
+      },
+    ],
+  },
+};
+runtime.state.initData_characterItems = [
+  {
+    itemHrid: "/items/input",
+    itemLocationHrid: "/item_locations/inventory",
+    count: 20,
+  },
+];
+runtime.state.initData_characterSkills = [];
+runtime.state.initData_actionTypeDrinkSlotsMap = {};
+runtime.state.initData_itemDetailMap = {};
+runtime.state.currentEquipmentMap = {};
+runtime.state.actionTypeBuffSources = {};
+runtime.api.getToolsSpeedBuffByActionHrid = () => 0;
+runtime.api.getTotalEffiPercentage = () => 0;
+runtime.api.getTeaBuffsByActionHrid = () => ({
+  efficiency: 0,
+  lessResource: 0,
+  quantity: 0,
+});
+runtime.api.getAskPrice = (itemHrid) => (itemHrid === "/items/input" ? 10 : 0);
+runtime.api.getNetSellPrice = (itemHrid) =>
+  itemHrid === "/items/output" ? 100 : 0;
+runtime.api.getBidPrice = (itemHrid) => (itemHrid === "/items/input" ? 8 : 0);
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  itemHrid === "/items/output" ? 114 : 0;
+runtime.api.getFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  if (ask > 0) return ask;
+  const netSell = runtime.api.getNetSellPrice(itemHrid);
+  return netSell > 0 ? netSell / 0.95 : 0;
+};
+
+test("action projection shares duration, direct material capacity and net profit", () => {
+  const result = runtime.api.projectAction("/actions/crafting/test", 5, {
+    now: 1_000,
+  });
+  assert.equal(result.status, "complete");
+  assert.equal(result.totalSeconds, 50);
+  assert.equal(result.finishAt, 51_000);
+  assert.equal(result.maxCraftable, 10);
+  assert.equal(result.outputs[0].expectedCount, 5);
+  assert.equal(result.netProfitPerAction, 80);
+  assert.equal(result.profitPerHour, 28_800);
+  assert.equal(result.totalProfit, 400);
+  assert.equal(result.valuationMode, "fair");
+  assert.equal(result.valuations.conservative.netProfitPerAction, 80);
+  assert.equal(result.valuations.fair.netProfitPerAction, 80);
+  assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
+});
+
+test("production resolver maps gathering drop tables and excludes combat loot", () => {
+  assert.equal(
+    runtime.api.resolveProductionActionByItemHrid("/items/rainbow_milk"),
+    "/actions/milking/rainbow-cow",
+  );
+  assert.deepEqual(
+    runtime.api.getExpectedOutputs(
+      runtime.state.initData_actionDetailMap["/actions/milking/rainbow-cow"],
+    ),
+    [{ itemHrid: "/items/rainbow_milk", count: 1.5 }],
+  );
+});
+
+test("projection exposes market, high-buy-low-sell, and low-buy-high-sell valuations", () => {
+  const originalFairValue = runtime.api.getFairValue;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/input" ? 9 : itemHrid === "/items/output" ? 110 : 0;
+
+  const result = runtime.api.projectAction("/actions/crafting/test", 1);
+  assert.equal(result.netProfitPerAction, 86.5);
+  assert.equal(result.valuations.conservative.netProfitPerAction, 80);
+  assert.equal(result.valuations.fair.netProfitPerAction, 86.5);
+  assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
+  assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
+
+  runtime.api.getFairValue = originalFairValue;
+});
+
+test("missing prices stay incomplete instead of becoming zero-profit", () => {
+  runtime.api.getNetSellPrice = () => 0;
+  const result = runtime.api.projectAction("/actions/crafting/test", 1);
+  assert.equal(result.status, "incomplete");
+  assert.equal(result.netProfitPerAction, null);
+  assert.deepEqual(result.missingPrices, ["/items/output"]);
+});
+
+test("infinite production is capped by live material inventory", () => {
+  runtime.api.getAskPrice = (itemHrid) =>
+    itemHrid === "/items/input" ? 10 : 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/output" ? 100 : 0;
+  const action = {
+    actionHrid: "/actions/crafting/test",
+    hasMaxCount: false,
+    maxCount: 0,
+    currentCount: 100,
+  };
+  const result = runtime.api.projectAction(action);
+  assert.equal(result.infinite, true);
+  assert.equal(result.effectivelyInfinite, false);
+  assert.equal(result.materialLimited, true);
+  assert.equal(result.effectiveCount, 10);
+  assert.equal(result.totalSeconds, 100);
+  assert.equal(result.outputs[0].expectedCount, 10);
+  assert.equal(result.totalProfit, 800);
+
+  const queue = runtime.api.projectQueue(
+    [
+      action,
+      {
+        actionHrid: "/actions/crafting/test",
+        hasMaxCount: true,
+        maxCount: 1,
+        currentCount: 0,
+      },
+    ],
+    { now: 1_000 },
+  );
+  assert.equal(queue.hasInfinite, false);
+  assert.equal(queue.items[1].startsAt, 101_000);
+  assert.equal(queue.finishAt, 111_000);
+});
+
+test("empty inventory keeps an infinite production request infinite", () => {
+  const input = runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/input",
+  );
+  const previousCount = input.count;
+  input.count = 0;
+  const result = runtime.api.projectAction({
+    actionHrid: "/actions/crafting/test",
+    hasMaxCount: false,
+  });
+  assert.equal(result.maxCraftable, 0);
+  assert.equal(result.effectiveCount, Infinity);
+  assert.equal(result.effectivelyInfinite, true);
+  assert.equal(result.materialLimited, false);
+  assert.equal(result.totalSeconds, Infinity);
+  input.count = previousCount;
+});
+
+test("infinite gathering without inputs remains effectively infinite", () => {
+  const action = {
+    actionHrid: "/actions/foraging/test",
+    hasMaxCount: false,
+  };
+  const result = runtime.api.projectAction(action);
+  assert.equal(result.infinite, true);
+  assert.equal(result.effectivelyInfinite, true);
+  assert.equal(result.materialLimited, false);
+  assert.equal(result.effectiveCount, Infinity);
+  assert.equal(result.totalSeconds, Infinity);
+
+  const queue = runtime.api.projectQueue([action], { now: 1_000 });
+  assert.equal(queue.hasInfinite, true);
+  assert.equal(queue.finishAt, null);
+});
+
+test("explicit planning counts are not capped by current inventory", () => {
+  const result = runtime.api.projectAction("/actions/crafting/test", 100);
+  assert.equal(result.respectsInventoryLimit, false);
+  assert.equal(result.maxCraftable, 10);
+  assert.equal(result.effectiveCount, 100);
+  assert.equal(result.totalSeconds, 1_000);
+  assert.equal(result.outputs[0].expectedCount, 100);
+});
+
+test("an open production panel uses the game's live duration and discrete efficiency rounding", () => {
+  runtime.api.getTotalEffiPercentage = () => 156;
+  const result = runtime.api.projectAction("/actions/crafting/test", 300, {
+    durationPerAction: 6.11,
+  });
+  assert.equal(result.totalSeconds, 117 * 6.11);
+  assert.ok(Math.abs(result.secondsPerAction - 6.11 / 2.56) < 1e-10);
+  runtime.api.getTotalEffiPercentage = () => 0;
+});
+
+test("a positive production count always takes at least one live action", () => {
+  runtime.api.getTotalEffiPercentage = () => 104;
+  const result = runtime.api.projectAction("/actions/crafting/test", 1, {
+    durationPerAction: 8.87,
+  });
+  assert.equal(result.totalSeconds, 8.87);
+  runtime.api.getTotalEffiPercentage = () => 0;
+});
+
+test("the current action projection subtracts elapsed time from its active cycle", () => {
+  const result = runtime.api.projectAction(
+    {
+      actionHrid: "/actions/crafting/test",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+    undefined,
+    {
+      now: 1_000,
+      durationPerAction: 10,
+      currentCycleRemainingSeconds: 3,
+    },
+  );
+  assert.equal(result.totalSeconds, 53);
+  assert.equal(result.finishAt, 54_000);
+});
+
+test("current artisan and gourmet tea use the equipped pouch concentration", () => {
+  runtime.state.initData_actionDetailMap["/actions/crafting/tea-test"] = {
+    hrid: "/actions/crafting/tea-test",
+    type: "/action_types/crafting",
+    baseTimeCost: 4_000_000_000,
+    upgradeItemHrid: "/items/base",
+    inputItems: [{ itemHrid: "/items/input", count: 2 }],
+    outputItems: [{ itemHrid: "/items/tea-output", count: 1 }],
+    essenceDropTable: [
+      {
+        itemHrid: "/items/essence",
+        dropRate: 0.5,
+        minCount: 2,
+        maxCount: 4,
+      },
+    ],
+    rareDropTable: [
+      {
+        itemHrid: "/items/rare",
+        dropRate: 0.1,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ],
+  };
+  runtime.state.initData_itemDetailMap = {
+    "/items/artisan_gourmet_tea": {
+      consumableDetail: {
+        buffs: [
+          { typeHrid: "/buff_types/artisan", flatBoost: 0.1 },
+          { typeHrid: "/buff_types/gourmet", flatBoost: 0.2 },
+        ],
+      },
+    },
+    "/items/guzzling_pouch": {
+      equipmentDetail: {
+        noncombatStats: { drinkConcentration: 0.1 },
+        noncombatEnhancementBonuses: { drinkConcentration: 0.1 },
+      },
+    },
+  };
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/artisan_gourmet_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {
+    pouch: {
+      itemHrid: "/items/guzzling_pouch",
+      itemLocationHrid: "/item_locations/pouch",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  };
+  runtime.state.actionTypeBuffSources = {
+    equipmentActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/action_speed", flatBoost: 0.5 },
+        { typeHrid: "/buff_types/essence_find", flatBoost: 0.2 },
+        { typeHrid: "/buff_types/rare_find", flatBoost: 0.5 },
+      ],
+    },
+  };
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/input",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 200,
+    },
+  ];
+  runtime.api.getAskPrice = (itemHrid) =>
+    ({
+      "/items/artisan_gourmet_tea": 100,
+      "/items/base": 50,
+      "/items/input": 10,
+    })[itemHrid] ?? 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    ({
+      "/items/tea-output": 100,
+      "/items/essence": 20,
+      "/items/rare": 1_000,
+    })[itemHrid] ?? 0;
+  runtime.api.getTotalEffiPercentage = () => 0;
+
+  const result = runtime.api.projectAction("/actions/crafting/tea-test", 1);
+  assert.deepEqual(result.missingPrices, []);
+  assert.equal(result.status, "complete");
+  assert.equal(result.cycleSeconds, 3);
+  assert.equal(result.actionsPerHour, 1_200);
+  assert.equal(result.teaEffects.concentrationMultiplier, 1.1);
+  assert.ok(Math.abs(result.teaEffects.lessResource - 0.11) < 1e-12);
+  assert.ok(Math.abs(result.teaEffects.quantity - 0.22) < 1e-12);
+  assert.equal(
+    result.inputs.find((item) => item.itemHrid === "/items/base")
+      .effectiveCount,
+    1,
+  );
+  assert.equal(
+    result.inputs.find((item) => item.itemHrid === "/items/input")
+      .effectiveCount,
+    1.78,
+  );
+  assert.ok(Math.abs(result.materialCostPerAction - 67.8) < 1e-12);
+  assert.ok(Math.abs(result.primaryRevenuePerAction - 122) < 1e-12);
+  assert.ok(Math.abs(result.byproductRevenuePerAction - 186) < 1e-12);
+  assert.ok(Math.abs(result.teaCostPerHour - 1_320) < 1e-12);
+  assert.ok(Math.abs(result.netProfitPerAction - 239.1) < 1e-12);
+  assert.ok(Math.abs(result.profitPerHour - 286_920) < 1e-8);
+});
+
+test("gathering processing tea splits raw drops into recipe outputs", () => {
+  const previous = {
+    actions: runtime.state.initData_actionDetailMap,
+    items: runtime.state.initData_itemDetailMap,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+    buffs: runtime.state.actionTypeBuffSources,
+    ask: runtime.api.getAskPrice,
+    netSell: runtime.api.getNetSellPrice,
+    fair: runtime.api.getFairValue,
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...previous.actions,
+    "/actions/foraging/cotton": {
+      hrid: "/actions/foraging/cotton",
+      type: "/action_types/foraging",
+      baseTimeCost: 10_000_000_000,
+      dropTable: [
+        {
+          itemHrid: "/items/cotton",
+          dropRate: 1,
+          minCount: 1,
+          maxCount: 3,
+        },
+      ],
+    },
+    "/actions/tailoring/cotton_fabric": {
+      hrid: "/actions/tailoring/cotton_fabric",
+      type: "/action_types/tailoring",
+      inputItems: [{ itemHrid: "/items/cotton", count: 2 }],
+      outputItems: [{ itemHrid: "/items/cotton_fabric", count: 1 }],
+    },
+  };
+  runtime.state.initData_itemDetailMap = {
+    "/items/processing_tea": {
+      consumableDetail: {
+        buffs: [{ typeHrid: "/buff_types/processing", flatBoost: 0.25 }],
+      },
+    },
+  };
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/foraging": [{ itemHrid: "/items/processing_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.api.getAskPrice = (itemHrid) =>
+    itemHrid === "/items/processing_tea" ? 1 : 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    ({ "/items/cotton": 10, "/items/cotton_fabric": 100 })[itemHrid] ?? 0;
+  runtime.api.getFairValue = (itemHrid) =>
+    runtime.api.getAskPrice(itemHrid) || runtime.api.getNetSellPrice(itemHrid);
+
+  const result = runtime.api.projectAction("/actions/foraging/cotton", 1);
+  assert.equal(result.status, "complete");
+  assert.equal(result.outputs.length, 2);
+  assert.equal(result.outputs[0].itemHrid, "/items/cotton");
+  assert.equal(result.outputs[0].effectiveCount, 1.5);
+  assert.equal(result.outputs[1].itemHrid, "/items/cotton_fabric");
+  assert.equal(result.outputs[1].effectiveCount, 0.25);
+  assert.equal(result.primaryRevenuePerAction, 38);
+
+  runtime.state.initData_actionDetailMap = previous.actions;
+  runtime.state.initData_itemDetailMap = previous.items;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+  runtime.state.actionTypeBuffSources = previous.buffs;
+  runtime.api.getAskPrice = previous.ask;
+  runtime.api.getNetSellPrice = previous.netSell;
+  runtime.api.getFairValue = previous.fair;
+});
+
+test("tea effects are zero when the current player has no selected drinks", () => {
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
+  const result = runtime.api.projectAction("/actions/crafting/tea-test", 1);
+  assert.equal(result.teaEffects.lessResource, 0);
+  assert.equal(result.teaEffects.quantity, 0);
+  assert.equal(result.teaCostPerHour, 0);
+  assert.equal(
+    result.inputs.find((item) => item.itemHrid === "/items/input")
+      .effectiveCount,
+    2,
+  );
+});
+
+test("rare openables use three derived values and report missing inner drops", () => {
+  runtime.state.initData_actionDetailMap["/actions/foraging/rare-crate"] = {
+    hrid: "/actions/foraging/rare-crate",
+    type: "/action_types/foraging",
+    baseTimeCost: 10_000_000_000,
+    inputItems: [],
+    outputItems: [{ itemHrid: "/items/output", count: 1 }],
+    rareDropTable: [
+      {
+        itemHrid: "/items/large_artisans_crate",
+        dropRate: 0.1,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ],
+  };
+  runtime.state.initData_openableLootDropMap = {
+    "/items/large_artisans_crate": [
+      {
+        itemHrid: "/items/rare_leaf",
+        dropRate: 1,
+        minCount: 2,
+        maxCount: 2,
+      },
+      {
+        itemHrid: "/items/missing_leaf",
+        dropRate: 0.25,
+        minCount: 1,
+        maxCount: 1,
+      },
+    ],
+  };
+  runtime.state.initData_itemDetailMap = {};
+  const originals = {
+    ask: runtime.api.getAskPrice,
+    bid: runtime.api.getBidPrice,
+    fair: runtime.api.getFairValue,
+    conservative: runtime.api.getNetSellPrice,
+    aggressive: runtime.api.getNetSellPriceAtAsk,
+    tax: runtime.api.getMarketTaxRate,
+  };
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 100
+      : itemHrid === "/items/rare_leaf"
+        ? 90
+        : 0;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 100 / 0.95
+      : itemHrid === "/items/rare_leaf"
+        ? 110
+        : 0;
+  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+    itemHrid === "/items/output"
+      ? 120
+      : itemHrid === "/items/rare_leaf"
+        ? 135
+        : 0;
+  runtime.api.getMarketTaxRate = () => 0.05;
+  runtime.api.invalidateAssetValueCache();
+
+  const result = runtime.api.projectAction("/actions/foraging/rare-crate", 1);
+  assert.equal(result.status, "complete");
+  assert.equal(result.isPartial, true);
+  assert.equal(result.byproductOutputs[0].valueSource, "derived");
+  assert.equal(result.valuations.conservative.byproductRevenuePerAction, 18);
+  assert.ok(
+    Math.abs(result.valuations.fair.byproductRevenuePerAction - 20.9) < 1e-10,
+  );
+  assert.equal(result.valuations.aggressive.byproductRevenuePerAction, 27);
+  assert.deepEqual(result.derivedMissingPrices, ["/items/missing_leaf"]);
+
+  Object.assign(runtime.api, {
+    getAskPrice: originals.ask,
+    getBidPrice: originals.bid,
+    getFairValue: originals.fair,
+    getNetSellPrice: originals.conservative,
+    getNetSellPriceAtAsk: originals.aggressive,
+    getMarketTaxRate: originals.tax,
+  });
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("unpriced optional drops produce a partial result instead of hiding profit", () => {
+  runtime.api.getNetSellPrice = (itemHrid) =>
+    ({
+      "/items/tea-output": 100,
+      "/items/essence": 20,
+    })[itemHrid] ?? 0;
+  const result = runtime.api.projectAction("/actions/crafting/tea-test", 1);
+  assert.deepEqual(result.missingPrices, []);
+  assert.equal(result.status, "complete");
+  assert.equal(result.isPartial, true);
+  assert.deepEqual(result.unpricedByproducts, ["/items/rare"]);
+  assert.equal(result.byproductRevenuePerAction, 36);
+});
+
+test("projection waits for actual character data instead of applying defaults", () => {
+  const skills = runtime.state.initData_characterSkills;
+  runtime.state.initData_characterSkills = null;
+  const result = runtime.api.projectAction("/actions/crafting/tea-test", 1);
+  assert.equal(result.status, "waiting");
+  assert.deepEqual(result.missing, ["playerData"]);
+  assert.equal(result.profitPerHour, null);
+  runtime.state.initData_characterSkills = skills;
+});

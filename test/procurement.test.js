@@ -1,0 +1,189 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { JSDOM } from "jsdom";
+
+const dom = new JSDOM("<!doctype html><body></body>", {
+  url: "https://www.milkywayidle.com/",
+});
+globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
+globalThis.location = dom.window.location;
+globalThis.window = dom.window;
+globalThis.Event = dom.window.Event;
+
+const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
+await import("../src/data/translations.js");
+await import("../src/core/state.js");
+await import("../src/core/market.js");
+await import("../src/core/action-projection.js");
+await import("../src/core/procurement.js");
+
+const procurement = runtime.api.procurement;
+
+runtime.state.initData_itemDetailMap = {
+  "/items/log": { name: "Log" },
+  "/items/board": { name: "Board" },
+  "/items/nail": { name: "Nail" },
+  "/items/final": { name: "Final" },
+};
+runtime.state.initData_actionDetailMap = {
+  "/actions/crafting/board": {
+    hrid: "/actions/crafting/board",
+    name: "Board",
+    type: "/action_types/crafting",
+    inputItems: [{ itemHrid: "/items/log", count: 2 }],
+    outputItems: [{ itemHrid: "/items/board", count: 1 }],
+  },
+  "/actions/crafting/final": {
+    hrid: "/actions/crafting/final",
+    name: "Final",
+    type: "/action_types/crafting",
+    inputItems: [{ itemHrid: "/items/nail", count: 2 }],
+    upgradeItemHrid: "/items/board",
+    outputItems: [{ itemHrid: "/items/final", count: 1 }],
+  },
+};
+runtime.state.initData_characterItems = [
+  {
+    id: "log-stack",
+    itemHrid: "/items/log",
+    itemLocationHrid: "/item_locations/inventory",
+    enhancementLevel: 0,
+    count: 5,
+  },
+  {
+    id: "nail-stack",
+    itemHrid: "/items/nail",
+    itemLocationHrid: "/item_locations/inventory",
+    enhancementLevel: 0,
+    count: 1,
+  },
+];
+runtime.api.getTeaBuffsByActionHrid = () => ({ lessResource: 10 });
+procurement.setSetting("safetyLevel", "off");
+procurement.loadCharacterData("character-a");
+
+test("procurement computes direct shortages and recursive upgrade leaves", () => {
+  const direct = procurement.calculateRequirements(
+    "/actions/crafting/final",
+    3,
+  );
+  const nail = direct.materials.find(
+    (material) => material.itemHrid === "/items/nail",
+  );
+  const board = direct.materials.find(
+    (material) => material.itemHrid === "/items/board",
+  );
+  assert.equal(nail.suggested, 6);
+  assert.equal(nail.shortage, 5);
+  assert.equal(board.suggested, 3);
+
+  const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
+  assert.equal(chain.stages.length, 2);
+  assert.deepEqual(
+    chain.leaves.map(({ itemHrid, suggested }) => [itemHrid, suggested]),
+    [
+      ["/items/nail", 6],
+      ["/items/log", 6],
+    ],
+  );
+});
+
+test("artisan safety margin uses per-action fractional variance and pouch concentration", () => {
+  procurement.setSetting("safetyLevel", "95");
+  procurement.setSetting("safetyThreshold", 10);
+  const buffered = procurement.suggestedMaterialCount(2, 100, 0.1);
+  assert.equal(buffered.expected, 180);
+  assert.equal(buffered.suggested, 187);
+
+  procurement.setSetting("safetyLevel", "off");
+  procurement.setSetting("guzzlingPouchLevel", 0);
+  const concentrated = procurement.calculateRequirements(
+    "/actions/crafting/final",
+    100,
+  );
+  assert.equal(
+    concentrated.materials.find(
+      (material) => material.itemHrid === "/items/nail",
+    ).suggested,
+    178,
+  );
+  procurement.setSetting("guzzlingPouchLevel", -1);
+});
+
+test("selected upgrade stages buy predecessor items when their producer is excluded", () => {
+  const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
+  const materials = procurement.selectUpgradeChainMaterials(chain, [
+    "/actions/crafting/final",
+  ]);
+  assert.deepEqual(
+    materials.map(({ itemHrid, suggested }) => [itemHrid, suggested]),
+    [
+      ["/items/nail", 6],
+      ["/items/board", 3],
+    ],
+  );
+});
+
+test("plans lock inventory and cart additions do not duplicate listed shortages", () => {
+  const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
+  const plan = procurement.createPlan(
+    "/actions/crafting/final",
+    3,
+    chain.leaves,
+  );
+  assert.ok(plan?.id);
+  assert.equal(procurement.getLockedDetails("/items/log").total, 6);
+  assert.equal(procurement.getEffectiveInventory("/items/log"), 0);
+
+  const first = procurement.addRequirementsToCart(chain.leaves, "production");
+  const second = procurement.addRequirementsToCart(
+    procurement.calculateUpgradeChain("/actions/crafting/final", 3).leaves,
+    "production",
+  );
+  assert.equal(first.added, 2);
+  assert.equal(second.added, 0);
+  procurement.removePlan(plan.id);
+});
+
+test("confirmed purchases suppress the matching inventory delta only once", () => {
+  procurement.clearCart({ includeStarred: true });
+  procurement.addToCart({ itemHrid: "/items/board", quantity: 10 });
+  assert.equal(procurement.confirmMarketPurchase("/items/board", 4), true);
+  assert.equal(procurement.getCartItem("/items/board").quantity, 6);
+
+  procurement.applyInventoryUpdates([
+    {
+      id: "board-stack",
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 4,
+    },
+  ]);
+  assert.equal(procurement.getCartItem("/items/board").quantity, 6);
+
+  procurement.applyInventoryUpdates([
+    {
+      id: "board-stack",
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 6,
+    },
+  ]);
+  assert.equal(procurement.getCartItem("/items/board").quantity, 4);
+});
+
+test("shopping data is isolated by server and character", () => {
+  procurement.addToCart({ itemHrid: "/items/nail", quantity: 7 });
+  procurement.loadCharacterData("character-b");
+  assert.equal(procurement.getCartItems().length, 0);
+  procurement.loadCharacterData("character-a");
+  assert.equal(procurement.getCartItem("/items/nail").quantity, 7);
+  assert.equal(window.MWITools.shopping.apiVersion, 1);
+  assert.notEqual(
+    window.MWITools.shopping.getCartItems(),
+    procurement.getCartItems(),
+  );
+});

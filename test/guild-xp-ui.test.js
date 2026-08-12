@@ -1,0 +1,317 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { JSDOM } from "jsdom";
+
+const dom = new JSDOM(
+  "<!doctype html><html><head></head><body></body></html>",
+  {
+    url: "https://test.milkywayidle.com/",
+  },
+);
+globalThis.document = dom.window.document;
+globalThis.localStorage = dom.window.localStorage;
+globalThis.location = dom.window.location;
+globalThis.window = dom.window;
+
+const { runtime } = await import("../src/core/runtime.js");
+runtime.config.isZH = true;
+runtime.config.SCRIPT_COLOR_MAIN = "orange";
+runtime.settings.get = () => false;
+runtime.api.createFormattedNumber = (value) => {
+  const span = document.createElement("span");
+  span.textContent = String(value ?? "—");
+  return span;
+};
+runtime.api.numberFormatter = (value) => String(value ?? "—");
+runtime.api.timeReadable = (value) => `${value}s`;
+runtime.api.recordXpSnapshot = async () => {};
+runtime.api.getXpHistory = async () => [];
+runtime.api.calculateXpRates = () => ({
+  recent: 10,
+  hour: 10,
+  day: 10,
+  lastSampleAt: Date.now(),
+  points: [],
+});
+
+await import("../src/features/guild-xp.js");
+
+function guildMarkup() {
+  document.body.innerHTML = `
+    <div class="GuildPanel_guildPanel__test">
+      <div role="tablist">
+        <button role="tab" aria-selected="true" tabindex="0" class="Mui-selected">概览</button>
+        <button role="tab" aria-selected="false" tabindex="-1">成员</button>
+      </div>
+      <div class="TabPanel_tabPanel__test">
+        <div class="GuildPanel_overviewTab__test"></div>
+      </div>
+      <div class="TabPanel_tabPanel__test TabPanel_hidden__test" hidden>
+        <div class="GuildPanel_membersTab__test"></div>
+      </div>
+    </div>`;
+}
+
+test("guild overview exists only once and only while Overview is selected", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-overview", guildExperience: 1234 };
+
+  await runtime.api.renderGuildOverview();
+  await runtime.api.renderGuildOverview();
+  assert.equal(document.querySelectorAll(".mwi-guild-xp-card").length, 1);
+  assert.equal(
+    document.querySelector(".mwi-guild-trend-label").textContent,
+    "最近 7 天经验获取速度（XP/小时）",
+  );
+  assert.ok(
+    document
+      .querySelector(".GuildPanel_overviewTab__test")
+      .contains(document.querySelector(".mwi-guild-xp-card")),
+  );
+
+  const [overviewTab, memberTab] = document.querySelectorAll('[role="tab"]');
+  overviewTab.setAttribute("aria-selected", "false");
+  overviewTab.setAttribute("tabindex", "-1");
+  overviewTab.classList.remove("Mui-selected");
+  memberTab.setAttribute("aria-selected", "true");
+  memberTab.setAttribute("tabindex", "0");
+  memberTab.classList.add("Mui-selected");
+  document
+    .querySelector(".GuildPanel_overviewTab__test")
+    .closest('[class*="TabPanel_tabPanel"]')
+    .classList.add("TabPanel_hidden__test");
+
+  await runtime.api.renderGuildOverview();
+  assert.equal(document.querySelectorAll(".mwi-guild-xp-card").length, 0);
+});
+
+test("an async overview render cannot insert after the user leaves the tab", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-race", guildExperience: 2345 };
+  let release;
+  runtime.api.getXpHistory = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+
+  const rendering = runtime.api.renderGuildOverview();
+  await Promise.resolve();
+  const [overviewTab, memberTab] = document.querySelectorAll('[role="tab"]');
+  overviewTab.setAttribute("aria-selected", "false");
+  overviewTab.classList.remove("Mui-selected");
+  memberTab.setAttribute("aria-selected", "true");
+  release([]);
+  await rendering;
+
+  assert.equal(document.querySelectorAll(".mwi-guild-xp-card").length, 0);
+  runtime.api.getXpHistory = async () => [];
+});
+
+test("guild XP columns draw relative bars and sort in both directions", async () => {
+  document.body.innerHTML = `
+    <div class="GuildPanel_guildPanel__test">
+      <div class="GuildPanel_membersTab__test">
+        <table>
+          <thead><tr><th>成员</th></tr></thead>
+          <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
+        </table>
+      </div>
+    </div>`;
+  runtime.state.guild = { id: "guild-table", guildExperience: 5000 };
+  runtime.state.guildCharacters = [
+    { id: "alice", name: "Alice", guildExperience: 100 },
+    { id: "bob", name: "Bob", guildExperience: 200 },
+    { id: "charlie", name: "Charlie", guildExperience: 300 },
+  ];
+  runtime.state.guildLeaderboard = [];
+  runtime.settings.get = (id) => id === "guildMemberXp";
+  runtime.api.getXpHistory = async (key) => [{ key }];
+  runtime.api.calculateXpRates = ([record]) => {
+    if (record.key.includes("charlie")) {
+      return { recent: null, day: null, lastSampleAt: null, points: [] };
+    }
+    const value = record.key.includes("alice") ? 50 : 100;
+    return {
+      recent: value,
+      day: value * 2,
+      lastSampleAt: Date.now(),
+      points: [],
+    };
+  };
+
+  await runtime.api.sampleGuildState(false);
+  runtime.api.renderGuildTables();
+
+  const table = document.querySelector("table");
+  assert.ok(
+    document
+      .querySelector(".GuildPanel_membersTab__test")
+      .classList.contains("mwi-guild-members-wide"),
+  );
+  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 6);
+  assert.deepEqual(
+    [...table.querySelectorAll("tbody tr")].map((row) =>
+      [...row.querySelectorAll(".mwi-guild-rate-fill")].map(
+        (fill) => fill.style.width,
+      ),
+    ),
+    [["50%", "50%"], ["100%", "100%"], []],
+  );
+
+  const recentHeader = table.querySelector(".mwi-guild-recent-head");
+  recentHeader.click();
+  assert.deepEqual(
+    [...table.querySelectorAll("tbody tr")].map(
+      (row) => row.cells[0].textContent,
+    ),
+    ["Bob", "Alice", "Charlie"],
+  );
+  recentHeader.click();
+  assert.deepEqual(
+    [...table.querySelectorAll("tbody tr")].map(
+      (row) => row.cells[0].textContent,
+    ),
+    ["Alice", "Bob", "Charlie"],
+  );
+});
+
+test("guild idle status requires an explicit empty activity type", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-idle", guildExperience: 3456 };
+  runtime.state.guildCharacters = [
+    { name: "Working", isOnline: true, actionType: "/action_types/crafting" },
+    { name: "Idle", isOnline: true, actionType: "" },
+    { name: "Unknown", isOnline: true },
+    {
+      name: "Hidden",
+      isOnline: true,
+      hideOnlineStatus: true,
+      actionType: "",
+    },
+    { name: "Offline", isOnline: false, actionType: "" },
+  ];
+  runtime.settings.get = (id) => id === "guildIdleMembers";
+
+  await runtime.api.renderGuildOverview();
+
+  const idleRow = document.querySelector(".mwi-guild-idle");
+  assert.match(idleRow.textContent, /当前闲置 \(1\)/);
+  assert.deepEqual(
+    [...idleRow.querySelectorAll("span")].map((node) => node.textContent),
+    ["Idle"],
+  );
+});
+
+test("guild trend converts cumulative XP samples into XP-per-hour points", () => {
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  const points = runtime.api.getGuildXpRatePoints(
+    [
+      { at: now - 3 * hour, xp: 100 },
+      { at: now - 2 * hour, xp: 250 },
+      { at: now - hour, xp: 650 },
+    ],
+    now,
+  );
+
+  assert.deepEqual(
+    points.map((point) => point.rate),
+    [150, 400],
+  );
+});
+
+test("guild trend renders axes, readable ticks, grid lines, and bounded data", async () => {
+  guildMarkup();
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  runtime.state.guild = { id: "guild-chart", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [
+    { at: now - 3 * hour, xp: 100 },
+    { at: now - 2 * hour, xp: 250 },
+    { at: now - hour, xp: 650 },
+  ];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: 400,
+    hour: 400,
+    day: 300,
+    lastSampleAt: now,
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const svg = document.querySelector(".mwi-guild-trend");
+  assert.equal(svg.getAttribute("viewBox"), "0 0 520 180");
+  assert.equal(svg.getAttribute("preserveAspectRatio"), "xMidYMid meet");
+  assert.ok(svg.querySelector(".mwi-guild-axis-x"));
+  assert.ok(svg.querySelector(".mwi-guild-axis-y"));
+  assert.equal(svg.querySelectorAll(".mwi-guild-y-tick").length, 5);
+  assert.equal(svg.querySelectorAll(".mwi-guild-x-tick").length, 4);
+  assert.equal(svg.querySelectorAll(".mwi-guild-trend-grid").length, 5);
+  assert.ok(
+    [...svg.querySelectorAll(".mwi-guild-x-tick")].every((tick) =>
+      tick.textContent.includes(":"),
+    ),
+  );
+  const coordinates = svg
+    .querySelector("polyline")
+    .getAttribute("points")
+    .split(" ")
+    .map((point) => point.split(",").map(Number));
+  assert.ok(
+    coordinates.every(([x, y]) => x >= 58 && x <= 508 && y >= 10 && y <= 150),
+  );
+});
+
+test("guild trend switches long time spans to month-day ticks", async () => {
+  guildMarkup();
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  runtime.state.guild = { id: "guild-chart-long", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [
+    { at: now - 4 * day, xp: 100 },
+    { at: now - 2 * day, xp: 500 },
+    { at: now, xp: 1_300 },
+  ];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: 20,
+    hour: 20,
+    day: 20,
+    lastSampleAt: now,
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  assert.ok(
+    [...document.querySelectorAll(".mwi-guild-x-tick")].every(
+      (tick) =>
+        tick.textContent.includes("/") && !tick.textContent.includes(":"),
+    ),
+  );
+});
+
+test("guild trend shows an explicit sparse-sample message without axes", async () => {
+  guildMarkup();
+  runtime.state.guild = { id: "guild-chart-sparse", guildExperience: 10_000 };
+  runtime.api.getXpHistory = async () => [{ at: Date.now(), xp: 100 }];
+  runtime.api.calculateXpRates = (points) => ({
+    recent: null,
+    hour: null,
+    day: null,
+    lastSampleAt: Date.now(),
+    points,
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const svg = document.querySelector(".mwi-guild-trend");
+  assert.equal(
+    svg.querySelector(".mwi-guild-trend-empty").textContent,
+    "样本不足",
+  );
+  assert.equal(svg.querySelector("polyline"), null);
+  assert.equal(svg.querySelector(".mwi-guild-axis-x"), null);
+  assert.equal(svg.querySelector(".mwi-guild-axis-y"), null);
+});
