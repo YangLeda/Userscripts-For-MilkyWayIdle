@@ -336,6 +336,118 @@ test("tradable enhancement materials never fall back to shop prices", () => {
   assert.ok(plan.missingMarketValues.includes("/items/material"));
 });
 
+test("charm bases follow their full artisan-adjusted root chain", () => {
+  const makePlan = ({ type, rootItemHrid, rootPrice, craftBasic }) => {
+    const targetHrid = `/items/grandmaster_${type}_charm`;
+    const traineeHrid = `/items/trainee_${type}_charm`;
+    const details = itemDetailMap();
+    details[targetHrid] = {
+      itemLevel: 100,
+      enhancementCosts: [
+        { itemHrid: traineeHrid, count: 32 },
+        { itemHrid: "/items/coin", count: 7_490 },
+      ],
+    };
+    details[traineeHrid] = { isTradable: false };
+
+    const actions = {};
+    const tiers = [
+      ["advanced", "basic", 8],
+      ["expert", "advanced", 6],
+      ["master", "expert", 4],
+      ["grandmaster", "master", 2],
+    ];
+    if (craftBasic) {
+      actions[`/actions/crafting/basic_${type}_charm`] = {
+        inputItems: [{ itemHrid: rootItemHrid, count: 10_000 }],
+        outputItems: [{ itemHrid: `/items/basic_${type}_charm`, count: 1 }],
+      };
+    }
+    for (const [tier, priorTier, count] of tiers) {
+      const inputHrid = `/items/${priorTier}_${type}_charm`;
+      actions[`/actions/crafting/${tier}_${type}_charm`] = {
+        upgradeItemHrid: inputHrid,
+        inputItems: [{ itemHrid: inputHrid, count }],
+        outputItems: [{ itemHrid: `/items/${tier}_${type}_charm`, count: 1 }],
+      };
+    }
+
+    const projectAction = (actionHrid, count, context) => {
+      assert.equal(count, 1);
+      assert.equal(context.respectInventoryLimit, false);
+      const action = actions[actionHrid];
+      return {
+        status: "complete",
+        actionsPerHour: 100,
+        inputs: action.inputItems.map((input) => {
+          const isUpgradeItem = input.itemHrid === action.upgradeItemHrid;
+          const retainedCount = isUpgradeItem ? 1 : 0;
+          return {
+            itemHrid: input.itemHrid,
+            isUpgradeItem,
+            effectiveCount: retainedCount + (input.count - retainedCount) * 0.8,
+          };
+        }),
+        outputs: action.outputItems.map((output) => ({
+          ...output,
+          effectiveCount: output.count,
+        })),
+        teaEffects: {
+          drinks: [{ itemHrid: "/items/artisan_tea", countPerHour: 12 }],
+        },
+      };
+    };
+    const values = prices({
+      [rootItemHrid]: rootPrice,
+      [targetHrid]: 1,
+      "/items/artisan_tea": 500,
+    });
+    for (const [tier] of tiers.slice(0, -1)) {
+      values[`/items/${tier}_${type}_charm`] = 1;
+    }
+    const plan = calculateEnhancementPlan({
+      itemHrid: targetHrid,
+      targetLevel: 1,
+      itemDetailMap: details,
+      actionDetailMap: actions,
+      shopItemDetailMap: {
+        [`/shop_items/trainee_${type}_charm`]: {
+          itemHrid: traineeHrid,
+          costs: [{ itemHrid: "/items/coin", count: 250_000 }],
+        },
+      },
+      bonusMultiplierTable: MULTIPLIERS,
+      getFairValue: (hrid) => values[hrid] ?? 0,
+      getMarketValue: (hrid) => values[hrid] ?? 0,
+      projectAction,
+    });
+
+    let expectedBaseCost = craftBasic
+      ? 10_000 * 0.8 * rootPrice + (12 / 100) * 500
+      : rootPrice;
+    for (const [, , inputCount] of tiers) {
+      expectedBaseCost =
+        (1 + (inputCount - 1) * 0.8) * expectedBaseCost + (12 / 100) * 500;
+    }
+    assert.equal(plan.status, "complete");
+    assert.ok(Math.abs(plan.baseCost - expectedBaseCost) < 1e-6);
+    return plan;
+  };
+
+  makePlan({
+    type: "attack",
+    rootItemHrid: "/items/basic_attack_charm",
+    rootPrice: 1_000,
+    craftBasic: false,
+  });
+  makePlan({
+    type: "enhancing",
+    rootItemHrid: "/items/enhancing_essence",
+    rootPrice: 100,
+    craftBasic: true,
+  });
+});
+
 test("enhancement and protection consumables use market values instead of acquisition costs", () => {
   const acquisitionValues = prices({
     "/items/target": 40_000,

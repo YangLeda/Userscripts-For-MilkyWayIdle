@@ -16,7 +16,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.3$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.4$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -71,6 +71,11 @@ test("generated userscript has a single valid metadata block", () => {
 test("generated userscript is standalone JavaScript", () => {
   assert.doesNotMatch(output, /sourceMappingURL=/);
   assert.doesNotThrow(() => new vm.Script(output));
+});
+
+test("production userscript stays readable and unminified", () => {
+  assert.match(output, /function getEffectiveInputCount\(/);
+  assert.ok(output.split("\n").length > 10_000);
 });
 
 test("development metadata only changes the userscript identity", async () => {

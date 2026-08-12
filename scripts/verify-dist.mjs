@@ -22,7 +22,6 @@ try {
     await buildUserscript({
       banner: distribution.banner,
       outfile: tempOutput,
-      minify: true,
     });
 
     const [committed, generated] = await Promise.all([

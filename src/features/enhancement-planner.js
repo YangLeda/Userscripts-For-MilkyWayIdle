@@ -69,6 +69,95 @@ function nonTradableCoinShopPrice(itemHrid, itemDetailMap, shopItemDetailMap) {
   return Number.isFinite(best) ? best : 0;
 }
 
+function charmRecipe(itemHrid, actionDetailMap) {
+  return entriesOfMap(actionDetailMap)
+    .map(([fallbackHrid, detail]) => ({
+      actionHrid: detail?.hrid ?? fallbackHrid,
+      detail,
+    }))
+    .find(({ detail }) =>
+      detail?.outputItems?.some((output) => output.itemHrid === itemHrid),
+    );
+}
+
+function projectedCharmRecipe(recipe, itemHrid, projectAction) {
+  if (!recipe || typeof projectAction !== "function") return null;
+  const projection = projectAction(recipe.actionHrid, 1, {
+    respectInventoryLimit: false,
+  });
+  if (
+    !["complete", "incomplete"].includes(projection?.status) ||
+    !Array.isArray(projection.inputs)
+  ) {
+    return null;
+  }
+  const outputCount = projection.outputs
+    ?.filter((output) => output.itemHrid === itemHrid)
+    .reduce(
+      (total, output) =>
+        total + finitePositive(output.effectiveCount ?? output.count),
+      0,
+    );
+  const fallbackOutputCount = recipe.detail.outputItems
+    .filter((output) => output.itemHrid === itemHrid)
+    .reduce((total, output) => total + finitePositive(output.count), 0);
+  const actionsPerHour = finitePositive(projection.actionsPerHour);
+  const teaInputs = [];
+  for (const drink of projection.teaEffects?.drinks ?? []) {
+    const count = actionsPerHour
+      ? finitePositive(drink.countPerHour) / actionsPerHour
+      : 0;
+    if (drink.itemHrid && count > 0) {
+      teaInputs.push({ itemHrid: drink.itemHrid, count });
+    }
+  }
+  return {
+    outputCount: finitePositive(outputCount) || fallbackOutputCount,
+    inputs: projection.inputs.map((input) => ({
+      itemHrid: input.itemHrid,
+      count: finitePositive(input.effectiveCount),
+    })),
+    teaInputs,
+  };
+}
+
+function charmBaseCost({
+  itemHrid,
+  actionDetailMap,
+  projectAction,
+  resolveLeafPrice,
+  visited = new Set(),
+}) {
+  if (!itemHrid || visited.has(itemHrid)) return 0;
+  const recipe = charmRecipe(itemHrid, actionDetailMap);
+  if (!recipe) return resolveLeafPrice(itemHrid);
+  const projected = projectedCharmRecipe(recipe, itemHrid, projectAction);
+  if (!projected?.outputCount) return 0;
+
+  const nextVisited = new Set(visited).add(itemHrid);
+  let totalCost = 0;
+  for (const input of projected.inputs) {
+    if (!input.itemHrid || !(input.count > 0)) continue;
+    const unitPrice = input.itemHrid.endsWith("_charm")
+      ? charmBaseCost({
+          itemHrid: input.itemHrid,
+          actionDetailMap,
+          projectAction,
+          resolveLeafPrice,
+          visited: nextVisited,
+        })
+      : resolveLeafPrice(input.itemHrid);
+    if (!(unitPrice > 0)) return 0;
+    totalCost += input.count * unitPrice;
+  }
+  for (const tea of projected.teaInputs) {
+    const unitPrice = resolveLeafPrice(tea.itemHrid);
+    if (!(unitPrice > 0)) return 0;
+    totalCost += tea.count * unitPrice;
+  }
+  return totalCost > 0 ? totalCost / projected.outputCount : 0;
+}
+
 function successRateAt(table, level) {
   const value = Number(table[level] ?? table.at(-1));
   if (!Number.isFinite(value)) return 0;
@@ -488,7 +577,24 @@ export function calculateEnhancementPlan({
     if (hrid === "/items/coin") return 1;
     return finitePositive(getMarketValue?.(hrid, level));
   };
-  const basePrice = acquisitionPrice(baseItemHrid, 0);
+  const resolveCharmLeafPrice = (hrid) => {
+    const value =
+      optionalMarketPrice(hrid, 0) ||
+      nonTradableCoinShopPrice(hrid, itemDetailMap, shopItemDetailMap);
+    if (!value) missing.add(hrid);
+    return value;
+  };
+  const basePrice = baseItemHrid.endsWith("_charm")
+    ? charmBaseCost({
+        itemHrid: baseItemHrid,
+        actionDetailMap,
+        projectAction,
+        resolveLeafPrice: resolveCharmLeafPrice,
+      })
+    : acquisitionPrice(baseItemHrid, 0);
+  if (!basePrice && baseItemHrid.endsWith("_charm")) {
+    missing.add(baseItemHrid);
+  }
   let materialCostPerAction = 0;
   let hasMissingRequiredPrice = !basePrice;
   for (const cost of item.enhancementCosts) {

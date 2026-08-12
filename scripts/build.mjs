@@ -9,5 +9,4 @@ import {
 await buildUserscript({
   banner: await getProductionBanner(),
   outfile: path.join(projectRoot, "MWITools.js"),
-  minify: true,
 });

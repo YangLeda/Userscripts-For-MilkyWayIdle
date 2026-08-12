@@ -272,7 +272,10 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
     type: "/action_types/crafting",
     baseTimeCost: 4_000_000_000,
     upgradeItemHrid: "/items/base",
-    inputItems: [{ itemHrid: "/items/input", count: 2 }],
+    inputItems: [
+      { itemHrid: "/items/base", count: 8 },
+      { itemHrid: "/items/input", count: 2 },
+    ],
     outputItems: [{ itemHrid: "/items/tea-output", count: 1 }],
     essenceDropTable: [
       {
@@ -356,22 +359,23 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
   assert.equal(result.teaEffects.concentrationMultiplier, 1.1);
   assert.ok(Math.abs(result.teaEffects.lessResource - 0.11) < 1e-12);
   assert.ok(Math.abs(result.teaEffects.quantity - 0.22) < 1e-12);
-  assert.equal(
-    result.inputs.find((item) => item.itemHrid === "/items/base")
-      .effectiveCount,
-    1,
+  assert.ok(
+    Math.abs(
+      result.inputs.find((item) => item.itemHrid === "/items/base")
+        .effectiveCount - 7.23,
+    ) < 1e-12,
   );
   assert.equal(
     result.inputs.find((item) => item.itemHrid === "/items/input")
       .effectiveCount,
     1.78,
   );
-  assert.ok(Math.abs(result.materialCostPerAction - 67.8) < 1e-12);
+  assert.ok(Math.abs(result.materialCostPerAction - 379.3) < 1e-12);
   assert.ok(Math.abs(result.primaryRevenuePerAction - 122) < 1e-12);
   assert.ok(Math.abs(result.byproductRevenuePerAction - 186) < 1e-12);
   assert.ok(Math.abs(result.teaCostPerHour - 1_320) < 1e-12);
-  assert.ok(Math.abs(result.netProfitPerAction - 239.1) < 1e-12);
-  assert.ok(Math.abs(result.profitPerHour - 286_920) < 1e-8);
+  assert.ok(Math.abs(result.netProfitPerAction - -72.4) < 1e-12);
+  assert.ok(Math.abs(result.profitPerHour - -86_880) < 1e-8);
 });
 
 test("gathering processing tea splits raw drops into recipe outputs", () => {

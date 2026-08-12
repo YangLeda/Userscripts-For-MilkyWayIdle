@@ -24,7 +24,7 @@ export async function getDevelopmentBanner() {
     );
 }
 
-export async function buildUserscript({ banner, outfile, minify = false }) {
+export async function buildUserscript({ banner, outfile }) {
   await build({
     absWorkingDir: projectRoot,
     entryPoints: ["src/main.js"],
@@ -33,8 +33,8 @@ export async function buildUserscript({ banner, outfile, minify = false }) {
     format: "iife",
     target: ["chrome100"],
     charset: "utf8",
-    minify,
-    keepNames: minify,
+    minify: false,
+    keepNames: false,
     sourcemap: false,
     legalComments: "inline",
     treeShaking: false,

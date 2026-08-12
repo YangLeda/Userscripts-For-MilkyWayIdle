@@ -131,6 +131,14 @@ function getDirectInputs(detail) {
   return inputs;
 }
 
+function getEffectiveInputCount(input, lessResource) {
+  const count = Math.max(0, Number(input?.count) || 0);
+  const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
+  if (!input?.isUpgradeItem) return count * (1 - reduction);
+  const retainedCount = Math.min(1, count);
+  return retainedCount + (count - retainedCount) * (1 - reduction);
+}
+
 function getActionBuffs(actionHrid) {
   const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
   const sources = runtime.state.actionTypeBuffSources;
@@ -511,8 +519,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   let maxCraftable = Infinity;
   for (const input of inputs) {
-    const effectiveCount =
-      input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
+    const effectiveCount = getEffectiveInputCount(input, lessResource);
     if (effectiveCount > 0) {
       maxCraftable = Math.min(
         maxCraftable,
@@ -544,8 +551,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     const unpricedByproducts = [];
     const derivedMissingPrices = [];
     const materialCostPerAction = inputs.reduce((total, input) => {
-      const effectiveCount =
-        input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
+      const effectiveCount = getEffectiveInputCount(input, lessResource);
       const price = getPrice(input.itemHrid, "buy", mode);
       if (price === null) missingPrices.push(input.itemHrid);
       return total + (price === null ? 0 : effectiveCount * price);
@@ -624,8 +630,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   const selectedValuation = valuations[valuationMode];
   const missingPrices = selectedValuation.missingPrices;
   const inputDetails = inputs.map((input) => {
-    const effectiveCount =
-      input.count * (input.isUpgradeItem ? 1 : 1 - lessResource);
+    const effectiveCount = getEffectiveInputCount(input, lessResource);
     const unitPrice = getPrice(input.itemHrid, "buy", valuationMode);
     return {
       ...input,
