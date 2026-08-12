@@ -39,8 +39,11 @@ await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
-const { dungeonLocationsForCard, taskArtworkForCard } =
-  await import("../src/features/tasks.js");
+const {
+  dungeonLocationsForCard,
+  shouldRenderTaskMutations,
+  taskArtworkForCard,
+} = await import("../src/features/tasks.js");
 const { taskNewStorageKey, writeTaskNewState } =
   await import("../src/features/task-new-badge.js");
 
@@ -373,6 +376,50 @@ test("a reset task keeps its current category until the task page is re-entered"
     ),
     null,
   );
+});
+
+test("opening the native reset payment choice pauses task regrouping", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__reset-choice">
+      ${card("制作 - 木板", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "reset-choice", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.api.renderTasks();
+
+  const resetCard = document.querySelector(
+    '.TasksPanel_taskList__reset-choice [class*="RandomTask_randomTask"]',
+  );
+  const resetButton = [...resetCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  let nativeClicks = 0;
+  resetButton.addEventListener("click", () => {
+    nativeClicks += 1;
+  });
+  resetButton.click();
+
+  const records = [{ target: resetCard, addedNodes: [], removedNodes: [] }];
+  assert.equal(nativeClicks, 1);
+  assert.equal(shouldRenderTaskMutations(records), false);
+  assert.equal(shouldRenderTaskMutations(records, Date.now() + 10_001), true);
+
+  const replacement = document.createElement("button");
+  replacement.textContent = "重置";
+  resetButton.replaceWith(replacement);
+  const originalDateNow = Date.now;
+  const later = originalDateNow() + 20_000;
+  Date.now = () => later;
+  try {
+    replacement.click();
+    assert.equal(shouldRenderTaskMutations(records, later), false);
+  } finally {
+    Date.now = originalDateNow;
+  }
 });
 
 test("new tasks stay in the top group for one task-page visit", () => {

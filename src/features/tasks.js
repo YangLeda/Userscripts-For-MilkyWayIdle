@@ -14,6 +14,7 @@ let pageClassifications = new Map();
 let pageTaskIds = new Map();
 let pageNewTaskIds = new Set();
 let pendingResetSlots = new Set();
+let nativeResetChoiceUntil = 0;
 let temporaryTaskReturn = null;
 let lastRenderedCards = [];
 let lastTaskRenderSignature = "";
@@ -1401,14 +1402,23 @@ function wireMergeButtons(cards, tasks) {
 function wireResetButtons(cards) {
   cards.forEach((card, index) => {
     if (card.dataset.mwitoolsResetWired) return;
-    const button = [...card.querySelectorAll("button")].find((candidate) =>
-      /reset|重置/i.test(candidate.textContent),
+    const hasResetButton = [...card.querySelectorAll("button")].some(
+      (candidate) => /reset|重置/i.test(candidate.textContent),
     );
-    if (!button) return;
+    if (!hasResetButton) return;
     card.dataset.mwitoolsResetWired = "true";
-    button.addEventListener(
+    card.addEventListener(
       "click",
-      () => {
+      (event) => {
+        const button = event.target?.closest?.("button");
+        if (
+          !button ||
+          !card.contains(button) ||
+          !/reset|重置/i.test(button.textContent)
+        ) {
+          return;
+        }
+        nativeResetChoiceUntil = Date.now() + 10_000;
         pendingResetSlots.add(index);
         const timeout = setTimeout(
           () => pendingResetSlots.delete(index),
@@ -1459,6 +1469,24 @@ function applyPendingMerge() {
   const timeout = setTimeout(() => toast.remove(), 3200);
   timeout?.unref?.();
   runtime.state.pendingMergedTask = null;
+}
+
+export function shouldRenderTaskMutations(records, now = Date.now()) {
+  if (now < nativeResetChoiceUntil) return false;
+  return records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
+    return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
+      .filter((node) => node?.nodeType === 1)
+      .some(
+        (node) =>
+          node.matches?.('[class*="TasksPanel_taskList"]') ||
+          node.querySelector?.('[class*="TasksPanel_taskList"]'),
+      );
+  });
 }
 
 function taskRenderSignature(cards, tasks) {
@@ -1597,6 +1625,7 @@ function cleanupTasks() {
   pageTaskIds = new Map();
   pageNewTaskIds = new Set();
   pendingResetSlots = new Set();
+  nativeResetChoiceUntil = 0;
   temporaryTaskReturn = null;
   runtime.state.mwitoolsPageNewTaskIds = new Set();
   lastRenderedCards = [];
@@ -1628,28 +1657,19 @@ runtime.features.register({
       });
     };
     const observer = new MutationObserver((records) => {
-      const relevant = records.some((record) => {
-        const target =
-          record.target?.nodeType === 1
-            ? record.target
-            : record.target?.parentElement;
-        if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
-        return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-          .filter((node) => node?.nodeType === 1)
-          .some(
-            (node) =>
-              node.matches?.('[class*="TasksPanel_taskList"]') ||
-              node.querySelector?.('[class*="TasksPanel_taskList"]'),
-          );
-      });
-      if (relevant) scheduleRender();
+      if (shouldRenderTaskMutations(records)) scheduleRender();
     });
     scope.observer(observer, document.body, {
       childList: true,
       characterData: true,
       subtree: true,
     });
-    scope.add(runtime.onMessage("quests_updated", scheduleRender));
+    scope.add(
+      runtime.onMessage("quests_updated", () => {
+        nativeResetChoiceUntil = 0;
+        scheduleRender();
+      }),
+    );
     scope.add(() => {
       renderPending = false;
     });

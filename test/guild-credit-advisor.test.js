@@ -225,6 +225,15 @@ test("advisor is a Shadow DOM external panel with a compact top three", async ()
     shadow(host, ".ranking .rank-row:nth-child(2) .tag").textContent,
     "当前",
   );
+  assert.equal(host.shadowRoot.querySelector(".meta"), null);
+  assert.match(
+    host.shadowRoot.querySelector("style").textContent,
+    /\.rank-row\{[^}]*min-height:34px/,
+  );
+  assert.match(
+    host.shadowRoot.querySelector("style").textContent,
+    /\.price\{display:flex/,
+  );
   assert.equal(shadow(host, ".current-row"), null);
   assert.match(shadowText(host), /可多兑换 2 点信用/);
   assert.equal(document.querySelectorAll(`#${host.id}`).length, 1);

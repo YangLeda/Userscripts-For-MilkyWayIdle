@@ -422,36 +422,35 @@ function creditColor(creditItemHrid) {
 
 function advisorStyles() {
   return `
-    :host{position:fixed;z-index:2147483000;display:block;width:min(400px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;color:#f4f5ff;font-family:inherit;font-size:12px;line-height:1.35}
+    :host{position:fixed;z-index:2147483000;display:block;width:min(400px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-sizing:border-box;color:#f4f5ff;font-family:inherit;font-size:11px;line-height:1.25}
     *{box-sizing:border-box}
     .advisor{display:flex;max-height:inherit;flex-direction:column;overflow:hidden;border:1px solid #414361;border-left:4px solid var(--mwi-credit-accent,#43c4ad);border-radius:8px;background:#171927;box-shadow:0 10px 30px rgba(0,0,0,.48)}
-    .head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:9px 11px;border-bottom:1px solid #414361;background:#24263e}
-    .title{display:grid;gap:2px;min-width:0;color:#fff;font-size:15px;font-weight:750}
-    .credit{display:flex;align-items:center;gap:5px;min-width:0;color:#c7cae4;font-size:10px;font-weight:500}
-    .credit::before{width:8px;height:8px;flex:0 0 8px;border-radius:2px;background:var(--mwi-credit-accent,#43c4ad);content:""}
-    .basis{padding-top:2px;color:#aeb1c9;font-size:10px;white-space:nowrap}
-    .body{min-height:0;overflow-x:hidden;overflow-y:auto;padding:7px;scrollbar-width:thin}
-    .ranking{display:grid;gap:5px}
-    .rank-row{display:grid;min-height:52px;grid-template-columns:22px 28px minmax(0,1fr) auto;align-items:center;gap:7px;padding:5px 7px;border:1px solid #3d3f5d;border-radius:6px;background:#202139}
+    .head{display:flex;align-items:center;justify-content:space-between;gap:7px;padding:6px 9px;border-bottom:1px solid #414361;background:#24263e}
+    .title{display:flex;align-items:center;gap:7px;min-width:0;color:#fff;font-size:13px;font-weight:750;white-space:nowrap}
+    .credit{display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden;color:#c7cae4;font-size:9px;font-weight:500;text-overflow:ellipsis;white-space:nowrap}
+    .credit::before{width:7px;height:7px;flex:0 0 7px;border-radius:2px;background:var(--mwi-credit-accent,#43c4ad);content:""}
+    .basis{color:#aeb1c9;font-size:9px;white-space:nowrap}
+    .body{min-height:0;overflow-x:hidden;overflow-y:auto;padding:5px;scrollbar-width:thin}
+    .ranking{display:grid;gap:3px}
+    .rank-row{display:grid;min-height:34px;grid-template-columns:18px 22px minmax(0,1fr) auto;align-items:center;gap:5px;padding:3px 5px;border:1px solid #3d3f5d;border-radius:5px;background:#202139}
     .rank-row.best{border-color:color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 72%,#414361);background:color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 13%,#202139)}
-    .rank-row.current-row{margin-top:6px;border-style:dashed;background:#1d1f33}
-    .rank{display:grid;width:21px;height:21px;place-items:center;border:1px solid #555976;border-radius:50%;color:#c9cce2;font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .rank-row.current-row{margin-top:4px;border-style:dashed;background:#1d1f33}
+    .rank{display:grid;width:17px;height:17px;place-items:center;border:1px solid #555976;border-radius:50%;color:#c9cce2;font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace}
     .best .rank{border-color:var(--mwi-credit-accent,#43c4ad);background:var(--mwi-credit-accent,#43c4ad);color:#111827}
-    .item-icon,.icon-fallback{display:grid;width:28px;height:28px;place-items:center;overflow:hidden;border-radius:4px;background:#292b45;color:#c7cae4;font-weight:700}
-    .copy{display:grid;min-width:0;gap:2px}
+    .item-icon,.icon-fallback{display:grid;width:22px;height:22px;place-items:center;overflow:hidden;border-radius:4px;background:#292b45;color:#c7cae4;font-weight:700}
+    .copy{display:block;min-width:0}
     .name-line{display:flex;min-width:0;align-items:center;gap:5px}
-    .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:12px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
+    .name{min-width:0;overflow:hidden;color:#f5f6ff;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}
     .tag{flex:0 0 auto;padding:1px 4px;border:1px solid color-mix(in srgb,var(--mwi-credit-accent,#43c4ad) 65%,#555976);border-radius:999px;color:var(--mwi-credit-accent,#43c4ad);font-size:8px;font-weight:700}
-    .meta{overflow:hidden;color:#aeb1c9;font-size:9px;text-overflow:ellipsis;white-space:nowrap}
-    .price{display:grid;justify-items:end;gap:1px;color:var(--mwi-credit-accent,#43c4ad);font:750 17px/1 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
-    .price small{color:#aeb1c9;font:500 8px/1.2 inherit}
-    .current-heading{margin:7px 2px 4px;color:#aeb1c9;font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-    .summary{margin-top:7px;padding:7px 8px;border-top:1px solid #414361;border-radius:0 0 5px 5px;background:#1d1f31;color:#dfe1f4;font-size:10px;line-height:1.45;text-align:center}
-    .summary strong{color:var(--mwi-credit-accent,#43c4ad);font-size:12px}
+    .price{display:flex;align-items:baseline;justify-content:flex-end;gap:3px;color:var(--mwi-credit-accent,#43c4ad);font:750 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap}
+    .price small{color:#aeb1c9;font:500 9px/1.2 inherit}
+    .current-heading{margin:4px 2px 3px;color:#aeb1c9;font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+    .summary{margin-top:5px;padding:5px 7px;border-top:1px solid #414361;border-radius:0 0 5px 5px;background:#1d1f31;color:#dfe1f4;font-size:9px;line-height:1.35;text-align:center}
+    .summary strong{color:var(--mwi-credit-accent,#43c4ad);font-size:10px}
     .summary.warning strong{color:#ffd17c}
-    .estimate{margin-top:4px;color:#9296b0;font-size:9px;text-align:center}
+    .estimate{margin-top:3px;color:#9296b0;font-size:8px;text-align:center}
     .empty{padding:14px;color:#bfc2d9;text-align:center}
-    @media(max-width:760px){:host{width:min(400px,calc(100vw - 24px))}.head{padding:8px 9px}.body{padding:6px}.rank-row{min-height:48px;padding:4px 6px}.price{font-size:15px}}
+    @media(max-width:760px){:host{width:min(400px,calc(100vw - 24px))}}
   `;
 }
 
@@ -479,14 +478,10 @@ function rankRowMarkup(
 ) {
   const name = itemName(option.itemHrid);
   const pricePrefix = option.estimated ? "≈" : "";
-  const meta = t(
-    `${formatExact(option.requiredItems)} 个 · ${formatNumber(option.totalCost)} 总成本`,
-    `${formatExact(option.requiredItems)} items · ${formatNumber(option.totalCost)} total`,
-  );
   return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t("当前", "Current"))}</span>` : ""}</span><span class="meta" title="${escapeHtml(meta)}">${escapeHtml(meta)}</span></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t("当前", "Current"))}</span>` : ""}</span></span>
     <span class="price" title="${escapeHtml(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml(formatNumber(option.costPerCredit))}<small>${escapeHtml(t("每信用点", "per credit"))}</small></span>
   </div>`;
 }
