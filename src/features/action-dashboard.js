@@ -266,6 +266,7 @@ function clearActionDashboard() {
     .forEach((element) =>
       element.classList.remove("mwi-action-dashboard-host"),
     );
+  dashboardNodes = null;
 }
 
 function nativeActionText(host) {
@@ -325,6 +326,45 @@ function actionMatchesHeader(action, host) {
   );
 }
 
+let dashboardNodes = null;
+
+function ensureDashboardNodes(host, existingRoot) {
+  if (
+    dashboardNodes &&
+    dashboardNodes.root === existingRoot &&
+    existingRoot?.isConnected
+  ) {
+    return dashboardNodes;
+  }
+  const root = existingRoot ?? document.createElement("div");
+  if (!existingRoot) {
+    root.id = "mwi-action-dashboard";
+    root.className = "mwi-action-dashboard";
+  }
+  root.style.position = "absolute";
+  root.replaceChildren();
+  const primary = document.createElement("div");
+  primary.className = "mwi-action-line";
+  const remaining = document.createElement("span");
+  const currentTime = document.createElement("span");
+  const eta = document.createElement("strong");
+  primary.append(remaining, currentTime, eta);
+  root.append(primary);
+  if (!existingRoot) host.appendChild(root);
+  dashboardNodes = {
+    root,
+    remaining,
+    currentTime,
+    eta,
+    structureSig: null,
+    remainingSig: null,
+    remainingTitle: null,
+    timeText: null,
+    etaText: null,
+  };
+  return dashboardNodes;
+}
+
 function renderActionDashboard() {
   addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
@@ -338,70 +378,104 @@ function renderActionDashboard() {
   }
   const timing = getLiveActionTiming(host);
   const enhancementCount = getNativeEnhancementCount(host, current);
+  // The dashboard only shows the remaining count and timing, so skip the
+  // three-mode market valuation this projection would otherwise compute twice
+  // a second (see projectAction's skipValuations branch).
   const projection = runtime.api.projectAction(
     current,
     enhancementCount ?? undefined,
     {
       durationPerAction: timing.durationPerAction,
       currentCycleRemainingSeconds: timing.currentCycleRemaining,
+      skipValuations: true,
     },
   );
-  let root = host.querySelector("#mwi-action-dashboard");
-  if (!root) {
-    root = document.createElement("div");
-    root.id = "mwi-action-dashboard";
-    root.className = "mwi-action-dashboard";
-    host.appendChild(root);
-  }
-  host.classList.add("mwi-action-dashboard-host");
-  root.style.position = "absolute";
-  const lastNativeChild = [...host.children]
-    .filter(
-      (element) => element !== root && element.id !== "script_item_warning",
-    )
-    .at(-1);
-  const hostRect = host.getBoundingClientRect();
-  const childRect = lastNativeChild?.getBoundingClientRect();
-  const left = Math.max(
-    0,
-    (childRect?.right ?? hostRect.left) - hostRect.left + 7,
-  );
-  root.style.left = `${left}px`;
-  root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
-  root.replaceChildren();
-  root.removeAttribute("title");
 
-  const primary = document.createElement("div");
-  primary.className = "mwi-action-line";
-  const remaining = document.createElement("span");
+  const nodes = ensureDashboardNodes(
+    host,
+    host.querySelector("#mwi-action-dashboard"),
+  );
+  const root = nodes.root;
+  host.classList.add("mwi-action-dashboard-host");
+
+  // The horizontal offset is anchored to the last native header child, whose
+  // width only changes when the action, its enhancement count, or the native
+  // header text changes. Re-reading it (two forced reflows) on every 500ms
+  // tick is wasted work, so gate it behind a cheap text-only signature and
+  // only re-measure — and thus reflow — when that signature changes.
+  const anchorSig = [...host.children]
+    .filter(
+      (element) =>
+        element.id !== "mwi-action-dashboard" &&
+        element.id !== "script_item_warning",
+    )
+    .map((element) => element.textContent ?? "")
+    .join("");
+  const structureSig = `${current.actionHrid}|${enhancementCount ?? ""}|${anchorSig}`;
+  if (nodes.structureSig !== structureSig) {
+    nodes.structureSig = structureSig;
+    const lastNativeChild = [...host.children]
+      .filter(
+        (element) => element !== root && element.id !== "script_item_warning",
+      )
+      .at(-1);
+    const hostRect = host.getBoundingClientRect();
+    const childRect = lastNativeChild?.getBoundingClientRect();
+    const left = Math.max(
+      0,
+      (childRect?.right ?? hostRect.left) - hostRect.left + 7,
+    );
+    root.style.left = `${left}px`;
+    root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
+  }
+
   const effectivelyInfinite =
     projection.effectivelyInfinite ?? projection.infinite;
   const effectiveCount = projection.effectiveCount ?? projection.count;
-  remaining.append(
-    `${t("剩余", "Remaining")} `,
-    effectivelyInfinite ? "∞" : number(effectiveCount),
-  );
-  if (projection.materialLimited) {
-    remaining.title = t(
-      "已按当前库存中的可用原料计算",
-      "Limited by materials currently in inventory",
-    );
-  } else if (enhancementCount !== null) {
-    remaining.title = t(
-      "已按强化栏当前可处理数量计算",
-      "Based on the amount currently available for enhancement",
-    );
-  }
-  const currentTime = document.createElement("span");
-  currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
+  // The count is a rich element (createFormattedNumber carries an exact-value
+  // title), so it cannot be flattened into a string; key its rebuild on the
+  // raw value instead.
+  const remainingSig = effectivelyInfinite ? "∞" : String(effectiveCount);
+  const remainingTitle = projection.materialLimited
+    ? t(
+        "已按当前库存中的可用原料计算",
+        "Limited by materials currently in inventory",
+      )
+    : enhancementCount !== null
+      ? t(
+          "已按强化栏当前可处理数量计算",
+          "Based on the amount currently available for enhancement",
+        )
+      : "";
+  const timeText = `${t("还需", "Time left")} ${formatDuration(
     projection.totalSeconds,
   )}`;
-  const eta = document.createElement("strong");
-  eta.textContent = projection.finishAt
+  const etaText = projection.finishAt
     ? `${t("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}`
     : `${t("预计完成", "Finishes at")} —`;
-  primary.append(remaining, currentTime, eta);
-  root.append(primary);
+
+  // Only touch the DOM for values that actually changed. At 500ms with a
+  // per-second countdown, roughly half the ticks produce identical strings.
+  if (nodes.remainingSig !== remainingSig) {
+    nodes.remaining.replaceChildren(
+      `${t("剩余", "Remaining")} `,
+      effectivelyInfinite ? "∞" : number(effectiveCount),
+    );
+    nodes.remainingSig = remainingSig;
+  }
+  if (nodes.remainingTitle !== remainingTitle) {
+    if (remainingTitle) nodes.remaining.title = remainingTitle;
+    else nodes.remaining.removeAttribute("title");
+    nodes.remainingTitle = remainingTitle;
+  }
+  if (nodes.timeText !== timeText) {
+    nodes.currentTime.textContent = timeText;
+    nodes.timeText = timeText;
+  }
+  if (nodes.etaText !== etaText) {
+    nodes.eta.textContent = etaText;
+    nodes.etaText = etaText;
+  }
 }
 
 function findActionPanel() {

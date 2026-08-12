@@ -866,6 +866,67 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     };
   }
 
+  function computeTotalSeconds() {
+    if (effectivelyInfinite) return Infinity;
+    if (secondsPerAction === null) return null;
+    const liveDuration = Number(context.durationPerAction);
+    if (Number.isFinite(liveDuration) && liveDuration > 0) {
+      const cycles = Math.max(
+        executableCount > 0 ? 1 : 0,
+        Math.round(executableCount / getEfficiencyMultiplier(actionHrid)),
+      );
+      const currentCycleRemaining = Number(
+        context.currentCycleRemainingSeconds,
+      );
+      return cycles > 0 &&
+        Number.isFinite(currentCycleRemaining) &&
+        currentCycleRemaining >= 0
+        ? Math.min(liveDuration, currentCycleRemaining) +
+            Math.max(0, cycles - 1) * liveDuration
+        : cycles * liveDuration;
+    }
+    return executableCount * secondsPerAction;
+  }
+
+  // The action dashboard polls this projection twice a second purely for the
+  // remaining count and timing. Skip the three-mode market valuation and the
+  // per-item detail arrays for those callers — that is the heavy part of this
+  // function and it goes completely unused there. Opt-in via context, so every
+  // other caller keeps the full valuation output unchanged.
+  if (context.skipValuations) {
+    const skipTotalSeconds = computeTotalSeconds();
+    const skipNow = Number(context.now ?? Date.now());
+    return {
+      status: "timing",
+      actionHrid,
+      detail,
+      count: normalizedCount,
+      infinite,
+      effectiveCount: executableCount,
+      effectivelyInfinite,
+      materialLimited,
+      respectsInventoryLimit: Boolean(respectInventoryLimit),
+      secondsPerAction,
+      totalSeconds: skipTotalSeconds,
+      finishAt:
+        Number.isFinite(skipTotalSeconds) && skipTotalSeconds !== null
+          ? skipNow + skipTotalSeconds * 1000
+          : null,
+      maxCraftable,
+      actionsPerHour,
+      baseSeconds: timing?.baseSeconds ?? null,
+      cycleSeconds: timing?.cycleSeconds ?? null,
+      efficiencyPercent: timing?.efficiencyPercent ?? 0,
+      speedPercent: timing?.speedPercent ?? 0,
+      timingSource: timing?.timingSource ?? null,
+      teaEffects,
+      valuations: null,
+      netProfitPerAction: null,
+      profitPerHour: null,
+      totalProfit: null,
+    };
+  }
+
   const valuations = Object.fromEntries(
     [...PROFIT_VALUATION_MODES].map((mode) => [mode, calculateValuation(mode)]),
   );
@@ -928,30 +989,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     };
   });
   const complete = selectedValuation.complete;
-  let totalSeconds = null;
-  if (effectivelyInfinite) {
-    totalSeconds = Infinity;
-  } else if (secondsPerAction !== null) {
-    const liveDuration = Number(context.durationPerAction);
-    if (Number.isFinite(liveDuration) && liveDuration > 0) {
-      const cycles = Math.max(
-        executableCount > 0 ? 1 : 0,
-        Math.round(executableCount / getEfficiencyMultiplier(actionHrid)),
-      );
-      const currentCycleRemaining = Number(
-        context.currentCycleRemainingSeconds,
-      );
-      totalSeconds =
-        cycles > 0 &&
-        Number.isFinite(currentCycleRemaining) &&
-        currentCycleRemaining >= 0
-          ? Math.min(liveDuration, currentCycleRemaining) +
-            Math.max(0, cycles - 1) * liveDuration
-          : cycles * liveDuration;
-    } else {
-      totalSeconds = executableCount * secondsPerAction;
-    }
-  }
+  const totalSeconds = computeTotalSeconds();
   const now = Number(context.now ?? Date.now());
 
   return {

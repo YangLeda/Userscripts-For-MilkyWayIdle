@@ -118,6 +118,29 @@ test("action projection shares duration, direct material capacity and net profit
   assert.equal(result.valuations.aggressive.netProfitPerAction, 98);
 });
 
+test("skipValuations keeps count and timing but omits the market valuation", () => {
+  const full = runtime.api.projectAction("/actions/crafting/test", 5, {
+    now: 1_000,
+  });
+  const lite = runtime.api.projectAction("/actions/crafting/test", 5, {
+    now: 1_000,
+    skipValuations: true,
+  });
+  // The count and timing fields the action dashboard reads stay identical.
+  assert.equal(lite.effectiveCount, full.effectiveCount);
+  assert.equal(lite.effectivelyInfinite, full.effectivelyInfinite);
+  assert.equal(lite.totalSeconds, full.totalSeconds);
+  assert.equal(lite.finishAt, full.finishAt);
+  assert.equal(lite.materialLimited, full.materialLimited);
+  assert.equal(lite.maxCraftable, full.maxCraftable);
+  assert.equal(lite.secondsPerAction, full.secondsPerAction);
+  // The heavy valuation output is skipped entirely.
+  assert.equal(lite.valuations, null);
+  assert.equal(lite.netProfitPerAction, null);
+  assert.equal(lite.profitPerHour, null);
+  assert.equal(lite.totalProfit, null);
+});
+
 test("crafting-cost projection applies Artisan reduction, concentration, and drink cost", () => {
   const previous = {
     actions: runtime.state.initData_actionDetailMap,

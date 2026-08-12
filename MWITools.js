@@ -20180,6 +20180,52 @@
         derivedMissingPrices: [...new Set(derivedMissingPrices)]
       };
     }
+    function computeTotalSeconds() {
+      if (effectivelyInfinite) return Infinity;
+      if (secondsPerAction === null) return null;
+      const liveDuration = Number(context.durationPerAction);
+      if (Number.isFinite(liveDuration) && liveDuration > 0) {
+        const cycles = Math.max(
+          executableCount > 0 ? 1 : 0,
+          Math.round(executableCount / getEfficiencyMultiplier(actionHrid))
+        );
+        const currentCycleRemaining = Number(
+          context.currentCycleRemainingSeconds
+        );
+        return cycles > 0 && Number.isFinite(currentCycleRemaining) && currentCycleRemaining >= 0 ? Math.min(liveDuration, currentCycleRemaining) + Math.max(0, cycles - 1) * liveDuration : cycles * liveDuration;
+      }
+      return executableCount * secondsPerAction;
+    }
+    if (context.skipValuations) {
+      const skipTotalSeconds = computeTotalSeconds();
+      const skipNow = Number(context.now ?? Date.now());
+      return {
+        status: "timing",
+        actionHrid,
+        detail,
+        count: normalizedCount,
+        infinite,
+        effectiveCount: executableCount,
+        effectivelyInfinite,
+        materialLimited,
+        respectsInventoryLimit: Boolean(respectInventoryLimit),
+        secondsPerAction,
+        totalSeconds: skipTotalSeconds,
+        finishAt: Number.isFinite(skipTotalSeconds) && skipTotalSeconds !== null ? skipNow + skipTotalSeconds * 1e3 : null,
+        maxCraftable,
+        actionsPerHour,
+        baseSeconds: timing?.baseSeconds ?? null,
+        cycleSeconds: timing?.cycleSeconds ?? null,
+        efficiencyPercent: timing?.efficiencyPercent ?? 0,
+        speedPercent: timing?.speedPercent ?? 0,
+        timingSource: timing?.timingSource ?? null,
+        teaEffects,
+        valuations: null,
+        netProfitPerAction: null,
+        profitPerHour: null,
+        totalProfit: null
+      };
+    }
     const valuations = Object.fromEntries(
       [...PROFIT_VALUATION_MODES].map((mode) => [mode, calculateValuation(mode)])
     );
@@ -20240,24 +20286,7 @@
       };
     });
     const complete = selectedValuation.complete;
-    let totalSeconds = null;
-    if (effectivelyInfinite) {
-      totalSeconds = Infinity;
-    } else if (secondsPerAction !== null) {
-      const liveDuration = Number(context.durationPerAction);
-      if (Number.isFinite(liveDuration) && liveDuration > 0) {
-        const cycles = Math.max(
-          executableCount > 0 ? 1 : 0,
-          Math.round(executableCount / getEfficiencyMultiplier(actionHrid))
-        );
-        const currentCycleRemaining = Number(
-          context.currentCycleRemainingSeconds
-        );
-        totalSeconds = cycles > 0 && Number.isFinite(currentCycleRemaining) && currentCycleRemaining >= 0 ? Math.min(liveDuration, currentCycleRemaining) + Math.max(0, cycles - 1) * liveDuration : cycles * liveDuration;
-      } else {
-        totalSeconds = executableCount * secondsPerAction;
-      }
-    }
+    const totalSeconds = computeTotalSeconds();
     const now = Number(context.now ?? Date.now());
     return {
       status: complete ? "complete" : "incomplete",
@@ -32497,6 +32526,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     document.querySelectorAll(".mwi-action-dashboard-host").forEach(
       (element) => element.classList.remove("mwi-action-dashboard-host")
     );
+    dashboardNodes = null;
   }
   function nativeActionText(host) {
     return [...host?.childNodes ?? []].filter(
@@ -32536,11 +32566,44 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       (name) => header === name || header.includes(name)
     );
   }
+  var dashboardNodes = null;
+  function ensureDashboardNodes(host, existingRoot) {
+    if (dashboardNodes && dashboardNodes.root === existingRoot && existingRoot?.isConnected) {
+      return dashboardNodes;
+    }
+    const root = existingRoot ?? document.createElement("div");
+    if (!existingRoot) {
+      root.id = "mwi-action-dashboard";
+      root.className = "mwi-action-dashboard";
+    }
+    root.style.position = "absolute";
+    root.replaceChildren();
+    const primary = document.createElement("div");
+    primary.className = "mwi-action-line";
+    const remaining = document.createElement("span");
+    const currentTime = document.createElement("span");
+    const eta = document.createElement("strong");
+    primary.append(remaining, currentTime, eta);
+    root.append(primary);
+    if (!existingRoot) host.appendChild(root);
+    dashboardNodes = {
+      root,
+      remaining,
+      currentTime,
+      eta,
+      structureSig: null,
+      remainingSig: null,
+      remainingTitle: null,
+      timeText: null,
+      etaText: null
+    };
+    return dashboardNodes;
+  }
   function renderActionDashboard() {
     addStyles4();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = [...runtime.state.currentActionsHridList ?? []].sort(
-      (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
+      (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
     );
     const current = actions[0];
     if (!host || !current || !actionMatchesHeader(current, host)) {
@@ -32554,59 +32617,68 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       enhancementCount ?? void 0,
       {
         durationPerAction: timing.durationPerAction,
-        currentCycleRemainingSeconds: timing.currentCycleRemaining
+        currentCycleRemainingSeconds: timing.currentCycleRemaining,
+        skipValuations: true
       }
     );
-    let root = host.querySelector("#mwi-action-dashboard");
-    if (!root) {
-      root = document.createElement("div");
-      root.id = "mwi-action-dashboard";
-      root.className = "mwi-action-dashboard";
-      host.appendChild(root);
-    }
-    host.classList.add("mwi-action-dashboard-host");
-    root.style.position = "absolute";
-    const lastNativeChild = [...host.children].filter(
-      (element) => element !== root && element.id !== "script_item_warning"
-    ).at(-1);
-    const hostRect = host.getBoundingClientRect();
-    const childRect = lastNativeChild?.getBoundingClientRect();
-    const left = Math.max(
-      0,
-      (childRect?.right ?? hostRect.left) - hostRect.left + 7
+    const nodes = ensureDashboardNodes(
+      host,
+      host.querySelector("#mwi-action-dashboard")
     );
-    root.style.left = `${left}px`;
-    root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
-    root.replaceChildren();
-    root.removeAttribute("title");
-    const primary = document.createElement("div");
-    primary.className = "mwi-action-line";
-    const remaining = document.createElement("span");
+    const root = nodes.root;
+    host.classList.add("mwi-action-dashboard-host");
+    const anchorSig = [...host.children].filter(
+      (element) => element.id !== "mwi-action-dashboard" && element.id !== "script_item_warning"
+    ).map((element) => element.textContent ?? "").join("");
+    const structureSig = `${current.actionHrid}|${enhancementCount ?? ""}|${anchorSig}`;
+    if (nodes.structureSig !== structureSig) {
+      nodes.structureSig = structureSig;
+      const lastNativeChild = [...host.children].filter(
+        (element) => element !== root && element.id !== "script_item_warning"
+      ).at(-1);
+      const hostRect = host.getBoundingClientRect();
+      const childRect = lastNativeChild?.getBoundingClientRect();
+      const left = Math.max(
+        0,
+        (childRect?.right ?? hostRect.left) - hostRect.left + 7
+      );
+      root.style.left = `${left}px`;
+      root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
+    }
     const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
     const effectiveCount = projection.effectiveCount ?? projection.count;
-    remaining.append(
-      `${t6("剩余", "Remaining")} `,
-      effectivelyInfinite ? "∞" : number(effectiveCount)
-    );
-    if (projection.materialLimited) {
-      remaining.title = t6(
-        "已按当前库存中的可用原料计算",
-        "Limited by materials currently in inventory"
-      );
-    } else if (enhancementCount !== null) {
-      remaining.title = t6(
-        "已按强化栏当前可处理数量计算",
-        "Based on the amount currently available for enhancement"
-      );
-    }
-    const currentTime = document.createElement("span");
-    currentTime.textContent = `${t6("还需", "Time left")} ${formatDuration(
+    const remainingSig = effectivelyInfinite ? "∞" : String(effectiveCount);
+    const remainingTitle = projection.materialLimited ? t6(
+      "已按当前库存中的可用原料计算",
+      "Limited by materials currently in inventory"
+    ) : enhancementCount !== null ? t6(
+      "已按强化栏当前可处理数量计算",
+      "Based on the amount currently available for enhancement"
+    ) : "";
+    const timeText = `${t6("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
-    const eta = document.createElement("strong");
-    eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
-    primary.append(remaining, currentTime, eta);
-    root.append(primary);
+    const etaText = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
+    if (nodes.remainingSig !== remainingSig) {
+      nodes.remaining.replaceChildren(
+        `${t6("剩余", "Remaining")} `,
+        effectivelyInfinite ? "∞" : number(effectiveCount)
+      );
+      nodes.remainingSig = remainingSig;
+    }
+    if (nodes.remainingTitle !== remainingTitle) {
+      if (remainingTitle) nodes.remaining.title = remainingTitle;
+      else nodes.remaining.removeAttribute("title");
+      nodes.remainingTitle = remainingTitle;
+    }
+    if (nodes.timeText !== timeText) {
+      nodes.currentTime.textContent = timeText;
+      nodes.timeText = timeText;
+    }
+    if (nodes.etaText !== etaText) {
+      nodes.eta.textContent = etaText;
+      nodes.etaText = etaText;
+    }
   }
   function findActionPanel() {
     const candidates = [

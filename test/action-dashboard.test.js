@@ -438,6 +438,49 @@ test("the top action bar shows only current-action count, time left, and finish 
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
 });
 
+test("the top action bar reuses its nodes across polls and rewrites only changes", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren(
+    Object.assign(document.createElement("span"), { textContent: "木板" }),
+  );
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  const line = dashboard.querySelector(".mwi-action-line");
+  const [remaining, time, eta] = line.children;
+  assert.ok(line && remaining && time && eta);
+  assert.match(remaining.textContent, /剩余 6/);
+
+  // Re-rendering the identical state must not rebuild the subtree — the same
+  // element instances survive (no replaceChildren on the line).
+  runtime.api.renderActionDashboard();
+  assert.equal(dashboard.querySelector(".mwi-action-line"), line);
+  assert.equal(line.children[0], remaining);
+  assert.equal(line.children[1], time);
+  assert.equal(line.children[2], eta);
+
+  // Changing the remaining count updates that node in place; instances persist.
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 3,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.renderActionDashboard();
+  assert.equal(dashboard.querySelector(".mwi-action-line"), line);
+  assert.equal(line.children[0], remaining);
+  assert.match(remaining.textContent, /剩余 3/);
+});
+
 test("the top action bar follows ordinal order and hides on header mismatch or combat", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   host.replaceChildren(
