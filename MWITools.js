@@ -37485,20 +37485,15 @@ ${locks}` : ""}`;
           render();
         });
       };
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR2)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
-          );
-        })) {
-          schedule();
-        }
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
+      let trailing = [];
+      const onInteraction = () => {
+        schedule();
+        for (const id of trailing) clearTimeout(id);
+        trailing = [250, 700].map((delay) => setTimeout(schedule, delay));
+      };
+      scope.event(document, "click", onInteraction, true);
+      scope.add(() => {
+        for (const id of trailing) clearTimeout(id);
       });
       scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(cleanup3);
@@ -37671,20 +37666,15 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR3)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
-          );
-        })) {
-          schedule();
-        }
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
+      let trailing = [];
+      const onInteraction = () => {
+        schedule();
+        for (const id of trailing) clearTimeout(id);
+        trailing = [250, 700].map((delay) => setTimeout(schedule, delay));
+      };
+      scope.event(document, "click", onInteraction, true);
+      scope.add(() => {
+        for (const id of trailing) clearTimeout(id);
       });
       render2();
       scope.add(() => {

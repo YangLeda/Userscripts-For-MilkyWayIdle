@@ -199,29 +199,20 @@ runtime.features.register({
         schedule();
       }),
     );
-    const observer = new MutationObserver((records) => {
-      if (
-        records.some((record) => {
-          const target =
-            record.target?.nodeType === 1
-              ? record.target
-              : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR)) return true;
-          return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-            .filter((node) => node?.nodeType === 1)
-            .some(
-              (node) =>
-                node.matches?.(TASK_SELECTOR) ||
-                node.querySelector?.(TASK_SELECTOR),
-            );
-        })
-      ) {
-        schedule();
-      }
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
+    // Task cards only (re)appear on navigation to the tasks panel (a click) or
+    // on quests_updated (handled above). Instead of a body-wide observer that
+    // wakes on every combat DOM mutation, schedule a render on click plus short
+    // trailing passes to catch React's asynchronous re-render of the freshly
+    // opened panel. render() no-ops when no task cards are present.
+    let trailing = [];
+    const onInteraction = () => {
+      schedule();
+      for (const id of trailing) clearTimeout(id);
+      trailing = [250, 700].map((delay) => setTimeout(schedule, delay));
+    };
+    scope.event(document, "click", onInteraction, true);
+    scope.add(() => {
+      for (const id of trailing) clearTimeout(id);
     });
     render();
     scope.add(() => {
