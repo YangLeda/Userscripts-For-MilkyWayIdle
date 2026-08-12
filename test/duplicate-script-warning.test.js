@@ -11,8 +11,11 @@ globalThis.window = dom.window;
 globalThis.unsafeWindow = dom.window;
 globalThis.localStorage = dom.window.localStorage;
 
-const { detectDuplicateScripts, showDuplicateWarning } =
-  await import("../src/features/duplicate-script-warning.js");
+const {
+  createDuplicateWarningMonitor,
+  detectDuplicateScripts,
+  showDuplicateWarning,
+} = await import("../src/features/duplicate-script-warning.js");
 
 test("detects only active standalone integrations", () => {
   const target = {
@@ -76,4 +79,65 @@ test("detects the current Everyday Profit Plus Fixed DOM markers", () => {
     ["Everyday Profit Plus Fixed"],
   );
   chart.remove();
+});
+
+test("duplicate monitor coalesces mutations and ignores its own warning", () => {
+  document.body.replaceChildren();
+  let duplicates = ["Everyday Profit Plus Fixed"];
+  const scheduled = [];
+  let intervalCallback;
+  let intervalCleared = false;
+  let observerCallback;
+  let observerDisconnected = false;
+  class FakeObserver {
+    constructor(callback) {
+      observerCallback = callback;
+    }
+    observe() {}
+    disconnect() {
+      observerDisconnected = true;
+    }
+  }
+  const monitor = createDuplicateWarningMonitor({
+    documentRef: document,
+    detect: () => duplicates,
+    isZH: true,
+    scheduleTask: (callback) => scheduled.push(callback),
+    setIntervalRef: (callback) => {
+      intervalCallback = callback;
+      return 17;
+    },
+    clearIntervalRef: (id) => {
+      assert.equal(id, 17);
+      intervalCleared = true;
+    },
+    MutationObserverRef: FakeObserver,
+  });
+  const warning = document.getElementById("mwitools-duplicate-script-warning");
+  const content = warning.lastElementChild;
+  const initialText = content.textContent;
+
+  observerCallback([{ target: content }]);
+  assert.equal(scheduled.length, 0);
+
+  observerCallback([{ target: document.body }]);
+  observerCallback([{ target: document.body }]);
+  intervalCallback();
+  assert.equal(scheduled.length, 1);
+  scheduled.shift()();
+  assert.equal(content.textContent, initialText);
+
+  duplicates = [...duplicates, "MWI 市场伴侣 / MWI Market Mate"];
+  observerCallback([{ target: document.body }]);
+  scheduled.shift()();
+  assert.match(content.textContent, /MWI 市场伴侣/);
+
+  warning.querySelector("button").click();
+  monitor.schedule();
+  assert.equal(scheduled.length, 0);
+  assert.equal(document.getElementById(warning.id), null);
+
+  monitor.destroy();
+  assert.equal(observerDisconnected, true);
+  assert.equal(intervalCleared, true);
 });

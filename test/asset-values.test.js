@@ -475,6 +475,31 @@ test("a direct server value wins over every derived route", () => {
   runtime.api.invalidateAssetValueCache();
 });
 
+test("upgrade crafting always adds one base item beyond matching recipe inputs", () => {
+  const previousActions = runtime.state.initData_actionDetailMap;
+  runtime.state.initData_actionDetailMap = {
+    ...previousActions,
+    stacked_upgrade: {
+      upgradeItemHrid: "/items/upgrade_base",
+      inputItems: [{ itemHrid: "/items/upgrade_base", count: 8 }],
+      outputItems: [{ itemHrid: "/items/upgraded_result", count: 1 }],
+    },
+  };
+  runtime.state.marketItemValues["/items/upgrade_base"] = { 0: 100 };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(
+    runtime.api.getAssetValue("/items/upgraded_result", 0, {
+      forceAcquisitionValue: true,
+    }),
+    900,
+  );
+
+  delete runtime.state.marketItemValues["/items/upgrade_base"];
+  runtime.state.initData_actionDetailMap = previousActions;
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("the game sell price is only the final fallback", () => {
   assert.equal(runtime.api.getAssetValue("/items/vendor_only"), 1234);
   assert.equal(runtime.api.getAssetValue("/items/task_crate"), 1200);
@@ -602,9 +627,9 @@ test("enhanced charms use the cheapest complete market, shop, or crafting chain"
 
   assert.equal(
     runtime.api.getAssetValue("/items/grandmaster_enhancing_charm", 10),
-    2_540_000,
+    2_590_000,
   );
-  assert.equal(quotedBase, 40_000);
+  assert.equal(quotedBase, 90_000);
   assert.equal(quotedMaterial, 250_000);
 
   runtime.api.calculateEnhancementPlan = originalPlanner;

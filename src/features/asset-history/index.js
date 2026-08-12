@@ -5,6 +5,13 @@ import {
   refreshAssetSnapshot,
   scheduleAssetSnapshotRefresh,
 } from "./00-snapshot.js";
+import {
+  buildHeatmap,
+  calculateAchievements,
+  componentAnalysis,
+  periodStatistics,
+  simulateNetWorth,
+} from "./15-analytics.js";
 import { assetHistoryStore, getUtc8DayKey } from "./10-store.js";
 import { createAssetHistoryUi } from "./30-panel.js";
 
@@ -51,6 +58,50 @@ const assetHistoryApi = {
   },
   detectAnomalies(scopeKey = currentScopeKey()) {
     return assetHistoryStore.detectAnomalies(scopeKey);
+  },
+  getTags(scopeKey = currentScopeKey()) {
+    return assetHistoryStore.listTags(scopeKey);
+  },
+  addTag(date, text, type = "", scopeKey = currentScopeKey()) {
+    return assetHistoryStore.addTag(date, text, type, scopeKey);
+  },
+  updateTag(tagId, patch, scopeKey = currentScopeKey()) {
+    return assetHistoryStore.updateTag(tagId, patch, scopeKey);
+  },
+  deleteTag(tagId, scopeKey = currentScopeKey()) {
+    return assetHistoryStore.deleteTag(tagId, scopeKey);
+  },
+  getPreferences() {
+    return assetHistoryStore.getPreferences();
+  },
+  setPreferences(patch) {
+    return assetHistoryStore.setPreferences(patch);
+  },
+  setGoalTarget(value, scopeKey = currentScopeKey()) {
+    return assetHistoryStore.setGoalTarget(value, scopeKey);
+  },
+  getGoalTarget(scopeKey = currentScopeKey()) {
+    return assetHistoryStore.getGoalTarget(scopeKey);
+  },
+  getStatistics(options = {}, scopeKey = currentScopeKey()) {
+    return periodStatistics(assetHistoryStore.list(scopeKey), options);
+  },
+  getHeatmap(scopeKey = currentScopeKey()) {
+    return buildHeatmap(assetHistoryStore.list(scopeKey));
+  },
+  getComponentAnalysis(rangeDays = null, scopeKey = currentScopeKey()) {
+    return componentAnalysis(assetHistoryStore.list(scopeKey), rangeDays);
+  },
+  getAchievements(scopeKey = currentScopeKey()) {
+    const results = calculateAchievements(
+      assetHistoryStore.list(scopeKey),
+      assetHistoryStore.getAchievements(scopeKey),
+    );
+    assetHistoryStore.syncAchievements(results, scopeKey);
+    return results;
+  },
+  simulate(options = {}, scopeKey = currentScopeKey()) {
+    return simulateNetWorth(assetHistoryStore.list(scopeKey), options);
   },
   exportBackup() {
     return assetHistoryStore.exportBackup();

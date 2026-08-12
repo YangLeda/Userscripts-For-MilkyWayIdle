@@ -381,11 +381,10 @@ test("charm bases follow their full artisan-adjusted root chain", () => {
         actionsPerHour: 100,
         inputs: action.inputItems.map((input) => {
           const isUpgradeItem = input.itemHrid === action.upgradeItemHrid;
-          const retainedCount = isUpgradeItem ? 1 : 0;
           return {
             itemHrid: input.itemHrid,
             isUpgradeItem,
-            effectiveCount: retainedCount + (input.count - retainedCount) * 0.8,
+            effectiveCount: (isUpgradeItem ? 1 : 0) + input.count * 0.8,
           };
         }),
         outputs: action.outputItems.map((output) => ({
@@ -427,7 +426,7 @@ test("charm bases follow their full artisan-adjusted root chain", () => {
       : rootPrice;
     for (const [, , inputCount] of tiers) {
       expectedBaseCost =
-        (1 + (inputCount - 1) * 0.8) * expectedBaseCost + (12 / 100) * 500;
+        (1 + inputCount * 0.8) * expectedBaseCost + (12 / 100) * 500;
     }
     assert.equal(plan.status, "complete");
     assert.ok(Math.abs(plan.baseCost - expectedBaseCost) < 1e-6);

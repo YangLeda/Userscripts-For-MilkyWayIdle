@@ -169,7 +169,7 @@ function isLocalized(source, ancestors) {
     if (ancestor.type === "TemplateLiteral") {
       const template = sourceOf(source, ancestor);
       return (
-        /\$\{\s*(?:t|langText|localize|localizedText|entityName|itemName|actionName|abilityName|monsterName)\s*\(/.test(
+        /\$\{\s*(?:this\.)?(?:t|langText|localize|localizedText|entityName|itemName|actionName|abilityName|monsterName)\s*\(/.test(
           template,
         ) || languageMarkers.test(template)
       );

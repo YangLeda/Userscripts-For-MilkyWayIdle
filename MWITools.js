@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.4
+// @version      26.4.5
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -25,9 +25,9 @@
 // @connect      raw.githubusercontent.com
 // @connect      feedback.43.167.210.211.sslip.io
 // @connect      mwi-guild.43.167.210.211.sslip.io
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js#sha256-1G2Xof0CLF+yn6L0Xry8MiAtc67r8HbOX3JI9UmPx9c=
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=
-// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=
+// @require      https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.min.js#sha256-AaB6aVBgu9b1y80d/HEgMq4AnFJ7K/Y+9tzK1/MrvF4=
+// @require      https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=
+// @require      https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=
 // ==/UserScript==
 
 // 特别感谢：ColaCola、Zhulimoon、400badrequest、Q7
@@ -19011,14 +19011,28 @@
     const inputs = asArray(detail?.inputItems).map((item) => ({
       itemHrid: item.itemHrid,
       count: Number(item.count) || 0,
-      isUpgradeItem: item.itemHrid === detail?.upgradeItemHrid
+      isUpgradeItem: false,
+      upgradeItemCount: 0
     }));
-    if (detail?.upgradeItemHrid && !inputs.some((input) => input.itemHrid === detail.upgradeItemHrid)) {
-      inputs.push({
-        itemHrid: detail.upgradeItemHrid,
-        count: 1,
-        isUpgradeItem: true
-      });
+    if (detail?.upgradeItemHrid) {
+      const matchingIndex = inputs.findIndex(
+        (input) => input.itemHrid === detail.upgradeItemHrid
+      );
+      if (matchingIndex >= 0) {
+        inputs[matchingIndex] = {
+          ...inputs[matchingIndex],
+          count: inputs[matchingIndex].count + 1,
+          isUpgradeItem: true,
+          upgradeItemCount: 1
+        };
+      } else {
+        inputs.push({
+          itemHrid: detail.upgradeItemHrid,
+          count: 1,
+          isUpgradeItem: true,
+          upgradeItemCount: 1
+        });
+      }
     }
     return inputs;
   }
@@ -19026,7 +19040,10 @@
     const count = Math.max(0, Number(input?.count) || 0);
     const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
     if (!input?.isUpgradeItem) return count * (1 - reduction);
-    const retainedCount = Math.min(1, count);
+    const retainedCount = Math.min(
+      count,
+      Math.max(0, Number(input?.upgradeItemCount) || 1)
+    );
     return retainedCount + (count - retainedCount) * (1 - reduction);
   }
   function getActionBuffs(actionHrid) {
@@ -19928,12 +19945,26 @@
     const itemHrid = normalizeItemHrid(input.itemHrid);
     const enhancementLevel = normalizeEnhancementLevel(input.enhancementLevel);
     const baseCount = Math.max(0, Number(input.count) || 0);
-    const bufferable = !isCoin(itemHrid) && !options.isUpgradeItem && options.bufferable !== false;
-    const calculated = suggestedMaterialCount(
-      baseCount,
+    const protectedCount = options.isUpgradeItem ? Math.min(baseCount, Math.max(0, Number(input.upgradeItemCount) || 1)) : 0;
+    const reducibleCount = Math.max(0, baseCount - protectedCount);
+    const bufferable = !isCoin(itemHrid) && reducibleCount > 0 && options.bufferable !== false;
+    const protectedCalculation = suggestedMaterialCount(
+      protectedCount,
+      actionCount,
+      0,
+      { bufferable: false }
+    );
+    const reducibleCalculation = suggestedMaterialCount(
+      reducibleCount,
       actionCount,
       bufferable ? getTeaSavings(actionHrid) : 0,
       { bufferable }
+    );
+    const calculated = Object.fromEntries(
+      ["raw", "expected", "buffer", "suggested"].map((key) => [
+        key,
+        protectedCalculation[key] + reducibleCalculation[key]
+      ])
     );
     const owned = getInventoryCount2(itemHrid, enhancementLevel);
     const locked = getLockedDetails(
@@ -20080,16 +20111,18 @@
       }
       if (upgradeHrid) {
         const producer = getProducerAction(upgradeHrid);
+        const upgradeMaterial = projection.materials.find(
+          (material) => material.itemHrid === upgradeHrid
+        );
         if (producer) {
           visit(
             producer.actionHrid,
-            Math.ceil(currentCount / producer.outputCount),
+            Math.ceil(
+              Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
+            ),
             depth + 1
           );
         } else {
-          const upgradeMaterial = projection.materials.find(
-            (material) => material.itemHrid === upgradeHrid
-          );
           if (upgradeMaterial) mergeMaterial(leaves, upgradeMaterial);
         }
       }
@@ -21237,9 +21270,7 @@
       sawRecipe = true;
       const inputs = [...action?.inputItems ?? []];
       const upgradeItemHrid = action?.upgradeItemHrid;
-      if (upgradeItemHrid && !inputs.some(
-        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid
-      )) {
+      if (upgradeItemHrid) {
         inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
       }
       let totalCost = 0;
@@ -21580,10 +21611,7 @@
       let complete = true;
       const inputItems = action?.inputItems ?? [];
       const upgradeItemHrid = action?.upgradeItemHrid;
-      const upgradeIncludedInInputs = inputItems.some(
-        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid
-      );
-      if (upgradeItemHrid && !upgradeIncludedInInputs) {
+      if (upgradeItemHrid) {
         const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
         const upgradeValue = acquisitionCostValue(
           upgradeItemHrid,
@@ -21799,9 +21827,7 @@
       if (!outputCount) continue;
       const inputItems = [...action?.inputItems ?? []];
       const upgradeItemHrid = action?.upgradeItemHrid;
-      if (upgradeItemHrid && !inputItems.some(
-        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid
-      )) {
+      if (upgradeItemHrid) {
         inputItems.unshift({
           itemHrid: upgradeItemHrid,
           enhancementLevel: action.retainAllEnhancement ? enhancementLevel : 0,
@@ -22907,8 +22933,6 @@
   var WARNING_ID = "mwitools-duplicate-script-warning";
   var pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
-  var warningShown = false;
-  var warningDismissed = false;
   function detectDuplicateScripts(options = {}) {
     const target = options.pageWindow ?? pageWindow;
     const documentRef = options.documentRef ?? globalThis.document;
@@ -22926,7 +22950,11 @@
     }
     return duplicates;
   }
-  function showDuplicateWarning(duplicates, { documentRef = globalThis.document, isZH: isZH2 = runtime.config.isZH } = {}) {
+  function showDuplicateWarning(duplicates, {
+    documentRef = globalThis.document,
+    isZH: isZH2 = runtime.config.isZH,
+    onDismiss = null
+  } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
     let warning = documentRef.getElementById(WARNING_ID);
     if (!warning) {
@@ -22941,7 +22969,7 @@
       close.setAttribute("aria-label", isZH2 ? "关闭提醒" : "Close warning");
       close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
       close.addEventListener("click", () => {
-        warningDismissed = true;
+        onDismiss?.();
         warning.remove();
       });
       warning.append(close, documentRef.createElement("div"));
@@ -22949,26 +22977,82 @@
     }
     const content = warning.lastElementChild;
     const names = duplicates.join(isZH2 ? "、" : ", ");
-    content.textContent = isZH2 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+    const message = isZH2 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+    if (content.textContent !== message) content.textContent = message;
     return warning;
+  }
+  function duplicateSignature(duplicates) {
+    return [...new Set(duplicates)].sort().join("\0");
+  }
+  function createDuplicateWarningMonitor(options = {}) {
+    const documentRef = options.documentRef ?? globalThis.document;
+    const detect = options.detect ?? (() => detectDuplicateScripts(options));
+    const render2 = options.render ?? showDuplicateWarning;
+    const scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask;
+    const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
+    const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
+    const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
+    const intervalMs = options.intervalMs ?? 1e3;
+    const detected = /* @__PURE__ */ new Set();
+    let lastSignature = "";
+    let dismissed = false;
+    let pending = false;
+    let destroyed = false;
+    const scan2 = () => {
+      pending = false;
+      if (destroyed || dismissed) return;
+      for (const name of detect()) detected.add(name);
+      if (!detected.size) return;
+      const duplicates = [...detected].sort();
+      const signature = duplicateSignature(duplicates);
+      if (signature === lastSignature) return;
+      lastSignature = signature;
+      render2(duplicates, {
+        documentRef,
+        isZH: options.isZH ?? runtime.config.isZH,
+        onDismiss() {
+          dismissed = true;
+        }
+      });
+    };
+    const schedule = () => {
+      if (destroyed || dismissed || pending) return;
+      pending = true;
+      scheduleTask(() => {
+        if (destroyed) return;
+        scan2();
+      });
+    };
+    scan2();
+    const intervalId = setIntervalRef?.(schedule, intervalMs);
+    const observer = typeof Observer === "function" ? new Observer((records) => {
+      const warning = documentRef?.getElementById(WARNING_ID);
+      if (warning && records?.length && records.every(
+        (record) => record.target === warning || warning.contains(record.target)
+      )) {
+        return;
+      }
+      schedule();
+    }) : null;
+    observer?.observe(documentRef.body, { childList: true, subtree: true });
+    return {
+      scan: scan2,
+      schedule,
+      destroy() {
+        if (destroyed) return;
+        destroyed = true;
+        pending = false;
+        observer?.disconnect();
+        if (intervalId !== void 0) clearIntervalRef?.(intervalId);
+        documentRef?.getElementById(WARNING_ID)?.remove();
+      }
+    };
   }
   runtime.features.register({
     id: "duplicateScriptWarning",
     initialize({ scope }) {
-      if (warningShown) return;
-      const detected = /* @__PURE__ */ new Set();
-      const scan2 = () => {
-        if (warningDismissed) return;
-        for (const name of detectDuplicateScripts()) detected.add(name);
-        if (!detected.size) return;
-        warningShown = true;
-        showDuplicateWarning([...detected]);
-      };
-      scan2();
-      scope.interval(scan2, 1e3);
-      const observer = new MutationObserver(scan2);
-      scope.observer(observer, document.body, { childList: true, subtree: true });
-      scope.add(() => document.getElementById(WARNING_ID)?.remove());
+      const monitor = createDuplicateWarningMonitor();
+      scope.add(() => monitor.destroy());
     }
   });
 
@@ -23170,8 +23254,34 @@
     tagPrefs: "kbd_calc_tag_prefs",
     tagPanel: "kbd_calc_tag_panel",
     dataPanel: "kbd_calc_data_panel",
-    lastUpdate: "kbd_calc_last_update_at"
+    lastUpdate: "kbd_calc_last_update_at",
+    goalTarget: "ep_goal_target",
+    achievements: "ep_achievements_data",
+    language: "ep_lang",
+    tagColors: "ep_tag_colors",
+    windowSize: "ep_window_size",
+    chartSettings: "ep_chart_settings",
+    heatmapStyle: "ep_heatmap_style",
+    glassHeartMode: "ep_glass_heart_mode",
+    themeMode: "ep_theme_mode",
+    lightBg: "ep_light_bg"
   };
+  var ASSET_HISTORY_SCHEMA_VERSION = 2;
+  var DEFAULT_ASSET_HISTORY_PREFERENCES = Object.freeze({
+    language: null,
+    themeMode: "dark",
+    lightBg: { h: 38, s: 44 },
+    glassHeartMode: false,
+    windowSize: null,
+    heatmapStyle: "B",
+    tagColors: {},
+    chart: {
+      defaultView: "networth",
+      defaultRange: 30,
+      maWindow: 7,
+      lineTension: 0.25
+    }
+  });
   function safeParse(raw, fallback) {
     try {
       return raw ? JSON.parse(raw) : fallback;
@@ -23181,10 +23291,76 @@
   }
   function createEmptyData() {
     return {
-      version: 1,
+      version: ASSET_HISTORY_SCHEMA_VERSION,
       roles: {},
       migrations: { everydayProfit: {} },
-      legacy: {}
+      legacy: {},
+      preferences: structuredClonePreferences()
+    };
+  }
+  function structuredClonePreferences(value = DEFAULT_ASSET_HISTORY_PREFERENCES) {
+    return JSON.parse(JSON.stringify(value));
+  }
+  function normalizePreferences(input = {}) {
+    const defaults = structuredClonePreferences();
+    const chart = { ...defaults.chart, ...input.chart ?? {} };
+    const range = chart.defaultRange;
+    chart.defaultView = [
+      "networth",
+      "profit",
+      "breakdown",
+      "statsReport"
+    ].includes(chart.defaultView) ? chart.defaultView : defaults.chart.defaultView;
+    chart.defaultRange = [7, 15, 30, null].includes(range) ? range : 30;
+    chart.maWindow = Math.min(90, Math.max(2, Number(chart.maWindow) || 7));
+    chart.lineTension = [0, 0.15, 0.25, 0.4].includes(Number(chart.lineTension)) ? Number(chart.lineTension) : 0.25;
+    const lightBg = { ...defaults.lightBg, ...input.lightBg ?? {} };
+    lightBg.h = Math.min(360, Math.max(0, Number(lightBg.h) || 0));
+    lightBg.s = Math.min(60, Math.max(0, Number(lightBg.s) || 0));
+    return {
+      ...defaults,
+      ...input,
+      language: ["zh", "en"].includes(input.language) ? input.language : null,
+      themeMode: input.themeMode === "light" ? "light" : "dark",
+      lightBg,
+      glassHeartMode: Boolean(input.glassHeartMode),
+      windowSize: Number(input.windowSize?.w) > 0 && Number(input.windowSize?.h) > 0 ? { w: Number(input.windowSize.w), h: Number(input.windowSize.h) } : null,
+      heatmapStyle: ["A", "B", "C", "D"].includes(input.heatmapStyle) ? input.heatmapStyle : "B",
+      tagColors: input.tagColors && typeof input.tagColors === "object" ? { ...input.tagColors } : {},
+      chart
+    };
+  }
+  function normalizeRole(role = {}) {
+    return {
+      ...role,
+      days: role.days && typeof role.days === "object" ? role.days : {},
+      tags: role.tags && typeof role.tags === "object" ? role.tags : {},
+      achievements: role.achievements && typeof role.achievements === "object" ? role.achievements : {},
+      goalTarget: Number.isFinite(Number(role.goalTarget)) && Number(role.goalTarget) > 0 ? Number(role.goalTarget) : null,
+      tagVisibility: role.tagVisibility !== false,
+      lastUpdate: role.lastUpdate ?? null
+    };
+  }
+  function migrateStoredData(loaded) {
+    if (!loaded || typeof loaded !== "object") return createEmptyData();
+    if (loaded.version !== 1 && loaded.version !== ASSET_HISTORY_SCHEMA_VERSION) {
+      return createEmptyData();
+    }
+    return {
+      ...loaded,
+      version: ASSET_HISTORY_SCHEMA_VERSION,
+      roles: Object.fromEntries(
+        Object.entries(loaded.roles ?? {}).map(([key, role]) => [
+          key,
+          normalizeRole(role)
+        ])
+      ),
+      migrations: {
+        ...loaded.migrations ?? {},
+        everydayProfit: loaded.migrations?.everydayProfit ?? {}
+      },
+      legacy: loaded.legacy ?? {},
+      preferences: normalizePreferences(loaded.preferences)
     };
   }
   function finiteOrNull2(value) {
@@ -23249,11 +23425,65 @@
   function mergeDays(base = {}, incoming = {}) {
     return { ...base, ...incoming };
   }
+  function normalizeLegacyTags(input = {}) {
+    return Object.fromEntries(
+      Object.entries(input ?? {}).map(([date, tags]) => [
+        date,
+        (Array.isArray(tags) ? tags : []).map((tag, index) => ({
+          id: String(tag?.id ?? "").trim() || `legacy-${date}-${String(index).padStart(3, "0")}`,
+          text: String(tag?.text ?? "").trim().slice(0, 60),
+          type: String(tag?.type ?? "")
+        })).filter((tag) => tag.text)
+      ]).filter(([, tags]) => tags.length)
+    );
+  }
+  function mergeTagBuckets(base = {}, incoming = {}) {
+    const result = { ...base };
+    for (const [date, tags] of Object.entries(incoming)) {
+      const known = new Set((result[date] ?? []).map((tag) => tag.id));
+      result[date] = [
+        ...result[date] ?? [],
+        ...tags.filter((tag) => !known.has(tag.id))
+      ];
+    }
+    return result;
+  }
+  function readLegacyPreferencePayload(storage, payload = null) {
+    const read = (name, fallback = null) => payload ? payload[LEGACY_KEYS[name]] ?? fallback : safeParse(storage?.getItem(LEGACY_KEYS[name]), fallback);
+    const readText = (name) => payload ? payload[LEGACY_KEYS[name]] ?? null : storage?.getItem(LEGACY_KEYS[name]);
+    const result = {};
+    const textFields = ["language", "themeMode", "heatmapStyle"];
+    for (const field of textFields) {
+      const value = readText(field);
+      if (value !== null && value !== void 0) result[field] = value;
+    }
+    const objectFields = ["lightBg", "windowSize", "tagColors"];
+    for (const field of objectFields) {
+      const value = read(field, null);
+      if (value !== null && value !== void 0) result[field] = value;
+    }
+    const glassHeartMode = readText("glassHeartMode");
+    if (glassHeartMode !== null && glassHeartMode !== void 0) {
+      result.glassHeartMode = glassHeartMode === true || glassHeartMode === "1";
+    }
+    const chart = read("chartSettings", null);
+    if (chart && typeof chart === "object") result.chart = chart;
+    return result;
+  }
+  function legacyPayloadFromStorage(storage) {
+    return Object.fromEntries(
+      Object.values(LEGACY_KEYS).map((key) => [
+        key,
+        safeParse(storage?.getItem(key), storage?.getItem(key))
+      ])
+    );
+  }
   var AssetHistoryStore = class {
     constructor(storage = globalThis.localStorage) {
       this.storage = storage;
       const loaded = safeParse(storage?.getItem(ASSET_HISTORY_STORAGE_KEY), null);
-      this.data = loaded?.version === 1 ? loaded : createEmptyData();
+      this.data = migrateStoredData(loaded);
+      if (loaded && loaded.version !== ASSET_HISTORY_SCHEMA_VERSION) this.save();
     }
     save() {
       this.storage?.setItem(ASSET_HISTORY_STORAGE_KEY, JSON.stringify(this.data));
@@ -23263,9 +23493,110 @@
       return `${server}:${String(characterId ?? "")}`;
     }
     getRole(scopeKey = this.scopeKey()) {
-      this.data.roles[scopeKey] ??= { days: {} };
-      this.data.roles[scopeKey].days ??= {};
+      this.data.roles[scopeKey] = normalizeRole(this.data.roles[scopeKey]);
       return this.data.roles[scopeKey];
+    }
+    getPreferences() {
+      this.data.preferences = normalizePreferences(this.data.preferences);
+      return structuredClonePreferences(this.data.preferences);
+    }
+    setPreferences(patch = {}) {
+      this.data.preferences = normalizePreferences({
+        ...this.data.preferences,
+        ...patch,
+        chart: {
+          ...this.data.preferences?.chart ?? {},
+          ...patch.chart ?? {}
+        },
+        lightBg: {
+          ...this.data.preferences?.lightBg ?? {},
+          ...patch.lightBg ?? {}
+        }
+      });
+      this.save();
+      return this.getPreferences();
+    }
+    resetPreferences() {
+      this.data.preferences = structuredClonePreferences();
+      this.save();
+      return this.getPreferences();
+    }
+    listTags(scopeKey = this.scopeKey()) {
+      const tags = this.getRole(scopeKey).tags;
+      return Object.entries(tags).sort(([left], [right]) => left.localeCompare(right)).flatMap(
+        ([date, values]) => (Array.isArray(values) ? values : []).map((tag) => ({ ...tag, date }))
+      );
+    }
+    addTag(date, text, type = "", scopeKey = this.scopeKey()) {
+      const cleanText = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+      if (!date || !cleanText) return null;
+      const role = this.getRole(scopeKey);
+      role.tags[date] ??= [];
+      const tag = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        text: cleanText,
+        type: String(type ?? "")
+      };
+      role.tags[date].push(tag);
+      this.save();
+      return { ...tag, date };
+    }
+    updateTag(tagId, patch = {}, scopeKey = this.scopeKey()) {
+      const role = this.getRole(scopeKey);
+      for (const [date, tags] of Object.entries(role.tags)) {
+        const tag = (tags ?? []).find((candidate) => candidate.id === tagId);
+        if (!tag) continue;
+        const cleanText = String(patch.text ?? tag.text).replace(/\s+/g, " ").trim().slice(0, 60);
+        if (!cleanText) return false;
+        tag.text = cleanText;
+        if (patch.type !== void 0) tag.type = String(patch.type ?? "");
+        this.save();
+        return { ...tag, date };
+      }
+      return false;
+    }
+    deleteTag(tagId, scopeKey = this.scopeKey()) {
+      const role = this.getRole(scopeKey);
+      for (const [date, tags] of Object.entries(role.tags)) {
+        const next = (tags ?? []).filter((tag) => tag.id !== tagId);
+        if (next.length === tags.length) continue;
+        if (next.length) role.tags[date] = next;
+        else delete role.tags[date];
+        this.save();
+        return true;
+      }
+      return false;
+    }
+    setTagVisibility(visible2, scopeKey = this.scopeKey()) {
+      this.getRole(scopeKey).tagVisibility = Boolean(visible2);
+      this.save();
+      return Boolean(visible2);
+    }
+    setGoalTarget(value, scopeKey = this.scopeKey()) {
+      const target = Number(value);
+      this.getRole(scopeKey).goalTarget = Number.isFinite(target) && target > 0 ? target : null;
+      this.save();
+      return this.getRole(scopeKey).goalTarget;
+    }
+    getGoalTarget(scopeKey = this.scopeKey()) {
+      return this.getRole(scopeKey).goalTarget;
+    }
+    getAchievements(scopeKey = this.scopeKey()) {
+      return { ...this.getRole(scopeKey).achievements };
+    }
+    syncAchievements(results, scopeKey = this.scopeKey()) {
+      const role = this.getRole(scopeKey);
+      let changed = false;
+      for (const result of results ?? []) {
+        if (!result?.unlocked || role.achievements[result.id]) continue;
+        role.achievements[result.id] = {
+          unlocked: true,
+          date: result.date ?? null
+        };
+        changed = true;
+      }
+      if (changed) this.save();
+      return this.getAchievements(scopeKey);
     }
     list(scopeKey = this.scopeKey()) {
       return Object.entries(this.getRole(scopeKey).days).sort(
@@ -23357,19 +23688,24 @@
         changes.reduce((total, change) => total + (change.value - mean) ** 2, 0) / changes.length
       );
       if (!(deviation > 0)) return [];
-      return changes.map((change) => ({
-        ...change,
-        zScore: (change.value - mean) / deviation
-      })).filter(({ zScore }) => Math.abs(zScore) >= 4);
+      const anomalies = [];
+      for (let index = 0; index < changes.length - 1; index += 1) {
+        const change = changes[index];
+        const next = changes[index + 1];
+        const zScore = (change.value - mean) / deviation;
+        if (Math.abs(zScore) < 4 || !Number.isFinite(next?.value)) continue;
+        const reversed = change.value > 0 && next.value < 0 || change.value < 0 && next.value > 0;
+        const reversalRatio = Math.abs(next.value) / Math.abs(change.value);
+        if (reversed && reversalRatio >= 0.5) {
+          anomalies.push({ ...change, zScore, reversalRatio });
+        }
+      }
+      return anomalies;
     }
-    migrateLegacy({ scopeKey = this.scopeKey(), roleName = "" } = {}) {
-      if (this.data.migrations.everydayProfit[scopeKey]) return false;
+    importLegacyPayload(payload, { scopeKey = this.scopeKey(), roleName = "", mode = "merge" } = {}) {
       const characterId = scopeKey.split(":").at(-1);
-      const totalData = safeParse(this.storage?.getItem(LEGACY_KEYS.total), {});
-      const breakdownData = safeParse(
-        this.storage?.getItem(LEGACY_KEYS.breakdown),
-        {}
-      );
+      const totalData = payload?.[LEGACY_KEYS.total] ?? {};
+      const breakdownData = payload?.[LEGACY_KEYS.breakdown] ?? {};
       const totals = roleBucketFromLegacy(totalData, roleName, characterId);
       const breakdowns = roleBucketFromLegacy(
         breakdownData,
@@ -23386,76 +23722,733 @@
         days[dayKey] = { recordedAt: `${dayKey}T15:59:59.999Z`, values };
       }
       const role = this.getRole(scopeKey);
-      role.days = { ...days, ...role.days };
-      role.legacyRoleName = roleName || null;
-      this.data.legacy = Object.fromEntries(
-        Object.entries(LEGACY_KEYS).filter(([name]) => name !== "total" && name !== "breakdown").map(([name, key]) => [
-          name,
-          safeParse(this.storage?.getItem(key), {})
-        ])
+      role.days = mode === "replace" ? days : { ...days, ...role.days };
+      role.legacyRoleName = roleName || role.legacyRoleName || null;
+      const tagData = payload?.[LEGACY_KEYS.tags] ?? {};
+      const tags = normalizeLegacyTags(
+        roleBucketFromLegacy(tagData, roleName, characterId)
       );
+      role.tags = mode === "replace" ? tags : mergeTagBuckets(role.tags, tags);
+      const achievementData = payload?.[LEGACY_KEYS.achievements] ?? {};
+      const achievements = roleBucketFromLegacy(
+        achievementData,
+        roleName,
+        characterId
+      );
+      role.achievements = mode === "replace" ? { ...achievements } : { ...achievements, ...role.achievements };
+      const goalData = payload?.[LEGACY_KEYS.goalTarget] ?? {};
+      const legacyGoal = goalData?.[roleName] ?? goalData?.[characterId] ?? role.goalTarget;
+      if (Number(legacyGoal) > 0) role.goalTarget = Number(legacyGoal);
+      const tagPrefs = payload?.[LEGACY_KEYS.tagPrefs] ?? {};
+      const legacyVisibility = tagPrefs?.[roleName] ?? tagPrefs?.[characterId];
+      if (typeof legacyVisibility === "boolean") {
+        role.tagVisibility = legacyVisibility;
+      }
+      const lastUpdates = payload?.[LEGACY_KEYS.lastUpdate] ?? {};
+      role.lastUpdate = lastUpdates?.[roleName] ?? lastUpdates?.[characterId] ?? role.lastUpdate;
+      this.data.preferences = normalizePreferences({
+        ...this.data.preferences,
+        ...readLegacyPreferencePayload(this.storage, payload)
+      });
+      return {
+        importedDays: Object.keys(days).length,
+        importedTags: Object.values(tags).reduce(
+          (total, values) => total + values.length,
+          0
+        ),
+        importedAchievements: Object.keys(achievements ?? {}).length
+      };
+    }
+    migrateLegacy({ scopeKey = this.scopeKey(), roleName = "" } = {}) {
+      if (this.data.migrations.everydayProfit[scopeKey]?.schema === 2) {
+        return false;
+      }
+      const payload = legacyPayloadFromStorage(this.storage);
+      const totalBuckets = payload?.[LEGACY_KEYS.total] ?? {};
+      const characterId = scopeKey.split(":").at(-1);
+      const usedBuckets = new Set(
+        Object.values(this.data.migrations.everydayProfit).map((migration) => migration?.legacyRoleName).filter(Boolean)
+      );
+      const resolvedRoleName = roleName && Object.hasOwn(totalBuckets, roleName) && roleName || characterId && Object.hasOwn(totalBuckets, characterId) && characterId || Object.keys(totalBuckets).find((name) => !usedBuckets.has(name)) || roleName;
+      const imported = this.importLegacyPayload(payload, {
+        scopeKey,
+        roleName: resolvedRoleName
+      });
+      this.data.legacy = {
+        ...this.data.legacy,
+        everydayProfit: payload
+      };
       this.data.migrations.everydayProfit[scopeKey] = {
+        schema: 2,
         migratedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        importedDays: Object.keys(days).length
+        legacyRoleName: resolvedRoleName || null,
+        ...imported
       };
       this.save();
-      return Object.keys(days).length;
+      return imported.importedDays;
     }
     exportBackup() {
       return {
         [ASSET_HISTORY_BACKUP_MARKER]: true,
-        schema: 1,
+        schema: ASSET_HISTORY_SCHEMA_VERSION,
         exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
         data: this.data
       };
     }
     importBackup(backup, { mode = "merge", scopeKey = this.scopeKey() } = {}) {
       if (backup?.[ASSET_HISTORY_BACKUP_MARKER] === true) {
-        const incoming = backup.data?.roles?.[scopeKey]?.days ?? {};
+        const migrated = migrateStoredData(backup.data);
+        if (mode === "full") {
+          this.data = migrated;
+          this.save();
+          return Object.values(this.data.roles).reduce(
+            (total, role2) => total + Object.keys(role2.days ?? {}).length,
+            0
+          );
+        }
+        const incomingRole = normalizeRole(migrated.roles?.[scopeKey]);
         const role = this.getRole(scopeKey);
-        role.days = mode === "replace" ? { ...incoming } : mergeDays(role.days, incoming);
+        role.days = mode === "replace" ? { ...incomingRole.days } : mergeDays(role.days, incomingRole.days);
+        role.tags = mode === "replace" ? { ...incomingRole.tags } : mergeTagBuckets(role.tags, incomingRole.tags);
+        role.achievements = mode === "replace" ? { ...incomingRole.achievements } : { ...incomingRole.achievements, ...role.achievements };
+        if (incomingRole.goalTarget) role.goalTarget = incomingRole.goalTarget;
+        role.tagVisibility = incomingRole.tagVisibility;
+        this.data.preferences = normalizePreferences({
+          ...this.data.preferences,
+          ...migrated.preferences
+        });
         this.data.legacy = {
           ...this.data.legacy,
-          ...backup.data?.legacy ?? {}
+          ...migrated.legacy ?? {}
         };
         this.save();
-        return Object.keys(incoming).length;
+        return Object.keys(incomingRole.days).length;
       }
       if (backup?.__everyday_profit_backup__ === true) {
-        const payload = backup.payload ?? {};
-        const totalData = payload[LEGACY_KEYS.total] ?? {};
-        const breakdownData = payload[LEGACY_KEYS.breakdown] ?? {};
+        const payload = { ...backup.payload ?? {}, ...backup.settings ?? {} };
         const roleName = this.getRole(scopeKey).legacyRoleName ?? "";
-        const characterId = scopeKey.split(":").at(-1);
-        const totals = roleBucketFromLegacy(totalData, roleName, characterId);
-        const breakdowns = roleBucketFromLegacy(
-          breakdownData,
+        const imported = this.importLegacyPayload(payload, {
+          scopeKey,
           roleName,
-          characterId
-        );
-        const incoming = {};
-        for (const dayKey of /* @__PURE__ */ new Set([
-          ...Object.keys(totals),
-          ...Object.keys(breakdowns)
-        ])) {
-          const values = legacyValues(totals[dayKey], breakdowns[dayKey]);
-          if (Number.isFinite(values.total)) {
-            incoming[dayKey] = {
-              recordedAt: `${dayKey}T15:59:59.999Z`,
-              values
-            };
-          }
-        }
-        const role = this.getRole(scopeKey);
-        role.days = mode === "replace" ? incoming : mergeDays(role.days, incoming);
+          mode
+        });
         this.data.legacy.importedEverydayProfit = payload;
         this.save();
-        return Object.keys(incoming).length;
+        return imported.importedDays;
       }
       throw new TypeError("Unsupported asset history backup");
     }
   };
   var assetHistoryStore = new AssetHistoryStore();
+
+  // src/features/asset-history/15-analytics.js
+  var ASSET_COMPONENT_META = Object.freeze({
+    equipment: { zh: "装备", en: "Equipment", color: "#38bdf8" },
+    inventory: { zh: "库存", en: "Inventory", color: "#fbbf24" },
+    marketListings: { zh: "订单", en: "Listings", color: "#94a3b8" },
+    houses: { zh: "房屋", en: "Houses", color: "#ec4899" },
+    abilities: { zh: "技能", en: "Abilities", color: "#a855f7" },
+    nonTradableTokens: { zh: "代币", en: "Tokens", color: "#4ade80" },
+    shrine: { zh: "神龛", en: "Shrine", color: "#fb923c" }
+  });
+  function finiteEntries(entries, key = "total") {
+    return (entries ?? []).filter(
+      ([, record]) => Number.isFinite(record?.values?.[key])
+    );
+  }
+  function normalizedDailyChanges(entries, key = "total") {
+    const result = [];
+    for (let index = 1; index < (entries?.length ?? 0); index += 1) {
+      const [previousDate, previousRecord] = entries[index - 1];
+      const [date, record] = entries[index];
+      const previous = previousRecord?.values?.[key];
+      const current = record?.values?.[key];
+      if (!Number.isFinite(previous) || !Number.isFinite(current)) continue;
+      const gapDays = Math.max(1, dayGap(previousDate, date));
+      result.push({
+        date,
+        previousDate,
+        gapDays,
+        totalChange: current - previous,
+        value: (current - previous) / gapDays,
+        previous,
+        current
+      });
+    }
+    return result;
+  }
+  function calendarMovingAverage(entries, key = "total", windowDays = 7) {
+    const changes = normalizedDailyChanges(entries, key);
+    return changes.map((change, index) => {
+      const startDate = /* @__PURE__ */ new Date(`${change.date}T00:00:00Z`);
+      startDate.setUTCDate(startDate.getUTCDate() - Math.max(1, windowDays) + 1);
+      const startKey = startDate.toISOString().slice(0, 10);
+      const window2 = changes.slice(0, index + 1).filter(({ date }) => date >= startKey);
+      const weightedDays = window2.reduce(
+        (total2, item) => total2 + item.gapDays,
+        0
+      );
+      const total = window2.reduce((sum, item) => sum + item.totalChange, 0);
+      return {
+        date: change.date,
+        value: weightedDays > 0 ? total / weightedDays : null
+      };
+    });
+  }
+  function periodStatistics(entries, { start: start2 = null, end = null } = {}) {
+    const values = finiteEntries(entries);
+    const selected = values.filter(
+      ([date]) => (!start2 || date >= start2) && (!end || date <= end)
+    );
+    if (!selected.length) return null;
+    const firstDate = selected[0][0];
+    const baseline = [...values].reverse().find(([date]) => date < firstDate);
+    const calculationEntries = baseline ? [baseline, ...selected] : selected;
+    const changes = normalizedDailyChanges(calculationEntries);
+    const profits = changes.filter(({ totalChange }) => totalChange > 0);
+    const losses = changes.filter(({ totalChange }) => totalChange < 0);
+    const totalProfit = changes.reduce(
+      (total, item) => total + item.totalChange,
+      0
+    );
+    const elapsedDays = changes.reduce((total, item) => total + item.gapDays, 0);
+    const best = changes.reduce(
+      (candidate, item) => !candidate || item.totalChange > candidate.totalChange ? item : candidate,
+      null
+    );
+    const worst = changes.reduce(
+      (candidate, item) => !candidate || item.totalChange < candidate.totalChange ? item : candidate,
+      null
+    );
+    const startValue = selected[0][1].values.total;
+    const endValue = selected.at(-1)[1].values.total;
+    return {
+      start: firstDate,
+      end: selected.at(-1)[0],
+      startValue,
+      endValue,
+      totalProfit,
+      growthPercent: startValue ? (endValue - startValue) / startValue * 100 : null,
+      averagePerDay: elapsedDays > 0 ? totalProfit / elapsedDays : 0,
+      profitDays: profits.length,
+      lossDays: losses.length,
+      flatDays: changes.length - profits.length - losses.length,
+      winRate: changes.length ? profits.length / changes.length * 100 : 0,
+      best,
+      worst,
+      changes
+    };
+  }
+  function buildHeatmap(entries) {
+    return Object.fromEntries(
+      normalizedDailyChanges(finiteEntries(entries)).map((item) => [
+        item.date,
+        item
+      ])
+    );
+  }
+  function componentAnalysis(entries, rangeDays = null) {
+    const selected = !Number.isFinite(rangeDays) ? entries : entries.slice(-(Math.max(1, rangeDays) + 1));
+    const first = selected?.[0];
+    const last = selected?.at(-1);
+    if (!first || !last) return null;
+    const gapDays = Math.max(1, dayGap(first[0], last[0]));
+    const components = ASSET_COMPONENT_KEYS.map((key) => {
+      const start2 = first[1]?.values?.[key];
+      const end = last[1]?.values?.[key];
+      const known = Number.isFinite(start2) && Number.isFinite(end);
+      const change = known ? end - start2 : null;
+      return {
+        key,
+        ...ASSET_COMPONENT_META[key],
+        start: start2,
+        end,
+        change,
+        averagePerDay: known ? change / gapDays : null,
+        share: Number.isFinite(end) && Number(last[1]?.values?.total) > 0 ? end / last[1].values.total * 100 : null
+      };
+    }).sort(
+      (left, right) => (right.change ?? -Infinity) - (left.change ?? -Infinity)
+    );
+    const trackedChange = components.reduce(
+      (total, item) => total + (Number.isFinite(item.change) ? item.change : 0),
+      0
+    );
+    const totalChange = last[1].values.total - first[1].values.total;
+    return {
+      startDate: first[0],
+      endDate: last[0],
+      gapDays,
+      components,
+      trackedChange,
+      totalChange,
+      untrackedChange: totalChange - trackedChange
+    };
+  }
+  var ACHIEVEMENT_DEFINITIONS = [
+    [
+      "nw_1m",
+      "💰",
+      "初有积蓄",
+      "First Million",
+      "净资产达到 1M",
+      "Reach 1M net worth",
+      "networth",
+      1e6
+    ],
+    [
+      "nw_10m",
+      "💎",
+      "千万身家",
+      "Ten Million",
+      "净资产达到 10M",
+      "Reach 10M net worth",
+      "networth",
+      1e7
+    ],
+    [
+      "nw_100m",
+      "🏦",
+      "亿万富翁",
+      "Hundred Million",
+      "净资产达到 100M",
+      "Reach 100M net worth",
+      "networth",
+      1e8
+    ],
+    [
+      "nw_1b",
+      "👑",
+      "十亿俱乐部",
+      "Billion Club",
+      "净资产达到 1B",
+      "Reach 1B net worth",
+      "networth",
+      1e9
+    ],
+    [
+      "nw_10b",
+      "🌌",
+      "银河财阀",
+      "Galactic Fortune",
+      "净资产达到 10B",
+      "Reach 10B net worth",
+      "networth",
+      1e10
+    ],
+    [
+      "day_1m",
+      "📈",
+      "日进斗金",
+      "Million Day",
+      "单次记录盈利达到 1M",
+      "Gain 1M between records",
+      "profit",
+      1e6
+    ],
+    [
+      "day_10m",
+      "🚀",
+      "一日千万",
+      "Ten Million Day",
+      "单次记录盈利达到 10M",
+      "Gain 10M between records",
+      "profit",
+      1e7
+    ],
+    [
+      "day_100m",
+      "🔥",
+      "一日破亿",
+      "Hundred Million Day",
+      "单次记录盈利达到 100M",
+      "Gain 100M between records",
+      "profit",
+      1e8
+    ],
+    [
+      "day_1b",
+      "🌟",
+      "日赚十亿",
+      "Billion Day",
+      "单次记录盈利达到 1B",
+      "Gain 1B between records",
+      "profit",
+      1e9
+    ],
+    [
+      "growth_1",
+      "🌱",
+      "稳步成长",
+      "One Percent",
+      "单次增长达到 1%",
+      "Grow 1% between records",
+      "growth",
+      1
+    ],
+    [
+      "growth_3",
+      "🌳",
+      "快速成长",
+      "Three Percent",
+      "单次增长达到 3%",
+      "Grow 3% between records",
+      "growth",
+      3
+    ],
+    [
+      "growth_5",
+      "💥",
+      "财富爆发",
+      "Five Percent",
+      "单次增长达到 5%",
+      "Grow 5% between records",
+      "growth",
+      5
+    ],
+    [
+      "streak_3",
+      "🥉",
+      "三连胜",
+      "Three-day Streak",
+      "连续 3 次盈利",
+      "3 profitable records in a row",
+      "streak",
+      3
+    ],
+    [
+      "streak_7",
+      "🥇",
+      "七连胜",
+      "Seven-day Streak",
+      "连续 7 次盈利",
+      "7 profitable records in a row",
+      "streak",
+      7
+    ],
+    [
+      "streak_30",
+      "🏆",
+      "月度不败",
+      "Thirty-day Streak",
+      "连续 30 次非亏损",
+      "30 non-loss records in a row",
+      "streak",
+      30
+    ],
+    [
+      "veteran_30",
+      "📅",
+      "坚持一月",
+      "One Month",
+      "历史跨度达到 30 天",
+      "Track assets for 30 days",
+      "age",
+      30
+    ],
+    [
+      "veteran_90",
+      "🗓️",
+      "季度老兵",
+      "Quarter Veteran",
+      "历史跨度达到 90 天",
+      "Track assets for 90 days",
+      "age",
+      90
+    ],
+    [
+      "veteran_180",
+      "🧭",
+      "半年征程",
+      "Half-year Journey",
+      "历史跨度达到 180 天",
+      "Track assets for 180 days",
+      "age",
+      180
+    ],
+    [
+      "comeback",
+      "🔄",
+      "绝地反击",
+      "Comeback",
+      "亏损后下一次盈利",
+      "Profit after a loss",
+      "comeback",
+      1
+    ],
+    [
+      "double",
+      "🎯",
+      "首次翻倍",
+      "First Double",
+      "净资产较最初记录翻倍",
+      "Double initial net worth",
+      "double",
+      2
+    ],
+    [
+      "break_even",
+      "🎰",
+      "零和博弈",
+      "Break Even",
+      "某次盈亏恰好为 0",
+      "A record change equals zero",
+      "flat",
+      0
+    ],
+    ...ASSET_COMPONENT_KEYS.map((key) => {
+      const ids = {
+        equipment: "bd_equip_1b",
+        inventory: "bd_inv_1b",
+        marketListings: "bd_order_1b",
+        houses: "bd_house_1b",
+        abilities: "bd_skill_1b",
+        nonTradableTokens: "bd_tokens_1b",
+        shrine: "bd_shrine_1b"
+      };
+      const meta = ASSET_COMPONENT_META[key];
+      return [
+        ids[key],
+        "🧩",
+        `${meta.zh}大亨`,
+        `${meta.en} Billionaire`,
+        `${meta.zh}价值达到 1B`,
+        `${meta.en} value reaches 1B`,
+        "component",
+        { key, value: 1e9 }
+      ];
+    }),
+    [
+      "bd_order_500m",
+      "💰",
+      "订单高手",
+      "Listing Master",
+      "订单价值达到 500M",
+      "Listings reach 500M",
+      "component",
+      { key: "marketListings", value: 5e8 }
+    ],
+    [
+      "bd_equip_5b",
+      "⚔️",
+      "装备至上",
+      "Equipment Supreme",
+      "装备价值达到 5B",
+      "Equipment reaches 5B",
+      "component",
+      { key: "equipment", value: 5e9 }
+    ],
+    [
+      "bd_balanced",
+      "⚖️",
+      "均衡发展",
+      "Balanced Portfolio",
+      "七项中至少四项有值且无一项超过 40%",
+      "At least four components, none above 40%",
+      "componentBalanced",
+      0.4
+    ],
+    [
+      "bd_specialist",
+      "🎯",
+      "专精路线",
+      "Specialist",
+      "某一分项占比超过 60%",
+      "One component exceeds 60%",
+      "componentSpecialist",
+      0.6
+    ],
+    [
+      "bd_all_up",
+      "📈",
+      "全面提升",
+      "All Components Up",
+      "某日七项资产全部增长",
+      "All seven components rise on one day",
+      "componentAllUp",
+      7
+    ]
+  ];
+  function calculateAchievements(entries, persisted = {}) {
+    const values = finiteEntries(entries);
+    const changes = normalizedDailyChanges(values);
+    let streak = 0;
+    let maximumStreak = 0;
+    for (const change of changes) {
+      streak = change.totalChange >= 0 ? streak + 1 : 0;
+      maximumStreak = Math.max(maximumStreak, streak);
+    }
+    const firstValue = values[0]?.[1]?.values?.total;
+    const latestValue = values.at(-1)?.[1]?.values?.total;
+    const age = values.length > 1 ? dayGap(values[0][0], values.at(-1)[0]) : 0;
+    return ACHIEVEMENT_DEFINITIONS.map(
+      ([
+        id,
+        icon,
+        zhName,
+        enName,
+        zhDescription,
+        enDescription,
+        kind,
+        target
+      ]) => {
+        let match = null;
+        if (kind === "networth") {
+          match = values.find(([, record]) => record.values.total >= target);
+        } else if (kind === "profit") {
+          match = changes.find((change) => change.totalChange >= target);
+        } else if (kind === "growth") {
+          match = changes.find(
+            (change) => change.previous > 0 && change.totalChange / change.previous * 100 >= target
+          );
+        } else if (kind === "streak" && maximumStreak >= target) {
+          let running = 0;
+          match = changes.find((change) => {
+            running = change.totalChange >= 0 ? running + 1 : 0;
+            return running >= target;
+          });
+        } else if (kind === "age" && age >= target) {
+          match = values.find(([date]) => dayGap(values[0][0], date) >= target);
+        } else if (kind === "comeback") {
+          match = changes.find(
+            (change, index) => index > 0 && changes[index - 1].totalChange < 0 && change.totalChange > 0
+          );
+        } else if (kind === "double" && latestValue >= firstValue * target) {
+          match = values.find(
+            ([, record]) => record.values.total >= firstValue * target
+          );
+        } else if (kind === "flat") {
+          match = changes.find((change) => change.totalChange === 0);
+        } else if (kind === "component") {
+          match = values.find(([, record]) => {
+            const value = record.values[target.key];
+            return Number.isFinite(value) && value >= target.value;
+          });
+        } else if (kind === "componentBalanced" || kind === "componentSpecialist") {
+          match = values.find(([, record]) => {
+            const components = ASSET_COMPONENT_KEYS.map(
+              (key) => record.values[key]
+            ).filter((value) => Number.isFinite(value) && value > 0);
+            const total = components.reduce((sum, value) => sum + value, 0);
+            if (!(total > 0)) return false;
+            const maximumShare = Math.max(...components) / total;
+            return kind === "componentBalanced" ? components.length >= 4 && maximumShare < target : maximumShare > target;
+          });
+        } else if (kind === "componentAllUp") {
+          match = values.slice(1).find(
+            ([, record], index) => ASSET_COMPONENT_KEYS.every((key) => {
+              const previousValue = values[index][1].values[key];
+              const currentValue = record.values[key];
+              return Number.isFinite(previousValue) && Number.isFinite(currentValue) && currentValue > previousValue;
+            })
+          );
+        }
+        const saved = persisted[id];
+        const unlocked = Boolean(match || saved?.unlocked);
+        return {
+          id,
+          icon,
+          zhName,
+          enName,
+          zhDescription,
+          enDescription,
+          unlocked,
+          date: match?.date ?? match?.[0] ?? saved?.date ?? null
+        };
+      }
+    );
+  }
+  function percentile(sorted, percent) {
+    return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * percent))];
+  }
+  function simulateNetWorth(entries, {
+    days = 90,
+    windowSize = 60,
+    runs = 2e3,
+    target = null,
+    random = Math.random
+  } = {}) {
+    const values = finiteEntries(entries);
+    if (values.length < 7) return { status: "insufficient", required: 7 };
+    const source = windowSize > 0 ? values.slice(-windowSize - 1) : values;
+    const returns = [];
+    for (let index = 1; index < source.length; index += 1) {
+      const previous = source[index - 1][1].values.total;
+      const current2 = source[index][1].values.total;
+      if (!(previous > 0) || !(current2 > 0)) continue;
+      const gap = Math.max(1, dayGap(source[index - 1][0], source[index][0]));
+      returns.push(Math.log(current2 / previous) / gap);
+    }
+    if (returns.length < 3) return { status: "insufficient", required: 4 };
+    const horizon = Math.min(365, Math.max(1, Math.floor(days)));
+    const count = Math.min(1e4, Math.max(100, Math.floor(runs)));
+    const current = values.at(-1)[1].values.total;
+    const mu = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const variance = returns.reduce((sum, value) => sum + (value - mu) ** 2, 0) / Math.max(1, returns.length - 1);
+    const sigma = Math.sqrt(variance);
+    let ewmaVariance = returns[0] ** 2;
+    for (let index = 1; index < returns.length; index += 1) {
+      ewmaVariance = 0.94 * ewmaVariance + 0.06 * returns[index] ** 2;
+    }
+    const useBootstrap = returns.length >= 15;
+    const paths = Array.from(
+      { length: count },
+      () => new Float64Array(horizon + 1)
+    );
+    const randomNormal = () => {
+      let left = random();
+      let right = random();
+      if (left <= 0) left = Number.EPSILON;
+      if (right <= 0) right = Number.EPSILON;
+      return Math.sqrt(-2 * Math.log(left)) * Math.cos(2 * Math.PI * right);
+    };
+    for (let run = 0; run < count; run += 1) {
+      paths[run][0] = current;
+      if (useBootstrap) {
+        let day = 1;
+        while (day <= horizon) {
+          const start2 = Math.floor(random() * returns.length);
+          for (let block = 0; block < 5 && day <= horizon; block += 1) {
+            paths[run][day] = paths[run][day - 1] * Math.exp(returns[(start2 + block) % returns.length]);
+            day += 1;
+          }
+        }
+      } else {
+        for (let day = 1; day <= horizon; day += 1) {
+          paths[run][day] = paths[run][day - 1] * Math.exp(mu - 0.5 * variance + sigma * randomNormal());
+        }
+      }
+    }
+    const series = { p10: [], p25: [], p50: [], p75: [], p90: [] };
+    for (let day = 0; day <= horizon; day += 1) {
+      const column = paths.map((path) => path[day]).sort((a, b) => a - b);
+      series.p10.push(percentile(column, 0.1));
+      series.p25.push(percentile(column, 0.25));
+      series.p50.push(percentile(column, 0.5));
+      series.p75.push(percentile(column, 0.75));
+      series.p90.push(percentile(column, 0.9));
+    }
+    const resolvedTarget = Number(target) > 0 ? Number(target) : null;
+    const probabilities = {};
+    if (resolvedTarget) {
+      for (const checkpoint of [30, 60, 90].filter((day) => day <= horizon)) {
+        probabilities[checkpoint] = paths.filter((path) => path[checkpoint] >= resolvedTarget).length / count * 100;
+      }
+    }
+    return {
+      status: "complete",
+      method: useBootstrap ? "block-bootstrap" : "gbm",
+      current,
+      days: horizon,
+      runs: count,
+      target: resolvedTarget,
+      dailyGrowthPercent: (Math.exp(mu) - 1) * 100,
+      dailyVolatilityPercent: (Math.exp(Math.sqrt(ewmaVariance)) - 1) * 100,
+      doublingDays: mu > 0 ? Math.ceil(Math.LN2 / mu) : null,
+      series,
+      probabilities
+    };
+  }
 
   // src/features/asset-history/20-chart.js
   var COLORS = {
@@ -23527,6 +24520,15 @@
       this.instance?.resetZoom?.();
     }
     render(entries, { mode = "total", range = null } = {}) {
+      return this.renderWithOptions(entries, { mode, range });
+    }
+    renderWithOptions(entries, {
+      mode = "total",
+      range = null,
+      maWindow = 7,
+      lineTension = 0.25,
+      tags = []
+    } = {}) {
       const Chart = globalThis.Chart;
       if (typeof Chart !== "function") {
         this.destroy();
@@ -23541,7 +24543,7 @@
       this.canvas.hidden = false;
       this.fallback.hidden = true;
       const filtered = filterEntries(entries, range);
-      const labels = filtered.map(([date]) => date.slice(5));
+      const labels = filtered.map(([date]) => date);
       let datasets;
       let title;
       if (mode === "profit") {
@@ -23558,13 +24560,13 @@
           },
           {
             type: "line",
-            label: t("7 日均线", "7-day average"),
-            data: calendarAverage(filtered, "total"),
+            label: t(`${maWindow} 日均线`, `${maWindow}-day average`),
+            data: calendarAverage(filtered, "total", maWindow),
             borderColor: "#ffd369",
             backgroundColor: "transparent",
             borderWidth: 2,
             pointRadius: 0,
-            tension: 0.22,
+            tension: lineTension,
             spanGaps: true
           }
         ];
@@ -23578,7 +24580,7 @@
           backgroundColor: COLORS[key],
           borderWidth: 2,
           pointRadius: 2,
-          tension: 0.2,
+          tension: lineTension,
           spanGaps: true
         }));
         title = t("分项每日变化", "Daily component changes");
@@ -23593,15 +24595,74 @@
             fill: true,
             borderWidth: 2,
             pointRadius: 2,
-            tension: 0.2,
+            tension: lineTension,
             spanGaps: true
           }
         ];
         title = t("总资产历史", "Total asset history");
       }
       this.destroy();
+      const crosshairPlugin = {
+        id: "mwitoolsAssetCrosshair",
+        afterDraw(chart) {
+          const active = chart.tooltip?.getActiveElements?.()?.[0];
+          if (!active) return;
+          const { ctx, chartArea } = chart;
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(active.element.x, chartArea.top);
+          ctx.lineTo(active.element.x, chartArea.bottom);
+          ctx.lineWidth = 1;
+          ctx.strokeStyle = "rgba(255,255,255,.22)";
+          ctx.stroke();
+          ctx.restore();
+        }
+      };
+      const tagPlugin = {
+        id: "mwitoolsAssetTags",
+        afterDatasetsDraw(chart) {
+          if (!tags.length) return;
+          const visibleTags = tags.filter((tag) => labels.includes(tag.date));
+          if (!visibleTags.length) return;
+          const { ctx, chartArea, scales } = chart;
+          ctx.save();
+          ctx.font = "11px system-ui";
+          ctx.textBaseline = "top";
+          for (const tag of visibleTags) {
+            const index = labels.indexOf(tag.date);
+            const x = scales.x.getPixelForValue(index);
+            ctx.strokeStyle = tag.color ?? "rgba(251,191,36,.4)";
+            ctx.setLineDash([3, 4]);
+            ctx.beginPath();
+            ctx.moveTo(x, chartArea.top + 18);
+            ctx.lineTo(x, chartArea.bottom);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            const text = String(tag.text ?? "").slice(0, 18);
+            const width = Math.min(150, ctx.measureText(text).width + 12);
+            ctx.fillStyle = "rgba(30,32,44,.94)";
+            ctx.fillRect(
+              Math.min(chartArea.right - width, Math.max(chartArea.left, x + 4)),
+              chartArea.top + 2,
+              width,
+              16
+            );
+            ctx.fillStyle = tag.color ?? "#f8d477";
+            ctx.fillText(
+              text,
+              Math.min(
+                chartArea.right - width + 6,
+                Math.max(chartArea.left + 6, x + 10)
+              ),
+              chartArea.top + 4
+            );
+          }
+          ctx.restore();
+        }
+      };
       this.instance = new Chart(this.canvas.getContext("2d"), {
         data: { labels, datasets },
+        plugins: [crosshairPlugin, tagPlugin],
         options: {
           responsive: true,
           maintainAspectRatio: false,
@@ -23630,7 +24691,14 @@
           },
           scales: {
             x: {
-              ticks: { color: "#bbb", maxRotation: 0, autoSkip: true },
+              ticks: {
+                color: "#bbb",
+                maxRotation: 0,
+                autoSkip: true,
+                callback(value) {
+                  return String(labels[value] ?? "").slice(5);
+                }
+              },
               grid: { color: "rgba(255,255,255,.06)" }
             },
             y: {
@@ -23648,10 +24716,673 @@
     }
   };
 
+  // src/features/asset-history/25-center.js
+  /*!
+   * Asset-center interface adapted from Everyday Profit Pro (MIT License).
+   * Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
+   * Copyright (c) 2026 ColaCola
+   * Permission is hereby granted, free of charge, to use, copy, modify, merge,
+   * publish, distribute, sublicense, and/or sell copies, provided that this
+   * copyright and permission notice is included in substantial copies.
+   * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   * SOFTWARE.
+   */
+  var ROOT_ID = "mwitools-asset-center-modal";
+  var STYLE_ID = "mwitools-asset-center-style";
+  var EP_MIT_LICENSE = `MIT License
+
+Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
+Copyright (c) 2026 ColaCola
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.`;
+  var TAG_TYPES = [
+    ["equip", "装备", "Equipment", "#00c6ff"],
+    ["skill", "技能", "Skills", "#a78bfa"],
+    ["alchemy", "炼金", "Alchemy", "#ff9800"],
+    ["enhance", "强化", "Enhancement", "#ef5350"],
+    ["combat", "战斗", "Combat", "#f472b6"],
+    ["life", "生活", "Life", "#4ade80"]
+  ];
+  function escapeHtml(value = "") {
+    return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+  function monthRange(date) {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const start2 = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const end = new Date(year, month + 1, 0);
+    return {
+      start: start2,
+      end: `${year}-${String(month + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`,
+      year,
+      month
+    };
+  }
+  function weekRange(date) {
+    const current = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const day = current.getDay() || 7;
+    current.setDate(current.getDate() - day + 1);
+    const end = new Date(current);
+    end.setDate(end.getDate() + 6);
+    return {
+      start: current.toISOString().slice(0, 10),
+      end: end.toISOString().slice(0, 10),
+      year: date.getFullYear(),
+      month: date.getMonth()
+    };
+  }
+  function addStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);backdrop-filter:blur(5px);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
+    #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.35)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
+    #${ROOT_ID} *{box-sizing:border-box}#${ROOT_ID} button,#${ROOT_ID} input,#${ROOT_ID} select{font:inherit}#${ROOT_ID} button{color:inherit}
+    #${ROOT_ID} .ep-shell{position:relative;display:grid;grid-template-columns:220px minmax(0,1fr);width:min(1180px,94vw);height:min(820px,92vh);min-width:720px;min-height:520px;overflow:hidden;border:1px solid hsl(var(--ep-border));border-radius:14px;background:hsl(var(--ep-bg));box-shadow:0 30px 90px rgba(0,0,0,.55);resize:both}
+    #${ROOT_ID} .ep-sidebar{display:flex;min-width:0;flex-direction:column;border-right:1px solid hsl(var(--ep-border));background:linear-gradient(180deg,hsl(var(--ep-panel)),hsl(var(--ep-bg)));padding:16px 12px}
+    #${ROOT_ID} .ep-brand{padding:3px 8px 17px;border-bottom:1px solid hsl(var(--ep-border));margin-bottom:14px}#${ROOT_ID} .ep-brand strong{display:block;font-size:17px;letter-spacing:.2px}#${ROOT_ID} .ep-brand small{color:hsl(var(--ep-muted))}
+    #${ROOT_ID} .ep-nav-label{margin:11px 8px 5px;color:hsl(var(--ep-muted));font-size:9px;font-weight:800;letter-spacing:1.5px}#${ROOT_ID} .ep-nav-item{display:flex;width:100%;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:7px;background:transparent;text-align:left;cursor:pointer}#${ROOT_ID} .ep-nav-item:hover{background:hsl(var(--ep-card))}#${ROOT_ID} .ep-nav-item.active{background:linear-gradient(90deg,hsl(var(--ep-accent)/.2),transparent);color:hsl(var(--ep-accent));box-shadow:inset 2px 0 hsl(var(--ep-accent))}#${ROOT_ID} .ep-nav-icon{width:18px;text-align:center}
+    #${ROOT_ID} .ep-nav-footer{margin-top:auto;padding-top:12px;border-top:1px solid hsl(var(--ep-border))}#${ROOT_ID} .ep-main{display:flex;min-width:0;min-height:0;flex-direction:column}#${ROOT_ID} .ep-top{display:flex;min-height:66px;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid hsl(var(--ep-border));background:hsl(var(--ep-panel)/.85)}#${ROOT_ID} .ep-top-main{min-width:0;flex:1}#${ROOT_ID} .ep-top-title{font-size:18px;font-weight:800}#${ROOT_ID} .ep-top-sub{overflow:hidden;color:hsl(var(--ep-muted));font-size:11px;text-overflow:ellipsis;white-space:nowrap}#${ROOT_ID} .ep-close{width:34px;height:34px;border:1px solid hsl(var(--ep-border));border-radius:8px;background:hsl(var(--ep-card));cursor:pointer}
+    #${ROOT_ID} .ep-page{min-height:0;flex:1;overflow:auto;padding:18px 20px 32px;scrollbar-gutter:stable}#${ROOT_ID} .ep-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}#${ROOT_ID} .ep-card{min-width:0;border:1px solid hsl(var(--ep-border));border-radius:10px;background:hsl(var(--ep-card));box-shadow:0 8px 22px rgba(0,0,0,.12)}#${ROOT_ID} .ep-metric{padding:13px 14px}#${ROOT_ID} .ep-metric span{display:block;color:hsl(var(--ep-muted));font-size:10px}#${ROOT_ID} .ep-metric strong{display:block;margin-top:4px;overflow:hidden;font:700 17px/1.25 ui-monospace,SFMono-Regular,Consolas,monospace;text-overflow:ellipsis;white-space:nowrap}#${ROOT_ID} .pos{color:#4ade80!important}#${ROOT_ID} .neg{color:#fb7185!important}
+    #${ROOT_ID} .ep-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;padding:10px}#${ROOT_ID} .ep-btn{padding:6px 10px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));cursor:pointer}#${ROOT_ID} .ep-btn:hover,#${ROOT_ID} .ep-btn.active{border-color:hsl(var(--ep-accent)/.65);background:hsl(var(--ep-accent)/.15)}#${ROOT_ID} .ep-btn.danger{color:#fb7185}#${ROOT_ID} .ep-spacer{flex:1}
+    #${ROOT_ID} .ep-chart{height:360px;padding:4px 12px 12px}#${ROOT_ID} .ep-section{margin-top:12px}#${ROOT_ID} .ep-section-title{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid hsl(var(--ep-border));font-weight:800}#${ROOT_ID} .ep-section-body{padding:13px}
+    #${ROOT_ID} table{width:100%;border-collapse:collapse}#${ROOT_ID} th,#${ROOT_ID} td{padding:8px 9px;border-bottom:1px solid hsl(var(--ep-border));text-align:left}#${ROOT_ID} th{color:hsl(var(--ep-muted));font-size:10px;text-transform:uppercase}#${ROOT_ID} td.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+    #${ROOT_ID} .ep-analysis-list{display:grid;gap:8px}#${ROOT_ID} .ep-analysis-row{display:grid;grid-template-columns:110px 1fr 120px 90px;align-items:center;gap:10px}#${ROOT_ID} .ep-bar{height:9px;overflow:hidden;border-radius:99px;background:hsl(var(--ep-border))}#${ROOT_ID} .ep-bar i{display:block;height:100%;border-radius:inherit}
+    #${ROOT_ID} .ep-heatmap{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}#${ROOT_ID} .ep-day{position:relative;min-height:58px;padding:5px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));font-size:10px}#${ROOT_ID} .ep-day.in-period{outline:1px solid hsl(var(--ep-accent)/.55);outline-offset:-2px}#${ROOT_ID} .ep-day.empty{visibility:hidden}#${ROOT_ID} .ep-day strong{display:block;margin-top:9px;font:700 10px ui-monospace,monospace}
+    #${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}#${ROOT_ID} .ep-tag-row,#${ROOT_ID} .ep-achievement{display:flex;min-width:0;align-items:center;gap:10px;padding:10px;border:1px solid hsl(var(--ep-border));border-radius:8px;background:hsl(var(--ep-card))}#${ROOT_ID} .ep-achievement.locked{filter:grayscale(1);opacity:.45}#${ROOT_ID} .ep-achievement-icon{font-size:23px}#${ROOT_ID} .ep-grow{min-width:0;flex:1}#${ROOT_ID} .ep-grow small{display:block;color:hsl(var(--ep-muted))}
+    #${ROOT_ID} .ep-form{display:flex;align-items:end;flex-wrap:wrap;gap:8px}#${ROOT_ID} label{display:grid;gap:4px;color:hsl(var(--ep-muted));font-size:10px}#${ROOT_ID} input,#${ROOT_ID} select{min-height:33px;border:1px solid hsl(var(--ep-border));border-radius:6px;background:hsl(var(--ep-card2));padding:5px 8px;color:hsl(var(--ep-fg))}#${ROOT_ID} .ep-setting{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid hsl(var(--ep-border))}#${ROOT_ID} .ep-setting>div{flex:1}#${ROOT_ID} .ep-setting small{display:block;color:hsl(var(--ep-muted))}
+    #${ROOT_ID} .ep-sim-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}#${ROOT_ID} .ep-prob{padding:10px;border-radius:8px;background:hsl(var(--ep-card2));text-align:center}#${ROOT_ID} .ep-sim-band{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:8px}#${ROOT_ID} .ep-sim-band div{padding:7px;border:1px solid hsl(var(--ep-border));border-radius:6px;text-align:center}#${ROOT_ID} .ep-sim-band small{display:block;color:hsl(var(--ep-muted))}#${ROOT_ID} .ep-disclaimer{margin-top:10px;color:hsl(var(--ep-muted));font-size:10px}
+    #${ROOT_ID} dialog{width:min(620px,90vw);border:1px solid hsl(var(--ep-border));border-radius:10px;background:hsl(var(--ep-panel));color:hsl(var(--ep-fg))}#${ROOT_ID} dialog::backdrop{background:rgba(0,0,0,.55)}#${ROOT_ID} .ep-edit-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    @media(max-width:820px){#${ROOT_ID}{align-items:stretch}#${ROOT_ID} .ep-shell{grid-template-columns:64px 1fr!important;width:100vw!important;height:100dvh!important;min-width:0;min-height:0;border:0;border-radius:0;resize:none}#${ROOT_ID} .ep-sidebar{padding:10px 6px}#${ROOT_ID} .ep-brand strong,#${ROOT_ID} .ep-brand small,#${ROOT_ID} .ep-nav-label,#${ROOT_ID} .ep-nav-text{display:none}#${ROOT_ID} .ep-nav-item{justify-content:center;padding:10px 4px}#${ROOT_ID} .ep-grid{grid-template-columns:repeat(2,minmax(0,1fr))}#${ROOT_ID} .ep-page{padding:12px}#${ROOT_ID} .ep-analysis-row{grid-template-columns:80px 1fr 90px}#${ROOT_ID} .ep-analysis-row>:last-child{display:none}#${ROOT_ID} .ep-tags,#${ROOT_ID} .ep-achievements{grid-template-columns:1fr}#${ROOT_ID} .ep-sim-band{grid-template-columns:repeat(2,1fr)}}
+  `;
+    document.head.append(style);
+  }
+  var AssetCenter = class {
+    constructor({ store, scopeKey, onChange = null }) {
+      this.store = store;
+      this.scopeKey = scopeKey;
+      this.onChange = onChange;
+      this.route = "chart";
+      this.chartMode = this.store.getPreferences().chart.defaultView;
+      if (this.chartMode === "statsReport") this.chartMode = "networth";
+      this.chartRange = this.store.getPreferences().chart.defaultRange;
+      this.analysisRange = 30;
+      this.reportMode = "month";
+      this.reportDate = /* @__PURE__ */ new Date();
+      this.chart = null;
+      this.previousFocus = null;
+      this.snapshot = null;
+      addStyles();
+      this.build();
+    }
+    isZH() {
+      const language = this.store.getPreferences().language;
+      return language ? language === "zh" : runtime.config.isZH;
+    }
+    t(zh, en) {
+      return this.isZH() ? zh : en;
+    }
+    format(value, signed = false) {
+      if (!Number.isFinite(value)) return "—";
+      const text = runtime.api.numberFormatter?.(Math.abs(value)) ?? String(value);
+      return signed && value !== 0 ? `${value > 0 ? "+" : "−"}${text}` : text;
+    }
+    tagColor(type) {
+      const fallback = TAG_TYPES.find(([key]) => key === type)?.[3] ?? "#888888";
+      return this.store.getPreferences().tagColors?.[type] ?? fallback;
+    }
+    build() {
+      if (this.keydown) document.removeEventListener("keydown", this.keydown);
+      this.resizeObserver?.disconnect();
+      document.getElementById(ROOT_ID)?.remove();
+      this.root = document.createElement("div");
+      this.root.id = ROOT_ID;
+      this.root.hidden = true;
+      this.root.innerHTML = `<div class="ep-shell" role="dialog" aria-modal="true" aria-label="MWITools Asset Center">
+      <aside class="ep-sidebar"><div class="ep-brand"><strong>MWITools</strong><small>${this.t("资产中心", "Asset Center")}</small></div>
+        <div class="ep-nav-label">${this.t("分析", "ANALYSIS")}</div>
+        ${this.nav("chart", "▥", this.t("图表总览", "Chart Overview"))}
+        ${this.nav("analysis", "◔", this.t("分项分析", "Analysis"))}
+        ${this.nav("stats", "▦", this.t("统计报表", "Statistics"))}
+        <div class="ep-nav-label">${this.t("记录", "RECORD")}</div>
+        ${this.nav("achievements", "♕", this.t("成就", "Achievements"))}
+        <div class="ep-nav-label">${this.t("管理", "MANAGE")}</div>
+        ${this.nav("data", "◫", this.t("数据管理", "Data"))}
+        ${this.nav("tags", "◇", this.t("管理标签", "Tags"))}
+        <div class="ep-nav-footer">${this.nav("settings", "⚙", this.t("设置/存档", "Settings"))}<button class="ep-nav-item" data-language><span class="ep-nav-icon">文</span><span class="ep-nav-text">${this.isZH() ? "EN" : "中文"}</span></button></div>
+      </aside><main class="ep-main"><header class="ep-top"><div class="ep-top-main"><div class="ep-top-title"></div><div class="ep-top-sub"></div></div><button class="ep-close" data-close aria-label="${this.t("关闭", "Close")}">✕</button></header><div class="ep-page"></div></main>
+      <input type="file" data-import-file accept="application/json" hidden>
+      <dialog data-edit-dialog><h3>${this.t("编辑分项资产", "Edit components")}</h3><div class="ep-edit-grid">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
+    </div>`;
+      document.body.append(this.root);
+      const windowSize = this.store.getPreferences().windowSize;
+      const shell2 = this.root.querySelector(".ep-shell");
+      if (windowSize?.w && windowSize?.h) {
+        shell2.style.width = `${windowSize.w}px`;
+        shell2.style.height = `${windowSize.h}px`;
+      }
+      if (typeof globalThis.ResizeObserver === "function") {
+        this.resizeObserver = new globalThis.ResizeObserver(() => {
+          if (this.root.hidden || globalThis.innerWidth <= 820) return;
+          const rect = shell2.getBoundingClientRect();
+          this.pendingWindowSize = {
+            w: Math.round(rect.width),
+            h: Math.round(rect.height)
+          };
+        });
+        this.resizeObserver.observe(shell2);
+      }
+      this.bind();
+      this.applyTheme();
+      this.render();
+    }
+    nav(route, icon, label) {
+      return `<button class="ep-nav-item" data-route="${route}"><span class="ep-nav-icon">${icon}</span><span class="ep-nav-text">${label}</span></button>`;
+    }
+    bind() {
+      this.root.addEventListener("click", (event) => {
+        if (event.target === this.root) this.close();
+        const route = event.target.closest("[data-route]")?.dataset.route;
+        if (route) {
+          this.route = route;
+          this.render();
+        }
+        if (event.target.closest("[data-close]")) this.close();
+        if (event.target.closest("[data-language]")) {
+          const previousFocus = this.previousFocus;
+          this.store.setPreferences({ language: this.isZH() ? "en" : "zh" });
+          this.build();
+          this.previousFocus = previousFocus;
+          this.open(true);
+        }
+      });
+      this.keydown = (event) => {
+        if (event.key === "Escape" && !this.root.hidden) this.close();
+      };
+      document.addEventListener("keydown", this.keydown);
+      this.root.querySelector("[data-edit-cancel]").addEventListener(
+        "click",
+        () => this.root.querySelector("[data-edit-dialog]").close()
+      );
+      this.root.querySelector("[data-edit-save]").addEventListener("click", () => this.saveEditor());
+    }
+    open(preserveFocus = false) {
+      if (!preserveFocus) this.previousFocus = document.activeElement;
+      this.root.hidden = false;
+      document.body.dataset.mwitoolsAssetCenterOpen = "true";
+      document.body.style.overflow = "hidden";
+      this.root.querySelector("[data-close]").focus();
+      this.render();
+    }
+    close() {
+      this.root.hidden = true;
+      delete document.body.dataset.mwitoolsAssetCenterOpen;
+      document.body.style.overflow = "";
+      this.chart?.destroy();
+      this.chart = null;
+      if (this.pendingWindowSize) {
+        this.store.setPreferences({ windowSize: this.pendingWindowSize });
+        this.pendingWindowSize = null;
+      }
+      this.previousFocus?.focus?.();
+    }
+    update(snapshot) {
+      this.snapshot = snapshot ?? this.snapshot;
+      if (!this.root.hidden) this.render();
+    }
+    applyTheme() {
+      const prefs = this.store.getPreferences();
+      this.root.classList.toggle("ep-light", prefs.themeMode === "light");
+      this.root.classList.toggle("ep-glass-heart", prefs.glassHeartMode);
+      this.root.style.setProperty("--ep-light-h", String(prefs.lightBg.h));
+      this.root.style.setProperty("--ep-light-s", `${prefs.lightBg.s}%`);
+    }
+    routeCopy() {
+      return {
+        chart: [
+          this.t("图表总览", "Chart Overview"),
+          this.t("净资产历史 · 盈亏分析 · 目标预测", "Net worth · P/L · goals")
+        ],
+        analysis: [
+          this.t("分项分析", "Component Analysis"),
+          this.t("占比 · 贡献 · 排名", "Allocation · contribution · ranking")
+        ],
+        stats: [
+          this.t("统计报表", "Statistics"),
+          this.t("周期统计 · 盈亏日历", "Period metrics · P/L calendar")
+        ],
+        achievements: [
+          this.t("成就 & 里程碑", "Achievements"),
+          this.t("历史进度与特殊记录", "Historical milestones")
+        ],
+        data: [
+          this.t("数据管理", "Data Management"),
+          this.t("编辑 · 清理 · 备份", "Edit · cleanup · backup")
+        ],
+        tags: [
+          this.t("管理标签", "Tags"),
+          this.t("为重要日期添加事件", "Annotate important dates")
+        ],
+        settings: [
+          this.t("设置/存档", "Settings"),
+          this.t("外观 · 图表 · 关于", "Appearance · charts · about")
+        ]
+      }[this.route];
+    }
+    render() {
+      if (!this.root?.isConnected) return;
+      this.chart?.destroy();
+      this.chart = null;
+      this.root.querySelectorAll("[data-route]").forEach(
+        (button) => button.classList.toggle("active", button.dataset.route === this.route)
+      );
+      const [title, subtitle] = this.routeCopy();
+      this.root.querySelector(".ep-top-title").textContent = title;
+      this.root.querySelector(".ep-top-sub").textContent = subtitle;
+      const page = this.root.querySelector(".ep-page");
+      if (this.route === "chart") this.renderChartPage(page);
+      else if (this.route === "analysis") this.renderAnalysisPage(page);
+      else if (this.route === "stats") this.renderStatsPage(page);
+      else if (this.route === "achievements") this.renderAchievementsPage(page);
+      else if (this.route === "data") this.renderDataPage(page);
+      else if (this.route === "tags") this.renderTagsPage(page);
+      else this.renderSettingsPage(page);
+    }
+    summaryValues() {
+      const entries = this.store.list(this.scopeKey);
+      const current = this.snapshot?.values ?? entries.at(-1)?.[1]?.values ?? {};
+      const previous = entries.length > 1 ? entries.at(-2)?.[1]?.values ?? {} : {};
+      const change = Number.isFinite(current.total) && Number.isFinite(previous.total) ? current.total - previous.total : null;
+      return { entries, current, previous, change };
+    }
+    metric(label, value, className = "") {
+      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+    }
+    renderChartPage(page) {
+      const { entries, current, previous, change } = this.summaryValues();
+      const percent = previous.total ? change / previous.total * 100 : null;
+      const prefs = this.store.getPreferences();
+      const target = this.store.getGoalTarget(this.scopeKey);
+      page.innerHTML = `<div class="ep-grid">${this.metric(this.t("当前净资产", "Current net worth"), current.total)}${this.metric(this.t("本期盈亏", "Current P/L"), change, change >= 0 ? "pos" : "neg")}${this.metric(this.t("盈亏比例", "P/L percentage"), percent)}${this.metric(this.t("近 7 日平均", "7-day average"), this.store.sevenDayAverage(void 0, this.scopeKey), "pos")}</div>
+      <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
+      <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
+      <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;
+      page.querySelectorAll("[data-chart-mode]").forEach((button) => {
+        button.classList.toggle(
+          "active",
+          button.dataset.chartMode === this.chartMode
+        );
+        button.addEventListener("click", () => {
+          this.chartMode = button.dataset.chartMode;
+          this.drawCenterChart();
+        });
+      });
+      page.querySelectorAll("[data-chart-range]").forEach((button) => {
+        const range = button.dataset.chartRange === "all" ? null : Number(button.dataset.chartRange);
+        button.classList.toggle("active", range === this.chartRange);
+        button.addEventListener("click", () => {
+          this.chartRange = range;
+          this.drawCenterChart();
+        });
+      });
+      page.querySelector("[data-reset-zoom]").addEventListener("click", () => this.chart?.resetZoom());
+      page.querySelector("[data-save-goal]").addEventListener("click", () => {
+        this.store.setGoalTarget(
+          page.querySelector("[data-goal]").value,
+          this.scopeKey
+        );
+        this.render();
+      });
+      page.querySelector("[data-simulate]").addEventListener("click", () => {
+        const result = simulateNetWorth(entries, {
+          target: this.store.getGoalTarget(this.scopeKey)
+        });
+        this.renderSimulation(page.querySelector("[data-simulation]"), result);
+      });
+      this.chart = new AssetHistoryChart(
+        page.querySelector("[data-center-chart]"),
+        page.querySelector("[data-chart-fallback]")
+      );
+      this.drawCenterChart();
+    }
+    drawCenterChart() {
+      const prefs = this.store.getPreferences();
+      this.root.querySelectorAll("[data-chart-mode]").forEach(
+        (button) => button.classList.toggle(
+          "active",
+          button.dataset.chartMode === this.chartMode
+        )
+      );
+      this.root.querySelectorAll("[data-chart-range]").forEach((button) => {
+        const range = button.dataset.chartRange === "all" ? null : Number(button.dataset.chartRange);
+        button.classList.toggle("active", range === this.chartRange);
+      });
+      this.chart?.renderWithOptions(this.store.list(this.scopeKey), {
+        mode: this.chartMode,
+        range: this.chartRange,
+        maWindow: prefs.chart.maWindow,
+        lineTension: prefs.chart.lineTension,
+        tags: this.store.getRole(this.scopeKey).tagVisibility ? this.store.listTags(this.scopeKey).map((tag) => ({ ...tag, color: this.tagColor(tag.type) })) : []
+      });
+    }
+    renderSimulation(host, result) {
+      if (result.status !== "complete") {
+        host.innerHTML = `<p>${this.t("数据不足，至少需要 7 条有效记录。", "At least 7 valid records are required.")}</p>`;
+        return;
+      }
+      const finalBands = ["p10", "p25", "p50", "p75", "p90"];
+      host.innerHTML = `<div class="ep-sim-grid ep-section">${this.metric(this.t("日均增长率 %", "Daily growth %"), result.dailyGrowthPercent, result.dailyGrowthPercent >= 0 ? "pos" : "neg")}${this.metric(this.t("日波动率 %", "Daily volatility %"), result.dailyVolatilityPercent)}${this.metric(this.t("翻倍天数", "Doubling days"), result.doublingDays)}${this.metric(this.t("90 日中位数", "90d median"), result.series.p50.at(-1))}</div><div class="ep-sim-band">${finalBands.map((band) => `<div><small>${band.toUpperCase()}</small><strong>${this.format(result.series[band].at(-1))}</strong></div>`).join("")}</div>${result.target ? `<div class="ep-toolbar">${Object.entries(result.probabilities).map(
+        ([day, probability]) => `<div class="ep-prob"><strong>${probability.toFixed(1)}%</strong><small>${day}${this.t(" 天达成", "d target")}</small></div>`
+      ).join("")}</div>` : ""}`;
+    }
+    renderAnalysisPage(page) {
+      const analysis = componentAnalysis(
+        this.store.list(this.scopeKey),
+        this.analysisRange
+      );
+      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar">${[7, 30].map((range) => `<button class="ep-btn ${this.analysisRange === range ? "active" : ""}" data-analysis-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn ${this.analysisRange === null ? "active" : ""}" data-analysis-range="all">${this.t("全部", "All")}</button></div><div class="ep-section-body">${analysis ? `<div class="ep-analysis-list">${analysis.components.map((item) => `<div class="ep-analysis-row"><strong>${this.t(item.zh, item.en)}</strong><div class="ep-bar"><i style="width:${Math.max(2, Math.min(100, Math.abs(item.share ?? 0)))}%;background:${item.color}"></i></div><span class="${item.change >= 0 ? "pos" : "neg"}">${this.format(item.change, true)}</span><small>${Number.isFinite(item.share) ? item.share.toFixed(1) + "%" : "—"}</small></div>`).join("")}</div><div class="ep-grid ep-section">${this.metric(this.t("总变动", "Total change"), analysis.totalChange, analysis.totalChange >= 0 ? "pos" : "neg")}${this.metric(this.t("已追踪分项", "Tracked"), analysis.trackedChange, analysis.trackedChange >= 0 ? "pos" : "neg")}${this.metric(this.t("其他/未追踪", "Other/untracked"), analysis.untrackedChange, analysis.untrackedChange >= 0 ? "pos" : "neg")}${this.metric(this.t("跨度天数", "Calendar days"), analysis.gapDays)}</div>` : `<p>${this.t("至少需要两条记录。", "At least two records are required.")}</p>`}</div></section>`;
+      page.querySelectorAll("[data-analysis-range]").forEach(
+        (button) => button.addEventListener("click", () => {
+          this.analysisRange = button.dataset.analysisRange === "all" ? null : Number(button.dataset.analysisRange);
+          this.render();
+        })
+      );
+    }
+    renderStatsPage(page) {
+      const range = this.reportMode === "week" ? weekRange(this.reportDate) : monthRange(this.reportDate);
+      const entries = this.store.list(this.scopeKey);
+      const stats = periodStatistics(entries, range);
+      const heatmap = buildHeatmap(entries);
+      const firstDay = new Date(range.year, range.month, 1).getDay();
+      const offset = firstDay === 0 ? 6 : firstDay - 1;
+      const count = new Date(range.year, range.month + 1, 0).getDate();
+      const changes = Object.values(heatmap).filter(
+        ({ date }) => date >= range.start && date <= range.end
+      );
+      const max = Math.max(
+        1,
+        ...changes.map(({ totalChange }) => Math.abs(totalChange))
+      );
+      const cells = Array.from(
+        { length: offset },
+        () => `<div class="ep-day empty"></div>`
+      );
+      for (let day = 1; day <= count; day += 1) {
+        const date = `${range.year}-${String(range.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const change = heatmap[date];
+        const strength = change ? Math.abs(change.totalChange) / max : 0;
+        const style = this.store.getPreferences().heatmapStyle;
+        const alpha = style === "A" ? 0.28 : style === "D" ? 0.18 + 0.7 * strength : 0.12 + 0.5 * strength;
+        const positive = style === "C" ? [34, 197, 94] : style === "D" ? [14, 165, 233] : [16, 185, 129];
+        const negative = style === "C" ? [239, 68, 68] : style === "D" ? [168, 85, 247] : [244, 63, 94];
+        const rgb = change?.totalChange >= 0 ? positive : negative;
+        const color = `rgba(${rgb.join(",")},${alpha})`;
+        cells.push(
+          `<div class="ep-day ${date >= range.start && date <= range.end ? "in-period" : ""}" style="${change ? `background:${color}` : ""}"><span>${day}</span><strong class="${change?.totalChange >= 0 ? "pos" : "neg"}">${change ? this.format(change.totalChange, true) : ""}</strong></div>`
+        );
+      }
+      const rangeLabel = this.reportMode === "week" ? `${range.start} — ${range.end}` : `${range.year}-${String(range.month + 1).padStart(2, "0")}`;
+      page.innerHTML = `<div class="ep-toolbar"><button class="ep-btn ${this.reportMode === "week" ? "active" : ""}" data-report-mode="week">${this.t("周报", "Weekly")}</button><button class="ep-btn ${this.reportMode === "month" ? "active" : ""}" data-report-mode="month">${this.t("月报", "Monthly")}</button><span class="ep-spacer"></span><button class="ep-btn" data-period-shift="-1">‹</button><strong>${rangeLabel}</strong><button class="ep-btn" data-period-shift="1">›</button></div>${stats ? `<div class="ep-grid">${this.metric(this.t("总盈亏", "Total P/L"), stats.totalProfit, stats.totalProfit >= 0 ? "pos" : "neg")}${this.metric(this.t("日均盈亏", "Average/day"), stats.averagePerDay, stats.averagePerDay >= 0 ? "pos" : "neg")}${this.metric(this.t("胜率 %", "Win rate %"), stats.winRate)}${this.metric(this.t("增长率 %", "Growth %"), stats.growthPercent, stats.growthPercent >= 0 ? "pos" : "neg")}</div>` : ""}<section class="ep-card ep-section"><div class="ep-section-title">${this.t("盈亏日历", "P/L Calendar")}</div><div class="ep-section-body"><div class="ep-heatmap">${cells.join("")}</div></div></section>${stats ? `<section class="ep-card ep-section"><div class="ep-section-title">${this.t("每日明细", "Daily details")}</div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("盈亏", "P/L")}</th><th>${this.t("跨度", "Gap")}</th></tr></thead><tbody>${stats.changes.map((item) => `<tr><td>${item.date}</td><td class="${item.totalChange >= 0 ? "pos" : "neg"}">${this.format(item.totalChange, true)}</td><td>${item.gapDays}</td></tr>`).join("")}</tbody></table></div></section>` : `<p>${this.t("所选周期暂无数据。", "No data for this period.")}</p>`}`;
+      page.querySelectorAll("[data-report-mode]").forEach(
+        (button) => button.addEventListener("click", () => {
+          this.reportMode = button.dataset.reportMode;
+          this.render();
+        })
+      );
+      page.querySelectorAll("[data-period-shift]").forEach(
+        (button) => button.addEventListener("click", () => {
+          const direction = Number(button.dataset.periodShift);
+          if (this.reportMode === "week") {
+            this.reportDate = new Date(this.reportDate);
+            this.reportDate.setDate(this.reportDate.getDate() + direction * 7);
+          } else {
+            this.reportDate = new Date(
+              this.reportDate.getFullYear(),
+              this.reportDate.getMonth() + direction,
+              1
+            );
+          }
+          this.render();
+        })
+      );
+    }
+    renderAchievementsPage(page) {
+      const persisted = this.store.getAchievements(this.scopeKey);
+      const achievements = calculateAchievements(
+        this.store.list(this.scopeKey),
+        persisted
+      );
+      this.store.syncAchievements(achievements, this.scopeKey);
+      const unlocked = achievements.filter((item) => item.unlocked).length;
+      page.innerHTML = `<div class="ep-grid">${this.metric(this.t("已解锁", "Unlocked"), unlocked)}${this.metric(this.t("全部成就", "All achievements"), achievements.length)}${this.metric(this.t("完成度 %", "Completion %"), achievements.length ? unlocked / achievements.length * 100 : 0)}${this.metric(this.t("历史天数", "History days"), this.store.list(this.scopeKey).length)}</div><div class="ep-achievements ep-section">${achievements.map((item) => `<article class="ep-achievement ${item.unlocked ? "" : "locked"}"><span class="ep-achievement-icon">${item.icon}</span><div class="ep-grow"><strong>${this.isZH() ? item.zhName : item.enName}</strong><small>${this.isZH() ? item.zhDescription : item.enDescription}</small>${item.date ? `<small>${item.date}</small>` : ""}</div><span>${item.unlocked ? "✓" : "🔒"}</span></article>`).join("")}</div>`;
+    }
+    renderDataPage(page) {
+      const entries = this.store.list(this.scopeKey).slice().reverse();
+      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(([date, record]) => `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td><button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`).join("")}</tbody></table></div></section>`;
+      page.querySelector("[data-export]").addEventListener("click", () => this.downloadBackup());
+      page.querySelector("[data-import]").addEventListener("click", () => {
+        this.pendingImportMode = page.querySelector("[data-import-mode]").value;
+        this.root.querySelector("[data-import-file]").click();
+      });
+      this.root.querySelector("[data-import-file]").onchange = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        try {
+          this.store.importBackup(JSON.parse(await file.text()), {
+            mode: this.pendingImportMode,
+            scopeKey: this.scopeKey
+          });
+          this.changed();
+        } catch (error) {
+          globalThis.alert?.(
+            `${this.t("导入失败", "Import failed")}: ${error.message}`
+          );
+        }
+        event.target.value = "";
+      };
+      page.querySelector("[data-clean]").addEventListener("click", () => {
+        this.store.cleanupInvalid(this.scopeKey);
+        this.changed();
+      });
+      page.querySelector("[data-anomalies]").addEventListener("click", () => {
+        const values = this.store.detectAnomalies(this.scopeKey);
+        if (!values.length)
+          return globalThis.alert?.(
+            this.t("未发现反转异常。", "No reversal anomalies found.")
+          );
+        if (globalThis.confirm?.(
+          `${this.t("删除以下异常日期？", "Delete these dates?")}
+${values.map((item) => item.date).join("\n")}`
+        )) {
+          values.forEach(
+            (item) => this.store.deleteDay(item.date, this.scopeKey)
+          );
+          this.changed();
+        }
+      });
+      page.querySelectorAll("[data-edit-day]").forEach(
+        (button) => button.addEventListener(
+          "click",
+          () => this.openEditor(button.dataset.editDay)
+        )
+      );
+      page.querySelectorAll("[data-delete-day]").forEach(
+        (button) => button.addEventListener("click", () => {
+          if (globalThis.confirm?.(
+            `${this.t("删除", "Delete")} ${button.dataset.deleteDay}?`
+          )) {
+            this.store.deleteDay(button.dataset.deleteDay, this.scopeKey);
+            this.changed();
+          }
+        })
+      );
+    }
+    openEditor(date) {
+      const dialog = this.root.querySelector("[data-edit-dialog]");
+      dialog.dataset.date = date;
+      const values = this.store.getRole(this.scopeKey).days[date]?.values ?? {};
+      dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
+        input.value = Number.isFinite(values[input.dataset.editComponent]) ? values[input.dataset.editComponent] : "";
+      });
+      dialog.showModal();
+    }
+    saveEditor() {
+      const dialog = this.root.querySelector("[data-edit-dialog]");
+      const values = Object.fromEntries(
+        [...dialog.querySelectorAll("[data-edit-component]")].map((input) => [
+          input.dataset.editComponent,
+          Number(input.value)
+        ])
+      );
+      if (!ASSET_COMPONENT_KEYS.every(
+        (key) => Number.isFinite(values[key]) && values[key] >= 0
+      ))
+        return globalThis.alert?.(
+          this.t("请填写全部七个分项。", "Enter all seven components.")
+        );
+      this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      dialog.close();
+      this.changed();
+    }
+    renderTagsPage(page) {
+      const tags = this.store.listTags(this.scopeKey).slice().reverse();
+      const today = new Date(Date.now() + 8 * 36e5).toISOString().slice(0, 10);
+      page.innerHTML = `<section class="ep-card"><div class="ep-section-body"><div class="ep-form"><label>${this.t("日期", "Date")}<input type="date" data-tag-date value="${today}"></label><label>${this.t("分类", "Category")}<select data-tag-type><option value="">${this.t("无分类", "None")}</option>${TAG_TYPES.map(([key, zh, en]) => `<option value="${key}">${this.t(zh, en)}</option>`).join("")}</select></label><label class="ep-grow">${this.t("标签内容", "Tag text")}<input data-tag-text maxlength="60"></label><button class="ep-btn" data-add-tag>${this.t("添加标签", "Add tag")}</button><label><input type="checkbox" data-tag-visible ${this.store.getRole(this.scopeKey).tagVisibility ? "checked" : ""}>${this.t("图表显示标签", "Show on charts")}</label></div></div></section><div class="ep-tags ep-section">${tags.map((tag) => {
+        const meta = TAG_TYPES.find(([key]) => key === tag.type);
+        return `<article class="ep-tag-row"><i style="width:8px;height:8px;border-radius:50%;background:${this.tagColor(tag.type)}"></i><div class="ep-grow"><strong>${escapeHtml(tag.text)}</strong><small>${tag.date} · ${meta ? this.t(meta[1], meta[2]) : this.t("无分类", "None")}</small></div><button class="ep-btn" data-edit-tag="${escapeHtml(tag.id)}">✎</button><button class="ep-btn danger" data-delete-tag="${escapeHtml(tag.id)}">×</button></article>`;
+      }).join("") || `<p>${this.t("暂无标签。", "No tags yet.")}</p>`}</div>`;
+      page.querySelector("[data-add-tag]").addEventListener("click", () => {
+        const date = page.querySelector("[data-tag-date]").value;
+        const text = page.querySelector("[data-tag-text]").value;
+        const type = page.querySelector("[data-tag-type]").value;
+        if (this.store.addTag(date, text, type, this.scopeKey)) this.changed();
+      });
+      page.querySelector("[data-tag-visible]").addEventListener("change", (event) => {
+        this.store.setTagVisibility(event.target.checked, this.scopeKey);
+      });
+      page.querySelectorAll("[data-edit-tag]").forEach(
+        (button) => button.addEventListener("click", () => {
+          const current = tags.find((tag) => tag.id === button.dataset.editTag);
+          const text = globalThis.prompt?.(
+            this.t("修改标签", "Edit tag"),
+            current?.text
+          );
+          if (text && this.store.updateTag(button.dataset.editTag, { text }, this.scopeKey))
+            this.changed();
+        })
+      );
+      page.querySelectorAll("[data-delete-tag]").forEach(
+        (button) => button.addEventListener("click", () => {
+          this.store.deleteTag(button.dataset.deleteTag, this.scopeKey);
+          this.changed();
+        })
+      );
+    }
+    renderSettingsPage(page) {
+      const prefs = this.store.getPreferences();
+      page.innerHTML = `<section class="ep-card"><div class="ep-section-title">🎨 ${this.t("外观", "Appearance")}</div><div class="ep-section-body"><div class="ep-setting"><div><strong>${this.t("主题模式", "Theme")}</strong><small>${this.t("切换深色/浅色资产中心", "Dark or light asset center")}</small></div><select data-setting="themeMode"><option value="dark" ${prefs.themeMode === "dark" ? "selected" : ""}>${this.t("深色", "Dark")}</option><option value="light" ${prefs.themeMode === "light" ? "selected" : ""}>${this.t("浅色", "Light")}</option></select></div><div class="ep-setting"><div><strong>${this.t("玻璃心模式", "Glass-heart mode")}</strong><small>${this.t("亏损使用柔和色彩", "Use softer loss colors")}</small></div><input type="checkbox" data-setting="glassHeartMode" ${prefs.glassHeartMode ? "checked" : ""}></div><div class="ep-setting"><div><strong>${this.t("热力图样式", "Heatmap style")}</strong></div><select data-setting="heatmapStyle">${["A", "B", "C", "D"].map((value) => `<option ${prefs.heatmapStyle === value ? "selected" : ""}>${value}</option>`).join("")}</select></div><div class="ep-setting"><div><strong>${this.t("浅色主题色相", "Light-theme hue")}</strong></div><input type="range" min="0" max="359" data-light-setting="h" value="${prefs.lightBg.h}"></div><div class="ep-setting"><div><strong>${this.t("浅色主题饱和度", "Light-theme saturation")}</strong></div><input type="range" min="0" max="100" data-light-setting="s" value="${prefs.lightBg.s}"></div></div></section><section class="ep-card ep-section"><div class="ep-section-title">📊 ${this.t("图表自定义", "Chart settings")}</div><div class="ep-section-body"><div class="ep-setting"><div><strong>${this.t("默认图表", "Default chart")}</strong></div><select data-chart-setting="defaultView"><option value="networth" ${prefs.chart.defaultView === "networth" ? "selected" : ""}>${this.t("净资产", "Net worth")}</option><option value="profit" ${prefs.chart.defaultView === "profit" ? "selected" : ""}>${this.t("盈亏", "P/L")}</option><option value="breakdown" ${prefs.chart.defaultView === "breakdown" ? "selected" : ""}>${this.t("分项", "Components")}</option></select></div><div class="ep-setting"><div><strong>${this.t("盈亏均线天数", "Moving-average days")}</strong></div><input type="number" min="2" max="90" data-chart-setting="maWindow" value="${prefs.chart.maWindow}"></div><div class="ep-setting"><div><strong>${this.t("默认时间范围", "Default range")}</strong></div><select data-chart-setting="defaultRange"><option value="7" ${prefs.chart.defaultRange === 7 ? "selected" : ""}>7</option><option value="15" ${prefs.chart.defaultRange === 15 ? "selected" : ""}>15</option><option value="30" ${prefs.chart.defaultRange === 30 ? "selected" : ""}>30</option><option value="all" ${prefs.chart.defaultRange === null ? "selected" : ""}>${this.t("全部", "All")}</option></select></div><div class="ep-setting"><div><strong>${this.t("曲线平滑度", "Line tension")}</strong></div><select data-chart-setting="lineTension">${[0, 0.15, 0.25, 0.4].map((value) => `<option value="${value}" ${prefs.chart.lineTension === value ? "selected" : ""}>${value}</option>`).join("")}</select></div></div></section><section class="ep-card ep-section"><div class="ep-section-title">ℹ️ ${this.t("关于与许可", "About & License")}</div><div class="ep-section-body"><p>MWITools ${this.t("资产中心界面基于 Everyday Profit Pro 合并改造。", "Asset Center UI is adapted from Everyday Profit Pro.")}</p><p>Copyright © 2025 VictoryWinWinWin, PaperCat, SuXingX<br>Copyright © 2026 ColaCola</p><p>MIT License — Permission is granted to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies with the copyright and permission notice retained.</p><button class="ep-btn danger" data-reset-settings>${this.t("恢复默认设置", "Reset settings")}</button></div></section>`;
+      page.querySelectorAll(".ep-section-body").item(2)?.insertAdjacentHTML(
+        "beforeend",
+        `<details class="ep-section"><summary>${this.t("完整 MIT 许可", "Full MIT License")}</summary><pre style="white-space:pre-wrap;font-size:10px;color:hsl(var(--ep-muted))">${escapeHtml(EP_MIT_LICENSE)}</pre></details>`
+      );
+      page.querySelector(".ep-section-body").insertAdjacentHTML(
+        "beforeend",
+        `<div class="ep-setting"><div><strong>${this.t("标签颜色", "Tag colors")}</strong><small>${this.t("同时用于图表日期标注", "Also used for chart annotations")}</small></div><div class="ep-form">${TAG_TYPES.map(([key, zh, en, color]) => `<label>${this.t(zh, en)}<input type="color" data-tag-color="${key}" value="${prefs.tagColors[key] ?? color}"></label>`).join("")}</div></div>`
+      );
+      page.querySelectorAll("[data-setting]").forEach(
+        (input) => input.addEventListener("change", () => {
+          const key = input.dataset.setting;
+          const value = input.type === "checkbox" ? input.checked : input.value;
+          this.store.setPreferences({ [key]: value });
+          this.applyTheme();
+          this.render();
+        })
+      );
+      page.querySelectorAll("[data-chart-setting]").forEach(
+        (input) => input.addEventListener("change", () => {
+          let value = input.value;
+          if (input.dataset.chartSetting === "defaultRange")
+            value = value === "all" ? null : Number(value);
+          else if (input.dataset.chartSetting !== "defaultView")
+            value = Number(value);
+          this.store.setPreferences({
+            chart: { [input.dataset.chartSetting]: value }
+          });
+          this.render();
+        })
+      );
+      page.querySelectorAll("[data-light-setting]").forEach(
+        (input) => input.addEventListener("change", () => {
+          this.store.setPreferences({
+            lightBg: { [input.dataset.lightSetting]: Number(input.value) }
+          });
+          this.applyTheme();
+        })
+      );
+      page.querySelectorAll("[data-tag-color]").forEach(
+        (input) => input.addEventListener("change", () => {
+          this.store.setPreferences({
+            tagColors: {
+              ...this.store.getPreferences().tagColors,
+              [input.dataset.tagColor]: input.value
+            }
+          });
+        })
+      );
+      page.querySelector("[data-reset-settings]").addEventListener("click", () => {
+        if (globalThis.confirm?.(
+          this.t(
+            "恢复全部资产中心设置？历史数据不受影响。",
+            "Reset all asset-center settings? History is preserved."
+          )
+        )) {
+          this.store.resetPreferences();
+          this.applyTheme();
+          this.render();
+        }
+      });
+    }
+    downloadBackup() {
+      const blob = new Blob(
+        [JSON.stringify(this.store.exportBackup(), null, 2)],
+        { type: "application/json" }
+      );
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `MWITools_asset_center_${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+    changed() {
+      this.onChange?.();
+      this.render();
+    }
+    destroy() {
+      this.close();
+      document.removeEventListener("keydown", this.keydown);
+      this.resizeObserver?.disconnect();
+      this.root?.remove();
+    }
+  };
+  function createAssetCenter(options) {
+    return new AssetCenter(options);
+  }
+
   // src/features/asset-history/30-panel.js
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
-  var STYLE_ID = "mwitools-asset-history-style";
+  var STYLE_ID2 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
@@ -23806,10 +25537,10 @@
     input.setSelectionRange?.(message.length, message.length);
     return input;
   }
-  function addStyles() {
-    if (document.getElementById(STYLE_ID)) return;
+  function addStyles2() {
+    if (document.getElementById(STYLE_ID2)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID;
+    style.id = STYLE_ID2;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
     [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,rgba(255,255,255,.08))!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,var(--color-text-secondary,#aeb5c0))!important; filter:none!important; }
@@ -23960,11 +25691,16 @@
       this.mode = "total";
       this.range = 30;
       this.build();
+      this.center = createAssetCenter({
+        store: this.store,
+        scopeKey: this.scopeKey,
+        onChange: () => this.update(this.snapshot)
+      });
     }
     build() {
       this.host.innerHTML = `
       <p class="mwi-asset-disclaimer">${t2("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t2("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t2("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t2("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t2("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t2("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
       <div class="mwi-asset-summary">
         ${createCard(t2("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t2("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
@@ -24015,6 +25751,7 @@
       this.bind();
     }
     bind() {
+      this.host.querySelector("#mwi-asset-open-center").addEventListener("click", () => this.center?.open());
       this.host.querySelector("#mwi-asset-share-chat").addEventListener("click", () => this.shareToChat());
       this.host.querySelectorAll("[data-mode]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -24154,6 +25891,7 @@ ${preview}`
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
+      this.center?.update(this.snapshot);
       const dayKey = getUtc8DayKey();
       const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
       const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -24255,6 +25993,7 @@ ${preview}`
     }
     destroy() {
       this.chart.destroy();
+      this.center?.destroy();
     }
   };
   function createAssetHistoryUi({ scope, store, scopeKey }) {
@@ -24448,7 +26187,7 @@ ${preview}`
       }
       if (mountMode !== null) teardownMount();
     };
-    addStyles();
+    addStyles2();
     ensureMounted();
     scope.interval(ensureMounted, 500);
     const handleTabBranchClick = (event) => {
@@ -24471,7 +26210,7 @@ ${preview}`
       },
       destroy() {
         teardownMount();
-        document.getElementById(STYLE_ID)?.remove();
+        document.getElementById(STYLE_ID2)?.remove();
       }
     };
   }
@@ -24516,6 +26255,50 @@ ${preview}`
     },
     detectAnomalies(scopeKey = currentScopeKey()) {
       return assetHistoryStore.detectAnomalies(scopeKey);
+    },
+    getTags(scopeKey = currentScopeKey()) {
+      return assetHistoryStore.listTags(scopeKey);
+    },
+    addTag(date, text, type = "", scopeKey = currentScopeKey()) {
+      return assetHistoryStore.addTag(date, text, type, scopeKey);
+    },
+    updateTag(tagId, patch, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.updateTag(tagId, patch, scopeKey);
+    },
+    deleteTag(tagId, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.deleteTag(tagId, scopeKey);
+    },
+    getPreferences() {
+      return assetHistoryStore.getPreferences();
+    },
+    setPreferences(patch) {
+      return assetHistoryStore.setPreferences(patch);
+    },
+    setGoalTarget(value, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.setGoalTarget(value, scopeKey);
+    },
+    getGoalTarget(scopeKey = currentScopeKey()) {
+      return assetHistoryStore.getGoalTarget(scopeKey);
+    },
+    getStatistics(options = {}, scopeKey = currentScopeKey()) {
+      return periodStatistics(assetHistoryStore.list(scopeKey), options);
+    },
+    getHeatmap(scopeKey = currentScopeKey()) {
+      return buildHeatmap(assetHistoryStore.list(scopeKey));
+    },
+    getComponentAnalysis(rangeDays = null, scopeKey = currentScopeKey()) {
+      return componentAnalysis(assetHistoryStore.list(scopeKey), rangeDays);
+    },
+    getAchievements(scopeKey = currentScopeKey()) {
+      const results = calculateAchievements(
+        assetHistoryStore.list(scopeKey),
+        assetHistoryStore.getAchievements(scopeKey)
+      );
+      assetHistoryStore.syncAchievements(results, scopeKey);
+      return results;
+    },
+    simulate(options = {}, scopeKey = currentScopeKey()) {
+      return simulateNetWorth(assetHistoryStore.list(scopeKey), options);
     },
     exportBackup() {
       return assetHistoryStore.exportBackup();
@@ -24666,7 +26449,7 @@ ${preview}`
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
-  var STYLE_ID2 = "mwi-leaderboard-overlay-style";
+  var STYLE_ID3 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
@@ -24741,7 +26524,7 @@ ${preview}`
     return rateDifference || leftRank - rightRank;
   }
   function ensureStyles(documentRef) {
-    if (documentRef.getElementById(STYLE_ID2)) return;
+    if (documentRef.getElementById(STYLE_ID3)) return;
     const mount = documentRef.head || documentRef.documentElement;
     if (!mount) {
       documentRef.addEventListener(
@@ -24752,7 +26535,7 @@ ${preview}`
       return;
     }
     const style = documentRef.createElement("style");
-    style.id = STYLE_ID2;
+    style.id = STYLE_ID3;
     style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
@@ -25083,7 +26866,7 @@ ${preview}`
         removeBadges();
         removeRateColumn();
         activeInstances = Math.max(0, activeInstances - 1);
-        if (activeInstances === 0) documentRef.getElementById(STYLE_ID2)?.remove();
+        if (activeInstances === 0) documentRef.getElementById(STYLE_ID3)?.remove();
       }
     };
   }
@@ -25395,7 +27178,7 @@ ${preview}`
   });
 
   // src/features/battle-buffs.js
-  var STYLE_ID3 = "mwi-buff-style";
+  var STYLE_ID4 = "mwi-buff-style";
   var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
   var BUFFS = /* @__PURE__ */ new Map([
     ["/abilities/mana_spring", 10],
@@ -25448,9 +27231,9 @@ ${preview}`
     return parts[parts.length - 1] || hrid;
   }
   function ensureBuffStyles(scope) {
-    if (document.getElementById(STYLE_ID3)) return;
+    if (document.getElementById(STYLE_ID4)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 .mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
@@ -26869,7 +28652,7 @@ ${preview}`
   function t4(zh, en) {
     return localize(zh, en);
   }
-  function escapeHtml(value) {
+  function escapeHtml2(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function positiveNumber3(value) {
@@ -27167,10 +28950,10 @@ ${preview}`
     const sprite = findItemsSpriteBase();
     const bare = String(itemHrid ?? "").split("/").at(-1);
     if (!sprite || !bare) {
-      return `<span class="icon-fallback" aria-label="${escapeHtml(name)}">?</span>`;
+      return `<span class="icon-fallback" aria-label="${escapeHtml2(name)}">?</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
+    return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml2(name)}"><use href="${escapeHtml2(href)}" xlink:href="${escapeHtml2(href)}"></use></svg>`;
   }
   function creditColor(creditItemHrid) {
     const key = String(creditItemHrid ?? "").split("/").at(-1)?.split("_")[0];
@@ -27251,22 +29034,22 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>${current ? `<span class="tag">${escapeHtml(t4("当前", "Current"))}</span>` : ""}</span></span>
-    <span class="price" title="${escapeHtml(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml(formatNumber2(option.costPerCredit))}<small>${escapeHtml(t4("每信用点", "per credit"))}</small></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml2(name)}">${escapeHtml2(name)}</span>${current ? `<span class="tag">${escapeHtml2(t4("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="price" title="${escapeHtml2(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml2(formatNumber2(option.costPerCredit))}<small>${escapeHtml2(t4("每信用点", "per credit"))}</small></span>
   </div>`;
   }
   function replacementSummaryMarkup(result, best) {
     if (!result) {
-      return `<div class="summary">${escapeHtml(t4("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
+      return `<div class="summary">${escapeHtml2(t4("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
     }
     if (result.status === "already_optimal") {
-      return `<div class="summary"><strong>${escapeHtml(t4("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
+      return `<div class="summary"><strong>${escapeHtml2(t4("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
     }
     if (result.status === "no_sell_quote") {
-      return `<div class="summary warning"><strong>${escapeHtml(t4("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml(t4("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
+      return `<div class="summary warning"><strong>${escapeHtml2(t4("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml2(t4("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
     }
     if (result.status === "unaffordable") {
-      return `<div class="summary warning"><strong>${escapeHtml(t4("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
+      return `<div class="summary warning"><strong>${escapeHtml2(t4("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
     }
     const name = itemName2(best.itemHrid);
     const difference = Number(result.difference) || 0;
@@ -27287,7 +29070,7 @@ ${preview}`
         `Direct exchange and switching to ${name} yield the same credits.`
       );
     }
-    return `<div class="summary"><strong>${escapeHtml(conclusion)}</strong><br>${escapeHtml(t4(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
+    return `<div class="summary"><strong>${escapeHtml2(conclusion)}</strong><br>${escapeHtml2(t4(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
   }
   function advisorMarkup({ context, ranked, selected, replacement }) {
     const top = ranked.slice(0, 3);
@@ -27300,10 +29083,10 @@ ${preview}`
         current: option.itemHrid === context.selectedItemHrid
       })
     ).join("");
-    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml(t4("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
+    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml2(t4("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
     const estimated = ranked.some(({ estimated: value }) => value) || replacement?.estimated;
-    return `<header class="head"><span class="title">${escapeHtml(t4("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml(creditName)}</span></span><span class="basis">${escapeHtml(t4("按订单深度", "Order-book depth"))}</span></header>
-    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml(t4("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml(t4("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
+    return `<header class="head"><span class="title">${escapeHtml2(t4("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml2(creditName)}</span></span><span class="basis">${escapeHtml2(t4("按订单深度", "Order-book depth"))}</span></header>
+    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml2(t4("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml2(t4("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
   }
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -27660,14 +29443,14 @@ ${preview}`
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID4 = "mwitools-production-profit-panel-style";
+  var STYLE_ID5 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
   function t5(zh, en) {
     return localize(zh, en);
   }
-  function escapeHtml2(value) {
+  function escapeHtml3(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function formatNumber3(value, digits = 1) {
@@ -27686,7 +29469,7 @@ ${preview}`
   function exactNumberTitle(value) {
     if (value === null || value === void 0 || value === "") return "";
     if (!Number.isFinite(Number(value))) return "";
-    return escapeHtml2(
+    return escapeHtml3(
       runtime.api.formatExactNumber?.(Number(value)) ?? String(value)
     );
   }
@@ -27723,17 +29506,17 @@ ${preview}`
     const bare = String(itemHrid ?? "").split("/").at(-1);
     const sprite = findItemsSpriteBase2();
     if (!bare || !sprite) {
-      return `<span class="mwi-profit-icon-fallback">${escapeHtml2(
+      return `<span class="mwi-profit-icon-fallback">${escapeHtml3(
         String(name || "?").trim().charAt(0) || "?"
       )}</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml2(name)}"><use href="${escapeHtml2(href)}" xlink:href="${escapeHtml2(href)}"></use></svg>`;
+    return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
-  function addStyles2() {
-    if (document.getElementById(STYLE_ID4)) return;
+  function addStyles3() {
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
     #${PANEL_ID2} * { box-sizing:border-box; }
@@ -27841,11 +29624,11 @@ ${preview}`
     if (item.kind === "rare") kind = t5("稀有", "Rare");
     const priceLabel = isInput ? t5("市价", "Market value") : item.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : t5("税后市价", "Net market value");
     return `
-    <div class="mwi-profit-item" data-item-hrid="${escapeHtml2(item.itemHrid)}">
+    <div class="mwi-profit-item" data-item-hrid="${escapeHtml3(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
       <div>
-        <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml2(kind)}</span>` : ""}${escapeHtml2(name)}</div>
-        <div class="mwi-profit-item-meta">${escapeHtml2(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
+        <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml3(kind)}</span>` : ""}${escapeHtml3(name)}</div>
+        <div class="mwi-profit-item-meta">${escapeHtml3(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
@@ -27854,7 +29637,7 @@ ${preview}`
     </div>`;
   }
   function renderValuationMetric(label, value, profit = false) {
-    return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml2(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
+    return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml3(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
   }
   var VALUATION_ROWS = [
     {
@@ -27891,8 +29674,8 @@ ${preview}`
     const profitPerDay = complete ? valuation.profitPerHour * 24 : null;
     return `<section class="mwi-profit-valuation-row${complete ? "" : " incomplete"}" data-mode="${definition.mode}">
     <div class="mwi-profit-valuation-name">
-      <div class="mwi-profit-valuation-title">${escapeHtml2(valuationText(definition.title))}</div>
-      <div class="mwi-profit-valuation-state">${escapeHtml2(valuationText(definition.explanation))}</div>
+      <div class="mwi-profit-valuation-title">${escapeHtml3(valuationText(definition.title))}</div>
+      <div class="mwi-profit-valuation-state">${escapeHtml3(valuationText(definition.explanation))}</div>
     </div>
     ${renderValuationMetric(t5("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
     ${renderValuationMetric(t5("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
@@ -27943,10 +29726,10 @@ ${preview}`
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml2(title)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml2(subtitle)}</div>
+        <div class="mwi-profit-title">${escapeHtml3(title)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml3(subtitle)}</div>
       </div>
-      <div class="mwi-profit-status ${status.className}">${escapeHtml2(status.label)}</div>
+      <div class="mwi-profit-status ${status.className}">${escapeHtml3(status.label)}</div>
     </header>`;
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
@@ -28048,7 +29831,7 @@ ${preview}`
     if (!warningParts.length) return;
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-warning">${escapeHtml2(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
+      `<div class="mwi-profit-warning">${escapeHtml3(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
     );
   }
   function renderLootChestDropCell(drop) {
@@ -28069,24 +29852,24 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     ].join("\n");
     const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t5("无价", "No price");
     return `
-    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml2(drop.itemHrid)}" title="${escapeHtml2(title)}">
+    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml3(drop.itemHrid)}" title="${escapeHtml3(title)}">
       ${redemptions.length ? `<span class="mwi-loot-best-badge">${t5("最佳兑换", "Best Exchange")}</span>` : ""}
       <div class="mwi-loot-cell-icon">
         ${renderItemIcon(drop.itemHrid, name)}
-        <span class="mwi-loot-cell-chance">${escapeHtml2(chance)}</span>
+        <span class="mwi-loot-cell-chance">${escapeHtml3(chance)}</span>
       </div>
       <div class="mwi-loot-cell-main">
-        <div class="mwi-loot-cell-name">${escapeHtml2(name)}</div>
-        <div class="mwi-loot-cell-value">${escapeHtml2(valueText)}</div>
+        <div class="mwi-loot-cell-name">${escapeHtml3(name)}</div>
+        <div class="mwi-loot-cell-value">${escapeHtml3(valueText)}</div>
       </div>
     </div>`;
   }
   function renderLootSwitch(setting, label, state, checked) {
     return `<div class="mwi-loot-control">
-    <span class="mwi-loot-control-label">${escapeHtml2(label)}</span>
-    <span class="mwi-loot-control-state">${escapeHtml2(state)}</span>
+    <span class="mwi-loot-control-label">${escapeHtml3(label)}</span>
+    <span class="mwi-loot-control-state">${escapeHtml3(state)}</span>
     <label class="mwi-loot-switch">
-      <input type="checkbox" data-mwi-loot-setting="${setting}" aria-label="${escapeHtml2(label)}"${checked ? " checked" : ""}>
+      <input type="checkbox" data-mwi-loot-setting="${setting}" aria-label="${escapeHtml3(label)}"${checked ? " checked" : ""}>
       <span aria-hidden="true"></span>
     </label>
   </div>`;
@@ -28130,8 +29913,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml2(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml2(hasKey ? t5("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t5("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-title">${escapeHtml3(productName)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml3(hasKey ? t5("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t5("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
       ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t5("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
@@ -28158,7 +29941,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
           <div class="mwi-profit-valuation-title">${t5("期望价值", "Expected value")}</div>
-          <div class="mwi-profit-valuation-state">${escapeHtml2(`${sellLabel} · ${keyLabel}`)}</div>
+          <div class="mwi-profit-valuation-state">${escapeHtml3(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
         ${renderValuationMetric(t5("毛期望价值", "Gross value"), chest.grossValue)}
         ${renderValuationMetric(t5("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
@@ -28176,7 +29959,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (chest.missing.length) {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-warning">${escapeHtml2(
+        `<div class="mwi-profit-warning">${escapeHtml3(
           `${t5("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
         )}</div>`
       );
@@ -28298,7 +30081,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles2();
+    addStyles3();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
@@ -28320,7 +30103,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles2();
+    addStyles3();
     const panel = createPanelElement();
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
     mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
@@ -29396,7 +31179,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID5 = "mwitools-action-dashboard-style";
+  var STYLE_ID6 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   function t6(zh, en) {
@@ -29527,10 +31310,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     item.append(count);
     return item;
   }
-  function addStyles3() {
-    if (document.getElementById(STYLE_ID5)) return;
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
@@ -29652,7 +31435,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function renderActionDashboard() {
-    addStyles3();
+    addStyles4();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = [...runtime.state.currentActionsHridList ?? []].sort(
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
@@ -29828,7 +31611,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return row;
   }
   function renderProductionQuickInputs() {
-    addStyles3();
+    addStyles4();
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const actionHrid = resolvePanelAction(panel);
@@ -29974,7 +31757,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return box;
   }
   function renderProductionPanel() {
-    addStyles3();
+    addStyles4();
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const existingCards = [
@@ -30091,7 +31874,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles3();
+      addStyles4();
       renderActionDashboard();
       scope.interval(renderActionDashboard, 500);
       scope.add(() => {
@@ -30157,7 +31940,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/procurement.js
-  var STYLE_ID6 = "mwitools-procurement-style";
+  var STYLE_ID7 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -30192,13 +31975,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function exactNumber(value) {
     return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
   }
-  function escapeHtml3(value) {
+  function escapeHtml4(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -30306,10 +32089,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const bare = procurement.normalizeItemHrid(item.itemHrid).split("/").at(-1);
     const sprite = findItemsSpriteBase4();
     if (!bare || !sprite) {
-      return `<span class="item-icon-fallback">${escapeHtml3((item.name || "?").trim().charAt(0) || "?")}</span>`;
+      return `<span class="item-icon-fallback">${escapeHtml4((item.name || "?").trim().charAt(0) || "?")}</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml3(item.name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
+    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml4(item.name)}"><use href="${escapeHtml4(href)}" xlink:href="${escapeHtml4(href)}"></use></svg>`;
   }
   function renderShell() {
     if (!shadow) return;
@@ -30362,7 +32145,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
       <button class="item-icon" title="${t7("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml3(item.name)}">${escapeHtml3(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-name" title="${escapeHtml4(item.name)}">${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
@@ -30461,7 +32244,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml3(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml4(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber4(plan.progress)} / ${formatNumber4(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
       <div class="plan-actions"><button data-action="count">${t7("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t7("重新打开", "Reopen") : t7("完成", "Complete")}</button><button data-action="remove">${t7("删除", "Delete")}</button></div>`;
@@ -30638,7 +32421,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml3(t7(zh, en))}${description ? `<small>${escapeHtml3(t7(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml4(t7(zh, en))}${description ? `<small>${escapeHtml4(t7(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
@@ -31108,7 +32891,7 @@ ${locks}` : ""}`;
       for (const stage of chain.stages) {
         const row = document.createElement("label");
         row.className = "mwi-procurement-chain-stage";
-        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml3(stage.actionHrid)}"><span>${escapeHtml3(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
+        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml4(stage.actionHrid)}"><span>${escapeHtml4(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
         list.append(row);
       }
       details.append(heading, list);
@@ -31668,7 +33451,7 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope, characterId }) {
       runtime.api.openProcurementMarketplace = openMarketplace;
-      addStyles4();
+      addStyles5();
       if (procurement.activeCharacterId !== characterId) {
         procurement.loadCharacterData(characterId);
       }
@@ -31682,7 +33465,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID6)?.remove();
+        document.getElementById(STYLE_ID7)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -31695,7 +33478,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/semi-auto-train.js
-  var STYLE_ID7 = "mwitools-semi-auto-train-style";
+  var STYLE_ID8 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
   var DETAIL_CLASS = "mwi-train-detail-modal";
   var ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
@@ -31737,10 +33520,10 @@ ${locks}` : ""}`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2600);
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
@@ -32561,7 +34344,7 @@ ${locks}` : ""}`;
     document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((node) => node.classList.remove(WIDE_WINDOW_CLASS));
     clearTrainShopHighlight();
-    document.getElementById(STYLE_ID7)?.remove();
+    document.getElementById(STYLE_ID8)?.remove();
     closeDetail();
     scanPending = false;
   }
@@ -32571,7 +34354,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["procurementAssistant"],
     initialize({ scope }) {
-      addStyles5();
+      addStyles6();
       scan();
       const observer = new MutationObserver(scheduleScan);
       scope.observer(observer, document.body, { childList: true, subtree: true });
@@ -32722,7 +34505,7 @@ ${locks}` : ""}`;
   }
 
   // src/features/tasks.js
-  var STYLE_ID8 = "mwitools-task-style";
+  var STYLE_ID9 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var originalCards = [];
   var taskListParent = null;
@@ -32982,10 +34765,10 @@ ${locks}` : ""}`;
     const symbol = String(hrid ?? "").split("/").at(-1);
     return base && symbol ? `${base}#${symbol}` : "";
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
@@ -34107,7 +35890,7 @@ ${locks}` : ""}`;
       delete node.dataset.mwitoolsMergeWired;
       delete node.dataset.mwitoolsResetWired;
     });
-    document.getElementById(STYLE_ID8)?.remove();
+    document.getElementById(STYLE_ID9)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
@@ -34129,7 +35912,7 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles6();
+      addStyles7();
       renderTasks();
       void loadTaskSpriteManifest().then(() => {
         lastTaskRenderSignature = "";
@@ -34185,7 +35968,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles6,
+    addTaskStyles: addStyles7,
     armTemporaryTaskReturn,
     cancelTemporaryTaskReturn,
     resumeTemporaryTaskReturn,
@@ -34197,17 +35980,17 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-train-planner.js
-  var STYLE_ID9 = "mwitools-task-train-planner-style";
+  var STYLE_ID10 = "mwitools-task-train-planner-style";
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var ACTION_SELECTOR = '[class*="RandomTask_action"]';
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     .${CONTROL_CLASS2}{flex:0 0 auto;margin-right:4px;white-space:nowrap}
     button.${CONTROL_CLASS2}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
@@ -34361,7 +36144,7 @@ ${locks}` : ""}`;
   }
   function cleanup3() {
     document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
-    document.getElementById(STYLE_ID9)?.remove();
+    document.getElementById(STYLE_ID10)?.remove();
   }
   runtime.features.register({
     id: "taskTrainPlanner",
@@ -34369,7 +36152,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
-      addStyles7();
+      addStyles8();
       render();
       let pending = false;
       const schedule = () => {
@@ -34405,7 +36188,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID10 = "mwitools-task-new-style";
+  var STYLE_ID11 = "mwitools-task-new-style";
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
@@ -34478,10 +36261,10 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     ${TASK_SELECTOR3}.mwi-task-is-new{position:relative}
     .mwi-task-new-badge{position:absolute;z-index:5;right:5px;top:5px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto!important;min-width:18px!important;max-width:max-content!important;height:18px!important;min-height:18px!important;margin:0!important;padding:0 4px!important;flex:0 0 auto!important;border:1px solid rgba(255,220,128,.72);border-radius:4px;background:#f0aa2e;color:#221704;font-size:9px;font-weight:800;line-height:16px;letter-spacing:0;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.32);pointer-events:none}
@@ -34494,7 +36277,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID10)?.remove();
+    document.getElementById(STYLE_ID11)?.remove();
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -34502,7 +36285,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles8();
+      addStyles9();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       liveTaskNewStates.set(storageKey, state);
@@ -34832,7 +36615,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID11 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID12 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
   function t11(zh, en) {
@@ -34972,10 +36755,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -35125,7 +36908,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles9();
+      addStyles10();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid) => {
@@ -35178,7 +36961,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID11)?.remove();
+        document.getElementById(STYLE_ID12)?.remove();
       });
       refresh();
     }
@@ -35543,9 +37326,9 @@ ${locks}` : ""}`;
   }
 
   // src/features/feedback/panel.js
-  var ROOT_ID = "mwitools-feedback-root";
+  var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID12 = "mwitools-feedback-style";
+  var STYLE_ID13 = "mwitools-feedback-style";
   function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -35557,14 +37340,14 @@ ${locks}` : ""}`;
     };
     return labels[status] ? t13(...labels[status]) : status;
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
-    #${ROOT_ID}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID}[hidden]{display:none}
+    #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
     .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
     .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}.mwi-feedback-tab .mwi-feedback-badge{right:calc(50% - 52px);top:4px}
@@ -35572,7 +37355,7 @@ ${locks}` : ""}`;
     .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
     .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}
-    @media(max-width:620px){#${ROOT_ID}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+    @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -35601,9 +37384,9 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles10();
+      addStyles11();
       this.root = document.createElement("div");
-      this.root.id = ROOT_ID;
+      this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
       <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见反馈", "MWITools Feedback")}">
@@ -35684,7 +37467,7 @@ ${locks}` : ""}`;
     setUnread(count) {
       this.unread = Math.max(0, Number(count) || 0);
       for (const badge of document.querySelectorAll(
-        `#${BUTTON_ID} .mwi-feedback-badge,#${ROOT_ID} .mwi-feedback-tab .mwi-feedback-badge`
+        `#${BUTTON_ID} .mwi-feedback-badge,#${ROOT_ID2} .mwi-feedback-tab .mwi-feedback-badge`
       )) {
         badge.dataset.count = String(this.unread);
         badge.textContent = String(this.unread);
@@ -36007,10 +37790,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID12)?.remove();
+      document.getElementById(STYLE_ID13)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID, BUTTON_ID, STYLE_ID: STYLE_ID12 };
+  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID13 };
 
   // src/features/feedback/index.js
   var activeClient = null;
@@ -36059,7 +37842,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID13 = "mwitools-guild-xp-style";
+  var STYLE_ID14 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
@@ -36182,10 +37965,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID14;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -36677,7 +38460,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles11();
+      addStyles12();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -36692,7 +38475,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles11();
+        addStyles12();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -38081,17 +39864,17 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID14 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID15 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
   function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles12() {
-    if (document.getElementById(STYLE_ID14)) return;
+  function addStyles13() {
+    if (document.getElementById(STYLE_ID15)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID14;
+    style.id = STYLE_ID15;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -38265,7 +40048,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles12();
+    addStyles13();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -39096,14 +40879,14 @@ ${locks}` : ""}`;
   var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
   var CACHE_KEY = "MWITools_important_update_manifest_v1";
   var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID15 = "mwitools-important-update-style";
+  var STYLE_ID16 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t17(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.4");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.5");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -39220,10 +41003,10 @@ ${locks}` : ""}`;
     saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles13() {
-    if (document.getElementById(STYLE_ID15)) return;
+  function addStyles14() {
+    if (document.getElementById(STYLE_ID16)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID15;
+    style.id = STYLE_ID16;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -39241,7 +41024,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles13();
+    addStyles14();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -39284,7 +41067,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID15)?.remove();
+        document.getElementById(STYLE_ID16)?.remove();
       });
     }
   });

@@ -362,7 +362,7 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
   assert.ok(
     Math.abs(
       result.inputs.find((item) => item.itemHrid === "/items/base")
-        .effectiveCount - 7.23,
+        .effectiveCount - 8.12,
     ) < 1e-12,
   );
   assert.equal(
@@ -370,12 +370,12 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
       .effectiveCount,
     1.78,
   );
-  assert.ok(Math.abs(result.materialCostPerAction - 379.3) < 1e-12);
+  assert.ok(Math.abs(result.materialCostPerAction - 423.8) < 1e-12);
   assert.ok(Math.abs(result.primaryRevenuePerAction - 122) < 1e-12);
   assert.ok(Math.abs(result.byproductRevenuePerAction - 186) < 1e-12);
   assert.ok(Math.abs(result.teaCostPerHour - 1_320) < 1e-12);
-  assert.ok(Math.abs(result.netProfitPerAction - -72.4) < 1e-12);
-  assert.ok(Math.abs(result.profitPerHour - -86_880) < 1e-8);
+  assert.ok(Math.abs(result.netProfitPerAction - -116.9) < 1e-12);
+  assert.ok(Math.abs(result.profitPerHour - -140_280) < 1e-8);
 });
 
 test("gathering processing tea splits raw drops into recipe outputs", () => {

@@ -398,13 +398,29 @@ function materialRequirement(input, actionHrid, actionCount, options = {}) {
   const itemHrid = normalizeItemHrid(input.itemHrid);
   const enhancementLevel = normalizeEnhancementLevel(input.enhancementLevel);
   const baseCount = Math.max(0, Number(input.count) || 0);
+  const protectedCount = options.isUpgradeItem
+    ? Math.min(baseCount, Math.max(0, Number(input.upgradeItemCount) || 1))
+    : 0;
+  const reducibleCount = Math.max(0, baseCount - protectedCount);
   const bufferable =
-    !isCoin(itemHrid) && !options.isUpgradeItem && options.bufferable !== false;
-  const calculated = suggestedMaterialCount(
-    baseCount,
+    !isCoin(itemHrid) && reducibleCount > 0 && options.bufferable !== false;
+  const protectedCalculation = suggestedMaterialCount(
+    protectedCount,
+    actionCount,
+    0,
+    { bufferable: false },
+  );
+  const reducibleCalculation = suggestedMaterialCount(
+    reducibleCount,
     actionCount,
     bufferable ? getTeaSavings(actionHrid) : 0,
     { bufferable },
+  );
+  const calculated = Object.fromEntries(
+    ["raw", "expected", "buffer", "suggested"].map((key) => [
+      key,
+      protectedCalculation[key] + reducibleCalculation[key],
+    ]),
   );
   const owned = getInventoryCount(itemHrid, enhancementLevel);
   const locked = getLockedDetails(
@@ -559,16 +575,19 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
     }
     if (upgradeHrid) {
       const producer = getProducerAction(upgradeHrid);
+      const upgradeMaterial = projection.materials.find(
+        (material) => material.itemHrid === upgradeHrid,
+      );
       if (producer) {
         visit(
           producer.actionHrid,
-          Math.ceil(currentCount / producer.outputCount),
+          Math.ceil(
+            Math.max(0, Number(upgradeMaterial?.suggested) || 0) /
+              producer.outputCount,
+          ),
           depth + 1,
         );
       } else {
-        const upgradeMaterial = projection.materials.find(
-          (material) => material.itemHrid === upgradeHrid,
-        );
         if (upgradeMaterial) mergeMaterial(leaves, upgradeMaterial);
       }
     }

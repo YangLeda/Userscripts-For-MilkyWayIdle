@@ -83,6 +83,19 @@ export class AssetHistoryChart {
   }
 
   render(entries, { mode = "total", range = null } = {}) {
+    return this.renderWithOptions(entries, { mode, range });
+  }
+
+  renderWithOptions(
+    entries,
+    {
+      mode = "total",
+      range = null,
+      maWindow = 7,
+      lineTension = 0.25,
+      tags = [],
+    } = {},
+  ) {
     const Chart = globalThis.Chart;
     if (typeof Chart !== "function") {
       this.destroy();
@@ -98,7 +111,7 @@ export class AssetHistoryChart {
     this.fallback.hidden = true;
 
     const filtered = filterEntries(entries, range);
-    const labels = filtered.map(([date]) => date.slice(5));
+    const labels = filtered.map(([date]) => date);
     let datasets;
     let title;
     if (mode === "profit") {
@@ -115,13 +128,13 @@ export class AssetHistoryChart {
         },
         {
           type: "line",
-          label: t("7 日均线", "7-day average"),
-          data: calendarAverage(filtered, "total"),
+          label: t(`${maWindow} 日均线`, `${maWindow}-day average`),
+          data: calendarAverage(filtered, "total", maWindow),
           borderColor: "#ffd369",
           backgroundColor: "transparent",
           borderWidth: 2,
           pointRadius: 0,
-          tension: 0.22,
+          tension: lineTension,
           spanGaps: true,
         },
       ];
@@ -135,7 +148,7 @@ export class AssetHistoryChart {
         backgroundColor: COLORS[key],
         borderWidth: 2,
         pointRadius: 2,
-        tension: 0.2,
+        tension: lineTension,
         spanGaps: true,
       }));
       title = t("分项每日变化", "Daily component changes");
@@ -150,7 +163,7 @@ export class AssetHistoryChart {
           fill: true,
           borderWidth: 2,
           pointRadius: 2,
-          tension: 0.2,
+          tension: lineTension,
           spanGaps: true,
         },
       ];
@@ -158,8 +171,67 @@ export class AssetHistoryChart {
     }
 
     this.destroy();
+    const crosshairPlugin = {
+      id: "mwitoolsAssetCrosshair",
+      afterDraw(chart) {
+        const active = chart.tooltip?.getActiveElements?.()?.[0];
+        if (!active) return;
+        const { ctx, chartArea } = chart;
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(active.element.x, chartArea.top);
+        ctx.lineTo(active.element.x, chartArea.bottom);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255,255,255,.22)";
+        ctx.stroke();
+        ctx.restore();
+      },
+    };
+    const tagPlugin = {
+      id: "mwitoolsAssetTags",
+      afterDatasetsDraw(chart) {
+        if (!tags.length) return;
+        const visibleTags = tags.filter((tag) => labels.includes(tag.date));
+        if (!visibleTags.length) return;
+        const { ctx, chartArea, scales } = chart;
+        ctx.save();
+        ctx.font = "11px system-ui";
+        ctx.textBaseline = "top";
+        for (const tag of visibleTags) {
+          const index = labels.indexOf(tag.date);
+          const x = scales.x.getPixelForValue(index);
+          ctx.strokeStyle = tag.color ?? "rgba(251,191,36,.4)";
+          ctx.setLineDash([3, 4]);
+          ctx.beginPath();
+          ctx.moveTo(x, chartArea.top + 18);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          const text = String(tag.text ?? "").slice(0, 18);
+          const width = Math.min(150, ctx.measureText(text).width + 12);
+          ctx.fillStyle = "rgba(30,32,44,.94)";
+          ctx.fillRect(
+            Math.min(chartArea.right - width, Math.max(chartArea.left, x + 4)),
+            chartArea.top + 2,
+            width,
+            16,
+          );
+          ctx.fillStyle = tag.color ?? "#f8d477";
+          ctx.fillText(
+            text,
+            Math.min(
+              chartArea.right - width + 6,
+              Math.max(chartArea.left + 6, x + 10),
+            ),
+            chartArea.top + 4,
+          );
+        }
+        ctx.restore();
+      },
+    };
     this.instance = new Chart(this.canvas.getContext("2d"), {
       data: { labels, datasets },
+      plugins: [crosshairPlugin, tagPlugin],
       options: {
         responsive: true,
         maintainAspectRatio: false,
@@ -188,7 +260,14 @@ export class AssetHistoryChart {
         },
         scales: {
           x: {
-            ticks: { color: "#bbb", maxRotation: 0, autoSkip: true },
+            ticks: {
+              color: "#bbb",
+              maxRotation: 0,
+              autoSkip: true,
+              callback(value) {
+                return String(labels[value] ?? "").slice(5);
+              },
+            },
             grid: { color: "rgba(255,255,255,.06)" },
           },
           y: {

@@ -44,6 +44,14 @@ runtime.state.initData_actionDetailMap = {
     upgradeItemHrid: "/items/board",
     outputItems: [{ itemHrid: "/items/final", count: 1 }],
   },
+  "/actions/crafting/stacked-final": {
+    hrid: "/actions/crafting/stacked-final",
+    name: "Stacked Final",
+    type: "/action_types/crafting",
+    inputItems: [{ itemHrid: "/items/board", count: 8 }],
+    upgradeItemHrid: "/items/board",
+    outputItems: [{ itemHrid: "/items/final", count: 1 }],
+  },
 };
 runtime.state.initData_characterItems = [
   {
@@ -111,6 +119,28 @@ test("artisan safety margin uses per-action fractional variance and pouch concen
     178,
   );
   procurement.setSetting("guzzlingPouchLevel", -1);
+});
+
+test("upgrade recipes add one unreduced base item to artisan-adjusted materials", () => {
+  const result = procurement.calculateRequirements(
+    "/actions/crafting/stacked-final",
+    3,
+  );
+  const board = result.materials.find(
+    (material) => material.itemHrid === "/items/board",
+  );
+  assert.equal(board.raw, 27);
+  assert.equal(board.expected, 24.6);
+  assert.equal(board.suggested, 25);
+
+  const chain = procurement.calculateUpgradeChain(
+    "/actions/crafting/stacked-final",
+    3,
+  );
+  assert.deepEqual(
+    chain.leaves.map(({ itemHrid, suggested }) => [itemHrid, suggested]),
+    [["/items/log", 45]],
+  );
 });
 
 test("selected upgrade stages buy predecessor items when their producer is excluded", () => {

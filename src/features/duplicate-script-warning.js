@@ -3,8 +3,6 @@ import { runtime } from "../core/runtime.js";
 const WARNING_ID = "mwitools-duplicate-script-warning";
 const pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
 const dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
-let warningShown = false;
-let warningDismissed = false;
 
 function detectDuplicateScripts(options = {}) {
   const target = options.pageWindow ?? pageWindow;
@@ -30,7 +28,11 @@ function detectDuplicateScripts(options = {}) {
 
 function showDuplicateWarning(
   duplicates,
-  { documentRef = globalThis.document, isZH = runtime.config.isZH } = {},
+  {
+    documentRef = globalThis.document,
+    isZH = runtime.config.isZH,
+    onDismiss = null,
+  } = {},
 ) {
   if (!duplicates.length || !documentRef?.body) return null;
   let warning = documentRef.getElementById(WARNING_ID);
@@ -48,7 +50,7 @@ function showDuplicateWarning(
     close.style.cssText =
       "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
     close.addEventListener("click", () => {
-      warningDismissed = true;
+      onDismiss?.();
       warning.remove();
     });
     warning.append(close, documentRef.createElement("div"));
@@ -56,30 +58,105 @@ function showDuplicateWarning(
   }
   const content = warning.lastElementChild;
   const names = duplicates.join(isZH ? "、" : ", ");
-  content.textContent = isZH
+  const message = isZH
     ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。`
     : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+  if (content.textContent !== message) content.textContent = message;
   return warning;
+}
+
+function duplicateSignature(duplicates) {
+  return [...new Set(duplicates)].sort().join("\u0000");
+}
+
+function createDuplicateWarningMonitor(options = {}) {
+  const documentRef = options.documentRef ?? globalThis.document;
+  const detect = options.detect ?? (() => detectDuplicateScripts(options));
+  const render = options.render ?? showDuplicateWarning;
+  const scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask;
+  const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
+  const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
+  const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
+  const intervalMs = options.intervalMs ?? 1_000;
+  const detected = new Set();
+  let lastSignature = "";
+  let dismissed = false;
+  let pending = false;
+  let destroyed = false;
+
+  const scan = () => {
+    pending = false;
+    if (destroyed || dismissed) return;
+    for (const name of detect()) detected.add(name);
+    if (!detected.size) return;
+    const duplicates = [...detected].sort();
+    const signature = duplicateSignature(duplicates);
+    if (signature === lastSignature) return;
+    lastSignature = signature;
+    render(duplicates, {
+      documentRef,
+      isZH: options.isZH ?? runtime.config.isZH,
+      onDismiss() {
+        dismissed = true;
+      },
+    });
+  };
+
+  const schedule = () => {
+    if (destroyed || dismissed || pending) return;
+    pending = true;
+    scheduleTask(() => {
+      if (destroyed) return;
+      scan();
+    });
+  };
+
+  scan();
+  const intervalId = setIntervalRef?.(schedule, intervalMs);
+  const observer =
+    typeof Observer === "function"
+      ? new Observer((records) => {
+          const warning = documentRef?.getElementById(WARNING_ID);
+          if (
+            warning &&
+            records?.length &&
+            records.every(
+              (record) =>
+                record.target === warning || warning.contains(record.target),
+            )
+          ) {
+            return;
+          }
+          schedule();
+        })
+      : null;
+  observer?.observe(documentRef.body, { childList: true, subtree: true });
+
+  return {
+    scan,
+    schedule,
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      pending = false;
+      observer?.disconnect();
+      if (intervalId !== undefined) clearIntervalRef?.(intervalId);
+      documentRef?.getElementById(WARNING_ID)?.remove();
+    },
+  };
 }
 
 runtime.features.register({
   id: "duplicateScriptWarning",
   initialize({ scope }) {
-    if (warningShown) return;
-    const detected = new Set();
-    const scan = () => {
-      if (warningDismissed) return;
-      for (const name of detectDuplicateScripts()) detected.add(name);
-      if (!detected.size) return;
-      warningShown = true;
-      showDuplicateWarning([...detected]);
-    };
-    scan();
-    scope.interval(scan, 1_000);
-    const observer = new MutationObserver(scan);
-    scope.observer(observer, document.body, { childList: true, subtree: true });
-    scope.add(() => document.getElementById(WARNING_ID)?.remove());
+    const monitor = createDuplicateWarningMonitor();
+    scope.add(() => monitor.destroy());
   },
 });
 
-export { detectDuplicateScripts, showDuplicateWarning };
+export {
+  createDuplicateWarningMonitor,
+  detectDuplicateScripts,
+  duplicateSignature,
+  showDuplicateWarning,
+};

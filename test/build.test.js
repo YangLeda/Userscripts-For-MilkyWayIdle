@@ -16,7 +16,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.4$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.5$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -47,15 +47,17 @@ test("generated userscript has a single valid metadata block", () => {
     "// @grant        GM_setValue",
     "// @connect      feedback.43.167.210.211.sslip.io",
     "// @connect      mwi-guild.43.167.210.211.sslip.io",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chart.js-4.4.3.umd.min.js#sha256-1G2Xof0CLF+yn6L0Xry8MiAtc67r8HbOX3JI9UmPx9c=",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/hammerjs-2.0.8.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=",
-    "// @require      https://milk.43.167.210.211.sslip.io/scripts/vendor/chartjs-plugin-zoom-2.0.1.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=",
+    "// @require      https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.3.3/chart.umd.min.js#sha256-AaB6aVBgu9b1y80d/HEgMq4AnFJ7K/Y+9tzK1/MrvF4=",
+    "// @require      https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js#sha256-UDxwmAK+KFxnav4Dab9fcgZtCwwjkpGIwxWPNcAyepw=",
+    "// @require      https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js#sha256-eVNjHw5UeU0jUqPPpZHAkU1z4U+QFBBY488WvueTm88=",
   ]) {
     assert.ok(
       output.includes(directive),
       `missing metadata directive: ${directive}`,
     );
   }
+  assert.equal(output.match(/^\/\/ @require\s+/gm)?.length, 3);
+  assert.doesNotMatch(output, /unpkg\.com|Chart\.js@|hammerjs@/);
   assert.doesNotMatch(
     output,
     /mathjs|ChartDataLabels|chartjs-plugin-crosshair|dragscroll/,

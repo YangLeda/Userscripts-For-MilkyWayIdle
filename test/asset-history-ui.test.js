@@ -387,3 +387,59 @@ test("assetHistory feature survives repeated character-scoped enable and disable
   }
   await runtime.features.disable("assetHistory");
 });
+
+test("asset center opens from the native P/L tab and cleans up its modal", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  store.setPreferences({ windowSize: { w: 980, h: 700 } });
+  const ui = createAssetHistoryUi({ scope, store, scopeKey: "production:7" });
+
+  document.querySelector("#mwitools-asset-history-tab").click();
+  const openButton = document.querySelector("#mwi-asset-open-center");
+  assert.equal(openButton.textContent, "打开资产中心");
+  openButton.focus();
+  openButton.click();
+  let modal = document.querySelector("#mwitools-asset-center-modal");
+  assert.equal(modal.hidden, false);
+  assert.equal(document.body.dataset.mwitoolsAssetCenterOpen, "true");
+  assert.equal(modal.querySelector(".ep-shell").style.width, "980px");
+  assert.equal(modal.querySelector(".ep-shell").style.height, "700px");
+  assert.ok(modal.querySelector('[data-route="analysis"]'));
+  assert.ok(modal.querySelector('[data-route="achievements"]'));
+
+  modal.querySelector('[data-route="stats"]').click();
+  assert.match(modal.querySelector(".ep-top-title").textContent, /统计报表/);
+  modal.querySelector('[data-report-mode="week"]').click();
+  assert.equal(
+    modal
+      .querySelector('[data-report-mode="week"]')
+      .classList.contains("active"),
+    true,
+  );
+  modal.querySelector('[data-route="settings"]').click();
+  const theme = modal.querySelector('[data-setting="themeMode"]');
+  theme.value = "light";
+  theme.dispatchEvent(new window.Event("change"));
+  assert.equal(modal.classList.contains("ep-light"), true);
+
+  modal.querySelector("[data-language]").click();
+  modal = document.querySelector("#mwitools-asset-center-modal");
+  assert.equal(
+    document.querySelectorAll("#mwitools-asset-center-modal").length,
+    1,
+  );
+  document.dispatchEvent(
+    new window.KeyboardEvent("keydown", { key: "Escape" }),
+  );
+  assert.equal(modal.hidden, true);
+  assert.equal(document.body.dataset.mwitoolsAssetCenterOpen, undefined);
+  assert.equal(document.activeElement, openButton);
+
+  ui.destroy();
+  scope.cleanup();
+  assert.equal(document.querySelector("#mwitools-asset-center-modal"), null);
+  shell.remove();
+});

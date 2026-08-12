@@ -116,17 +116,28 @@ function getDirectInputs(detail) {
   const inputs = asArray(detail?.inputItems).map((item) => ({
     itemHrid: item.itemHrid,
     count: Number(item.count) || 0,
-    isUpgradeItem: item.itemHrid === detail?.upgradeItemHrid,
+    isUpgradeItem: false,
+    upgradeItemCount: 0,
   }));
-  if (
-    detail?.upgradeItemHrid &&
-    !inputs.some((input) => input.itemHrid === detail.upgradeItemHrid)
-  ) {
-    inputs.push({
-      itemHrid: detail.upgradeItemHrid,
-      count: 1,
-      isUpgradeItem: true,
-    });
+  if (detail?.upgradeItemHrid) {
+    const matchingIndex = inputs.findIndex(
+      (input) => input.itemHrid === detail.upgradeItemHrid,
+    );
+    if (matchingIndex >= 0) {
+      inputs[matchingIndex] = {
+        ...inputs[matchingIndex],
+        count: inputs[matchingIndex].count + 1,
+        isUpgradeItem: true,
+        upgradeItemCount: 1,
+      };
+    } else {
+      inputs.push({
+        itemHrid: detail.upgradeItemHrid,
+        count: 1,
+        isUpgradeItem: true,
+        upgradeItemCount: 1,
+      });
+    }
   }
   return inputs;
 }
@@ -135,7 +146,10 @@ function getEffectiveInputCount(input, lessResource) {
   const count = Math.max(0, Number(input?.count) || 0);
   const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
   if (!input?.isUpgradeItem) return count * (1 - reduction);
-  const retainedCount = Math.min(1, count);
+  const retainedCount = Math.min(
+    count,
+    Math.max(0, Number(input?.upgradeItemCount) || 1),
+  );
   return retainedCount + (count - retainedCount) * (1 - reduction);
 }
 

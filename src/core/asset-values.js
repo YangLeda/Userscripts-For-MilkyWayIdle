@@ -312,12 +312,7 @@ function getLootKeyCost(keyItemHrid, config) {
 
     const inputs = [...(action?.inputItems ?? [])];
     const upgradeItemHrid = action?.upgradeItemHrid;
-    if (
-      upgradeItemHrid &&
-      !inputs.some(
-        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
-      )
-    ) {
+    if (upgradeItemHrid) {
       inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
     }
 
@@ -711,10 +706,7 @@ function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
     let complete = true;
     const inputItems = action?.inputItems ?? [];
     const upgradeItemHrid = action?.upgradeItemHrid;
-    const upgradeIncludedInInputs = inputItems.some(
-      (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
-    );
-    if (upgradeItemHrid && !upgradeIncludedInInputs) {
+    if (upgradeItemHrid) {
       const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
       const upgradeValue = acquisitionCostValue(
         upgradeItemHrid,
@@ -997,12 +989,7 @@ function getCraftedLiquidationValue(itemHrid, enhancementLevel, mode, context) {
 
     const inputItems = [...(action?.inputItems ?? [])];
     const upgradeItemHrid = action?.upgradeItemHrid;
-    if (
-      upgradeItemHrid &&
-      !inputItems.some(
-        (input) => (input?.itemHrid ?? input?.hrid) === upgradeItemHrid,
-      )
-    ) {
+    if (upgradeItemHrid) {
       inputItems.unshift({
         itemHrid: upgradeItemHrid,
         enhancementLevel: action.retainAllEnhancement ? enhancementLevel : 0,

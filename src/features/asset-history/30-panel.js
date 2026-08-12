@@ -2,6 +2,7 @@ import { runtime } from "../../core/runtime.js";
 import { ASSET_COMPONENT_KEYS } from "./00-snapshot.js";
 import { getUtc8DayKey } from "./10-store.js";
 import { AssetHistoryChart } from "./20-chart.js";
+import { createAssetCenter } from "./25-center.js";
 
 const TAB_ID = "mwitools-asset-history-tab";
 const PANEL_ID = "mwitools-asset-history-panel";
@@ -398,12 +399,17 @@ class AssetHistoryPanel {
     this.mode = "total";
     this.range = 30;
     this.build();
+    this.center = createAssetCenter({
+      store: this.store,
+      scopeKey: this.scopeKey,
+      onChange: () => this.update(this.snapshot),
+    });
   }
 
   build() {
     this.host.innerHTML = `
       <p class="mwi-asset-disclaimer">${t("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
       <div class="mwi-asset-summary">
         ${createCard(t("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
@@ -455,6 +461,9 @@ class AssetHistoryPanel {
   }
 
   bind() {
+    this.host
+      .querySelector("#mwi-asset-open-center")
+      .addEventListener("click", () => this.center?.open());
     this.host
       .querySelector("#mwi-asset-share-chat")
       .addEventListener("click", () => this.shareToChat());
@@ -621,6 +630,7 @@ class AssetHistoryPanel {
 
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
+    this.center?.update(this.snapshot);
     const dayKey = getUtc8DayKey();
     const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
     const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -760,6 +770,7 @@ class AssetHistoryPanel {
 
   destroy() {
     this.chart.destroy();
+    this.center?.destroy();
   }
 }
 

@@ -16,9 +16,17 @@ await import("../src/core/state.js");
 const {
   AssetHistoryStore,
   ASSET_HISTORY_BACKUP_MARKER,
+  ASSET_HISTORY_SCHEMA_VERSION,
   getUtc8DayKey,
   normalizeAssetValues,
 } = await import("../src/features/asset-history/10-store.js");
+const {
+  buildHeatmap,
+  calculateAchievements,
+  componentAnalysis,
+  periodStatistics,
+  simulateNetWorth,
+} = await import("../src/features/asset-history/15-analytics.js");
 const { calculateMarketListingValues, getAssetSnapshot } =
   await import("../src/features/asset-history/00-snapshot.js");
 const { AssetHistoryChart } =
@@ -363,4 +371,182 @@ test("history charts retain zoom gestures and calendar-normalized 7-day averages
   assert.equal(options.options.plugins.zoom.zoom.wheel.enabled, true);
   assert.equal(options.options.plugins.zoom.zoom.pinch.enabled, true);
   assert.equal(options.options.plugins.zoom.pan.enabled, true);
+});
+
+test("schema two migrates complete Everyday Profit state without deleting legacy keys", () => {
+  localStorage.clear();
+  localStorage.setItem(
+    "kbd_calc_data",
+    JSON.stringify({ Stella: { "2026-08-01": 100, "2026-08-02": 150 } }),
+  );
+  localStorage.setItem(
+    "kbd_calc_breakdown_data",
+    JSON.stringify({
+      Stella: {
+        "2026-08-02": {
+          equip: 10,
+          inventory: 20,
+          orders: 30,
+          house: 40,
+          skill: 50,
+        },
+      },
+    }),
+  );
+  localStorage.setItem(
+    "kbd_calc_tags",
+    JSON.stringify({
+      Stella: {
+        "2026-08-02": [{ id: "tag-1", text: "强化成功", type: "enhance" }],
+      },
+    }),
+  );
+  localStorage.setItem(
+    "ep_achievements_data",
+    JSON.stringify({
+      Stella: { nw_1m: { unlocked: true, date: "2026-08-02" } },
+    }),
+  );
+  localStorage.setItem("ep_goal_target", JSON.stringify({ Stella: 999 }));
+  localStorage.setItem("ep_theme_mode", "light");
+  localStorage.setItem("ep_chart_settings", JSON.stringify({ maWindow: 14 }));
+
+  const store = new AssetHistoryStore(localStorage);
+  assert.equal(store.data.version, ASSET_HISTORY_SCHEMA_VERSION);
+  assert.equal(
+    store.migrateLegacy({ scopeKey: "production:7", roleName: "Stella" }),
+    2,
+  );
+  assert.equal(store.listTags("production:7")[0].text, "强化成功");
+  assert.equal(store.getGoalTarget("production:7"), 999);
+  assert.equal(store.getAchievements("production:7").nw_1m.unlocked, true);
+  assert.equal(store.getPreferences().themeMode, "light");
+  assert.equal(store.getPreferences().chart.maWindow, 14);
+  assert.ok(localStorage.getItem("kbd_calc_tags"));
+});
+
+test("legacy role buckets migrate once in stable order and EP backup settings are restored", () => {
+  localStorage.clear();
+  localStorage.setItem(
+    "kbd_calc_data",
+    JSON.stringify({
+      Alice: { "2026-08-01": 100 },
+      Bob: { "2026-08-01": 200 },
+    }),
+  );
+  const store = new AssetHistoryStore(localStorage);
+  store.migrateLegacy({ scopeKey: "production:7" });
+  store.migrateLegacy({ scopeKey: "production:8" });
+  assert.equal(store.list("production:7")[0][1].values.total, 100);
+  assert.equal(store.list("production:8")[0][1].values.total, 200);
+
+  store.importBackup(
+    {
+      __everyday_profit_backup__: true,
+      payload: {
+        kbd_calc_data: { Bob: { "2026-08-02": 250 } },
+      },
+      settings: {
+        ep_theme_mode: "light",
+        ep_window_size: { w: 920, h: 680 },
+        ep_chart_settings: { defaultView: "profit", maWindow: 14 },
+      },
+    },
+    { mode: "merge", scopeKey: "production:8" },
+  );
+  assert.equal(store.getPreferences().themeMode, "light");
+  assert.deepEqual(store.getPreferences().windowSize, { w: 920, h: 680 });
+  assert.equal(store.getPreferences().chart.defaultView, "profit");
+});
+
+test("tags, preferences, and full schema two backups round-trip", () => {
+  localStorage.clear();
+  const store = new AssetHistoryStore(localStorage);
+  const scope = "production:7";
+  store.record(snapshot("2026-08-01T12:00:00Z"), scope);
+  const tag = store.addTag("2026-08-01", " first   milestone ", "life", scope);
+  assert.equal(tag.text, "first milestone");
+  assert.equal(
+    store.updateTag(tag.id, { text: "updated" }, scope).text,
+    "updated",
+  );
+  store.setGoalTarget(5_000, scope);
+  store.setPreferences({ themeMode: "light", chart: { maWindow: 21 } });
+  const backup = store.exportBackup();
+  assert.equal(backup.schema, ASSET_HISTORY_SCHEMA_VERSION);
+
+  const restored = new AssetHistoryStore(dom.window.sessionStorage);
+  assert.equal(
+    restored.importBackup(backup, { mode: "full", scopeKey: scope }),
+    1,
+  );
+  assert.equal(restored.listTags(scope)[0].text, "updated");
+  assert.equal(restored.getGoalTarget(scope), 5_000);
+  assert.equal(restored.getPreferences().chart.maWindow, 21);
+  assert.equal(restored.deleteTag(tag.id, scope), true);
+});
+
+function analyticsEntry(date, total, componentOffset = 0) {
+  const values = completeValues(componentOffset);
+  values.total = total;
+  return [date, { values }];
+}
+
+test("reports, heatmaps, components, and achievements use structured history", () => {
+  const entries = [
+    analyticsEntry("2026-08-01", 1_000),
+    analyticsEntry("2026-08-04", 1_300, 300),
+    analyticsEntry("2026-08-05", 1_200, 200),
+    analyticsEntry("2026-08-06", 2_100, 1_100),
+  ];
+  const report = periodStatistics(entries);
+  assert.equal(report.totalProfit, 1_100);
+  assert.equal(report.averagePerDay, 220);
+  assert.equal(report.profitDays, 2);
+  assert.equal(report.lossDays, 1);
+  assert.equal(buildHeatmap(entries)["2026-08-04"].gapDays, 3);
+  const analysis = componentAnalysis(entries, null);
+  assert.equal(analysis.gapDays, 5);
+  assert.equal(analysis.components.length, 7);
+  const achievements = calculateAchievements(entries);
+  assert.equal(achievements.find(({ id }) => id === "growth_5").unlocked, true);
+  assert.equal(achievements.find(({ id }) => id === "comeback").unlocked, true);
+  for (const id of [
+    "bd_equip_1b",
+    "bd_inv_1b",
+    "bd_order_1b",
+    "bd_house_1b",
+    "bd_skill_1b",
+    "bd_tokens_1b",
+    "bd_shrine_1b",
+  ]) {
+    assert.ok(achievements.some((achievement) => achievement.id === id));
+  }
+});
+
+test("Monte Carlo is deterministic with an injected random source", () => {
+  const entries = Array.from({ length: 20 }, (_, index) =>
+    analyticsEntry(
+      `2026-08-${String(index + 1).padStart(2, "0")}`,
+      1_000 * 1.01 ** index,
+      index,
+    ),
+  );
+  let state = 123456789;
+  const random = () => {
+    state = (1103515245 * state + 12345) % 2147483648;
+    return state / 2147483648;
+  };
+  const result = simulateNetWorth(entries, {
+    days: 30,
+    runs: 200,
+    target: 2_000,
+    random,
+  });
+  assert.equal(result.status, "complete");
+  assert.equal(result.method, "block-bootstrap");
+  assert.equal(result.series.p50.length, 31);
+  assert.ok(result.series.p10[30] <= result.series.p50[30]);
+  assert.ok(result.series.p50[30] <= result.series.p90[30]);
+  assert.ok(result.probabilities[30] >= 0 && result.probabilities[30] <= 100);
 });
