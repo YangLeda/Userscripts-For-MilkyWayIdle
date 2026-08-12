@@ -325,6 +325,68 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   );
 });
 
+test("guild leaderboard XP columns never change leaderboard row order", async () => {
+  document.body.innerHTML = `
+    <div class="LeaderboardPanel_leaderboard__test">
+      <table>
+        <thead><tr><th>公会</th></tr></thead>
+        <tbody><tr><td>Charlie</td></tr><tr><td>Alice</td></tr><tr><td>Bob</td></tr></tbody>
+      </table>
+    </div>`;
+  runtime.state.guildCharacters = [];
+  runtime.state.guildLeaderboard = [
+    { id: "charlie", name: "Charlie", guildExperience: 300 },
+    { id: "alice", name: "Alice", guildExperience: 100 },
+    { id: "bob", name: "Bob", guildExperience: 200 },
+  ];
+  runtime.settings.get = (id) => id === "guildLeaderboardXp";
+  runtime.api.getXpHistory = async (key) => [{ key }];
+  runtime.api.calculateXpRates = ([record]) => {
+    const value = record.key.includes("bob")
+      ? 100
+      : record.key.includes("charlie")
+        ? 75
+        : 50;
+    return {
+      recent: value,
+      day: value * 2,
+      lastSampleAt: Date.now(),
+      points: [],
+    };
+  };
+
+  await runtime.api.sampleGuildState(true);
+  runtime.api.renderGuildTables();
+
+  const table = document.querySelector("table");
+  const rowOrder = () =>
+    [...table.querySelectorAll("tbody tr")].map(
+      (row) => row.cells[0].textContent,
+    );
+  const rateHeaders = [
+    ...table.querySelectorAll(".mwi-guild-recent-head,.mwi-guild-day-head"),
+  ];
+  assert.deepEqual(rowOrder(), ["Charlie", "Alice", "Bob"]);
+  assert.equal(table.querySelector(".mwi-guild-rate-sort"), null);
+  assert.ok(
+    rateHeaders.every(
+      (header) =>
+        header.tabIndex === -1 &&
+        header.title === "" &&
+        header.getAttribute("aria-sort") === null,
+    ),
+  );
+
+  for (const header of rateHeaders) {
+    header.click();
+    header.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "Enter" }),
+    );
+  }
+  runtime.api.renderGuildTables();
+  assert.deepEqual(rowOrder(), ["Charlie", "Alice", "Bob"]);
+});
+
 test("guild idle status requires an explicit empty activity type", async () => {
   guildMarkup();
   runtime.state.guild = { id: "guild-idle", guildExperience: 3456 };

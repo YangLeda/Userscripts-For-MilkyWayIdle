@@ -1029,8 +1029,8 @@ const catalogRows = [
     "leaderboard",
     "排行榜经验速率",
     "Leaderboard XP rates",
-    "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
-    "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges.",
+    "在全服技能排行榜增加只读的经验/小时列；此开关不影响名次徽章或排行顺序。",
+    "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order.",
   ],
   [
     "guildCreditConversionsSort",

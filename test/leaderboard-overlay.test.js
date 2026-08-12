@@ -54,7 +54,7 @@ function rowNames() {
 }
 
 test("exports the standalone overlay API and formatting helpers", () => {
-  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.0");
+  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.1");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
   assert.equal(badgeTier(1), "rainbow");
   assert.equal(badgeTier(35), "gold");
@@ -210,14 +210,15 @@ test("chat names show only the three best-ranked badges", async () => {
   overlay.destroy();
 });
 
-test("adds a sortable experience-rate column and restores official order", async () => {
+test("adds a read-only experience-rate column without changing row order", async () => {
+  runtime.state.currentCharacterName = "Charlie";
   document.body.innerHTML = `
     <table class="LeaderboardPanel_leaderboardTable__test">
       <thead><tr><th>角色</th></tr></thead>
       <tbody>
+        <tr><td><span class="CharacterName_name__test" data-name="Charlie">Charlie</span></td></tr>
         <tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr>
         <tr><td><span class="CharacterName_name__test" data-name="Bob">Bob</span></td></tr>
-        <tr><td><span class="CharacterName_name__test" data-name="Charlie">Charlie</span></td></tr>
       </tbody>
     </table>`;
   const overlay = create({ document });
@@ -236,79 +237,54 @@ test("adds a sortable experience-rate column and restores official order", async
 
   const header = document.querySelector("[data-mwi-leaderboard-rate-header]");
   assert.equal(header.textContent, "经验/小时");
+  assert.equal(header.getAttribute("aria-sort"), null);
+  assert.equal(header.title, "");
+  assert.equal(header.tabIndex, -1);
   assert.deepEqual(
     [...document.querySelectorAll("[data-mwi-leaderboard-rate-cell]")].map(
       (cell) => cell.textContent,
     ),
-    ["100K", "250K", "—"],
+    ["—", "100K", "250K"],
+  );
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+
+  header.click();
+  header.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { key: "Enter" }),
+  );
+  await settle();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+
+  overlay.enhanceLeaderboard({
+    category: "magic",
+    rows: [
+      { characterName: "Alice", rank: 1, xpPerHour: 300_000 },
+      { characterName: "Bob", rank: 2, xpPerHour: 50_000 },
+      { characterName: "Charlie", rank: 50, xpPerHour: 200_000 },
+    ],
+  });
+  await settle();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
+  assert.deepEqual(
+    [...document.querySelectorAll("[data-mwi-leaderboard-rate-cell]")].map(
+      (cell) => cell.textContent,
+    ),
+    ["200K", "300K", "50K"],
   );
 
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Bob", "Alice", "Charlie"]);
-  assert.equal(header.getAttribute("aria-sort"), "descending");
-
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
-  assert.equal(header.getAttribute("aria-sort"), "ascending");
-
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
-  assert.equal(header.getAttribute("aria-sort"), "none");
-
-  overlay.destroy();
+  overlay.clearLeaderboard();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
   assert.equal(
     document.querySelector("[data-mwi-leaderboard-rate-header]"),
     null,
   );
-  assert.equal(
-    document.querySelector("[data-mwi-leaderboard-rate-cell]"),
-    null,
-  );
-  assert.deepEqual(rowNames(), ["Alice", "Bob", "Charlie"]);
-});
-
-test("keeps the current character pinned while sorting every leaderboard mode", async () => {
-  runtime.state.currentCharacterName = "Charlie";
-  document.body.innerHTML = `
-    <table class="LeaderboardPanel_leaderboardTable__test">
-      <thead><tr><th>角色</th></tr></thead>
-      <tbody>
-        <tr><td><span class="CharacterName_name__test" data-name="Charlie">Charlie</span></td></tr>
-        <tr><td><span class="CharacterName_name__test" data-name="Alice">Alice</span></td></tr>
-        <tr><td><span class="CharacterName_name__test" data-name="Bob">Bob</span></td></tr>
-      </tbody>
-    </table>`;
-  const overlay = create({ document });
-  overlay.enhanceLeaderboard({
-    category: "milking",
-    rows: [
-      { characterName: "Alice", rank: 1, xpPerHour: 100 },
-      { characterName: "Bob", rank: 2, xpPerHour: 200 },
-      { characterName: "Charlie", rank: 50, xpPerHour: 150 },
-    ],
-  });
-  await settle();
-  const header = document.querySelector("[data-mwi-leaderboard-rate-header]");
-
-  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Charlie", "Bob", "Alice"]);
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
-  header.click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
 
   overlay.destroy();
+  assert.deepEqual(rowNames(), ["Charlie", "Alice", "Bob"]);
   runtime.state.currentCharacterName = "";
 });
 
-test("unsupported total-leaderboard tabs clear stale XP rates and sorting", async () => {
+test("unsupported total-leaderboard tabs clear stale XP rates without moving rows", async () => {
   document.body.innerHTML = `
     <table class="LeaderboardPanel_leaderboardTable__test">
       <thead><tr><th>角色</th></tr></thead>
@@ -326,9 +302,7 @@ test("unsupported total-leaderboard tabs clear stale XP rates and sorting", asyn
     ],
   });
   await settle();
-  document.querySelector("[data-mwi-leaderboard-rate-header]").click();
-  await settle();
-  assert.deepEqual(rowNames(), ["Bob", "Alice"]);
+  assert.deepEqual(rowNames(), ["Alice", "Bob"]);
 
   overlay.clearLeaderboard();
   assert.equal(

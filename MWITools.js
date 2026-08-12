@@ -1757,8 +1757,8 @@
       "leaderboard",
       "排行榜经验速率",
       "Leaderboard XP rates",
-      "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
-      "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges."
+      "在全服技能排行榜增加只读的经验/小时列；此开关不影响名次徽章或排行顺序。",
+      "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order."
     ],
     [
       "guildCreditConversionsSort",
@@ -27327,7 +27327,7 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.2.0";
+  var OVERLAY_VERSION = "1.2.1";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
@@ -27428,8 +27428,7 @@ ${preview}`
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
-    [${RATE_HEADER_ATTRIBUTE}]{cursor:pointer;user-select:none;white-space:nowrap}
-    [${RATE_HEADER_ATTRIBUTE}]:hover{filter:brightness(1.18)}
+    [${RATE_HEADER_ATTRIBUTE}]{white-space:nowrap}
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
     mount.append(style);
@@ -27473,7 +27472,6 @@ ${preview}`
       categories: {},
       nameIndex: /* @__PURE__ */ new Map(),
       currentLeaderboard: null,
-      sortMode: "official",
       refreshPending: false,
       destroyed: false,
       showBadges: options.showBadges !== false,
@@ -27584,46 +27582,6 @@ ${preview}`
         ])
       );
     }
-    function updateHeaderCopy(header) {
-      const arrow = state.sortMode === "descending" ? " ↓" : state.sortMode === "ascending" ? " ↑" : "";
-      const copy = `${t3("经验/小时", "XP/hour")}${arrow}`;
-      if (header.textContent !== copy) header.textContent = copy;
-      header.title = t3(
-        "点击排序：降序 → 升序 → 官方原排名",
-        "Click to sort: descending → ascending → official rank"
-      );
-      header.setAttribute(
-        "aria-sort",
-        state.sortMode === "descending" ? "descending" : state.sortMode === "ascending" ? "ascending" : "none"
-      );
-    }
-    function applyTableSort(table, rowsByName) {
-      const tbody = table.tBodies?.[0];
-      if (!tbody) return;
-      const rows = [...tbody.rows];
-      const currentCharacterName2 = normalizedName2(
-        runtime.state.currentCharacterName
-      );
-      rows.sort((left, right) => {
-        const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const normalizedLeftName = normalizedName2(leftName);
-        const normalizedRightName = normalizedName2(rightName);
-        if (currentCharacterName2) {
-          const leftIsCurrent = normalizedLeftName === currentCharacterName2;
-          const rightIsCurrent = normalizedRightName === currentCharacterName2;
-          if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
-        }
-        return compareRateRows(
-          rowsByName.get(normalizedLeftName),
-          rowsByName.get(normalizedRightName),
-          state.sortMode
-        );
-      });
-      if (rows.some((row, index) => tbody.rows[index] !== row)) {
-        rows.forEach((row) => tbody.append(row));
-      }
-    }
     function renderLeaderboardRateColumn() {
       if (!state.showRates) return;
       const current = state.currentLeaderboard;
@@ -27637,13 +27595,10 @@ ${preview}`
       if (!header) {
         header = documentRef.createElement("th");
         header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
-        header.addEventListener("click", () => {
-          state.sortMode = state.sortMode === "official" ? "descending" : state.sortMode === "descending" ? "ascending" : "official";
-          scheduleRefresh();
-        });
         headingRow.append(header);
       }
-      updateHeaderCopy(header);
+      const headerCopy = t3("经验/小时", "XP/hour");
+      if (header.textContent !== headerCopy) header.textContent = headerCopy;
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
         const name = rowElement.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
@@ -27660,7 +27615,6 @@ ${preview}`
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
-      applyTableSort(table, rowsByName);
     }
     function refresh() {
       if (state.destroyed) return;
@@ -27671,11 +27625,6 @@ ${preview}`
       documentRef.querySelectorAll(`[${BADGE_CONTAINER_ATTRIBUTE}]`).forEach((element) => element.remove());
     }
     function removeRateColumn() {
-      const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
-      if (table && state.currentLeaderboard) {
-        state.sortMode = "official";
-        applyTableSort(table, currentRowsByName());
-      }
       documentRef.querySelectorAll(`[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`).forEach((element) => element.remove());
     }
     function scheduleRefresh() {
@@ -27723,7 +27672,6 @@ ${preview}`
           category,
           rows: Array.isArray(rows) ? rows : []
         };
-        state.sortMode = "official";
         scheduleRefresh();
         return true;
       },
@@ -27731,7 +27679,6 @@ ${preview}`
         if (!state.currentLeaderboard) return;
         removeRateColumn();
         state.currentLeaderboard = null;
-        state.sortMode = "official";
       },
       setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
         const nextBadges = Boolean(badges);
@@ -38262,7 +38209,8 @@ ${locks}` : ""}`;
           "移除作用有限的消耗品回复速度、单位回复成本和理论每日用量显示。",
           "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
           "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。",
-          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。"
+          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。",
+          "修复全服技能与公会排行榜可能被经验速率排序或当前角色置顶改变顺序；经验速率继续作为只读信息显示。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38280,7 +38228,8 @@ ${locks}` : ""}`;
           "Removed the low-value consumable recovery-rate, cost-per-recovery, and theoretical daily-use display.",
           "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
           "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths.",
-          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language."
+          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language.",
+          "Fixed standard skill and guild leaderboard order being changed by XP-rate sorting or current-character pinning; XP rates remain available as read-only information."
         ])
       })
     })
@@ -39734,6 +39683,7 @@ ${locks}` : ""}`;
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
+      const sortable = kind === "member";
       const columns = [
         ["mwi-guild-recent-head", t14("近 6 小时 XP/h", "6h XP/h")],
         ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")],
@@ -39744,10 +39694,15 @@ ${locks}` : ""}`;
         cell.className = className;
         const labelNode = document.createElement("span");
         labelNode.textContent = label;
+        cell.append(labelNode);
+        if (!sortable) {
+          header.append(cell);
+          continue;
+        }
         const sortIndicator = document.createElement("span");
         sortIndicator.className = "mwi-guild-rate-sort";
         sortIndicator.textContent = "↕";
-        cell.append(labelNode, sortIndicator);
+        cell.append(sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
         cell.title = t14("点击按经验速率排序", "Click to sort by XP rate");

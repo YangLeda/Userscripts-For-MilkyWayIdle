@@ -524,6 +524,7 @@ function appendRateColumns(table, rows, kind, parentId = "") {
   }
   const header = table.tHead.rows[0];
   if (!header.querySelector(".mwi-guild-recent-head")) {
+    const sortable = kind === "member";
     const columns = [
       ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
       ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
@@ -536,10 +537,15 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       cell.className = className;
       const labelNode = document.createElement("span");
       labelNode.textContent = label;
+      cell.append(labelNode);
+      if (!sortable) {
+        header.append(cell);
+        continue;
+      }
       const sortIndicator = document.createElement("span");
       sortIndicator.className = "mwi-guild-rate-sort";
       sortIndicator.textContent = "↕";
-      cell.append(labelNode, sortIndicator);
+      cell.append(sortIndicator);
       cell.tabIndex = 0;
       cell.style.cursor = "pointer";
       cell.title = t("点击按经验速率排序", "Click to sort by XP rate");
