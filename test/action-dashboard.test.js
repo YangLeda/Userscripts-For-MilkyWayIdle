@@ -779,3 +779,23 @@ test("action resolution follows the game's i18nextLng setting", () => {
 
   localStorage.setItem("i18nextLng", "zh-CN");
 });
+
+test("the top action dashboard recognizes the current localized action name", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren(
+    Object.assign(document.createElement("span"), { textContent: "Madera" }),
+  );
+  runtime.state.currentActionsHridList = [
+    {
+      ordinal: 1,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  localStorage.setItem("i18nextLng", "es");
+  runtime.api.renderActionDashboard();
+  assert.ok(document.querySelector("#mwi-action-dashboard"));
+  localStorage.setItem("i18nextLng", "zh-CN");
+});

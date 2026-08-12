@@ -360,6 +360,7 @@ test("the current announcement covers every player-facing update bilingually", (
     /实时资产刷新后保持隐藏状态/,
     /精炼生活披风等背部装备提示没有新缺料/,
     /改善英文界面卡顿/,
+    /九种官方语言下库存评分与总资产/,
   ]) {
     assert.match(current.body.zh.join("\n"), pattern);
   }
@@ -377,6 +378,7 @@ test("the current announcement covers every player-facing update bilingually", (
     /preserving visibility through live asset refreshes/,
     /refined skilling capes and other back equipment/,
     /improve English task-page performance/,
+    /all nine official game languages/,
   ]) {
     assert.match(current.body.en.join("\n"), pattern);
   }

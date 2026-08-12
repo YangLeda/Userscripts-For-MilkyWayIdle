@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { matchesGameTranslations } from "../core/game-localization.js";
 import {
   resolveTaskCards,
   taskCardTaskId,
@@ -69,13 +70,26 @@ function buttonText(button) {
 }
 
 function isGoButton(button) {
-  return /^(前往|go)$/i.test(buttonText(button));
+  return matchesGameTranslations(
+    ["randomTask.go", "questModal.go"],
+    buttonText(button),
+    { fallbackPatterns: [/^(?:前往|go)$/i] },
+  );
 }
 
 function isCommitButton(button) {
-  const text = buttonText(button);
-  return /^(添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)$/i.test(
-    text,
+  return matchesGameTranslations(
+    [
+      "skillActionDetail.buttons.start",
+      "skillActionDetail.buttons.startNow",
+      "skillActionDetail.buttons.addToQueue",
+    ],
+    buttonText(button),
+    {
+      fallbackPatterns: [
+        /^(?:添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)(?:\s*#\d+)?$/i,
+      ],
+    },
   );
 }
 
@@ -128,7 +142,9 @@ function openTasksPage() {
     'nav button,[class*="Nav"] button,[class*="nav"] button',
   );
   const taskButton = [...buttons].find((button) =>
-    /^(任务|tasks)$/i.test(buttonText(button)),
+    matchesGameTranslations("navigationBar.tasks", buttonText(button), {
+      fallbackPatterns: [/^(?:任务|tasks)$/i],
+    }),
   );
   taskButton?.click();
   return Boolean(taskButton);

@@ -394,24 +394,26 @@ function findGuildOverviewHost() {
   );
   if (!guildPanel) return null;
 
-  const tabList = guildPanel.querySelector('[role="tablist"]');
-  const tabs = [...(tabList?.querySelectorAll('[role="tab"]') ?? [])];
-  const overviewTab =
-    tabs.find((tab) =>
-      /^(概览|overview)$/i.test(tab.textContent?.trim() ?? ""),
-    ) ?? tabs[0];
-  const ariaSelected = overviewTab?.getAttribute("aria-selected");
-  const overviewSelected =
-    ariaSelected !== null && ariaSelected !== undefined
-      ? ariaSelected === "true"
-      : overviewTab?.classList.contains("Mui-selected") ||
-        overviewTab?.getAttribute("tabindex") === "0";
-  if (!overviewSelected) return null;
-
   const host = guildPanel.querySelector('[class*="GuildPanel_overviewTab"]');
   const tabPanel = host?.closest('[class*="TabPanel_tabPanel"]');
+  const tabPanels = [
+    ...guildPanel.querySelectorAll('[class*="TabPanel_tabPanel"]'),
+  ];
+  const tabs = [
+    ...guildPanel.querySelectorAll('[role="tablist"] [role="tab"]'),
+  ];
+  const panelIndex = tabPanels.indexOf(tabPanel);
+  const overviewTab = panelIndex >= 0 ? tabs[panelIndex] : null;
+  const ariaSelected = overviewTab?.getAttribute("aria-selected");
+  const overviewSelected = overviewTab
+    ? ariaSelected !== null
+      ? ariaSelected === "true"
+      : overviewTab.classList.contains("Mui-selected") ||
+        overviewTab.getAttribute("tabindex") === "0"
+    : true;
   if (
     !host ||
+    !overviewSelected ||
     tabPanel?.hidden ||
     tabPanel?.className.includes("TabPanel_hidden")
   ) {

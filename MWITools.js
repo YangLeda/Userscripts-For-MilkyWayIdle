@@ -2337,6 +2337,18 @@
     ).join("");
     return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
   }
+  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
+    const value = String(text ?? "").trim();
+    if ([...Array.isArray(paths) ? paths : [paths]].some(
+      (path) => matchesGameTranslation(path, value, { locale })
+    )) {
+      return true;
+    }
+    return fallbackPatterns.some((pattern) => {
+      if (pattern instanceof RegExp) return pattern.test(value);
+      return String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase();
+    });
+  }
   function resetGameLocalizationCache() {
     localeResources.clear();
     warnedLocales.clear();
@@ -29057,8 +29069,11 @@ ${preview}`
         if (selectedTab.id === "mwitools-asset-history-tab") return false;
         if (selectedTab.dataset.mwiCreditTab === "true") return false;
         if (selectedTab.classList.contains("income-tab")) return false;
-        const text = selectedTab.textContent || "";
-        if (!/库存|Inventory/i.test(text) && !selectedTab.querySelector('[class*="Inventory"]')) {
+        if (!matchesGameTranslations(
+          "characterManagement.inventory",
+          selectedTab.textContent,
+          { fallbackPatterns: [/^(?:库存|Inventory)$/i] }
+        ) && !selectedTab.querySelector('[class*="Inventory"]')) {
           return false;
         }
       }
@@ -29112,8 +29127,9 @@ ${preview}`
     const levelText = itemElem?.querySelector?.('[class*="Item_enhancementLevel"]')?.textContent ?? "";
     return Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
   }
-  function isSortableInventoryCategory(typeName) {
-    return typeName !== "Equipment";
+  function isSortableInventoryCategory(typeName, categoryHrid = "") {
+    if (categoryHrid) return categoryHrid !== "/item_categories/equipment";
+    return !/^(?:Equipment|装备|裝備)$/iu.test(String(typeName ?? "").trim());
   }
   async function addInvSortButton(invElem) {
     const showSort = runtime.settings.settingsMap.invSort.isTrue;
@@ -29199,7 +29215,11 @@ ${preview}`
           '[class*="Inventory_categoryButton"]'
         );
         const typeName = runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? "";
-        if (!isSortableInventoryCategory(typeName)) {
+        const categoryHrid = resolveInventoryCategoryHrid(
+          typeDiv,
+          categoryButton
+        );
+        if (!isSortableInventoryCategory(typeName, categoryHrid)) {
           continue;
         }
         const label = typeDiv.querySelector('[class*="Inventory_label"]');
@@ -32503,11 +32523,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function actionHeaderNames(actionHrid, detail) {
     const names = /* @__PURE__ */ new Set([
       detail?.name,
-      runtime.data.ZHActionNames?.[actionHrid]
+      runtime.data.ZHActionNames?.[actionHrid],
+      getLocalizedEntityName("action", actionHrid)
     ]);
     for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
       names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
       names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+      names.add(getLocalizedEntityName("item", output.itemHrid));
     }
     return [...names].map(normalizedActionText).filter(Boolean);
   }
@@ -32521,6 +32543,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
       return false;
     }
+    if (resolveLocalizedEntity("action", header) === actionHrid) return true;
     if (String(actionHrid).includes("/enhancing")) {
       return /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
         (name) => header.includes(name)
@@ -34962,7 +34985,8 @@ ${locks}` : ""}`;
     const names = new Set(
       [
         detail?.name,
-        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null
+        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
+        getLocalizedEntityName("action", actionHrid)
       ].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
     );
     const card = [
@@ -35174,7 +35198,11 @@ ${locks}` : ""}`;
     const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
     if (buttonsContainer) return buttonsContainer;
     return [...panel.querySelectorAll("button")].find(
-      (button) => /添加到队列|add to queue/i.test(button.textContent ?? "")
+      (button) => matchesGameTranslations(
+        "skillActionDetail.buttons.addToQueue",
+        button.textContent,
+        { fallbackPatterns: [/添加到队列|add to queue/i] }
+      )
     );
   }
   function isNativeQueueSubmission(event, host) {
@@ -36305,7 +36333,11 @@ ${locks}` : ""}`;
     );
     if (target > 0 && taskRemaining(task) === 0) return true;
     if ([...card.querySelectorAll("button")].some(
-      (button) => /claim|领取/i.test(button.textContent)
+      (button) => matchesGameTranslations(
+        ["randomTask.claimReward", "questModal.claimReward"],
+        button.textContent,
+        { fallbackPatterns: [/claim|领取/i] }
+      )
     )) {
       return true;
     }
@@ -36981,7 +37013,11 @@ ${locks}` : ""}`;
     cards.forEach((card, index) => {
       if (card.dataset.mwitoolsMergeWired) return;
       const button = [...card.querySelectorAll("button")].find(
-        (candidate) => /go|前往|开始/i.test(candidate.textContent)
+        (candidate) => matchesGameTranslations(
+          ["randomTask.go", "questModal.go"],
+          candidate.textContent,
+          { fallbackPatterns: [/^(?:go|前往|开始)$/i] }
+        )
       );
       if (!button) return;
       card.dataset.mwitoolsMergeWired = "true";
@@ -37002,8 +37038,11 @@ ${locks}` : ""}`;
   function wireResetButtons(cards) {
     cards.forEach((card, index) => {
       if (card.dataset.mwitoolsResetWired) return;
+      const isResetButton = (candidate) => matchesGameTranslations("randomTask.reroll", candidate.textContent, {
+        fallbackPatterns: [/^(?:reset|重置)$/i]
+      });
       const hasResetButton = [...card.querySelectorAll("button")].some(
-        (candidate) => /reset|重置/i.test(candidate.textContent)
+        isResetButton
       );
       if (!hasResetButton) return;
       card.dataset.mwitoolsResetWired = "true";
@@ -37011,7 +37050,7 @@ ${locks}` : ""}`;
         "click",
         (event) => {
           const button = event.target?.closest?.("button");
-          if (!button || !card.contains(button) || !/reset|重置/i.test(button.textContent)) {
+          if (!button || !card.contains(button) || !isResetButton(button)) {
             return;
           }
           nativeResetChoiceUntil = Date.now() + 1e4;
@@ -37375,12 +37414,19 @@ ${locks}` : ""}`;
       taskCounts
     );
   }
-  function insertBeforeNavigation(action, control) {
-    const navigation = [...action.querySelectorAll("button")].find(
-      (button) => /^(前往|go)$/i.test(button.textContent?.trim() ?? "")
+  function insertBeforeTaskNavigation(card, fallbackHost, control) {
+    const navigation = [...card.querySelectorAll("button")].find(
+      (button) => matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        button.textContent,
+        { fallbackPatterns: [/^(?:前往|go)$/i] }
+      )
     );
-    if (navigation) action.insertBefore(control, navigation);
-    else action.appendChild(control);
+    if (navigation?.parentElement) {
+      navigation.parentElement.insertBefore(control, navigation);
+    } else {
+      fallbackHost.appendChild(control);
+    }
   }
   function plannerButton(entry, signature) {
     const button = document.createElement("button");
@@ -37430,9 +37476,10 @@ ${locks}` : ""}`;
       action.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
       if (!entry || entry.state === "done") continue;
       if (entry.state === "top") {
-        insertBeforeNavigation(action, plannerButton(entry, signature));
+        insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
       } else if (entry.state === "planned") {
-        insertBeforeNavigation(
+        insertBeforeTaskNavigation(
+          card,
           action,
           plannerLabel(
             t10("已被规划", "Included in plan"),
@@ -37444,7 +37491,8 @@ ${locks}` : ""}`;
           )
         );
       } else if (entry.state === "isolated") {
-        insertBeforeNavigation(
+        insertBeforeTaskNavigation(
+          card,
           action,
           plannerLabel(
             t10("无需火车", "No train needed"),
@@ -37758,12 +37806,25 @@ ${locks}` : ""}`;
     ).replaceAll(/\s+/g, " ").trim();
   }
   function isGoButton(button) {
-    return /^(前往|go)$/i.test(buttonText(button));
+    return matchesGameTranslations(
+      ["randomTask.go", "questModal.go"],
+      buttonText(button),
+      { fallbackPatterns: [/^(?:前往|go)$/i] }
+    );
   }
   function isCommitButton(button) {
-    const text = buttonText(button);
-    return /^(添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)$/i.test(
-      text
+    return matchesGameTranslations(
+      [
+        "skillActionDetail.buttons.start",
+        "skillActionDetail.buttons.startNow",
+        "skillActionDetail.buttons.addToQueue"
+      ],
+      buttonText(button),
+      {
+        fallbackPatterns: [
+          /^(?:添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)(?:\s*#\d+)?$/i
+        ]
+      }
     );
   }
   function findGameHost() {
@@ -37807,7 +37868,9 @@ ${locks}` : ""}`;
       'nav button,[class*="Nav"] button,[class*="nav"] button'
     );
     const taskButton = [...buttons].find(
-      (button) => /^(任务|tasks)$/i.test(buttonText(button))
+      (button) => matchesGameTranslations("navigationBar.tasks", buttonText(button), {
+        fallbackPatterns: [/^(?:任务|tasks)$/i]
+      })
     );
     taskButton?.click();
     return Boolean(taskButton);
@@ -38354,6 +38417,7 @@ ${locks}` : ""}`;
           "资产中心的分项图表改为显示各日期的实际资产持有值，图例可点击隐藏或恢复曲线，并在实时资产刷新后保持隐藏状态；悬浮数值使用 K/M/B/T 单位。",
           "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
           "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。",
+          "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
           "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。"
         ]),
         en: Object.freeze([
@@ -38377,6 +38441,7 @@ ${locks}` : ""}`;
           "Asset component charts now show actual holdings for each date, legends can hide and restore lines while preserving visibility through live asset refreshes, and hover values use K/M/B/T units.",
           "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
           "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance.",
+          "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
           "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration."
         ])
       })
@@ -39732,17 +39797,19 @@ ${locks}` : ""}`;
       'div[class*="GuildPanel_guildPanel"]'
     );
     if (!guildPanel) return null;
-    const tabList = guildPanel.querySelector('[role="tablist"]');
-    const tabs = [...tabList?.querySelectorAll('[role="tab"]') ?? []];
-    const overviewTab = tabs.find(
-      (tab) => /^(概览|overview)$/i.test(tab.textContent?.trim() ?? "")
-    ) ?? tabs[0];
-    const ariaSelected = overviewTab?.getAttribute("aria-selected");
-    const overviewSelected = ariaSelected !== null && ariaSelected !== void 0 ? ariaSelected === "true" : overviewTab?.classList.contains("Mui-selected") || overviewTab?.getAttribute("tabindex") === "0";
-    if (!overviewSelected) return null;
     const host = guildPanel.querySelector('[class*="GuildPanel_overviewTab"]');
     const tabPanel = host?.closest('[class*="TabPanel_tabPanel"]');
-    if (!host || tabPanel?.hidden || tabPanel?.className.includes("TabPanel_hidden")) {
+    const tabPanels = [
+      ...guildPanel.querySelectorAll('[class*="TabPanel_tabPanel"]')
+    ];
+    const tabs = [
+      ...guildPanel.querySelectorAll('[role="tablist"] [role="tab"]')
+    ];
+    const panelIndex = tabPanels.indexOf(tabPanel);
+    const overviewTab = panelIndex >= 0 ? tabs[panelIndex] : null;
+    const ariaSelected = overviewTab?.getAttribute("aria-selected");
+    const overviewSelected = overviewTab ? ariaSelected !== null ? ariaSelected === "true" : overviewTab.classList.contains("Mui-selected") || overviewTab.getAttribute("tabindex") === "0" : true;
+    if (!host || !overviewSelected || tabPanel?.hidden || tabPanel?.className.includes("TabPanel_hidden")) {
       return null;
     }
     return host;
@@ -40109,6 +40176,77 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   var lastBattleSummaryMessage = null;
+  function escapeRegularExpression2(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function translatedTemplateValue(text, path, fallbacks, valuePattern) {
+    const templates = [getGameTranslation(path), ...fallbacks].filter(Boolean);
+    for (const template of templates) {
+      let captured = false;
+      const parts = String(template).split(/({{[^}]+}})/g);
+      const source = parts.map((part) => {
+        if (/^{{[^}]+}}$/.test(part)) {
+          if (captured) return `(?:${valuePattern})`;
+          captured = true;
+          return `(${valuePattern})`;
+        }
+        return escapeRegularExpression2(part).replace(/\s+/g, "\\s+");
+      }).join("");
+      if (!captured) continue;
+      const match = String(text ?? "").match(new RegExp(source, "iu"));
+      if (match?.[1]) return match[1].trim();
+    }
+    return "";
+  }
+  function durationSeconds(value) {
+    let total = 0;
+    let found = false;
+    for (const match of String(value ?? "").matchAll(/(\d+)\s*([dhms])/gi)) {
+      found = true;
+      const amount = Number(match[1]);
+      total += amount * ({ d: 86400, h: 3600, m: 60, s: 1 }[match[2].toLowerCase()] ?? 0);
+    }
+    return found ? total : null;
+  }
+  function wholeNumber(value) {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    return digits ? Number(digits) : null;
+  }
+  function parseLocalizedBattleInfo(text) {
+    const duration = translatedTemplateValue(
+      text,
+      "battlePanel.combatDuration",
+      [
+        "Combat Duration: {{duration}}",
+        "战斗时间: {{duration}}",
+        "战斗时长: {{duration}}"
+      ],
+      "(?:\\d+\\s*[dhms]\\s*)+"
+    );
+    const battles = translatedTemplateValue(
+      text,
+      "battlePanel.battles",
+      ["Battles: {{battleId}}", "交战: {{battleId}}", "战斗: {{battleId}}"],
+      "[\\d\\s.,\\u00a0\\u202f]+"
+    );
+    const deaths = translatedTemplateValue(
+      text,
+      "battlePanel.deaths",
+      [
+        "Deaths: {{deathCount}}",
+        "战败: {{deathCount}}",
+        "死亡次数: {{deathCount}}"
+      ],
+      "[\\d\\s.,\\u00a0\\u202f]+"
+    );
+    const battleDurationSec = durationSeconds(duration);
+    const battleCount = wholeNumber(battles);
+    const deathCount = wholeNumber(deaths);
+    if (!Number.isFinite(battleDurationSec) || !Number.isFinite(battleCount) || !Number.isFinite(deathCount)) {
+      return null;
+    }
+    return { battleDurationSec, battleCount, deathCount };
+  }
   async function handleBattleSummary(message) {
     lastBattleSummaryMessage = message;
     const suppressMarket = runtime.api.shouldSuppressMarketFeatures?.() ?? false;
@@ -40168,16 +40306,12 @@ ${locks}` : ""}`;
           ".BattlePanel_combatInfo__sHGCe"
         );
         if (combatInfoElement) {
-          let matches = combatInfoElement.innerHTML.match(
-            /(战斗时间|战斗时长|Combat Duration): (?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s).*?(交战|战斗|Battles): (\d+).*?(战败|死亡次数|Deaths): (\d+)/
+          const battleInfo = parseLocalizedBattleInfo(
+            combatInfoElement.textContent
           );
-          if (matches) {
-            let days = parseInt(matches[2], 10) || 0;
-            let hours = parseInt(matches[3], 10) || 0;
-            let minutes = parseInt(matches[4], 10) || 0;
-            let seconds = parseInt(matches[5], 10) || 0;
-            let battles = parseInt(matches[7], 10) - 1;
-            battleDurationSec = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+          if (battleInfo) {
+            battleDurationSec = battleInfo.battleDurationSec;
+            const battles = battleInfo.battleCount - 1;
             const efficiencyPerHour = battleDurationSec ? (battles / battleDurationSec * 3600).toFixed(1) : "—";
             appendSummary(
               "script_battleNumbers",

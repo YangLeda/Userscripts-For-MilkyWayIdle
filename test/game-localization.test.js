@@ -22,6 +22,7 @@ const {
   getGameTranslation,
   getLocalizedEntityName,
   matchesGameTranslation,
+  matchesGameTranslations,
   normalizeGameLocale,
   registerGameLocaleResources,
   resetGameLocalizationCache,
@@ -60,6 +61,26 @@ function localeFactory(locale) {
     const resources = {
       global: { gameName: `MWI ${locale}` },
       marketplacePanel: { buy: `buy-${locale}`, sell: `sell-${locale}` },
+      characterManagement: { inventory: `inventory-${locale}` },
+      randomTask: {
+        go: `go-${locale}`,
+        reroll: `reroll-${locale}`,
+        claimReward: `claim-${locale}`,
+      },
+      questModal: { go: `go-${locale}`, claimReward: `claim-${locale}` },
+      skillActionDetail: {
+        buttons: {
+          start: `start-${locale}`,
+          startNow: `start-now-${locale}`,
+          addToQueue: `queue-${locale} #{{count}}`,
+        },
+      },
+      navigationBar: { tasks: `tasks-${locale}` },
+      battlePanel: {
+        combatDuration: `duration-${locale}: {{duration}}`,
+        battles: `battles-${locale}: {{battleId}}`,
+        deaths: `deaths-${locale}: {{deathCount}}`,
+      },
       itemNames: { "/items/coin": coin },
       actionNames: { "/actions/milking/cow": cow },
       monsterNames: { "/monsters/rat": rat },
@@ -182,6 +203,45 @@ test("matches translated UI templates without hard-coded language text", () => {
       "marketplacePanel.priceBestBuyOffer",
       "價格 (最佳購買報價: 42)",
     ),
+    true,
+  );
+});
+
+test("matches native controls through every loaded game locale", () => {
+  for (const locale of Object.keys(localeSamples)) {
+    localStorage.setItem("i18nextLng", locale);
+    resetGameLocalizationCache();
+    assert.equal(
+      matchesGameTranslations(
+        "characterManagement.inventory",
+        `inventory-${locale}`,
+      ),
+      true,
+      locale,
+    );
+    assert.equal(
+      matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        `go-${locale}`,
+      ),
+      true,
+      locale,
+    );
+    assert.equal(
+      matchesGameTranslations(
+        "skillActionDetail.buttons.addToQueue",
+        `queue-${locale} #7`,
+      ),
+      true,
+      locale,
+    );
+  }
+
+  localStorage.setItem("i18nextLng", "en");
+  assert.equal(
+    matchesGameTranslations("randomTask.go", "Go", {
+      fallbackPatterns: [/^go$/i],
+    }),
     true,
   );
 });

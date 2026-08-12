@@ -1,7 +1,10 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import { itemName } from "../core/localization.js";
-import { resolveLocalizedEntity } from "../core/game-localization.js";
+import {
+  getLocalizedEntityName,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
@@ -294,10 +297,12 @@ function actionHeaderNames(actionHrid, detail) {
   const names = new Set([
     detail?.name,
     runtime.data.ZHActionNames?.[actionHrid],
+    getLocalizedEntityName("action", actionHrid),
   ]);
   for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
     names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
     names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+    names.add(getLocalizedEntityName("item", output.itemHrid));
   }
   return [...names].map(normalizedActionText).filter(Boolean);
 }
@@ -312,6 +317,7 @@ function actionMatchesHeader(action, host) {
   if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
     return false;
   }
+  if (resolveLocalizedEntity("action", header) === actionHrid) return true;
   if (String(actionHrid).includes("/enhancing")) {
     return (
       /\+\s*\d+/.test(header) ||

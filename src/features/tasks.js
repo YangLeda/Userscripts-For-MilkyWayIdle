@@ -3,6 +3,7 @@ import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
 import {
   getLocalizedEntityName,
+  matchesGameTranslations,
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
 import {
@@ -633,7 +634,11 @@ function isCompletedCard(card, task) {
   if (target > 0 && taskRemaining(task) === 0) return true;
   if (
     [...card.querySelectorAll("button")].some((button) =>
-      /claim|领取/i.test(button.textContent),
+      matchesGameTranslations(
+        ["randomTask.claimReward", "questModal.claimReward"],
+        button.textContent,
+        { fallbackPatterns: [/claim|领取/i] },
+      ),
     )
   ) {
     return true;
@@ -1437,7 +1442,11 @@ function wireMergeButtons(cards, tasks) {
   cards.forEach((card, index) => {
     if (card.dataset.mwitoolsMergeWired) return;
     const button = [...card.querySelectorAll("button")].find((candidate) =>
-      /go|前往|开始/i.test(candidate.textContent),
+      matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        candidate.textContent,
+        { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
+      ),
     );
     if (!button) return;
     card.dataset.mwitoolsMergeWired = "true";
@@ -1459,8 +1468,12 @@ function wireMergeButtons(cards, tasks) {
 function wireResetButtons(cards) {
   cards.forEach((card, index) => {
     if (card.dataset.mwitoolsResetWired) return;
+    const isResetButton = (candidate) =>
+      matchesGameTranslations("randomTask.reroll", candidate.textContent, {
+        fallbackPatterns: [/^(?:reset|重置)$/i],
+      });
     const hasResetButton = [...card.querySelectorAll("button")].some(
-      (candidate) => /reset|重置/i.test(candidate.textContent),
+      isResetButton,
     );
     if (!hasResetButton) return;
     card.dataset.mwitoolsResetWired = "true";
@@ -1468,11 +1481,7 @@ function wireResetButtons(cards) {
       "click",
       (event) => {
         const button = event.target?.closest?.("button");
-        if (
-          !button ||
-          !card.contains(button) ||
-          !/reset|重置/i.test(button.textContent)
-        ) {
+        if (!button || !card.contains(button) || !isResetButton(button)) {
           return;
         }
         nativeResetChoiceUntil = Date.now() + 10_000;

@@ -142,3 +142,34 @@ test("task train mutation filtering ignores MWITools controls but sees native ca
     true,
   );
 });
+
+test("localized train controls are inserted immediately before the native go button", async () => {
+  const { registerGameLocaleResources } =
+    await import("../src/core/game-localization.js");
+  registerGameLocaleResources("es", {
+    randomTask: { go: "Ir" },
+    itemNames: { "/items/base": "Base" },
+    actionNames: { "/actions/crafting/base": "Crear base" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+
+  const card = document.createElement("div");
+  const action = document.createElement("div");
+  const buttons = document.createElement("div");
+  const reroll = document.createElement("button");
+  const go = document.createElement("button");
+  const control = document.createElement("button");
+  reroll.textContent = "Volver a tirar";
+  go.textContent = "Ir";
+  control.className = "mwi-task-train-planner";
+  buttons.append(reroll, go);
+  card.append(action, buttons);
+
+  planner.insertBeforeTaskNavigation(card, action, control);
+
+  assert.equal(control.parentElement, buttons);
+  assert.equal(control.nextElementSibling, go);
+  localStorage.setItem("i18nextLng", "en");
+});

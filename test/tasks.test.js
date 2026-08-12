@@ -1292,3 +1292,52 @@ test("producer lookups build the action output index only once per action map", 
   runtime.api.getExpectedOutputs = originalExpectedOutputs;
   runtime.state.initData_actionDetailMap = originalMap;
 });
+
+test("localized task controls wire merge and reset behavior", () => {
+  registerGameLocaleResources("es", {
+    randomTask: {
+      go: "Ir",
+      reroll: "Volver a tirar",
+      claimReward: "Reclamar recompensa",
+    },
+    questModal: { go: "Ir", claimReward: "Reclamar recompensa" },
+    itemNames: { "/items/lumber": "Madera" },
+    actionNames: { "/actions/crafting/lumber": "Madera" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__localized-controls">
+      <div class="RandomTask_randomTask__localized">
+        <div class="RandomTask_name__localized">Fabricación - Madera</div>
+        <div>Progreso: 0 / 5</div>
+        <button>Volver a tirar</button>
+        <button>Ir</button>
+      </div>
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "localized-controls", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.api.renderTasks();
+
+  const localizedCard = document.querySelector(
+    ".RandomTask_randomTask__localized",
+  );
+  assert.equal(localizedCard.dataset.mwitoolsMergeWired, "true");
+  assert.equal(localizedCard.dataset.mwitoolsResetWired, "true");
+  [...localizedCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "Ir")
+    .click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 0,
+    taskCount: 1,
+  });
+  runtime.state.pendingMergedTask = null;
+  localStorage.setItem("i18nextLng", "zh-CN");
+});

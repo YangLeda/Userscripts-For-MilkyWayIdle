@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  getLocalizedEntityName,
+  matchesGameTranslations,
+} from "../core/game-localization.js";
 
 const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
@@ -309,6 +313,7 @@ function clickActionCard(actionHrid) {
     [
       detail?.name,
       runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
+      getLocalizedEntityName("action", actionHrid),
     ]
       .filter(Boolean)
       .map((name) => String(name).replaceAll(/\s+/g, " ").trim()),
@@ -562,7 +567,11 @@ function queueSubmissionHost(panel) {
   const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
   if (buttonsContainer) return buttonsContainer;
   return [...panel.querySelectorAll("button")].find((button) =>
-    /添加到队列|add to queue/i.test(button.textContent ?? ""),
+    matchesGameTranslations(
+      "skillActionDetail.buttons.addToQueue",
+      button.textContent,
+      { fallbackPatterns: [/添加到队列|add to queue/i] },
+    ),
   );
 }
 

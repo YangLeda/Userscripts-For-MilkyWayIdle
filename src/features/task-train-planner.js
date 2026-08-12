@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { matchesGameTranslations } from "../core/game-localization.js";
 import { resolveTaskCards } from "../core/task-card-resolution.js";
 
 const STYLE_ID = "mwitools-task-train-planner-style";
@@ -102,12 +103,19 @@ export function createTaskTrainPlan(
   );
 }
 
-function insertBeforeNavigation(action, control) {
-  const navigation = [...action.querySelectorAll("button")].find((button) =>
-    /^(前往|go)$/i.test(button.textContent?.trim() ?? ""),
+export function insertBeforeTaskNavigation(card, fallbackHost, control) {
+  const navigation = [...card.querySelectorAll("button")].find((button) =>
+    matchesGameTranslations(
+      ["randomTask.go", "questModal.go"],
+      button.textContent,
+      { fallbackPatterns: [/^(?:前往|go)$/i] },
+    ),
   );
-  if (navigation) action.insertBefore(control, navigation);
-  else action.appendChild(control);
+  if (navigation?.parentElement) {
+    navigation.parentElement.insertBefore(control, navigation);
+  } else {
+    fallbackHost.appendChild(control);
+  }
 }
 
 function plannerButton(entry, signature) {
@@ -164,9 +172,10 @@ function render() {
       .forEach((node) => node.remove());
     if (!entry || entry.state === "done") continue;
     if (entry.state === "top") {
-      insertBeforeNavigation(action, plannerButton(entry, signature));
+      insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
     } else if (entry.state === "planned") {
-      insertBeforeNavigation(
+      insertBeforeTaskNavigation(
+        card,
         action,
         plannerLabel(
           t("已被规划", "Included in plan"),
@@ -178,7 +187,8 @@ function render() {
         ),
       );
     } else if (entry.state === "isolated") {
-      insertBeforeNavigation(
+      insertBeforeTaskNavigation(
+        card,
         action,
         plannerLabel(
           t("无需火车", "No train needed"),

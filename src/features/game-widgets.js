@@ -1,11 +1,98 @@
 import { runtime } from "../core/runtime.js";
-import { resolveLocalizedEntity } from "../core/game-localization.js";
+import {
+  getGameTranslation,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
 }
 
 let lastBattleSummaryMessage = null;
+
+function escapeRegularExpression(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function translatedTemplateValue(text, path, fallbacks, valuePattern) {
+  const templates = [getGameTranslation(path), ...fallbacks].filter(Boolean);
+  for (const template of templates) {
+    let captured = false;
+    const parts = String(template).split(/({{[^}]+}})/g);
+    const source = parts
+      .map((part) => {
+        if (/^{{[^}]+}}$/.test(part)) {
+          if (captured) return `(?:${valuePattern})`;
+          captured = true;
+          return `(${valuePattern})`;
+        }
+        return escapeRegularExpression(part).replace(/\s+/g, "\\s+");
+      })
+      .join("");
+    if (!captured) continue;
+    const match = String(text ?? "").match(new RegExp(source, "iu"));
+    if (match?.[1]) return match[1].trim();
+  }
+  return "";
+}
+
+function durationSeconds(value) {
+  let total = 0;
+  let found = false;
+  for (const match of String(value ?? "").matchAll(/(\d+)\s*([dhms])/gi)) {
+    found = true;
+    const amount = Number(match[1]);
+    total +=
+      amount *
+      ({ d: 86_400, h: 3_600, m: 60, s: 1 }[match[2].toLowerCase()] ?? 0);
+  }
+  return found ? total : null;
+}
+
+function wholeNumber(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits ? Number(digits) : null;
+}
+
+export function parseLocalizedBattleInfo(text) {
+  const duration = translatedTemplateValue(
+    text,
+    "battlePanel.combatDuration",
+    [
+      "Combat Duration: {{duration}}",
+      "战斗时间: {{duration}}",
+      "战斗时长: {{duration}}",
+    ],
+    "(?:\\d+\\s*[dhms]\\s*)+",
+  );
+  const battles = translatedTemplateValue(
+    text,
+    "battlePanel.battles",
+    ["Battles: {{battleId}}", "交战: {{battleId}}", "战斗: {{battleId}}"],
+    "[\\d\\s.,\\u00a0\\u202f]+",
+  );
+  const deaths = translatedTemplateValue(
+    text,
+    "battlePanel.deaths",
+    [
+      "Deaths: {{deathCount}}",
+      "战败: {{deathCount}}",
+      "死亡次数: {{deathCount}}",
+    ],
+    "[\\d\\s.,\\u00a0\\u202f]+",
+  );
+  const battleDurationSec = durationSeconds(duration);
+  const battleCount = wholeNumber(battles);
+  const deathCount = wholeNumber(deaths);
+  if (
+    !Number.isFinite(battleDurationSec) ||
+    !Number.isFinite(battleCount) ||
+    !Number.isFinite(deathCount)
+  ) {
+    return null;
+  }
+  return { battleDurationSec, battleCount, deathCount };
+}
 
 /* 战斗总结 */
 async function handleBattleSummary(message) {
@@ -80,17 +167,12 @@ async function handleBattleSummary(message) {
         ".BattlePanel_combatInfo__sHGCe",
       );
       if (combatInfoElement) {
-        let matches = combatInfoElement.innerHTML.match(
-          /(战斗时间|战斗时长|Combat Duration): (?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s).*?(交战|战斗|Battles): (\d+).*?(战败|死亡次数|Deaths): (\d+)/,
+        const battleInfo = parseLocalizedBattleInfo(
+          combatInfoElement.textContent,
         );
-        if (matches) {
-          let days = parseInt(matches[2], 10) || 0;
-          let hours = parseInt(matches[3], 10) || 0;
-          let minutes = parseInt(matches[4], 10) || 0;
-          let seconds = parseInt(matches[5], 10) || 0;
-          let battles = parseInt(matches[7], 10) - 1; // 排除当前战斗
-          battleDurationSec =
-            days * 86400 + hours * 3600 + minutes * 60 + seconds;
+        if (battleInfo) {
+          battleDurationSec = battleInfo.battleDurationSec;
+          const battles = battleInfo.battleCount - 1; // 排除当前战斗
           const efficiencyPerHour = battleDurationSec
             ? ((battles / battleDurationSec) * 3600).toFixed(1)
             : "—";
