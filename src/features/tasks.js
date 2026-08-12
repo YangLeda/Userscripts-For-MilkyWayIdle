@@ -1733,9 +1733,13 @@ runtime.features.register({
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });
+    // No characterData: task text is re-derived from runtime.state.characterQuests
+    // whenever quests_updated arrives (subscribed below), so text mutations need
+    // not be observed. Observing them made this the only task observer that woke
+    // on every combat HP/timer text tick — its dominant wakeup source. Structural
+    // (childList) changes still schedule a render, and quests_updated covers data.
     scope.observer(observer, document.body, {
       childList: true,
-      characterData: true,
       subtree: true,
     });
     scope.add(

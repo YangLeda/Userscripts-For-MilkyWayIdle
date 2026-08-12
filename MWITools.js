@@ -37254,7 +37254,6 @@ ${locks}` : ""}`;
       });
       scope.observer(observer, document.body, {
         childList: true,
-        characterData: true,
         subtree: true
       });
       scope.add(
