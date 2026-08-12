@@ -47,6 +47,8 @@ await import("../src/core/action-projection.js");
 await import("../src/core/message-state.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/settings-and-notifications.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/lumber": {
@@ -62,6 +64,12 @@ runtime.state.initData_itemDetailMap = {
   "/items/log": { hrid: "/items/log", name: "Log" },
   "/items/lumber": { hrid: "/items/lumber", name: "Lumber" },
 };
+registerGameLocaleResources("es", {
+  itemNames: { "/items/lumber": "Madera" },
+  actionNames: { "/actions/crafting/lumber": "Madera" },
+  monsterNames: { "/monsters/rat": "Rata" },
+  abilityNames: { "/abilities/strike": "Golpe" },
+});
 runtime.state.initData_characterItems = [
   {
     itemHrid: "/items/log",
@@ -734,4 +742,13 @@ test("action resolution follows the game's i18nextLng setting", () => {
     runtime.api.resolveProductionAction(panelName.parentElement),
     "/actions/crafting/lumber",
   );
+
+  localStorage.setItem("i18nextLng", "es");
+  panelName.textContent = "Madera";
+  assert.equal(
+    runtime.api.resolveProductionAction(panelName.parentElement),
+    "/actions/crafting/lumber",
+  );
+
+  localStorage.setItem("i18nextLng", "zh-CN");
 });

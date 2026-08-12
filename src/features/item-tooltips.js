@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveEntityFromElement,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 
 const TOUCH_PROFIT_LONG_PRESS_MS = 800;
 const TOUCH_PROFIT_MOVE_TOLERANCE = 12;
@@ -509,11 +513,10 @@ async function handleTooltipItem(tooltip) {
   runtime.api.hideEnhancementCostPanel?.();
 
   const itemNameElem = itemNameElems[0];
-  let itemName = runtime.api.getOriTextFromElement(itemNameElem);
-  if (runtime.config.isZHInGameSetting) {
-    itemName = runtime.api.getItemEnNameFromZhName(itemName);
-  }
-  const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+  const itemName = runtime.api.getOriTextFromElement(itemNameElem);
+  const itemHrid =
+    resolveEntityFromElement("item", tooltip) ||
+    resolveLocalizedEntity("item", itemName);
 
   let amount = 0;
   let insertAfterElem = null;

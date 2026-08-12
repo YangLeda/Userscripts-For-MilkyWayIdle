@@ -28,6 +28,8 @@ localStorage.setItem(
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/features/settings-and-notifications.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 
 test("legacy settings merge into current defaults", () => {
   assert.doesNotThrow(() => runtime.api.readSettings());
@@ -296,4 +298,30 @@ test("market autofill selects semantic plus and minus buttons", () => {
 
   assert.equal(plusClicks, 1);
   assert.equal(minusClicks, 1);
+});
+
+test("market autofill recognizes the current official locale template", () => {
+  registerGameLocaleResources("es", {
+    itemNames: { "/items/coin": "Moneda" },
+    actionNames: { "/actions/milking/cow": "Vaca" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+    marketplacePanel: {
+      buy: "Comprar",
+      sell: "Vender",
+      priceBestBuyOffer: "Precio (mejor oferta de compra: <bestPrice />)",
+    },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  document.body.innerHTML = `
+    <div id="market-order-es">
+      <div class="MarketplacePanel_header__yahJo">Orden limitada</div>
+      <div id="best-label-es">Precio (mejor oferta de compra: <span class="MarketplacePanel_bestPrice__3bgKp">42</span>)</div>
+      <div class="MarketplacePanel_inputContainer__3xmB2"><div class="MarketplacePanel_priceInputs__3iWxy"><button id="plus-es">+</button></div></div>
+    </div>`;
+  let clicks = 0;
+  document.querySelector("#plus-es").addEventListener("click", () => clicks++);
+  runtime.api.handleMarketNewOrder(document.querySelector("#market-order-es"));
+  assert.equal(clicks, 1);
+  localStorage.setItem("i18nextLng", "en");
 });

@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import { itemName } from "../core/localization.js";
+import { resolveLocalizedEntity } from "../core/game-localization.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
@@ -636,33 +637,19 @@ function resolvePanelAction(panel) {
     ?.trim();
   if (!name) return null;
 
-  const gameUsesChinese = runtime.config.isZHInGameSetting;
-  if (gameUsesChinese) {
-    const localizedAction = Object.entries(
-      runtime.data.ZHActionNames ?? {},
-    ).find(([, localizedName]) => localizedName === name);
-    if (localizedAction) return localizedAction[0];
-  }
+  const localizedAction = resolveLocalizedEntity("action", name);
+  if (localizedAction) return localizedAction;
 
   const actionMap = runtime.state.initData_actionDetailMap;
   if (!actionMap) return null;
 
   const candidateNames = new Set([name]);
-  if (gameUsesChinese) {
-    const translatedName = runtime.api.getActionEnNameFromZhName?.(name);
-    if (translatedName) candidateNames.add(translatedName);
-  }
   for (const [actionHrid, detail] of Object.entries(actionMap)) {
     if (candidateNames.has(detail?.name)) return actionHrid;
   }
 
-  const localizedItem = gameUsesChinese
-    ? Object.entries(runtime.data.ZHItemNames ?? {}).find(
-        ([, localizedName]) => localizedName === name,
-      )
-    : null;
-  if (localizedItem) {
-    const [itemHrid] = localizedItem;
+  const itemHrid = resolveLocalizedEntity("item", name);
+  if (itemHrid) {
     const outputAction = Object.entries(actionMap).find(([, detail]) =>
       runtime.api
         .getExpectedOutputs?.(detail)

@@ -36,6 +36,8 @@ localStorage.setItem("i18nextLng", "zh-CN");
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/data/translations.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
@@ -344,6 +346,23 @@ test("task artwork resolves target items and monsters as translucent sprite art"
   );
   runtime.settings.settingsMap.taskIcons.isTrue = false;
   runtime.api.renderTasks();
+});
+
+test("task monsters resolve through a non-Chinese official dictionary", () => {
+  registerGameLocaleResources("es", {
+    itemNames: { "/items/lumber": "Madera" },
+    actionNames: { "/actions/combat/fly": "Mosca" },
+    monsterNames: { "/monsters/fly": "Mosca" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = card("Derrotar - Mosca", "0 / 10");
+  assert.deepEqual(taskArtworkForCard(wrapper.firstElementChild, {}), {
+    kind: "combat_monsters",
+    hrid: "/monsters/fly",
+  });
+  localStorage.setItem("i18nextLng", "zh-CN");
 });
 
 test("submitting a completed task can replace its card without parent mismatch", () => {

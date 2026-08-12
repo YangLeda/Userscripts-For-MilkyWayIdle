@@ -4,6 +4,7 @@ import debugIcon from "./assets/debug.png";
 import resetIcon from "./assets/reset.png";
 import trendIcon from "./assets/trend.png";
 import { runtime } from "../../core/runtime.js";
+import { getGameTranslation } from "../../core/game-localization.js";
 
 /*
  * 普通战斗伤害归属：单人 pMap 直接归属；多人 pMap 优先使用 atkCounter
@@ -383,12 +384,18 @@ function isSelectedTrialTabBar(container) {
   const label = String((selected && selected.textContent) || "")
     .replace(/\s+/g, "")
     .toLowerCase();
-  return (
-    label.startsWith("试炼") ||
-    label.startsWith("試煉") ||
-    label.startsWith("trials") ||
-    label.startsWith("trial")
-  );
+  const trialLabels = [
+    getGameTranslation("guildPanel.trials"),
+    getGameTranslation("guildPanel.combatTrial"),
+    getGameTranslation("guildPanel.skillingTrial"),
+    "试炼",
+    "試煉",
+    "trials",
+    "trial",
+  ]
+    .map((value) => String(value).replace(/\s+/g, "").toLowerCase())
+    .filter(Boolean);
+  return trialLabels.some((value) => label.startsWith(value));
 }
 
 // 活动试炼在部分服务器会从“试炼”切换到单独的“进行中 / In Progress”
@@ -402,26 +409,35 @@ function isSelectedGuildProgressTabBar(container) {
   const label = String((selected && selected.textContent) || "")
     .replace(/\s+/g, "")
     .toLowerCase();
-  if (!(
-    label.startsWith("进行中") ||
-    label.startsWith("進行中") ||
-    label.startsWith("inprogress")
-  ))
-    return false;
+  const progressLabels = [
+    getGameTranslation("guildPanel.trialInProgress"),
+    "进行中",
+    "進行中",
+    "inprogress",
+  ]
+    .map((value) => String(value).replace(/\s+/g, "").toLowerCase())
+    .filter(Boolean);
+  if (!progressLabels.some((value) => label.startsWith(value))) return false;
+  const contextLabels = [
+    getGameTranslation("guildPanel.trials"),
+    getGameTranslation("guildPanel.combatTrial"),
+    getGameTranslation("guildPanel.skillingTrial"),
+    getGameTranslation("navigationBar.guild"),
+    "试炼",
+    "試煉",
+    "trial",
+    "公会",
+    "公會",
+    "guild",
+  ]
+    .map((value) => String(value).replace(/\s+/g, "").toLowerCase())
+    .filter(Boolean);
   let node = container;
   for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
     const context = String(node.textContent || "")
       .replace(/\s+/g, "")
       .toLowerCase();
-    if (
-      context.includes("试炼") ||
-      context.includes("試煉") ||
-      context.includes("trial") ||
-      context.includes("公会") ||
-      context.includes("公會") ||
-      context.includes("guild")
-    )
-      return true;
+    if (contextLabels.some((value) => context.includes(value))) return true;
     if (
       typeof document !== "undefined" &&
       (node === document.body || node === document.documentElement)

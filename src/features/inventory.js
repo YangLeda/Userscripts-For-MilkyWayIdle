@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  getLocalizedEntityName,
+  resolveEntityFromElement,
+} from "../core/game-localization.js";
 
 let inventoryRefreshTimer = null;
 let inventoryDisplayVersion = 0;
@@ -332,15 +336,9 @@ function normalizeCategoryLabel(value) {
 }
 
 function resolveInventoryCategoryHrid(grid, heading) {
-  const itemName = grid
-    .querySelector('div[class*="Item_itemContainer"] svg[aria-label]')
-    ?.getAttribute("aria-label")
-    ?.trim();
-  if (itemName) {
-    const englishName = runtime.config.isZHInGameSetting
-      ? (runtime.api.getItemEnNameFromZhName?.(itemName) ?? itemName)
-      : itemName;
-    const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
+  const firstItem = grid.querySelector('div[class*="Item_itemContainer"]');
+  if (firstItem) {
+    const itemHrid = resolveEntityFromElement("item", firstItem);
     const categoryHrid =
       runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
     if (categoryHrid) return categoryHrid;
@@ -808,17 +806,7 @@ async function addInvSortButton(invElem) {
         ...typeDiv.querySelectorAll('[class*="Item_itemContainer"]'),
       ];
       const sortableItems = itemElems.map((itemElem, originalIndex) => {
-        let itemName =
-          itemElem
-            .querySelector("svg[aria-label]")
-            ?.getAttribute("aria-label") ?? "";
-        if (
-          runtime.config.isZHInGameSetting &&
-          typeof runtime.api.getItemEnNameFromZhName === "function"
-        ) {
-          itemName = runtime.api.getItemEnNameFromZhName(itemName);
-        }
-        const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+        const itemHrid = resolveEntityFromElement("item", itemElem);
         const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
         const countText =
           itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
@@ -961,10 +949,9 @@ async function addGuildCreditConversionsSortButton() {
         const creditBidPrice =
           (bidPrice * conversion.itemCount) / conversion.creditCount;
         const enName = runtime.state.initData_itemDetailMap[itemHrid].name;
-        const zhName = runtime.data.ZHItemNames[itemHrid];
-        const displayName = runtime.config.isZHInGameSetting
-          ? zhName || enName
-          : enName;
+        const displayName = getLocalizedEntityName("item", itemHrid, {
+          fallback: enName,
+        });
         if (!bestCreditConversionMap[creditHrid]) {
           bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
         }
@@ -1041,13 +1028,9 @@ async function addGuildCreditConversionsSortButton() {
         ".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg",
       );
       if (creditIcon) {
-        let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+        const creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
         if (creditAriaLabel) {
-          if (runtime.config.isZHInGameSetting) {
-            creditAriaLabel =
-              runtime.api.getItemEnNameFromZhName(creditAriaLabel);
-          }
-          targetCreditHrid = runtime.state.itemEnNameToHridMap[creditAriaLabel];
+          targetCreditHrid = resolveEntityFromElement("item", creditIcon);
           targetCreditName = creditAriaLabel;
         }
       }
@@ -1061,7 +1044,7 @@ async function addGuildCreditConversionsSortButton() {
       );
       if (!itemElem) return;
 
-      let itemName =
+      const itemName =
         itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
       if (!itemName) {
         itemElem.style.order = 0;
@@ -1070,10 +1053,7 @@ async function addGuildCreditConversionsSortButton() {
         return;
       }
 
-      if (runtime.config.isZHInGameSetting) {
-        itemName = runtime.api.getItemEnNameFromZhName(itemName);
-      }
-      const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+      const itemHrid = resolveEntityFromElement("item", itemElem);
       let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
       if (!itemCount) {
         itemElem.style.order = 0;

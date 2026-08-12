@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  getGameTranslation,
+  matchesGameTranslation,
+} from "../core/game-localization.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
@@ -869,7 +873,21 @@ function handleMarketNewOrder(node) {
   const title = runtime.api.getOriTextFromElement(
     node.querySelector(".MarketplacePanel_header__yahJo"),
   );
-  if (!title || title.includes(" Now") || title.includes("立即")) {
+  const normalizedTitle = String(title ?? "").toLocaleLowerCase();
+  const immediateTitles = [
+    getGameTranslation("marketplacePanel.buyNow"),
+    getGameTranslation("marketplacePanel.sellNow"),
+    "Buy Now",
+    "Sell Now",
+    "立即购买",
+    "立即出售",
+  ]
+    .filter(Boolean)
+    .map((value) => value.toLocaleLowerCase());
+  if (
+    !title ||
+    immediateTitles.some((value) => normalizedTitle.includes(value))
+  ) {
     return;
   }
   const label = node.querySelector("span.MarketplacePanel_bestPrice__3bgKp");
@@ -903,12 +921,22 @@ function handleMarketNewOrder(node) {
     return Boolean(target);
   };
 
+  const priceLabel = String(
+    runtime.api.getOriTextFromElement(label.parentElement) ??
+      label.parentElement.textContent ??
+      "",
+  ).toLocaleLowerCase();
+  const buyLabel = getGameTranslation(
+    "marketplacePanel.buy",
+  ).toLocaleLowerCase();
+  const sellLabel = getGameTranslation(
+    "marketplacePanel.sell",
+  ).toLocaleLowerCase();
   if (
-    runtime.api
-      .getOriTextFromElement(label.parentElement)
-      .toLowerCase()
-      .includes("best buy") ||
-    label.parentElement.textContent.includes("购买")
+    matchesGameTranslation("marketplacePanel.priceBestBuyOffer", priceLabel) ||
+    priceLabel.includes("best buy") ||
+    priceLabel.includes("购买") ||
+    (buyLabel && priceLabel.includes(buyLabel))
   ) {
     if (!clickAdjustmentButton("increase")) {
       console.error(
@@ -918,11 +946,10 @@ function handleMarketNewOrder(node) {
       );
     }
   } else if (
-    runtime.api
-      .getOriTextFromElement(label.parentElement)
-      .toLowerCase()
-      .includes("best sell") ||
-    label.parentElement.textContent.includes("出售")
+    matchesGameTranslation("marketplacePanel.priceBestSellOffer", priceLabel) ||
+    priceLabel.includes("best sell") ||
+    priceLabel.includes("出售") ||
+    (sellLabel && priceLabel.includes(sellLabel))
   ) {
     if (!clickAdjustmentButton("decrease")) {
       console.error(

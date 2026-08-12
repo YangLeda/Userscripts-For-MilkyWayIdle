@@ -12,6 +12,8 @@ globalThis.window = dom.window;
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { getTooltipEnhancementPlanOptions, readEnhancedTooltipItem } =
   await import("../src/features/enhancement-tooltip.js");
 
@@ -31,6 +33,27 @@ test("refined tooltip identity comes from its sprite and level marker", () => {
     itemHrid: "/items/rippling_trident_refined",
     enhancementLevel: 14,
   });
+});
+
+test("tooltip identity falls back to the current official locale dictionary", () => {
+  runtime.state.initData_itemDetailMap = {
+    "/items/rippling_trident": { name: "Rippling Trident" },
+  };
+  runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
+  registerGameLocaleResources("es", {
+    itemNames: { "/items/rippling_trident": "Tridente Ondulante" },
+    actionNames: { "/actions/milking/cow": "Vaca" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  const tooltip = document.createElement("div");
+  tooltip.innerHTML = `<div class="ItemTooltipText_name__2JAHA"><span>Tridente Ondulante</span><span>+7</span></div>`;
+  assert.deepEqual(readEnhancedTooltipItem(tooltip), {
+    itemHrid: "/items/rippling_trident",
+    enhancementLevel: 7,
+  });
+  localStorage.setItem("i18nextLng", "en");
 });
 
 test("enhancement tooltip values every back type with protection mirrors", () => {

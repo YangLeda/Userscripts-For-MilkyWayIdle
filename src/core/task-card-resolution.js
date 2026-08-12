@@ -1,4 +1,5 @@
 import { runtime } from "./runtime.js";
+import { getLocalizedEntityName } from "./game-localization.js";
 
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
 
@@ -66,6 +67,7 @@ function actionLabels(actionHrid) {
     [
       detail?.name,
       runtime.data.ZHActionNames?.[actionHrid],
+      getLocalizedEntityName("action", actionHrid),
       String(actionHrid ?? "")
         .split("/")
         .at(-1)

@@ -1962,6 +1962,389 @@
     console.log(window.location.href);
   });
 
+  // src/core/game-localization.js
+  var SUPPORTED_GAME_LOCALES = Object.freeze([
+    "en",
+    "es",
+    "fr",
+    "pt",
+    "zh",
+    "zh-TW",
+    "ja",
+    "ko",
+    "ru"
+  ]);
+  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
+  var ENTITY_TYPES = Object.freeze({
+    item: {
+      resourceKey: "itemNames",
+      stateKey: "initData_itemDetailMap",
+      prefix: "/items/",
+      sprite: "items_sprite"
+    },
+    action: {
+      resourceKey: "actionNames",
+      stateKey: "initData_actionDetailMap",
+      prefix: "/actions/",
+      sprite: "actions_sprite"
+    },
+    monster: {
+      resourceKey: "monsterNames",
+      stateKey: "initData_monsterDetailMap",
+      prefix: "/monsters/",
+      sprite: "combat_monsters_sprite"
+    },
+    ability: {
+      resourceKey: "abilityNames",
+      stateKey: "initData_abilityDetailMap",
+      prefix: "/abilities/",
+      sprite: "abilities_sprite"
+    }
+  });
+  var TYPE_ALIASES = Object.freeze({
+    items: "item",
+    actions: "action",
+    monsters: "monster",
+    abilities: "ability"
+  });
+  var localeResources = /* @__PURE__ */ new Map();
+  var reverseIndexes = /* @__PURE__ */ new WeakMap();
+  var warnedLocales = /* @__PURE__ */ new Set();
+  function pageGlobal() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function normalizeGameLocale(value) {
+    const raw = String(value ?? "").trim().replaceAll("_", "-");
+    if (!raw) return "en";
+    const lower = raw.toLowerCase();
+    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
+      return "zh-TW";
+    }
+    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
+    const base = lower.split("-")[0];
+    return LOCALE_SET.has(base) ? base : "en";
+  }
+  function getGameLocale() {
+    return normalizeGameLocale(
+      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
+    );
+  }
+  function webpackQueues(target = pageGlobal()) {
+    const queues = [];
+    for (const key of Object.getOwnPropertyNames(target ?? {})) {
+      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
+      let value;
+      try {
+        value = target[key];
+      } catch {
+        continue;
+      }
+      if (Array.isArray(value)) queues.push(value);
+    }
+    return queues;
+  }
+  function chunkEntries(target) {
+    return webpackQueues(target).flatMap(
+      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
+    );
+  }
+  function localeModuleMap(entries) {
+    const result = /* @__PURE__ */ new Map();
+    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+    for (const entry of entries) {
+      for (const factory of Object.values(entry[1])) {
+        if (typeof factory !== "function") continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!source.includes("./zh-TW/index.js")) continue;
+        for (const match of source.matchAll(pattern)) {
+          result.set(normalizeGameLocale(match[1]), String(match[2]));
+        }
+      }
+    }
+    return result;
+  }
+  function runLocaleFactory(factory) {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const webpackRequire = () => {
+      throw new Error(
+        runtime.config.isZH ? "游戏语言模块意外引用了其他模块" : "The game locale unexpectedly imported another module"
+      );
+    };
+    webpackRequire.r = (target) => {
+      Object.defineProperty(target, "__esModule", { value: true });
+    };
+    webpackRequire.d = (target, nameOrDefinition, getter) => {
+      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
+      for (const [name, get] of Object.entries(definition)) {
+        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
+        Object.defineProperty(target, name, {
+          enumerable: true,
+          get
+        });
+      }
+    };
+    factory.call(exports, module, exports, webpackRequire);
+    return module.exports?.default ?? exports.default ?? module.exports;
+  }
+  function validResourceMap(value, prefix) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value).some((key) => key.startsWith(prefix));
+  }
+  function validateGameLocaleResources(value) {
+    return Boolean(
+      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
+    );
+  }
+  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en") return null;
+    const entries = chunkEntries(target);
+    const moduleMap = localeModuleMap(entries);
+    const expectedModuleId = moduleMap.get(normalizedLocale);
+    const candidates = [];
+    for (const entry of entries) {
+      for (const [moduleId, factory] of Object.entries(entry[1])) {
+        if (typeof factory !== "function") continue;
+        if (expectedModuleId && moduleId !== expectedModuleId) continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!expectedModuleId && (!source.includes("itemNames") || !source.includes("actionNames") || !source.includes("monsterNames") || !source.includes("abilityNames"))) {
+          continue;
+        }
+        candidates.push(factory);
+      }
+    }
+    for (const factory of candidates) {
+      try {
+        const resources = runLocaleFactory(factory);
+        if (validateGameLocaleResources(resources)) return resources;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function englishResourceMap(type) {
+    const definition = ENTITY_TYPES[type];
+    const details = runtime.state[definition.stateKey];
+    if (!details || typeof details !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(details).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
+    );
+  }
+  function englishResources() {
+    const resources = {
+      itemNames: englishResourceMap("item"),
+      actionNames: englishResourceMap("action"),
+      monsterNames: englishResourceMap("monster"),
+      abilityNames: englishResourceMap("ability")
+    };
+    for (const [hrid, name] of Object.entries(resources.actionNames)) {
+      if (!hrid.startsWith("/actions/combat/")) continue;
+      const monsterHrid = hrid.replace("/actions/combat/", "/monsters/");
+      if (!resources.monsterNames[monsterHrid]) {
+        resources.monsterNames[monsterHrid] = name;
+      }
+    }
+    return resources;
+  }
+  function simplifiedResources() {
+    const others = runtime.data.ZHOthersDic ?? {};
+    return {
+      itemNames: runtime.data.ZHItemNames ?? {},
+      actionNames: runtime.data.ZHActionNames ?? {},
+      monsterNames: Object.fromEntries(
+        Object.entries(others).filter(([hrid]) => hrid.startsWith("/monsters/"))
+      ),
+      abilityNames: Object.fromEntries(
+        Object.entries(others).filter(([hrid]) => hrid.startsWith("/abilities/"))
+      )
+    };
+  }
+  function getGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en") return englishResources();
+    if (localeResources.has(normalizedLocale)) {
+      return localeResources.get(normalizedLocale);
+    }
+    const extracted = extractGameLocaleResources(normalizedLocale);
+    if (extracted) {
+      localeResources.set(normalizedLocale, extracted);
+      return extracted;
+    }
+    if (normalizedLocale === "zh") return simplifiedResources();
+    if (!warnedLocales.has(normalizedLocale)) {
+      warnedLocales.add(normalizedLocale);
+      console.warn(
+        `[MWITools] The official ${normalizedLocale} game language resources are not available yet. Locale-dependent fallbacks will stay disabled.`
+      );
+    }
+    return null;
+  }
+  function registerGameLocaleResources(locale, resources) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en" || !validateGameLocaleResources(resources)) {
+      return false;
+    }
+    localeResources.set(normalizedLocale, resources);
+    return true;
+  }
+  function entityType(kind) {
+    const normalized = TYPE_ALIASES[kind] ?? kind;
+    return ENTITY_TYPES[normalized] ? normalized : null;
+  }
+  function normalizedName(value, type = "") {
+    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
+    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
+    return result;
+  }
+  function reverseIndex(resources, type) {
+    let indexes = reverseIndexes.get(resources);
+    if (!indexes) {
+      indexes = /* @__PURE__ */ new Map();
+      reverseIndexes.set(resources, indexes);
+    }
+    if (indexes.has(type)) return indexes.get(type);
+    const definition = ENTITY_TYPES[type];
+    const index = /* @__PURE__ */ new Map();
+    for (const [hrid, name] of Object.entries(
+      resources?.[definition.resourceKey] ?? {}
+    )) {
+      const key = normalizedName(name, type);
+      if (!key) continue;
+      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
+      else index.set(key, hrid);
+    }
+    indexes.set(type, index);
+    return index;
+  }
+  function directHrid(type, value) {
+    const definition = ENTITY_TYPES[type];
+    const candidate = String(value ?? "").trim();
+    return candidate.startsWith(definition.prefix) ? candidate : "";
+  }
+  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type) return "";
+    const direct = directHrid(type, name);
+    if (direct) return direct;
+    const key = normalizedName(name, type);
+    if (!key) return "";
+    if (type === "item") {
+      const directEnglish = runtime.state.itemEnNameToHridMap?.[name];
+      if (directEnglish) return directEnglish;
+      for (const [englishName, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (normalizedName(englishName, type) === key) return hrid;
+      }
+    }
+    const sources = [getGameLocaleResources(locale), englishResources()];
+    if (normalizeGameLocale(locale) !== "zh") sources.push(simplifiedResources());
+    for (const resources of sources) {
+      if (!resources) continue;
+      const match = reverseIndex(resources, type).get(key);
+      if (match) return match;
+    }
+    return "";
+  }
+  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
+    const type = entityType(kind);
+    if (!type) return fallback;
+    const definition = ENTITY_TYPES[type];
+    const resources = getGameLocaleResources(locale);
+    return resources?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
+  }
+  function elementCandidates(element) {
+    const result = [];
+    for (let current = element; current && result.length < 24; ) {
+      result.push(current);
+      current = current.parentElement;
+    }
+    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
+      if (!result.includes(child)) result.push(child);
+    }
+    return result;
+  }
+  function datasetHrid(type, element) {
+    const names = [
+      `${type}Hrid`,
+      "hrid",
+      "itemHrid",
+      "actionHrid",
+      "monsterHrid",
+      "abilityHrid"
+    ];
+    for (const name of names) {
+      const value = element?.dataset?.[name];
+      const direct = directHrid(type, value);
+      if (direct) return direct;
+    }
+    return "";
+  }
+  function spriteHrid(type, element) {
+    const definition = ENTITY_TYPES[type];
+    const href = String(
+      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
+    );
+    const [base, fragment = ""] = href.split("#");
+    if (!fragment || !base.includes(definition.sprite)) return "";
+    return `${definition.prefix}${fragment}`;
+  }
+  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type || !element) return "";
+    const candidates = elementCandidates(element);
+    for (const candidate of candidates) {
+      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
+      if (hrid) return hrid;
+    }
+    for (const candidate of candidates) {
+      for (const value of [
+        candidate?.getAttribute?.("aria-label"),
+        candidate?.getAttribute?.("title"),
+        candidate?.textContent
+      ]) {
+        const hrid = resolveLocalizedEntity(type, value, { locale });
+        if (hrid) return hrid;
+      }
+    }
+    return "";
+  }
+  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
+    let value = getGameLocaleResources(locale);
+    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
+      if (!key || !value || typeof value !== "object") return "";
+      value = value[key];
+    }
+    return typeof value === "string" ? value : "";
+  }
+  function escapeRegularExpression(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
+    const template = getGameTranslation(path, { locale });
+    if (!template) return false;
+    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
+    const pattern = parts.map(
+      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
+    ).join("");
+    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
+  }
+  function resetGameLocalizationCache() {
+    localeResources.clear();
+    warnedLocales.clear();
+  }
+  Object.assign(runtime.api, {
+    getGameLocale,
+    getGameLocaleResources,
+    registerGameLocaleResources,
+    getGameTranslation,
+    matchesGameTranslation,
+    resolveLocalizedEntity,
+    resolveEntityFromElement,
+    getLocalizedEntityName
+  });
+
   // src/data/translations.js
   var ZHItemNames = {
     "/items/coin": "金币",
@@ -3851,7 +4234,7 @@
   var ZHToActionHridMap = inverseKV(ZHActionNames);
   var ZHToOthersMap = inverseKV(ZHOthersDic);
   function getItemEnNameFromZhName(zhName) {
-    const itemHrid = ZHToItemHridMap[zhName];
+    const itemHrid = resolveLocalizedEntity("item", zhName) || ZHToItemHridMap[zhName];
     if (!itemHrid) {
       console.log(
         runtime.config.isZH ? `[MWITools] 找不到物品“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English item name for “${zhName}”.`
@@ -3873,7 +4256,7 @@
     return enName;
   }
   function getActionEnNameFromZhName(zhName) {
-    const actionHrid = ZHToActionHridMap[zhName];
+    const actionHrid = resolveLocalizedEntity("action", zhName) || ZHToActionHridMap[zhName];
     if (!actionHrid) {
       console.log(
         runtime.config.isZH ? `[MWITools] 找不到行动“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English action name for “${zhName}”.`
@@ -3895,7 +4278,7 @@
     return enName;
   }
   function getOthersFromZhName(zhName) {
-    const key = ZHToOthersMap[zhName];
+    const key = resolveLocalizedEntity("monster", zhName) || resolveLocalizedEntity("ability", zhName) || ZHToOthersMap[zhName];
     if (!key) {
       return "";
     }
@@ -3906,7 +4289,8 @@
     inverseKV,
     getItemEnNameFromZhName,
     getActionEnNameFromZhName,
-    getOthersFromZhName
+    getOthersFromZhName,
+    getLocalizedEntityName
   });
   Object.defineProperties(runtime.data, {
     ZHItemNames: {
@@ -18831,8 +19215,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal3.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal4.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error(
         runtime.config.isZH ? "[MWITools] 无法从游戏缓存读取市场价值" : "[MWITools] Unable to read market values from the game cache",
@@ -26827,7 +27211,7 @@ ${preview}`
   var PUBLIC_API_VERSION = 1;
   var SCORE_SCHEMA_VERSION = 1;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
-  var pageGlobal = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
     const number2 = Number(value);
@@ -26836,7 +27220,7 @@ ${preview}`
   function cloneForConsumer(value) {
     if (value === null || value === void 0) return value ?? null;
     const serialized = JSON.stringify(value);
-    return pageGlobal.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
+    return pageGlobal2.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
   }
   function createPublicScoreSnapshot(assetSnapshot) {
     const scores = assetSnapshot?.scores;
@@ -26863,10 +27247,10 @@ ${preview}`
     };
   }
   function dispatchScoresUpdated() {
-    if (!latestScores || typeof pageGlobal.dispatchEvent !== "function") return;
-    const EventConstructor = pageGlobal.CustomEvent ?? globalThis.CustomEvent;
+    if (!latestScores || typeof pageGlobal2.dispatchEvent !== "function") return;
+    const EventConstructor = pageGlobal2.CustomEvent ?? globalThis.CustomEvent;
     if (typeof EventConstructor !== "function") return;
-    pageGlobal.dispatchEvent(
+    pageGlobal2.dispatchEvent(
       new EventConstructor(SCORES_UPDATED_EVENT, {
         detail: cloneForConsumer(latestScores)
       })
@@ -26901,13 +27285,13 @@ ${preview}`
     refreshScores
   };
   try {
-    Object.defineProperty(pageGlobal, "MWIToolsAPI", {
+    Object.defineProperty(pageGlobal2, "MWIToolsAPI", {
       configurable: true,
       enumerable: true,
       value: publicApi2
     });
   } catch {
-    pageGlobal.MWIToolsAPI = publicApi2;
+    pageGlobal2.MWIToolsAPI = publicApi2;
   }
   runtime.api.onAssetSnapshot?.(publishScoreSnapshot);
   var existingSnapshot = runtime.api.getLatestAssetSnapshot?.();
@@ -26959,7 +27343,7 @@ ${preview}`
     }
     return String(value || fallback);
   }
-  function normalizedName(value) {
+  function normalizedName2(value) {
     return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
   }
   function badgeTier(rank) {
@@ -27077,7 +27461,7 @@ ${preview}`
       for (const category of categoryOrder) {
         const snapshot = state.categories?.[category];
         for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
-          const name = normalizedName(row.characterName || row.name);
+          const name = normalizedName2(row.characterName || row.name);
           const rank = Number(row.rank);
           const tier = badgeTier(rank);
           if (!name || !tier) continue;
@@ -27127,7 +27511,7 @@ ${preview}`
           continue;
         }
         const badges = state.nameIndex.get(
-          normalizedName(nameElement.getAttribute("data-name"))
+          normalizedName2(nameElement.getAttribute("data-name"))
         ) || [];
         const visibleBadges = nameElement.closest('[class*="ChatMessage_name"]') ? badges.slice(0, 3) : badges;
         if (!visibleBadges.length) {
@@ -27171,7 +27555,7 @@ ${preview}`
     function currentRowsByName() {
       return new Map(
         (state.currentLeaderboard?.rows || []).map((row) => [
-          normalizedName(row.characterName || row.name),
+          normalizedName2(row.characterName || row.name),
           row
         ])
       );
@@ -27193,14 +27577,14 @@ ${preview}`
       const tbody = table.tBodies?.[0];
       if (!tbody) return;
       const rows = [...tbody.rows];
-      const currentCharacterName2 = normalizedName(
+      const currentCharacterName2 = normalizedName2(
         runtime.state.currentCharacterName
       );
       rows.sort((left, right) => {
         const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
         const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const normalizedLeftName = normalizedName(leftName);
-        const normalizedRightName = normalizedName(rightName);
+        const normalizedLeftName = normalizedName2(leftName);
+        const normalizedRightName = normalizedName2(rightName);
         if (currentCharacterName2) {
           const leftIsCurrent = normalizedLeftName === currentCharacterName2;
           const rightIsCurrent = normalizedRightName === currentCharacterName2;
@@ -27239,7 +27623,7 @@ ${preview}`
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
         const name = rowElement.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const model = rowsByName.get(normalizedName(name));
+        const model = rowsByName.get(normalizedName2(name));
         let cell = rowElement.querySelector(`[${RATE_CELL_ATTRIBUTE}]`);
         if (!cell) {
           cell = documentRef.createElement("td");
@@ -27532,15 +27916,15 @@ ${preview}`
       }
     });
   }
-  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   try {
-    Object.defineProperty(pageGlobal2, "MWILeaderboardOverlay", {
+    Object.defineProperty(pageGlobal3, "MWILeaderboardOverlay", {
       configurable: true,
       enumerable: true,
       value: leaderboardOverlayApi
     });
   } catch {
-    pageGlobal2.MWILeaderboardOverlay = leaderboardOverlayApi;
+    pageGlobal3.MWILeaderboardOverlay = leaderboardOverlayApi;
   }
   var integratedModes = /* @__PURE__ */ new Set();
   var integratedService = null;
@@ -28417,10 +28801,9 @@ ${preview}`
     return String(value ?? "").replace(/^[+−-]\s*/, "").replace(/\s*\(\d+\)\s*$/, "").trim().toLowerCase();
   }
   function resolveInventoryCategoryHrid(grid, heading) {
-    const itemName4 = grid.querySelector('div[class*="Item_itemContainer"] svg[aria-label]')?.getAttribute("aria-label")?.trim();
-    if (itemName4) {
-      const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(itemName4) ?? itemName4 : itemName4;
-      const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
+    const firstItem = grid.querySelector('div[class*="Item_itemContainer"]');
+    if (firstItem) {
+      const itemHrid = resolveEntityFromElement("item", firstItem);
       const categoryHrid = runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
       if (categoryHrid) return categoryHrid;
     }
@@ -28805,11 +29188,7 @@ ${preview}`
           ...typeDiv.querySelectorAll('[class*="Item_itemContainer"]')
         ];
         const sortableItems = itemElems.map((itemElem, originalIndex) => {
-          let itemName4 = itemElem.querySelector("svg[aria-label]")?.getAttribute("aria-label") ?? "";
-          if (runtime.config.isZHInGameSetting && typeof runtime.api.getItemEnNameFromZhName === "function") {
-            itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-          }
-          const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+          const itemHrid = resolveEntityFromElement("item", itemElem);
           const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
           const countText = itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
           const parsedCount = runtime.api.parseCompactNumber?.(countText) ?? Number(countText);
@@ -28904,8 +29283,9 @@ ${preview}`
           const creditAskPrice = askPrice * conversion.itemCount / conversion.creditCount;
           const creditBidPrice = bidPrice * conversion.itemCount / conversion.creditCount;
           const enName = runtime.state.initData_itemDetailMap[itemHrid].name;
-          const zhName = runtime.data.ZHItemNames[itemHrid];
-          const displayName = runtime.config.isZHInGameSetting ? zhName || enName : enName;
+          const displayName = getLocalizedEntityName("item", itemHrid, {
+            fallback: enName
+          });
           if (!bestCreditConversionMap[creditHrid]) {
             bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
           }
@@ -28967,12 +29347,9 @@ ${preview}`
           ".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg"
         );
         if (creditIcon) {
-          let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+          const creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
           if (creditAriaLabel) {
-            if (runtime.config.isZHInGameSetting) {
-              creditAriaLabel = runtime.api.getItemEnNameFromZhName(creditAriaLabel);
-            }
-            targetCreditHrid = runtime.state.itemEnNameToHridMap[creditAriaLabel];
+            targetCreditHrid = resolveEntityFromElement("item", creditIcon);
             targetCreditName = creditAriaLabel;
           }
         }
@@ -28983,17 +29360,14 @@ ${preview}`
           ".Item_itemContainer__x7kH1"
         );
         if (!itemElem) return;
-        let itemName4 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+        const itemName4 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
         if (!itemName4) {
           itemElem.style.order = 0;
           const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
           if (priceElem2) priceElem2.remove();
           return;
         }
-        if (runtime.config.isZHInGameSetting) {
-          itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-        }
-        const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+        const itemHrid = resolveEntityFromElement("item", itemElem);
         let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
         if (!itemCount) {
           itemElem.style.order = 0;
@@ -29162,18 +29536,7 @@ ${preview}`
     return [...documentRef.querySelectorAll(ITEM_SELECTOR)].filter(isVisible).at(-1);
   }
   function itemHridFromIcon(icon) {
-    let label = icon?.getAttribute?.("aria-label")?.trim();
-    if (label && runtime.config.isZHInGameSetting) {
-      label = runtime.api.getItemEnNameFromZhName?.(label) ?? label;
-    }
-    if (label && runtime.state.itemEnNameToHridMap?.[label]) {
-      return runtime.state.itemEnNameToHridMap[label];
-    }
-    const fragment = icon?.querySelector?.("use")?.getAttribute?.("href")?.split("#").at(-1);
-    if (!fragment) return "";
-    return Object.keys(runtime.state.initData_itemDetailMap ?? {}).find(
-      (itemHrid) => itemHrid.split("/").at(-1) === fragment
-    );
+    return resolveEntityFromElement("item", icon);
   }
   function guildCreditHrids() {
     const result = /* @__PURE__ */ new Set();
@@ -31100,11 +31463,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     runtime.api.hideEnhancementCostPanel?.();
     const itemNameElem = itemNameElems[0];
-    let itemName4 = runtime.api.getOriTextFromElement(itemNameElem);
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-    }
-    const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+    const itemName4 = runtime.api.getOriTextFromElement(itemNameElem);
+    const itemHrid = resolveEntityFromElement("item", tooltip) || resolveLocalizedEntity("item", itemName4);
     let amount = 0;
     let insertAfterElem = null;
     const amountSpan = tooltip.querySelectorAll("span")[1];
@@ -32421,28 +32781,16 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       panel?.querySelector('div[class*="SkillActionDetail_name"]')
     )?.trim();
     if (!name) return null;
-    const gameUsesChinese = runtime.config.isZHInGameSetting;
-    if (gameUsesChinese) {
-      const localizedAction = Object.entries(
-        runtime.data.ZHActionNames ?? {}
-      ).find(([, localizedName]) => localizedName === name);
-      if (localizedAction) return localizedAction[0];
-    }
+    const localizedAction = resolveLocalizedEntity("action", name);
+    if (localizedAction) return localizedAction;
     const actionMap = runtime.state.initData_actionDetailMap;
     if (!actionMap) return null;
     const candidateNames = /* @__PURE__ */ new Set([name]);
-    if (gameUsesChinese) {
-      const translatedName = runtime.api.getActionEnNameFromZhName?.(name);
-      if (translatedName) candidateNames.add(translatedName);
-    }
     for (const [actionHrid, detail] of Object.entries(actionMap)) {
       if (candidateNames.has(detail?.name)) return actionHrid;
     }
-    const localizedItem2 = gameUsesChinese ? Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === name
-    ) : null;
-    if (localizedItem2) {
-      const [itemHrid] = localizedItem2;
+    const itemHrid = resolveLocalizedEntity("item", name);
+    if (itemHrid) {
       const outputAction = Object.entries(actionMap).find(
         ([, detail]) => runtime.api.getExpectedOutputs?.(detail).some((output) => output.itemHrid === itemHrid)
       );
@@ -34462,9 +34810,9 @@ ${locks}` : ""}`;
     );
   }
   function gameInstances() {
-    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
+    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
-    if (pageGlobal3.mwi?.game) instances.push(pageGlobal3.mwi.game);
+    if (pageGlobal4.mwi?.game) instances.push(pageGlobal4.mwi.game);
     const fibers = [];
     const rootElement = document.getElementById("root");
     for (const root of [
@@ -35212,6 +35560,7 @@ ${locks}` : ""}`;
       [
         detail?.name,
         runtime.data.ZHActionNames?.[actionHrid],
+        getLocalizedEntityName("action", actionHrid),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " ")
       ].map(normalize).filter(Boolean)
     );
@@ -35679,17 +36028,11 @@ ${locks}` : ""}`;
   function itemHridFromDisplayName(name) {
     if (!name) return "";
     const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
-    const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(normalized) ?? normalized : normalized;
-    if (runtime.state.itemEnNameToHridMap?.[englishName]) {
-      return runtime.state.itemEnNameToHridMap[englishName];
-    }
-    return Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === normalized
-    )?.[0] ?? "";
+    return resolveLocalizedEntity("item", normalized);
   }
   function namedMonsterHridForCard(card) {
     const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
-    const translated = runtime.api.getOthersFromZhName?.(monsterName2);
+    const translated = resolveLocalizedEntity("monster", monsterName2);
     if (String(translated).startsWith("/monsters/")) return translated;
     if (String(translated).startsWith("/actions/combat/")) {
       return String(translated).replace("/actions/combat/", "/monsters/");
@@ -35697,7 +36040,7 @@ ${locks}` : ""}`;
     const matchingAction = Object.values(
       runtime.state.initData_actionDetailMap ?? {}
     ).find(
-      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName2 || runtime.data.ZHActionNames?.[candidate.hrid] === monsterName2)
+      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName2 || getLocalizedEntityName("action", candidate.hrid) === monsterName2)
     );
     return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
   }
@@ -35805,7 +36148,7 @@ ${locks}` : ""}`;
         return profession;
       }
     }
-    if (/^(击败|Defeat|Kill)(?:\s|[-–]|$)/i.test(title)) {
+    if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
       return PROFESSIONS.find(({ key: key2 }) => key2 === "combat");
     }
     const actionHrid = taskActionHrid(task);
@@ -35822,6 +36165,10 @@ ${locks}` : ""}`;
     };
   }
   function isCompletedCard(card, task) {
+    const target = Number(
+      nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"])
+    );
+    if (target > 0 && taskRemaining(task) === 0) return true;
     if ([...card.querySelectorAll("button")].some(
       (button) => /claim|领取/i.test(button.textContent)
     )) {
@@ -35835,8 +36182,8 @@ ${locks}` : ""}`;
     );
     if (progress) {
       const current = Number(progress[1].replaceAll(",", ""));
-      const target = Number(progress[2].replaceAll(",", ""));
-      if (Number.isFinite(current) && Number.isFinite(target) && target > 0 && current >= target) {
+      const target2 = Number(progress[2].replaceAll(",", ""));
+      if (Number.isFinite(current) && Number.isFinite(target2) && target2 > 0 && current >= target2) {
         return true;
       }
     }
@@ -35844,8 +36191,8 @@ ${locks}` : ""}`;
   }
   function combatDetailForCard(card, task) {
     const taskDetail = runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-    const monsterName2 = visibleTaskTitle(card).replace(/^(击败|Defeat|Kill)\s*[-–]\s*/i, "").replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
-    const translatedHrid = runtime.config.isZHInGameSetting ? runtime.api.getOthersFromZhName?.(monsterName2) ?? runtime.api.getActionEnNameFromZhName?.(monsterName2) : null;
+    const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
+    const translatedHrid = resolveLocalizedEntity("monster", monsterName2) || resolveLocalizedEntity("action", monsterName2);
     const monsterHrid = String(translatedHrid ?? "").replace(
       "/actions/combat/",
       "/monsters/"
@@ -35854,7 +36201,7 @@ ${locks}` : ""}`;
       runtime.state.initData_actionDetailMap ?? {}
     )) {
       if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-      const localizedName = runtime.data.ZHActionNames?.[detail.hrid];
+      const localizedName = getLocalizedEntityName("action", detail.hrid);
       if (detail.name?.toLowerCase() === monsterName2.toLowerCase() || localizedName === monsterName2 || detail.hrid === String(translatedHrid).replace("/monsters/", "/actions/combat/")) {
         return detail;
       }
@@ -36556,12 +36903,7 @@ ${locks}` : ""}`;
     const name = runtime.api.getOriTextFromElement?.(
       panel.querySelector('div[class*="SkillActionDetail_name"]')
     );
-    let actionHrid = runtime.api.getActionHridFromItemName?.(name);
-    if (runtime.config.isZHInGameSetting && !actionHrid) {
-      actionHrid = runtime.api.getActionHridFromItemName?.(
-        runtime.api.getActionEnNameFromZhName?.(name)
-      );
-    }
+    const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
     if (actionHrid !== pending.actionHrid) return;
     runtime.api.reactInputTriggerHack?.(input, pending.count);
     document.querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast").forEach((node) => node.remove());
@@ -37512,18 +37854,13 @@ ${locks}` : ""}`;
       runtime.api.getOriTextFromElement?.(title) ?? title?.textContent ?? ""
     ).trim();
     if (!name) return "";
-    const mapped = runtime.state.itemEnNameToHridMap?.[name];
-    if (mapped) return mapped;
-    const translatedItem = runtime.data.ZHToItemHridMap?.[name];
-    if (translatedItem) return translatedItem;
-    const translated = runtime.api.getOthersFromZhName?.(name);
-    if (String(translated ?? "").startsWith("/abilities/")) {
-      return String(translated).replace("/abilities/", "/items/");
-    }
-    return normalizeItemHrid3(translated);
+    const itemHrid = resolveLocalizedEntity("item", name);
+    if (itemHrid) return itemHrid;
+    const abilityHrid = resolveLocalizedEntity("ability", name);
+    return abilityHrid ? abilityHrid.replace("/abilities/", "/items/") : normalizeItemHrid3(name);
   }
   function resolveAbilityBookItem(root) {
-    const itemHrid = itemHridFromIcon2(root) || itemHridFromTitle(root);
+    const itemHrid = resolveEntityFromElement("item", root) || itemHridFromIcon2(root) || itemHridFromTitle(root);
     return runtime.state.initData_itemDetailMap?.[itemHrid]?.abilityBookDetail ? itemHrid : "";
   }
   function abilityRecord(abilityHrid) {
@@ -37796,13 +38133,7 @@ ${locks}` : ""}`;
     const categoryName = String(
       runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? ""
     ).trim();
-    const icon = item.querySelector("svg[aria-label]");
-    let itemName4 = icon?.getAttribute("aria-label")?.trim();
-    if (!itemName4) return null;
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName?.(itemName4) ?? itemName4;
-    }
-    const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName4];
+    const itemHrid = resolveEntityFromElement("item", item);
     const itemDetail = runtime.state.initData_itemDetailMap?.[itemHrid];
     if (!itemHrid || itemDetail?.isTradable !== true) return null;
     const levelText = item.querySelector('[class*="Item_enhancementLevel"]')?.textContent ?? "";
@@ -37856,7 +38187,8 @@ ${locks}` : ""}`;
           "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
           "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。",
           "资产与吃书经验不再显示浮点尾数；宝箱碎片自制钥匙会计入工匠减耗、浓缩倍率和泡饮成本，并可选择忽略所有牛铃价值。",
-          "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。"
+          "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。",
+          "兼容游戏全部九种内置语言；库存、悬浮窗、任务、行动、市场和 DPS 等功能现在会直接使用游戏当前语言的官方词表，不再因繁体中文或其他语言名称不同而失效。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -37869,7 +38201,8 @@ ${locks}` : ""}`;
           "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
           "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further.",
           "Asset and ability-book XP displays no longer show floating-point tails. Fragment-crafted key estimates now include Artisan reduction, concentration, and drink costs, with an option to ignore all Cowbell value.",
-          "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition."
+          "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition.",
+          "Added compatibility with all nine built-in game languages. Inventory, tooltips, tasks, actions, marketplace tools, DPS, and related features now use the official dictionary for the active game language instead of failing on Traditional Chinese or other localized names."
         ])
       })
     })
@@ -39978,14 +40311,9 @@ ${locks}` : ""}`;
         continue;
       }
       const taskStr = runtime.api.getOriTextFromElement(div);
-      if (!taskStr.startsWith("Defeat - ") && !taskStr.startsWith("击败 - ")) {
-        continue;
-      }
-      let monsterName2 = taskStr.replace("Defeat - ", "").replace("击败 - ", "");
-      let actionHrid = null;
-      if (runtime.config.isZHInGameSetting) {
-        actionHrid = (runtime.api.getOthersFromZhName(monsterName2) ? runtime.api.getOthersFromZhName(monsterName2) : runtime.api.getActionEnNameFromZhName(monsterName2))?.replaceAll("/monsters/", "/actions/combat/");
-      }
+      const monsterName2 = taskStr.split(/\s[-–]\s/).slice(1).join(" - ").trim();
+      const actionHrid = (resolveLocalizedEntity("monster", monsterName2) || resolveLocalizedEntity("action", monsterName2)).replaceAll("/monsters/", "/actions/combat/");
+      if (!actionHrid) continue;
       let actionObj = null;
       for (const action of Object.values(
         runtime.state.initData_actionDetailMap
@@ -41219,16 +41547,11 @@ ${locks}` : ""}`;
       0,
       Math.floor(Number(enhancementText?.match(/\+\s*(\d+)/)?.[1]) || 0)
     );
-    const iconHrid = [...tooltip?.querySelectorAll("svg use") ?? []].map(
-      (use) => String(use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "").split("#").at(-1)
-    ).filter(Boolean).map((fragment) => `/items/${fragment}`).find((itemHrid) => runtime.state.initData_itemDetailMap?.[itemHrid]);
+    const iconHrid = resolveEntityFromElement("item", tooltip);
     if (iconHrid) return { itemHrid: iconHrid, enhancementLevel };
-    let itemName4 = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName?.(itemName4);
-    }
+    const itemName4 = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
     return {
-      itemHrid: runtime.state.itemEnNameToHridMap?.[itemName4] ?? "",
+      itemHrid: resolveLocalizedEntity("item", itemName4),
       enhancementLevel
     };
   }
@@ -41995,7 +42318,16 @@ ${locks}` : ""}`;
     const title = runtime.api.getOriTextFromElement(
       node.querySelector(".MarketplacePanel_header__yahJo")
     );
-    if (!title || title.includes(" Now") || title.includes("立即")) {
+    const normalizedTitle = String(title ?? "").toLocaleLowerCase();
+    const immediateTitles = [
+      getGameTranslation("marketplacePanel.buyNow"),
+      getGameTranslation("marketplacePanel.sellNow"),
+      "Buy Now",
+      "Sell Now",
+      "立即购买",
+      "立即出售"
+    ].filter(Boolean).map((value) => value.toLocaleLowerCase());
+    if (!title || immediateTitles.some((value) => normalizedTitle.includes(value))) {
       return;
     }
     const label = node.querySelector("span.MarketplacePanel_bestPrice__3bgKp");
@@ -42021,13 +42353,22 @@ ${locks}` : ""}`;
       target?.click();
       return Boolean(target);
     };
-    if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best buy") || label.parentElement.textContent.includes("购买")) {
+    const priceLabel = String(
+      runtime.api.getOriTextFromElement(label.parentElement) ?? label.parentElement.textContent ?? ""
+    ).toLocaleLowerCase();
+    const buyLabel = getGameTranslation(
+      "marketplacePanel.buy"
+    ).toLocaleLowerCase();
+    const sellLabel = getGameTranslation(
+      "marketplacePanel.sell"
+    ).toLocaleLowerCase();
+    if (matchesGameTranslation("marketplacePanel.priceBestBuyOffer", priceLabel) || priceLabel.includes("best buy") || priceLabel.includes("购买") || buyLabel && priceLabel.includes(buyLabel)) {
       if (!clickAdjustmentButton("increase")) {
         console.error(
           runtime.config.isZH ? "[MWITools] 未找到提高收购价按钮。" : "[MWITools] The increase-bid-price button was not found."
         );
       }
-    } else if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best sell") || label.parentElement.textContent.includes("出售")) {
+    } else if (matchesGameTranslation("marketplacePanel.priceBestSellOffer", priceLabel) || priceLabel.includes("best sell") || priceLabel.includes("出售") || sellLabel && priceLabel.includes(sellLabel)) {
       if (!clickAdjustmentButton("decrease")) {
         console.error(
           runtime.config.isZH ? "[MWITools] 未找到降低出售价按钮。" : "[MWITools] The decrease-ask-price button was not found."
@@ -42579,7 +42920,16 @@ ${locks}` : ""}`;
       '[role="tab"][aria-selected="true"]'
     );
     const label = String(selected && selected.textContent || "").replace(/\s+/g, "").toLowerCase();
-    return label.startsWith("试炼") || label.startsWith("試煉") || label.startsWith("trials") || label.startsWith("trial");
+    const trialLabels = [
+      getGameTranslation("guildPanel.trials"),
+      getGameTranslation("guildPanel.combatTrial"),
+      getGameTranslation("guildPanel.skillingTrial"),
+      "试炼",
+      "試煉",
+      "trials",
+      "trial"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
+    return trialLabels.some((value) => label.startsWith(value));
   }
   function isSelectedGuildProgressTabBar(container) {
     if (!container || typeof container.querySelector !== "function") return false;
@@ -42587,13 +42937,29 @@ ${locks}` : ""}`;
       '[role="tab"][aria-selected="true"]'
     );
     const label = String(selected && selected.textContent || "").replace(/\s+/g, "").toLowerCase();
-    if (!(label.startsWith("进行中") || label.startsWith("進行中") || label.startsWith("inprogress")))
-      return false;
+    const progressLabels = [
+      getGameTranslation("guildPanel.trialInProgress"),
+      "进行中",
+      "進行中",
+      "inprogress"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
+    if (!progressLabels.some((value) => label.startsWith(value))) return false;
+    const contextLabels = [
+      getGameTranslation("guildPanel.trials"),
+      getGameTranslation("guildPanel.combatTrial"),
+      getGameTranslation("guildPanel.skillingTrial"),
+      getGameTranslation("navigationBar.guild"),
+      "试炼",
+      "試煉",
+      "trial",
+      "公会",
+      "公會",
+      "guild"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
     let node = container;
     for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
       const context = String(node.textContent || "").replace(/\s+/g, "").toLowerCase();
-      if (context.includes("试炼") || context.includes("試煉") || context.includes("trial") || context.includes("公会") || context.includes("公會") || context.includes("guild"))
-        return true;
+      if (contextLabels.some((value) => context.includes(value))) return true;
       if (typeof document !== "undefined" && (node === document.body || node === document.documentElement))
         break;
     }
@@ -49010,11 +49376,17 @@ ${locks}` : ""}`;
           )
         ])
       ];
+      const combatZones = getGameTranslation("combatPanel.combatZones");
+      const labyrinthLabels = [
+        getGameTranslation("labyrinthPanel.labyrinth"),
+        getGameTranslation("labyrinthPanel.room"),
+        getGameTranslation("labyrinthPanel.automation")
+      ];
       for (const c of containers) {
         const t18 = c.textContent;
-        if (t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
+        if (combatZones && t18.includes(combatZones) || t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
           return c;
-        if (t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t18.includes(label)) || t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -51345,8 +51717,8 @@ ${locks}` : ""}`;
 
   // src/main.js
   function loadCachedClientData() {
-    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal3.localStorageUtil;
+    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+    const localStorageUtil = pageGlobal4.localStorageUtil;
     if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
       return false;
     }

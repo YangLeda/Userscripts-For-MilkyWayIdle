@@ -1,6 +1,10 @@
 import { runtime } from "../core/runtime.js";
 import "../core/train-planning.js";
 import {
+  getLocalizedEntityName,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
+import {
   resolveTaskCards,
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
@@ -446,24 +450,14 @@ function targetNameFromCard(card) {
 function itemHridFromDisplayName(name) {
   if (!name) return "";
   const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
-  const englishName = runtime.config.isZHInGameSetting
-    ? (runtime.api.getItemEnNameFromZhName?.(normalized) ?? normalized)
-    : normalized;
-  if (runtime.state.itemEnNameToHridMap?.[englishName]) {
-    return runtime.state.itemEnNameToHridMap[englishName];
-  }
-  return (
-    Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === normalized,
-    )?.[0] ?? ""
-  );
+  return resolveLocalizedEntity("item", normalized);
 }
 
 function namedMonsterHridForCard(card) {
   const monsterName = targetNameFromCard(card)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
-  const translated = runtime.api.getOthersFromZhName?.(monsterName);
+  const translated = resolveLocalizedEntity("monster", monsterName);
   if (String(translated).startsWith("/monsters/")) return translated;
   if (String(translated).startsWith("/actions/combat/")) {
     return String(translated).replace("/actions/combat/", "/monsters/");
@@ -475,7 +469,7 @@ function namedMonsterHridForCard(card) {
       String(candidate?.hrid).startsWith("/actions/combat/") &&
       !candidate?.combatZoneInfo?.isDungeon &&
       (candidate?.name === monsterName ||
-        runtime.data.ZHActionNames?.[candidate.hrid] === monsterName),
+        getLocalizedEntityName("action", candidate.hrid) === monsterName),
   );
   return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
 }
@@ -610,7 +604,7 @@ function professionForCard(card, task) {
       return profession;
     }
   }
-  if (/^(击败|Defeat|Kill)(?:\s|[-–]|$)/i.test(title)) {
+  if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
     return PROFESSIONS.find(({ key }) => key === "combat");
   }
   const actionHrid = taskActionHrid(task);
@@ -630,6 +624,10 @@ function professionForCard(card, task) {
 }
 
 function isCompletedCard(card, task) {
+  const target = Number(
+    nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]),
+  );
+  if (target > 0 && taskRemaining(task) === 0) return true;
   if (
     [...card.querySelectorAll("button")].some((button) =>
       /claim|领取/i.test(button.textContent),
@@ -661,14 +659,12 @@ function isCompletedCard(card, task) {
 function combatDetailForCard(card, task) {
   const taskDetail =
     runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-  const monsterName = visibleTaskTitle(card)
-    .replace(/^(击败|Defeat|Kill)\s*[-–]\s*/i, "")
+  const monsterName = targetNameFromCard(card)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
-  const translatedHrid = runtime.config.isZHInGameSetting
-    ? (runtime.api.getOthersFromZhName?.(monsterName) ??
-      runtime.api.getActionEnNameFromZhName?.(monsterName))
-    : null;
+  const translatedHrid =
+    resolveLocalizedEntity("monster", monsterName) ||
+    resolveLocalizedEntity("action", monsterName);
   const monsterHrid = String(translatedHrid ?? "").replace(
     "/actions/combat/",
     "/monsters/",
@@ -677,7 +673,7 @@ function combatDetailForCard(card, task) {
     runtime.state.initData_actionDetailMap ?? {},
   )) {
     if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-    const localizedName = runtime.data.ZHActionNames?.[detail.hrid];
+    const localizedName = getLocalizedEntityName("action", detail.hrid);
     if (
       detail.name?.toLowerCase() === monsterName.toLowerCase() ||
       localizedName === monsterName ||
@@ -1506,12 +1502,9 @@ function applyPendingMerge() {
   const name = runtime.api.getOriTextFromElement?.(
     panel.querySelector('div[class*="SkillActionDetail_name"]'),
   );
-  let actionHrid = runtime.api.getActionHridFromItemName?.(name);
-  if (runtime.config.isZHInGameSetting && !actionHrid) {
-    actionHrid = runtime.api.getActionHridFromItemName?.(
-      runtime.api.getActionEnNameFromZhName?.(name),
-    );
-  }
+  const actionHrid =
+    resolveLocalizedEntity("action", name) ||
+    runtime.api.getActionHridFromItemName?.(name);
   if (actionHrid !== pending.actionHrid) return;
   runtime.api.reactInputTriggerHack?.(input, pending.count);
   document

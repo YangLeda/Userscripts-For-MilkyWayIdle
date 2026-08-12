@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { resolveLocalizedEntity } from "../core/game-localization.js";
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -452,19 +453,16 @@ function handleTaskCard() {
     }
 
     const taskStr = runtime.api.getOriTextFromElement(div);
-    if (!taskStr.startsWith("Defeat - ") && !taskStr.startsWith("击败 - ")) {
-      continue;
-    }
-
-    let monsterName = taskStr.replace("Defeat - ", "").replace("击败 - ", "");
-    let actionHrid = null;
-    if (runtime.config.isZHInGameSetting) {
-      actionHrid = (
-        runtime.api.getOthersFromZhName(monsterName)
-          ? runtime.api.getOthersFromZhName(monsterName)
-          : runtime.api.getActionEnNameFromZhName(monsterName)
-      )?.replaceAll("/monsters/", "/actions/combat/");
-    }
+    const monsterName = taskStr
+      .split(/\s[-–]\s/)
+      .slice(1)
+      .join(" - ")
+      .trim();
+    const actionHrid = (
+      resolveLocalizedEntity("monster", monsterName) ||
+      resolveLocalizedEntity("action", monsterName)
+    ).replaceAll("/monsters/", "/actions/combat/");
+    if (!actionHrid) continue;
 
     let actionObj = null;
     for (const action of Object.values(
