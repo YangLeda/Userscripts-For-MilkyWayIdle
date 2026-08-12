@@ -12,8 +12,26 @@ globalThis.window = dom.window;
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-const { getTooltipEnhancementPlanOptions } =
+const { getTooltipEnhancementPlanOptions, readEnhancedTooltipItem } =
   await import("../src/features/enhancement-tooltip.js");
+
+test("refined tooltip identity comes from its sprite and level marker", () => {
+  runtime.state.initData_itemDetailMap = {
+    "/items/rippling_trident": { name: "Rippling Trident" },
+    "/items/rippling_trident_refined": { name: "Rippling Trident ★" },
+  };
+  const tooltip = document.createElement("div");
+  tooltip.innerHTML = `
+    <svg aria-label="涟漪三叉戟 ★"><use href="/items_sprite.svg#rippling_trident_refined"></use></svg>
+    <div class="ItemTooltipText_name__2JAHA">
+      <span>涟漪三叉戟</span><span>★</span><span>+14</span>
+    </div>`;
+
+  assert.deepEqual(readEnhancedTooltipItem(tooltip), {
+    itemHrid: "/items/rippling_trident_refined",
+    enhancementLevel: 14,
+  });
+});
 
 test("enhancement tooltip values every back type with protection mirrors", () => {
   const originals = {

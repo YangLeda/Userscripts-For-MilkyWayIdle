@@ -77,6 +77,15 @@ test("enhancement UI is a separate seven-row sibling", () => {
   );
 });
 
+test("refined plans show their included refining cost explicitly", () => {
+  const panel = showEnhancementCostPanel(anchor(), {
+    ...completePlan(),
+    refinementCost: 750_000_000,
+  });
+  assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 8);
+  assert.match(panel.textContent, /其中精炼750\.0M/);
+});
+
 test("unavailable and normal-only plans keep the same compact fields", () => {
   let panel = showEnhancementCostPanel(anchor(), null);
   assert.equal(panel.dataset.status, "unavailable");

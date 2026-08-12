@@ -364,6 +364,66 @@ test("refined gear uses the base enhancement plan plus one refining recipe", () 
   assert.ok(!calls.includes("/items/target_refined"));
 });
 
+test("refining cost uses artisan-adjusted inputs and includes crafting drinks", () => {
+  const values = prices({
+    "/items/refining_shard": 300,
+    "/items/artisan_tea": 500,
+  });
+  const actionDetailMap = {
+    "/actions/refine_target": {
+      upgradeItemHrid: "/items/target",
+      inputItems: [{ itemHrid: "/items/refining_shard", count: 100 }],
+      outputItems: [{ itemHrid: "/items/target_refined", count: 1 }],
+    },
+  };
+  const options = {
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    actionDetailMap,
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    projectAction: (actionHrid, count, context) => {
+      assert.equal(actionHrid, "/actions/refine_target");
+      assert.equal(count, 1);
+      assert.equal(context.respectInventoryLimit, false);
+      return {
+        status: "complete",
+        actionsPerHour: 100,
+        inputs: [
+          {
+            itemHrid: "/items/target",
+            effectiveCount: 1,
+            isUpgradeItem: true,
+          },
+          {
+            itemHrid: "/items/refining_shard",
+            effectiveCount: 80,
+            isUpgradeItem: false,
+          },
+        ],
+        teaEffects: {
+          drinks: [{ itemHrid: "/items/artisan_tea", countPerHour: 12 }],
+        },
+      };
+    },
+  };
+  const base = calculateEnhancementPlan({
+    ...options,
+    itemHrid: "/items/target",
+  });
+  const refined = calculateEnhancementPlan({
+    ...options,
+    itemHrid: "/items/target_refined",
+  });
+  const expectedRefinementCost = 80 * 300 + (12 / 100) * 500;
+
+  assert.equal(refined.refinementCost, expectedRefinementCost);
+  assert.ok(
+    Math.abs(refined.totalCost - base.totalCost - expectedRefinementCost) <
+      1e-6,
+  );
+});
+
 test("high enhancement targets remain finite without external math", () => {
   const values = prices();
   const plan = calculateEnhancementPlan({

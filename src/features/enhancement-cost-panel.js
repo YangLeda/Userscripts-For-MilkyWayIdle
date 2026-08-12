@@ -122,6 +122,15 @@ function renderPanel(panel, plan) {
       complete ? compactNumber(plan.totalCost, 1) : "—",
       plan?.totalCost,
     ),
+    ...(complete && Number(plan.refinementCost) > 0
+      ? [
+          metric(
+            t("其中精炼", "Includes refining"),
+            compactNumber(plan.refinementCost, 1),
+            plan.refinementCost,
+          ),
+        ]
+      : []),
     metric(
       t("耗时", "Time"),
       complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",

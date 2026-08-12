@@ -359,18 +359,58 @@ function unavailableResult(missingMarketValues = []) {
   };
 }
 
-function refinementInputs(itemHrid, baseItemHrid, actionDetailMap) {
-  if (itemHrid === baseItemHrid) return [];
+function refinementRecipe(itemHrid, baseItemHrid, actionDetailMap) {
+  if (itemHrid === baseItemHrid) return { actionHrid: "", inputItems: [] };
   const actions =
     actionDetailMap instanceof Map
-      ? [...actionDetailMap.values()]
-      : Object.values(actionDetailMap ?? {});
-  const action = actions.find(
-    (detail) =>
+      ? [...actionDetailMap.entries()]
+      : Object.entries(actionDetailMap ?? {});
+  const match = actions.find(
+    ([, detail]) =>
       detail?.upgradeItemHrid === baseItemHrid &&
       detail?.outputItems?.some((output) => output.itemHrid === itemHrid),
   );
-  return action?.inputItems ?? null;
+  if (!match) return null;
+  const [fallbackHrid, action] = match;
+  return {
+    actionHrid: action.hrid ?? fallbackHrid,
+    inputItems: action.inputItems ?? [],
+  };
+}
+
+function refinementCostComponents(recipe, projectAction) {
+  const rawInputs = recipe.inputItems.map((input) => ({
+    itemHrid: input.itemHrid,
+    count: Number(input.count) || 0,
+  }));
+  if (!recipe.actionHrid || typeof projectAction !== "function") {
+    return rawInputs;
+  }
+  const projection = projectAction(recipe.actionHrid, 1, {
+    respectInventoryLimit: false,
+  });
+  if (
+    !["complete", "incomplete"].includes(projection?.status) ||
+    !Array.isArray(projection.inputs)
+  ) {
+    return rawInputs;
+  }
+  const components = projection.inputs
+    .filter((input) => !input.isUpgradeItem)
+    .map((input) => ({
+      itemHrid: input.itemHrid,
+      count: Number(input.effectiveCount) || 0,
+    }));
+  const actionsPerHour = finitePositive(projection.actionsPerHour);
+  if (actionsPerHour) {
+    for (const drink of projection.teaEffects?.drinks ?? []) {
+      const count = finitePositive(drink.countPerHour) / actionsPerHour;
+      if (drink.itemHrid && count > 0) {
+        components.push({ itemHrid: drink.itemHrid, count });
+      }
+    }
+  }
+  return components;
 }
 
 export function calculateEnhancementPlan({
@@ -382,6 +422,7 @@ export function calculateEnhancementPlan({
     .initData_enhancementLevelTotalBonusMultiplierTable,
   actionDetailMap = runtime.state.initData_actionDetailMap,
   getFairValue = runtime.api.getFairValue,
+  projectAction = runtime.api.projectAction,
   forcedProtectionItemHrid = null,
   allowPhilosopherMirror = true,
 } = {}) {
@@ -390,12 +431,12 @@ export function calculateEnhancementPlan({
     ? itemHrid.replace("_refined", "")
     : itemHrid;
   const item = itemDetailMap?.[baseItemHrid];
-  const refiningInputs = refinementInputs(
+  const refiningRecipe = refinementRecipe(
     itemHrid,
     baseItemHrid,
     actionDetailMap,
   );
-  if (refiningInputs === null) return unavailableResult();
+  if (refiningRecipe === null) return unavailableResult();
   if (!item?.enhancementCosts?.length || target < 1) return unavailableResult();
   const stats = getEnhancementProfileStats({
     itemLevel: item.itemLevel,
@@ -420,7 +461,7 @@ export function calculateEnhancementPlan({
     materialCostPerAction += unitPrice * Number(cost.count || 0);
   }
   let refinementCost = 0;
-  for (const cost of refiningInputs) {
+  for (const cost of refinementCostComponents(refiningRecipe, projectAction)) {
     const unitPrice = price(cost.itemHrid, 0);
     if (!unitPrice) hasMissingRequiredPrice = true;
     refinementCost += unitPrice * Number(cost.count || 0);
@@ -550,6 +591,7 @@ export function calculateEnhancementPlan({
   return {
     status: "complete",
     totalCost: best.totalCost + refinementCost,
+    refinementCost,
     totalSeconds: best.totalActions * stats.secondsPerAction,
     normalProtectStart:
       best.protectionCount > EPSILON ? best.protectLevel : null,

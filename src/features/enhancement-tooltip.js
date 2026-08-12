@@ -42,26 +42,48 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
   };
 }
 
+export function readEnhancedTooltipItem(tooltip) {
+  const itemNameElements = [
+    ...(tooltip?.querySelectorAll("div.ItemTooltipText_name__2JAHA span") ??
+      []),
+  ];
+  const enhancementText = itemNameElements.find((element) =>
+    /\+\s*\d+/.test(element.textContent ?? ""),
+  )?.textContent;
+  const enhancementLevel = Math.max(
+    0,
+    Math.floor(Number(enhancementText?.match(/\+\s*(\d+)/)?.[1]) || 0),
+  );
+  const iconHrid = [...(tooltip?.querySelectorAll("svg use") ?? [])]
+    .map((use) =>
+      String(use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "")
+        .split("#")
+        .at(-1),
+    )
+    .filter(Boolean)
+    .map((fragment) => `/items/${fragment}`)
+    .find((itemHrid) => runtime.state.initData_itemDetailMap?.[itemHrid]);
+  if (iconHrid) return { itemHrid: iconHrid, enhancementLevel };
+
+  let itemName = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
+  if (runtime.config.isZHInGameSetting) {
+    itemName = runtime.api.getItemEnNameFromZhName?.(itemName);
+  }
+  return {
+    itemHrid: runtime.state.itemEnNameToHridMap?.[itemName] ?? "",
+    enhancementLevel,
+  };
+}
+
 export async function handleEnhancedItemTooltip(tooltip) {
   const tooltipContent = tooltip?.querySelector(
     ".ItemTooltipText_itemTooltipText__zFq3A",
   );
-  const itemNameElements = tooltip?.querySelectorAll(
-    "div.ItemTooltipText_name__2JAHA span",
-  );
-  if (!tooltipContent || itemNameElements?.length < 2) {
+  if (!tooltipContent) {
     hideEnhancementCostPanel();
     return;
   }
-  let itemName = runtime.api.getOriTextFromElement(itemNameElements[0]);
-  if (runtime.config.isZHInGameSetting) {
-    itemName = runtime.api.getItemEnNameFromZhName(itemName);
-  }
-  const enhancementLevel = Math.max(
-    0,
-    Math.floor(Number(itemNameElements[1].textContent.replace("+", "")) || 0),
-  );
-  const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+  const { itemHrid, enhancementLevel } = readEnhancedTooltipItem(tooltip);
   if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
     hideEnhancementCostPanel();
     return;
