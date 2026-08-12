@@ -1082,10 +1082,15 @@ function renderProductionProcurement() {
     ? t("加入购物清单", "Add to shopping list")
     : t("已在清单中", "Already listed");
   add.addEventListener("click", () => {
+    const stageInputs = [
+      ...root.querySelectorAll(".mwi-procurement-chain-stage input"),
+    ];
     const selectedActions = new Set(
-      [
-        ...root.querySelectorAll(".mwi-procurement-chain-stage input:checked"),
-      ].map((input) => input.dataset.action),
+      stageInputs.length
+        ? stageInputs
+            .filter((input) => input.checked)
+            .map((input) => input.dataset.action)
+        : (chain?.stages ?? []).map((stage) => stage.actionHrid),
     );
     const selectedMaterials = chain?.stages?.length
       ? procurement.selectUpgradeChainMaterials(chain, selectedActions)
@@ -1166,10 +1171,14 @@ function renderProductionProcurement() {
     details.append(heading, presets, list);
     root.append(details);
   }
-  const existingSummary = isEnhancing
-    ? null
-    : context.panel.querySelector("#mwi-production-summary");
-  if (existingSummary) existingSummary.append(root);
+  const enhancingInfo = isEnhancing
+    ? context.panel.querySelector('[class*="SkillActionDetail_info"]')
+    : null;
+  const existingSummary = context.panel.querySelector(
+    "#mwi-production-summary",
+  );
+  if (enhancingInfo) enhancingInfo.append(root);
+  else if (!isEnhancing && existingSummary) existingSummary.append(root);
   else {
     const anchor =
       context.panel.querySelector(

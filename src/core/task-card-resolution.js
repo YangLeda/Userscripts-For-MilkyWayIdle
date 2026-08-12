@@ -1,8 +1,12 @@
 import { runtime } from "./runtime.js";
-import { getLocalizedEntityName } from "./game-localization.js";
+import { getGameLocale, getLocalizedEntityName } from "./game-localization.js";
 import { parseCompactNumber } from "./market.js";
 
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
+let cachedActionMap = null;
+let cachedZhActionNames = null;
+let cachedLocale = "";
+let cachedActionLabels = new Map();
 
 function normalize(value) {
   return String(value ?? "")
@@ -63,12 +67,28 @@ function cardRemaining(card) {
 }
 
 function actionLabels(actionHrid) {
-  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-  return new Set(
+  const actionMap = runtime.state.initData_actionDetailMap;
+  const zhActionNames = runtime.data.ZHActionNames;
+  const locale = getGameLocale();
+  if (
+    actionMap !== cachedActionMap ||
+    zhActionNames !== cachedZhActionNames ||
+    locale !== cachedLocale
+  ) {
+    cachedActionMap = actionMap;
+    cachedZhActionNames = zhActionNames;
+    cachedLocale = locale;
+    cachedActionLabels = new Map();
+  }
+  if (cachedActionLabels.has(actionHrid)) {
+    return cachedActionLabels.get(actionHrid);
+  }
+  const detail = actionMap?.[actionHrid];
+  const labels = new Set(
     [
       detail?.name,
-      runtime.data.ZHActionNames?.[actionHrid],
-      getLocalizedEntityName("action", actionHrid),
+      zhActionNames?.[actionHrid],
+      getLocalizedEntityName("action", actionHrid, { locale }),
       String(actionHrid ?? "")
         .split("/")
         .at(-1)
@@ -77,6 +97,8 @@ function actionLabels(actionHrid) {
       .map(normalize)
       .filter(Boolean),
   );
+  cachedActionLabels.set(actionHrid, labels);
+  return labels;
 }
 
 function semanticCandidates(card, quests, taskActionHrid, taskRemaining) {
@@ -99,6 +121,16 @@ function semanticCandidates(card, quests, taskActionHrid, taskRemaining) {
     if (progressMatches.length) candidates = progressMatches;
   }
   return candidates;
+}
+
+function priorCandidateMatches(card, candidate, taskActionHrid, taskRemaining) {
+  const actionHrid = taskActionHrid(candidate.task);
+  const label = cardActionLabel(card);
+  if (!label || !actionLabels(actionHrid).has(label)) return false;
+  const remaining = cardRemaining(card);
+  return (
+    remaining === null || Number(taskRemaining(candidate.task)) === remaining
+  );
 }
 
 /**
@@ -125,6 +157,16 @@ export function resolveTaskCards(
     else if (fiberTask) {
       const taskIndex = questList.indexOf(fiberTask);
       if (taskIndex >= 0) resolved = { task: fiberTask, taskIndex };
+    }
+    const priorId = String(card.dataset.mwitoolsTaskId ?? "");
+    const prior = priorId ? byId.get(priorId) : null;
+    if (
+      !resolved &&
+      prior &&
+      !used.has(prior.taskIndex) &&
+      priorCandidateMatches(card, prior, taskActionHrid, taskRemaining)
+    ) {
+      resolved = prior;
     }
 
     if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);

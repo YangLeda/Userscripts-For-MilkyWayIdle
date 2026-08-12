@@ -262,6 +262,23 @@ test("production procurement augments the existing summary instead of creating a
     true,
   );
   assert.match(badge.textContent, /^(缺|Need) /);
+
+  existingSummary.remove();
+  runtime.api.renderProductionProcurement();
+  const standalone = document.querySelector("#mwitools-procurement-production");
+  assert.equal(
+    standalone.parentElement.classList.contains(
+      "SkillActionDetail_regularComponent__fixture",
+    ),
+    true,
+  );
+  assert.equal(
+    standalone.previousElementSibling.classList.contains(
+      "SkillActionDetail_actionContainer__fixture",
+    ),
+    true,
+    "procurement must remain available without the optional production summary",
+  );
 });
 
 test("sufficient materials keep their remaining quantity", () => {
@@ -334,13 +351,15 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   wrapper.className = "EnhancingPanel_panel__fixture";
   wrapper.innerHTML = `
     <div class="SkillActionDetail_skillActionDetail__fixture">
-      <div class="SkillActionDetail_itemRequirements__fixture">
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
-        <span class="SkillActionDetail_inputCount__fixture">3 / 2,5</span>
-        <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
-        <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
+      <div class="SkillActionDetail_info__fixture">
+        <div class="SkillActionDetail_itemRequirements__fixture">
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
+          <span class="SkillActionDetail_inputCount__fixture">3 / 2,5</span>
+          <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
+          <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
+        </div>
       </div>
       <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
       <div class="SkillActionDetail_actionContainer__fixture"></div>
@@ -364,6 +383,11 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   assert.equal(
     productionPanel.querySelector("#mwitools-procurement-production"),
     null,
+  );
+  assert.equal(
+    summary.parentElement.classList.contains("SkillActionDetail_info__fixture"),
+    true,
+    "the enhancement action belongs at the bottom of the right-hand info column",
   );
   assert.match(summary.textContent, /Missing 2 materials/);
 
@@ -812,6 +836,65 @@ test("upgrade chains can start from the direct predecessor without expanding it"
     "createPlansByDefault",
     previousCreatePlans,
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.renderProductionProcurement();
+  panel.remove();
+});
+
+test("single-stage refined back recipes add their base item and refinement material", () => {
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__refined-back";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="1"></div>
+    <div class="SkillActionDetail_actionContainer__fixture"></div>
+    <section id="mwi-production-summary"></section>`;
+  document.body.append(panel);
+  const previousResolver = runtime.api.resolveProductionAction;
+  const previousSafety = runtime.api.procurement.getSettings().safetyLevel;
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.setSetting("safetyLevel", "off");
+  Object.assign(runtime.state.initData_itemDetailMap, {
+    "/items/gatherer_cape": { name: "Gatherer Cape" },
+    "/items/gatherer_cape_refined": { name: "Gatherer Cape ★" },
+    "/items/labyrinth_refinement_shard": {
+      name: "Labyrinth Refinement Shard",
+    },
+  });
+  runtime.state.initData_actionDetailMap[
+    "/actions/tailoring/gatherer_cape_refined"
+  ] = {
+    hrid: "/actions/tailoring/gatherer_cape_refined",
+    name: "Gatherer Cape ★",
+    type: "/action_types/tailoring",
+    upgradeItemHrid: "/items/gatherer_cape",
+    inputItems: [{ itemHrid: "/items/labyrinth_refinement_shard", count: 89 }],
+    outputItems: [{ itemHrid: "/items/gatherer_cape_refined", count: 1 }],
+  };
+  runtime.state.initData_characterItems = [];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.api.resolveProductionAction = () =>
+    "/actions/tailoring/gatherer_cape_refined";
+
+  runtime.api.renderProductionProcurement();
+  const root = panel.querySelector("#mwitools-procurement-production");
+  assert.ok(root);
+  assert.equal(
+    root.querySelectorAll(".mwi-procurement-chain-stage input").length,
+    0,
+  );
+  root.querySelector(".mwi-procurement-inline-button").click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/gatherer_cape")?.quantity,
+    1,
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/labyrinth_refinement_shard")
+      ?.quantity,
+    89,
+  );
+
+  runtime.api.resolveProductionAction = previousResolver;
+  runtime.api.procurement.setSetting("safetyLevel", previousSafety);
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.renderProductionProcurement();
   panel.remove();

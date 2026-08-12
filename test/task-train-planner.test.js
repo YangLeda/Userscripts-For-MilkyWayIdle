@@ -110,3 +110,35 @@ test("a lone base-production task does not create an empty train", () => {
   assert.equal(entries[0].state, "isolated");
   assert.equal(groups.size, 0);
 });
+
+test("task train mutation filtering ignores MWITools controls but sees native cards", () => {
+  const taskCard = document.createElement("div");
+  taskCard.className = "RandomTask_randomTask__mutation-filter";
+  const control = document.createElement("button");
+  control.className = "mwi-task-train-planner";
+  assert.equal(
+    planner.shouldRenderTaskTrainMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [control],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+
+  const nativeCard = document.createElement("div");
+  nativeCard.className = "RandomTask_randomTask__native";
+  assert.equal(
+    planner.shouldRenderTaskTrainMutations([
+      {
+        type: "childList",
+        target: document.body,
+        addedNodes: [nativeCard],
+        removedNodes: [],
+      },
+    ]),
+    true,
+  );
+});

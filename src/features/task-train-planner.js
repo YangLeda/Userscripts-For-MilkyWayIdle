@@ -6,6 +6,8 @@ const CONTROL_CLASS = "mwi-task-train-planner";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const ACTION_SELECTOR = '[class*="RandomTask_action"]';
+const OWNED_TASK_SELECTOR =
+  '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,[data-mwitools-task-mirror="true"]';
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -195,6 +197,35 @@ function cleanup() {
   document.getElementById(STYLE_ID)?.remove();
 }
 
+export function shouldRenderTaskTrainMutations(records) {
+  return records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
+        (node) =>
+          node.matches?.(OWNED_TASK_SELECTOR) ||
+          node.closest?.(OWNED_TASK_SELECTOR),
+      )
+    ) {
+      return false;
+    }
+    if (target?.closest?.(TASK_SELECTOR)) return true;
+    return changedNodes.some(
+      (node) =>
+        node.matches?.(TASK_SELECTOR) || node.querySelector?.(TASK_SELECTOR),
+    );
+  });
+}
+
 runtime.features.register({
   id: "taskTrainPlanner",
   setting: "taskTrainPlanner",
@@ -213,24 +244,7 @@ runtime.features.register({
       });
     };
     const observer = new MutationObserver((records) => {
-      if (
-        records.some((record) => {
-          const target =
-            record.target?.nodeType === 1
-              ? record.target
-              : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR)) return true;
-          return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-            .filter((node) => node?.nodeType === 1)
-            .some(
-              (node) =>
-                node.matches?.(TASK_SELECTOR) ||
-                node.querySelector?.(TASK_SELECTOR),
-            );
-        })
-      ) {
-        schedule();
-      }
+      if (shouldRenderTaskTrainMutations(records)) schedule();
     });
     scope.observer(observer, document.body, {
       childList: true,

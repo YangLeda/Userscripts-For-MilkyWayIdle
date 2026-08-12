@@ -25301,13 +25301,14 @@
     });
   }
   function formatTooltip(value) {
-    return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
+    return runtime.api.numberFormatter?.(value) ?? String(value);
   }
   var AssetHistoryChart = class {
     constructor(canvas, fallback) {
       this.canvas = canvas;
       this.fallback = fallback;
       this.instance = null;
+      this.hiddenDatasets = /* @__PURE__ */ new Set();
     }
     destroy() {
       this.instance?.destroy?.();
@@ -25372,7 +25373,8 @@
         datasets = ASSET_COMPONENT_KEYS.map((key) => ({
           type: "line",
           label: t(...LABELS[key]),
-          data: normalizedChanges(filtered, key),
+          data: filtered.map(([, record]) => record?.values?.[key] ?? null),
+          mwitoolsVisibilityKey: key,
           borderColor: COLORS[key],
           backgroundColor: COLORS[key],
           borderWidth: 2,
@@ -25380,7 +25382,7 @@
           tension: lineTension,
           spanGaps: true
         }));
-        title = t("分项每日变化", "Daily component changes");
+        title = t("分项资产", "Component assets");
       } else {
         datasets = [
           {
@@ -25397,6 +25399,10 @@
           }
         ];
         title = t("总资产历史", "Total asset history");
+      }
+      for (const dataset of datasets) {
+        const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+        dataset.hidden = this.hiddenDatasets.has(key);
       }
       this.destroy();
       const crosshairPlugin = {
@@ -25467,7 +25473,21 @@
           animation: false,
           plugins: {
             title: { display: true, text: title, color: "#eee" },
-            legend: { labels: { color: "#ddd", usePointStyle: true } },
+            legend: {
+              labels: { color: "#ddd", usePointStyle: true },
+              onClick: (_event, legendItem, legend) => {
+                const index = legendItem?.datasetIndex;
+                const chart = legend?.chart;
+                if (!Number.isInteger(index) || !chart) return;
+                const dataset = chart.data.datasets[index];
+                const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+                const visible2 = chart.isDatasetVisible(index);
+                if (visible2) this.hiddenDatasets.add(key);
+                else this.hiddenDatasets.delete(key);
+                chart.setDatasetVisibility(index, !visible2);
+                chart.update();
+              }
+            },
             tooltip: {
               callbacks: {
                 label(context) {
@@ -26595,7 +26615,7 @@ ${values.map((item) => item.date).join("\n")}`
         <div class="mwi-asset-chart-controls">
           <button type="button" data-mode="total">${t2("总资产", "Total assets")}</button>
           <button type="button" data-mode="profit">${t2("每日盈亏", "Daily P/L")}</button>
-          <button type="button" data-mode="breakdown">${t2("分项变化", "Components")}</button>
+          <button type="button" data-mode="breakdown">${t2("分项资产", "Component assets")}</button>
           <span style="flex:1"></span>
           <button type="button" data-range="7">7${t2("天", "d")}</button>
           <button type="button" data-range="15">15${t2("天", "d")}</button>
@@ -32793,6 +32813,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function renderProductionPanel() {
     addStyles4();
+    if (!runtime.settings.get("productionSummary")) {
+      document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
+      document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      return;
+    }
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const existingCards = [
@@ -33942,10 +33967,11 @@ ${locks}` : ""}`;
     add.disabled = addable.length === 0 && !chain?.stages?.length;
     add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
     add.addEventListener("click", () => {
+      const stageInputs = [
+        ...root.querySelectorAll(".mwi-procurement-chain-stage input")
+      ];
       const selectedActions = new Set(
-        [
-          ...root.querySelectorAll(".mwi-procurement-chain-stage input:checked")
-        ].map((input) => input.dataset.action)
+        stageInputs.length ? stageInputs.filter((input) => input.checked).map((input) => input.dataset.action) : (chain?.stages ?? []).map((stage) => stage.actionHrid)
       );
       const selectedMaterials = chain?.stages?.length ? procurement.selectUpgradeChainMaterials(chain, selectedActions) : materials;
       const result = procurement.addRequirementsToCart(
@@ -34022,8 +34048,12 @@ ${locks}` : ""}`;
       details.append(heading, presets, list);
       root.append(details);
     }
-    const existingSummary = isEnhancing ? null : context.panel.querySelector("#mwi-production-summary");
-    if (existingSummary) existingSummary.append(root);
+    const enhancingInfo = isEnhancing ? context.panel.querySelector('[class*="SkillActionDetail_info"]') : null;
+    const existingSummary = context.panel.querySelector(
+      "#mwi-production-summary"
+    );
+    if (enhancingInfo) enhancingInfo.append(root);
+    else if (!isEnhancing && existingSummary) existingSummary.append(root);
     else {
       const anchor = context.panel.querySelector(
         '[class*="SkillActionDetail_actionContainer"]'
@@ -35532,6 +35562,10 @@ ${locks}` : ""}`;
 
   // src/core/task-card-resolution.js
   var NAME_SELECTOR = '[class*="RandomTask_name"]';
+  var cachedActionMap = null;
+  var cachedZhActionNames = null;
+  var cachedLocale = "";
+  var cachedActionLabels = /* @__PURE__ */ new Map();
   function normalize(value) {
     return String(value ?? "").replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
   }
@@ -35572,15 +35606,29 @@ ${locks}` : ""}`;
     return Number.isFinite(current) && Number.isFinite(target) ? Math.max(0, target - current) : null;
   }
   function actionLabels(actionHrid) {
-    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    return new Set(
+    const actionMap = runtime.state.initData_actionDetailMap;
+    const zhActionNames = runtime.data.ZHActionNames;
+    const locale = getGameLocale();
+    if (actionMap !== cachedActionMap || zhActionNames !== cachedZhActionNames || locale !== cachedLocale) {
+      cachedActionMap = actionMap;
+      cachedZhActionNames = zhActionNames;
+      cachedLocale = locale;
+      cachedActionLabels = /* @__PURE__ */ new Map();
+    }
+    if (cachedActionLabels.has(actionHrid)) {
+      return cachedActionLabels.get(actionHrid);
+    }
+    const detail = actionMap?.[actionHrid];
+    const labels = new Set(
       [
         detail?.name,
-        runtime.data.ZHActionNames?.[actionHrid],
-        getLocalizedEntityName("action", actionHrid),
+        zhActionNames?.[actionHrid],
+        getLocalizedEntityName("action", actionHrid, { locale }),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " ")
       ].map(normalize).filter(Boolean)
     );
+    cachedActionLabels.set(actionHrid, labels);
+    return labels;
   }
   function semanticCandidates(card, quests, taskActionHrid3, taskRemaining3) {
     const label = cardActionLabel(card);
@@ -35601,6 +35649,13 @@ ${locks}` : ""}`;
     }
     return candidates;
   }
+  function priorCandidateMatches(card, candidate, taskActionHrid3, taskRemaining3) {
+    const actionHrid = taskActionHrid3(candidate.task);
+    const label = cardActionLabel(card);
+    if (!label || !actionLabels(actionHrid).has(label)) return false;
+    const remaining = cardRemaining(card);
+    return remaining === null || Number(taskRemaining3(candidate.task)) === remaining;
+  }
   function resolveTaskCards(cards, quests, { taskActionHrid: taskActionHrid3, taskRemaining: taskRemaining3 }) {
     const questList = Array.isArray(quests) ? quests : [];
     const byId = new Map(
@@ -35615,6 +35670,11 @@ ${locks}` : ""}`;
       else if (fiberTask) {
         const taskIndex = questList.indexOf(fiberTask);
         if (taskIndex >= 0) resolved = { task: fiberTask, taskIndex };
+      }
+      const priorId = String(card.dataset.mwitoolsTaskId ?? "");
+      const prior = priorId ? byId.get(priorId) : null;
+      if (!resolved && prior && !used.has(prior.taskIndex) && priorCandidateMatches(card, prior, taskActionHrid3, taskRemaining3)) {
+        resolved = prior;
       }
       if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
       return {
@@ -35662,6 +35722,7 @@ ${locks}` : ""}`;
   // src/features/tasks.js
   var STYLE_ID9 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -36940,8 +37001,18 @@ ${locks}` : ""}`;
     if (now < nativeResetChoiceUntil) return false;
     return records.some((record) => {
       const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR) || node.closest?.(OWNED_TASK_SELECTOR)
+      )) {
+        return false;
+      }
       if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
-      return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+      return changedNodes.some(
         (node) => node.matches?.('[class*="TasksPanel_taskList"]') || node.querySelector?.('[class*="TasksPanel_taskList"]')
       );
     });
@@ -37168,6 +37239,7 @@ ${locks}` : ""}`;
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var ACTION_SELECTOR = '[class*="RandomTask_action"]';
+  var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,[data-mwitools-task-mirror="true"]';
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -37330,6 +37402,25 @@ ${locks}` : ""}`;
     document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
     document.getElementById(STYLE_ID10)?.remove();
   }
+  function shouldRenderTaskTrainMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR2)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR2) || node.closest?.(OWNED_TASK_SELECTOR2)
+      )) {
+        return false;
+      }
+      if (target?.closest?.(TASK_SELECTOR2)) return true;
+      return changedNodes.some(
+        (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
+      );
+    });
+  }
   runtime.features.register({
     id: "taskTrainPlanner",
     setting: "taskTrainPlanner",
@@ -37348,15 +37439,7 @@ ${locks}` : ""}`;
         });
       };
       const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR2)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
-          );
-        })) {
-          schedule();
-        }
+        if (shouldRenderTaskTrainMutations(records)) schedule();
       });
       scope.observer(observer, document.body, {
         childList: true,
@@ -38210,7 +38293,10 @@ ${locks}` : ""}`;
           "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
           "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。",
           "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。",
-          "修复全服技能与公会排行榜可能被经验速率排序或当前角色置顶改变顺序；经验速率继续作为只读信息显示。"
+          "修复全服技能与公会排行榜可能被经验速率排序或当前角色置顶改变顺序；经验速率继续作为只读信息显示。",
+          "资产中心的分项图表改为显示各日期的实际资产持有值，图例可点击隐藏或恢复曲线，悬浮数值使用 K/M/B/T 单位。",
+          "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
+          "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38229,7 +38315,10 @@ ${locks}` : ""}`;
           "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
           "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths.",
           "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language.",
-          "Fixed standard skill and guild leaderboard order being changed by XP-rate sorting or current-character pinning; XP rates remain available as read-only information."
+          "Fixed standard skill and guild leaderboard order being changed by XP-rate sorting or current-character pinning; XP rates remain available as read-only information.",
+          "Asset component charts now show actual holdings for each date, legends can hide and restore lines, and hover values use K/M/B/T units.",
+          "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
+          "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance."
         ])
       })
     })

@@ -440,7 +440,7 @@ class AssetHistoryPanel {
         <div class="mwi-asset-chart-controls">
           <button type="button" data-mode="total">${t("总资产", "Total assets")}</button>
           <button type="button" data-mode="profit">${t("每日盈亏", "Daily P/L")}</button>
-          <button type="button" data-mode="breakdown">${t("分项变化", "Components")}</button>
+          <button type="button" data-mode="breakdown">${t("分项资产", "Component assets")}</button>
           <span style="flex:1"></span>
           <button type="button" data-range="7">7${t("天", "d")}</button>
           <button type="button" data-range="15">15${t("天", "d")}</button>

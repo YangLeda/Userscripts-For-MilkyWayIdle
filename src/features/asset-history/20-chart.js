@@ -63,7 +63,7 @@ function calendarAverage(entries, key, windowDays = 7) {
 }
 
 function formatTooltip(value) {
-  return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
+  return runtime.api.numberFormatter?.(value) ?? String(value);
 }
 
 export class AssetHistoryChart {
@@ -71,6 +71,7 @@ export class AssetHistoryChart {
     this.canvas = canvas;
     this.fallback = fallback;
     this.instance = null;
+    this.hiddenDatasets = new Set();
   }
 
   destroy() {
@@ -143,7 +144,8 @@ export class AssetHistoryChart {
       datasets = ASSET_COMPONENT_KEYS.map((key) => ({
         type: "line",
         label: t(...LABELS[key]),
-        data: normalizedChanges(filtered, key),
+        data: filtered.map(([, record]) => record?.values?.[key] ?? null),
+        mwitoolsVisibilityKey: key,
         borderColor: COLORS[key],
         backgroundColor: COLORS[key],
         borderWidth: 2,
@@ -151,7 +153,7 @@ export class AssetHistoryChart {
         tension: lineTension,
         spanGaps: true,
       }));
-      title = t("分项每日变化", "Daily component changes");
+      title = t("分项资产", "Component assets");
     } else {
       datasets = [
         {
@@ -168,6 +170,11 @@ export class AssetHistoryChart {
         },
       ];
       title = t("总资产历史", "Total asset history");
+    }
+
+    for (const dataset of datasets) {
+      const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+      dataset.hidden = this.hiddenDatasets.has(key);
     }
 
     this.destroy();
@@ -239,7 +246,21 @@ export class AssetHistoryChart {
         animation: false,
         plugins: {
           title: { display: true, text: title, color: "#eee" },
-          legend: { labels: { color: "#ddd", usePointStyle: true } },
+          legend: {
+            labels: { color: "#ddd", usePointStyle: true },
+            onClick: (_event, legendItem, legend) => {
+              const index = legendItem?.datasetIndex;
+              const chart = legend?.chart;
+              if (!Number.isInteger(index) || !chart) return;
+              const dataset = chart.data.datasets[index];
+              const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+              const visible = chart.isDatasetVisible(index);
+              if (visible) this.hiddenDatasets.add(key);
+              else this.hiddenDatasets.delete(key);
+              chart.setDatasetVisibility(index, !visible);
+              chart.update();
+            },
+          },
           tooltip: {
             callbacks: {
               label(context) {

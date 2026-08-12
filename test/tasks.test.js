@@ -468,6 +468,44 @@ test("a reset refreshes metadata without changing the current card order", () =>
   );
 });
 
+test("task mutation filtering ignores MWITools decorations but keeps native progress", () => {
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__mutation-filter";
+  const taskCard = document.createElement("div");
+  taskCard.className = "RandomTask_randomTask__mutation-filter";
+  const progress = document.createElement("div");
+  progress.textContent = "进度: 1 / 10";
+  taskCard.append(progress);
+  list.append(taskCard);
+  document.body.append(list);
+
+  const background = document.createElement("div");
+  background.className = "mwi-task-bg";
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [background],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "characterData",
+        target: progress.firstChild,
+        addedNodes: [],
+        removedNodes: [],
+      },
+    ]),
+    true,
+  );
+  list.remove();
+});
+
 test("opening the native reset payment choice pauses task regrouping", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(

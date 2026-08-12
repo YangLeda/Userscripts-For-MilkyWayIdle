@@ -240,6 +240,33 @@ test("infinite production summaries use inventory capacity and expose a native-s
   input.value = "5";
 });
 
+test("disabled production summaries cannot be recreated by direct or quick-count renders", () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "∞";
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  assert.ok(document.querySelector("#mwi-production-summary"));
+  assert.ok(document.querySelector(".mwi-max-action-button"));
+
+  runtime.settings.settingsMap.productionSummary.isTrue = false;
+  runtime.api.renderProductionPanel();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+  assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.api.renderProductionQuickInputs();
+  document
+    .querySelector('#quickInputCountButtons [data-quick-value="10"]')
+    .click();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+  assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  assert.ok(document.querySelector("#mwi-production-summary"));
+});
+
 test("production durations over one day use whole days, hours, and minutes", () => {
   const input = document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',

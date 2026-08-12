@@ -13,6 +13,8 @@ import {
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+const OWNED_TASK_SELECTOR =
+  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
@@ -1531,14 +1533,27 @@ export function shouldRenderTaskMutations(records, now = Date.now()) {
       record.target?.nodeType === 1
         ? record.target
         : record.target?.parentElement;
-    if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
-    return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-      .filter((node) => node?.nodeType === 1)
-      .some(
+    if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
         (node) =>
-          node.matches?.('[class*="TasksPanel_taskList"]') ||
-          node.querySelector?.('[class*="TasksPanel_taskList"]'),
-      );
+          node.matches?.(OWNED_TASK_SELECTOR) ||
+          node.closest?.(OWNED_TASK_SELECTOR),
+      )
+    ) {
+      return false;
+    }
+    if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
+    return changedNodes.some(
+      (node) =>
+        node.matches?.('[class*="TasksPanel_taskList"]') ||
+        node.querySelector?.('[class*="TasksPanel_taskList"]'),
+    );
   });
 }
 

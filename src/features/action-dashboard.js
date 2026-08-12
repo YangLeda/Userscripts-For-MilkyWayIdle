@@ -684,6 +684,15 @@ function metric(label, value) {
 
 function renderProductionPanel() {
   addStyles();
+  if (!runtime.settings.get("productionSummary")) {
+    document
+      .querySelectorAll("#mwi-production-summary")
+      .forEach((card) => card.remove());
+    document
+      .querySelectorAll(".mwi-max-action-button")
+      .forEach((button) => button.remove());
+    return;
+  }
   const panel = findActionPanel();
   const input = getCountInput(panel);
   const existingCards = [

@@ -356,6 +356,9 @@ test("the current announcement covers every player-facing update bilingually", (
     /购物车数量加减按钮/,
     /数字解析和显示现在跟随游戏内语言/,
     /中文以外的游戏语言下火车点击加入队列后不续站/,
+    /分项图表改为显示各日期的实际资产持有值/,
+    /精炼生活披风等背部装备提示没有新缺料/,
+    /改善英文界面卡顿/,
   ]) {
     assert.match(current.body.zh.join("\n"), pattern);
   }
@@ -369,6 +372,9 @@ test("the current announcement covers every player-facing update bilingually", (
     /shopping-cart quantity buttons/,
     /Number parsing and display now follow the in-game language/,
     /trains not advancing after queue submission/,
+    /component charts now show actual holdings/,
+    /refined skilling capes and other back equipment/,
+    /improve English task-page performance/,
   ]) {
     assert.match(current.body.en.join("\n"), pattern);
   }
