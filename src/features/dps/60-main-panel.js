@@ -1175,7 +1175,12 @@ const KikiMeter = (() => {
         inject();
       }, 200);
     });
-    reinjector.observe(document.body, { childList: true, subtree: true });
+    // The launcher button and panel are direct children of <body>, so they can
+    // only be lost through a change to <body>'s own child list. Watching just
+    // that (no subtree) still catches every re-injection case while sparing
+    // this observer from waking on the game's constant in-tree churn during
+    // combat, when a subtree observer would fire on essentially every frame.
+    reinjector.observe(document.body, { childList: true });
     if (viewportHandler) {
       window.removeEventListener("resize", viewportHandler);
       window.visualViewport?.removeEventListener("resize", viewportHandler);
