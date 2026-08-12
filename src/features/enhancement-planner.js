@@ -45,6 +45,30 @@ function normalizedTable(source, fallback) {
   return values.length ? values.map(Number) : fallback;
 }
 
+function entriesOfMap(value) {
+  return value instanceof Map
+    ? [...value.entries()]
+    : Object.entries(value ?? {});
+}
+
+function nonTradableCoinShopPrice(itemHrid, itemDetailMap, shopItemDetailMap) {
+  if (itemDetailMap?.[itemHrid]?.isTradable === true) return 0;
+  let best = Number.POSITIVE_INFINITY;
+  for (const [, detail] of entriesOfMap(shopItemDetailMap)) {
+    if (detail?.itemHrid !== itemHrid) continue;
+    const costs = Array.isArray(detail.costs) ? detail.costs : [];
+    if (
+      costs.length !== 1 ||
+      costs[0]?.itemHrid !== "/items/coin" ||
+      !(Number(costs[0]?.count) > 0)
+    ) {
+      continue;
+    }
+    best = Math.min(best, Number(costs[0].count));
+  }
+  return Number.isFinite(best) ? best : 0;
+}
+
 function successRateAt(table, level) {
   const value = Number(table[level] ?? table.at(-1));
   if (!Number.isFinite(value)) return 0;
@@ -423,6 +447,7 @@ export function calculateEnhancementPlan({
   bonusMultiplierTable = runtime.state
     .initData_enhancementLevelTotalBonusMultiplierTable,
   actionDetailMap = runtime.state.initData_actionDetailMap,
+  shopItemDetailMap = runtime.state.initData_shopItemDetailMap,
   getFairValue = runtime.api.getFairValue,
   getMarketValue = getFairValue,
   projectAction = runtime.api.projectAction,
@@ -467,8 +492,13 @@ export function calculateEnhancementPlan({
   let materialCostPerAction = 0;
   let hasMissingRequiredPrice = !basePrice;
   for (const cost of item.enhancementCosts) {
-    const unitPrice = marketPrice(cost.itemHrid, 0);
-    if (!unitPrice) hasMissingRequiredPrice = true;
+    const unitPrice =
+      optionalMarketPrice(cost.itemHrid, 0) ||
+      nonTradableCoinShopPrice(cost.itemHrid, itemDetailMap, shopItemDetailMap);
+    if (!unitPrice) {
+      missing.add(cost.itemHrid);
+      hasMissingRequiredPrice = true;
+    }
     materialCostPerAction += unitPrice * Number(cost.count || 0);
   }
   let refinementCost = 0;

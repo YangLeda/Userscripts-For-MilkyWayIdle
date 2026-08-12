@@ -274,6 +274,68 @@ test("protection candidates without a market value are skipped", () => {
   assert.ok(!plan.missingMarketValues.includes("/items/special_protection"));
 });
 
+test("non-tradable enhancement materials use their fixed coin shop price", () => {
+  const details = itemDetailMap();
+  details["/items/target"].enhancementCosts = [
+    { itemHrid: "/items/trainee_enhancing_charm", count: 32 },
+    { itemHrid: "/items/coin", count: 7_490 },
+  ];
+  details["/items/trainee_enhancing_charm"] = { isTradable: false };
+  const values = prices();
+  const shared = {
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: details,
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    getMarketValue: (hrid) => values[hrid] ?? 0,
+  };
+  const shopPlan = calculateEnhancementPlan({
+    ...shared,
+    shopItemDetailMap: {
+      "/shop_items/trainee_enhancing_charm": {
+        itemHrid: "/items/trainee_enhancing_charm",
+        costs: [{ itemHrid: "/items/coin", count: 250_000 }],
+      },
+    },
+  });
+  const explicitlyPricedPlan = calculateEnhancementPlan({
+    ...shared,
+    getMarketValue: (hrid) =>
+      hrid === "/items/trainee_enhancing_charm" ? 250_000 : (values[hrid] ?? 0),
+  });
+
+  assert.equal(shopPlan.status, "complete");
+  assert.equal(shopPlan.baseCost, 1_000_000);
+  assert.equal(shopPlan.totalCost, explicitlyPricedPlan.totalCost);
+  assert.ok(
+    !shopPlan.missingMarketValues.includes("/items/trainee_enhancing_charm"),
+  );
+});
+
+test("tradable enhancement materials never fall back to shop prices", () => {
+  const details = itemDetailMap();
+  details["/items/material"] = { isTradable: true };
+  const values = prices({ "/items/material": 0 });
+  const plan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: details,
+    shopItemDetailMap: {
+      "/shop_items/material": {
+        itemHrid: "/items/material",
+        costs: [{ itemHrid: "/items/coin", count: 1 }],
+      },
+    },
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    getMarketValue: (hrid) => values[hrid] ?? 0,
+  });
+
+  assert.equal(plan.status, "unavailable");
+  assert.ok(plan.missingMarketValues.includes("/items/material"));
+});
+
 test("enhancement and protection consumables use market values instead of acquisition costs", () => {
   const acquisitionValues = prices({
     "/items/target": 40_000,
