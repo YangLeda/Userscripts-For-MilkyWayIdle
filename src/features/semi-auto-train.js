@@ -24,12 +24,20 @@ const ACTION_NAVIGATION_HANDLERS = [
 ];
 
 let activeTrain = null;
-let scanPending = false;
+let scanQueued = false;
+let scanTimer = null;
 let navigationRequestId = 0;
 
 function raf(callback) {
   return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
 }
+
+// The body-wide MutationObserver fires on every DOM change, so during combat
+// (constant churn) a per-frame coalesce would still run scan ~60x/second even
+// with no training panel on screen. Throttle the observer-driven scans to this
+// window; deliberate user actions keep using the fast rAF path so the panel
+// wires up immediately.
+const SCAN_THROTTLE_MS = 200;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -1013,7 +1021,6 @@ function renderControls(context) {
 }
 
 function scan() {
-  scanPending = false;
   renderActiveIndicator();
   const context = panelContext();
   document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window) => {
@@ -1030,9 +1037,20 @@ function scan() {
 }
 
 function scheduleScan() {
-  if (scanPending) return;
-  scanPending = true;
-  raf(scan);
+  if (scanQueued) return;
+  scanQueued = true;
+  raf(() => {
+    scanQueued = false;
+    scan();
+  });
+}
+
+function scheduleScanThrottled() {
+  if (scanTimer) return;
+  scanTimer = setTimeout(() => {
+    scanTimer = null;
+    scan();
+  }, SCAN_THROTTLE_MS);
 }
 
 function cleanup() {
@@ -1050,7 +1068,9 @@ function cleanup() {
   clearTrainShopHighlight();
   document.getElementById(STYLE_ID)?.remove();
   closeDetail();
-  scanPending = false;
+  scanQueued = false;
+  clearTimeout(scanTimer);
+  scanTimer = null;
 }
 
 runtime.features.register({
@@ -1061,9 +1081,11 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     scan();
-    const observer = new MutationObserver(scheduleScan);
+    // The observer schedules a throttled scan on any relevant DOM change, so
+    // the previous redundant 500ms interval is gone. Deliberate user actions
+    // still call scheduleScan directly for immediate wiring.
+    const observer = new MutationObserver(scheduleScanThrottled);
     scope.observer(observer, document.body, { childList: true, subtree: true });
-    scope.interval(scan, 500);
     scope.add(cleanup);
   },
 });

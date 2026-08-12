@@ -34768,11 +34768,13 @@ ${locks}` : ""}`;
     "handleGoToAction"
   ];
   var activeTrain = null;
-  var scanPending = false;
+  var scanQueued = false;
+  var scanTimer = null;
   var navigationRequestId = 0;
   function raf(callback) {
     return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
   }
+  var SCAN_THROTTLE_MS = 200;
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -35598,7 +35600,6 @@ ${locks}` : ""}`;
     host.appendChild(controls);
   }
   function scan() {
-    scanPending = false;
     renderActiveIndicator();
     const context = panelContext();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window2) => {
@@ -35614,9 +35615,19 @@ ${locks}` : ""}`;
     renderControls(context);
   }
   function scheduleScan() {
-    if (scanPending) return;
-    scanPending = true;
-    raf(scan);
+    if (scanQueued) return;
+    scanQueued = true;
+    raf(() => {
+      scanQueued = false;
+      scan();
+    });
+  }
+  function scheduleScanThrottled() {
+    if (scanTimer) return;
+    scanTimer = setTimeout(() => {
+      scanTimer = null;
+      scan();
+    }, SCAN_THROTTLE_MS);
   }
   function cleanup2() {
     cancelTrain("");
@@ -35627,7 +35638,9 @@ ${locks}` : ""}`;
     clearTrainShopHighlight();
     document.getElementById(STYLE_ID8)?.remove();
     closeDetail();
-    scanPending = false;
+    scanQueued = false;
+    clearTimeout(scanTimer);
+    scanTimer = null;
   }
   runtime.features.register({
     id: "semiAutoTrain",
@@ -35637,9 +35650,8 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addStyles6();
       scan();
-      const observer = new MutationObserver(scheduleScan);
+      const observer = new MutationObserver(scheduleScanThrottled);
       scope.observer(observer, document.body, { childList: true, subtree: true });
-      scope.interval(scan, 500);
       scope.add(cleanup2);
     }
   });
