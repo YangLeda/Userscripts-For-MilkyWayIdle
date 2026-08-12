@@ -895,9 +895,51 @@ function productionChains(tasks) {
   );
 }
 
+function assignStablePageSlots(cards, tasks) {
+  const activeTaskIds = new Set(tasks.map(taskId).filter(Boolean));
+  const knownSlotByTaskId = new Map(
+    [...pageTaskIds].map(([slot, id]) => [id, slot]),
+  );
+  const replacementSlots = [...pendingResetSlots].filter((slot) => {
+    const previousId = pageTaskIds.get(slot);
+    return !previousId || !activeTaskIds.has(previousId);
+  });
+  const usedSlots = new Set();
+
+  cards.forEach((card, index) => {
+    const id = taskId(tasks[index]);
+    const existingSlot = Number(card.dataset.mwitoolsOriginalIndex);
+    let slot = Number.isInteger(existingSlot) ? existingSlot : undefined;
+    if (slot === undefined && id) slot = knownSlotByTaskId.get(id);
+    if (slot === undefined && replacementSlots.length) {
+      slot = replacementSlots.shift();
+    }
+    if (slot === undefined || usedSlots.has(slot)) {
+      slot = 0;
+      while (usedSlots.has(slot)) slot += 1;
+    }
+    usedSlots.add(slot);
+    const slotValue = String(slot);
+    if (card.dataset.mwitoolsOriginalIndex !== slotValue) {
+      card.dataset.mwitoolsOriginalIndex = slotValue;
+    }
+  });
+}
+
 function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
   if (!runtime.settings.settingsMap.taskNewBadge.isTrue) {
     pageNewTaskIds.clear();
+    cards.forEach((card, index) => {
+      const id = taskId(tasks[index]);
+      if (!id) return;
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+      const previousId = pageTaskIds.get(slot);
+      if (previousId && previousId !== id) pendingResetSlots.delete(slot);
+      pageTaskIds.set(slot, id);
+      if (card.dataset.mwitoolsTaskId !== id) {
+        card.dataset.mwitoolsTaskId = id;
+      }
+    });
     runtime.state.mwitoolsPageNewTaskIds = new Set();
     return;
   }
@@ -906,25 +948,27 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
   cards.forEach((card, index) => {
     const id = taskId(tasks[index]);
     if (!id) return;
+    const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
     activeIds.add(id);
-    const previousId = pageTaskIds.get(index);
+    const previousId = pageTaskIds.get(slot);
     const changed = previousId && previousId !== id;
     if (enteredNewTaskPage || !previousId) {
       if (freshIds.has(id)) pageNewTaskIds.add(id);
     } else if (changed) {
-      if (
-        pendingResetSlots.has(index) &&
-        pageClassifications.get(index)?.profession?.key === NEW_PROFESSION.key
-      ) {
-        pageNewTaskIds.add(id);
+      if (pendingResetSlots.has(slot)) {
+        if (
+          pageClassifications.get(slot)?.profession?.key === NEW_PROFESSION.key
+        ) {
+          pageNewTaskIds.add(id);
+        }
       } else if (freshIds.has(id)) {
         pageNewTaskIds.add(id);
       }
-      pendingResetSlots.delete(index);
+      pendingResetSlots.delete(slot);
     } else if (freshIds.has(id)) {
       pageNewTaskIds.add(id);
     }
-    pageTaskIds.set(index, id);
+    pageTaskIds.set(slot, id);
     if (card.dataset.mwitoolsTaskId !== id) {
       card.dataset.mwitoolsTaskId = id;
     }
@@ -1419,9 +1463,10 @@ function wireResetButtons(cards) {
           return;
         }
         nativeResetChoiceUntil = Date.now() + 10_000;
-        pendingResetSlots.add(index);
+        const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+        pendingResetSlots.add(slot);
         const timeout = setTimeout(
-          () => pendingResetSlots.delete(index),
+          () => pendingResetSlots.delete(slot),
           30_000,
         );
         timeout?.unref?.();
@@ -1526,7 +1571,7 @@ function renderTasks() {
       lastTaskRenderSignature = "";
       lastActionDetails = null;
       lastActionCategories = null;
-      if (!hasTemporaryTaskReturn()) {
+      if (!hasTemporaryTaskReturn() && !pendingResetSlots.size) {
         pageClassifications = new Map();
         pageTaskIds = new Map();
         pageNewTaskIds = new Set();
@@ -1541,10 +1586,11 @@ function renderTasks() {
     !taskListParent?.isConnected ||
     (observedParent && observedParent !== taskListParent);
   const resumedTaskPage = enteredNewTaskPage && consumeTemporaryTaskReturn();
+  const resumedResetPage = enteredNewTaskPage && pendingResetSlots.size > 0;
   if (enteredNewTaskPage) {
     ungroupCards();
     originalCards = [];
-    if (!resumedTaskPage) {
+    if (!resumedTaskPage && !resumedResetPage) {
       pageClassifications = new Map();
       pageTaskIds = new Map();
       pageNewTaskIds = new Set();
@@ -1560,7 +1606,12 @@ function renderTasks() {
     taskRemaining,
   });
   const cardTasks = cardEntries.map(({ task }) => task);
-  syncPageNewTasks(cards, cardTasks, enteredNewTaskPage && !resumedTaskPage);
+  assignStablePageSlots(cards, cardTasks);
+  syncPageNewTasks(
+    cards,
+    cardTasks,
+    enteredNewTaskPage && !resumedTaskPage && !resumedResetPage,
+  );
   ensureCombatModeToggle();
   const signature = taskRenderSignature(cards, cardTasks);
   const sameCards =
@@ -1583,9 +1634,6 @@ function renderTasks() {
   originalCards.forEach((card, index) => {
     if (!("mwitoolsOriginalOrder" in card.dataset))
       card.dataset.mwitoolsOriginalOrder = card.style.order;
-    if (!("mwitoolsOriginalIndex" in card.dataset)) {
-      card.dataset.mwitoolsOriginalIndex = String(index);
-    }
     const taskIndex = String(cardEntries[index]?.taskIndex ?? -1);
     if (card.dataset.mwitoolsTaskIndex !== taskIndex) {
       card.dataset.mwitoolsTaskIndex = taskIndex;

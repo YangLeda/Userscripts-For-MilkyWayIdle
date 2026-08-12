@@ -234,6 +234,10 @@ test("advisor is a Shadow DOM external panel with a compact top three", async ()
     host.shadowRoot.querySelector("style").textContent,
     /\.price\{display:flex/,
   );
+  assert.match(
+    host.shadowRoot.querySelector("style").textContent,
+    /max-height:min\(38dvh,300px\)/,
+  );
   assert.equal(shadow(host, ".current-row"), null);
   assert.match(shadowText(host), /可多兑换 2 点信用/);
   assert.equal(document.querySelectorAll(`#${host.id}`).length, 1);
@@ -264,7 +268,7 @@ test("the selected best option is tagged and reported as already optimal", async
   assert.match(shadowText(host), /当前方案已是单位信用成本最优/);
 });
 
-test("the advisor stays visible and moves above an open item selector", async () => {
+test("the advisor stays visible without pushing the exchange modal down", async () => {
   setOrderBooks();
   const selector = document.createElement("section");
   selector.className = "ItemSelector_menu__test";
@@ -293,16 +297,16 @@ test("the advisor stays visible and moves above an open item selector", async ()
   const host = await renderGuildCreditAdvisor();
   host.getBoundingClientRect = () => ({ width: 400, height: 340 });
   assert.equal(positionGuildCreditAdvisor(), true);
-  assert.equal(host.dataset.placement, "top-compressed");
+  assert.equal(host.dataset.placement, "overlay");
   assert.equal(host.style.top, "12px");
-  assert.equal(host.style.maxHeight, "173px");
-  assert.equal(shell.style.getPropertyValue("translate"), "0 141px");
+  assert.equal(host.style.maxHeight, "247px");
+  assert.equal(shell.style.getPropertyValue("translate"), "");
   assert.equal(document.querySelector("#mwitools-guild-credit-advisor"), host);
 
   selector.hidden = true;
   assert.equal(findVisibleItemSelector(), undefined);
   assert.equal(await renderGuildCreditAdvisor(), host);
-  assert.equal(shell.style.getPropertyValue("translate"), "0 352px");
+  assert.equal(shell.style.getPropertyValue("translate"), "");
   selector.remove();
 });
 
@@ -351,7 +355,7 @@ test("advisor placement tries right, left, top and overlay without using bottom"
   globalThis.innerWidth = 600;
   assert.equal(positionGuildCreditAdvisor(), true);
   assert.equal(host.dataset.placement, "top");
-  assert.equal(host.style.top, "18px");
+  assert.equal(host.style.top, "48px");
 
   shell.getBoundingClientRect = () => ({
     left: 100,
@@ -362,9 +366,31 @@ test("advisor placement tries right, left, top and overlay without using bottom"
     height: 350,
   });
   assert.equal(positionGuildCreditAdvisor(), true);
-  assert.equal(host.dataset.placement, "overlay");
-  assert.equal(host.style.top, "100px");
-  assert.equal(shell.style.getPropertyValue("translate"), "0 232px");
+  assert.equal(host.dataset.placement, "top-compressed");
+  assert.equal(host.style.top, "12px");
+  assert.equal(host.style.maxHeight, "76px");
+  assert.equal(shell.style.getPropertyValue("translate"), "");
+});
+
+test("a clipped exchange modal only moves upward so its confirmation stays reachable", async () => {
+  setOrderBooks();
+  const host = await renderGuildCreditAdvisor();
+  const shell = document.querySelector('[class*="Modal_modalContainer"]');
+  host.getBoundingClientRect = () => ({ width: 360, height: 240 });
+  shell.getBoundingClientRect = () => ({
+    left: 20,
+    right: 380,
+    top: 420,
+    bottom: 920,
+    width: 360,
+    height: 500,
+  });
+  globalThis.innerWidth = 400;
+  globalThis.innerHeight = 800;
+  assert.equal(positionGuildCreditAdvisor(), true);
+  assert.equal(shell.style.getPropertyValue("translate"), "0 -132px");
+  assert.equal(host.dataset.placement, "top");
+  assert.equal(host.style.maxHeight, "264px");
 });
 
 test("main guild shop never receives recommendation summaries", async () => {

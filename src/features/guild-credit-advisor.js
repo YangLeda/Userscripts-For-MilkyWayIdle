@@ -450,7 +450,27 @@ function advisorStyles() {
     .summary.warning strong{color:#ffd17c}
     .estimate{margin-top:3px;color:#9296b0;font-size:8px;text-align:center}
     .empty{padding:14px;color:#bfc2d9;text-align:center}
-    @media(max-width:760px){:host{width:min(400px,calc(100vw - 24px))}}
+    @media(max-width:760px){
+      :host{width:calc(100vw - 16px);max-height:min(38dvh,300px);font-size:10px}
+      .head{padding:5px 7px}
+      .title{font-size:12px}
+      .basis{font-size:8px}
+      .body{padding:4px}
+      .rank-row{min-height:32px;grid-template-columns:17px 21px minmax(0,1fr) auto;gap:4px;padding:3px 4px}
+      .item-icon,.icon-fallback{width:21px;height:21px}
+      .name{font-size:10px}
+      .price{font-size:11px}
+      .price small{font-size:8px}
+      .summary{margin-top:4px;padding:4px 6px}
+    }
+    @media(max-width:420px){
+      :host{width:calc(100vw - 12px);max-height:min(40dvh,280px)}
+      .head{gap:5px}
+      .title{gap:5px}
+      .credit{max-width:92px}
+      .rank-row{grid-template-columns:17px 20px minmax(0,1fr) auto}
+      .item-icon,.icon-fallback{width:20px;height:20px}
+    }
   `;
 }
 
@@ -586,10 +606,30 @@ function restoreGuildExchangeAnchor(state = advisorPositionState) {
 }
 
 function shiftGuildExchangeAnchor(state, shiftY) {
-  const amount = Math.max(0, Math.round(shiftY));
+  const amount = Math.round(shiftY);
   if (!amount) return;
   state.anchor.style.setProperty("translate", `0 ${amount}px`, "important");
   state.shiftY = amount;
+}
+
+function keepGuildExchangeAnchorReachable(state, anchorRect, viewport) {
+  const shiftY = Math.min(
+    0,
+    viewport.height - VIEWPORT_MARGIN - anchorRect.bottom,
+  );
+  if (!shiftY) return anchorRect;
+  shiftGuildExchangeAnchor(state, shiftY);
+  return {
+    ...anchorRect,
+    top: anchorRect.top + shiftY,
+    bottom: anchorRect.bottom + shiftY,
+  };
+}
+
+function responsiveAdvisorMaxHeight(viewport) {
+  const available = Math.max(72, viewport.height - VIEWPORT_MARGIN * 2);
+  if (viewport.width > 760) return available;
+  return Math.min(available, 300, Math.max(160, viewport.height * 0.38));
 }
 
 export function positionGuildCreditAdvisor() {
@@ -598,11 +638,16 @@ export function positionGuildCreditAdvisor() {
   // Restore synchronously before measuring so repeated positioning never adds
   // the previous offset again. Both writes happen before the browser paints.
   restoreGuildExchangeAnchor(state);
-  const anchorRect = state.anchor.getBoundingClientRect();
+  let anchorRect = state.anchor.getBoundingClientRect();
   const hostRect = state.host.getBoundingClientRect();
   const viewport = viewportSize();
+  anchorRect = keepGuildExchangeAnchorReachable(state, anchorRect, viewport);
   const width = hostRect.width || Math.min(400, viewport.width - 24);
-  const height = hostRect.height || Math.min(260, viewport.height - 24);
+  const responsiveMaxHeight = responsiveAdvisorMaxHeight(viewport);
+  const height = Math.min(
+    hostRect.height || Math.min(260, viewport.height - 24),
+    responsiveMaxHeight,
+  );
   const selectorRect = findVisibleItemSelector()?.getBoundingClientRect?.();
   const sideTop = clamp(
     anchorRect.top,
@@ -640,10 +685,12 @@ export function positionGuildCreditAdvisor() {
   const fitsTop =
     topCandidate.top >= VIEWPORT_MARGIN &&
     !overlapsRect(topCandidate, selectorRect);
-  const selectorTopSpace = selectorRect
-    ? selectorRect.top - PANEL_GAP - VIEWPORT_MARGIN
-    : 0;
-  const fitsCompressedTop = selectorTopSpace > 0;
+  const topBoundary = Math.min(
+    anchorRect.top,
+    selectorRect?.top ?? Number.POSITIVE_INFINITY,
+  );
+  const compressedTopSpace = topBoundary - PANEL_GAP - VIEWPORT_MARGIN;
+  const fitsCompressedTop = compressedTopSpace >= 72;
   let placement;
   if (fitsRight) {
     placement = "right";
@@ -659,25 +706,24 @@ export function positionGuildCreditAdvisor() {
 
   let left;
   let top;
-  let maxHeight = viewport.height - VIEWPORT_MARGIN * 2;
+  let maxHeight = responsiveMaxHeight;
   if (placement === "right") {
     ({ left, top } = rightCandidate);
   } else if (placement === "left") {
     ({ left, top } = leftCandidate);
   } else if (placement === "top") {
     ({ left, top } = topCandidate);
-    maxHeight = anchorRect.top - PANEL_GAP - VIEWPORT_MARGIN;
+    maxHeight = Math.min(
+      responsiveMaxHeight,
+      anchorRect.top - PANEL_GAP - VIEWPORT_MARGIN,
+    );
   } else if (placement === "top-compressed") {
     left = topCandidate.left;
-    maxHeight = selectorTopSpace;
-    top = selectorRect.top - PANEL_GAP - Math.min(height, maxHeight);
+    maxHeight = Math.min(responsiveMaxHeight, compressedTopSpace);
+    top = topBoundary - PANEL_GAP - Math.min(height, maxHeight);
   } else {
     left = topCandidate.left;
-    top = clamp(
-      anchorRect.top,
-      VIEWPORT_MARGIN,
-      viewport.height - height - VIEWPORT_MARGIN,
-    );
+    top = VIEWPORT_MARGIN;
   }
   state.host.dataset.placement = placement;
   state.host.style.left = `${Math.round(left)}px`;
@@ -687,13 +733,6 @@ export function positionGuildCreditAdvisor() {
       ? Math.max(1, Math.round(maxHeight))
       : Math.max(72, Math.round(maxHeight))
   }px`;
-  if (placement === "top-compressed" || placement === "overlay") {
-    const visibleHeight = Math.min(height, maxHeight);
-    shiftGuildExchangeAnchor(
-      state,
-      top + visibleHeight + PANEL_GAP - anchorRect.top,
-    );
-  }
   return true;
 }
 

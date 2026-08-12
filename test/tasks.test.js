@@ -420,6 +420,11 @@ test("opening the native reset payment choice pauses task regrouping", () => {
   } finally {
     Date.now = originalDateNow;
   }
+  runtime.state.characterQuests[0] = {
+    ...runtime.state.characterQuests[0],
+    id: "reset-choice-completed",
+  };
+  runtime.api.renderTasks();
 });
 
 test("new tasks stay in the top group for one task-page visit", () => {
@@ -887,21 +892,37 @@ test("combat monster grouping stays stable through reset and refreshes on re-ent
   const firstSlot = list.querySelector(TASK_SELECTOR);
   const originalOrder = firstSlot.style.order;
   firstSlot.querySelector("button").click();
-  firstSlot.querySelector('div[class*="RandomTask_name"]').textContent =
-    "击败 - 杰瑞";
-  runtime.state.characterQuests[0] = {
-    id: "reset-rat",
-    actionHrid: "/actions/combat/rat",
-  };
+  list.remove();
   runtime.api.renderTasks();
-  assert.equal(firstSlot.style.order, originalOrder);
-  assert.deepEqual(orderedTitles(list), [
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__monster-order-reset">
+      ${card("击败 - 杰瑞", "0 / 10")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 杰瑞", "0 / 10")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "stable-rat", actionHrid: "/actions/combat/rat" },
+    { id: "stable-fly-2", actionHrid: "/actions/combat/fly" },
+    { id: "reset-rat", actionHrid: "/actions/combat/rat" },
+  ];
+  runtime.api.renderTasks();
+  const resetList = document.querySelector(
+    ".TasksPanel_taskList__monster-order-reset",
+  );
+  const resetCard = resetList.querySelector(
+    `${TASK_SELECTOR}[data-mwitools-task-id="reset-rat"]`,
+  );
+  assert.equal(resetCard.dataset.mwitoolsOriginalIndex, "0");
+  assert.equal(resetCard.style.order, originalOrder);
+  assert.deepEqual(orderedTitles(resetList), [
     "击败 - 杰瑞",
     "击败 - 苍蝇",
     "击败 - 杰瑞",
   ]);
 
-  list.remove();
+  resetList.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
     `<div class="TasksPanel_taskList__monster-order-reentered">
@@ -910,6 +931,11 @@ test("combat monster grouping stays stable through reset and refreshes on re-ent
       ${card("击败 - 苍蝇", "0 / 10")}
     </div>`,
   );
+  runtime.state.characterQuests = [
+    { id: "reset-rat", actionHrid: "/actions/combat/rat" },
+    { id: "stable-rat", actionHrid: "/actions/combat/rat" },
+    { id: "stable-fly-2", actionHrid: "/actions/combat/fly" },
+  ];
   runtime.api.renderTasks();
   assert.deepEqual(
     orderedTitles(
