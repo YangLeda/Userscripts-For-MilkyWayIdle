@@ -318,7 +318,9 @@ let settingsMap = {
   },
   taskInsights: {
     id: "taskInsights",
-    desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
+    desc: isZH
+      ? "启用平铺任务布局、排序和筛选"
+      : "Enable the flat task layout, sorting, and filters.",
     isTrue: true,
   },
   semiAutoTrain: {
@@ -380,7 +382,9 @@ let settingsMap = {
   },
   taskStatistics: {
     id: "taskStatistics",
-    desc: isZH ? "任务页显示统计抽屉" : "Show the task summary drawer.",
+    desc: isZH
+      ? "任务页显示专业、战斗和副本统计筛选栏"
+      : "Show profession, combat, and dungeon task filters.",
     isTrue: true,
   },
   taskClaimCollector: {
@@ -782,10 +786,10 @@ const catalogRows = [
   [
     "taskInsights",
     "tasks",
-    "按专业分组任务",
-    "Group tasks by profession",
-    "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
-    "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon.",
+    "平铺任务布局",
+    "Flat task layout",
+    "按新任务、已完成、普通任务和专业顺序平铺显示；战斗任务统一置底并按地图排序。",
+    "Show a flat list ordered by new, completed, and normal tasks, with combat last and sorted by zone.",
   ],
   [
     "semiAutoTrain",
@@ -854,10 +858,10 @@ const catalogRows = [
   [
     "taskStatistics",
     "tasks",
-    "任务统计抽屉",
-    "Task statistics drawer",
-    "在任务页汇总完成状态、奖励和任务类型统计。",
-    "Summarize completion state, rewards, and task-type statistics on the task page.",
+    "任务统计筛选栏",
+    "Task statistics filters",
+    "显示全部任务、十个生活专业、战斗和四个副本的数量，并可按图标筛选。",
+    "Show counts for all tasks, ten professions, combat, and four dungeons, with icon filters.",
   ],
   [
     "taskClaimCollector",

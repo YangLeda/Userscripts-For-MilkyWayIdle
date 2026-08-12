@@ -125,7 +125,7 @@ runtime.state.characterQuests = [
   { actionHrid: "/actions/combat/chimerical_den" },
 ];
 
-test("tasks use collapsible profession groups, pin completed cards, and nest combat locations", () => {
+test("tasks use a flat sorted list with statistics filters", () => {
   runtime.api.addTaskStyles();
   runtime.api.renderTasks();
 
@@ -137,7 +137,7 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
   assert.match(styles, /RandomTask_randomTask[^}]*min-width:\s*0\s*!important/);
   assert.match(
     styles,
-    /\.mwi-task-combat-location-body[^}]*repeat\(auto-fill,minmax\(min\(100%,270px\),1fr\)[^}]*gap:8px/,
+    /\.mwi-task-toolbar[^}]*display:flex[^}]*flex-wrap:wrap/,
   );
   assert.match(
     styles,
@@ -148,48 +148,14 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
     /\.mwi-task-merge-toast[^}]*position:fixed[^}]*z-index:2147483200/,
   );
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
-  assert.match(
-    styles,
-    /\.mwi-task-profession-header\s*\{[^}]*border:\s*0[^}]*border-left:\s*3px solid rgba\(var\(--mwi-task-group-accent\),\.78\)[^}]*border-radius:\s*0[^}]*background:\s*transparent/s,
+  assert.match(styles, /@media \(max-width:640px\)/);
+  assert.equal(document.querySelector(".mwi-task-profession-group"), null);
+  assert.equal(document.querySelector(".mwi-task-combat-location"), null);
+  assert.equal(
+    document.querySelector('[data-mwitools-task-mirror="true"]'),
+    null,
   );
-  assert.match(
-    styles,
-    /\.mwi-task-dungeon-header\s*\{[^}]*border:\s*0[^}]*border-left:\s*2px solid rgba\(183,126,255,\.78\)[^}]*border-radius:\s*0[^}]*background:\s*transparent/s,
-  );
-  assert.match(
-    styles,
-    /data-profession="new"[^}]*--mwi-task-group-accent:230,181,79/,
-  );
-  assert.match(
-    styles,
-    /data-profession="completed"[^}]*--mwi-task-group-accent:90,200,149/,
-  );
-  assert.match(
-    styles,
-    /data-profession="combat"[^}]*--mwi-task-group-accent:238,115,103/,
-  );
-
-  const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
-  assert.deepEqual(
-    groups.map(
-      (group) => group.querySelector(".mwi-task-profession-title").textContent,
-    ),
-    ["已完成", "挤奶", "制作", "战斗"],
-  );
-  assert.equal(document.querySelector(".mwi-task-toolbar"), null);
   assert.equal(document.querySelector(".mwi-task-insight"), null);
-  assert.match(
-    document.querySelector(
-      `${TASK_SELECTOR}[data-mwitools-profession="completed"]`,
-    ).textContent,
-    /已完成木板/,
-  );
-  assert.doesNotMatch(
-    document.querySelector(
-      `${TASK_SELECTOR}[data-mwitools-profession="crafting"]`,
-    ).textContent,
-    /已完成木板/,
-  );
 
   const taskList = document.querySelector('[class*="TasksPanel_taskList"]');
   assert.ok(
@@ -198,33 +164,65 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
     ),
     "native React task cards must never be reparented",
   );
-
-  const combatLocations = [
-    ...document.querySelectorAll(".mwi-task-combat-location-title"),
-  ].map((title) => title.textContent);
-  assert.deepEqual(combatLocations, [
-    "地图 1 · 臭臭星球 (1)",
-    "地图 3 · 海洋星球 (1)",
-    "地牢 · 奇幻洞穴 (1)",
+  const orderedTitles = [...taskList.querySelectorAll(TASK_SELECTOR)]
+    .sort((left, right) => Number(left.style.order) - Number(right.style.order))
+    .map(
+      (taskCard) =>
+        taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
+    );
+  assert.deepEqual(orderedTitles, [
+    "制作 - 已完成木板",
+    "挤奶 - 奶牛",
+    "制作 - 木板",
+    "击败 - 苍蝇",
+    "击败 - 水马",
+    "击败 - 地牢怪物",
   ]);
+  assert.equal(
+    taskList.querySelector(
+      `${TASK_SELECTOR}[data-mwitools-task-state="completed"]`,
+    ).dataset.mwitoolsProfession,
+    "crafting",
+  );
 
-  const milking = document.querySelector('[data-profession="milking"]');
-  milking.querySelector(".mwi-task-profession-header").click();
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  assert.ok(toolbar);
+  assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 16);
   assert.equal(
-    milking
-      .querySelector(".mwi-task-profession-header")
-      .getAttribute("aria-expanded"),
-    "false",
+    toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-count')
+      .textContent,
+    "6",
   );
-  assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
   assert.equal(
-    document.querySelector(
-      `${TASK_SELECTOR}[data-mwitools-profession="milking"]`,
-    ).dataset.mwitoolsCollapsed,
-    "true",
+    toolbar.querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"] .mwi-task-filter-count',
+    ).textContent,
+    "2",
   );
-  runtime.api.renderTasks();
-  assert.equal(milking.querySelector(".mwi-task-profession-body").hidden, true);
+  assert.equal(
+    toolbar.querySelector('[data-filter-kind="combat"] .mwi-task-filter-count')
+      .textContent,
+    "3",
+  );
+  assert.ok(toolbar.querySelector(".mwi-task-sort-button"));
+
+  toolbar
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"]',
+    )
+    .click();
+  assert.equal(
+    taskList.querySelectorAll(
+      `${TASK_SELECTOR}[data-mwitools-profession="crafting"][data-mwitools-filtered="true"]`,
+    ).length,
+    2,
+  );
+  toolbar.querySelector('[data-filter-kind="all"]').click();
+  assert.equal(
+    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    0,
+  );
 });
 
 test("task artwork resolves target items and monsters as translucent sprite art", () => {
@@ -314,16 +312,17 @@ test("re-entering a rebuilt task page never moves new cards into a detached page
     );
     assert.ok(currentList?.isConnected);
     assert.equal(currentList.querySelectorAll(TASK_SELECTOR).length, 2);
-    assert.deepEqual(
-      [...currentList.querySelectorAll(".mwi-task-profession-title")].map(
-        (title) => title.textContent,
+    assert.equal(currentList.querySelector(".mwi-task-profession-group"), null);
+    assert.ok(document.querySelector(".mwi-task-toolbar"));
+    assert.ok(
+      [...currentList.querySelectorAll(TASK_SELECTOR)].every(
+        (taskCard) => taskCard.parentElement === currentList,
       ),
-      ["已完成", "挤奶", "制作"],
     );
   }
 });
 
-test("a reset task keeps its current category until the task page is re-entered", () => {
+test("a reset refreshes metadata without changing the current card order", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -340,6 +339,7 @@ test("a reset task keeps its current category until the task page is re-entered"
 
   const resetList = document.querySelector(".TasksPanel_taskList__reset");
   const resetCard = resetList.querySelector(TASK_SELECTOR);
+  const originalOrder = resetCard.style.order;
   resetCard.querySelector('div[class*="RandomTask_name"]').textContent =
     "挤奶 - 新奶牛";
   runtime.state.characterQuests[0] = {
@@ -347,13 +347,10 @@ test("a reset task keeps its current category until the task page is re-entered"
   };
   runtime.api.renderTasks();
 
-  assert.equal(resetCard.dataset.mwitoolsProfession, "crafting");
-  assert.deepEqual(
-    [...resetList.querySelectorAll(".mwi-task-profession-title")].map(
-      (title) => title.textContent,
-    ),
-    ["已完成", "挤奶", "制作"],
-  );
+  assert.equal(resetCard.dataset.mwitoolsProfession, "milking");
+  assert.equal(resetCard.style.order, originalOrder);
+  document.querySelector(".mwi-task-sort-button").click();
+  assert.equal(resetCard.style.order, "1");
 
   resetList.remove();
   document.body.insertAdjacentHTML(
@@ -427,7 +424,26 @@ test("opening the native reset payment choice pauses task regrouping", () => {
   runtime.api.renderTasks();
 });
 
-test("new tasks stay in the top group for one task-page visit", () => {
+test("disabling task statistics keeps the manual sort control only", () => {
+  runtime.settings.settingsMap.taskStatistics.isTrue = false;
+  runtime.api.renderTasks();
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  assert.ok(toolbar.querySelector(".mwi-task-sort-button"));
+  assert.equal(toolbar.querySelector(".mwi-task-filter"), null);
+  assert.equal(
+    document.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    0,
+  );
+  runtime.settings.settingsMap.taskStatistics.isTrue = true;
+  runtime.api.renderTasks();
+  assert.equal(
+    document.querySelectorAll(".mwi-task-toolbar .mwi-task-filter").length,
+    16,
+  );
+});
+
+test("new tasks sort first for one task-page visit without a group", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -449,14 +465,12 @@ test("new tasks stay in the top group for one task-page visit", () => {
   runtime.api.renderTasks();
 
   const list = document.querySelector(".TasksPanel_taskList__new-group");
-  assert.equal(
-    list.querySelector(".mwi-task-profession-title").textContent,
-    "新任务",
-  );
   const freshCard = [...list.querySelectorAll(TASK_SELECTOR)].find((taskCard) =>
     taskCard.textContent.includes("新木板"),
   );
-  assert.equal(freshCard.dataset.mwitoolsProfession, "new");
+  assert.equal(freshCard.dataset.mwitoolsTaskState, "new");
+  assert.equal(freshCard.dataset.mwitoolsProfession, "crafting");
+  assert.equal(freshCard.style.order, "1");
 
   freshCard.querySelector("button").click();
   freshCard.querySelector('div[class*="RandomTask_name"]').textContent =
@@ -466,7 +480,8 @@ test("new tasks stay in the top group for one task-page visit", () => {
     actionHrid: "/actions/milking/cow",
   };
   runtime.api.renderTasks();
-  assert.equal(freshCard.dataset.mwitoolsProfession, "new");
+  assert.equal(freshCard.dataset.mwitoolsTaskState, "new");
+  assert.equal(freshCard.dataset.mwitoolsProfession, "milking");
 
   runtime.api.armTemporaryTaskReturn(Date.now() + 30_000);
   list.remove();
@@ -484,7 +499,7 @@ test("new tasks stay in the top group for one task-page visit", () => {
   assert.equal(
     document.querySelector(
       '.TasksPanel_taskList__new-auto-returned [data-mwitools-task-id="reset-task"]',
-    )?.dataset.mwitoolsProfession,
+    )?.dataset.mwitoolsTaskState,
     "new",
   );
 
@@ -500,9 +515,9 @@ test("new tasks stay in the top group for one task-page visit", () => {
   runtime.api.renderTasks();
   assert.equal(
     document.querySelector(
-      '.TasksPanel_taskList__new-reentered [data-profession="new"]',
-    ),
-    null,
+      '.TasksPanel_taskList__new-reentered [data-mwitools-task-id="reset-task"]',
+    )?.dataset.mwitoolsTaskState,
+    "normal",
   );
   assert.equal(
     document.querySelectorAll(
@@ -512,7 +527,7 @@ test("new tasks stay in the top group for one task-page visit", () => {
   );
 });
 
-test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
+test("dungeon counts overlap and filters keep native combat cards", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -606,75 +621,29 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       <use href="/static/media/combat_monsters_sprite.test.svg#fly"></use>
     </svg>`,
   );
-  localStorage.setItem(
-    "MWITools_task_combat_mode_v1:test.milkywayidle.com:tasks-test",
-    "planet",
-  );
   runtime.api.renderTasks();
 
-  const controls = document.querySelector(".mwi-task-combat-mode");
-  controls.querySelector('[data-mode="dungeon"]').click();
-  assert.equal(
-    document.querySelectorAll('.mwi-task-combat-location[data-mode="dungeon"]')
-      .length,
-    5,
-  );
+  const list = document.querySelector(".TasksPanel_taskList__dungeons");
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  assert.equal(list.querySelectorAll(TASK_SELECTOR).length, 5);
   assert.equal(
     document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
-    10,
-  );
-  const denMirror = [
-    ...document.querySelectorAll('[data-mwitools-task-mirror="true"]'),
-  ].find(
-    (taskCard) =>
-      taskCard.textContent.includes("苍蝇") &&
-      taskCard
-        .closest(".mwi-task-combat-location")
-        ?.dataset.location.includes("chimerical_den"),
-  );
-  assert.deepEqual(
-    [...denMirror.querySelectorAll(":scope > .mwi-task-bg use")].map((use) =>
-      use.getAttribute("href").split("#").at(-1),
-    ),
-    ["fly", "chimerical_den"],
+    0,
   );
   assert.equal(
-    denMirror.querySelectorAll(":scope > .mwi-task-bg--monster").length,
-    1,
+    document.querySelectorAll(".mwi-task-combat-location").length,
+    0,
   );
-  assert.equal(
-    denMirror.querySelectorAll(":scope > .mwi-task-bg--dungeon").length,
-    1,
-  );
-  assert.deepEqual(
-    [
-      ...new Set(
-        [...document.querySelectorAll(".mwi-task-bg--dungeon use")].map((use) =>
-          use.getAttribute("href").split("#").at(-1),
-        ),
-      ),
-    ].sort(),
-    ["chimerical_den", "enchanted_fortress", "pirate_cove", "sinister_circus"],
-  );
-  assert.ok(
-    [...document.querySelectorAll(".mwi-task-bg--dungeon use")].every((use) =>
-      use.getAttribute("href").split("#").at(-1),
-    ),
-    "dungeon artwork never uses an empty sprite fragment",
-  );
-  const nonDungeon = document.querySelector(
-    '.mwi-task-combat-location[data-location="non-dungeon-monsters"]',
-  );
-  assert.equal(
-    nonDungeon.querySelector(".mwi-task-combat-location-title-text")
-      .textContent,
-    "非地牢怪物 (1)",
-  );
-  assert.equal(nonDungeon.querySelectorAll(".mwi-task-bg--dungeon").length, 0);
-  assert.doesNotMatch(
-    document.querySelector(".TasksPanel_taskList__dungeons").textContent,
-    /其他战斗|Other combat/,
-  );
+  const dungeonCount = (actionHrid) =>
+    Number(
+      toolbar.querySelector(
+        `[data-filter-kind="dungeon"][data-filter-value="${actionHrid}"] .mwi-task-filter-count`,
+      ).textContent,
+    );
+  assert.equal(dungeonCount("/actions/combat/chimerical_den"), 4);
+  assert.equal(dungeonCount("/actions/combat/sinister_circus"), 2);
+  assert.equal(dungeonCount("/actions/combat/enchanted_fortress"), 1);
+  assert.equal(dungeonCount("/actions/combat/pirate_cove"), 2);
   for (const [actionHrid, title] of [
     ["/actions/combat/sorcerers_tower", "巫师之塔"],
     ["/actions/combat/infernal_abyss", "地狱深渊"],
@@ -686,22 +655,6 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       "non-dungeon-monsters",
     );
   }
-  const chimericalTitles = [
-    ...document.querySelector(
-      '.mwi-task-combat-location[data-location*="chimerical_den"] .mwi-task-dungeon-body',
-    ).children,
-  ].map(
-    (taskCard) =>
-      taskCard.querySelector('div[class*="RandomTask_name"]').textContent,
-  );
-  assert.deepEqual(chimericalTitles.slice(0, 2), [
-    "击败 - 苍蝇",
-    "击败 - 苍蝇",
-  ]);
-  assert.equal(
-    document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
-    5,
-  );
   assert.equal(
     dungeonLocationsForCard(
       document.querySelector(TASK_SELECTOR),
@@ -710,28 +663,42 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     3,
   );
 
-  const sourceFly = [...document.querySelectorAll(TASK_SELECTOR)].find(
-    (taskCard) => taskCard.textContent.includes("苍蝇"),
-  );
-  let forwarded = 0;
-  [...sourceFly.querySelectorAll("button")]
-    .at(-1)
-    .addEventListener("click", () => {
-      forwarded += 1;
-    });
-  const mirrorFly = [
-    ...document.querySelectorAll('[data-mwitools-task-mirror="true"]'),
-  ].find((taskCard) => taskCard.textContent.includes("苍蝇"));
-  [...mirrorFly.querySelectorAll("button")].at(-1).click();
-  assert.equal(forwarded, 1);
-
-  controls.querySelector('[data-mode="planet"]').click();
+  toolbar
+    .querySelector(
+      '[data-filter-kind="dungeon"][data-filter-value="/actions/combat/chimerical_den"]',
+    )
+    .click();
   assert.equal(
-    document.querySelectorAll('[data-mwitools-task-mirror="true"]').length,
-    0,
+    list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    1,
   );
+  for (const actionHrid of [
+    "/actions/combat/sinister_circus",
+    "/actions/combat/enchanted_fortress",
+    "/actions/combat/pirate_cove",
+  ]) {
+    toolbar
+      .querySelector(
+        `[data-filter-kind="dungeon"][data-filter-value="${actionHrid}"]`,
+      )
+      .click();
+  }
   assert.equal(
-    document.querySelectorAll('[data-mwitools-dungeon-source="true"]').length,
+    list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    4,
+  );
+  toolbar.querySelector('[data-filter-kind="combat"]').click();
+  assert.equal(
+    list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    5,
+  );
+  toolbar.querySelector('[data-filter-kind="all"]').click();
+  assert.equal(
+    list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
     0,
   );
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
