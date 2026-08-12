@@ -134,6 +134,7 @@ test("profit tooltips require the configured key in either hover order", async (
   };
   const input = document.createElement("input");
   document.body.replaceChildren(card, input);
+  await runtime.features.enable("itemTooltip_prices");
   await runtime.features.enable("itemTooltip_profit");
 
   card.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
@@ -222,6 +223,7 @@ test("profit tooltips require the configured key in either hover order", async (
   );
 
   await runtime.features.disable("itemTooltip_profit");
+  await runtime.features.disable("itemTooltip_prices");
   runtime.api.showProductionProfitPanel = originalShow;
   runtime.api.dismissHoverPanel = originalDismiss;
 });

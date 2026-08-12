@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
 import {
   getLocalizedEntityName,
@@ -639,11 +640,11 @@ function isCompletedCard(card, task) {
     runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? "",
   );
   const progress = text.match(
-    /(?:进度|progress)\s*[:：]\s*([\d,.]+)\s*\/\s*([\d,.]+)/i,
+    /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i,
   );
   if (progress) {
-    const current = Number(progress[1].replaceAll(",", ""));
-    const target = Number(progress[2].replaceAll(",", ""));
+    const current = parseCompactNumber(progress[1]);
+    const target = parseCompactNumber(progress[2]);
     if (
       Number.isFinite(current) &&
       Number.isFinite(target) &&

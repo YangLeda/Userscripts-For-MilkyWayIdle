@@ -849,12 +849,27 @@
   };
 
   // src/core/config.js
-  var THOUSAND_SEPERATOR = new Intl.NumberFormat().format(1111).replaceAll("1", "").at(0) || "";
-  var DECIMAL_SEPERATOR = new Intl.NumberFormat().format(1.1).replaceAll("1", "").at(0);
   function getGameLanguage() {
     const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
     if (storedLanguage) return storedLanguage;
     return globalThis.document?.documentElement?.lang || globalThis.navigator?.language || "en-US";
+  }
+  function getGameNumberLocale() {
+    const candidate = getGameLanguage().replaceAll("_", "-");
+    try {
+      return Intl.NumberFormat.supportedLocalesOf([candidate])[0] ?? "en-US";
+    } catch {
+      return "en-US";
+    }
+  }
+  function getGameNumberSeparators() {
+    const parts = new Intl.NumberFormat(getGameNumberLocale()).formatToParts(
+      1111.1
+    );
+    return {
+      thousand: parts.find((part) => part.type === "group")?.value ?? "",
+      decimal: parts.find((part) => part.type === "decimal")?.value ?? "."
+    };
   }
   function isGameLanguageZH() {
     return getGameLanguage().toLowerCase().startsWith("zh");
@@ -945,12 +960,7 @@
     },
     itemTooltip_profitRequireKey: {
       id: "itemTooltip_profitRequireKey",
-      desc: isZH ? "悬浮生产利润需要同时按住自定义按键" : "Require a custom held key for tooltip production profit.",
-      isTrue: true
-    },
-    showConsumTips: {
-      id: "showConsumTips",
-      desc: isZH ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量" : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
+      desc: isZH ? "生产利润和宝箱估算需要同时按住自定义按键" : "Require a shared custom held key for production profit and loot chest estimates.",
       isTrue: true
     },
     lootChestEstimate: {
@@ -1481,18 +1491,10 @@
     [
       "itemTooltip_profitRequireKey",
       "market",
-      "悬浮利润需要按键",
-      "Require key for tooltip profit",
-      "桌面端悬浮时还需按住自定义单键；移动端使用长按。",
-      "Require a custom held key while hovering on desktop; use a long press on touch devices."
-    ],
-    [
-      "showConsumTips",
-      "market",
-      "消耗品性价比",
-      "Consumable efficiency",
-      "显示回血回魔速度、单位回复成本和每天最多用量。",
-      "Show recovery rate, cost per recovery, and maximum daily use."
+      "悬浮扩展面板需要按键",
+      "Require key for tooltip panels",
+      "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
+      "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices."
     ],
     [
       "lootChestEstimate",
@@ -1803,8 +1805,7 @@
     productionProfit: "actionPanel_totalTime",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
-    itemTooltip_profitRequireKey: "itemTooltip_profit",
-    showConsumTips: "itemTooltip_prices",
+    itemTooltip_profitRequireKey: "itemTooltip_prices",
     lootChestEstimate: "itemTooltip_prices",
     lootSellAtAsk: "lootChestEstimate",
     lootBuyAtAsk: "lootChestEstimate",
@@ -1871,13 +1872,19 @@
     THOUSAND_SEPERATOR: {
       enumerable: true,
       get() {
-        return THOUSAND_SEPERATOR;
+        return getGameNumberSeparators().thousand;
       }
     },
     DECIMAL_SEPERATOR: {
       enumerable: true,
       get() {
-        return DECIMAL_SEPERATOR;
+        return getGameNumberSeparators().decimal;
+      }
+    },
+    NUMBER_LOCALE: {
+      enumerable: true,
+      get() {
+        return getGameNumberLocale();
       }
     },
     isZHInGameSetting: {
@@ -19109,14 +19116,20 @@
   }
   function parseCompactNumber(value) {
     if (typeof value === "number") return value;
-    const normalized = String(value ?? "").trim().toLowerCase().replaceAll(runtime.config.THOUSAND_SEPERATOR || ",", "").replace(runtime.config.DECIMAL_SEPERATOR || ".", ".");
+    const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
+    const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
+    let normalized = String(value ?? "").trim().toLowerCase();
+    if (thousandSeparator) {
+      normalized = normalized.replaceAll(thousandSeparator, "");
+    }
+    normalized = normalized.replaceAll(/[\s\u00a0\u202f]/g, "").replace(decimalSeparator, ".");
     const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
     if (!match) return Number.NaN;
     const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
     return Number(match[1]) * (multipliers[match[2]] ?? 1);
   }
   function getNumberLocale() {
-    return runtime.config.isZH ? "zh-CN" : "en-US";
+    return runtime.config.NUMBER_LOCALE || "en-US";
   }
   function formatExactNumber(value, fractionDigits = 20) {
     if (value === null || value === void 0 || value === "") return "—";
@@ -27632,7 +27645,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${Math.round(rate).toLocaleString()} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
+        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -30296,7 +30309,7 @@ ${preview}`
     if (Math.abs(Number(value)) >= 1e3) {
       return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
     }
-    return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
       maximumFractionDigits: digits
     }).format(Number(value));
   }
@@ -30963,6 +30976,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function showLootChestPanel(anchor, itemHrid, options = {}) {
     const pinned = Boolean(options.pinned);
+    const sticky = Boolean(options.sticky) && !pinned;
     if (!pinned && activePanel?.pinned) return null;
     const chest = runtime.api.projectLootChest?.(itemHrid);
     if (!anchor?.isConnected || !chest) {
@@ -30972,9 +30986,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     hideProductionProfitPanel();
     addStyles3();
     const panel = createPanelElement();
+    panel.classList.toggle("mwi-profit-pinned", sticky);
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
-    mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
+    mountPanel(anchor, panel, { itemHrid, pinned, sticky, kind: "loot" });
     if (pinned) attachLootChestControls(panel, itemHrid);
+    else if (sticky) attachStickyOutsideHandler(panel, anchor);
     return panel;
   }
   function attachLootChestControls(panel, itemHrid) {
@@ -31053,29 +31069,42 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   // src/features/item-tooltips.js
   var TOUCH_PROFIT_LONG_PRESS_MS = 800;
   var TOUCH_PROFIT_MOVE_TOLERANCE = 12;
-  var profitHoverContext = null;
-  var profitShortcutHeld = false;
-  var touchProfitPress = null;
-  var touchProfitAuthorizedUntil = 0;
+  var hoverPanelContext = null;
+  var hoverPanelShortcutHeld = false;
+  var touchHoverPanelPress = null;
+  var touchHoverPanelAuthorizedUntil = 0;
   function isEditableTarget(target) {
     return Boolean(
       target?.closest?.('input,textarea,select,[contenteditable="true"]')
     );
   }
-  function requiresProfitShortcut() {
+  function requiresHoverPanelShortcut() {
     return Boolean(
       runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue
     );
   }
-  function canShowTooltipProfit() {
+  function canShowHoverPanel(context = hoverPanelContext) {
+    if (context?.kind === "loot") {
+      return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
+    }
     return Boolean(
-      runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+      context?.kind === "profit" && runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
     );
   }
-  function showProfitContext(context = profitHoverContext, options = {}) {
-    if (!context?.anchor?.isConnected || !canShowTooltipProfit()) {
+  function hasEnabledHoverPanelFeature() {
+    return Boolean(
+      runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+    );
+  }
+  function showHoverPanelContext(context = hoverPanelContext, options = {}) {
+    if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
       runtime.api.dismissHoverPanel?.();
       return null;
+    }
+    if (context.kind === "loot") {
+      return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
+        sticky: Boolean(options.sticky)
+      });
     }
     return runtime.api.showProductionProfitPanel?.(
       context.anchor,
@@ -31086,34 +31115,35 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       }
     );
   }
-  function setProfitHoverContext(context) {
-    profitHoverContext = context;
-    if (!canShowTooltipProfit()) {
+  function setHoverPanelContext(context) {
+    hoverPanelContext = context;
+    if (!canShowHoverPanel(context)) {
       runtime.api.dismissHoverPanel?.();
       return;
     }
-    if (!requiresProfitShortcut() || profitShortcutHeld) {
-      showProfitContext(context);
+    if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
+      showHoverPanelContext(context);
       return;
     }
-    if (Date.now() <= touchProfitAuthorizedUntil) {
-      touchProfitAuthorizedUntil = 0;
-      showProfitContext(context, { sticky: true });
+    if (Date.now() <= touchHoverPanelAuthorizedUntil) {
+      touchHoverPanelAuthorizedUntil = 0;
+      showHoverPanelContext(context, { sticky: true });
       return;
     }
-    if (touchProfitPress?.authorized) {
-      touchProfitPress.triggered = true;
-      showProfitContext(context, { sticky: true });
+    if (touchHoverPanelPress?.authorized) {
+      touchHoverPanelPress.triggered = true;
+      showHoverPanelContext(context, { sticky: true });
       return;
     }
     runtime.api.dismissHoverPanel?.();
   }
-  function clearProfitHoverContext(anchor = null) {
-    if (anchor && profitHoverContext?.anchor !== anchor) return;
-    clearTimeout(touchProfitPress?.timer);
-    touchProfitPress = null;
-    touchProfitAuthorizedUntil = 0;
-    profitHoverContext = null;
+  function clearHoverPanelContext(anchor = null, kind = null) {
+    if (anchor && hoverPanelContext?.anchor !== anchor) return;
+    if (kind && hoverPanelContext?.kind !== kind) return;
+    clearTimeout(touchHoverPanelPress?.timer);
+    touchHoverPanelPress = null;
+    touchHoverPanelAuthorizedUntil = 0;
+    hoverPanelContext = null;
     runtime.api.dismissHoverPanel?.();
   }
   function removeSuppressedTooltipContent() {
@@ -31208,7 +31238,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
             const actionHrid = resolveGatheringActionFromElement(added);
             if (actionHrid) {
-              setProfitHoverContext({ anchor: added, actionHrid });
+              setHoverPanelContext({
+                kind: "profit",
+                anchor: added,
+                actionHrid
+              });
             }
           }
         }
@@ -31456,7 +31490,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       "div.ItemTooltipText_name__2JAHA span"
     );
     if (itemNameElems.length > 1) {
-      clearProfitHoverContext();
+      clearHoverPanelContext();
       runtime.api.dismissHoverPanel?.();
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
@@ -31497,38 +31531,17 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
     }
-    if (runtime.settings.settingsMap.showConsumTips.isTrue) {
-      let itemDetail = runtime.state.initData_itemDetailMap[itemHrid];
-      const hp = itemDetail?.consumableDetail?.hitpointRestore;
-      const mp = itemDetail?.consumableDetail?.manapointRestore;
-      const cd = itemDetail?.consumableDetail?.cooldownDuration;
-      if (hp && cd) {
-        const hpPerMiniute = 60 / (cd / 1e9) * hp;
-        const pricePer100Hp = !suppressMarket && ask ? ask / (hp / 100) : null;
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Hp ? `<span data-mwitools-tooltip-market="true">${pricePer100Hp.toFixed(0) + (runtime.config.isZH ? "金/100血, " : "coins/100hp, ")}</span>` : ""}${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      } else if (mp && cd) {
-        const mpPerMiniute = 60 / (cd / 1e9) * mp;
-        const pricePer100Mp = !suppressMarket && ask ? ask / (mp / 100) : null;
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? `<span data-mwitools-tooltip-market="true">${pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")}</span>` : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      } else if (cd) {
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      }
-    }
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
     const dropMap = runtime.state.initData_openableLootDropMap;
     const isOpenable = Boolean(
       dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid]
     );
     if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
-      clearProfitHoverContext();
-      runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+      setHoverPanelContext({ kind: "loot", anchor: tooltip, itemHrid });
     } else if (!isOpenable && runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-      setProfitHoverContext({ anchor: tooltip, itemHrid });
+      setHoverPanelContext({ kind: "profit", anchor: tooltip, itemHrid });
     } else {
-      clearProfitHoverContext();
+      clearHoverPanelContext();
       runtime.api.dismissHoverPanel?.();
     }
     const tootip = insertAfterElem.closest(".MuiTooltip-popper");
@@ -31581,7 +31594,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     getTeaBuffsByActionHrid,
     handleTooltipItem,
     getActionHridFromItemName,
-    clearTooltipProfitHoverContext: clearProfitHoverContext
+    clearTooltipProfitHoverContext: clearHoverPanelContext
   });
   Object.defineProperties(runtime.state, {
     tooltipObserver: {
@@ -31648,152 +31661,154 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         },
         true
       );
+      scope.event(
+        window,
+        "keydown",
+        (event) => {
+          if (event.repeat || isEditableTarget(event.target) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
+            return;
+          }
+          hoverPanelShortcutHeld = true;
+          if (requiresHoverPanelShortcut()) showHoverPanelContext();
+        },
+        true
+      );
+      scope.event(
+        window,
+        "keyup",
+        (event) => {
+          if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
+          hoverPanelShortcutHeld = false;
+          if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+        },
+        true
+      );
+      scope.event(window, "blur", () => {
+        hoverPanelShortcutHeld = false;
+        runtime.api.dismissHoverPanel?.();
+      });
+      scope.event(
+        document,
+        "pointerdown",
+        (event) => {
+          if (event.pointerType !== "touch" || !requiresHoverPanelShortcut() || !hasEnabledHoverPanelFeature()) {
+            return;
+          }
+          clearTimeout(touchHoverPanelPress?.timer);
+          touchHoverPanelAuthorizedUntil = 0;
+          const press = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            authorized: false,
+            triggered: false,
+            timer: null
+          };
+          press.timer = setTimeout(() => {
+            if (touchHoverPanelPress !== press) return;
+            press.authorized = true;
+            if (hoverPanelContext?.anchor?.isConnected) {
+              press.triggered = true;
+              showHoverPanelContext(hoverPanelContext, { sticky: true });
+            }
+          }, TOUCH_PROFIT_LONG_PRESS_MS);
+          touchHoverPanelPress = press;
+        },
+        true
+      );
+      scope.event(
+        document,
+        "pointermove",
+        (event) => {
+          const press = touchHoverPanelPress;
+          if (!press || press.pointerId !== event.pointerId) return;
+          if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= TOUCH_PROFIT_MOVE_TOLERANCE) {
+            return;
+          }
+          clearTimeout(press.timer);
+          touchHoverPanelPress = null;
+          touchHoverPanelAuthorizedUntil = 0;
+        },
+        true
+      );
+      const finishTouchPress = (event) => {
+        const press = touchHoverPanelPress;
+        if (!press || press.pointerId !== event.pointerId) return;
+        clearTimeout(press.timer);
+        if (press.authorized && !press.triggered) {
+          touchHoverPanelAuthorizedUntil = Date.now() + 500;
+        }
+        touchHoverPanelPress = null;
+      };
+      scope.event(document, "pointerup", finishTouchPress, true);
+      scope.event(
+        document,
+        "pointercancel",
+        (event) => {
+          if (touchHoverPanelPress?.pointerId !== event.pointerId) return;
+          clearTimeout(touchHoverPanelPress.timer);
+          touchHoverPanelPress = null;
+          touchHoverPanelAuthorizedUntil = 0;
+        },
+        true
+      );
+      const stopRequireKey = runtime.settings.onChange(
+        "itemTooltip_profitRequireKey",
+        (required) => {
+          if (!required) showHoverPanelContext();
+          else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+        }
+      );
+      const stopIronCow = runtime.settings.onChange(
+        "adaptIronCowMarketFeatures",
+        () => {
+          if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+          clearHoverPanelContext(null, "profit");
+          removeSuppressedTooltipContent();
+        }
+      );
+      const stopLootEstimate = runtime.settings.onChange(
+        "lootChestEstimate",
+        (enabled) => {
+          if (!enabled) clearHoverPanelContext(null, "loot");
+        }
+      );
       scope.add(() => {
+        stopRequireKey?.();
+        stopIronCow?.();
+        stopLootEstimate?.();
         tooltipObserver.disconnect();
         for (const style of styles) style?.remove?.();
+        clearTimeout(touchHoverPanelPress?.timer);
+        touchHoverPanelPress = null;
+        hoverPanelShortcutHeld = false;
+        clearHoverPanelContext();
       });
     }
   });
-  for (const id of ["itemTooltip_profit", "showConsumTips"]) {
-    runtime.features.register({
-      id,
-      setting: id,
-      dependsOn: ["itemTooltip_prices"],
-      initialize({ scope }) {
-        if (id !== "itemTooltip_profit") return;
-        scope.event(document, "mouseover", (event) => {
-          const card = gatheringCardFromEventTarget(event.target);
-          if (!card || card.contains(event.relatedTarget)) return;
-          const actionHrid = resolveGatheringActionFromElement(card);
-          if (!actionHrid) return;
-          setProfitHoverContext({ anchor: card, actionHrid });
-        });
-        scope.event(document, "mouseout", (event) => {
-          const card = gatheringCardFromEventTarget(event.target);
-          if (!card || card.contains(event.relatedTarget)) return;
-          clearProfitHoverContext(card);
-        });
-        scope.event(
-          window,
-          "keydown",
-          (event) => {
-            if (event.repeat || isEditableTarget(event.target) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
-              return;
-            }
-            profitShortcutHeld = true;
-            if (requiresProfitShortcut()) showProfitContext();
-          },
-          true
-        );
-        scope.event(
-          window,
-          "keyup",
-          (event) => {
-            if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
-            profitShortcutHeld = false;
-            if (requiresProfitShortcut()) runtime.api.dismissHoverPanel?.();
-          },
-          true
-        );
-        scope.event(window, "blur", () => {
-          profitShortcutHeld = false;
-          runtime.api.dismissHoverPanel?.();
-        });
-        scope.event(
-          document,
-          "pointerdown",
-          (event) => {
-            if (event.pointerType !== "touch" || !requiresProfitShortcut() || !canShowTooltipProfit()) {
-              return;
-            }
-            clearTimeout(touchProfitPress?.timer);
-            touchProfitAuthorizedUntil = 0;
-            const press = {
-              pointerId: event.pointerId,
-              x: event.clientX,
-              y: event.clientY,
-              authorized: false,
-              triggered: false,
-              timer: null
-            };
-            press.timer = setTimeout(() => {
-              if (touchProfitPress !== press) return;
-              press.authorized = true;
-              if (profitHoverContext?.anchor?.isConnected) {
-                press.triggered = true;
-                showProfitContext(profitHoverContext, { sticky: true });
-              }
-            }, TOUCH_PROFIT_LONG_PRESS_MS);
-            touchProfitPress = press;
-          },
-          true
-        );
-        scope.event(
-          document,
-          "pointermove",
-          (event) => {
-            const press = touchProfitPress;
-            if (!press || press.pointerId !== event.pointerId) return;
-            if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= TOUCH_PROFIT_MOVE_TOLERANCE) {
-              return;
-            }
-            clearTimeout(press.timer);
-            touchProfitPress = null;
-            touchProfitAuthorizedUntil = 0;
-          },
-          true
-        );
-        const finishTouchPress = (event) => {
-          const press = touchProfitPress;
-          if (!press || press.pointerId !== event.pointerId) return;
-          clearTimeout(press.timer);
-          if (press.authorized && !press.triggered) {
-            touchProfitAuthorizedUntil = Date.now() + 500;
-          }
-          touchProfitPress = null;
-        };
-        scope.event(document, "pointerup", finishTouchPress, true);
-        scope.event(
-          document,
-          "pointercancel",
-          (event) => {
-            if (touchProfitPress?.pointerId !== event.pointerId) return;
-            clearTimeout(touchProfitPress.timer);
-            touchProfitPress = null;
-            touchProfitAuthorizedUntil = 0;
-          },
-          true
-        );
-        const stopRequireKey = runtime.settings.onChange(
-          "itemTooltip_profitRequireKey",
-          (required) => {
-            if (!required) showProfitContext();
-            else if (!profitShortcutHeld) runtime.api.dismissHoverPanel?.();
-          }
-        );
-        const stopIronCow = runtime.settings.onChange(
-          "adaptIronCowMarketFeatures",
-          () => {
-            if (runtime.api.shouldSuppressMarketFeatures?.()) {
-              clearProfitHoverContext();
-              removeSuppressedTooltipContent();
-            }
-          }
-        );
-        scope.add(() => {
-          stopRequireKey?.();
-          stopIronCow?.();
-          clearTimeout(touchProfitPress?.timer);
-          touchProfitPress = null;
-          profitShortcutHeld = false;
-          clearProfitHoverContext();
-        });
-      }
-    });
-  }
+  runtime.features.register({
+    id: "itemTooltip_profit",
+    setting: "itemTooltip_profit",
+    dependsOn: ["itemTooltip_prices"],
+    initialize({ scope }) {
+      scope.event(document, "mouseover", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        const actionHrid = resolveGatheringActionFromElement(card);
+        if (!actionHrid) return;
+        setHoverPanelContext({ kind: "profit", anchor: card, actionHrid });
+      });
+      scope.event(document, "mouseout", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        clearHoverPanelContext(card, "profit");
+      });
+      scope.add(() => clearHoverPanelContext(null, "profit"));
+    }
+  });
   runtime.onMessage("init_character_data", () => {
     if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
-    clearProfitHoverContext();
+    clearHoverPanelContext(null, "profit");
     removeSuppressedTooltipContent();
   });
 
@@ -32433,8 +32448,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const text = runtime.api.getOriTextFromElement?.(
         bar.querySelector('[class*="ProgressBar_text"]')
       );
-      const match2 = String(text ?? "").replace(",", ".").match(/[\d.]+/);
-      durationPerAction = match2 ? Number(match2[0]) : null;
+      const match2 = String(text ?? "").match(/[\d.,\s\u00a0\u202f]+/);
+      durationPerAction = match2 ? parseCompactNumber(match2[0]) : null;
     }
     if (!Number.isFinite(durationPerAction) || durationPerAction <= 0) {
       return { durationPerAction: null, currentCycleRemaining: null };
@@ -33022,6 +33037,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
   var lastProductionSignature = "";
+  var activeHoldRepeatStop = null;
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
@@ -33248,6 +33264,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         }
       }
       row.querySelector(".delete").addEventListener("click", () => {
+        stopActiveHoldRepeat();
         procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
       });
       const quantityInput = row.querySelector(".qty");
@@ -33263,6 +33280,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
             item.itemHrid,
             item.enhancementLevel
           );
+          if (!latest) {
+            stopActiveHoldRepeat();
+            return;
+          }
           setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
         });
       }
@@ -33278,26 +33299,44 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     ${marketEnabled ? `<span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t7("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       procurement.clearCart();
     });
+  }
+  function stopActiveHoldRepeat() {
+    activeHoldRepeatStop?.();
   }
   function installHoldRepeat(button, callback) {
     let delayTimer = null;
     let repeatTimer = null;
+    let pointerId = null;
     const stop = () => {
       clearTimeout(delayTimer);
       clearInterval(repeatTimer);
       delayTimer = null;
       repeatTimer = null;
+      pointerId = null;
+      window.removeEventListener("pointerup", stopForPointer, true);
+      window.removeEventListener("pointercancel", stopForPointer, true);
+      window.removeEventListener("blur", stop, true);
+      if (activeHoldRepeatStop === stop) activeHoldRepeatStop = null;
     };
-    button.addEventListener("pointerdown", () => {
+    const stopForPointer = (event) => {
+      if (pointerId === null || event.pointerId === pointerId) stop();
+    };
+    button.addEventListener("pointerdown", (event) => {
+      stopActiveHoldRepeat();
+      pointerId = event.pointerId;
+      activeHoldRepeatStop = stop;
+      window.addEventListener("pointerup", stopForPointer, true);
+      window.addEventListener("pointercancel", stopForPointer, true);
+      window.addEventListener("blur", stop, true);
       delayTimer = setTimeout(() => {
         repeatTimer = setInterval(callback, 90);
       }, 420);
     });
-    button.addEventListener("pointerup", stop);
-    button.addEventListener("pointercancel", stop);
-    button.addEventListener("pointerleave", stop);
+    button.addEventListener("pointerup", stopForPointer);
+    button.addEventListener("pointercancel", stopForPointer);
   }
   function renderPlans(body) {
     const plans2 = procurement.getPlans();
@@ -33656,15 +33695,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       procurement.setSetting("handleY", parseFloat(handle.style.top));
       if (!moved) {
         drawerOpen = !drawerOpen;
+        if (!drawerOpen) stopActiveHoldRepeat();
         renderShell();
       }
     });
     shadow.querySelector(".close").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     });
     for (const tab of shadow.querySelectorAll(".tab")) {
       tab.addEventListener("click", () => {
+        stopActiveHoldRepeat();
         activeTab = tab.dataset.tab;
         renderShell();
       });
@@ -33693,12 +33735,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     scope.event(window, "resize", renderShell);
     scope.event(document, "keydown", (event) => {
       if (event.key === "Escape" && drawerOpen) {
+        stopActiveHoldRepeat();
         drawerOpen = false;
         renderShell();
       }
     });
     scope.event(document, "pointerdown", (event) => {
       if (!drawerOpen || event.composedPath().includes(shell)) return;
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     });
@@ -33776,10 +33820,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return "/action_functions/production";
   }
   function parseRequirementNumber(text) {
-    const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+    const tokens = String(text ?? "").match(
+      /(?:\d(?:[\d.,\s\u00a0\u202f]*\d)?|\.\d+)\s*[kmbt]?/gi
+    );
     if (!tokens?.length) return null;
     for (let index = tokens.length - 1; index >= 0; index -= 1) {
-      const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+      const value = parseCompactNumber(tokens[index]);
       if (Number.isFinite(value) && value >= 0) return value;
     }
     return null;
@@ -34058,8 +34104,8 @@ ${locks}` : ""}`;
     );
   }
   function parseHouseCount(value) {
-    const normalized = String(value ?? "").replaceAll(",", "").trim();
-    const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+    const normalized = String(value ?? "").trim();
+    const compact = parseRequirementNumber(normalized);
     if (Number.isFinite(compact) && compact >= 0) return compact;
     const match = normalized.match(/-?\d+(?:\.\d+)?/);
     const number2 = Number(match?.[0]);
@@ -34600,6 +34646,7 @@ ${locks}` : ""}`;
       scope.interval(updateMarketUi, 900);
       scope.event(document, "keydown", handleShortcut, true);
       scope.add(() => {
+        stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID7)?.remove();
@@ -35547,11 +35594,11 @@ ${locks}` : ""}`;
   function cardRemaining(card) {
     const text = String(card?.textContent ?? "");
     const match = text.match(
-      /(?:进度|progress)\s*:?\s*([\d,.]+)\s*\/\s*([\d,.]+)/i
+      /(?:进度|progress)\s*:?\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i
     );
     if (!match) return null;
-    const current = Number(match[1].replaceAll(",", ""));
-    const target = Number(match[2].replaceAll(",", ""));
+    const current = parseCompactNumber(match[1]);
+    const target = parseCompactNumber(match[2]);
     return Number.isFinite(current) && Number.isFinite(target) ? Math.max(0, target - current) : null;
   }
   function actionLabels(actionHrid) {
@@ -36178,11 +36225,11 @@ ${locks}` : ""}`;
       runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? ""
     );
     const progress = text.match(
-      /(?:进度|progress)\s*[:：]\s*([\d,.]+)\s*\/\s*([\d,.]+)/i
+      /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i
     );
     if (progress) {
-      const current = Number(progress[1].replaceAll(",", ""));
-      const target2 = Number(progress[2].replaceAll(",", ""));
+      const current = parseCompactNumber(progress[1]);
+      const target2 = parseCompactNumber(progress[2]);
       if (Number.isFinite(current) && Number.isFinite(target2) && target2 > 0 && current >= target2) {
         return true;
       }
@@ -38183,12 +38230,15 @@ ${locks}` : ""}`;
           "公会经验统计改为近 6 小时、24 小时和成员本周平均速率；七日趋势使用 6 小时滚动平均，并修正升级经验与预计升级时间计算。",
           "新增铁牛模式适配开关，自动识别铁牛和旧铁牛角色；开启后隐藏不可用的市场价格、利润与市场采购操作，同时保留资产和宝箱估值。",
           "修复点金、分解、转化和解精炼的完成时间：现在会结合所选物品批量、催化剂、金币、完成次数和当前周期计算，缺少选择时不再显示无穷大。",
-          "生产利润悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端改为 800 毫秒长按，并支持滑动取消与点外关闭。",
+          "生产利润和宝箱估算悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端均需 800 毫秒长按，并支持滑动取消与点外关闭。",
           "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
           "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。",
           "资产与吃书经验不再显示浮点尾数；宝箱碎片自制钥匙会计入工匠减耗、浓缩倍率和泡饮成本，并可选择忽略所有牛铃价值。",
           "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。",
-          "兼容游戏全部九种内置语言；库存、悬浮窗、任务、行动、市场和 DPS 等功能现在会直接使用游戏当前语言的官方词表，不再因繁体中文或其他语言名称不同而失效。"
+          "兼容游戏全部九种内置语言；库存、悬浮窗、任务、行动、市场和 DPS 等功能现在会直接使用游戏当前语言的官方词表，不再因繁体中文或其他语言名称不同而失效。",
+          "移除作用有限的消耗品回复速度、单位回复成本和理论每日用量显示。",
+          "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
+          "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38197,12 +38247,15 @@ ${locks}` : ""}`;
           "Guild XP now shows 6-hour, 24-hour, and member this-week average rates. The seven-day trend uses a 6-hour rolling average, with corrected level requirements and ETA calculations.",
           "Added an Iron Cow adaptation switch that recognizes both Iron Cow modes. When enabled, unavailable market prices, profits, and marketplace purchasing actions are hidden while asset and loot chest valuations remain available.",
           "Fixed completion times for Coinify, Decompose, Transmute, and Unrefine by accounting for the selected stack, bulk size, catalyst, coins, completed count, and current cycle. Missing selections no longer appear as infinite.",
-          "Production profit tooltips now require holding Ctrl by default, with any single key configurable in settings. Touch devices use an 800 ms long press with movement cancellation and outside-tap dismissal.",
+          "Production profit and loot chest estimate tooltips now require holding Ctrl by default, with any single key configurable in settings. Both use an 800 ms long press on touch devices with movement cancellation and outside-tap dismissal.",
           "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
           "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further.",
           "Asset and ability-book XP displays no longer show floating-point tails. Fragment-crafted key estimates now include Artisan reduction, concentration, and drink costs, with an option to ignore all Cowbell value.",
           "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition.",
-          "Added compatibility with all nine built-in game languages. Inventory, tooltips, tasks, actions, marketplace tools, DPS, and related features now use the official dictionary for the active game language instead of failing on Traditional Chinese or other localized names."
+          "Added compatibility with all nine built-in game languages. Inventory, tooltips, tasks, actions, marketplace tools, DPS, and related features now use the official dictionary for the active game language instead of failing on Traditional Chinese or other localized names.",
+          "Removed the low-value consumable recovery-rate, cost-per-recovery, and theoretical daily-use display.",
+          "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
+          "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths."
         ])
       })
     })
@@ -38596,6 +38649,7 @@ ${locks}` : ""}`;
     .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
     .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
+    .mwi-announcement-card li strong{color:#ff5f66}
     @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
     @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
@@ -39764,7 +39818,11 @@ ${locks}` : ""}`;
           track.setAttribute("aria-hidden", "true");
           const fill = document.createElement("span");
           fill.className = "mwi-guild-rate-fill";
-          fill.style.width = `${Math.max(0, value / maxima[rateIndex] * 100)}%`;
+          const percentage = Math.max(
+            0,
+            Math.min(100, value / maxima[rateIndex] * 100)
+          );
+          fill.style.width = `${Math.round(percentage * 1e3) / 1e3}%`;
           track.append(fill);
           content.append(track);
         }
@@ -41320,7 +41378,7 @@ ${locks}` : ""}`;
     if (Math.abs(Number(value)) >= 1e3) {
       return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
     }
-    return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits
     }).format(Number(value));

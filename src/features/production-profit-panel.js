@@ -32,7 +32,7 @@ function formatNumber(value, digits = 1) {
       runtime.api.numberFormatter?.(Number(value), digits) ?? String(value)
     );
   }
-  return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+  return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
     maximumFractionDigits: digits,
   }).format(Number(value));
 }
@@ -814,6 +814,7 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
 
 function showLootChestPanel(anchor, itemHrid, options = {}) {
   const pinned = Boolean(options.pinned);
+  const sticky = Boolean(options.sticky) && !pinned;
   if (!pinned && activePanel?.pinned) return null;
   const chest = runtime.api.projectLootChest?.(itemHrid);
   if (!anchor?.isConnected || !chest) {
@@ -823,9 +824,11 @@ function showLootChestPanel(anchor, itemHrid, options = {}) {
   hideProductionProfitPanel();
   addStyles();
   const panel = createPanelElement();
+  panel.classList.toggle("mwi-profit-pinned", sticky);
   renderLootChestPanel(panel, itemHrid, chest, { pinned });
-  mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
+  mountPanel(anchor, panel, { itemHrid, pinned, sticky, kind: "loot" });
   if (pinned) attachLootChestControls(panel, itemHrid);
+  else if (sticky) attachStickyOutsideHandler(panel, anchor);
   return panel;
 }
 

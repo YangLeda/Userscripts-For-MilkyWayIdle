@@ -646,7 +646,11 @@ function appendRateColumns(table, rows, kind, parentId = "") {
         track.setAttribute("aria-hidden", "true");
         const fill = document.createElement("span");
         fill.className = "mwi-guild-rate-fill";
-        fill.style.width = `${Math.max(0, (value / maxima[rateIndex]) * 100)}%`;
+        const percentage = Math.max(
+          0,
+          Math.min(100, (value / maxima[rateIndex]) * 100),
+        );
+        fill.style.width = `${Math.round(percentage * 1_000) / 1_000}%`;
         track.append(fill);
         content.append(track);
       }

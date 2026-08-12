@@ -22,6 +22,7 @@ localStorage.setItem(
       isTrue: true,
     },
     removedOption: { id: "removed_option", isTrue: true },
+    removedConsumableTips: { id: "showConsumTips", isTrue: true },
   }),
 );
 
@@ -54,6 +55,7 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
+  assert.equal(runtime.settings.settingsMap.showConsumTips, undefined);
   assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
   assert.equal(runtime.settings.settingsMap.showDamageGraph, undefined);
   assert.equal(
@@ -67,6 +69,7 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(stored.values.showDamageGraph, undefined);
   assert.equal(stored.values.damageGraphTransparentBackground, undefined);
   assert.equal(stored.values.profitValuationMode, undefined);
+  assert.equal(stored.values.showConsumTips, undefined);
   assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.hidden, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.group, "general");

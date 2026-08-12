@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { parseCompactNumber } from "../core/market.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -20,6 +21,7 @@ let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
 let lastProductionSignature = "";
+let activeHoldRepeatStop = null;
 
 const MARKET_SESSION_OPEN_GRACE_MS = 2_500;
 
@@ -280,6 +282,7 @@ function renderCart(body) {
       }
     }
     row.querySelector(".delete").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
     });
     const quantityInput = row.querySelector(".qty");
@@ -295,6 +298,10 @@ function renderCart(body) {
           item.itemHrid,
           item.enhancementLevel,
         );
+        if (!latest) {
+          stopActiveHoldRepeat();
+          return;
+        }
         setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
       });
     }
@@ -312,27 +319,46 @@ function renderCart(body) {
     ${marketEnabled ? `<span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t("清空未收藏", "Clear")}</button>`;
   footer.querySelector(".clear").addEventListener("click", () => {
+    stopActiveHoldRepeat();
     procurement.clearCart();
   });
+}
+
+function stopActiveHoldRepeat() {
+  activeHoldRepeatStop?.();
 }
 
 function installHoldRepeat(button, callback) {
   let delayTimer = null;
   let repeatTimer = null;
+  let pointerId = null;
   const stop = () => {
     clearTimeout(delayTimer);
     clearInterval(repeatTimer);
     delayTimer = null;
     repeatTimer = null;
+    pointerId = null;
+    window.removeEventListener("pointerup", stopForPointer, true);
+    window.removeEventListener("pointercancel", stopForPointer, true);
+    window.removeEventListener("blur", stop, true);
+    if (activeHoldRepeatStop === stop) activeHoldRepeatStop = null;
   };
-  button.addEventListener("pointerdown", () => {
+  const stopForPointer = (event) => {
+    if (pointerId === null || event.pointerId === pointerId) stop();
+  };
+  button.addEventListener("pointerdown", (event) => {
+    stopActiveHoldRepeat();
+    pointerId = event.pointerId;
+    activeHoldRepeatStop = stop;
+    window.addEventListener("pointerup", stopForPointer, true);
+    window.addEventListener("pointercancel", stopForPointer, true);
+    window.addEventListener("blur", stop, true);
     delayTimer = setTimeout(() => {
       repeatTimer = setInterval(callback, 90);
     }, 420);
   });
-  button.addEventListener("pointerup", stop);
-  button.addEventListener("pointercancel", stop);
-  button.addEventListener("pointerleave", stop);
+  button.addEventListener("pointerup", stopForPointer);
+  button.addEventListener("pointercancel", stopForPointer);
 }
 
 function renderPlans(body) {
@@ -712,15 +738,18 @@ function createShell(scope) {
     procurement.setSetting("handleY", parseFloat(handle.style.top));
     if (!moved) {
       drawerOpen = !drawerOpen;
+      if (!drawerOpen) stopActiveHoldRepeat();
       renderShell();
     }
   });
   shadow.querySelector(".close").addEventListener("click", () => {
+    stopActiveHoldRepeat();
     drawerOpen = false;
     renderShell();
   });
   for (const tab of shadow.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => {
+      stopActiveHoldRepeat();
       activeTab = tab.dataset.tab;
       renderShell();
     });
@@ -749,12 +778,14 @@ function createShell(scope) {
   scope.event(window, "resize", renderShell);
   scope.event(document, "keydown", (event) => {
     if (event.key === "Escape" && drawerOpen) {
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     }
   });
   scope.event(document, "pointerdown", (event) => {
     if (!drawerOpen || event.composedPath().includes(shell)) return;
+    stopActiveHoldRepeat();
     drawerOpen = false;
     renderShell();
   });
@@ -858,10 +889,12 @@ function resolveActionFunction(panel, actionHrid, fiberFunction = "") {
 }
 
 function parseRequirementNumber(text) {
-  const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+  const tokens = String(text ?? "").match(
+    /(?:\d(?:[\d.,\s\u00a0\u202f]*\d)?|\.\d+)\s*[kmbt]?/gi,
+  );
   if (!tokens?.length) return null;
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+    const value = parseCompactNumber(tokens[index]);
     if (Number.isFinite(value) && value >= 0) return value;
   }
   return null;
@@ -1187,10 +1220,8 @@ function findActiveHouseModal() {
 }
 
 function parseHouseCount(value) {
-  const normalized = String(value ?? "")
-    .replaceAll(",", "")
-    .trim();
-  const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+  const normalized = String(value ?? "").trim();
+  const compact = parseRequirementNumber(normalized);
   if (Number.isFinite(compact) && compact >= 0) return compact;
   const match = normalized.match(/-?\d+(?:\.\d+)?/);
   const number = Number(match?.[0]);
@@ -1849,6 +1880,7 @@ runtime.features.register({
     scope.interval(updateMarketUi, 900);
     scope.event(document, "keydown", handleShortcut, true);
     scope.add(() => {
+      stopActiveHoldRepeat();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();

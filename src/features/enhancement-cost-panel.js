@@ -42,7 +42,7 @@ function compactNumber(value, digits = 1) {
       runtime.api.numberFormatter?.(Number(value), digits) ?? String(value)
     );
   }
-  return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+  return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   }).format(Number(value));

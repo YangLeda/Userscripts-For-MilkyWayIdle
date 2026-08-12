@@ -318,7 +318,7 @@ test("announcement copy follows the MWITools language", () => {
   scope.cleanup();
 });
 
-test("the Ctrl tooltip announcement is bold and underlined", () => {
+test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => {
   const scope = runtime.createCleanupScope();
   const panel = new FeedbackPanel({
     client: { list: async () => ({ items: [] }) },
@@ -330,9 +330,14 @@ test("the Ctrl tooltip announcement is bold and underlined", () => {
     ".mwi-announcement-card li strong u",
   );
   assert.match(emphasized?.textContent ?? "", /按住 Ctrl/);
+  assert.match(emphasized?.textContent ?? "", /宝箱估算/);
   assert.equal(
     panel.root.querySelectorAll(".mwi-announcement-card li strong u").length,
     1,
+  );
+  assert.match(
+    document.querySelector("#mwitools-feedback-style").textContent,
+    /\.mwi-announcement-card li strong\{color:#ff5f66\}/,
   );
   scope.cleanup();
 });
@@ -347,6 +352,9 @@ test("the current announcement covers every player-facing update bilingually", (
     /按住 Ctrl/,
     /迷宫活动期间/,
     /从上一步开始/,
+    /移除作用有限的消耗品/,
+    /购物车数量加减按钮/,
+    /数字解析和显示现在跟随游戏内语言/,
   ]) {
     assert.match(current.body.zh.join("\n"), pattern);
   }
@@ -356,6 +364,9 @@ test("the current announcement covers every player-facing update bilingually", (
     /holding Ctrl/,
     /Labyrinth run/,
     /Start from previous/,
+    /Removed the low-value consumable/,
+    /shopping-cart quantity buttons/,
+    /Number parsing and display now follow the in-game language/,
   ]) {
     assert.match(current.body.en.join("\n"), pattern);
   }

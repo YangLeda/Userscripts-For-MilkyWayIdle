@@ -205,13 +205,19 @@ function normalizeMarketPrice(price, minimum = 1, maximum = MARKET_MAX_PRICE) {
   return Math.min(Math.max(normalized, minimum), maximum);
 }
 
-function parseCompactNumber(value) {
+export function parseCompactNumber(value) {
   if (typeof value === "number") return value;
-  const normalized = String(value ?? "")
+  const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
+  const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
+  let normalized = String(value ?? "")
     .trim()
-    .toLowerCase()
-    .replaceAll(runtime.config.THOUSAND_SEPERATOR || ",", "")
-    .replace(runtime.config.DECIMAL_SEPERATOR || ".", ".");
+    .toLowerCase();
+  if (thousandSeparator) {
+    normalized = normalized.replaceAll(thousandSeparator, "");
+  }
+  normalized = normalized
+    .replaceAll(/[\s\u00a0\u202f]/g, "")
+    .replace(decimalSeparator, ".");
   const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
   if (!match) return Number.NaN;
   const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
@@ -219,7 +225,7 @@ function parseCompactNumber(value) {
 }
 
 function getNumberLocale() {
-  return runtime.config.isZH ? "zh-CN" : "en-US";
+  return runtime.config.NUMBER_LOCALE || "en-US";
 }
 
 function formatExactNumber(value, fractionDigits = 20) {

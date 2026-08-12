@@ -18,6 +18,12 @@ globalThis.requestAnimationFrame = (callback) => {
 };
 globalThis.innerWidth = 1_200;
 globalThis.innerHeight = 800;
+globalThis.GM_addStyle = (css) => {
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.append(style);
+  return style;
+};
 localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
@@ -26,6 +32,7 @@ await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/asset-values.js");
+await import("../src/features/settings-and-notifications.js");
 await import("../src/features/production-profit-panel.js");
 await import("../src/features/item-tooltips.js");
 
@@ -539,8 +546,8 @@ test("openable item tooltips route to the loot panel", async () => {
   runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
   runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
   runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
-  runtime.settings.settingsMap.showConsumTips.isTrue = false;
   runtime.settings.settingsMap.lootChestEstimate.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = false;
 
   const tooltip = document.createElement("div");
   tooltip.className = "MuiTooltip-popper";
@@ -559,5 +566,128 @@ test("openable item tooltips route to the loot panel", async () => {
   localStorage.setItem("i18nextLng", "zh-CN");
   runtime.config.isZH = true;
   runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
-  runtime.settings.settingsMap.showConsumTips.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+});
+
+test("loot chest estimates share the configured key and work without production profit", async () => {
+  runtime.api.hideProductionProfitPanel();
+  runtime.config.isZH = false;
+  runtime.state.itemEnNameToHridMap["test dungeon chest"] = ITEM.chest;
+  runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
+  runtime.settings.settingsMap.lootChestEstimate.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+  runtime.api.setTooltipProfitShortcut?.({ code: "Control", display: "Ctrl" });
+  await runtime.features.enable("itemTooltip_prices");
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
+
+  const makeTooltip = () => {
+    const tooltip = document.createElement("div");
+    tooltip.className = "MuiTooltip-popper";
+    tooltip.style.transform = "translate3d(0px, 0px, 0px)";
+    tooltip.innerHTML =
+      '<div class="ItemTooltipText_name__2JAHA"><span>test dungeon chest</span></div><div class="separator"></div>';
+    document.body.append(tooltip);
+    return tooltip;
+  };
+  const key = (type) =>
+    window.dispatchEvent(
+      new dom.window.KeyboardEvent(type, {
+        key: "Control",
+        code: "ControlLeft",
+        bubbles: true,
+      }),
+    );
+
+  let tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  key("keydown");
+  assert.match(
+    document.querySelector("#mwitools-production-profit-panel").textContent,
+    /Opening estimate/,
+  );
+  key("keyup");
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  tooltip.remove();
+
+  key("keydown");
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  assert.equal(runtime.api.pinActiveLootChestPanel(), true);
+  key("keyup");
+  assert.ok(
+    document.querySelector("#mwitools-production-profit-panel"),
+    "releasing the key must not close a pinned loot panel",
+  );
+
+  runtime.api.hideProductionProfitPanel();
+  tooltip.remove();
+
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  const touchEvent = (type, x, y) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, {
+      pointerType: { value: "touch" },
+      pointerId: { value: 12 },
+    });
+    return event;
+  };
+  tooltip.dispatchEvent(touchEvent("pointerdown", 10, 10));
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.ok(
+    document.querySelector("#mwitools-production-profit-panel"),
+    "an 800 ms touch press should open the loot estimate",
+  );
+  tooltip.dispatchEvent(touchEvent("pointerup", 10, 10));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  document.body.dispatchEvent(touchEvent("pointerdown", 40, 40));
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  tooltip.remove();
+
+  await runtime.features.disable("itemTooltip_prices");
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.config.isZH = true;
+});
+
+test("removed consumable efficiency content is no longer appended", async () => {
+  runtime.api.hideProductionProfitPanel();
+  runtime.config.isZH = false;
+  runtime.state.itemEnNameToHridMap["artisan tea"] = ITEM.artisanTea;
+  runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
+    buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
+    hitpointRestore: 500,
+    cooldownDuration: 60_000_000_000,
+  };
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
+  const tooltip = document.createElement("div");
+  tooltip.className = "MuiTooltip-popper";
+  tooltip.style.transform = "translate3d(0px, 0px, 0px)";
+  tooltip.innerHTML =
+    '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div class="separator"></div>';
+  document.body.append(tooltip);
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.doesNotMatch(tooltip.textContent, /coins\/100hp|hp\/min|\/day/);
+  tooltip.remove();
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.config.isZH = true;
 });

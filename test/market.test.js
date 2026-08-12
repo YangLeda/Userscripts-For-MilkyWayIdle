@@ -36,6 +36,22 @@ test("unified numbers use K/M/B/T, promote rounded boundaries and keep exact tit
   assert.equal(element.title, "12,345,678,901");
 });
 
+test("number parsing and formatting follow the game locale instead of the system locale", () => {
+  localStorage.setItem("i18nextLng", "pt");
+  assert.equal(runtime.config.THOUSAND_SEPERATOR, ".");
+  assert.equal(runtime.config.DECIMAL_SEPERATOR, ",");
+  assert.equal(runtime.api.parseCompactNumber("14,2"), 14.2);
+  assert.equal(runtime.api.parseCompactNumber("1.234,5K"), 1_234_500);
+  assert.equal(runtime.api.numberFormatter(1_530), "1,53K");
+  assert.equal(runtime.api.formatExactNumber(1_234.5), "1.234,5");
+
+  localStorage.setItem("i18nextLng", "fr");
+  const groupedFrench = new Intl.NumberFormat("fr").format(1_234.5);
+  assert.equal(runtime.api.parseCompactNumber(groupedFrench), 1_234.5);
+
+  localStorage.setItem("i18nextLng", "en-US");
+});
+
 test("optional million cap keeps billion and trillion values in M", () => {
   runtime.settings.settingsMap.displayCapMM.isTrue = true;
   assert.equal(runtime.api.numberFormatter(1_200_000_000), "1,200M");

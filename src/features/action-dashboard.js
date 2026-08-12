@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { parseCompactNumber } from "../core/market.js";
 import { itemName } from "../core/localization.js";
 import { resolveLocalizedEntity } from "../core/game-localization.js";
 
@@ -211,10 +212,8 @@ function getLiveActionTiming(host) {
     const text = runtime.api.getOriTextFromElement?.(
       bar.querySelector('[class*="ProgressBar_text"]'),
     );
-    const match = String(text ?? "")
-      .replace(",", ".")
-      .match(/[\d.]+/);
-    durationPerAction = match ? Number(match[0]) : null;
+    const match = String(text ?? "").match(/[\d.,\s\u00a0\u202f]+/);
+    durationPerAction = match ? parseCompactNumber(match[0]) : null;
   }
   if (!Number.isFinite(durationPerAction) || durationPerAction <= 0) {
     return { durationPerAction: null, currentCycleRemaining: null };

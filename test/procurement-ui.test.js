@@ -174,6 +174,60 @@ test("optional auto-expand opens the cart only after successful additions", () =
   runtime.api.procurement.setSetting("autoExpandOnAddEnabled", false);
 });
 
+test("cart quantity hold-repeat stops after redraw, release, and clear", async () => {
+  const host = document.querySelector("#mwitools-procurement-host");
+  const drawer = host.shadowRoot.querySelector(".drawer");
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/nail",
+    quantity: 10,
+  });
+  if (drawer.dataset.open !== "true") {
+    const handle = host.shadowRoot.querySelector(".handle");
+    handle.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", {
+        bubbles: true,
+        clientY: 180,
+      }),
+    );
+    handle.dispatchEvent(
+      new dom.window.MouseEvent("pointerup", {
+        bubbles: true,
+        clientY: 180,
+      }),
+    );
+  }
+
+  host.shadowRoot
+    .querySelector('.step[data-step="1"]')
+    .dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 620));
+  const repeated = runtime.api.procurement.getCartItem("/items/nail").quantity;
+  assert.ok(repeated > 10);
+  window.dispatchEvent(
+    new dom.window.MouseEvent("pointerup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/nail").quantity,
+    repeated,
+    "the repeat timer must stop even though its original button was redrawn",
+  );
+
+  host.shadowRoot
+    .querySelector('.step[data-step="1"]')
+    .dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 540));
+  host.shadowRoot.querySelector(".panel-footer .clear").click();
+  assert.equal(runtime.api.procurement.getCartItem("/items/nail"), null);
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/nail"),
+    null,
+    "clearing the cart must also cancel an active repeat",
+  );
+});
+
 test("production procurement augments the existing summary instead of creating another card", () => {
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -250,6 +304,7 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
     },
   ];
   runtime.api.procurement.loadCharacterData("ui-character");
+  localStorage.setItem("i18nextLng", "pt");
   runtime.state.initData_actionDetailMap["/actions/crafting/reserve"] = {
     hrid: "/actions/crafting/reserve",
     name: "Reserve fixture",
@@ -283,7 +338,7 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
         <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
         <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
         <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
-        <span class="SkillActionDetail_inputCount__fixture">3 / 2</span>
+        <span class="SkillActionDetail_inputCount__fixture">3 / 2,5</span>
         <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
         <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
       </div>
@@ -316,8 +371,8 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   await Promise.resolve();
   assert.equal(
     runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
-    4,
-    "6 required - (3 owned - 1 locked) - 1 already listed = 3 newly added",
+    6,
+    "ceil(2.5 × 3) required - (3 owned - 1 locked) - 1 already listed = 5 newly added",
   );
   assert.equal(
     runtime.api.procurement.getCartItem("/items/protection_mirror").source,
@@ -335,7 +390,7 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   summary.querySelector("button").click();
   assert.equal(
     runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
-    4,
+    6,
   );
 
   summary.remove();
@@ -359,6 +414,7 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
 
   wrapper.remove();
   productionPanel.hidden = false;
+  localStorage.setItem("i18nextLng", "en-US");
   runtime.api.procurement.removePlan(reservePlan.id);
   runtime.api.procurement.clearCart({ includeStarred: true });
 });

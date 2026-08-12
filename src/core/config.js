@@ -1,13 +1,5 @@
 import { runtime } from "./runtime.js";
 
-const THOUSAND_SEPERATOR =
-  new Intl.NumberFormat().format(1111).replaceAll("1", "").at(0) || "";
-
-const DECIMAL_SEPERATOR = new Intl.NumberFormat()
-  .format(1.1)
-  .replaceAll("1", "")
-  .at(0);
-
 function getGameLanguage() {
   const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
   if (storedLanguage) return storedLanguage;
@@ -16,6 +8,25 @@ function getGameLanguage() {
     globalThis.navigator?.language ||
     "en-US"
   );
+}
+
+function getGameNumberLocale() {
+  const candidate = getGameLanguage().replaceAll("_", "-");
+  try {
+    return Intl.NumberFormat.supportedLocalesOf([candidate])[0] ?? "en-US";
+  } catch {
+    return "en-US";
+  }
+}
+
+function getGameNumberSeparators() {
+  const parts = new Intl.NumberFormat(getGameNumberLocale()).formatToParts(
+    1_111.1,
+  );
+  return {
+    thousand: parts.find((part) => part.type === "group")?.value ?? "",
+    decimal: parts.find((part) => part.type === "decimal")?.value ?? ".",
+  };
 }
 
 function isGameLanguageZH() {
@@ -148,15 +159,8 @@ let settingsMap = {
   itemTooltip_profitRequireKey: {
     id: "itemTooltip_profitRequireKey",
     desc: isZH
-      ? "悬浮生产利润需要同时按住自定义按键"
-      : "Require a custom held key for tooltip production profit.",
-    isTrue: true,
-  },
-  showConsumTips: {
-    id: "showConsumTips",
-    desc: isZH
-      ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量"
-      : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
+      ? "生产利润和宝箱估算需要同时按住自定义按键"
+      : "Require a shared custom held key for production profit and loot chest estimates.",
     isTrue: true,
   },
   lootChestEstimate: {
@@ -759,18 +763,10 @@ const catalogRows = [
   [
     "itemTooltip_profitRequireKey",
     "market",
-    "悬浮利润需要按键",
-    "Require key for tooltip profit",
-    "桌面端悬浮时还需按住自定义单键；移动端使用长按。",
-    "Require a custom held key while hovering on desktop; use a long press on touch devices.",
-  ],
-  [
-    "showConsumTips",
-    "market",
-    "消耗品性价比",
-    "Consumable efficiency",
-    "显示回血回魔速度、单位回复成本和每天最多用量。",
-    "Show recovery rate, cost per recovery, and maximum daily use.",
+    "悬浮扩展面板需要按键",
+    "Require key for tooltip panels",
+    "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
+    "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices.",
   ],
   [
     "lootChestEstimate",
@@ -1083,8 +1079,7 @@ const settingParents = {
   productionProfit: "actionPanel_totalTime",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
-  itemTooltip_profitRequireKey: "itemTooltip_profit",
-  showConsumTips: "itemTooltip_prices",
+  itemTooltip_profitRequireKey: "itemTooltip_prices",
   lootChestEstimate: "itemTooltip_prices",
   lootSellAtAsk: "lootChestEstimate",
   lootBuyAtAsk: "lootChestEstimate",
@@ -1162,13 +1157,19 @@ Object.defineProperties(runtime.config, {
   THOUSAND_SEPERATOR: {
     enumerable: true,
     get() {
-      return THOUSAND_SEPERATOR;
+      return getGameNumberSeparators().thousand;
     },
   },
   DECIMAL_SEPERATOR: {
     enumerable: true,
     get() {
-      return DECIMAL_SEPERATOR;
+      return getGameNumberSeparators().decimal;
+    },
+  },
+  NUMBER_LOCALE: {
+    enumerable: true,
+    get() {
+      return getGameNumberLocale();
     },
   },
   isZHInGameSetting: {

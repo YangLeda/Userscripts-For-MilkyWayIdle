@@ -412,7 +412,7 @@ function createOverlay(options = {}) {
       const rate = validExperienceRate(model?.xpPerHour);
       const title =
         rate != null
-          ? `${Math.round(rate).toLocaleString()} ${t("经验/小时", "XP/hour")}`
+          ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t("经验/小时", "XP/hour")}`
           : t("缺少可比较的历史快照", "No comparable historical snapshot");
       if (cell.textContent !== copy) cell.textContent = copy;
       if (cell.title !== title) cell.title = title;
