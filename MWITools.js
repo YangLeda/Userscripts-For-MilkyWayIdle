@@ -37843,6 +37843,7 @@ ${locks}` : ""}`;
         zh: "26.4.6 更新公告",
         en: "Version 26.4.6 update"
       }),
+      emphasizedBodyIndexes: Object.freeze([6]),
       body: Object.freeze({
         zh: Object.freeze([
           "意见反馈升级为意见中心，新增版本公告，并统一使用红点提醒反馈回复和新公告。",
@@ -38596,7 +38597,22 @@ ${locks}` : ""}`;
         );
         const list = document.createElement("ul");
         const body = item.body?.[runtime.config.isZH ? "zh" : "en"] ?? [];
-        list.append(...body.map((line) => makeElement("li", "", line)));
+        const emphasizedIndexes = new Set(item.emphasizedBodyIndexes ?? []);
+        list.append(
+          ...body.map((line, index) => {
+            const listItem = makeElement("li");
+            if (!emphasizedIndexes.has(index)) {
+              listItem.textContent = line;
+              return listItem;
+            }
+            const strong = document.createElement("strong");
+            const underline = document.createElement("u");
+            underline.textContent = line;
+            strong.append(underline);
+            listItem.append(strong);
+            return listItem;
+          })
+        );
         card.append(title, meta, list);
         host.append(card);
       }

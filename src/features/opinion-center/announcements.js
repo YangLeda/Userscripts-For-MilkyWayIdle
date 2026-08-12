@@ -9,6 +9,7 @@ export const ANNOUNCEMENTS = Object.freeze([
       zh: "26.4.6 更新公告",
       en: "Version 26.4.6 update",
     }),
+    emphasizedBodyIndexes: Object.freeze([6]),
     body: Object.freeze({
       zh: Object.freeze([
         "意见反馈升级为意见中心，新增版本公告，并统一使用红点提醒反馈回复和新公告。",

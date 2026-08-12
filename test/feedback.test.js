@@ -318,6 +318,25 @@ test("announcement copy follows the MWITools language", () => {
   scope.cleanup();
 });
 
+test("the Ctrl tooltip announcement is bold and underlined", () => {
+  const scope = runtime.createCleanupScope();
+  const panel = new FeedbackPanel({
+    client: { list: async () => ({ items: [] }) },
+    scope,
+    announcements: announcementStore({ seen: ["26.4.6"] }),
+  });
+
+  const emphasized = panel.root.querySelector(
+    ".mwi-announcement-card li strong u",
+  );
+  assert.match(emphasized?.textContent ?? "", /按住 Ctrl/);
+  assert.equal(
+    panel.root.querySelectorAll(".mwi-announcement-card li strong u").length,
+    1,
+  );
+  scope.cleanup();
+});
+
 test("the current announcement covers every player-facing update bilingually", () => {
   const current = ANNOUNCEMENTS[0];
   assert.equal(current.version, "26.4.6");

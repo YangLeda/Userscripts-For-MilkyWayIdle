@@ -407,7 +407,22 @@ export class OpinionCenterPanel {
       );
       const list = document.createElement("ul");
       const body = item.body?.[runtime.config.isZH ? "zh" : "en"] ?? [];
-      list.append(...body.map((line) => makeElement("li", "", line)));
+      const emphasizedIndexes = new Set(item.emphasizedBodyIndexes ?? []);
+      list.append(
+        ...body.map((line, index) => {
+          const listItem = makeElement("li");
+          if (!emphasizedIndexes.has(index)) {
+            listItem.textContent = line;
+            return listItem;
+          }
+          const strong = document.createElement("strong");
+          const underline = document.createElement("u");
+          underline.textContent = line;
+          strong.append(underline);
+          listItem.append(strong);
+          return listItem;
+        }),
+      );
       card.append(title, meta, list);
       host.append(card);
     }
