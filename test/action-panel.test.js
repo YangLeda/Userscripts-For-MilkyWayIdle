@@ -53,6 +53,8 @@ runtime.state.initData_actionDetailMap = {
 runtime.state.initData_characterSkills = [
   { skillHrid: "/skills/crafting", level: 100, experience: 1_000 },
 ];
+runtime.state.initData_characterItems = [];
+runtime.state.initData_actionTypeDrinkSlotsMap = {};
 runtime.state.initData_levelExperienceTable = Array.from(
   { length: 201 },
   (_, level) => level * 1_000,
@@ -118,8 +120,54 @@ test("production details add target-level and working quick-input controls", asy
     document.querySelector(
       'div[class*="SkillActionDetail_maxActionCountInput"] input',
     ).value,
+    "587",
+  );
+  const durationButton = document.querySelector(
+    '#quickInputHourButtons button[data-quick-value="24"]',
+  );
+  assert.match(durationButton.title, /99\.0%.*不少于/);
+  durationButton.click();
+  const durationCount = Number(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+  );
+  assert.equal(durationCount, 28140);
+  const durationProjection = runtime.api.projectAction(
+    "/actions/crafting/lumber",
+    durationCount,
+    { durationPerAction: 6.11 },
+  );
+  assert.ok(durationProjection.totalSeconds >= 24 * 3_600);
+  assert.ok(durationProjection.totalSeconds < 24 * 3_600 + 6.11);
+
+  const getTotalEfficiency = runtime.api.getTotalEffiPercentage;
+  runtime.api.getTotalEffiPercentage = () => Number.NaN;
+  runtime.api.renderProductionQuickInputs();
+  document
+    .querySelector('#quickInputHourButtons button[data-quick-value="0.5"]')
+    .click();
+  assert.equal(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
     "295",
   );
+  runtime.api.getTotalEffiPercentage = getTotalEfficiency;
+
+  const durationValue = panel.querySelector(
+    'div[class*="SkillActionDetail_value"]',
+  );
+  durationValue.textContent = "—";
+  runtime.api.renderProductionQuickInputs();
+  assert.equal(
+    [...document.querySelectorAll("#quickInputHourButtons button")].every(
+      (button) => button.disabled,
+    ),
+    true,
+  );
+  durationValue.textContent = "6.11s";
+  runtime.api.renderProductionQuickInputs();
   document
     .querySelector('#quickInputCountButtons button[data-quick-value="1000"]')
     .click();

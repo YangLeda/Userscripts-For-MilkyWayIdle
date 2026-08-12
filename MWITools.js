@@ -20684,6 +20684,28 @@
     const baseSavings = Math.max(0, Number(buffs.lessResource) || 0) / 100;
     return Math.min(1, baseSavings * getDrinkConcentration());
   }
+  function isBackEquipmentForProcurement(itemHrid) {
+    const detail = runtime.state.initData_itemDetailMap?.[normalizeItemHrid(itemHrid)];
+    const equipment = detail?.equipmentDetail;
+    return [
+      detail?.itemLocationHrid,
+      detail?.equipmentSlotHrid,
+      detail?.slotHrid,
+      equipment?.itemLocationHrid,
+      equipment?.equipmentSlotHrid,
+      equipment?.slotHrid,
+      equipment?.equipmentTypeHrid,
+      equipment?.typeHrid,
+      equipment?.type
+    ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+  }
+  function isRefinedBackUpgrade(detail) {
+    if (!normalizeItemHrid(detail?.upgradeItemHrid)) return false;
+    return (runtime.api.getExpectedOutputs?.(detail) ?? []).some((output) => {
+      const outputHrid = normalizeItemHrid(output?.itemHrid);
+      return outputHrid.endsWith("_refined") && isBackEquipmentForProcurement(outputHrid);
+    });
+  }
   function materialRequirement(input, actionHrid, actionCount, options = {}) {
     const itemHrid = normalizeItemHrid(input.itemHrid);
     const enhancementLevel = normalizeEnhancementLevel(input.enhancementLevel);
@@ -20733,7 +20755,7 @@
         0,
         calculated.suggested - effectiveOwned - cartQuantity
       ),
-      purchasable: !isCoin(itemHrid)
+      purchasable: options.purchasable !== false && !isCoin(itemHrid)
     };
   }
   function calculateRequirements(actionHrid, count, options = {}) {
@@ -20747,10 +20769,12 @@
       ...options,
       excludeActionHrids: options.excludeActionHrids ?? /* @__PURE__ */ new Set([actionHrid])
     };
+    const excludedUpgradeHrid = isRefinedBackUpgrade(detail) ? normalizeItemHrid(detail.upgradeItemHrid) : "";
     const materials = inputs.map(
       (input) => materialRequirement(input, actionHrid, actionCount, {
         ...calculationOptions,
-        isUpgradeItem: normalizeItemHrid(input.itemHrid) === normalizeItemHrid(detail.upgradeItemHrid)
+        isUpgradeItem: normalizeItemHrid(input.itemHrid) === normalizeItemHrid(detail.upgradeItemHrid),
+        purchasable: normalizeItemHrid(input.itemHrid) !== excludedUpgradeHrid
       })
     );
     return {
@@ -20857,16 +20881,18 @@
         const upgradeMaterial = projection.materials.find(
           (material) => material.itemHrid === upgradeHrid
         );
-        if (producer) {
-          visit(
-            producer.actionHrid,
-            Math.ceil(
-              Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
-            ),
-            depth + 1
-          );
-        } else {
-          if (upgradeMaterial) mergeMaterial(leaves, upgradeMaterial);
+        if (upgradeMaterial?.purchasable !== false) {
+          if (producer) {
+            visit(
+              producer.actionHrid,
+              Math.ceil(
+                Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
+              ),
+              depth + 1
+            );
+          } else if (upgradeMaterial) {
+            mergeMaterial(leaves, upgradeMaterial);
+          }
         }
       }
       visited.delete(currentHrid);
@@ -32648,6 +32674,26 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
     renderProductionPanel();
   }
+  function getMinimumCountForDuration(actionHrid, targetSeconds, cycleSeconds) {
+    if (!Number.isFinite(targetSeconds) || targetSeconds <= 0 || !Number.isFinite(cycleSeconds) || cycleSeconds <= 0) {
+      return 0;
+    }
+    const efficiencyPercent = Number(
+      runtime.api.getTotalEffiPercentage?.(actionHrid)
+    );
+    const rawMultiplier = 1 + efficiencyPercent / 100;
+    const efficiencyMultiplier = Number.isFinite(rawMultiplier) && rawMultiplier > 0 ? rawMultiplier : 1;
+    const targetCycles = Math.max(1, Math.ceil(targetSeconds / cycleSeconds));
+    let count = Math.max(
+      1,
+      Math.ceil((targetCycles - 0.5) * efficiencyMultiplier)
+    );
+    while (Math.round(count / efficiencyMultiplier) < targetCycles) count += 1;
+    while (count > 1 && Math.round((count - 1) / efficiencyMultiplier) >= targetCycles) {
+      count -= 1;
+    }
+    return count;
+  }
   function createProductionQuickRow({
     panel,
     input,
@@ -32709,7 +32755,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         values: QUICK_HOURS,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
-          return Number.isFinite(liveDuration) && liveDuration > 0 ? Math.max(1, Math.round(hoursValue * 3600 / liveDuration)) : 0;
+          return getMinimumCountForDuration(
+            actionHrid,
+            hoursValue * 3600,
+            liveDuration
+          );
         }
       });
       const counts = createProductionQuickRow({
@@ -32726,11 +32776,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       );
       (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
     }
+    const efficiencyPercent = Number(
+      runtime.api.getTotalEffiPercentage?.(actionHrid)
+    );
+    const normalizedEfficiency = Number.isFinite(efficiencyPercent) && efficiencyPercent > -100 ? efficiencyPercent : 0;
     host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
       button.disabled = !Number.isFinite(duration) || duration <= 0;
       button.title = button.disabled ? t6("无法读取当前单次耗时", "Current action duration unavailable") : t6(
-        `按当前 ${duration}s/次换算`,
-        `Based on the current ${duration}s per action`
+        `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
+        `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`
       );
     });
     return host;
@@ -38299,7 +38353,8 @@ ${locks}` : ""}`;
           "修复全服技能与公会排行榜可能被经验速率排序或当前角色置顶改变顺序；经验速率继续作为只读信息显示。",
           "资产中心的分项图表改为显示各日期的实际资产持有值，图例可点击隐藏或恢复曲线，并在实时资产刷新后保持隐藏状态；悬浮数值使用 K/M/B/T 单位。",
           "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
-          "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。"
+          "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。",
+          "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38321,7 +38376,8 @@ ${locks}` : ""}`;
           "Fixed standard skill and guild leaderboard order being changed by XP-rate sorting or current-character pinning; XP rates remain available as read-only information.",
           "Asset component charts now show actual holdings for each date, legends can hide and restore lines while preserving visibility through live asset refreshes, and hover values use K/M/B/T units.",
           "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
-          "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance."
+          "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance.",
+          "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration."
         ])
       })
     })

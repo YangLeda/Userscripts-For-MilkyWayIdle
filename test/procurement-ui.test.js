@@ -841,7 +841,7 @@ test("upgrade chains can start from the direct predecessor without expanding it"
   panel.remove();
 });
 
-test("single-stage refined back recipes add their base item and refinement material", () => {
+test("single-stage refined back recipes procure only refinement materials", () => {
   const panel = document.createElement("div");
   panel.className = "SkillActionDetail_regularComponent__refined-back";
   panel.innerHTML = `
@@ -855,7 +855,10 @@ test("single-stage refined back recipes add their base item and refinement mater
   runtime.api.procurement.setSetting("safetyLevel", "off");
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/gatherer_cape": { name: "Gatherer Cape" },
-    "/items/gatherer_cape_refined": { name: "Gatherer Cape ★" },
+    "/items/gatherer_cape_refined": {
+      name: "Gatherer Cape ★",
+      equipmentDetail: { type: "/equipment_types/back" },
+    },
     "/items/labyrinth_refinement_shard": {
       name: "Labyrinth Refinement Shard",
     },
@@ -874,6 +877,9 @@ test("single-stage refined back recipes add their base item and refinement mater
   runtime.api.procurement.loadCharacterData("ui-character");
   runtime.api.resolveProductionAction = () =>
     "/actions/tailoring/gatherer_cape_refined";
+  const previousPlanIds = new Set(
+    runtime.api.procurement.getPlans().map((plan) => plan.id),
+  );
 
   runtime.api.renderProductionProcurement();
   const root = panel.querySelector("#mwitools-procurement-production");
@@ -884,17 +890,34 @@ test("single-stage refined back recipes add their base item and refinement mater
   );
   root.querySelector(".mwi-procurement-inline-button").click();
   assert.equal(
-    runtime.api.procurement.getCartItem("/items/gatherer_cape")?.quantity,
-    1,
+    runtime.api.procurement.getCartItem("/items/gatherer_cape"),
+    null,
   );
   assert.equal(
     runtime.api.procurement.getCartItem("/items/labyrinth_refinement_shard")
       ?.quantity,
     89,
   );
+  const createdPlan = runtime.api.procurement
+    .getPlans()
+    .find((plan) => !previousPlanIds.has(plan.id));
+  assert.ok(createdPlan);
+  assert.equal(
+    Object.keys(createdPlan.materials).some((key) =>
+      key.startsWith("/items/gatherer_cape#"),
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(createdPlan.materials).some((key) =>
+      key.startsWith("/items/labyrinth_refinement_shard#"),
+    ),
+    true,
+  );
 
   runtime.api.resolveProductionAction = previousResolver;
   runtime.api.procurement.setSetting("safetyLevel", previousSafety);
+  runtime.api.procurement.removePlan(createdPlan.id);
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.renderProductionProcurement();
   panel.remove();

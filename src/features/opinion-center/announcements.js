@@ -32,6 +32,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "资产中心的分项图表改为显示各日期的实际资产持有值，图例可点击隐藏或恢复曲线，并在实时资产刷新后保持隐藏状态；悬浮数值使用 K/M/B/T 单位。",
         "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
         "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。",
+        "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
       ]),
       en: Object.freeze([
         "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -54,6 +55,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Asset component charts now show actual holdings for each date, legends can hide and restore lines while preserving visibility through live asset refreshes, and hover values use K/M/B/T units.",
         "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
         "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance.",
+        "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
       ]),
     }),
   }),

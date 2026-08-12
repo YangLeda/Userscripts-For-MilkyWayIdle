@@ -493,6 +493,36 @@ function applyProductionQuickCount(input, count) {
   renderProductionPanel();
 }
 
+function getMinimumCountForDuration(actionHrid, targetSeconds, cycleSeconds) {
+  if (
+    !Number.isFinite(targetSeconds) ||
+    targetSeconds <= 0 ||
+    !Number.isFinite(cycleSeconds) ||
+    cycleSeconds <= 0
+  ) {
+    return 0;
+  }
+  const efficiencyPercent = Number(
+    runtime.api.getTotalEffiPercentage?.(actionHrid),
+  );
+  const rawMultiplier = 1 + efficiencyPercent / 100;
+  const efficiencyMultiplier =
+    Number.isFinite(rawMultiplier) && rawMultiplier > 0 ? rawMultiplier : 1;
+  const targetCycles = Math.max(1, Math.ceil(targetSeconds / cycleSeconds));
+  let count = Math.max(
+    1,
+    Math.ceil((targetCycles - 0.5) * efficiencyMultiplier),
+  );
+  while (Math.round(count / efficiencyMultiplier) < targetCycles) count += 1;
+  while (
+    count > 1 &&
+    Math.round((count - 1) / efficiencyMultiplier) >= targetCycles
+  ) {
+    count -= 1;
+  }
+  return count;
+}
+
 function createProductionQuickRow({
   panel,
   input,
@@ -557,9 +587,11 @@ function renderProductionQuickInputs() {
       values: QUICK_HOURS,
       resolveCount: (hoursValue) => {
         const liveDuration = getProductionPanelDuration(panel);
-        return Number.isFinite(liveDuration) && liveDuration > 0
-          ? Math.max(1, Math.round((hoursValue * 3_600) / liveDuration))
-          : 0;
+        return getMinimumCountForDuration(
+          actionHrid,
+          hoursValue * 3_600,
+          liveDuration,
+        );
       },
     });
     const counts = createProductionQuickRow({
@@ -576,13 +608,20 @@ function renderProductionQuickInputs() {
     );
     (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
   }
+  const efficiencyPercent = Number(
+    runtime.api.getTotalEffiPercentage?.(actionHrid),
+  );
+  const normalizedEfficiency =
+    Number.isFinite(efficiencyPercent) && efficiencyPercent > -100
+      ? efficiencyPercent
+      : 0;
   host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
     button.disabled = !Number.isFinite(duration) || duration <= 0;
     button.title = button.disabled
       ? t("无法读取当前单次耗时", "Current action duration unavailable")
       : t(
-          `按当前 ${duration}s/次换算`,
-          `Based on the current ${duration}s per action`,
+          `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
+          `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`,
         );
   });
   return host;
