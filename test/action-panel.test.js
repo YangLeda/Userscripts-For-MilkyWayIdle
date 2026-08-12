@@ -84,6 +84,12 @@ test("production details add target-level and working quick-input controls", asy
     document.querySelectorAll("#quickInputCountButtons button").length,
     6,
   );
+  const quickInputs = document.querySelector(".mwi-production-quick-inputs");
+  const actionContainer = document.querySelector(
+    'div[class*="SkillActionDetail_actionContainer"]',
+  );
+  assert.equal(quickInputs.parentElement, panel);
+  assert.equal(quickInputs.previousElementSibling, actionContainer);
 
   const levelInput = document.querySelector("#tillLevelInput");
   assert.ok(levelInput.classList.contains("Input_input__native"));

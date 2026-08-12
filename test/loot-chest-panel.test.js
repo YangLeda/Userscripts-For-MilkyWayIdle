@@ -45,6 +45,12 @@ const ITEM = {
   outer: "/items/outer_chest",
   loop: "/items/loop_chest",
   gift: "/items/self_gift",
+  treasure: "/items/large_treasure_chest",
+  treasureOuter: "/items/treasure_outer_chest",
+  cowbell: "/items/cowbell",
+  cowbellBag: "/items/bag_of_10_cowbells",
+  sealChest: "/items/purdoras_test_box",
+  seal: "/items/seal_of_test_buff",
   coin: "/items/coin",
 };
 
@@ -55,6 +61,9 @@ runtime.state.initData_itemDetailMap = Object.fromEntries(
   ]),
 );
 runtime.state.initData_itemDetailMap[ITEM.chest].openKeyItemHrid = ITEM.key;
+runtime.state.initData_itemDetailMap[ITEM.seal].scrollDetail = {
+  personalBuffTypeHrid: "/personal_buff_types/test",
+};
 runtime.state.initData_openableLootDropMap = {
   [ITEM.chest]: [
     { itemHrid: ITEM.chimera, dropRate: 1, count: 10 },
@@ -75,6 +84,21 @@ runtime.state.initData_openableLootDropMap = {
   [ITEM.gift]: [
     { itemHrid: ITEM.gift, dropRate: 0.2, count: 1 },
     { itemHrid: ITEM.coin, dropRate: 1, count: 10 },
+  ],
+  [ITEM.treasure]: [
+    { itemHrid: ITEM.coin, dropRate: 1, count: 100 },
+    { itemHrid: ITEM.cowbell, dropRate: 1, count: 10 },
+  ],
+  [ITEM.treasureOuter]: [
+    {
+      itemHrid: ITEM.treasure,
+      dropRate: 0.3,
+      minCount: 1,
+      maxCount: 5,
+    },
+  ],
+  [ITEM.sealChest]: [
+    { itemHrid: ITEM.seal, dropRate: 0.5, minCount: 1, maxCount: 3 },
   ],
 };
 runtime.state.initData_actionDetailMap = {
@@ -121,6 +145,7 @@ const askPrices = new Map([
   [ITEM.shared, 900],
   [ITEM.outside, 20_000],
   [ITEM.inner, 1],
+  [ITEM.cowbellBag, 1_000],
 ]);
 const bidPrices = new Map([
   [ITEM.key, 240],
@@ -130,6 +155,7 @@ const bidPrices = new Map([
   [ITEM.shared, 600],
   [ITEM.outside, 10_000],
   [ITEM.inner, 1],
+  [ITEM.cowbellBag, 1_000],
 ]);
 runtime.api.getAskPrice = (itemHrid) => askPrices.get(itemHrid) ?? 0;
 runtime.api.getBidPrice = (itemHrid) => bidPrices.get(itemHrid) ?? 0;
@@ -137,6 +163,10 @@ runtime.api.getMarketTaxRate = (itemHrid) =>
   [ITEM.rich, ITEM.cheap, ITEM.shared, ITEM.outside].includes(itemHrid)
     ? 0.1
     : 0;
+runtime.api.getNetSellPrice = (itemHrid) =>
+  (bidPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
+runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  (askPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
 
 function setLootSettings({ sellAtAsk, buyAtAsk, fromFragments }) {
   runtime.settings.settingsMap.lootSellAtAsk.isTrue = Boolean(sellAtAsk);
@@ -258,6 +288,46 @@ test("nested chests recurse while self-references terminate", () => {
   const repeatedGift = gift.drops.find((drop) => drop.itemHrid === ITEM.gift);
   assert.equal(repeatedGift.nested, true);
   assert.equal(repeatedGift.unitValue, 12.5);
+});
+
+test("nested treasure chests include derived values for every inner loot item", () => {
+  setLootSettings({
+    sellAtAsk: true,
+    buyAtAsk: true,
+    fromFragments: false,
+  });
+  runtime.api.invalidateAssetValueCache();
+
+  const treasure = runtime.api.projectLootChest(ITEM.treasure);
+  const cowbell = treasure.drops.find((drop) => drop.itemHrid === ITEM.cowbell);
+  assert.equal(cowbell.valueSource, "derived");
+  assert.equal(cowbell.unitValue, 100);
+  assert.equal(cowbell.value, 1_000);
+  assert.equal(treasure.netValue, 1_100);
+  assert.equal(treasure.complete, true);
+
+  const outer = runtime.api.projectLootChest(ITEM.treasureOuter);
+  const nestedTreasure = outer.drops[0];
+  assert.ok(Math.abs(nestedTreasure.expectedCount - 0.9) < 1e-10);
+  assert.equal(nestedTreasure.priced, true);
+  assert.equal(nestedTreasure.nested, true);
+  assert.equal(nestedTreasure.unitValue, 1_100);
+  assert.ok(Math.abs(nestedTreasure.value - 990) < 1e-10);
+  assert.equal(outer.complete, true);
+});
+
+test("personal buff seals are retained as zero-value priced drops", () => {
+  const box = runtime.api.projectLootChest(ITEM.sealChest);
+  const seal = box.drops[0];
+
+  assert.equal(seal.expectedCount, 1);
+  assert.equal(seal.unitValue, 0);
+  assert.equal(seal.value, 0);
+  assert.equal(seal.valueSource, "zero");
+  assert.equal(seal.priced, true);
+  assert.equal(box.netValue, 0);
+  assert.equal(box.complete, true);
+  assert.deepEqual(box.missing, []);
 });
 
 test("hover is read-only and pinned panels expose synchronized switches", async () => {

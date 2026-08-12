@@ -461,6 +461,7 @@ function projectLootChestInternal(itemHrid, config, visited) {
       config.sellAtAsk,
     );
     const tokenRedemption = bestRedemptions.get(drop.itemHrid) ?? null;
+    const liquidationMode = config.sellAtAsk ? "aggressive" : "conservative";
     let unitValue = 0;
     let valueSource = "missing";
     let nested = false;
@@ -492,6 +493,30 @@ function projectLootChestInternal(itemHrid, config, visited) {
       unitValue = tokenRedemption.valuePerToken;
       valueSource = "redemption";
       priced = true;
+    }
+    if (!priced && !pendingSelfReference && !nestedChest) {
+      const derivedLiquidation = getAssetLiquidationValueInternal(
+        drop.itemHrid,
+        drop.enhancementLevel,
+        liquidationMode,
+        new Set(),
+      );
+      if (derivedLiquidation.value > 0) {
+        unitValue = derivedLiquidation.value;
+        valueSource = "derived";
+        priced = true;
+        nestedMissing = derivedLiquidation.missingItemHrids;
+      }
+    }
+    if (
+      !priced &&
+      !pendingSelfReference &&
+      isPersonalBuffScroll(drop.itemHrid)
+    ) {
+      unitValue = 0;
+      valueSource = "zero";
+      priced = true;
+      nestedMissing = [];
     }
     const value = drop.expectedCount * unitValue;
     grossValue += value;

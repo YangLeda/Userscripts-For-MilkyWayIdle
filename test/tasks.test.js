@@ -140,6 +140,10 @@ test("tasks use collapsible profession groups, pin completed cards, and nest com
     styles,
     /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*left:68%[^}]*width:24%[^}]*height:88%/,
   );
+  assert.match(
+    styles,
+    /\.mwi-task-merge-toast[^}]*position:fixed[^}]*z-index:2147483200/,
+  );
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
   assert.match(
     styles,
@@ -465,7 +469,7 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       ${card("击败 - 水马", "0 / 10")}
       ${card("击败 - 苍蝇", "0 / 10")}
       ${card("击败 - 奇幻洞穴", "0 / 1")}
-      ${card("击败 - 忍者龟", "0 / 10")}
+      ${card("击败 - 霜冻狙击手", "0 / 10")}
     </div>`,
   );
   runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"] = {
@@ -511,9 +515,9 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
       fightInfo: { monsters: ["/monsters/fly"] },
     },
   };
-  runtime.state.initData_actionDetailMap["/actions/combat/turtle"] = {
-    hrid: "/actions/combat/turtle",
-    name: "Turtle",
+  runtime.state.initData_actionDetailMap["/actions/combat/frost_sniper"] = {
+    hrid: "/actions/combat/frost_sniper",
+    name: "Frost Sniper",
     type: "/action_types/combat",
     category: "/action_categories/combat/aqua_planet",
     combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
@@ -536,9 +540,9 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
     { id: "fly-2", actionHrid: "/actions/combat/fly" },
     { id: "den", actionHrid: "/actions/combat/chimerical_den" },
     {
-      id: "turtle",
-      actionHrid: "/actions/combat/turtle",
-      monsterHrid: "/monsters/turtle",
+      id: "frost-sniper",
+      actionHrid: "/actions/combat/frost_sniper",
+      monsterHrid: "/monsters/frost_sniper",
     },
   ];
   runtime.settings.settingsMap.taskNewBadge.isTrue = false;
@@ -680,6 +684,112 @@ test("dungeon mode mirrors multi-dungeon monsters and forwards actions", () => {
   );
   runtime.settings.settingsMap.taskNewBadge.isTrue = true;
   runtime.settings.settingsMap.taskIcons.isTrue = false;
+});
+
+test("known dungeon roster recognizes Eye when live dungeon fight info is empty", () => {
+  runtime.state.initData_actionDetailMap["/actions/combat/eye"] = {
+    hrid: "/actions/combat/eye",
+    name: "Eye",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/planet_of_the_eyes",
+    combatZoneInfo: {
+      isDungeon: false,
+      fightInfo: {
+        randomSpawnInfo: {
+          maxSpawnCount: 1,
+          maxTotalStrength: 1,
+          spawns: [
+            {
+              combatMonsterHrid: "/monsters/eye",
+              difficultyTier: 0,
+              rate: 1,
+              strength: 1,
+            },
+          ],
+        },
+        bossSpawns: null,
+        battlesPerBoss: 0,
+      },
+    },
+  };
+  for (const [actionHrid, name, sortIndex] of [
+    ["/actions/combat/chimerical_den", "Chimerical Den", 56],
+    ["/actions/combat/sinister_circus", "Sinister Circus", 57],
+    ["/actions/combat/enchanted_fortress", "Enchanted Fortress", 58],
+    ["/actions/combat/pirate_cove", "Pirate Cove", 59],
+  ]) {
+    runtime.state.initData_actionDetailMap[actionHrid] = {
+      hrid: actionHrid,
+      name,
+      type: "/action_types/combat",
+      category: "/action_categories/combat/dungeons",
+      sortIndex,
+      combatZoneInfo: {
+        isDungeon: true,
+        fightInfo: {
+          randomSpawnInfo: {
+            maxSpawnCount: 0,
+            maxTotalStrength: 0,
+            spawns: null,
+          },
+          bossSpawns: null,
+          battlesPerBoss: 0,
+        },
+      },
+    };
+  }
+
+  const probe = document.createElement("div");
+  probe.innerHTML = card("击败 - 独眼", "0 / 10");
+  const task = { actionHrid: "/actions/combat/eye" };
+
+  assert.deepEqual(
+    dungeonLocationsForCard(probe.firstElementChild, task).map(
+      (location) => location.actionHrid,
+    ),
+    ["/actions/combat/chimerical_den", "/actions/combat/pirate_cove"],
+  );
+  assert.deepEqual(taskArtworkForCard(probe.firstElementChild, task), {
+    kind: "combat_monsters",
+    hrid: "/monsters/eye",
+  });
+});
+
+test("merged task counts appear in a transient toast outside the action panel", () => {
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__merge";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__merge">木板</div>
+    <div class="SkillActionDetail_actionContainer__merge">
+      <div class="SkillActionDetail_maxActionCountInput__merge">
+        <div><input value="1"></div>
+      </div>
+    </div>
+  `;
+  document.body.append(panel);
+  const previousResolver = runtime.api.getActionHridFromItemName;
+  const previousExactFormatter = runtime.api.formatExactNumber;
+  runtime.api.getActionHridFromItemName = () => "/actions/crafting/lumber";
+  runtime.api.formatExactNumber = (value) => String(value);
+  runtime.state.pendingMergedTask = {
+    actionHrid: "/actions/crafting/lumber",
+    taskCount: 2,
+    count: 724,
+  };
+
+  runtime.api.renderTasks();
+
+  const toast = document.querySelector(".mwi-task-merge-toast");
+  assert.ok(toast);
+  assert.match(toast.textContent, /已合并 2 个同动作任务，共 724 次/);
+  assert.equal(panel.querySelector(".mwi-task-merge-toast"), null);
+  assert.equal(panel.querySelector(".mwi-task-merged-note"), null);
+  assert.equal(runtime.state.pendingMergedTask, null);
+
+  toast.remove();
+  panel.remove();
+  runtime.api.getActionHridFromItemName = previousResolver;
+  runtime.api.formatExactNumber = previousExactFormatter;
 });
 
 test("combat monster grouping stays stable through reset and refreshes on re-entry", () => {

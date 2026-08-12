@@ -61,19 +61,52 @@ function outputItemName(itemHrid) {
   return itemName(itemHrid, { fallback: "?" });
 }
 
-function createProductionOutput(output) {
-  const item = document.createElement("span");
-  item.className = "mwi-production-output-item";
-  const name = outputItemName(output.itemHrid);
-  const normalizedCount = Number.isFinite(Number(output.expectedCount))
-    ? Math.round(Number(output.expectedCount) * 1e9) / 1e9
-    : output.expectedCount;
-  const exactCount =
-    runtime.api.formatExactNumber?.(normalizedCount) ?? String(normalizedCount);
-  item.title = `${name} ×${exactCount}`;
-  item.setAttribute("aria-label", item.title);
+function nativeProductionItem(panel, itemHrid, name) {
+  const bare = String(itemHrid ?? "")
+    .split("/")
+    .at(-1);
+  const candidates = [
+    ...(panel?.querySelectorAll(
+      ':scope div[class*="SkillActionDetail_dropTable"] div[class*="Item_item"]',
+    ) ?? []),
+  ].filter((candidate) =>
+    [...candidate.classList].some((className) =>
+      className.startsWith("Item_item__"),
+    ),
+  );
+  const prototype =
+    candidates.find((candidate) => {
+      const href =
+        candidate.querySelector("use")?.getAttribute("href") ??
+        candidate.querySelector("use")?.getAttribute("xlink:href") ??
+        "";
+      return bare && href.endsWith(`#${bare}`);
+    }) ?? candidates[0];
+  if (!prototype) return null;
 
-  const bare = String(output.itemHrid ?? "")
+  const item = prototype.cloneNode(true);
+  item.classList.add("mwi-production-native-item");
+  for (const className of [...item.classList]) {
+    if (className.includes("Item_clickable")) item.classList.remove(className);
+  }
+  const sprite = findItemsSpriteBase();
+  const use = item.querySelector("use");
+  if (use && sprite && bare) {
+    const href = `${sprite}#${bare}`;
+    use.setAttribute("href", href);
+    use.setAttribute("xlink:href", href);
+  }
+  const svg = item.querySelector("svg");
+  svg?.setAttribute("aria-label", name);
+  const itemName = item.querySelector('[class*="Item_name"]');
+  if (itemName) itemName.textContent = name;
+  return item;
+}
+
+function fallbackProductionItem(itemHrid, name) {
+  const item = document.createElement("span");
+  item.className = "mwi-production-native-fallback";
+  const bare = String(itemHrid ?? "")
     .split("/")
     .at(-1);
   const sprite = findItemsSpriteBase();
@@ -81,7 +114,7 @@ function createProductionOutput(output) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("mwi-production-output-icon");
     svg.setAttribute("viewBox", "0 0 32 32");
-    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("aria-label", name);
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
     const href = `${sprite}#${bare}`;
     use.setAttribute("href", href);
@@ -95,6 +128,28 @@ function createProductionOutput(output) {
     fallback.textContent = "?";
     item.append(fallback);
   }
+  const label = document.createElement("span");
+  label.className = "mwi-production-output-name";
+  label.textContent = name;
+  item.append(label);
+  return item;
+}
+
+function createProductionOutput(output, panel) {
+  const item = document.createElement("span");
+  item.className = "mwi-production-output-item";
+  const name = outputItemName(output.itemHrid);
+  const normalizedCount = Number.isFinite(Number(output.expectedCount))
+    ? Math.round(Number(output.expectedCount) * 1e9) / 1e9
+    : output.expectedCount;
+  const exactCount =
+    runtime.api.formatExactNumber?.(normalizedCount) ?? String(normalizedCount);
+  item.title = `${name} ×${exactCount}`;
+  item.setAttribute("aria-label", item.title);
+  item.append(
+    nativeProductionItem(panel, output.itemHrid, name) ??
+      fallbackProductionItem(output.itemHrid, name),
+  );
 
   const count = document.createElement("span");
   count.className = "mwi-production-output-count";
@@ -115,24 +170,29 @@ function addStyles() {
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
-    .mwi-production-metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
-    .mwi-production-metric { min-width:0; padding:4px 3px; border-radius:3px; background:rgba(0,0,0,.14); text-align:center; }
+    .mwi-production-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:4px; }
+    .mwi-production-metric { min-width:0; overflow:hidden; padding:4px 3px; border-radius:3px; background:rgba(0,0,0,.14); text-align:center; }
     .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:.6rem; line-height:1.2; }
     .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
-    .mwi-production-output-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:3px 5px; width:100%; }
+    .mwi-production-output-metric { grid-column:1/-1; }
+    .mwi-production-output-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr)); gap:4px 8px; width:100%; }
     .mwi-production-output-grid[data-count="1"] .mwi-production-output-item { grid-column:1/-1; }
-    .mwi-production-output-item { display:flex; min-width:0; align-items:center; justify-content:center; gap:3px; }
-    .mwi-production-output-icon,.mwi-production-output-fallback { display:grid; width:28px; height:28px; flex:0 0 28px; place-items:center; }
+    .mwi-production-output-item { display:flex; min-width:0; align-items:center; justify-content:center; gap:4px; overflow:hidden; }
+    .mwi-production-native-item,.mwi-production-native-fallback { display:inline-flex!important; min-width:0; align-items:center; gap:4px; overflow:hidden; pointer-events:none; }
+    .mwi-production-native-fallback { padding:1px 6px; border:1px solid rgb(152,167,233); border-radius:4px; background:rgb(44,46,69); color:rgb(231,231,231); }
+    .mwi-production-native-item [class*="Item_iconContainer"] { width:14px!important; height:14px!important; flex:0 0 14px!important; }
+    .mwi-production-native-item [class*="Item_name"],.mwi-production-output-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-production-output-icon,.mwi-production-output-fallback { display:grid; width:14px; height:14px; flex:0 0 14px; place-items:center; }
     .mwi-production-output-fallback { border-radius:4px; background:rgba(255,255,255,.08); color:var(--color-text-secondary,#aaa); font-size:.72rem; }
-    .mwi-production-output-count { min-width:0; font-size:.78rem; font-weight:700; line-height:1; white-space:nowrap; }
+    .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:.72rem; font-weight:700; line-height:1; white-space:nowrap; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
-    .mwi-production-quick-inputs { display:grid; gap:3px; width:100%; min-width:0; margin:3px 0 1px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
-    .mwi-production-quick-row { display:flex; min-width:0; align-items:center; gap:3px; }
+    .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-production-quick-row { display:flex; min-width:0; align-items:flex-start; gap:3px; }
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-production-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-action-line{gap:2px 8px}}
+    @media(max-width:520px){.mwi-action-line{gap:2px 8px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -511,7 +571,10 @@ function renderProductionQuickInputs() {
       resolveCount: (count) => count,
     });
     host.append(hours, counts);
-    countGroup.insertAdjacentElement("afterend", host);
+    const actionContainer = countGroup.closest(
+      'div[class*="SkillActionDetail_actionContainer"]',
+    );
+    (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
   }
   host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
     button.disabled = !Number.isFinite(duration) || duration <= 0;
@@ -694,7 +757,7 @@ function renderProductionPanel() {
   outputs.className = "mwi-production-output-grid";
   outputs.dataset.count = String(projection.outputs?.length ?? 0);
   projection.outputs?.forEach((output) =>
-    outputs.append(createProductionOutput(output)),
+    outputs.append(createProductionOutput(output, panel)),
   );
   const outputMetric = metric(
     projection.effectivelyInfinite

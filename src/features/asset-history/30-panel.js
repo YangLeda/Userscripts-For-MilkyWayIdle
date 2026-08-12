@@ -230,7 +230,7 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
-    [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,#334b84)!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,#eef2ff)!important; filter:none!important; }
+    [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,rgba(255,255,255,.08))!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,var(--color-text-secondary,#aeb5c0))!important; filter:none!important; }
     #${PANEL_ID} { box-sizing:border-box; width:100%; max-width:100%; min-width:0; max-height:calc(100% - 34px); overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:12px 12px 24px; color:var(--color-text-primary,#eee); background:#111b2b; }
     .mwi-asset-disclaimer { margin:0 0 10px; color:var(--color-text-secondary,#aaa); font-size:.72rem; line-height:1.4; }
     .mwi-asset-share { display:flex; align-items:center; gap:8px; margin:-2px 0 10px; }
@@ -772,6 +772,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   let shell = null;
   let navigationBranch = null;
   const hiddenNodes = new Map();
+  let lastActiveNativeTab = null;
 
   const restoreNative = () => {
     for (const [node, state] of hiddenNodes) {
@@ -783,26 +784,39 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   };
 
   const captureIdleTabStyle = () => {
-    if (!tab || !navigationBranch || typeof getComputedStyle !== "function") {
-      return;
+    if (!navigationBranch || typeof getComputedStyle !== "function") return;
+    const unselectedTab =
+      navigationBranch.querySelector(
+        `button:not(#${TAB_ID}):not([aria-selected="true"]):not(.Mui-selected)`,
+      ) ?? navigationBranch.querySelector(`button:not(#${TAB_ID})`);
+    if (!unselectedTab) return;
+    const style = getComputedStyle(unselectedTab);
+    const background = style.background || style.backgroundColor;
+    if (
+      background &&
+      background !== "transparent" &&
+      background !== "rgba(0, 0, 0, 0)"
+    ) {
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-background",
+        background,
+      );
     }
-    const style = getComputedStyle(tab);
-    navigationBranch.style.setProperty(
-      "--mwi-asset-idle-background",
-      style.background || style.backgroundColor || "#334b84",
-    );
-    navigationBranch.style.setProperty(
-      "--mwi-asset-idle-border",
-      style.borderColor || "rgba(255,255,255,.16)",
-    );
-    navigationBranch.style.setProperty(
-      "--mwi-asset-idle-color",
-      style.color || "#eef2ff",
-    );
-    navigationBranch.style.setProperty(
-      "--mwi-asset-idle-shadow",
-      style.boxShadow || "none",
-    );
+    if (style.borderColor && style.borderColor !== "transparent") {
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-border",
+        style.borderColor,
+      );
+    }
+    if (style.color) {
+      navigationBranch.style.setProperty("--mwi-asset-idle-color", style.color);
+    }
+    if (style.boxShadow && style.boxShadow !== "none") {
+      navigationBranch.style.setProperty(
+        "--mwi-asset-idle-shadow",
+        style.boxShadow,
+      );
+    }
   };
 
   const clearNativeTabOverride = () => {
@@ -840,6 +854,20 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     if (tab) {
       tab.dataset.active = String(active);
       tab.setAttribute("aria-selected", String(active));
+      tab.classList.toggle("Mui-selected", active);
+      if (tab.hasAttribute("data-selected")) {
+        tab.dataset.selected = String(active);
+      }
+      if (tab.hasAttribute("data-state")) {
+        tab.dataset.state = active ? "active" : "inactive";
+      }
+      if (!active) tab.blur();
+    }
+    if (navigationBranch && active) {
+      const currentSelected = navigationBranch.querySelector(
+        `button[aria-selected="true"]:not(#${TAB_ID}), button.Mui-selected:not(#${TAB_ID}), [role="tab"][aria-selected="true"]:not(#${TAB_ID})`,
+      );
+      if (currentSelected) lastActiveNativeTab = currentSelected;
     }
     if (host) host.hidden = !active;
     if (!active) {
@@ -880,6 +908,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     host = null;
     shell = null;
     navigationBranch = null;
+    lastActiveNativeTab = null;
   };
 
   const mountNative = (loadout, found) => {
@@ -909,7 +938,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     tab.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      setActive(true);
+      setActive(!active);
     });
     loadout.insertAdjacentElement("afterend", tab);
     host = document.createElement("section");
@@ -925,6 +954,16 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     const found = loadout && findPanelShell(loadout);
     if (loadout && found) {
       if (mountMode === "native" && tab?.isConnected && host?.isConnected) {
+        const otherSelected = navigationBranch?.querySelector(
+          `button[aria-selected="true"]:not(#${TAB_ID}), button.Mui-selected:not(#${TAB_ID}), [role="tab"][aria-selected="true"]:not(#${TAB_ID})`,
+        );
+        if (
+          (otherSelected && otherSelected !== lastActiveNativeTab) ||
+          tab.getAttribute("aria-selected") !== "true"
+        ) {
+          if (active) setActive(false);
+          return;
+        }
         if (active) setActive(true);
         return;
       }
@@ -938,18 +977,18 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   addStyles();
   ensureMounted();
   scope.interval(ensureMounted, 500);
-  scope.event(
-    document,
-    "click",
-    (event) => {
-      if (!active || event.target.closest(`#${TAB_ID}`)) return;
-      const nativeButton = event.target.closest("button");
-      if (nativeButton && navigationBranch?.contains(nativeButton)) {
-        setActive(false);
-      }
-    },
-    true,
-  );
+  const handleTabBranchClick = (event) => {
+    if (
+      !active ||
+      event.target.closest(`#${TAB_ID}`) ||
+      event.target.closest(`#${PANEL_ID}`)
+    ) {
+      return;
+    }
+    if (navigationBranch?.contains(event.target)) setActive(false);
+  };
+  scope.event(document, "pointerdown", handleTabBranchClick, true);
+  scope.event(document, "click", handleTabBranchClick, true);
   scope.event(document, "keydown", (event) => {
     if (active && isCompactViewport() && event.key === "Escape") {
       setActive(false);

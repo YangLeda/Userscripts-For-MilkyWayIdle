@@ -25,6 +25,125 @@ const taskSpriteBases = new Map();
 const collapsedProfessions = new Set();
 const collapsedDungeonGroups = new Set();
 
+// The live game currently exposes empty fightInfo for dungeon actions, so
+// dungeon membership cannot be derived from initData_actionDetailMap alone.
+// Keep the known monster HRIDs as a fallback while still accepting runtime
+// fightInfo below if the game starts publishing dungeon rosters again.
+const KNOWN_DUNGEON_ROSTERS = [
+  {
+    actionHrid: "/actions/combat/chimerical_den",
+    sortIndex: 56,
+    monsters: new Set([
+      "/monsters/alligator",
+      "/monsters/aquahorse",
+      "/monsters/butterjerry",
+      "/monsters/centaur_archer",
+      "/monsters/crab",
+      "/monsters/dodocamel",
+      "/monsters/eye",
+      "/monsters/eyes",
+      "/monsters/frog",
+      "/monsters/gobo_boomy",
+      "/monsters/gobo_shooty",
+      "/monsters/gobo_slashy",
+      "/monsters/gobo_smashy",
+      "/monsters/gobo_stabby",
+      "/monsters/griffin",
+      "/monsters/jackalope",
+      "/monsters/jungle_sprite",
+      "/monsters/manticore",
+      "/monsters/myconid",
+      "/monsters/nom_nom",
+      "/monsters/porcupine",
+      "/monsters/rat",
+      "/monsters/sea_snail",
+      "/monsters/skunk",
+      "/monsters/slimy",
+      "/monsters/snake",
+      "/monsters/swampy",
+      "/monsters/turtle",
+      "/monsters/veyes",
+    ]),
+  },
+  {
+    actionHrid: "/actions/combat/sinister_circus",
+    sortIndex: 57,
+    monsters: new Set([
+      "/monsters/acrobat",
+      "/monsters/black_bear",
+      "/monsters/deranged_jester",
+      "/monsters/elementalist",
+      "/monsters/flame_sorcerer",
+      "/monsters/gobo_boomy",
+      "/monsters/gobo_shooty",
+      "/monsters/gobo_slashy",
+      "/monsters/gobo_smashy",
+      "/monsters/gobo_stabby",
+      "/monsters/grizzly_bear",
+      "/monsters/gummy_bear",
+      "/monsters/ice_sorcerer",
+      "/monsters/juggler",
+      "/monsters/magician",
+      "/monsters/novice_sorcerer",
+      "/monsters/panda",
+      "/monsters/polar_bear",
+      "/monsters/rabid_rabbit",
+      "/monsters/vampire",
+      "/monsters/werewolf",
+      "/monsters/zombie",
+      "/monsters/zombie_bear",
+    ]),
+  },
+  {
+    actionHrid: "/actions/combat/enchanted_fortress",
+    sortIndex: 58,
+    monsters: new Set([
+      "/monsters/abyssal_imp",
+      "/monsters/black_bear",
+      "/monsters/elementalist",
+      "/monsters/enchanted_bishop",
+      "/monsters/enchanted_king",
+      "/monsters/enchanted_knight",
+      "/monsters/enchanted_pawn",
+      "/monsters/enchanted_queen",
+      "/monsters/enchanted_rook",
+      "/monsters/flame_sorcerer",
+      "/monsters/grizzly_bear",
+      "/monsters/ice_sorcerer",
+      "/monsters/magnetic_golem",
+      "/monsters/novice_sorcerer",
+      "/monsters/panda",
+      "/monsters/polar_bear",
+      "/monsters/soul_hunter",
+      "/monsters/stalactite_golem",
+    ]),
+  },
+  {
+    actionHrid: "/actions/combat/pirate_cove",
+    sortIndex: 59,
+    monsters: new Set([
+      "/monsters/abyssal_imp",
+      "/monsters/anchor_shark",
+      "/monsters/brine_marksman",
+      "/monsters/captain_fishhook",
+      "/monsters/eye",
+      "/monsters/eyes",
+      "/monsters/granite_golem",
+      "/monsters/infernal_warlock",
+      "/monsters/magnetic_golem",
+      "/monsters/soul_hunter",
+      "/monsters/squawker",
+      "/monsters/stalactite_golem",
+      "/monsters/the_kraken",
+      "/monsters/tidal_conjuror",
+      "/monsters/vampire",
+      "/monsters/veyes",
+      "/monsters/werewolf",
+      "/monsters/zombie",
+    ]),
+  },
+];
+
 const PROFESSIONS = [
   ["milking", "挤奶", "Milking"],
   ["foraging", "采摘", "Foraging"],
@@ -222,7 +341,8 @@ function addStyles() {
     .mwi-task-bg svg { width:100%; height:100%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
     [data-mwitools-task-mirror="true"] { position:relative; }
-    .mwi-task-merged-note { margin-top:7px; padding:7px 9px; border-radius:5px; background:rgba(70,170,100,.12); color:#9bd7aa; font-size:.72rem; }
+    .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
+    @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -690,14 +810,36 @@ export function dungeonLocationsForCard(card, task) {
   }
   const monsterHrid = monsterHridForCard(card, task);
   if (!monsterHrid) return [nonDungeonLocation()];
-  const matches = Object.values(runtime.state.initData_actionDetailMap ?? {})
-    .filter(
-      (detail) =>
-        detail?.combatZoneInfo?.isDungeon &&
-        JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
-          `"${monsterHrid}"`,
-        ),
-    )
+  const actionDetails = runtime.state.initData_actionDetailMap ?? {};
+  const matchingDungeonHrids = new Set(
+    Object.values(actionDetails)
+      .filter(
+        (detail) =>
+          detail?.combatZoneInfo?.isDungeon &&
+          JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
+            `"${monsterHrid}"`,
+          ),
+      )
+      .map((detail) => detail.hrid),
+  );
+  for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
+    if (dungeon.monsters.has(monsterHrid)) {
+      matchingDungeonHrids.add(dungeon.actionHrid);
+    }
+  }
+  const matches = [...matchingDungeonHrids]
+    .map((dungeonActionHrid) => {
+      const known = KNOWN_DUNGEON_ROSTERS.find(
+        (dungeon) => dungeon.actionHrid === dungeonActionHrid,
+      );
+      return (
+        actionDetails[dungeonActionHrid] ?? {
+          hrid: dungeonActionHrid,
+          sortIndex: known?.sortIndex,
+          combatZoneInfo: { isDungeon: true },
+        }
+      );
+    })
     .map(dungeonLocation)
     .sort(
       (left, right) =>
@@ -1303,16 +1445,19 @@ function applyPendingMerge() {
   }
   if (actionHrid !== pending.actionHrid) return;
   runtime.api.reactInputTriggerHack?.(input, pending.count);
-  let note = panel.querySelector(".mwi-task-merged-note");
-  if (!note) {
-    note = document.createElement("div");
-    note.className = "mwi-task-merged-note";
-    input.parentElement.insertAdjacentElement("afterend", note);
-  }
-  note.textContent = t(
+  document
+    .querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast")
+    .forEach((node) => node.remove());
+  const toast = document.createElement("div");
+  toast.className = "mwi-task-merge-toast";
+  toast.setAttribute("role", "status");
+  toast.textContent = t(
     `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
     `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`,
   );
+  document.body.append(toast);
+  const timeout = setTimeout(() => toast.remove(), 3200);
+  timeout?.unref?.();
   runtime.state.pendingMergedTask = null;
 }
 
@@ -1436,7 +1581,7 @@ function cleanupTasks() {
   ungroupCards();
   document
     .querySelectorAll(
-      ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note",
+      ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast",
     )
     .forEach((node) => node.remove());
   document

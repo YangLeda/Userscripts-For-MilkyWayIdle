@@ -481,9 +481,13 @@ function renderLootChestDropCell(drop) {
   const sourceLabel =
     drop.valueSource === "redemption"
       ? t("最佳兑换折算", "Best redemption")
-      : drop.nested
-        ? t("开箱期望", "Opening EV")
-        : t("单价", "Unit");
+      : drop.valueSource === "derived"
+        ? t("派生期望值", "Derived expected value")
+        : drop.valueSource === "zero"
+          ? t("封印计为 0", "Seal valued at 0")
+          : drop.nested
+            ? t("开箱期望", "Opening EV")
+            : t("单价", "Unit");
   const title = [
     `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}`,
     `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t("无价", "No price")} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`,

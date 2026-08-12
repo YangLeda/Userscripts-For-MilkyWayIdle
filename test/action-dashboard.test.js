@@ -96,6 +96,12 @@ runtime.api.getFairValue = (itemHrid) => {
 };
 
 test("Chinese crafting dialogs keep the market-value profit", () => {
+  const nativeDrop = document.createElement("div");
+  nativeDrop.className = "SkillActionDetail_dropTable__native";
+  nativeDrop.innerHTML = `<div class="Item_itemContainer__native"><div><div class="Item_item__native Item_clickable__native Item_inline__native"><div class="Item_iconContainer__native"><svg aria-label="木板"><use href="/assets/items_sprite.test.svg#lumber"></use></svg></div><div class="Item_name__native">木板</div></div></div></div>`;
+  document
+    .querySelector('div[class*="SkillActionDetail_regularComponent"]')
+    .append(nativeDrop);
   runtime.api.renderProductionPanel();
 
   const card = document.querySelector("#mwi-production-summary");
@@ -105,11 +111,26 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   assert.ok(card);
   assert.equal(controls.nextElementSibling, card);
   assert.match(card.textContent, /本次生产摘要/);
+  assert.match(
+    document.querySelector("#mwitools-action-dashboard-style").textContent,
+    /grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,110px\),1fr\)\)/,
+  );
   const output = card.querySelector(".mwi-production-output-item");
   assert.ok(output);
-  assert.doesNotMatch(
+  assert.match(
     card.querySelector(".mwi-production-output-metric").textContent,
     /木板/,
+  );
+  const nativeItem = output.querySelector(".mwi-production-native-item");
+  assert.equal(
+    nativeItem.querySelector('[class*="Item_name"]').textContent,
+    "木板",
+  );
+  assert.equal(
+    [...nativeItem.classList].some((className) =>
+      className.includes("Item_clickable"),
+    ),
+    false,
   );
   assert.match(output.title, /木板 ×5/);
   assert.equal(
@@ -144,6 +165,7 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   ).value = "5";
+  nativeDrop.remove();
 });
 
 test("production outputs use a neutral fallback when the item sprite is unavailable", () => {
@@ -157,7 +179,7 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
     output.querySelector(".mwi-production-output-fallback")?.textContent,
     "?",
   );
-  assert.equal(output.textContent.includes("木板"), false);
+  assert.equal(output.textContent.includes("木板"), true);
   document.body.prepend(spriteHost);
   runtime.api.renderProductionPanel();
 });
@@ -174,7 +196,7 @@ test("infinite production summaries use inventory capacity and expose a native-s
   const infinityButton = document.querySelector(
     'button[class*="SkillActionDetail_infiniteButton"]',
   );
-  assert.match(card.textContent, /预期总产出×10/);
+  assert.match(card.textContent, /预期总产出.*木板.*×10/s);
   assert.match(card.textContent, /本次总耗时60s/);
   assert.match(card.textContent, /本次总净利润800/);
   assert.ok(maxButton);
@@ -257,7 +279,7 @@ test("gathering dialogs without a count input still render expected outputs", ()
 
   const card = document.querySelector("#mwi-production-summary");
   assert.ok(card);
-  assert.match(card.textContent, /预期单次产出×2/);
+  assert.match(card.textContent, /预期单次产出.*牛奶.*×2/s);
   assert.match(
     card.querySelector(".mwi-production-output-item").title,
     /牛奶 ×2/,
@@ -323,7 +345,9 @@ test("mixed gathering outputs use a two-column icon grid", () => {
   const grid = document.querySelector(".mwi-production-output-grid");
   assert.equal(grid.dataset.count, "3");
   assert.equal(grid.querySelectorAll(".mwi-production-output-item").length, 3);
-  assert.doesNotMatch(grid.textContent, /苹果|橙子|李子/);
+  assert.match(grid.textContent, /苹果/);
+  assert.match(grid.textContent, /橙子/);
+  assert.match(grid.textContent, /李子/);
   assert.deepEqual(
     [...grid.querySelectorAll(".mwi-production-output-item")].map(
       (item) => item.title,

@@ -145,6 +145,10 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     assetStyles,
     /#mwitools-asset-history-tab\[data-active="true"\][^}]*background/,
   );
+  assert.match(
+    assetStyles,
+    /--mwi-asset-idle-background,rgba\(255,255,255,\.08\)/,
+  );
   assert.equal(
     document.querySelector("#mwi-asset-share-chat").textContent,
     "炫耀",
@@ -161,6 +165,7 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   tab.click();
   const inventoryTab = shell.querySelector("nav button");
   assert.equal(tab.getAttribute("aria-selected"), "true");
+  assert.equal(tab.classList.contains("Mui-selected"), true);
   assert.equal(inventoryTab.getAttribute("aria-selected"), "true");
   assert.equal(inventoryTab.dataset.active, "true");
   assert.equal(
@@ -173,6 +178,11 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     document.querySelector("#mwitools-asset-history-panel").hidden,
     false,
   );
+  tab.click();
+  assert.equal(tab.getAttribute("aria-selected"), "false");
+  assert.equal(tab.classList.contains("Mui-selected"), false);
+  assert.equal(nativeContent.hidden, false);
+  tab.click();
   ui.update({
     values: {
       total: 1_234_567,
@@ -201,6 +211,13 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
     document.querySelector("#mwitools-asset-history-panel").hidden,
     true,
   );
+
+  tab.click();
+  houseTab.setAttribute("aria-selected", "false");
+  inventoryTab.setAttribute("aria-selected", "true");
+  for (const callback of intervals.values()) callback();
+  assert.equal(tab.dataset.active, "false");
+  assert.equal(nativeContent.hidden, false);
 
   ui.destroy();
   scope.cleanup();
