@@ -12,6 +12,8 @@ globalThis.location = dom.window.location;
 globalThis.localStorage = dom.window.localStorage;
 
 const { runtime } = await import("../src/core/runtime.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { inventoryItemTarget } =
   await import("../src/features/inventory-market-double-click.js");
 runtime.api.getOriTextFromElement = (element) => element?.textContent;
@@ -30,6 +32,12 @@ runtime.state.initData_itemDetailMap = {
   "/items/scroll": { scrollDetail: {} },
   "/items/cowbell_bag": { isTradable: true, isOpenable: true },
 };
+registerGameLocaleResources("es", {
+  itemNames: { "/items/milk": "Leche" },
+  actionNames: { "/actions/milking/cow": "Vaca" },
+  monsterNames: { "/monsters/rat": "Rata" },
+  abilityNames: { "/abilities/strike": "Golpe" },
+});
 
 function inventory(category, item) {
   document.body.innerHTML = `<div class="Inventory_items__test"><div class="Inventory_category__test"><button class="Inventory_categoryButton__test">${category}</button><div class="Item_itemContainer__test"><svg aria-label="${item}"></svg><span class="Item_enhancementLevel__test">+7</span></div></div></div>`;
@@ -56,4 +64,14 @@ test("a tradable loot item still opens its real market", () => {
     enhancementLevel: 7,
     categoryName: "Loots",
   });
+});
+
+test("localized inventory labels resolve through the official game dictionary", () => {
+  localStorage.setItem("i18nextLng", "es");
+  assert.deepEqual(inventoryItemTarget(inventory("Materiales", "Leche")), {
+    itemHrid: "/items/milk",
+    enhancementLevel: 7,
+    categoryName: "Materiales",
+  });
+  localStorage.setItem("i18nextLng", "en-US");
 });

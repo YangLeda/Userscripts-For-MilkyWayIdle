@@ -47,6 +47,8 @@ await import("../src/core/action-projection.js");
 await import("../src/core/message-state.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/settings-and-notifications.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/lumber": {
@@ -62,6 +64,12 @@ runtime.state.initData_itemDetailMap = {
   "/items/log": { hrid: "/items/log", name: "Log" },
   "/items/lumber": { hrid: "/items/lumber", name: "Lumber" },
 };
+registerGameLocaleResources("es", {
+  itemNames: { "/items/lumber": "Madera" },
+  actionNames: { "/actions/crafting/lumber": "Madera" },
+  monsterNames: { "/monsters/rat": "Rata" },
+  abilityNames: { "/abilities/strike": "Golpe" },
+});
 runtime.state.initData_characterItems = [
   {
     itemHrid: "/items/log",
@@ -181,6 +189,20 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
   );
   assert.equal(output.textContent.includes("木板"), true);
   document.body.prepend(spriteHost);
+  runtime.api.renderProductionPanel();
+});
+
+test("iron-cow adaptation keeps production timing but removes market profit", () => {
+  runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue = true;
+  runtime.state.currentCharacterGameMode = "ironcow";
+  runtime.api.renderProductionPanel();
+
+  const card = document.querySelector("#mwi-production-summary");
+  assert.match(card.textContent, /本次总耗时/);
+  assert.doesNotMatch(card.textContent, /净利润|市场价格缺失/);
+
+  runtime.state.currentCharacterGameMode = "standard";
+  runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue = false;
   runtime.api.renderProductionPanel();
 });
 
@@ -652,6 +674,14 @@ test("equipment warnings float below community buffs without moving action conte
   assert.equal(document.querySelectorAll("#script_item_warning").length, 1);
   assert.equal(document.querySelector("#script_item_warning"), warning);
 
+  runtime.state.labyrinthActive = true;
+  runtime.api.checkEquipment();
+  assert.equal(document.querySelector("#script_item_warning"), null);
+  assert.equal(runtime.api.getEquipmentWarning(), null);
+  runtime.state.labyrinthActive = false;
+  runtime.api.checkEquipment();
+  assert.ok(document.querySelector("#script_item_warning"));
+
   runtime.state.currentEquipmentMap = {
     "/item_locations/off_hand": { itemHrid: "/items/eye_watch", count: 1 },
   };
@@ -712,4 +742,13 @@ test("action resolution follows the game's i18nextLng setting", () => {
     runtime.api.resolveProductionAction(panelName.parentElement),
     "/actions/crafting/lumber",
   );
+
+  localStorage.setItem("i18nextLng", "es");
+  panelName.textContent = "Madera";
+  assert.equal(
+    runtime.api.resolveProductionAction(panelName.parentElement),
+    "/actions/crafting/lumber",
+  );
+
+  localStorage.setItem("i18nextLng", "zh-CN");
 });

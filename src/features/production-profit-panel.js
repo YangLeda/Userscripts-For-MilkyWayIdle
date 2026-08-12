@@ -32,7 +32,7 @@ function formatNumber(value, digits = 1) {
       runtime.api.numberFormatter?.(Number(value), digits) ?? String(value)
     );
   }
-  return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+  return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
     maximumFractionDigits: digits,
   }).format(Number(value));
 }
@@ -483,11 +483,13 @@ function renderLootChestDropCell(drop) {
       ? t("最佳兑换折算", "Best redemption")
       : drop.valueSource === "derived"
         ? t("派生期望值", "Derived expected value")
-        : drop.valueSource === "zero"
-          ? t("封印计为 0", "Seal valued at 0")
-          : drop.nested
-            ? t("开箱期望", "Opening EV")
-            : t("单价", "Unit");
+        : drop.valueSource === "excluded"
+          ? t("牛铃已忽略", "Cowbells ignored")
+          : drop.valueSource === "zero"
+            ? t("封印计为 0", "Seal valued at 0")
+            : drop.nested
+              ? t("开箱期望", "Opening EV")
+              : t("单价", "Unit");
   const title = [
     `${name}\n${t("概率", "Chance")}: ${chance} · ${t("数量", "Count")}: ${countRange} · ${t("期望", "Expected")}: ${formatNumber(drop.expectedCount, 2)}`,
     `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t("无价", "No price")} · ${t("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t("无价", "No price")}`,
@@ -528,6 +530,12 @@ function renderLootChestControls(config, hasKey) {
       t("产物卖出", "Sell drops"),
       config.sellAtAsk ? t("挂卖单", "List at ask") : t("立即卖出", "Sell now"),
       config.sellAtAsk,
+    ),
+    renderLootSwitch(
+      "lootIgnoreCowbells",
+      t("牛铃价值", "Cowbell value"),
+      config.ignoreCowbells ? t("忽略", "Ignored") : t("计入", "Included"),
+      config.ignoreCowbells,
     ),
   ];
   if (hasKey) {
@@ -704,6 +712,7 @@ function hideProductionProfitPanel() {
   globalThis.removeEventListener?.("scroll", state.position, true);
   if (state.outsideHandler) {
     document.removeEventListener("mousedown", state.outsideHandler, true);
+    document.removeEventListener("pointerdown", state.outsideHandler, true);
   }
   for (const stop of state.settingStops ?? []) stop?.();
   state.panel?.remove();
@@ -754,8 +763,26 @@ function mountPanel(anchor, panel, extraState = {}) {
   return panel;
 }
 
+function attachStickyOutsideHandler(panel, anchor) {
+  const outsideHandler = (event) => {
+    if (!activePanel?.sticky || activePanel.panel !== panel) return;
+    if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
+    runtime.api.clearTooltipProfitHoverContext?.(anchor);
+    hideProductionProfitPanel();
+  };
+  globalThis.setTimeout?.(() => {
+    if (activePanel?.panel !== panel) return;
+    document.addEventListener("pointerdown", outsideHandler, true);
+    activePanel.outsideHandler = outsideHandler;
+  }, 0);
+}
+
 function showProductionProfitPanel(anchor, itemHrid, options = {}) {
   if (activePanel?.pinned) return null;
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+    return null;
+  }
   const actionHrid =
     options.actionHrid ??
     runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
@@ -771,17 +798,23 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
   if (!primaryItemHrid) return null;
   const panel = createPanelElement();
+  const sticky = Boolean(options.sticky);
+  panel.classList.toggle("mwi-profit-pinned", sticky);
   renderPanel(panel, primaryItemHrid, projection, {
     directAction: Boolean(options.actionHrid),
   });
-  return mountPanel(anchor, panel, {
+  const mounted = mountPanel(anchor, panel, {
     itemHrid: primaryItemHrid,
     actionHrid,
+    sticky,
   });
+  if (sticky) attachStickyOutsideHandler(panel, anchor);
+  return mounted;
 }
 
 function showLootChestPanel(anchor, itemHrid, options = {}) {
   const pinned = Boolean(options.pinned);
+  const sticky = Boolean(options.sticky) && !pinned;
   if (!pinned && activePanel?.pinned) return null;
   const chest = runtime.api.projectLootChest?.(itemHrid);
   if (!anchor?.isConnected || !chest) {
@@ -791,9 +824,11 @@ function showLootChestPanel(anchor, itemHrid, options = {}) {
   hideProductionProfitPanel();
   addStyles();
   const panel = createPanelElement();
+  panel.classList.toggle("mwi-profit-pinned", sticky);
   renderLootChestPanel(panel, itemHrid, chest, { pinned });
-  mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
+  mountPanel(anchor, panel, { itemHrid, pinned, sticky, kind: "loot" });
   if (pinned) attachLootChestControls(panel, itemHrid);
+  else if (sticky) attachStickyOutsideHandler(panel, anchor);
   return panel;
 }
 
@@ -818,6 +853,7 @@ function attachLootChestControls(panel, itemHrid) {
     "lootSellAtAsk",
     "lootBuyAtAsk",
     "lootKeyFromFragments",
+    "lootIgnoreCowbells",
   ].map((settingId) => runtime.settings.onChange?.(settingId, rerender));
   settingStops.push(
     runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
@@ -850,9 +886,21 @@ function pinActiveLootChestPanel() {
 }
 
 function dismissHoverPanel() {
-  if (activePanel?.pinned) return;
+  if (activePanel?.pinned || activePanel?.sticky) return;
   hideProductionProfitPanel();
 }
+
+runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+  }
+});
+
+runtime.onMessage("init_character_data", () => {
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+  }
+});
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,

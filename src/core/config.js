@@ -1,13 +1,5 @@
 import { runtime } from "./runtime.js";
 
-const THOUSAND_SEPERATOR =
-  new Intl.NumberFormat().format(1111).replaceAll("1", "").at(0) || "";
-
-const DECIMAL_SEPERATOR = new Intl.NumberFormat()
-  .format(1.1)
-  .replaceAll("1", "")
-  .at(0);
-
 function getGameLanguage() {
   const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
   if (storedLanguage) return storedLanguage;
@@ -16,6 +8,25 @@ function getGameLanguage() {
     globalThis.navigator?.language ||
     "en-US"
   );
+}
+
+function getGameNumberLocale() {
+  const candidate = getGameLanguage().replaceAll("_", "-");
+  try {
+    return Intl.NumberFormat.supportedLocalesOf([candidate])[0] ?? "en-US";
+  } catch {
+    return "en-US";
+  }
+}
+
+function getGameNumberSeparators() {
+  const parts = new Intl.NumberFormat(getGameNumberLocale()).formatToParts(
+    1_111.1,
+  );
+  return {
+    thousand: parts.find((part) => part.type === "group")?.value ?? "",
+    decimal: parts.find((part) => part.type === "decimal")?.value ?? ".",
+  };
 }
 
 function isGameLanguageZH() {
@@ -89,8 +100,8 @@ let settingsMap = {
   feedback: {
     id: "feedback",
     desc: isZH
-      ? "总等级下方显示意见反馈入口"
-      : "Show the feedback entry below total level.",
+      ? "总等级下方显示意见中心入口"
+      : "Show the Feedback Center below total level.",
     isTrue: true,
   },
   invWorth: {
@@ -145,11 +156,11 @@ let settingsMap = {
       : "Item tooltip: Production cost and profit. [Depends on the previous selection]",
     isTrue: true,
   },
-  showConsumTips: {
-    id: "showConsumTips",
+  itemTooltip_profitRequireKey: {
+    id: "itemTooltip_profitRequireKey",
     desc: isZH
-      ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量"
-      : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
+      ? "生产利润和宝箱估算需要同时按住自定义按键"
+      : "Require a shared custom held key for production profit and loot chest estimates.",
     isTrue: true,
   },
   lootChestEstimate: {
@@ -178,6 +189,13 @@ let settingsMap = {
     desc: isZH
       ? "钥匙按碎片自制成本计算；关闭则按成品钥匙买入价"
       : "Use fragment crafting cost for keys; off buys finished keys.",
+    isTrue: false,
+  },
+  lootIgnoreCowbells: {
+    id: "lootIgnoreCowbells",
+    desc: isZH
+      ? "宝箱估值忽略牛铃及牛铃袋的价值"
+      : "Ignore Cowbell and Cowbell Bag value in loot estimates.",
     isTrue: false,
   },
   expPercentage: {
@@ -318,7 +336,9 @@ let settingsMap = {
   },
   taskInsights: {
     id: "taskInsights",
-    desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
+    desc: isZH
+      ? "启用平铺任务布局、排序和筛选"
+      : "Enable the flat task layout, sorting, and filters.",
     isTrue: true,
   },
   semiAutoTrain: {
@@ -380,7 +400,9 @@ let settingsMap = {
   },
   taskStatistics: {
     id: "taskStatistics",
-    desc: isZH ? "任务页显示统计抽屉" : "Show the task summary drawer.",
+    desc: isZH
+      ? "任务页显示专业、战斗和副本统计筛选栏"
+      : "Show profession, combat, and dungeon task filters.",
     isTrue: true,
   },
   taskClaimCollector: {
@@ -437,6 +459,13 @@ let settingsMap = {
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
+    isTrue: false,
+  },
+  adaptIronCowMarketFeatures: {
+    id: "adaptIronCowMarketFeatures",
+    desc: isZH
+      ? "铁牛角色隐藏不可用的市场与利润功能"
+      : "Hide unavailable marketplace and profit features for Iron Cow characters.",
     isTrue: false,
   },
 };
@@ -518,10 +547,10 @@ const catalogRows = [
   [
     "feedback",
     "general",
-    "意见反馈",
-    "Feedback",
-    "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
-    "Submit feedback with external image links below total level and follow its status.",
+    "意见中心",
+    "Feedback Center",
+    "查看版本公告、提交意见，并通过红点关注反馈回复。",
+    "Read release announcements, submit feedback, and follow replies with a notification dot.",
   ],
   [
     "forceMWIToolsDisplayZH",
@@ -554,6 +583,14 @@ const catalogRows = [
     "Idle notification",
     "动作队列清空时发送浏览器通知；游戏页面需要保持打开。",
     "Send a browser notification when the action queue becomes empty while the game is open.",
+  ],
+  [
+    "adaptIronCowMarketFeatures",
+    "general",
+    "铁牛模式适配",
+    "Iron Cow mode adaptation",
+    "铁牛角色隐藏市场价格、交易利润和市场采购操作；资产与宝箱估值仍保留。",
+    "Hide marketplace prices, trading profit, and marketplace procurement for Iron Cow characters while retaining asset and loot valuations.",
   ],
   [
     "expPercentage",
@@ -724,12 +761,12 @@ const catalogRows = [
     "Show material cost and estimated profit for craftable items.",
   ],
   [
-    "showConsumTips",
+    "itemTooltip_profitRequireKey",
     "market",
-    "消耗品性价比",
-    "Consumable efficiency",
-    "显示回血回魔速度、单位回复成本和每天最多用量。",
-    "Show recovery rate, cost per recovery, and maximum daily use.",
+    "悬浮扩展面板需要按键",
+    "Require key for tooltip panels",
+    "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
+    "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices.",
   ],
   [
     "lootChestEstimate",
@@ -760,8 +797,16 @@ const catalogRows = [
     "market",
     "钥匙碎片自制",
     "Craft keys from fragments",
-    "开启：按实际配方和碎片成本自制钥匙；关闭：购买成品钥匙。",
-    "On: craft keys from their actual recipe; off: buy finished keys.",
+    "开启：按实际配方、工匠减耗、浓缩倍率和泡饮成本自制钥匙；关闭：购买成品钥匙。",
+    "On: craft keys using the recipe, Artisan reduction, concentration, and drink costs; off: buy finished keys.",
+  ],
+  [
+    "lootIgnoreCowbells",
+    "market",
+    "宝箱估值忽略牛铃",
+    "Ignore Cowbells in loot",
+    "开启后，所有直接或嵌套宝箱中的牛铃和牛铃袋均保留掉落显示，但价值按零计算。",
+    "Keep Cowbell and Cowbell Bag drops visible but value them at zero in direct and nested loot estimates.",
   ],
   [
     "marketFilter",
@@ -782,10 +827,10 @@ const catalogRows = [
   [
     "taskInsights",
     "tasks",
-    "按专业分组任务",
-    "Group tasks by profession",
-    "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
-    "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon.",
+    "平铺任务布局",
+    "Flat task layout",
+    "按新任务、已完成、普通任务和专业顺序平铺显示；战斗任务统一置底并按地图排序。",
+    "Show a flat list ordered by new, completed, and normal tasks, with combat last and sorted by zone.",
   ],
   [
     "semiAutoTrain",
@@ -854,10 +899,10 @@ const catalogRows = [
   [
     "taskStatistics",
     "tasks",
-    "任务统计抽屉",
-    "Task statistics drawer",
-    "在任务页汇总完成状态、奖励和任务类型统计。",
-    "Summarize completion state, rewards, and task-type statistics on the task page.",
+    "任务统计筛选栏",
+    "Task statistics filters",
+    "显示全部任务、十个生活专业、战斗和四个副本的数量，并可按图标筛选。",
+    "Show counts for all tasks, ten professions, combat, and four dungeons, with icon filters.",
   ],
   [
     "taskClaimCollector",
@@ -944,24 +989,24 @@ const catalogRows = [
     "guild",
     "公会经验总览",
     "Guild XP overview",
-    "显示最近、1 小时和 24 小时速率、升级时间与 7 天趋势。",
-    "Show recent, hourly, and daily XP rates, time to level, and a seven-day trend.",
+    "显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
+    "Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average.",
   ],
   [
     "guildMemberXp",
     "guild",
     "成员经验速率",
     "Member XP rates",
-    "在成员表增加最近和 24 小时 XP/h 两列。",
-    "Add recent and 24-hour XP/h columns to the member table.",
+    "在成员表增加近 6 小时、24 小时和本周平均 XP/h。",
+    "Add 6-hour, 24-hour, and this-week average XP/h columns to the member table.",
   ],
   [
     "guildLeaderboardXp",
     "guild",
     "公会榜经验速率",
     "Guild leaderboard XP rates",
-    "在全服公会榜显示本机采样得到的最近和 24 小时 XP/h。",
-    "Show locally sampled recent and 24-hour XP/h on the guild leaderboard.",
+    "在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
+    "Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard.",
   ],
   [
     "guildIdleMembers",
@@ -1034,11 +1079,12 @@ const settingParents = {
   productionProfit: "actionPanel_totalTime",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
-  showConsumTips: "itemTooltip_prices",
+  itemTooltip_profitRequireKey: "itemTooltip_prices",
   lootChestEstimate: "itemTooltip_prices",
   lootSellAtAsk: "lootChestEstimate",
   lootBuyAtAsk: "lootChestEstimate",
   lootKeyFromFragments: "lootChestEstimate",
+  lootIgnoreCowbells: "lootChestEstimate",
   taskMaterials: "taskInsights",
   taskQueueProgress: "taskInsights",
   taskAutoSort: "taskInsights",
@@ -1062,6 +1108,18 @@ const settingListeners = new Map();
 
 function getSetting(id) {
   return settingsMap[id]?.isTrue;
+}
+
+function isIronCowCharacter() {
+  return ["ironcow", "legacy_ironcow"].includes(
+    String(runtime.state.currentCharacterGameMode ?? "").toLowerCase(),
+  );
+}
+
+function shouldSuppressMarketFeatures() {
+  return Boolean(
+    settingsMap.adaptIronCowMarketFeatures?.isTrue && isIronCowCharacter(),
+  );
 }
 
 async function setSetting(id, value, options = {}) {
@@ -1099,13 +1157,19 @@ Object.defineProperties(runtime.config, {
   THOUSAND_SEPERATOR: {
     enumerable: true,
     get() {
-      return THOUSAND_SEPERATOR;
+      return getGameNumberSeparators().thousand;
     },
   },
   DECIMAL_SEPERATOR: {
     enumerable: true,
     get() {
-      return DECIMAL_SEPERATOR;
+      return getGameNumberSeparators().decimal;
+    },
+  },
+  NUMBER_LOCALE: {
+    enumerable: true,
+    get() {
+      return getGameNumberLocale();
     },
   },
   isZHInGameSetting: {
@@ -1183,6 +1247,11 @@ Object.assign(runtime.settings, {
   get: getSetting,
   set: setSetting,
   onChange: onSettingChange,
+});
+
+Object.assign(runtime.api, {
+  isIronCowCharacter,
+  shouldSuppressMarketFeatures,
 });
 
 runtime.registerStart("core/config.js", () => {

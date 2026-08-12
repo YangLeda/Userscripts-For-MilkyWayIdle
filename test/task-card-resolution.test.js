@@ -12,6 +12,7 @@ globalThis.localStorage = dom.window.localStorage;
 globalThis.location = dom.window.location;
 
 const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
 const { resolveTaskCards } =
   await import("../src/core/task-card-resolution.js");
 
@@ -108,4 +109,29 @@ test("semantic fallback matches shuffled and duplicate actions by progress", () 
     resolved.map(({ taskId }) => taskId),
     ["12", "13", "11"],
   );
+});
+
+test("semantic task progress follows game-locale grouping separators", () => {
+  localStorage.setItem("i18nextLng", "pt");
+  const action = "/actions/cheesesmithing/grouped_progress";
+  runtime.state.initData_actionDetailMap = {
+    [action]: { name: "Grouped Progress" },
+  };
+  const quests = [
+    { id: 21, actionHrid: action, goalCount: 2_000, currentCount: 1_234 },
+    { id: 22, actionHrid: action, goalCount: 3_000, currentCount: 1_000 },
+  ];
+  const resolved = resolveTaskCards(
+    [
+      card("Grouped Progress", "1.000 / 3.000"),
+      card("Grouped Progress", "1.234 / 2.000"),
+    ],
+    quests,
+    { taskActionHrid: actionHrid, taskRemaining: remaining },
+  );
+  assert.deepEqual(
+    resolved.map(({ taskId }) => taskId),
+    ["22", "21"],
+  );
+  localStorage.setItem("i18nextLng", "en-US");
 });

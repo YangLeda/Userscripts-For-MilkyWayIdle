@@ -31,7 +31,7 @@ import "./features/task-new-badge.js";
 import "./features/task-auto-return.js";
 import "./features/ability-book-calculator.js";
 import "./features/inventory-market-double-click.js";
-import "./features/feedback/index.js";
+import "./features/opinion-center/index.js";
 import "./features/guild-xp.js";
 import "./features/game-widgets.js";
 import "./features/navigation-action-queue.js";

@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.5
+// @version      26.4.6
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
-// @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
+// @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai, Stella
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
@@ -849,12 +849,27 @@
   };
 
   // src/core/config.js
-  var THOUSAND_SEPERATOR = new Intl.NumberFormat().format(1111).replaceAll("1", "").at(0) || "";
-  var DECIMAL_SEPERATOR = new Intl.NumberFormat().format(1.1).replaceAll("1", "").at(0);
   function getGameLanguage() {
     const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
     if (storedLanguage) return storedLanguage;
     return globalThis.document?.documentElement?.lang || globalThis.navigator?.language || "en-US";
+  }
+  function getGameNumberLocale() {
+    const candidate = getGameLanguage().replaceAll("_", "-");
+    try {
+      return Intl.NumberFormat.supportedLocalesOf([candidate])[0] ?? "en-US";
+    } catch {
+      return "en-US";
+    }
+  }
+  function getGameNumberSeparators() {
+    const parts = new Intl.NumberFormat(getGameNumberLocale()).formatToParts(
+      1111.1
+    );
+    return {
+      thousand: parts.find((part) => part.type === "group")?.value ?? "",
+      decimal: parts.find((part) => part.type === "decimal")?.value ?? "."
+    };
   }
   function isGameLanguageZH() {
     return getGameLanguage().toLowerCase().startsWith("zh");
@@ -900,7 +915,7 @@
     },
     feedback: {
       id: "feedback",
-      desc: isZH ? "总等级下方显示意见反馈入口" : "Show the feedback entry below total level.",
+      desc: isZH ? "总等级下方显示意见中心入口" : "Show the Feedback Center below total level.",
       isTrue: true
     },
     invWorth: {
@@ -943,9 +958,9 @@
       desc: isZH ? "物品悬浮窗显示：生产成本和利润计算 [依赖上一项]" : "Item tooltip: Production cost and profit. [Depends on the previous selection]",
       isTrue: true
     },
-    showConsumTips: {
-      id: "showConsumTips",
-      desc: isZH ? "物品悬浮窗显示：消耗品回血回魔速度、回复性价比、每天最多消耗数量" : "Item tooltip: HP/MP consumables restore speed, cost performance, max cost per day.",
+    itemTooltip_profitRequireKey: {
+      id: "itemTooltip_profitRequireKey",
+      desc: isZH ? "生产利润和宝箱估算需要同时按住自定义按键" : "Require a shared custom held key for production profit and loot chest estimates.",
       isTrue: true
     },
     lootChestEstimate: {
@@ -966,6 +981,11 @@
     lootKeyFromFragments: {
       id: "lootKeyFromFragments",
       desc: isZH ? "钥匙按碎片自制成本计算；关闭则按成品钥匙买入价" : "Use fragment crafting cost for keys; off buys finished keys.",
+      isTrue: false
+    },
+    lootIgnoreCowbells: {
+      id: "lootIgnoreCowbells",
+      desc: isZH ? "宝箱估值忽略牛铃及牛铃袋的价值" : "Ignore Cowbell and Cowbell Bag value in loot estimates.",
       isTrue: false
     },
     expPercentage: {
@@ -1070,7 +1090,7 @@
     },
     taskInsights: {
       id: "taskInsights",
-      desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
+      desc: isZH ? "启用平铺任务布局、排序和筛选" : "Enable the flat task layout, sorting, and filters.",
       isTrue: true
     },
     semiAutoTrain: {
@@ -1120,7 +1140,7 @@
     },
     taskStatistics: {
       id: "taskStatistics",
-      desc: isZH ? "任务页显示统计抽屉" : "Show the task summary drawer.",
+      desc: isZH ? "任务页显示专业、战斗和副本统计筛选栏" : "Show profession, combat, and dungeon task filters.",
       isTrue: true
     },
     taskClaimCollector: {
@@ -1171,6 +1191,11 @@
     forceMWIToolsDisplayZH: {
       id: "forceMWIToolsDisplayZH",
       desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
+      isTrue: false
+    },
+    adaptIronCowMarketFeatures: {
+      id: "adaptIronCowMarketFeatures",
+      desc: isZH ? "铁牛角色隐藏不可用的市场与利润功能" : "Hide unavailable marketplace and profit features for Iron Cow characters.",
       isTrue: false
     }
   };
@@ -1250,10 +1275,10 @@
     [
       "feedback",
       "general",
-      "意见反馈",
-      "Feedback",
-      "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
-      "Submit feedback with external image links below total level and follow its status."
+      "意见中心",
+      "Feedback Center",
+      "查看版本公告、提交意见，并通过红点关注反馈回复。",
+      "Read release announcements, submit feedback, and follow replies with a notification dot."
     ],
     [
       "forceMWIToolsDisplayZH",
@@ -1286,6 +1311,14 @@
       "Idle notification",
       "动作队列清空时发送浏览器通知；游戏页面需要保持打开。",
       "Send a browser notification when the action queue becomes empty while the game is open."
+    ],
+    [
+      "adaptIronCowMarketFeatures",
+      "general",
+      "铁牛模式适配",
+      "Iron Cow mode adaptation",
+      "铁牛角色隐藏市场价格、交易利润和市场采购操作；资产与宝箱估值仍保留。",
+      "Hide marketplace prices, trading profit, and marketplace procurement for Iron Cow characters while retaining asset and loot valuations."
     ],
     [
       "expPercentage",
@@ -1456,12 +1489,12 @@
       "Show material cost and estimated profit for craftable items."
     ],
     [
-      "showConsumTips",
+      "itemTooltip_profitRequireKey",
       "market",
-      "消耗品性价比",
-      "Consumable efficiency",
-      "显示回血回魔速度、单位回复成本和每天最多用量。",
-      "Show recovery rate, cost per recovery, and maximum daily use."
+      "悬浮扩展面板需要按键",
+      "Require key for tooltip panels",
+      "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
+      "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices."
     ],
     [
       "lootChestEstimate",
@@ -1492,8 +1525,16 @@
       "market",
       "钥匙碎片自制",
       "Craft keys from fragments",
-      "开启：按实际配方和碎片成本自制钥匙；关闭：购买成品钥匙。",
-      "On: craft keys from their actual recipe; off: buy finished keys."
+      "开启：按实际配方、工匠减耗、浓缩倍率和泡饮成本自制钥匙；关闭：购买成品钥匙。",
+      "On: craft keys using the recipe, Artisan reduction, concentration, and drink costs; off: buy finished keys."
+    ],
+    [
+      "lootIgnoreCowbells",
+      "market",
+      "宝箱估值忽略牛铃",
+      "Ignore Cowbells in loot",
+      "开启后，所有直接或嵌套宝箱中的牛铃和牛铃袋均保留掉落显示，但价值按零计算。",
+      "Keep Cowbell and Cowbell Bag drops visible but value them at zero in direct and nested loot estimates."
     ],
     [
       "marketFilter",
@@ -1514,10 +1555,10 @@
     [
       "taskInsights",
       "tasks",
-      "按专业分组任务",
-      "Group tasks by profession",
-      "按左侧专业顺序显示可折叠分组；已完成任务置顶，战斗任务按地图和地牢细分。",
-      "Show collapsible profession groups, pin completed tasks, and split combat by zone or dungeon."
+      "平铺任务布局",
+      "Flat task layout",
+      "按新任务、已完成、普通任务和专业顺序平铺显示；战斗任务统一置底并按地图排序。",
+      "Show a flat list ordered by new, completed, and normal tasks, with combat last and sorted by zone."
     ],
     [
       "semiAutoTrain",
@@ -1586,10 +1627,10 @@
     [
       "taskStatistics",
       "tasks",
-      "任务统计抽屉",
-      "Task statistics drawer",
-      "在任务页汇总完成状态、奖励和任务类型统计。",
-      "Summarize completion state, rewards, and task-type statistics on the task page."
+      "任务统计筛选栏",
+      "Task statistics filters",
+      "显示全部任务、十个生活专业、战斗和四个副本的数量，并可按图标筛选。",
+      "Show counts for all tasks, ten professions, combat, and four dungeons, with icon filters."
     ],
     [
       "taskClaimCollector",
@@ -1676,24 +1717,24 @@
       "guild",
       "公会经验总览",
       "Guild XP overview",
-      "显示最近、1 小时和 24 小时速率、升级时间与 7 天趋势。",
-      "Show recent, hourly, and daily XP rates, time to level, and a seven-day trend."
+      "显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
+      "Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average."
     ],
     [
       "guildMemberXp",
       "guild",
       "成员经验速率",
       "Member XP rates",
-      "在成员表增加最近和 24 小时 XP/h 两列。",
-      "Add recent and 24-hour XP/h columns to the member table."
+      "在成员表增加近 6 小时、24 小时和本周平均 XP/h。",
+      "Add 6-hour, 24-hour, and this-week average XP/h columns to the member table."
     ],
     [
       "guildLeaderboardXp",
       "guild",
       "公会榜经验速率",
       "Guild leaderboard XP rates",
-      "在全服公会榜显示本机采样得到的最近和 24 小时 XP/h。",
-      "Show locally sampled recent and 24-hour XP/h on the guild leaderboard."
+      "在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
+      "Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard."
     ],
     [
       "guildIdleMembers",
@@ -1764,11 +1805,12 @@
     productionProfit: "actionPanel_totalTime",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
-    showConsumTips: "itemTooltip_prices",
+    itemTooltip_profitRequireKey: "itemTooltip_prices",
     lootChestEstimate: "itemTooltip_prices",
     lootSellAtAsk: "lootChestEstimate",
     lootBuyAtAsk: "lootChestEstimate",
     lootKeyFromFragments: "lootChestEstimate",
+    lootIgnoreCowbells: "lootChestEstimate",
     taskMaterials: "taskInsights",
     taskQueueProgress: "taskInsights",
     taskAutoSort: "taskInsights",
@@ -1789,6 +1831,16 @@
   var settingListeners = /* @__PURE__ */ new Map();
   function getSetting(id) {
     return settingsMap[id]?.isTrue;
+  }
+  function isIronCowCharacter() {
+    return ["ironcow", "legacy_ironcow"].includes(
+      String(runtime.state.currentCharacterGameMode ?? "").toLowerCase()
+    );
+  }
+  function shouldSuppressMarketFeatures() {
+    return Boolean(
+      settingsMap.adaptIronCowMarketFeatures?.isTrue && isIronCowCharacter()
+    );
   }
   async function setSetting(id, value, options = {}) {
     if (!settingsMap[id]) return false;
@@ -1820,13 +1872,19 @@
     THOUSAND_SEPERATOR: {
       enumerable: true,
       get() {
-        return THOUSAND_SEPERATOR;
+        return getGameNumberSeparators().thousand;
       }
     },
     DECIMAL_SEPERATOR: {
       enumerable: true,
       get() {
-        return DECIMAL_SEPERATOR;
+        return getGameNumberSeparators().decimal;
+      }
+    },
+    NUMBER_LOCALE: {
+      enumerable: true,
+      get() {
+        return getGameNumberLocale();
       }
     },
     isZHInGameSetting: {
@@ -1903,8 +1961,395 @@
     set: setSetting,
     onChange: onSettingChange
   });
+  Object.assign(runtime.api, {
+    isIronCowCharacter,
+    shouldSuppressMarketFeatures
+  });
   runtime.registerStart("core/config.js", () => {
     console.log(window.location.href);
+  });
+
+  // src/core/game-localization.js
+  var SUPPORTED_GAME_LOCALES = Object.freeze([
+    "en",
+    "es",
+    "fr",
+    "pt",
+    "zh",
+    "zh-TW",
+    "ja",
+    "ko",
+    "ru"
+  ]);
+  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
+  var ENTITY_TYPES = Object.freeze({
+    item: {
+      resourceKey: "itemNames",
+      stateKey: "initData_itemDetailMap",
+      prefix: "/items/",
+      sprite: "items_sprite"
+    },
+    action: {
+      resourceKey: "actionNames",
+      stateKey: "initData_actionDetailMap",
+      prefix: "/actions/",
+      sprite: "actions_sprite"
+    },
+    monster: {
+      resourceKey: "monsterNames",
+      stateKey: "initData_monsterDetailMap",
+      prefix: "/monsters/",
+      sprite: "combat_monsters_sprite"
+    },
+    ability: {
+      resourceKey: "abilityNames",
+      stateKey: "initData_abilityDetailMap",
+      prefix: "/abilities/",
+      sprite: "abilities_sprite"
+    }
+  });
+  var TYPE_ALIASES = Object.freeze({
+    items: "item",
+    actions: "action",
+    monsters: "monster",
+    abilities: "ability"
+  });
+  var localeResources = /* @__PURE__ */ new Map();
+  var reverseIndexes = /* @__PURE__ */ new WeakMap();
+  var warnedLocales = /* @__PURE__ */ new Set();
+  function pageGlobal() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function normalizeGameLocale(value) {
+    const raw = String(value ?? "").trim().replaceAll("_", "-");
+    if (!raw) return "en";
+    const lower = raw.toLowerCase();
+    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
+      return "zh-TW";
+    }
+    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
+    const base = lower.split("-")[0];
+    return LOCALE_SET.has(base) ? base : "en";
+  }
+  function getGameLocale() {
+    return normalizeGameLocale(
+      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
+    );
+  }
+  function webpackQueues(target = pageGlobal()) {
+    const queues = [];
+    for (const key of Object.getOwnPropertyNames(target ?? {})) {
+      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
+      let value;
+      try {
+        value = target[key];
+      } catch {
+        continue;
+      }
+      if (Array.isArray(value)) queues.push(value);
+    }
+    return queues;
+  }
+  function chunkEntries(target) {
+    return webpackQueues(target).flatMap(
+      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
+    );
+  }
+  function localeModuleMap(entries) {
+    const result = /* @__PURE__ */ new Map();
+    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+    for (const entry of entries) {
+      for (const factory of Object.values(entry[1])) {
+        if (typeof factory !== "function") continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!source.includes("./zh-TW/index.js")) continue;
+        for (const match of source.matchAll(pattern)) {
+          result.set(normalizeGameLocale(match[1]), String(match[2]));
+        }
+      }
+    }
+    return result;
+  }
+  function runLocaleFactory(factory) {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const webpackRequire = () => {
+      throw new Error(
+        runtime.config.isZH ? "游戏语言模块意外引用了其他模块" : "The game locale unexpectedly imported another module"
+      );
+    };
+    webpackRequire.r = (target) => {
+      Object.defineProperty(target, "__esModule", { value: true });
+    };
+    webpackRequire.d = (target, nameOrDefinition, getter) => {
+      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
+      for (const [name, get] of Object.entries(definition)) {
+        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
+        Object.defineProperty(target, name, {
+          enumerable: true,
+          get
+        });
+      }
+    };
+    factory.call(exports, module, exports, webpackRequire);
+    return module.exports?.default ?? exports.default ?? module.exports;
+  }
+  function validResourceMap(value, prefix) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value).some((key) => key.startsWith(prefix));
+  }
+  function validateGameLocaleResources(value) {
+    return Boolean(
+      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
+    );
+  }
+  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en") return null;
+    const entries = chunkEntries(target);
+    const moduleMap = localeModuleMap(entries);
+    const expectedModuleId = moduleMap.get(normalizedLocale);
+    const candidates = [];
+    for (const entry of entries) {
+      for (const [moduleId, factory] of Object.entries(entry[1])) {
+        if (typeof factory !== "function") continue;
+        if (expectedModuleId && moduleId !== expectedModuleId) continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!expectedModuleId && (!source.includes("itemNames") || !source.includes("actionNames") || !source.includes("monsterNames") || !source.includes("abilityNames"))) {
+          continue;
+        }
+        candidates.push(factory);
+      }
+    }
+    for (const factory of candidates) {
+      try {
+        const resources = runLocaleFactory(factory);
+        if (validateGameLocaleResources(resources)) return resources;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function englishResourceMap(type) {
+    const definition = ENTITY_TYPES[type];
+    const details = runtime.state[definition.stateKey];
+    if (!details || typeof details !== "object") return {};
+    return Object.fromEntries(
+      Object.entries(details).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
+    );
+  }
+  function englishResources() {
+    const resources = {
+      itemNames: englishResourceMap("item"),
+      actionNames: englishResourceMap("action"),
+      monsterNames: englishResourceMap("monster"),
+      abilityNames: englishResourceMap("ability")
+    };
+    for (const [hrid, name] of Object.entries(resources.actionNames)) {
+      if (!hrid.startsWith("/actions/combat/")) continue;
+      const monsterHrid = hrid.replace("/actions/combat/", "/monsters/");
+      if (!resources.monsterNames[monsterHrid]) {
+        resources.monsterNames[monsterHrid] = name;
+      }
+    }
+    return resources;
+  }
+  function simplifiedResources() {
+    const others = runtime.data.ZHOthersDic ?? {};
+    return {
+      itemNames: runtime.data.ZHItemNames ?? {},
+      actionNames: runtime.data.ZHActionNames ?? {},
+      monsterNames: Object.fromEntries(
+        Object.entries(others).filter(([hrid]) => hrid.startsWith("/monsters/"))
+      ),
+      abilityNames: Object.fromEntries(
+        Object.entries(others).filter(([hrid]) => hrid.startsWith("/abilities/"))
+      )
+    };
+  }
+  function getGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en") return englishResources();
+    if (localeResources.has(normalizedLocale)) {
+      return localeResources.get(normalizedLocale);
+    }
+    const extracted = extractGameLocaleResources(normalizedLocale);
+    if (extracted) {
+      localeResources.set(normalizedLocale, extracted);
+      return extracted;
+    }
+    if (normalizedLocale === "zh") return simplifiedResources();
+    if (!warnedLocales.has(normalizedLocale)) {
+      warnedLocales.add(normalizedLocale);
+      console.warn(
+        `[MWITools] The official ${normalizedLocale} game language resources are not available yet. Locale-dependent fallbacks will stay disabled.`
+      );
+    }
+    return null;
+  }
+  function registerGameLocaleResources(locale, resources) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (normalizedLocale === "en" || !validateGameLocaleResources(resources)) {
+      return false;
+    }
+    localeResources.set(normalizedLocale, resources);
+    return true;
+  }
+  function entityType(kind) {
+    const normalized = TYPE_ALIASES[kind] ?? kind;
+    return ENTITY_TYPES[normalized] ? normalized : null;
+  }
+  function normalizedName(value, type = "") {
+    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
+    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
+    return result;
+  }
+  function reverseIndex(resources, type) {
+    let indexes = reverseIndexes.get(resources);
+    if (!indexes) {
+      indexes = /* @__PURE__ */ new Map();
+      reverseIndexes.set(resources, indexes);
+    }
+    if (indexes.has(type)) return indexes.get(type);
+    const definition = ENTITY_TYPES[type];
+    const index = /* @__PURE__ */ new Map();
+    for (const [hrid, name] of Object.entries(
+      resources?.[definition.resourceKey] ?? {}
+    )) {
+      const key = normalizedName(name, type);
+      if (!key) continue;
+      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
+      else index.set(key, hrid);
+    }
+    indexes.set(type, index);
+    return index;
+  }
+  function directHrid(type, value) {
+    const definition = ENTITY_TYPES[type];
+    const candidate = String(value ?? "").trim();
+    return candidate.startsWith(definition.prefix) ? candidate : "";
+  }
+  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type) return "";
+    const direct = directHrid(type, name);
+    if (direct) return direct;
+    const key = normalizedName(name, type);
+    if (!key) return "";
+    if (type === "item") {
+      const directEnglish = runtime.state.itemEnNameToHridMap?.[name];
+      if (directEnglish) return directEnglish;
+      for (const [englishName, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (normalizedName(englishName, type) === key) return hrid;
+      }
+    }
+    const sources = [getGameLocaleResources(locale), englishResources()];
+    if (normalizeGameLocale(locale) !== "zh") sources.push(simplifiedResources());
+    for (const resources of sources) {
+      if (!resources) continue;
+      const match = reverseIndex(resources, type).get(key);
+      if (match) return match;
+    }
+    return "";
+  }
+  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
+    const type = entityType(kind);
+    if (!type) return fallback;
+    const definition = ENTITY_TYPES[type];
+    const resources = getGameLocaleResources(locale);
+    return resources?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
+  }
+  function elementCandidates(element) {
+    const result = [];
+    for (let current = element; current && result.length < 24; ) {
+      result.push(current);
+      current = current.parentElement;
+    }
+    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
+      if (!result.includes(child)) result.push(child);
+    }
+    return result;
+  }
+  function datasetHrid(type, element) {
+    const names = [
+      `${type}Hrid`,
+      "hrid",
+      "itemHrid",
+      "actionHrid",
+      "monsterHrid",
+      "abilityHrid"
+    ];
+    for (const name of names) {
+      const value = element?.dataset?.[name];
+      const direct = directHrid(type, value);
+      if (direct) return direct;
+    }
+    return "";
+  }
+  function spriteHrid(type, element) {
+    const definition = ENTITY_TYPES[type];
+    const href = String(
+      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
+    );
+    const [base, fragment = ""] = href.split("#");
+    if (!fragment || !base.includes(definition.sprite)) return "";
+    return `${definition.prefix}${fragment}`;
+  }
+  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type || !element) return "";
+    const candidates = elementCandidates(element);
+    for (const candidate of candidates) {
+      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
+      if (hrid) return hrid;
+    }
+    for (const candidate of candidates) {
+      for (const value of [
+        candidate?.getAttribute?.("aria-label"),
+        candidate?.getAttribute?.("title"),
+        candidate?.textContent
+      ]) {
+        const hrid = resolveLocalizedEntity(type, value, { locale });
+        if (hrid) return hrid;
+      }
+    }
+    return "";
+  }
+  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
+    let value = getGameLocaleResources(locale);
+    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
+      if (!key || !value || typeof value !== "object") return "";
+      value = value[key];
+    }
+    return typeof value === "string" ? value : "";
+  }
+  function escapeRegularExpression(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
+    const template = getGameTranslation(path, { locale });
+    if (!template) return false;
+    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
+    const pattern = parts.map(
+      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
+    ).join("");
+    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
+  }
+  function resetGameLocalizationCache() {
+    localeResources.clear();
+    warnedLocales.clear();
+  }
+  Object.assign(runtime.api, {
+    getGameLocale,
+    getGameLocaleResources,
+    registerGameLocaleResources,
+    getGameTranslation,
+    matchesGameTranslation,
+    resolveLocalizedEntity,
+    resolveEntityFromElement,
+    getLocalizedEntityName
   });
 
   // src/data/translations.js
@@ -3796,7 +4241,7 @@
   var ZHToActionHridMap = inverseKV(ZHActionNames);
   var ZHToOthersMap = inverseKV(ZHOthersDic);
   function getItemEnNameFromZhName(zhName) {
-    const itemHrid = ZHToItemHridMap[zhName];
+    const itemHrid = resolveLocalizedEntity("item", zhName) || ZHToItemHridMap[zhName];
     if (!itemHrid) {
       console.log(
         runtime.config.isZH ? `[MWITools] 找不到物品“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English item name for “${zhName}”.`
@@ -3818,7 +4263,7 @@
     return enName;
   }
   function getActionEnNameFromZhName(zhName) {
-    const actionHrid = ZHToActionHridMap[zhName];
+    const actionHrid = resolveLocalizedEntity("action", zhName) || ZHToActionHridMap[zhName];
     if (!actionHrid) {
       console.log(
         runtime.config.isZH ? `[MWITools] 找不到行动“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English action name for “${zhName}”.`
@@ -3840,7 +4285,7 @@
     return enName;
   }
   function getOthersFromZhName(zhName) {
-    const key = ZHToOthersMap[zhName];
+    const key = resolveLocalizedEntity("monster", zhName) || resolveLocalizedEntity("ability", zhName) || ZHToOthersMap[zhName];
     if (!key) {
       return "";
     }
@@ -3851,7 +4296,8 @@
     inverseKV,
     getItemEnNameFromZhName,
     getActionEnNameFromZhName,
-    getOthersFromZhName
+    getOthersFromZhName,
+    getLocalizedEntityName
   });
   Object.defineProperties(runtime.data, {
     ZHItemNames: {
@@ -18093,6 +18539,8 @@
   var guildDataLoaded = false;
   var currentCharacterId = "";
   var currentCharacterName = "";
+  var currentCharacterGameMode = "standard";
+  var labyrinthActive = false;
   var characterQuests = [];
   var guild = null;
   var guildCharacters = [];
@@ -18391,6 +18839,24 @@
         currentCharacterName = String(value ?? "");
       }
     },
+    currentCharacterGameMode: {
+      enumerable: true,
+      get() {
+        return currentCharacterGameMode;
+      },
+      set(value) {
+        currentCharacterGameMode = String(value ?? "standard").toLowerCase();
+      }
+    },
+    labyrinthActive: {
+      enumerable: true,
+      get() {
+        return labyrinthActive;
+      },
+      set(value) {
+        labyrinthActive = Boolean(value);
+      }
+    },
     characterQuests: {
       enumerable: true,
       get() {
@@ -18505,6 +18971,8 @@
   var MARKET_MAX_PRICE = 1e12;
   var TEST_MARKET_REFRESH_MS = 10 * 60 * 1e3;
   var PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1e3;
+  var assetValuationMarketSnapshot = null;
+  var assetValuationMarketDirty = false;
   function getMarketEnvironment(hostname = globalThis.location?.hostname ?? "") {
     if (hostname.startsWith("test.")) return "test";
     if (hostname.endsWith("milkywayidlecn.com")) return "china";
@@ -18529,8 +18997,40 @@
     const value = itemValues[enhancementLevel] ?? itemValues[String(enhancementLevel)];
     return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
   }
+  function getMarketRecordFrom(marketApiJson2, itemHrid, enhancementLevel = 0) {
+    return marketApiJson2?.marketData?.[itemHrid]?.[enhancementLevel] ?? marketApiJson2?.marketData?.[itemHrid]?.[String(enhancementLevel)] ?? null;
+  }
   function getMarketRecord(itemHrid, enhancementLevel = 0) {
-    return runtime.state.marketApiJson?.marketData?.[itemHrid]?.[enhancementLevel] ?? runtime.state.marketApiJson?.marketData?.[itemHrid]?.[String(enhancementLevel)] ?? null;
+    return getMarketRecordFrom(
+      runtime.state.marketApiJson,
+      itemHrid,
+      enhancementLevel
+    );
+  }
+  function cloneMarketItemValues(source) {
+    return Object.fromEntries(
+      Object.entries(source ?? {}).map(([itemHrid, levels]) => [
+        itemHrid,
+        { ...levels ?? {} }
+      ])
+    );
+  }
+  function ensureAssetValuationMarketSnapshot() {
+    assetValuationMarketSnapshot ??= {
+      marketApiJson: runtime.state.marketApiJson,
+      marketItemValues: cloneMarketItemValues(runtime.state.marketItemValues)
+    };
+    return assetValuationMarketSnapshot;
+  }
+  function markAssetValuationMarketDirty() {
+    if (assetValuationMarketSnapshot) assetValuationMarketDirty = true;
+  }
+  function resetAssetValuationMarketSnapshot() {
+    assetValuationMarketSnapshot = null;
+    assetValuationMarketDirty = false;
+  }
+  function isAssetValuationMarketDirty() {
+    return assetValuationMarketDirty;
   }
   function getAskPrice(itemHrid, enhancementLevel = 0) {
     const price = Number(getMarketRecord(itemHrid, enhancementLevel)?.a);
@@ -18551,6 +19051,40 @@
     const bid = getBidPrice(itemHrid, enhancementLevel);
     if (ask > 0 && bid > 0) return (ask + bid) / 2;
     return ask || bid || 0;
+  }
+  function getAssetMarketRecord(itemHrid, enhancementLevel = 0) {
+    return getMarketRecordFrom(
+      ensureAssetValuationMarketSnapshot().marketApiJson,
+      itemHrid,
+      enhancementLevel
+    );
+  }
+  function getAssetAskPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.a);
+    return price > 0 ? price : 0;
+  }
+  function getAssetBidPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.b);
+    return price > 0 ? price : 0;
+  }
+  function getAssetFairValue(itemHrid, enhancementLevel = 0) {
+    const snapshot = ensureAssetValuationMarketSnapshot();
+    const serverValue = getLevelValue(
+      snapshot.marketItemValues,
+      itemHrid,
+      enhancementLevel
+    );
+    if (serverValue !== null && serverValue > 0) return serverValue;
+    const ask = getAssetAskPrice(itemHrid, enhancementLevel);
+    const bid = getAssetBidPrice(itemHrid, enhancementLevel);
+    if (ask > 0 && bid > 0) return (ask + bid) / 2;
+    return ask || bid || 0;
+  }
+  function getAssetNetSellPrice(itemHrid, enhancementLevel = 0) {
+    return getAssetBidPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
+  }
+  function getAssetNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+    return getAssetAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
   }
   function getMarketTaxRate(itemHrid) {
     return itemHrid === "/items/bag_of_10_cowbells" ? COWBELL_TAX_RATE : MARKET_TAX_RATE;
@@ -18582,21 +19116,31 @@
   }
   function parseCompactNumber(value) {
     if (typeof value === "number") return value;
-    const normalized = String(value ?? "").trim().toLowerCase().replaceAll(runtime.config.THOUSAND_SEPERATOR || ",", "").replace(runtime.config.DECIMAL_SEPERATOR || ".", ".");
+    const thousandSeparator = runtime.config.THOUSAND_SEPERATOR ?? ",";
+    const decimalSeparator = runtime.config.DECIMAL_SEPERATOR || ".";
+    let normalized = String(value ?? "").trim().toLowerCase();
+    if (thousandSeparator) {
+      normalized = normalized.replaceAll(thousandSeparator, "");
+    }
+    normalized = normalized.replaceAll(/[\s\u00a0\u202f]/g, "").replace(decimalSeparator, ".");
     const match = normalized.match(/^([+-]?(?:\d+\.?\d*|\.\d+))\s*([kmbt])?$/i);
     if (!match) return Number.NaN;
     const multipliers = { k: 1e3, m: 1e6, b: 1e9, t: 1e12 };
     return Number(match[1]) * (multipliers[match[2]] ?? 1);
   }
   function getNumberLocale() {
-    return runtime.config.isZH ? "zh-CN" : "en-US";
+    return runtime.config.NUMBER_LOCALE || "en-US";
   }
-  function formatExactNumber(value) {
+  function formatExactNumber(value, fractionDigits = 20) {
     if (value === null || value === void 0 || value === "") return "—";
     const number2 = Number(value);
     if (!Number.isFinite(number2)) return "—";
+    const maximumFractionDigits = Math.min(
+      20,
+      Math.max(0, Math.floor(Number(fractionDigits) || 0))
+    );
     return new Intl.NumberFormat(getNumberLocale(), {
-      maximumFractionDigits: 20,
+      maximumFractionDigits,
       useGrouping: true
     }).format(number2);
   }
@@ -18684,8 +19228,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal3.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal4.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error(
         runtime.config.isZH ? "[MWITools] 无法从游戏缓存读取市场价值" : "[MWITools] Unable to read market values from the game cache",
@@ -18698,7 +19242,7 @@
     if (!parsed) return false;
     runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
     runtime.state.marketItemValues = parsed.marketItemValues;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
     return true;
   }
   function validateMarketJsonFetch(jsonValue, isSave = false) {
@@ -18729,7 +19273,7 @@
       jsonObj.marketData[itemHrid] = { 0: prices };
     }
     runtime.state.marketApiJson = jsonObj;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
     if (isSave) {
       localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
       localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
@@ -18812,7 +19356,7 @@
     if (!payload.marketItemValues) return;
     runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
     runtime.state.marketItemValues = payload.marketItemValues;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
   }
   function applyMarketOrderBooks(payload) {
     const orderBookPayload = payload.marketItemOrderBooks ?? payload;
@@ -18824,8 +19368,8 @@
         ...runtime.state.marketItemValues[itemHrid] ?? {},
         ...orderBookPayload.marketValues
       };
+      markAssetValuationMarketDirty();
     }
-    runtime.api.invalidateAssetValueCache?.();
     const minimums = orderBookPayload.priceBandMins ?? {};
     const maximums = orderBookPayload.priceBandMaxs ?? {};
     const levels = /* @__PURE__ */ new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
@@ -18870,6 +19414,13 @@
     getAskPrice,
     getBidPrice,
     getFairValue,
+    getAssetAskPrice,
+    getAssetBidPrice,
+    getAssetFairValue,
+    getAssetNetSellPrice,
+    getAssetNetSellPriceAtAsk,
+    resetAssetValuationMarketSnapshot,
+    isAssetValuationMarketDirty,
     getMarketTaxRate,
     getNetSellPrice,
     getNetSellPriceAtAsk,
@@ -18927,6 +19478,13 @@
     gourmet: "/buff_types/gourmet",
     rareFind: "/buff_types/rare_find"
   });
+  var ALCHEMY_ACTION_HRIDS = Object.freeze({
+    coinify: "/actions/alchemy/coinify",
+    decompose: "/actions/alchemy/decompose",
+    transmute: "/actions/alchemy/transmute",
+    unrefine: "/actions/alchemy/unrefine"
+  });
+  var COIN_ITEM_HRID = "/items/coin";
   function asArray(value) {
     if (Array.isArray(value)) return value;
     if (!value) return [];
@@ -18941,6 +19499,65 @@
     return (runtime.state.initData_characterItems ?? []).filter(
       (item) => item.itemHrid === itemHrid && item.itemLocationHrid === "/item_locations/inventory"
     ).reduce((sum, item) => sum + Number(item.count || 0), 0);
+  }
+  function getInventoryItemByHash(hash) {
+    if (!hash) return null;
+    return (runtime.state.initData_characterItems ?? []).find(
+      (item) => item.hash === hash && item.itemLocationHrid === "/item_locations/inventory"
+    ) ?? null;
+  }
+  function getAlchemyCoinCost(actionHrid, itemDetail) {
+    const itemLevel = Math.max(0, Number(itemDetail?.itemLevel) || 0);
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.coinify) return 0;
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.decompose || actionHrid === ALCHEMY_ACTION_HRIDS.unrefine) {
+      return Math.floor(5 * (10 + itemLevel));
+    }
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.transmute) {
+      return Math.max(50, Math.floor((Number(itemDetail?.sellPrice) || 0) / 5));
+    }
+    return 0;
+  }
+  function getAlchemyCapacity(action, detail, lessResource) {
+    if (detail?.function !== "/action_functions/alchemy") return null;
+    const primary = getInventoryItemByHash(action?.primaryItemHash);
+    if (!primary) {
+      return { known: false, maxCraftable: null, missing: ["primaryItem"] };
+    }
+    const primaryDetail = runtime.state.initData_itemDetailMap?.[primary.itemHrid];
+    const bulkMultiplier = Math.max(
+      1,
+      Math.floor(Number(primaryDetail?.alchemyDetail?.bulkMultiplier) || 1)
+    );
+    let maxCraftable = Math.floor(
+      Math.max(0, Number(primary.count) || 0) / bulkMultiplier
+    );
+    if (action?.secondaryItemHash) {
+      const secondary = getInventoryItemByHash(action.secondaryItemHash);
+      if (!secondary) {
+        return { known: false, maxCraftable: null, missing: ["secondaryItem"] };
+      }
+      maxCraftable = primary.hash === secondary.hash ? Math.floor(
+        Math.max(0, Number(primary.count) || 0) / (bulkMultiplier + 1)
+      ) : Math.min(maxCraftable, Math.max(0, Number(secondary.count) || 0));
+    }
+    const coinCost = getAlchemyCoinCost(action.actionHrid, primaryDetail);
+    if (coinCost > 0) {
+      const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
+      const effectiveCoinCost = coinCost * bulkMultiplier * (1 - reduction);
+      if (effectiveCoinCost > 0) {
+        maxCraftable = Math.min(
+          maxCraftable,
+          Math.floor(getInventoryCount(COIN_ITEM_HRID) / effectiveCoinCost)
+        );
+      }
+    }
+    return {
+      known: true,
+      maxCraftable: Math.max(0, maxCraftable),
+      bulkMultiplier,
+      coinCost,
+      primary
+    };
   }
   function getExpectedOutputs(detail) {
     if (asArray(detail?.outputItems).length) {
@@ -19010,6 +19627,7 @@
   function getDirectInputs(detail) {
     const inputs = asArray(detail?.inputItems).map((item) => ({
       itemHrid: item.itemHrid,
+      enhancementLevel: Number(item.enhancementLevel ?? 0) || 0,
       count: Number(item.count) || 0,
       isUpgradeItem: false,
       upgradeItemCount: 0
@@ -19028,6 +19646,7 @@
       } else {
         inputs.push({
           itemHrid: detail.upgradeItemHrid,
+          enhancementLevel: 0,
           count: 1,
           isUpgradeItem: true,
           upgradeItemCount: 1
@@ -19151,6 +19770,104 @@
         0,
         base.upgradedProduct * concentrationMultiplier
       )
+    };
+  }
+  function projectActionCraftingCost(actionOrHrid, options = {}) {
+    const action = typeof actionOrHrid === "string" ? { actionHrid: actionOrHrid } : actionOrHrid ?? {};
+    const actionHrid = action.actionHrid ?? action.hrid;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!actionHrid || !detail) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        missing: ["actionData"],
+        missingPrices: []
+      };
+    }
+    if (!isPlayerDataReady()) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        detail,
+        missing: ["playerData"],
+        missingPrices: []
+      };
+    }
+    const teaEffects = getEffectiveTeaEffects(actionHrid);
+    if (!teaEffects) {
+      return {
+        status: "waiting",
+        complete: false,
+        actionHrid,
+        detail,
+        missing: ["playerData"],
+        missingPrices: []
+      };
+    }
+    const getUnitPrice = typeof options.getUnitPrice === "function" ? options.getUnitPrice : () => null;
+    const missingPrices = [];
+    const inputs = getDirectInputs(detail).map((input) => {
+      const effectiveCount = getEffectiveInputCount(
+        input,
+        teaEffects.lessResource
+      );
+      const unitPrice = Number(
+        getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0)
+      );
+      if (!(unitPrice > 0)) missingPrices.push(input.itemHrid);
+      return {
+        ...input,
+        effectiveCount,
+        unitPrice: unitPrice > 0 ? unitPrice : null,
+        valuePerAction: unitPrice > 0 ? effectiveCount * unitPrice : null
+      };
+    });
+    const materialCostPerAction = inputs.reduce(
+      (total, input) => total + (input.valuePerAction ?? 0),
+      0
+    );
+    const timing = getEffectiveSeconds(actionHrid, detail, options);
+    const secondsPerAction = timing?.secondsPerAction ?? null;
+    const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+    const drinks = teaEffects.drinks.map((drink) => {
+      const unitPrice = Number(getUnitPrice(drink.itemHrid, 0));
+      if (!(unitPrice > 0)) missingPrices.push(drink.itemHrid);
+      const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+      const costPerHour = unitPrice > 0 ? unitPrice * countPerHour : null;
+      return {
+        ...drink,
+        unitPrice: unitPrice > 0 ? unitPrice : null,
+        countPerHour,
+        costPerHour
+      };
+    });
+    const requiresTiming = drinks.length > 0;
+    const teaCostPerHour = drinks.reduce(
+      (total, drink) => total + (drink.costPerHour ?? 0),
+      0
+    );
+    const teaCostPerAction = actionsPerHour ? teaCostPerHour / actionsPerHour : requiresTiming ? null : 0;
+    const complete = missingPrices.length === 0 && (!requiresTiming || actionsPerHour !== null);
+    const totalCostPerAction = complete ? materialCostPerAction + teaCostPerAction : null;
+    return {
+      status: complete ? "complete" : "incomplete",
+      complete,
+      actionHrid,
+      detail,
+      inputs,
+      outputs: getExpectedOutputs(detail),
+      drinks,
+      teaEffects: { ...teaEffects, drinks },
+      secondsPerAction,
+      actionsPerHour,
+      materialCostPerAction,
+      teaCostPerHour,
+      teaCostPerAction,
+      totalCostPerAction,
+      missing: requiresTiming && !actionsPerHour ? ["actionTiming"] : [],
+      missingPrices: [...new Set(missingPrices)]
     };
   }
   function isPlayerDataReady() {
@@ -19361,21 +20078,45 @@
     const inputs = getDirectInputs(detail);
     const outputs = getEffectiveOutputs(detail, teaEffects);
     const lessResource = teaEffects.lessResource;
-    let maxCraftable = Infinity;
-    for (const input of inputs) {
-      const effectiveCount = getEffectiveInputCount(input, lessResource);
-      if (effectiveCount > 0) {
-        maxCraftable = Math.min(
-          maxCraftable,
-          Math.floor(getInventoryCount(input.itemHrid) / effectiveCount)
-        );
-      }
+    const alchemyCapacity = getAlchemyCapacity(action, detail, lessResource);
+    if (alchemyCapacity && !alchemyCapacity.known) {
+      return {
+        status: "waiting",
+        actionHrid,
+        detail,
+        count: normalizedCount,
+        infinite,
+        effectiveCount: null,
+        effectivelyInfinite: false,
+        materialLimited: false,
+        maxCraftable: null,
+        missing: alchemyCapacity.missing,
+        missingPrices: [],
+        netProfitPerAction: null,
+        profitPerHour: null,
+        totalProfit: null,
+        secondsPerAction,
+        totalSeconds: null,
+        finishAt: null
+      };
     }
-    if (!inputs.length) maxCraftable = Infinity;
-    const canApplyInventoryLimit = respectInventoryLimit && !(infinite && maxCraftable === 0);
+    let maxCraftable = alchemyCapacity?.maxCraftable ?? Infinity;
+    if (!alchemyCapacity) {
+      for (const input of inputs) {
+        const effectiveCount = getEffectiveInputCount(input, lessResource);
+        if (effectiveCount > 0) {
+          maxCraftable = Math.min(
+            maxCraftable,
+            Math.floor(getInventoryCount(input.itemHrid) / effectiveCount)
+          );
+        }
+      }
+      if (!inputs.length) maxCraftable = Infinity;
+    }
+    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
     const executableCount = canApplyInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
-    const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
+    const materialLimited = respectInventoryLimit && (inputs.length > 0 || Boolean(alchemyCapacity)) && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
     const valuationMode = "fair";
     const optionalOutputs = getOptionalOutputs(actionHrid, detail);
     const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
@@ -19596,6 +20337,7 @@
     getDirectInputs,
     getActionRemainingCount: getActionCount,
     isPlayerProjectionDataReady: isPlayerDataReady,
+    projectActionCraftingCost,
     projectAction,
     projectQueue,
     resolveProductionActionByItemHrid
@@ -19614,6 +20356,7 @@
     createPlansByDefault: true,
     inventorySyncEnabled: true,
     autoCollapseEnabled: true,
+    autoExpandOnAddEnabled: false,
     locateEnabled: true,
     autoPrefillEnabled: true,
     purchaseNavEnabled: true,
@@ -19816,7 +20559,7 @@
     refreshPlanProgress();
     ready = Boolean(activeCharacterId2);
     emit("character:change", { characterId: activeCharacterId2 });
-    emit("cart:change", { items: getCartItems() });
+    emit("cart:change", { reason: "load", added: 0, items: getCartItems() });
     emit("plan:change", { plans: getPlans() });
     if (ready) emit("ready", { characterId: activeCharacterId2 });
   }
@@ -20168,9 +20911,9 @@
       item ? { ...item, name: resolveItemName(item.itemHrid) || item.name } : null
     );
   }
-  function saveCartAndEmit() {
+  function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
     persistData();
-    emit("cart:change", { items: getCartItems() });
+    emit("cart:change", { reason, added, items: getCartItems() });
   }
   function addToCart(input) {
     const rows = Array.isArray(input) ? input : [input];
@@ -20200,7 +20943,7 @@
       });
       added += 1;
     }
-    if (added) saveCartAndEmit();
+    if (added) saveCartAndEmit({ reason: "add", added });
     return { ok: added > 0, added, skipped };
   }
   function addRequirementsToCart(materials, source = "material") {
@@ -20359,18 +21102,25 @@
     if (!settings.autoRestockEnabled) return;
     const now = Date.now();
     let changed = false;
+    let added = 0;
     for (const row of cart.values()) {
       if (!row.starred || !row.threshold || row.manualOverrideUntil > now)
         continue;
       const owned = getInventoryCount2(row.itemHrid, row.enhancementLevel);
       const required = Math.max(0, row.threshold - owned);
       if (required !== row.quantity) {
+        if (required > row.quantity) added += 1;
         row.quantity = required;
         row.baselineStock = owned;
         changed = true;
       }
     }
-    if (changed) saveCartAndEmit();
+    if (changed) {
+      saveCartAndEmit({
+        reason: added ? "add" : "update",
+        added
+      });
+    }
   }
   function getPlans() {
     refreshPlanProgress();
@@ -20873,6 +21623,8 @@
   var FALLBACK_KEY = "MWITools_xp_history_v1";
   var RETENTION_MS = 30 * 24 * 60 * 60 * 1e3;
   var HOUR_MS = 60 * 60 * 1e3;
+  var RECENT_WINDOW_MS = 6 * HOUR_MS;
+  var RECENT_MINIMUM_COVERAGE_MS = HOUR_MS;
   function openDatabase() {
     if (!globalThis.indexedDB) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -20995,14 +21747,13 @@
   function calculateXpRates(records, now = Date.now()) {
     const sorted = [...records].sort((a, b) => a.at - b.at);
     const latest = sorted.at(-1);
-    let previous = null;
-    if (latest) {
-      previous = [...sorted].reverse().find(
-        (record) => latest.at - record.at >= 5 * 60 * 1e3 && record.xp <= latest.xp
-      );
-    }
     return {
-      recent: latest && previous ? (latest.xp - previous.xp) / (latest.at - previous.at) * HOUR_MS : null,
+      recent: calculateWindowRate(
+        sorted,
+        RECENT_WINDOW_MS,
+        RECENT_MINIMUM_COVERAGE_MS,
+        now
+      ),
       hour: calculateWindowRate(sorted, HOUR_MS, 30 * 60 * 1e3, now),
       day: calculateWindowRate(sorted, 24 * HOUR_MS, 12 * HOUR_MS, now),
       lastSampleAt: latest?.at ?? null,
@@ -21024,6 +21775,10 @@
     "/items/pirate_token",
     "/items/task_token",
     "/items/labyrinth_token"
+  ]);
+  var COWBELL_VALUE_HRIDS = /* @__PURE__ */ new Set([
+    "/items/cowbell",
+    "/items/bag_of_10_cowbells"
   ]);
   var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
   var MAX_ACQUISITION_DEPTH = 12;
@@ -21047,6 +21802,7 @@
     assetValueCache.clear();
     assetLiquidationCache.clear();
     guildCreditHridCache = null;
+    runtime.api.resetAssetValuationMarketSnapshot?.();
   }
   function getItemDetails(itemHrid) {
     return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
@@ -21102,7 +21858,7 @@
     )) {
       const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
       if (!itemHrid || itemHrid === "/items/guild_token") continue;
-      const materialValue = runtime.api.getFairValue(itemHrid, 0);
+      const materialValue = runtime.api.getAssetFairValue(itemHrid, 0);
       if (!(materialValue > 0)) continue;
       for (const conversion of detail?.guildCreditConversions ?? []) {
         if (conversion?.creditItemHrid !== creditItemHrid) continue;
@@ -21203,19 +21959,24 @@
       sellAtAsk: Boolean(settings2.lootSellAtAsk?.isTrue),
       buyAtAsk: settings2.lootBuyAtAsk?.isTrue !== false,
       fromFragments: Boolean(settings2.lootKeyFromFragments?.isTrue),
+      ignoreCowbells: Boolean(settings2.lootIgnoreCowbells?.isTrue),
       ...overrides
     };
   }
   function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
     if (itemHrid === "/items/coin") return 1;
-    const price = sellAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    const price = sellAtAsk ? positiveNumber2(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(
+      runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel)
+    );
     if (!(price > 0)) return 0;
     const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
     return price * Math.max(0, 1 - taxRate);
   }
   function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
     if (itemHrid === "/items/coin") return 1;
-    return buyAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    return buyAtAsk ? positiveNumber2(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(
+      runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel)
+    );
   }
   function lootDropIdentity(itemHrid, enhancementLevel = 0) {
     return `${itemHrid}:${Number(enhancementLevel) || 0}`;
@@ -21258,7 +22019,7 @@
     let bestValue = Number.POSITIVE_INFINITY;
     let sawRecipe = false;
     const missing = /* @__PURE__ */ new Set();
-    for (const [, action] of entriesOfMap(
+    for (const [actionMapHrid, action] of entriesOfMap(
       runtime.state.initData_actionDetailMap
     )) {
       const outputCount = (action?.outputItems ?? []).reduce((total, output) => {
@@ -21268,30 +22029,21 @@
       }, 0);
       if (!outputCount) continue;
       sawRecipe = true;
-      const inputs = [...action?.inputItems ?? []];
-      const upgradeItemHrid = action?.upgradeItemHrid;
-      if (upgradeItemHrid) {
-        inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
-      }
-      let totalCost = 0;
-      let complete = true;
-      for (const input of inputs) {
-        const inputHrid = input?.itemHrid ?? input?.hrid;
-        const count = positiveNumber2(input?.count);
-        if (!inputHrid || !count) continue;
-        const unitValue = lootPurchaseValue(
-          inputHrid,
-          Number(input?.enhancementLevel ?? 0) || 0,
-          config.buyAtAsk
+      const actionHrid = action?.hrid ?? action?.actionHrid ?? actionMapHrid;
+      const projection = runtime.api.projectActionCraftingCost?.(actionHrid, {
+        getUnitPrice: (inputHrid, enhancementLevel = 0) => lootPurchaseValue(inputHrid, enhancementLevel, config.buyAtAsk)
+      });
+      if (projection?.complete && Number.isFinite(projection.totalCostPerAction)) {
+        bestValue = Math.min(
+          bestValue,
+          projection.totalCostPerAction / outputCount
         );
-        if (!(unitValue > 0)) {
-          complete = false;
-          missing.add(inputHrid);
-          continue;
-        }
-        totalCost += count * unitValue;
+        continue;
       }
-      if (complete) bestValue = Math.min(bestValue, totalCost / outputCount);
+      for (const missingItemHrid of projection?.missingPrices ?? []) {
+        missing.add(missingItemHrid);
+      }
+      if (!projection || projection.missing?.length) missing.add(keyItemHrid);
     }
     return {
       value: Number.isFinite(bestValue) ? bestValue : 0,
@@ -21317,7 +22069,7 @@
       const rewardItemHrid = reward?.itemHrid ?? reward?.hrid;
       const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
       const rewardCount = positiveNumber2(reward?.count ?? 1);
-      if (!rewardItemHrid || !rewardCount || !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))) {
+      if (!rewardItemHrid || !rewardCount || config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(rewardItemHrid) || !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))) {
         continue;
       }
       const rewardUnitValue = lootSaleValue(
@@ -21383,6 +22135,7 @@
     const rows = [];
     let grossValue = 0;
     for (const drop of normalizedDrops) {
+      const cowbellExcluded = config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(drop.itemHrid);
       const nestedChest = normalizeLootDrops(drop.itemHrid).length > 0;
       const marketValue = lootSaleValue(
         drop.itemHrid,
@@ -21397,7 +22150,11 @@
       let priced = false;
       let nestedMissing = [];
       let pendingSelfReference = false;
-      if (nestedChest && drop.itemHrid === itemHrid) {
+      if (cowbellExcluded) {
+        unitValue = 0;
+        valueSource = "excluded";
+        priced = true;
+      } else if (nestedChest && drop.itemHrid === itemHrid) {
         pendingSelfReference = true;
       } else if (nestedChest) {
         const nestedProjection = projectLootChestInternal(
@@ -21653,7 +22410,7 @@
       forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: !backEquipment,
       getFairValue: (hrid, level = 0) => acquisitionCostValue(hrid, level, context),
-      getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level)
+      getMarketValue: (hrid, level = 0) => runtime.api.getAssetFairValue(hrid, level)
     });
     return plan?.status === "complete" ? positiveNumber2(plan.totalCost) : 0;
   }
@@ -21688,7 +22445,7 @@
   function getAssetValueInternal(itemHrid, enhancementLevel, context, options = {}) {
     if (!itemHrid) return 0;
     const level = Number(enhancementLevel) || 0;
-    const directFairValue = runtime.api.getFairValue(itemHrid, level);
+    const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
     const enhancedEquipment = level > 0 && isEquipment(itemHrid);
     const refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined");
@@ -21784,16 +22541,16 @@
   function directLiquidationValue(itemHrid, enhancementLevel, mode) {
     if (mode === "conservative") {
       return positiveNumber2(
-        runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel)
+        runtime.api.getAssetNetSellPrice?.(itemHrid, enhancementLevel)
       );
     }
     if (mode === "aggressive") {
       return positiveNumber2(
-        runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
+        runtime.api.getAssetNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
       );
     }
     const fairValue = positiveNumber2(
-      runtime.api.getFairValue?.(itemHrid, enhancementLevel)
+      runtime.api.getAssetFairValue?.(itemHrid, enhancementLevel)
     );
     if (!fairValue) return 0;
     const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
@@ -22266,6 +23023,8 @@
   function applyCharacterData(payload) {
     runtime.state.currentCharacterId = payload.character?.id ?? payload.character?.characterID ?? payload.characterID ?? payload.characterSkills?.[0]?.characterID ?? "";
     runtime.state.currentCharacterName = payload.character?.name ?? payload.characterName ?? payload.sharableCharacter?.name ?? payload.combatUnit?.name ?? "";
+    runtime.state.currentCharacterGameMode = payload.character?.gameMode ?? payload.combatUnit?.character?.gameMode ?? payload.sharableCharacter?.gameMode ?? "standard";
+    runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
     runtime.state.initData_characterSkills = payload.characterSkills;
     runtime.state.initData_characterItems = payload.characterItems ?? [];
     runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -22497,6 +23256,13 @@
         break;
       case "leaderboard_updated":
         applyLeaderboard(payload);
+        break;
+      case "labyrinth_updated":
+        if (Object.hasOwn(payload, "labyrinth")) {
+          runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
+        } else if (Object.hasOwn(payload, "isActive")) {
+          runtime.state.labyrinthActive = Boolean(payload.isActive);
+        }
         break;
     }
   }
@@ -23397,6 +24163,12 @@
     const [year, month, day] = String(dayKey).split("-").map(Number);
     return Date.UTC(year, month - 1, day);
   }
+  function isValidDayKey(dayKey) {
+    const value = String(dayKey ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const timestamp = parseDayKey(value);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+  }
   function dayGap(left, right) {
     return Math.round((parseDayKey(right) - parseDayKey(left)) / 864e5);
   }
@@ -23651,6 +24423,31 @@
       this.getRole(scopeKey).days[dayKey] = {
         recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
         values,
+        edited: true
+      };
+      this.save();
+      return values;
+    }
+    insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
+      if (!isValidDayKey(dayKey)) {
+        throw new TypeError("Asset history insertion requires a valid day key");
+      }
+      const values = normalizeAssetValues(componentValues);
+      if (!ASSET_COMPONENT_KEYS.every(
+        (key) => Number.isFinite(values[key]) && values[key] >= 0
+      )) {
+        throw new TypeError(
+          "Every inserted asset component needs a non-negative finite value"
+        );
+      }
+      const role = this.getRole(scopeKey);
+      if (Object.hasOwn(role.days, dayKey)) {
+        throw new RangeError(`Asset history already contains ${dayKey}`);
+      }
+      role.days[dayKey] = {
+        recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
+        values,
+        inserted: true,
         edited: true
       };
       this.save();
@@ -24504,7 +25301,7 @@
     });
   }
   function formatTooltip(value) {
-    return runtime.api.formatExactNumber?.(value) ?? String(value);
+    return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
   }
   var AssetHistoryChart = class {
     constructor(canvas, fallback) {
@@ -24780,6 +25577,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       month: date.getMonth()
     };
   }
+  function shiftDayKey(dayKey, amount) {
+    const date = /* @__PURE__ */ new Date(`${dayKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + amount);
+    return date.toISOString().slice(0, 10);
+  }
   function addStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -24862,7 +25664,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <div class="ep-nav-footer">${this.nav("settings", "⚙", this.t("设置/存档", "Settings"))}<button class="ep-nav-item" data-language><span class="ep-nav-icon">文</span><span class="ep-nav-text">${this.isZH() ? "EN" : "中文"}</span></button></div>
       </aside><main class="ep-main"><header class="ep-top"><div class="ep-top-main"><div class="ep-top-title"></div><div class="ep-top-sub"></div></div><button class="ep-close" data-close aria-label="${this.t("关闭", "Close")}">✕</button></header><div class="ep-page"></div></main>
       <input type="file" data-import-file accept="application/json" hidden>
-      <dialog data-edit-dialog><h3>${this.t("编辑分项资产", "Edit components")}</h3><div class="ep-edit-grid">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
+      <dialog data-edit-dialog><h3 data-editor-title>${this.t("编辑分项资产", "Edit components")}</h3><label data-insert-date-wrap hidden>${this.t("插入日期", "Insert date")}<input type="date" data-insert-date></label><div class="ep-edit-grid ep-section">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
     </div>`;
       document.body.append(this.root);
       const windowSize = this.store.getPreferences().windowSize;
@@ -25006,7 +25808,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       return { entries, current, previous, change };
     }
     metric(label, value, className = "") {
-      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
     }
     renderChartPage(page) {
       const { entries, current, previous, change } = this.summaryValues();
@@ -25167,8 +25969,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       page.innerHTML = `<div class="ep-grid">${this.metric(this.t("已解锁", "Unlocked"), unlocked)}${this.metric(this.t("全部成就", "All achievements"), achievements.length)}${this.metric(this.t("完成度 %", "Completion %"), achievements.length ? unlocked / achievements.length * 100 : 0)}${this.metric(this.t("历史天数", "History days"), this.store.list(this.scopeKey).length)}</div><div class="ep-achievements ep-section">${achievements.map((item) => `<article class="ep-achievement ${item.unlocked ? "" : "locked"}"><span class="ep-achievement-icon">${item.icon}</span><div class="ep-grow"><strong>${this.isZH() ? item.zhName : item.enName}</strong><small>${this.isZH() ? item.zhDescription : item.enDescription}</small>${item.date ? `<small>${item.date}</small>` : ""}</div><span>${item.unlocked ? "✓" : "🔒"}</span></article>`).join("")}</div>`;
     }
     renderDataPage(page) {
-      const entries = this.store.list(this.scopeKey).slice().reverse();
-      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(([date, record]) => `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td><button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`).join("")}</tbody></table></div></section>`;
+      const chronological = this.store.list(this.scopeKey);
+      const entries = chronological.map((entry, index) => ({ entry, previous: chronological[index - 1] })).reverse();
+      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(({ entry: [date, record], previous }) => {
+        const insertButton = previous && shiftDayKey(previous[0], 1) < date ? `<button class="ep-btn" data-insert-after="${previous[0]}" data-insert-before="${date}">${this.t("插入", "Insert")}</button> ` : "";
+        return `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td>${insertButton}<button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`;
+      }).join("")}</tbody></table></div></section>`;
       page.querySelector("[data-export]").addEventListener("click", () => this.downloadBackup());
       page.querySelector("[data-import]").addEventListener("click", () => {
         this.pendingImportMode = page.querySelector("[data-import-mode]").value;
@@ -25210,6 +26016,15 @@ ${values.map((item) => item.date).join("\n")}`
           this.changed();
         }
       });
+      page.querySelectorAll("[data-insert-after]").forEach(
+        (button) => button.addEventListener(
+          "click",
+          () => this.openInsertEditor(
+            button.dataset.insertAfter,
+            button.dataset.insertBefore
+          )
+        )
+      );
       page.querySelectorAll("[data-edit-day]").forEach(
         (button) => button.addEventListener(
           "click",
@@ -25229,8 +26044,39 @@ ${values.map((item) => item.date).join("\n")}`
     }
     openEditor(date) {
       const dialog = this.root.querySelector("[data-edit-dialog]");
+      dialog.dataset.mode = "edit";
       dialog.dataset.date = date;
+      delete dialog.dataset.olderDate;
+      delete dialog.dataset.newerDate;
+      dialog.querySelector("[data-editor-title]").textContent = this.t(
+        "编辑分项资产",
+        "Edit components"
+      );
+      dialog.querySelector("[data-insert-date-wrap]").hidden = true;
       const values = this.store.getRole(this.scopeKey).days[date]?.values ?? {};
+      dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
+        input.value = Number.isFinite(values[input.dataset.editComponent]) ? values[input.dataset.editComponent] : "";
+      });
+      dialog.showModal();
+    }
+    openInsertEditor(olderDate, newerDate) {
+      const dialog = this.root.querySelector("[data-edit-dialog]");
+      const dateInput = dialog.querySelector("[data-insert-date]");
+      const minimum = shiftDayKey(olderDate, 1);
+      const maximum = shiftDayKey(newerDate, -1);
+      dialog.dataset.mode = "insert";
+      dialog.dataset.olderDate = olderDate;
+      dialog.dataset.newerDate = newerDate;
+      delete dialog.dataset.date;
+      dialog.querySelector("[data-editor-title]").textContent = this.t(
+        "插入历史资产",
+        "Insert historical assets"
+      );
+      dialog.querySelector("[data-insert-date-wrap]").hidden = false;
+      dateInput.min = minimum;
+      dateInput.max = maximum;
+      dateInput.value = minimum;
+      const values = this.store.getRole(this.scopeKey).days[olderDate]?.values ?? {};
       dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
         input.value = Number.isFinite(values[input.dataset.editComponent]) ? values[input.dataset.editComponent] : "";
       });
@@ -25241,7 +26087,7 @@ ${values.map((item) => item.date).join("\n")}`
       const values = Object.fromEntries(
         [...dialog.querySelectorAll("[data-edit-component]")].map((input) => [
           input.dataset.editComponent,
-          Number(input.value)
+          input.value.trim() === "" ? null : Number(input.value)
         ])
       );
       if (!ASSET_COMPONENT_KEYS.every(
@@ -25250,7 +26096,30 @@ ${values.map((item) => item.date).join("\n")}`
         return globalThis.alert?.(
           this.t("请填写全部七个分项。", "Enter all seven components.")
         );
-      this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      if (dialog.dataset.mode === "insert") {
+        const dateInput = dialog.querySelector("[data-insert-date]");
+        const dayKey = dateInput.value;
+        if (!dayKey || dayKey < dateInput.min || dayKey > dateInput.max) {
+          return globalThis.alert?.(
+            this.t(
+              "请选择两条记录之间的缺失日期。",
+              "Choose a missing date between the two records."
+            )
+          );
+        }
+        try {
+          this.store.insertDay(dayKey, values, this.scopeKey);
+        } catch {
+          return globalThis.alert?.(
+            this.t(
+              "无法插入：日期已存在或数据无效。",
+              "Could not insert: the date already exists or the data is invalid."
+            )
+          );
+        }
+      } else {
+        this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      }
       dialog.close();
       this.changed();
     }
@@ -25605,6 +26474,7 @@ ${values.map((item) => item.date).join("\n")}`
   function findCharacterManagementLoadoutTab() {
     const groups = /* @__PURE__ */ new Map();
     for (const button of document.querySelectorAll('button[role="tab"],button')) {
+      if (button.id === TAB_ID) continue;
       const parent = button.parentElement;
       if (!parent) continue;
       if (!groups.has(parent)) groups.set(parent, []);
@@ -25612,7 +26482,20 @@ ${values.map((item) => item.date).join("\n")}`
     }
     const candidates = [];
     for (const [parent, buttons] of groups) {
-      const matched = Object.fromEntries(
+      const inCharacterManagement = Boolean(
+        parent.closest('[class*="CharacterManagement_characterManagement"]')
+      );
+      const nativeTabs = buttons.filter(
+        (button) => button.matches('[role="tab"]')
+      );
+      const structuralMatch = inCharacterManagement && nativeTabs.length >= 5;
+      const matched = structuralMatch ? {
+        inventory: nativeTabs[0],
+        equipment: nativeTabs[1],
+        skills: nativeTabs[2],
+        house: nativeTabs[3],
+        loadout: nativeTabs.at(-1)
+      } : Object.fromEntries(
         Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
           key,
           buttons.find((button) => pattern.test(buttonLabel(button)))
@@ -25626,12 +26509,9 @@ ${values.map((item) => item.date).join("\n")}`
       if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
       const rect = parent.getBoundingClientRect?.();
       const visible2 = Boolean(rect && rect.width > 0 && rect.height > 0);
-      const inCharacterManagement = Boolean(
-        parent.closest('[class*="CharacterManagement_characterManagement"]')
-      );
       candidates.push({
         button: matched.loadout,
-        score: Number(visible2) * 4 + Number(inCharacterManagement) * 2
+        score: Number(visible2) * 4 + Number(inCharacterManagement) * 2 + Number(structuralMatch) * 8
       });
     }
     candidates.sort((a, b) => b.score - a.score);
@@ -25925,7 +26805,7 @@ ${preview}`
       const setNumber = (selector, value, { signed = false, className = "" } = {}) => {
         const node = this.host.querySelector(selector);
         node.textContent = formatNumber(value, signed);
-        node.title = Number.isFinite(value) ? runtime.api.formatExactNumber(value) : "";
+        node.title = Number.isFinite(value) ? runtime.api.formatExactNumber(value, 0) : "";
         node.className = `mwi-asset-card-value ${className}`.trim();
       };
       setNumber("#mwi-asset-current-total", current.total);
@@ -25952,7 +26832,7 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -25966,7 +26846,7 @@ ${preview}`
         ...entries.map(([dayKey, record]) => {
           const row = document.createElement("tr");
           const total = record?.values?.total;
-          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
           row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
           row.querySelector("[data-delete]").addEventListener("click", () => {
             if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
@@ -26247,6 +27127,9 @@ ${preview}`
     updateDay(dayKey, values, scopeKey = currentScopeKey()) {
       return assetHistoryStore.updateDay(dayKey, values, scopeKey);
     },
+    insertDay(dayKey, values, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.insertDay(dayKey, values, scopeKey);
+    },
     deleteDay(dayKey, scopeKey = currentScopeKey()) {
       return assetHistoryStore.deleteDay(dayKey, scopeKey);
     },
@@ -26352,7 +27235,7 @@ ${preview}`
   var PUBLIC_API_VERSION = 1;
   var SCORE_SCHEMA_VERSION = 1;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
-  var pageGlobal = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
     const number2 = Number(value);
@@ -26361,7 +27244,7 @@ ${preview}`
   function cloneForConsumer(value) {
     if (value === null || value === void 0) return value ?? null;
     const serialized = JSON.stringify(value);
-    return pageGlobal.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
+    return pageGlobal2.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
   }
   function createPublicScoreSnapshot(assetSnapshot) {
     const scores = assetSnapshot?.scores;
@@ -26388,10 +27271,10 @@ ${preview}`
     };
   }
   function dispatchScoresUpdated() {
-    if (!latestScores || typeof pageGlobal.dispatchEvent !== "function") return;
-    const EventConstructor = pageGlobal.CustomEvent ?? globalThis.CustomEvent;
+    if (!latestScores || typeof pageGlobal2.dispatchEvent !== "function") return;
+    const EventConstructor = pageGlobal2.CustomEvent ?? globalThis.CustomEvent;
     if (typeof EventConstructor !== "function") return;
-    pageGlobal.dispatchEvent(
+    pageGlobal2.dispatchEvent(
       new EventConstructor(SCORES_UPDATED_EVENT, {
         detail: cloneForConsumer(latestScores)
       })
@@ -26426,13 +27309,13 @@ ${preview}`
     refreshScores
   };
   try {
-    Object.defineProperty(pageGlobal, "MWIToolsAPI", {
+    Object.defineProperty(pageGlobal2, "MWIToolsAPI", {
       configurable: true,
       enumerable: true,
       value: publicApi2
     });
   } catch {
-    pageGlobal.MWIToolsAPI = publicApi2;
+    pageGlobal2.MWIToolsAPI = publicApi2;
   }
   runtime.api.onAssetSnapshot?.(publishScoreSnapshot);
   var existingSnapshot = runtime.api.getLatestAssetSnapshot?.();
@@ -26484,7 +27367,7 @@ ${preview}`
     }
     return String(value || fallback);
   }
-  function normalizedName(value) {
+  function normalizedName2(value) {
     return String(value || "").normalize("NFKC").trim().toLocaleLowerCase();
   }
   function badgeTier(rank) {
@@ -26602,7 +27485,7 @@ ${preview}`
       for (const category of categoryOrder) {
         const snapshot = state.categories?.[category];
         for (const row of Array.isArray(snapshot?.rows) ? snapshot.rows : []) {
-          const name = normalizedName(row.characterName || row.name);
+          const name = normalizedName2(row.characterName || row.name);
           const rank = Number(row.rank);
           const tier = badgeTier(rank);
           if (!name || !tier) continue;
@@ -26652,7 +27535,7 @@ ${preview}`
           continue;
         }
         const badges = state.nameIndex.get(
-          normalizedName(nameElement.getAttribute("data-name"))
+          normalizedName2(nameElement.getAttribute("data-name"))
         ) || [];
         const visibleBadges = nameElement.closest('[class*="ChatMessage_name"]') ? badges.slice(0, 3) : badges;
         if (!visibleBadges.length) {
@@ -26696,7 +27579,7 @@ ${preview}`
     function currentRowsByName() {
       return new Map(
         (state.currentLeaderboard?.rows || []).map((row) => [
-          normalizedName(row.characterName || row.name),
+          normalizedName2(row.characterName || row.name),
           row
         ])
       );
@@ -26718,14 +27601,14 @@ ${preview}`
       const tbody = table.tBodies?.[0];
       if (!tbody) return;
       const rows = [...tbody.rows];
-      const currentCharacterName2 = normalizedName(
+      const currentCharacterName2 = normalizedName2(
         runtime.state.currentCharacterName
       );
       rows.sort((left, right) => {
         const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
         const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const normalizedLeftName = normalizedName(leftName);
-        const normalizedRightName = normalizedName(rightName);
+        const normalizedLeftName = normalizedName2(leftName);
+        const normalizedRightName = normalizedName2(rightName);
         if (currentCharacterName2) {
           const leftIsCurrent = normalizedLeftName === currentCharacterName2;
           const rightIsCurrent = normalizedRightName === currentCharacterName2;
@@ -26764,7 +27647,7 @@ ${preview}`
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
         const name = rowElement.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const model = rowsByName.get(normalizedName(name));
+        const model = rowsByName.get(normalizedName2(name));
         let cell = rowElement.querySelector(`[${RATE_CELL_ATTRIBUTE}]`);
         if (!cell) {
           cell = documentRef.createElement("td");
@@ -26773,7 +27656,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${Math.round(rate).toLocaleString()} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
+        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -27057,15 +27940,15 @@ ${preview}`
       }
     });
   }
-  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   try {
-    Object.defineProperty(pageGlobal2, "MWILeaderboardOverlay", {
+    Object.defineProperty(pageGlobal3, "MWILeaderboardOverlay", {
       configurable: true,
       enumerable: true,
       value: leaderboardOverlayApi
     });
   } catch {
-    pageGlobal2.MWILeaderboardOverlay = leaderboardOverlayApi;
+    pageGlobal3.MWILeaderboardOverlay = leaderboardOverlayApi;
   }
   var integratedModes = /* @__PURE__ */ new Set();
   var integratedService = null;
@@ -27899,7 +28782,7 @@ ${preview}`
     (document.head ?? document.documentElement).appendChild(style);
   }
   function numberHtml(value) {
-    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value)}">${runtime.api.numberFormatter(value)}</span>`;
+    return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
   function syncInventorySummaryTypography(invElem, summary) {
     const categoryTitle = invElem.querySelector(
@@ -27942,10 +28825,9 @@ ${preview}`
     return String(value ?? "").replace(/^[+−-]\s*/, "").replace(/\s*\(\d+\)\s*$/, "").trim().toLowerCase();
   }
   function resolveInventoryCategoryHrid(grid, heading) {
-    const itemName4 = grid.querySelector('div[class*="Item_itemContainer"] svg[aria-label]')?.getAttribute("aria-label")?.trim();
-    if (itemName4) {
-      const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(itemName4) ?? itemName4 : itemName4;
-      const itemHrid = runtime.state.itemEnNameToHridMap?.[englishName];
+    const firstItem = grid.querySelector('div[class*="Item_itemContainer"]');
+    if (firstItem) {
+      const itemHrid = resolveEntityFromElement("item", firstItem);
       const categoryHrid = runtime.state.initData_itemDetailMap?.[itemHrid]?.categoryHrid;
       if (categoryHrid) return categoryHrid;
     }
@@ -27991,7 +28873,7 @@ ${preview}`
       heading.querySelector(":scope > .mwi-inventory-category-value")?.remove();
       const value = document.createElement("span");
       value.className = "mwi-inventory-category-value";
-      value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total)}`;
+      value.title = `${runtime.config.isZH ? "分类价值" : "Category value"}: ${runtime.api.formatExactNumber(total, 0)}`;
       value.textContent = `${runtime.config.isZH ? "价值" : "Value"} ${runtime.api.numberFormatter(total)}`;
       heading.appendChild(value);
     }
@@ -28330,11 +29212,7 @@ ${preview}`
           ...typeDiv.querySelectorAll('[class*="Item_itemContainer"]')
         ];
         const sortableItems = itemElems.map((itemElem, originalIndex) => {
-          let itemName4 = itemElem.querySelector("svg[aria-label]")?.getAttribute("aria-label") ?? "";
-          if (runtime.config.isZHInGameSetting && typeof runtime.api.getItemEnNameFromZhName === "function") {
-            itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-          }
-          const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+          const itemHrid = resolveEntityFromElement("item", itemElem);
           const enhancementLevel = getInventoryItemEnhancementLevel(itemElem);
           const countText = itemElem.querySelector('[class*="Item_count"]')?.textContent ?? "1";
           const parsedCount = runtime.api.parseCompactNumber?.(countText) ?? Number(countText);
@@ -28429,8 +29307,9 @@ ${preview}`
           const creditAskPrice = askPrice * conversion.itemCount / conversion.creditCount;
           const creditBidPrice = bidPrice * conversion.itemCount / conversion.creditCount;
           const enName = runtime.state.initData_itemDetailMap[itemHrid].name;
-          const zhName = runtime.data.ZHItemNames[itemHrid];
-          const displayName = runtime.config.isZHInGameSetting ? zhName || enName : enName;
+          const displayName = getLocalizedEntityName("item", itemHrid, {
+            fallback: enName
+          });
           if (!bestCreditConversionMap[creditHrid]) {
             bestCreditConversionMap[creditHrid] = { ask: null, bid: null };
           }
@@ -28492,12 +29371,9 @@ ${preview}`
           ".GuildPanel_arrow__1v2a0 + .Item_itemContainer__x7kH1 svg"
         );
         if (creditIcon) {
-          let creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
+          const creditAriaLabel = creditIcon.attributes["aria-label"]?.value;
           if (creditAriaLabel) {
-            if (runtime.config.isZHInGameSetting) {
-              creditAriaLabel = runtime.api.getItemEnNameFromZhName(creditAriaLabel);
-            }
-            targetCreditHrid = runtime.state.itemEnNameToHridMap[creditAriaLabel];
+            targetCreditHrid = resolveEntityFromElement("item", creditIcon);
             targetCreditName = creditAriaLabel;
           }
         }
@@ -28508,17 +29384,14 @@ ${preview}`
           ".Item_itemContainer__x7kH1"
         );
         if (!itemElem) return;
-        let itemName4 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
+        const itemName4 = itemElem.querySelector("svg")?.attributes["aria-label"]?.value;
         if (!itemName4) {
           itemElem.style.order = 0;
           const priceElem2 = itemElem.querySelector("#script_itemSelector_price");
           if (priceElem2) priceElem2.remove();
           return;
         }
-        if (runtime.config.isZHInGameSetting) {
-          itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-        }
-        const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+        const itemHrid = resolveEntityFromElement("item", itemElem);
         let itemCount = itemElem.querySelector(".Item_count__1HVvv")?.innerText;
         if (!itemCount) {
           itemElem.style.order = 0;
@@ -28687,18 +29560,7 @@ ${preview}`
     return [...documentRef.querySelectorAll(ITEM_SELECTOR)].filter(isVisible).at(-1);
   }
   function itemHridFromIcon(icon) {
-    let label = icon?.getAttribute?.("aria-label")?.trim();
-    if (label && runtime.config.isZHInGameSetting) {
-      label = runtime.api.getItemEnNameFromZhName?.(label) ?? label;
-    }
-    if (label && runtime.state.itemEnNameToHridMap?.[label]) {
-      return runtime.state.itemEnNameToHridMap[label];
-    }
-    const fragment = icon?.querySelector?.("use")?.getAttribute?.("href")?.split("#").at(-1);
-    if (!fragment) return "";
-    return Object.keys(runtime.state.initData_itemDetailMap ?? {}).find(
-      (itemHrid) => itemHrid.split("/").at(-1) === fragment
-    );
+    return resolveEntityFromElement("item", icon);
   }
   function guildCreditHrids() {
     const result = /* @__PURE__ */ new Set();
@@ -29458,7 +30320,7 @@ ${preview}`
     if (Math.abs(Number(value)) >= 1e3) {
       return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
     }
-    return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
       maximumFractionDigits: digits
     }).format(Number(value));
   }
@@ -29843,7 +30705,7 @@ ${preview}`
       const tokenName = itemName3(route.tokenItemHrid);
       return `${t5("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t5("代币", "token")}`;
     });
-    const sourceLabel = drop.valueSource === "redemption" ? t5("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : drop.valueSource === "zero" ? t5("封印计为 0", "Seal valued at 0") : drop.nested ? t5("开箱期望", "Opening EV") : t5("单价", "Unit");
+    const sourceLabel = drop.valueSource === "redemption" ? t5("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t5("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t5("封印计为 0", "Seal valued at 0") : drop.nested ? t5("开箱期望", "Opening EV") : t5("单价", "Unit");
     const title = [
       `${name}
 ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} · ${t5("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
@@ -29881,6 +30743,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         t5("产物卖出", "Sell drops"),
         config.sellAtAsk ? t5("挂卖单", "List at ask") : t5("立即卖出", "Sell now"),
         config.sellAtAsk
+      ),
+      renderLootSwitch(
+        "lootIgnoreCowbells",
+        t5("牛铃价值", "Cowbell value"),
+        config.ignoreCowbells ? t5("忽略", "Ignored") : t5("计入", "Included"),
+        config.ignoreCowbells
       )
     ];
     if (hasKey) {
@@ -30029,6 +30897,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     globalThis.removeEventListener?.("scroll", state.position, true);
     if (state.outsideHandler) {
       document.removeEventListener("mousedown", state.outsideHandler, true);
+      document.removeEventListener("pointerdown", state.outsideHandler, true);
     }
     for (const stop of state.settingStops ?? []) stop?.();
     state.panel?.remove();
@@ -30073,8 +30942,25 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     return panel;
   }
+  function attachStickyOutsideHandler(panel, anchor) {
+    const outsideHandler = (event) => {
+      if (!activePanel?.sticky || activePanel.panel !== panel) return;
+      if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
+      runtime.api.clearTooltipProfitHoverContext?.(anchor);
+      hideProductionProfitPanel();
+    };
+    globalThis.setTimeout?.(() => {
+      if (activePanel?.panel !== panel) return;
+      document.addEventListener("pointerdown", outsideHandler, true);
+      activePanel.outsideHandler = outsideHandler;
+    }, 0);
+  }
   function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     if (activePanel?.pinned) return null;
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+      return null;
+    }
     const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
     if (!anchor?.isConnected || !actionHrid) {
       hideProductionProfitPanel();
@@ -30086,16 +30972,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
     const panel = createPanelElement();
+    const sticky = Boolean(options.sticky);
+    panel.classList.toggle("mwi-profit-pinned", sticky);
     renderPanel(panel, primaryItemHrid, projection, {
       directAction: Boolean(options.actionHrid)
     });
-    return mountPanel(anchor, panel, {
+    const mounted = mountPanel(anchor, panel, {
       itemHrid: primaryItemHrid,
-      actionHrid
+      actionHrid,
+      sticky
     });
+    if (sticky) attachStickyOutsideHandler(panel, anchor);
+    return mounted;
   }
   function showLootChestPanel(anchor, itemHrid, options = {}) {
     const pinned = Boolean(options.pinned);
+    const sticky = Boolean(options.sticky) && !pinned;
     if (!pinned && activePanel?.pinned) return null;
     const chest = runtime.api.projectLootChest?.(itemHrid);
     if (!anchor?.isConnected || !chest) {
@@ -30105,9 +30997,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     hideProductionProfitPanel();
     addStyles3();
     const panel = createPanelElement();
+    panel.classList.toggle("mwi-profit-pinned", sticky);
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
-    mountPanel(anchor, panel, { itemHrid, pinned, kind: "loot" });
+    mountPanel(anchor, panel, { itemHrid, pinned, sticky, kind: "loot" });
     if (pinned) attachLootChestControls(panel, itemHrid);
+    else if (sticky) attachStickyOutsideHandler(panel, anchor);
     return panel;
   }
   function attachLootChestControls(panel, itemHrid) {
@@ -30130,7 +31024,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const settingStops = [
       "lootSellAtAsk",
       "lootBuyAtAsk",
-      "lootKeyFromFragments"
+      "lootKeyFromFragments",
+      "lootIgnoreCowbells"
     ].map((settingId) => runtime.settings.onChange?.(settingId, rerender));
     settingStops.push(
       runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
@@ -30160,9 +31055,19 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function dismissHoverPanel() {
-    if (activePanel?.pinned) return;
+    if (activePanel?.pinned || activePanel?.sticky) return;
     hideProductionProfitPanel();
   }
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+    }
+  });
+  runtime.onMessage("init_character_data", () => {
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+    }
+  });
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     dismissHoverPanel,
@@ -30173,6 +31078,88 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/item-tooltips.js
+  var TOUCH_PROFIT_LONG_PRESS_MS = 800;
+  var TOUCH_PROFIT_MOVE_TOLERANCE = 12;
+  var hoverPanelContext = null;
+  var hoverPanelShortcutHeld = false;
+  var touchHoverPanelPress = null;
+  var touchHoverPanelAuthorizedUntil = 0;
+  function isEditableTarget(target) {
+    return Boolean(
+      target?.closest?.('input,textarea,select,[contenteditable="true"]')
+    );
+  }
+  function requiresHoverPanelShortcut() {
+    return Boolean(
+      runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue
+    );
+  }
+  function canShowHoverPanel(context = hoverPanelContext) {
+    if (context?.kind === "loot") {
+      return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
+    }
+    return Boolean(
+      context?.kind === "profit" && runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+    );
+  }
+  function hasEnabledHoverPanelFeature() {
+    return Boolean(
+      runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+    );
+  }
+  function showHoverPanelContext(context = hoverPanelContext, options = {}) {
+    if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
+      runtime.api.dismissHoverPanel?.();
+      return null;
+    }
+    if (context.kind === "loot") {
+      return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
+        sticky: Boolean(options.sticky)
+      });
+    }
+    return runtime.api.showProductionProfitPanel?.(
+      context.anchor,
+      context.itemHrid ?? null,
+      {
+        actionHrid: context.actionHrid,
+        sticky: Boolean(options.sticky)
+      }
+    );
+  }
+  function setHoverPanelContext(context) {
+    hoverPanelContext = context;
+    if (!canShowHoverPanel(context)) {
+      runtime.api.dismissHoverPanel?.();
+      return;
+    }
+    if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
+      showHoverPanelContext(context);
+      return;
+    }
+    if (Date.now() <= touchHoverPanelAuthorizedUntil) {
+      touchHoverPanelAuthorizedUntil = 0;
+      showHoverPanelContext(context, { sticky: true });
+      return;
+    }
+    if (touchHoverPanelPress?.authorized) {
+      touchHoverPanelPress.triggered = true;
+      showHoverPanelContext(context, { sticky: true });
+      return;
+    }
+    runtime.api.dismissHoverPanel?.();
+  }
+  function clearHoverPanelContext(anchor = null, kind = null) {
+    if (anchor && hoverPanelContext?.anchor !== anchor) return;
+    if (kind && hoverPanelContext?.kind !== kind) return;
+    clearTimeout(touchHoverPanelPress?.timer);
+    touchHoverPanelPress = null;
+    touchHoverPanelAuthorizedUntil = 0;
+    hoverPanelContext = null;
+    runtime.api.dismissHoverPanel?.();
+  }
+  function removeSuppressedTooltipContent() {
+    document.querySelectorAll('[data-mwitools-tooltip-market="true"]').forEach((row) => row.remove());
+  }
   var showTotalActionTime = () => {
     const targetNode = document.querySelector("div.Header_actionName__31-L2");
     if (targetNode) {
@@ -30262,7 +31249,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
             const actionHrid = resolveGatheringActionFromElement(added);
             if (actionHrid) {
-              runtime.api.showProductionProfitPanel?.(added, null, {
+              setHoverPanelContext({
+                kind: "profit",
+                anchor: added,
                 actionHrid
               });
             }
@@ -30512,17 +31501,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       "div.ItemTooltipText_name__2JAHA span"
     );
     if (itemNameElems.length > 1) {
+      clearHoverPanelContext();
       runtime.api.dismissHoverPanel?.();
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
     }
     runtime.api.hideEnhancementCostPanel?.();
     const itemNameElem = itemNameElems[0];
-    let itemName4 = runtime.api.getOriTextFromElement(itemNameElem);
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName(itemName4);
-    }
-    const itemHrid = runtime.state.itemEnNameToHridMap[itemName4];
+    const itemName4 = runtime.api.getOriTextFromElement(itemNameElem);
+    const itemHrid = resolveEntityFromElement("item", tooltip) || resolveLocalizedEntity("item", itemName4);
     let amount = 0;
     let insertAfterElem = null;
     const amountSpan = tooltip.querySelectorAll("span")[1];
@@ -30539,7 +31526,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     let ask = null;
     let bid = null;
     let fairValue = null;
-    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+    const suppressMarket = Boolean(runtime.api.shouldSuppressMarketFeatures?.());
+    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue && !suppressMarket) {
       marketJson = await fetchMarketJSON2();
       if (!marketJson || !marketJson.marketData) {
         console.error(
@@ -30550,29 +31538,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
       fairValue = runtime.api.getFairValue(itemHrid, 0);
       appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
-    }
-    if (runtime.settings.settingsMap.showConsumTips.isTrue) {
-      let itemDetail = runtime.state.initData_itemDetailMap[itemHrid];
-      const hp = itemDetail?.consumableDetail?.hitpointRestore;
-      const mp = itemDetail?.consumableDetail?.manapointRestore;
-      const cd = itemDetail?.consumableDetail?.cooldownDuration;
-      if (hp && cd) {
-        const hpPerMiniute = 60 / (cd / 1e9) * hp;
-        const pricePer100Hp = ask ? ask / (hp / 100) : null;
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Hp ? pricePer100Hp.toFixed(0) + (runtime.config.isZH ? "金/100血, " : "coins/100hp, ") : ""}${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      } else if (mp && cd) {
-        const mpPerMiniute = 60 / (cd / 1e9) * mp;
-        const pricePer100Mp = ask ? ask / (mp / 100) : null;
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ") : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      } else if (cd) {
-        const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-      }
     }
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
     const dropMap = runtime.state.initData_openableLootDropMap;
@@ -30580,10 +31548,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid]
     );
     if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
-      runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+      setHoverPanelContext({ kind: "loot", anchor: tooltip, itemHrid });
     } else if (!isOpenable && runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-      runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+      setHoverPanelContext({ kind: "profit", anchor: tooltip, itemHrid });
     } else {
+      clearHoverPanelContext();
       runtime.api.dismissHoverPanel?.();
     }
     const tootip = insertAfterElem.closest(".MuiTooltip-popper");
@@ -30635,7 +31604,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     getHousesEffBuffByActionHrid,
     getTeaBuffsByActionHrid,
     handleTooltipItem,
-    getActionHridFromItemName
+    getActionHridFromItemName,
+    clearTooltipProfitHoverContext: clearHoverPanelContext
   });
   Object.defineProperties(runtime.state, {
     tooltipObserver: {
@@ -30702,34 +31672,156 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         },
         true
       );
+      scope.event(
+        window,
+        "keydown",
+        (event) => {
+          if (event.repeat || isEditableTarget(event.target) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
+            return;
+          }
+          hoverPanelShortcutHeld = true;
+          if (requiresHoverPanelShortcut()) showHoverPanelContext();
+        },
+        true
+      );
+      scope.event(
+        window,
+        "keyup",
+        (event) => {
+          if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
+          hoverPanelShortcutHeld = false;
+          if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+        },
+        true
+      );
+      scope.event(window, "blur", () => {
+        hoverPanelShortcutHeld = false;
+        runtime.api.dismissHoverPanel?.();
+      });
+      scope.event(
+        document,
+        "pointerdown",
+        (event) => {
+          if (event.pointerType !== "touch" || !requiresHoverPanelShortcut() || !hasEnabledHoverPanelFeature()) {
+            return;
+          }
+          clearTimeout(touchHoverPanelPress?.timer);
+          touchHoverPanelAuthorizedUntil = 0;
+          const press = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            authorized: false,
+            triggered: false,
+            timer: null
+          };
+          press.timer = setTimeout(() => {
+            if (touchHoverPanelPress !== press) return;
+            press.authorized = true;
+            if (hoverPanelContext?.anchor?.isConnected) {
+              press.triggered = true;
+              showHoverPanelContext(hoverPanelContext, { sticky: true });
+            }
+          }, TOUCH_PROFIT_LONG_PRESS_MS);
+          touchHoverPanelPress = press;
+        },
+        true
+      );
+      scope.event(
+        document,
+        "pointermove",
+        (event) => {
+          const press = touchHoverPanelPress;
+          if (!press || press.pointerId !== event.pointerId) return;
+          if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= TOUCH_PROFIT_MOVE_TOLERANCE) {
+            return;
+          }
+          clearTimeout(press.timer);
+          touchHoverPanelPress = null;
+          touchHoverPanelAuthorizedUntil = 0;
+        },
+        true
+      );
+      const finishTouchPress = (event) => {
+        const press = touchHoverPanelPress;
+        if (!press || press.pointerId !== event.pointerId) return;
+        clearTimeout(press.timer);
+        if (press.authorized && !press.triggered) {
+          touchHoverPanelAuthorizedUntil = Date.now() + 500;
+        }
+        touchHoverPanelPress = null;
+      };
+      scope.event(document, "pointerup", finishTouchPress, true);
+      scope.event(
+        document,
+        "pointercancel",
+        (event) => {
+          if (touchHoverPanelPress?.pointerId !== event.pointerId) return;
+          clearTimeout(touchHoverPanelPress.timer);
+          touchHoverPanelPress = null;
+          touchHoverPanelAuthorizedUntil = 0;
+        },
+        true
+      );
+      const stopRequireKey = runtime.settings.onChange(
+        "itemTooltip_profitRequireKey",
+        (required) => {
+          if (!required) showHoverPanelContext();
+          else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+        }
+      );
+      const stopIronCow = runtime.settings.onChange(
+        "adaptIronCowMarketFeatures",
+        () => {
+          if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+          clearHoverPanelContext(null, "profit");
+          removeSuppressedTooltipContent();
+        }
+      );
+      const stopLootEstimate = runtime.settings.onChange(
+        "lootChestEstimate",
+        (enabled) => {
+          if (!enabled) clearHoverPanelContext(null, "loot");
+        }
+      );
       scope.add(() => {
+        stopRequireKey?.();
+        stopIronCow?.();
+        stopLootEstimate?.();
         tooltipObserver.disconnect();
         for (const style of styles) style?.remove?.();
+        clearTimeout(touchHoverPanelPress?.timer);
+        touchHoverPanelPress = null;
+        hoverPanelShortcutHeld = false;
+        clearHoverPanelContext();
       });
     }
   });
-  for (const id of ["itemTooltip_profit", "showConsumTips"]) {
-    runtime.features.register({
-      id,
-      setting: id,
-      dependsOn: ["itemTooltip_prices"],
-      initialize({ scope }) {
-        if (id !== "itemTooltip_profit") return;
-        scope.event(document, "mouseover", (event) => {
-          const card = gatheringCardFromEventTarget(event.target);
-          if (!card || card.contains(event.relatedTarget)) return;
-          const actionHrid = resolveGatheringActionFromElement(card);
-          if (!actionHrid) return;
-          runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
-        });
-        scope.event(document, "mouseout", (event) => {
-          const card = gatheringCardFromEventTarget(event.target);
-          if (!card || card.contains(event.relatedTarget)) return;
-          runtime.api.dismissHoverPanel?.();
-        });
-      }
-    });
-  }
+  runtime.features.register({
+    id: "itemTooltip_profit",
+    setting: "itemTooltip_profit",
+    dependsOn: ["itemTooltip_prices"],
+    initialize({ scope }) {
+      scope.event(document, "mouseover", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        const actionHrid = resolveGatheringActionFromElement(card);
+        if (!actionHrid) return;
+        setHoverPanelContext({ kind: "profit", anchor: card, actionHrid });
+      });
+      scope.event(document, "mouseout", (event) => {
+        const card = gatheringCardFromEventTarget(event.target);
+        if (!card || card.contains(event.relatedTarget)) return;
+        clearHoverPanelContext(card, "profit");
+      });
+      scope.add(() => clearHoverPanelContext(null, "profit"));
+    }
+  });
+  runtime.onMessage("init_character_data", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    clearHoverPanelContext(null, "profit");
+    removeSuppressedTooltipContent();
+  });
 
   // src/features/action-panel.js
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
@@ -30923,7 +32015,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       });
       updateTargetLevel();
     }
-    if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue) {
+    if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()) {
       const marketJson = await runtime.api.fetchMarketJSON();
       const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
       let drinksConsumedPerHourAskPrice = 0;
@@ -31135,6 +32227,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         waitForProgressBar();
       }, 1e3);
       scope.add(removeInsertedDivs);
+    }
+  });
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    for (const panel of document.querySelectorAll(
+      'div[class*="SkillActionDetail_regularComponent"]'
+    )) {
+      delete panel.dataset.mwitoolsActionPanel;
+      void handleActionPanel(panel);
     }
   });
   runtime.features.register({
@@ -31359,8 +32459,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const text = runtime.api.getOriTextFromElement?.(
         bar.querySelector('[class*="ProgressBar_text"]')
       );
-      const match2 = String(text ?? "").replace(",", ".").match(/[\d.]+/);
-      durationPerAction = match2 ? Number(match2[0]) : null;
+      const match2 = String(text ?? "").match(/[\d.,\s\u00a0\u202f]+/);
+      durationPerAction = match2 ? parseCompactNumber(match2[0]) : null;
     }
     if (!Number.isFinite(durationPerAction) || durationPerAction <= 0) {
       return { durationPerAction: null, currentCycleRemaining: null };
@@ -31707,28 +32807,16 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       panel?.querySelector('div[class*="SkillActionDetail_name"]')
     )?.trim();
     if (!name) return null;
-    const gameUsesChinese = runtime.config.isZHInGameSetting;
-    if (gameUsesChinese) {
-      const localizedAction = Object.entries(
-        runtime.data.ZHActionNames ?? {}
-      ).find(([, localizedName]) => localizedName === name);
-      if (localizedAction) return localizedAction[0];
-    }
+    const localizedAction = resolveLocalizedEntity("action", name);
+    if (localizedAction) return localizedAction;
     const actionMap = runtime.state.initData_actionDetailMap;
     if (!actionMap) return null;
     const candidateNames = /* @__PURE__ */ new Set([name]);
-    if (gameUsesChinese) {
-      const translatedName = runtime.api.getActionEnNameFromZhName?.(name);
-      if (translatedName) candidateNames.add(translatedName);
-    }
     for (const [actionHrid, detail] of Object.entries(actionMap)) {
       if (candidateNames.has(detail?.name)) return actionHrid;
     }
-    const localizedItem2 = gameUsesChinese ? Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === name
-    ) : null;
-    if (localizedItem2) {
-      const [itemHrid] = localizedItem2;
+    const itemHrid = resolveLocalizedEntity("item", name);
+    if (itemHrid) {
       const outputAction = Object.entries(actionMap).find(
         ([, detail]) => runtime.api.getExpectedOutputs?.(detail).some((output) => output.itemHrid === itemHrid)
       );
@@ -31829,7 +32917,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         formatDuration(projection.totalSeconds)
       )
     );
-    if (runtime.settings.get("productionProfit")) {
+    const showProfit = runtime.settings.get("productionProfit") && !runtime.api.shouldSuppressMarketFeatures?.();
+    if (showProfit) {
       grid.append(
         metric(
           t6("每次净利润", "Per action"),
@@ -31849,7 +32938,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       );
     }
     card.append(title, grid);
-    if (projection.status === "incomplete") {
+    if (showProfit && projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
       warning.textContent = t6(
@@ -31959,11 +33048,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
   var lastProductionSignature = "";
+  var activeHoldRepeatStop = null;
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
   function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
+  }
+  function marketFeaturesSuppressed() {
+    return runtime.api.shouldSuppressMarketFeatures?.() ?? false;
   }
   function materialNoun(count) {
     if (runtime.config.isZH) return "种材料";
@@ -31997,6 +33090,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
     .mwi-procurement-chain>summary{padding:4px 6px;cursor:pointer;color:var(--color-text-secondary,#aaa)}
+    .mwi-procurement-chain-presets{display:flex;gap:4px;padding:0 6px 5px}
+    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:.62rem;cursor:pointer}
+    .mwi-procurement-chain-preset[aria-pressed="true"]{border-color:#8293d6;background:rgba(82,100,154,.34);color:#fff}
     .mwi-procurement-chain-list{display:grid;gap:3px;padding:0 6px 6px}
     .mwi-procurement-chain-stage{display:flex;align-items:center;gap:6px;min-width:0}
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -32132,20 +33228,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return;
     }
     const settings2 = procurement.getSettings();
+    const marketEnabled = !marketFeaturesSuppressed();
+    const pricesEnabled = marketEnabled && settings2.pricesEnabled;
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
       const row = document.createElement("article");
       row.className = "cart-row";
-      const price = settings2.pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
-      if (settings2.pricesEnabled && item.quantity > 0) {
+      const price = pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
+      if (pricesEnabled && item.quantity > 0) {
         if (price > 0) total += price * item.quantity;
         else unpriced += 1;
       }
       row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t7("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml4(item.name)}">${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-icon" ${marketEnabled ? `title="${t7("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
+      <button class="item-name" title="${escapeHtml4(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
@@ -32154,7 +33252,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       <button class="delete" title="${t7("删除", "Remove")}">×</button>
       <div class="row-bottom">
         <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t7("库存", "Stock")} ${formatNumber4(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t7("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
+        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t7("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
         <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t7("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
@@ -32170,11 +33268,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         });
       });
       for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-        target.addEventListener("click", () => {
-          openMarketplace(item.itemHrid, item.enhancementLevel);
-        });
+        if (marketEnabled) {
+          target.addEventListener("click", () => {
+            openMarketplace(item.itemHrid, item.enhancementLevel);
+          });
+        }
       }
       row.querySelector(".delete").addEventListener("click", () => {
+        stopActiveHoldRepeat();
         procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
       });
       const quantityInput = row.querySelector(".qty");
@@ -32190,6 +33291,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
             item.itemHrid,
             item.enhancementLevel
           );
+          if (!latest) {
+            stopActiveHoldRepeat();
+            return;
+          }
           setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
         });
       }
@@ -32202,29 +33307,47 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    <span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>
+    ${marketEnabled ? `<span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t7("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       procurement.clearCart();
     });
+  }
+  function stopActiveHoldRepeat() {
+    activeHoldRepeatStop?.();
   }
   function installHoldRepeat(button, callback) {
     let delayTimer = null;
     let repeatTimer = null;
+    let pointerId = null;
     const stop = () => {
       clearTimeout(delayTimer);
       clearInterval(repeatTimer);
       delayTimer = null;
       repeatTimer = null;
+      pointerId = null;
+      window.removeEventListener("pointerup", stopForPointer, true);
+      window.removeEventListener("pointercancel", stopForPointer, true);
+      window.removeEventListener("blur", stop, true);
+      if (activeHoldRepeatStop === stop) activeHoldRepeatStop = null;
     };
-    button.addEventListener("pointerdown", () => {
+    const stopForPointer = (event) => {
+      if (pointerId === null || event.pointerId === pointerId) stop();
+    };
+    button.addEventListener("pointerdown", (event) => {
+      stopActiveHoldRepeat();
+      pointerId = event.pointerId;
+      activeHoldRepeatStop = stop;
+      window.addEventListener("pointerup", stopForPointer, true);
+      window.addEventListener("pointercancel", stopForPointer, true);
+      window.addEventListener("blur", stop, true);
       delayTimer = setTimeout(() => {
         repeatTimer = setInterval(callback, 90);
       }, 420);
     });
-    button.addEventListener("pointerup", stop);
-    button.addEventListener("pointercancel", stop);
-    button.addEventListener("pointerleave", stop);
+    button.addEventListener("pointerup", stopForPointer);
+    button.addEventListener("pointercancel", stopForPointer);
   }
   function renderPlans(body) {
     const plans2 = procurement.getPlans();
@@ -32335,6 +33458,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     {
       title: ["界面与快捷键", "Interface & shortcut"],
       rows: [
+        [
+          "autoExpandOnAddEnabled",
+          "加购后自动展开",
+          "Expand after adding",
+          "bool"
+        ],
         ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
         ["resetHandle", "重置把手位置", "Reset handle position", "button"],
         ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"]
@@ -32385,6 +33514,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     autoCollapseEnabled: [
       "所有项目补齐后收起购物车",
       "Collapse after every item is fulfilled"
+    ],
+    autoExpandOnAddEnabled: [
+      "任意入口成功加购后展开并显示清单",
+      "Open the cart list after any successful add"
     ],
     safetyLevel: [
       "为工匠茶的随机省料准备余量",
@@ -32573,15 +33706,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       procurement.setSetting("handleY", parseFloat(handle.style.top));
       if (!moved) {
         drawerOpen = !drawerOpen;
+        if (!drawerOpen) stopActiveHoldRepeat();
         renderShell();
       }
     });
     shadow.querySelector(".close").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     });
     for (const tab of shadow.querySelectorAll(".tab")) {
       tab.addEventListener("click", () => {
+        stopActiveHoldRepeat();
         activeTab = tab.dataset.tab;
         renderShell();
       });
@@ -32610,12 +33746,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     scope.event(window, "resize", renderShell);
     scope.event(document, "keydown", (event) => {
       if (event.key === "Escape" && drawerOpen) {
+        stopActiveHoldRepeat();
         drawerOpen = false;
         renderShell();
       }
     });
     scope.event(document, "pointerdown", (event) => {
       if (!drawerOpen || event.composedPath().includes(shell)) return;
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     });
@@ -32693,10 +33831,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return "/action_functions/production";
   }
   function parseRequirementNumber(text) {
-    const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+    const tokens = String(text ?? "").match(
+      /(?:\d(?:[\d.,\s\u00a0\u202f]*\d)?|\.\d+)\s*[kmbt]?/gi
+    );
     if (!tokens?.length) return null;
     for (let index = tokens.length - 1; index >= 0; index -= 1) {
-      const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+      const value = parseCompactNumber(tokens[index]);
       if (Number.isFinite(value) && value >= 0) return value;
     }
     return null;
@@ -32894,7 +34034,45 @@ ${locks}` : ""}`;
         row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml4(stage.actionHrid)}"><span>${escapeHtml4(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
         list.append(row);
       }
-      details.append(heading, list);
+      const presets = document.createElement("div");
+      presets.className = "mwi-procurement-chain-presets";
+      const allButton = document.createElement("button");
+      allButton.type = "button";
+      allButton.className = "mwi-procurement-chain-preset";
+      allButton.textContent = t7("全链条", "Full chain");
+      const previousButton = document.createElement("button");
+      previousButton.type = "button";
+      previousButton.className = "mwi-procurement-chain-preset";
+      previousButton.textContent = t7("从上一步开始", "Start from previous");
+      const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+      const updatePresetState = () => {
+        const checked = checkboxes.map((input) => input.checked);
+        allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
+        previousButton.setAttribute(
+          "aria-pressed",
+          String(
+            Boolean(checked[0]) && checked.slice(1).every((value) => !value)
+          )
+        );
+      };
+      allButton.addEventListener("click", () => {
+        checkboxes.forEach((input) => {
+          input.checked = true;
+        });
+        updatePresetState();
+      });
+      previousButton.addEventListener("click", () => {
+        checkboxes.forEach((input, index) => {
+          input.checked = index === 0;
+        });
+        updatePresetState();
+      });
+      checkboxes.forEach(
+        (input) => input.addEventListener("change", updatePresetState)
+      );
+      presets.append(allButton, previousButton);
+      updatePresetState();
+      details.append(heading, presets, list);
       root.append(details);
     }
     const existingSummary = isEnhancing ? null : context.panel.querySelector("#mwi-production-summary");
@@ -32937,8 +34115,8 @@ ${locks}` : ""}`;
     );
   }
   function parseHouseCount(value) {
-    const normalized = String(value ?? "").replaceAll(",", "").trim();
-    const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+    const normalized = String(value ?? "").trim();
+    const compact = parseRequirementNumber(normalized);
     if (Number.isFinite(compact) && compact >= 0) return compact;
     const match = normalized.match(/-?\d+(?:\.\d+)?/);
     const number2 = Number(match?.[0]);
@@ -33106,6 +34284,7 @@ ${locks}` : ""}`;
     return fallback;
   }
   function openMarketplace(itemHrid, enhancementLevel = 0) {
+    if (marketFeaturesSuppressed()) return false;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
@@ -33240,7 +34419,9 @@ ${locks}` : ""}`;
   }
   function highlightMarketItems(panel, scroll = false) {
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-    if (!procurement.getSettings().locateEnabled) return;
+    if (marketFeaturesSuppressed() || !procurement.getSettings().locateEnabled) {
+      return;
+    }
     const pending = new Set(
       pendingItems().map((item) => item.itemHrid.split("/").at(-1))
     );
@@ -33260,7 +34441,9 @@ ${locks}` : ""}`;
     }
   }
   function prefillPurchaseModal() {
-    if (!procurement.getSettings().autoPrefillEnabled) return;
+    if (marketFeaturesSuppressed() || !procurement.getSettings().autoPrefillEnabled) {
+      return;
+    }
     for (const modal of document.querySelectorAll(
       '[class*="MarketplacePanel_modalContent"]'
     )) {
@@ -33287,7 +34470,7 @@ ${locks}` : ""}`;
     }
   }
   function renderMarketNav(panel) {
-    if (!marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
+    if (marketFeaturesSuppressed() || !marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
@@ -33375,6 +34558,7 @@ ${locks}` : ""}`;
     return event.code === shortcut?.code && event.ctrlKey === Boolean(shortcut.ctrl) && event.shiftKey === Boolean(shortcut.shift) && event.altKey === Boolean(shortcut.alt) && event.metaKey === Boolean(shortcut.meta);
   }
   function handleShortcut(event) {
+    if (marketFeaturesSuppressed()) return;
     const shortcut = procurement.getSettings().nextItemShortcut;
     if (!armedNextItem || !shortcut || !shortcutMatches(event, shortcut)) return;
     const active = document.activeElement;
@@ -33392,7 +34576,11 @@ ${locks}` : ""}`;
     openMarketplace(fallback.itemHrid, fallback.enhancementLevel);
   }
   function subscribeProcurement(scope) {
-    const rerender = () => {
+    const rerender = ({ reason, added } = {}) => {
+      if (reason === "add" && Number(added) > 0 && procurement.getSettings().autoExpandOnAddEnabled) {
+        drawerOpen = true;
+        activeTab = "cart";
+      }
       renderShell();
       lastProductionSignature = "";
       renderProductionProcurement();
@@ -33457,12 +34645,19 @@ ${locks}` : ""}`;
       }
       createShell(scope);
       subscribeProcurement(scope);
+      scope.add(
+        runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+          clearMarketUi();
+          renderShell();
+        })
+      );
       renderProductionProcurement();
       updateMarketUi();
       scope.interval(renderProductionProcurement, 350);
       scope.interval(updateMarketUi, 900);
       scope.event(document, "keydown", handleShortcut, true);
       scope.add(() => {
+        stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID7)?.remove();
@@ -33673,9 +34868,9 @@ ${locks}` : ""}`;
     );
   }
   function gameInstances() {
-    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
+    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
-    if (pageGlobal3.mwi?.game) instances.push(pageGlobal3.mwi.game);
+    if (pageGlobal4.mwi?.game) instances.push(pageGlobal4.mwi.game);
     const fibers = [];
     const rootElement = document.getElementById("root");
     for (const root of [
@@ -33941,9 +35136,17 @@ ${locks}` : ""}`;
       TRAIN_TIMEOUT_MS
     );
   }
-  function queueButton(panel) {
-    return [...panel.querySelectorAll(`${BUTTONS_SELECTOR} button,button`)].find(
+  function queueSubmissionHost(panel) {
+    const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
+    if (buttonsContainer) return buttonsContainer;
+    return [...panel.querySelectorAll("button")].find(
       (button) => /添加到队列|add to queue/i.test(button.textContent ?? "")
+    );
+  }
+  function isNativeQueueSubmission(event, host) {
+    const button = event.target?.closest?.("button");
+    return Boolean(
+      button && host.contains(button) && !button.closest(`.${CONTROL_CLASS}`) && !button.disabled && button.getAttribute("aria-disabled") !== "true"
     );
   }
   function activeStepCount(context) {
@@ -34077,12 +35280,16 @@ ${locks}` : ""}`;
         );
       }
     }
-    const button = queueButton(context.panel);
-    if (button && button !== activeTrain.queueButton) {
+    const submissionHost = queueSubmissionHost(context.panel);
+    if (submissionHost && submissionHost !== activeTrain.queueButton) {
       clearTrainListeners();
-      activeTrain.queueButton = button;
-      activeTrain.queueListener = () => notifyCurrentTrainStepQueued(context);
-      button.addEventListener("click", activeTrain.queueListener, true);
+      activeTrain.queueButton = submissionHost;
+      activeTrain.queueListener = (event) => {
+        if (isNativeQueueSubmission(event, submissionHost)) {
+          notifyCurrentTrainStepQueued(context);
+        }
+      };
+      submissionHost.addEventListener("click", activeTrain.queueListener, true);
     }
     maybeAutoAddCurrentStep(context);
     resetTrainTimeout();
@@ -34410,11 +35617,11 @@ ${locks}` : ""}`;
   function cardRemaining(card) {
     const text = String(card?.textContent ?? "");
     const match = text.match(
-      /(?:进度|progress)\s*:?\s*([\d,.]+)\s*\/\s*([\d,.]+)/i
+      /(?:进度|progress)\s*:?\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i
     );
     if (!match) return null;
-    const current = Number(match[1].replaceAll(",", ""));
-    const target = Number(match[2].replaceAll(",", ""));
+    const current = parseCompactNumber(match[1]);
+    const target = parseCompactNumber(match[2]);
     return Number.isFinite(current) && Number.isFinite(target) ? Math.max(0, target - current) : null;
   }
   function actionLabels(actionHrid) {
@@ -34423,6 +35630,7 @@ ${locks}` : ""}`;
       [
         detail?.name,
         runtime.data.ZHActionNames?.[actionHrid],
+        getLocalizedEntityName("action", actionHrid),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " ")
       ].map(normalize).filter(Boolean)
     );
@@ -34519,11 +35727,12 @@ ${locks}` : ""}`;
   var lastTaskRenderSignature = "";
   var lastActionDetails = null;
   var lastActionCategories = null;
-  var combatGroupMode = "planet";
   var taskSpriteManifestPromise = null;
   var taskSpriteBases = /* @__PURE__ */ new Map();
-  var collapsedProfessions = /* @__PURE__ */ new Set();
-  var collapsedDungeonGroups = /* @__PURE__ */ new Set();
+  var pageOrderBySlot = /* @__PURE__ */ new Map();
+  var activeProfessionFilters = /* @__PURE__ */ new Set();
+  var combatFilterEnabled = true;
+  var activeDungeonFilters = /* @__PURE__ */ new Set();
   var KNOWN_DUNGEON_ROSTERS = [
     {
       actionHrid: "/actions/combat/chimerical_den",
@@ -34651,18 +35860,13 @@ ${locks}` : ""}`;
     ["enhancing", "强化", "Enhancing"],
     ["combat", "战斗", "Combat"]
   ].map(([key, zh, en], order) => ({ key, zh, en, order }));
-  var COMPLETED_PROFESSION = {
-    key: "completed",
-    zh: "已完成",
-    en: "Completed",
-    order: -1
-  };
-  var NEW_PROFESSION = {
-    key: "new",
-    zh: "新任务",
-    en: "New Tasks",
-    order: -2
-  };
+  var LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
+  var DUNGEON_FILTERS = [
+    ["/actions/combat/chimerical_den", "奇幻洞穴", "Chimerical Den"],
+    ["/actions/combat/sinister_circus", "邪恶马戏团", "Sinister Circus"],
+    ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
+    ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"]
+  ].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
   function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -34698,22 +35902,20 @@ ${locks}` : ""}`;
     temporaryTaskReturn = null;
     return true;
   }
-  function combatModeStorageKey() {
-    const server = globalThis.location?.hostname ?? "unknown";
-    return `MWITools_task_combat_mode_v1:${server}:${String(runtime.state.currentCharacterId ?? "")}`;
+  function resetTaskFilters() {
+    activeProfessionFilters = new Set(LIFE_PROFESSIONS.map(({ key }) => key));
+    combatFilterEnabled = true;
+    activeDungeonFilters = new Set(
+      DUNGEON_FILTERS.map(({ actionHrid }) => actionHrid)
+    );
   }
-  function readCombatGroupMode() {
-    try {
-      return localStorage.getItem(combatModeStorageKey()) === "dungeon" ? "dungeon" : "planet";
-    } catch {
-      return "planet";
-    }
+  function allTaskFiltersSelected() {
+    return activeProfessionFilters.size === LIFE_PROFESSIONS.length && combatFilterEnabled && activeDungeonFilters.size === DUNGEON_FILTERS.length;
   }
-  function writeCombatGroupMode(mode) {
-    try {
-      localStorage.setItem(combatModeStorageKey(), mode);
-    } catch {
-    }
+  function clearTaskFilters() {
+    activeProfessionFilters.clear();
+    combatFilterEnabled = false;
+    activeDungeonFilters.clear();
   }
   function rememberSpriteBase(kind, value) {
     const base = String(value ?? "").split("#")[0];
@@ -34724,7 +35926,7 @@ ${locks}` : ""}`;
   function scanTaskSpriteBases() {
     try {
       document.querySelectorAll("svg use").forEach(
-        (use) => ["items", "actions", "combat_monsters"].forEach(
+        (use) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
           (kind) => rememberSpriteBase(
             kind,
             use.getAttribute("href") ?? use.getAttribute("xlink:href")
@@ -34732,7 +35934,7 @@ ${locks}` : ""}`;
         )
       );
       globalThis.performance?.getEntriesByType?.("resource")?.forEach(
-        (entry) => ["items", "actions", "combat_monsters"].forEach(
+        (entry) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
           (kind) => rememberSpriteBase(kind, entry.name)
         )
       );
@@ -34750,7 +35952,13 @@ ${locks}` : ""}`;
         if (!response.ok) return;
         const manifest = await response.json();
         for (const value of Object.values(manifest?.files ?? {})) {
-          for (const kind of ["items", "actions", "combat_monsters"]) {
+          for (const kind of [
+            "items",
+            "actions",
+            "combat_monsters",
+            "skills",
+            "misc"
+          ]) {
             rememberSpriteBase(kind, value);
           }
         }
@@ -34775,40 +35983,33 @@ ${locks}` : ""}`;
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
-    .mwi-task-profession-group { --mwi-task-group-accent:120,174,255; grid-column:1/-1; min-width:0; }
-    .mwi-task-profession-group[data-profession="new"] { --mwi-task-group-accent:230,181,79; }
-    .mwi-task-profession-group[data-profession="completed"] { --mwi-task-group-accent:90,200,149; }
-    .mwi-task-profession-group[data-profession="combat"] { --mwi-task-group-accent:238,115,103; }
-    .mwi-task-profession-header { display:flex; width:100%; min-height:32px; box-sizing:border-box; align-items:center; gap:7px; padding:5px 9px; border:0; border-left:3px solid rgba(var(--mwi-task-group-accent),.78); border-radius:0; background:transparent; color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
-    .mwi-task-profession-header:hover { background:rgba(var(--mwi-task-group-accent),.075); }
-    .mwi-task-profession-header:focus-visible { outline:2px solid rgba(var(--mwi-task-group-accent),.72); outline-offset:-3px; }
-    .mwi-task-profession-title { font-weight:650; }
-    .mwi-task-profession-count { min-width:1.25rem; padding:0; border:0; background:transparent; color:rgba(var(--mwi-task-group-accent),.95); font-size:.68rem; font-weight:700; text-align:center; }
-    .mwi-task-profession-chevron { margin-left:auto; color:rgba(var(--mwi-task-group-accent),.9); transition:transform .15s ease; }
-    .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
-    .mwi-task-profession-body { display:none; }
-    .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
-    .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
-    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
-    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:0; border-left:2px solid rgba(183,126,255,.78); border-radius:0; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
-    .mwi-task-dungeon-header:hover { background:rgba(183,126,255,.07); }
-    .mwi-task-dungeon-header:focus-visible { outline:2px solid rgba(183,126,255,.62); outline-offset:-3px; }
-    .mwi-task-dungeon-header span:last-child { margin-left:auto; transition:transform .15s ease; }
-    .mwi-task-dungeon-header[aria-expanded="false"] span:last-child { transform:rotate(-90deg); }
-    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
-    .mwi-task-combat-mode { display:flex; width:max-content; gap:2px; margin:4px 0 8px; padding:2px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(0,0,0,.18); }
-    .mwi-task-combat-mode button { padding:3px 10px; border:0; border-radius:4px; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; cursor:pointer; }
-    .mwi-task-combat-mode button[aria-pressed="true"] { background:${runtime.config.SCRIPT_COLOR_MAIN}; color:#18130a; font-weight:700; }
-    ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
-    ${TASK_SELECTOR}[data-mwitools-dungeon-source="true"] { display:none !important; }
+    .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
+    .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
+    .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
+    .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
+    .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
+    .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
+    .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
+    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
+    .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
+    .mwi-task-filter-icon svg { width:100%; height:100%; }
+    .mwi-task-filter-label { white-space:nowrap; }
+    .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
+    .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
+    ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
-    .mwi-task-bg.mwi-task-bg--monster { left:42%; }
-    .mwi-task-bg.mwi-task-bg--dungeon { left:68%; }
     .mwi-task-bg svg { width:100%; height:100%; }
-    ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
-    [data-mwitools-task-mirror="true"] { position:relative; }
+    ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    @media (max-width:640px) {
+      .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-group--life { flex-wrap:wrap; }
+      .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
+    }
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -34897,17 +36098,11 @@ ${locks}` : ""}`;
   function itemHridFromDisplayName(name) {
     if (!name) return "";
     const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
-    const englishName = runtime.config.isZHInGameSetting ? runtime.api.getItemEnNameFromZhName?.(normalized) ?? normalized : normalized;
-    if (runtime.state.itemEnNameToHridMap?.[englishName]) {
-      return runtime.state.itemEnNameToHridMap[englishName];
-    }
-    return Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === normalized
-    )?.[0] ?? "";
+    return resolveLocalizedEntity("item", normalized);
   }
   function namedMonsterHridForCard(card) {
     const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
-    const translated = runtime.api.getOthersFromZhName?.(monsterName2);
+    const translated = resolveLocalizedEntity("monster", monsterName2);
     if (String(translated).startsWith("/monsters/")) return translated;
     if (String(translated).startsWith("/actions/combat/")) {
       return String(translated).replace("/actions/combat/", "/monsters/");
@@ -34915,7 +36110,7 @@ ${locks}` : ""}`;
     const matchingAction = Object.values(
       runtime.state.initData_actionDetailMap ?? {}
     ).find(
-      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName2 || runtime.data.ZHActionNames?.[candidate.hrid] === monsterName2)
+      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName2 || getLocalizedEntityName("action", candidate.hrid) === monsterName2)
     );
     return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
   }
@@ -35006,28 +36201,6 @@ ${locks}` : ""}`;
     card.style.position = "relative";
     card.appendChild(background);
   }
-  function addDungeonArtwork(card, location2) {
-    card.querySelector(":scope > .mwi-task-bg--dungeon")?.remove();
-    const monster = card.querySelector(":scope > .mwi-task-bg");
-    monster?.classList.remove("mwi-task-bg--monster");
-    const actionHrid = location2?.isDungeon ? location2.actionHrid : "";
-    if (!actionHrid) return;
-    const href = taskSpriteHref("actions", actionHrid);
-    if (!href) return;
-    monster?.classList.add("mwi-task-bg--monster");
-    const background = document.createElement("div");
-    background.className = "mwi-task-bg mwi-task-bg--dungeon";
-    background.dataset.spriteHref = href;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", href);
-    svg.append(use);
-    background.append(svg);
-    card.append(background);
-  }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
     const text = String(
@@ -35045,7 +36218,7 @@ ${locks}` : ""}`;
         return profession;
       }
     }
-    if (/^(击败|Defeat|Kill)(?:\s|[-–]|$)/i.test(title)) {
+    if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
       return PROFESSIONS.find(({ key: key2 }) => key2 === "combat");
     }
     const actionHrid = taskActionHrid(task);
@@ -35058,10 +36231,14 @@ ${locks}` : ""}`;
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
       en: prefix,
-      order: PROFESSIONS.length - 0.5
+      order: PROFESSIONS.length - 1.5
     };
   }
   function isCompletedCard(card, task) {
+    const target = Number(
+      nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"])
+    );
+    if (target > 0 && taskRemaining(task) === 0) return true;
     if ([...card.querySelectorAll("button")].some(
       (button) => /claim|领取/i.test(button.textContent)
     )) {
@@ -35071,12 +36248,12 @@ ${locks}` : ""}`;
       runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? ""
     );
     const progress = text.match(
-      /(?:进度|progress)\s*[:：]\s*([\d,.]+)\s*\/\s*([\d,.]+)/i
+      /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i
     );
     if (progress) {
-      const current = Number(progress[1].replaceAll(",", ""));
-      const target = Number(progress[2].replaceAll(",", ""));
-      if (Number.isFinite(current) && Number.isFinite(target) && target > 0 && current >= target) {
+      const current = parseCompactNumber(progress[1]);
+      const target2 = parseCompactNumber(progress[2]);
+      if (Number.isFinite(current) && Number.isFinite(target2) && target2 > 0 && current >= target2) {
         return true;
       }
     }
@@ -35084,8 +36261,8 @@ ${locks}` : ""}`;
   }
   function combatDetailForCard(card, task) {
     const taskDetail = runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-    const monsterName2 = visibleTaskTitle(card).replace(/^(击败|Defeat|Kill)\s*[-–]\s*/i, "").replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
-    const translatedHrid = runtime.config.isZHInGameSetting ? runtime.api.getOthersFromZhName?.(monsterName2) ?? runtime.api.getActionEnNameFromZhName?.(monsterName2) : null;
+    const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
+    const translatedHrid = resolveLocalizedEntity("monster", monsterName2) || resolveLocalizedEntity("action", monsterName2);
     const monsterHrid = String(translatedHrid ?? "").replace(
       "/actions/combat/",
       "/monsters/"
@@ -35094,7 +36271,7 @@ ${locks}` : ""}`;
       runtime.state.initData_actionDetailMap ?? {}
     )) {
       if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-      const localizedName = runtime.data.ZHActionNames?.[detail.hrid];
+      const localizedName = getLocalizedEntityName("action", detail.hrid);
       if (detail.name?.toLowerCase() === monsterName2.toLowerCase() || localizedName === monsterName2 || detail.hrid === String(translatedHrid).replace("/monsters/", "/actions/combat/")) {
         return detail;
       }
@@ -35304,7 +36481,7 @@ ${locks}` : ""}`;
         if (freshIds.has(id)) pageNewTaskIds.add(id);
       } else if (changed) {
         if (pendingResetSlots.has(slot)) {
-          if (pageClassifications.get(slot)?.profession?.key === NEW_PROFESSION.key) {
+          if (pageClassifications.get(slot)?.state === "new") {
             pageNewTaskIds.add(id);
           }
         } else if (freshIds.has(id)) {
@@ -35326,46 +36503,15 @@ ${locks}` : ""}`;
     const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
     if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
   }
-  function ensureCombatModeToggle() {
-    if (!taskListParent?.isConnected) return;
-    let controls = taskListParent.parentElement?.querySelector(
-      ":scope > .mwi-task-combat-mode"
-    );
-    if (!controls) {
-      controls = document.createElement("div");
-      controls.className = "mwi-task-combat-mode";
-      for (const [mode, zh, en] of [
-        ["planet", "星球", "Planet"],
-        ["dungeon", "地牢", "Dungeon"]
-      ]) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.mode = mode;
-        button.textContent = t9(zh, en);
-        button.addEventListener("click", () => {
-          if (combatGroupMode === mode) return;
-          combatGroupMode = mode;
-          writeCombatGroupMode(mode);
-          lastTaskRenderSignature = "";
-          renderTasks();
-        });
-        controls.appendChild(button);
-      }
-      taskListParent.insertAdjacentElement("beforebegin", controls);
-    }
-    for (const button of controls.querySelectorAll("button[data-mode]")) {
-      const pressed = String(button.dataset.mode === combatGroupMode);
-      if (button.getAttribute("aria-pressed") !== pressed) {
-        button.setAttribute("aria-pressed", pressed);
-      }
-    }
-  }
-  function ungroupCards() {
+  function cleanupListDecorations({ restoreOrder = true } = {}) {
     if (!taskListParent?.isConnected) return;
     taskListParent.querySelectorAll(
-      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location"
+      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location,:scope > .mwi-task-toolbar"
     ).forEach((group) => group.remove());
-    taskListParent.parentElement?.querySelector(":scope > .mwi-task-combat-mode")?.remove();
+    taskListParent.parentElement?.querySelectorAll(":scope > .mwi-task-combat-mode").forEach((node) => node.remove());
+    taskListParent.querySelectorAll(':scope > [data-mwitools-task-mirror="true"]').forEach((node) => node.remove());
+    if (!restoreOrder) return;
+    taskListParent.parentElement?.querySelector(":scope > .mwi-task-toolbar")?.remove();
     taskListParent.querySelectorAll(`:scope > ${TASK_SELECTOR}`).forEach((card) => {
       card.style.order = card.dataset.mwitoolsOriginalOrder ?? "";
       delete card.dataset.mwitoolsOriginalOrder;
@@ -35374,9 +36520,11 @@ ${locks}` : ""}`;
       delete card.dataset.mwitoolsTaskId;
       delete card.dataset.mwitoolsCollapsed;
       delete card.dataset.mwitoolsProfession;
+      delete card.dataset.mwitoolsTaskState;
+      delete card.dataset.mwitoolsDungeonHrids;
+      delete card.dataset.mwitoolsFiltered;
       delete card.dataset.mwitoolsLocation;
       delete card.dataset.mwitoolsDungeonSource;
-      delete card.dataset.mwitoolsTaskId;
     });
   }
   function orderedRows(cards, tasks) {
@@ -35385,24 +36533,36 @@ ${locks}` : ""}`;
       const task = tasks[index];
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
       const completed = isCompletedCard(card, task);
-      const previous = pageClassifications.get(slot);
       const isNew = pageNewTaskIds.has(taskId(task));
-      const computedProfession = isNew ? NEW_PROFESSION : completed ? COMPLETED_PROFESSION : professionForCard(card, task);
-      const profession = isNew ? NEW_PROFESSION : !completed && previous && !previous.completed && previous.profession.key !== NEW_PROFESSION.key ? previous.profession : computedProfession;
-      const location2 = profession.key === "combat" ? !completed && previous?.profession.key === "combat" ? previous.location : combatLocationForCard(card, task) : null;
-      const dungeonLocations = profession.key === "combat" ? !completed && previous?.profession.key === "combat" ? previous.dungeonLocations ?? dungeonLocationsForCard(card, task) : dungeonLocationsForCard(card, task) : [];
-      const computedMonsterGroupKey = profession.key === "combat" ? monsterHridForCard(card, task) || taskActionHrid(task) || `combat-slot-${slot}` : "";
-      const monsterGroupKey = profession.key === "combat" && !completed && previous?.profession.key === "combat" ? previous.monsterGroupKey ?? computedMonsterGroupKey : computedMonsterGroupKey;
+      const state = isNew ? "new" : completed ? "completed" : "normal";
+      const profession = professionForCard(card, task);
+      const location2 = profession.key === "combat" ? combatLocationForCard(card, task) : null;
+      const dungeonLocations = profession.key === "combat" ? dungeonLocationsForCard(card, task) : [];
+      const monsterGroupKey = profession.key === "combat" ? monsterHridForCard(card, task) || taskActionHrid(task) || `combat-slot-${slot}` : "";
       pageClassifications.set(slot, {
         completed,
+        state,
         profession,
         location: location2,
         dungeonLocations,
         monsterGroupKey
       });
+      const taskState = state;
+      if (card.dataset.mwitoolsTaskState !== taskState) {
+        card.dataset.mwitoolsTaskState = taskState;
+      }
+      if (card.dataset.mwitoolsProfession !== profession.key) {
+        card.dataset.mwitoolsProfession = profession.key;
+      }
+      const dungeonHrids = dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).map(({ actionHrid }) => actionHrid).join(",");
+      if (card.dataset.mwitoolsDungeonHrids !== dungeonHrids) {
+        card.dataset.mwitoolsDungeonHrids = dungeonHrids;
+      }
       return {
         card,
         task,
+        slot,
+        state,
         profession,
         location: location2,
         dungeonLocations,
@@ -35412,9 +36572,28 @@ ${locks}` : ""}`;
         chain: chains?.get(taskActionHrid(task))?.group ?? index
       };
     });
+    const stateOrder = { new: 0, completed: 1, normal: 2 };
+    const firstSlotByMonster = /* @__PURE__ */ new Map();
+    for (const row of rows) {
+      if (row.profession.key !== "combat") continue;
+      const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
+      const current = firstSlotByMonster.get(key);
+      if (current === void 0 || row.info.originalIndex < current) {
+        firstSlotByMonster.set(key, row.info.originalIndex);
+      }
+    }
     rows.sort((left, right) => {
+      const taskStateOrder = stateOrder[left.state] - stateOrder[right.state];
+      if (taskStateOrder) return taskStateOrder;
       const professionOrder = left.profession.order - right.profession.order;
       if (professionOrder) return professionOrder;
+      if (left.profession.key === "combat") {
+        const locationOrder = Number(left.location?.order ?? 99999) - Number(right.location?.order ?? 99999);
+        if (locationOrder) return locationOrder;
+        const leftKey = left.monsterGroupKey || `combat-slot-${left.info.originalIndex}`;
+        const rightKey = right.monsterGroupKey || `combat-slot-${right.info.originalIndex}`;
+        return firstSlotByMonster.get(leftKey) - firstSlotByMonster.get(rightKey) || left.info.originalIndex - right.info.originalIndex;
+      }
       if (!chains) {
         return left.info.originalIndex - right.info.originalIndex;
       }
@@ -35429,259 +36608,309 @@ ${locks}` : ""}`;
     });
     return rows;
   }
-  function updateGroupCollapsedState(group, profession) {
-    const collapsed = collapsedProfessions.has(profession.key);
-    const header = group.querySelector(".mwi-task-profession-header");
-    const body = group.querySelector(".mwi-task-profession-body");
-    const expanded = String(!collapsed);
-    if (header.getAttribute("aria-expanded") !== expanded) {
-      header.setAttribute("aria-expanded", expanded);
+  function updatePressedState(button, pressed) {
+    const value = String(Boolean(pressed));
+    if (button.getAttribute("aria-pressed") !== value) {
+      button.setAttribute("aria-pressed", value);
     }
-    if (body.hidden !== collapsed) body.hidden = collapsed;
   }
-  function ensureProfessionGroup(parent, profession) {
-    let group = parent.querySelector(
-      `:scope > .mwi-task-profession-group[data-profession="${profession.key}"]`
-    );
-    if (group) return group;
-    group = document.createElement("section");
-    group.className = "mwi-task-profession-group";
-    group.dataset.profession = profession.key;
-    const header = document.createElement("button");
-    header.type = "button";
-    header.className = "mwi-task-profession-header";
-    const title = document.createElement("span");
-    title.className = "mwi-task-profession-title";
+  function createTaskFilterButton({
+    kind,
+    value,
+    label,
+    iconKind = "",
+    iconHrid = "",
+    fallback = "•",
+    showLabel = false,
+    onClick
+  }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-task-filter";
+    button.dataset.filterKind = kind;
+    button.dataset.filterValue = value;
+    button.dataset.iconKind = iconKind;
+    button.dataset.iconHrid = iconHrid;
+    button.dataset.iconFallback = fallback;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    const icon = document.createElement("span");
+    icon.className = "mwi-task-filter-icon";
     const count = document.createElement("span");
-    count.className = "mwi-task-profession-count";
-    const chevron = document.createElement("span");
-    chevron.className = "mwi-task-profession-chevron";
-    chevron.textContent = "▾";
-    header.append(title, count, chevron);
-    const body = document.createElement("div");
-    body.className = "mwi-task-profession-body";
-    header.addEventListener("click", () => {
-      if (collapsedProfessions.has(profession.key)) {
-        collapsedProfessions.delete(profession.key);
-      } else {
-        collapsedProfessions.add(profession.key);
-      }
-      renderTasks();
-    });
-    group.append(header, body);
-    return group;
-  }
-  function mirrorTaskCard(source, location2) {
-    const mirror = source.cloneNode(true);
-    mirror.dataset.mwitoolsTaskMirror = "true";
-    mirror.removeAttribute("id");
-    mirror.style.order = "";
-    mirror.style.display = "";
-    delete mirror.dataset.mwitoolsDungeonSource;
-    delete mirror.dataset.mwitoolsCollapsed;
-    addDungeonArtwork(mirror, location2);
-    mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-    mirror.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const mirrorButton = event.target.closest("button");
-      if (mirrorButton) {
-        const mirrorButtons = [...mirror.querySelectorAll("button")];
-        const sourceButtons = [...source.querySelectorAll("button")];
-        sourceButtons[mirrorButtons.indexOf(mirrorButton)]?.click();
-        return;
-      }
-      source.click();
-    });
-    return mirror;
-  }
-  function groupMatchingMonsters(rows) {
-    const firstSlotByMonster = /* @__PURE__ */ new Map();
-    for (const row of rows) {
-      const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
-      const current = firstSlotByMonster.get(key);
-      if (current === void 0 || row.info.originalIndex < current) {
-        firstSlotByMonster.set(key, row.info.originalIndex);
-      }
+    count.className = "mwi-task-filter-count";
+    button.append(icon);
+    if (showLabel) {
+      const text = document.createElement("span");
+      text.className = "mwi-task-filter-label";
+      text.textContent = label;
+      button.append(text);
     }
-    return [...rows].sort((left, right) => {
-      const leftKey = left.monsterGroupKey || `combat-slot-${left.info.originalIndex}`;
-      const rightKey = right.monsterGroupKey || `combat-slot-${right.info.originalIndex}`;
-      return firstSlotByMonster.get(leftKey) - firstSlotByMonster.get(rightKey) || left.info.originalIndex - right.info.originalIndex;
-    });
+    button.append(count);
+    button.addEventListener("click", onClick);
+    return button;
   }
-  function renderDungeonCombatGroups(parent, rows, nextOrder) {
-    const locations = /* @__PURE__ */ new Map();
+  function updateTaskFilterIcon(button) {
+    const icon = button.querySelector(".mwi-task-filter-icon");
+    if (!icon) return;
+    const href = button.dataset.iconKind ? taskSpriteHref(button.dataset.iconKind, button.dataset.iconHrid) : "";
+    const signature = href || `fallback:${button.dataset.iconFallback}`;
+    if (icon.dataset.signature === signature) return;
+    icon.dataset.signature = signature;
+    icon.replaceChildren();
+    if (!href) {
+      icon.textContent = button.dataset.iconFallback || "•";
+      return;
+    }
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.append(use);
+    icon.append(svg);
+  }
+  function updateTaskFilterButton(button, { label, count, pressed }) {
+    updatePressedState(button, pressed);
+    const countText = String(count);
+    const countNode = button.querySelector(".mwi-task-filter-count");
+    if (countNode?.textContent !== countText) countNode.textContent = countText;
+    const title = `${label} (${countText})`;
+    if (button.title !== title) button.title = title;
+    if (button.getAttribute("aria-label") !== title) {
+      button.setAttribute("aria-label", title);
+    }
+    updateTaskFilterIcon(button);
+  }
+  function applyTaskFilters(rows) {
+    const statisticsEnabled = runtime.settings.get("taskStatistics");
+    const noFiltersSelected = activeProfessionFilters.size === 0 && !combatFilterEnabled && activeDungeonFilters.size === 0;
     for (const row of rows) {
-      row.card.dataset.mwitoolsDungeonSource = "true";
-      for (const location2 of row.dungeonLocations ?? []) {
-        if (!locations.has(location2.key)) {
-          locations.set(location2.key, { location: location2, rows: [] });
+      let visible2 = true;
+      if (statisticsEnabled) {
+        if (noFiltersSelected) {
+          visible2 = false;
+        } else if (row.profession.key === "combat") {
+          const dungeonHrids = row.dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).map(({ actionHrid }) => actionHrid);
+          visible2 = combatFilterEnabled && (!dungeonHrids.length || dungeonHrids.some(
+            (actionHrid) => activeDungeonFilters.has(actionHrid)
+          ));
+        } else if (LIFE_PROFESSIONS.some(({ key }) => key === row.profession.key)) {
+          visible2 = activeProfessionFilters.has(row.profession.key);
         }
-        locations.get(location2.key).rows.push(row);
+      }
+      const filtered = String(!visible2);
+      if (row.card.dataset.mwitoolsFiltered !== filtered) {
+        row.card.dataset.mwitoolsFiltered = filtered;
       }
     }
-    const orderedLocations = [...locations.values()].sort(
-      (left, right) => left.location.order - right.location.order || left.location.label.localeCompare(right.location.label)
-    );
-    const active = /* @__PURE__ */ new Set();
-    for (const { location: location2, rows: unsortedLocationRows } of orderedLocations) {
-      const locationRows = groupMatchingMonsters(unsortedLocationRows);
-      active.add(location2.key);
-      let section = parent.querySelector(
-        `:scope > .mwi-task-combat-location[data-location="${location2.key}"]`
-      );
-      if (!section || section.dataset.mode !== "dungeon") {
-        section?.remove();
-        section = document.createElement("section");
-        section.className = "mwi-task-combat-location";
-        section.dataset.location = location2.key;
-        section.dataset.mode = "dungeon";
-        const header2 = document.createElement("button");
-        header2.type = "button";
-        header2.className = "mwi-task-dungeon-header";
-        const title = document.createElement("span");
-        title.className = "mwi-task-combat-location-title-text";
-        const chevron = document.createElement("span");
-        chevron.textContent = "▾";
-        header2.append(title, chevron);
-        const body2 = document.createElement("div");
-        body2.className = "mwi-task-dungeon-body";
-        header2.addEventListener("click", () => {
-          if (collapsedDungeonGroups.has(location2.key)) {
-            collapsedDungeonGroups.delete(location2.key);
-          } else {
-            collapsedDungeonGroups.add(location2.key);
-          }
-          lastTaskRenderSignature = "";
-          renderTasks();
-        });
-        section.append(header2, body2);
-        parent.appendChild(section);
-      }
-      const collapsed = collapsedDungeonGroups.has(location2.key);
-      const header = section.querySelector(".mwi-task-dungeon-header");
-      header.setAttribute("aria-expanded", String(!collapsed));
-      section.querySelector(".mwi-task-combat-location-title-text").textContent = `${location2.label} (${locationRows.length})`;
-      const body = section.querySelector(".mwi-task-dungeon-body");
-      body.hidden = collapsed;
-      body.replaceChildren(
-        ...locationRows.map(({ card }) => mirrorTaskCard(card, location2))
-      );
-      section.hidden = collapsedProfessions.has("combat");
-      section.style.order = String(nextOrder.value++);
-    }
-    return active;
   }
-  function renderCombatGroups(parent, rows, nextOrder) {
-    if (combatGroupMode === "dungeon") {
-      return renderDungeonCombatGroups(parent, rows, nextOrder);
+  function ensureTaskToolbar(rows) {
+    if (!taskListParent?.isConnected) return;
+    const statisticsEnabled = runtime.settings.get("taskStatistics");
+    const signature = [runtime.config.isZH, statisticsEnabled].join(":");
+    let toolbar = taskListParent.parentElement?.querySelector(
+      ":scope > .mwi-task-toolbar"
+    );
+    if (toolbar?.dataset.signature !== signature) {
+      toolbar?.remove();
+      toolbar = document.createElement("div");
+      toolbar.className = "mwi-task-toolbar";
+      toolbar.dataset.signature = signature;
+      toolbar.setAttribute("role", "toolbar");
+      toolbar.setAttribute(
+        "aria-label",
+        t9("任务排序与筛选", "Task sorting and filters")
+      );
+      if (statisticsEnabled) {
+        const controls2 = document.createElement("div");
+        controls2.className = "mwi-task-toolbar-controls";
+        controls2.append(
+          createTaskFilterButton({
+            kind: "all",
+            value: "all",
+            label: t9("全部任务", "All tasks"),
+            fallback: "☰",
+            showLabel: true,
+            onClick: () => {
+              if (allTaskFiltersSelected()) clearTaskFilters();
+              else resetTaskFilters();
+              lastTaskRenderSignature = "";
+              renderTasks();
+            }
+          })
+        );
+        toolbar.append(controls2);
+        const lifeFilters = document.createElement("div");
+        lifeFilters.className = "mwi-task-filter-group mwi-task-filter-group--life";
+        for (const profession of LIFE_PROFESSIONS) {
+          lifeFilters.append(
+            createTaskFilterButton({
+              kind: "profession",
+              value: profession.key,
+              label: runtime.config.isZH ? profession.zh : profession.en,
+              iconKind: "skills",
+              iconHrid: profession.key,
+              fallback: (runtime.config.isZH ? profession.zh : profession.en)[0],
+              onClick: () => {
+                if (activeProfessionFilters.has(profession.key)) {
+                  activeProfessionFilters.delete(profession.key);
+                } else {
+                  activeProfessionFilters.add(profession.key);
+                }
+                lastTaskRenderSignature = "";
+                renderTasks();
+              }
+            })
+          );
+        }
+        toolbar.append(lifeFilters);
+        const combatFilters = document.createElement("div");
+        combatFilters.className = "mwi-task-filter-group mwi-task-filter-group--combat";
+        combatFilters.append(
+          createTaskFilterButton({
+            kind: "combat",
+            value: "combat",
+            label: t9("战斗", "Combat"),
+            iconKind: "misc",
+            iconHrid: "combat",
+            fallback: "⚔",
+            onClick: () => {
+              combatFilterEnabled = !combatFilterEnabled;
+              lastTaskRenderSignature = "";
+              renderTasks();
+            }
+          })
+        );
+        const dungeons = document.createElement("div");
+        dungeons.className = "mwi-task-dungeon-filters";
+        for (const dungeon of DUNGEON_FILTERS) {
+          dungeons.append(
+            createTaskFilterButton({
+              kind: "dungeon",
+              value: dungeon.actionHrid,
+              label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+              iconKind: "actions",
+              iconHrid: dungeon.actionHrid,
+              fallback: "◆",
+              onClick: () => {
+                if (activeDungeonFilters.has(dungeon.actionHrid)) {
+                  activeDungeonFilters.delete(dungeon.actionHrid);
+                } else {
+                  activeDungeonFilters.add(dungeon.actionHrid);
+                }
+                lastTaskRenderSignature = "";
+                renderTasks();
+              }
+            })
+          );
+        }
+        combatFilters.append(dungeons);
+        toolbar.append(combatFilters);
+      }
+      const sortButton = document.createElement("button");
+      sortButton.type = "button";
+      sortButton.className = "mwi-task-sort-button";
+      sortButton.title = t9("重新排序任务", "Sort tasks again");
+      sortButton.setAttribute("aria-label", sortButton.title);
+      const sortIcon = document.createElement("span");
+      sortIcon.className = "mwi-task-filter-icon";
+      sortIcon.textContent = "↕";
+      const sortLabel = document.createElement("span");
+      sortLabel.className = "mwi-task-filter-label";
+      sortLabel.textContent = t9("任务排序", "Sort tasks");
+      sortButton.append(sortIcon, sortLabel);
+      sortButton.addEventListener("click", () => sortTasks());
+      const controls = toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
+      controls.append(sortButton);
+      taskListParent.insertAdjacentElement("beforebegin", toolbar);
     }
-    for (const row of rows) delete row.card.dataset.mwitoolsDungeonSource;
-    const locations = /* @__PURE__ */ new Map();
+    if (!statisticsEnabled) return;
+    const professionCounts = new Map(LIFE_PROFESSIONS.map(({ key }) => [key, 0]));
+    const dungeonCounts = new Map(
+      DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0])
+    );
+    let combatCount = 0;
     for (const row of rows) {
-      const location2 = row.location ?? combatLocationForCard(row.card, row.task);
-      if (!locations.has(location2.key))
-        locations.set(location2.key, { location: location2, rows: [] });
-      locations.get(location2.key).rows.push(row);
+      if (professionCounts.has(row.profession.key)) {
+        professionCounts.set(
+          row.profession.key,
+          professionCounts.get(row.profession.key) + 1
+        );
+      }
+      if (row.profession.key !== "combat") continue;
+      combatCount += 1;
+      for (const { isDungeon, actionHrid } of row.dungeonLocations) {
+        if (isDungeon && dungeonCounts.has(actionHrid)) {
+          dungeonCounts.set(actionHrid, dungeonCounts.get(actionHrid) + 1);
+        }
+      }
     }
-    const orderedLocations = [...locations.values()].sort(
-      (left, right) => left.location.order - right.location.order || left.location.label.localeCompare(right.location.label)
-    );
-    const active = /* @__PURE__ */ new Set();
-    for (const { location: location2, rows: unsortedLocationRows } of orderedLocations) {
-      const locationRows = groupMatchingMonsters(unsortedLocationRows);
-      active.add(location2.key);
-      let section = parent.querySelector(
-        `:scope > .mwi-task-combat-location[data-location="${location2.key}"]`
+    const allSelected = allTaskFiltersSelected();
+    const allButton = toolbar.querySelector('[data-filter-kind="all"]');
+    updateTaskFilterButton(allButton, {
+      label: t9("全部任务", "All tasks"),
+      count: rows.length,
+      pressed: allSelected
+    });
+    for (const profession of LIFE_PROFESSIONS) {
+      const button = toolbar.querySelector(
+        `[data-filter-kind="profession"][data-filter-value="${profession.key}"]`
       );
-      if (!section || section.dataset.mode === "dungeon") {
-        section?.remove();
-        section = document.createElement("section");
-        section.className = "mwi-task-combat-location";
-        section.dataset.location = location2.key;
-        section.dataset.mode = "planet";
-        const title = document.createElement("h4");
-        title.className = "mwi-task-combat-location-title";
-        section.append(title);
-        parent.appendChild(section);
-      }
-      section.querySelector(".mwi-task-combat-location-title").textContent = `${location2.label} (${locationRows.length})`;
-      section.style.order = String(nextOrder.value++);
-      for (const row of locationRows) {
-        row.card.style.order = String(nextOrder.value++);
-        row.card.dataset.mwitoolsLocation = location2.key;
-      }
+      updateTaskFilterButton(button, {
+        label: runtime.config.isZH ? profession.zh : profession.en,
+        count: professionCounts.get(profession.key),
+        pressed: activeProfessionFilters.has(profession.key)
+      });
     }
-    return active;
+    updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
+      label: t9("战斗", "Combat"),
+      count: combatCount,
+      pressed: combatFilterEnabled
+    });
+    const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
+    if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
+      dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
+    }
+    for (const dungeon of DUNGEON_FILTERS) {
+      const button = toolbar.querySelector(
+        `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`
+      );
+      updateTaskFilterButton(button, {
+        label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+        count: dungeonCounts.get(dungeon.actionHrid),
+        pressed: activeDungeonFilters.has(dungeon.actionHrid)
+      });
+    }
   }
-  function renderRegularGroup(rows, nextOrder) {
-    for (const row of rows) row.card.style.order = String(nextOrder.value++);
+  function applyExplicitSort(rows) {
+    rows.forEach((row, index) => {
+      const order = index + 1;
+      const value = String(order);
+      if (row.card.style.order !== value) row.card.style.order = value;
+      pageOrderBySlot.set(row.slot, order);
+    });
   }
-  function groupCards(cards, tasks) {
+  function restoreStableOrders(rows) {
+    let nextOrder = Math.max(0, ...pageOrderBySlot.values()) + 1;
+    for (const row of rows) {
+      let order = pageOrderBySlot.get(row.slot);
+      if (!Number.isFinite(order)) {
+        const current = Number(row.card.style.order);
+        order = row.card.style.order && Number.isFinite(current) ? current : nextOrder++;
+        pageOrderBySlot.set(row.slot, order);
+      }
+      const value = String(order);
+      if (row.card.style.order !== value) row.card.style.order = value;
+    }
+  }
+  function renderFlatTaskList(cards, tasks, { sort = false } = {}) {
     if (!taskListParent) return;
-    for (const card of cards) delete card.dataset.mwitoolsDungeonSource;
-    document.querySelectorAll(".mwi-task-toolbar").forEach((node) => node.remove());
+    cleanupListDecorations({ restoreOrder: false });
     const rows = orderedRows(cards, tasks);
-    const customDefinitions = rows.map((row) => row.profession).filter(
-      (profession, index, all) => ![NEW_PROFESSION, COMPLETED_PROFESSION, ...PROFESSIONS].some(
-        (known) => known.key === profession.key
-      ) && all.findIndex((candidate) => candidate.key === profession.key) === index
-    );
-    const definitions = [
-      NEW_PROFESSION,
-      COMPLETED_PROFESSION,
-      ...PROFESSIONS,
-      ...customDefinitions
-    ];
-    const activeKeys = /* @__PURE__ */ new Set([COMPLETED_PROFESSION.key]);
-    const activeLocations = /* @__PURE__ */ new Set();
-    const nextOrder = { value: 1 };
-    for (const profession of definitions) {
-      const matching = rows.filter(
-        (row) => row.profession.key === profession.key
-      );
-      if (!matching.length && profession.key !== COMPLETED_PROFESSION.key)
-        continue;
-      activeKeys.add(profession.key);
-      const group = ensureProfessionGroup(taskListParent, profession);
-      if (!group.isConnected) taskListParent.appendChild(group);
-      const title = runtime.config.isZH ? profession.zh : profession.en;
-      const titleNode = group.querySelector(".mwi-task-profession-title");
-      if (titleNode.textContent !== title) titleNode.textContent = title;
-      const count = String(matching.length);
-      const countNode = group.querySelector(".mwi-task-profession-count");
-      if (countNode.textContent !== count) countNode.textContent = count;
-      const groupOrder = String(nextOrder.value++);
-      if (group.style.order !== groupOrder) group.style.order = groupOrder;
-      updateGroupCollapsedState(group, profession);
-      for (const row of matching) {
-        if (row.card.dataset.mwitoolsProfession !== profession.key) {
-          row.card.dataset.mwitoolsProfession = profession.key;
-        }
-        const collapsed = String(collapsedProfessions.has(profession.key));
-        if (row.card.dataset.mwitoolsCollapsed !== collapsed) {
-          row.card.dataset.mwitoolsCollapsed = collapsed;
-        }
-      }
-      if (profession.key === "combat") {
-        for (const key of renderCombatGroups(
-          taskListParent,
-          matching,
-          nextOrder
-        )) {
-          activeLocations.add(key);
-        }
-      } else {
-        renderRegularGroup(matching, nextOrder);
-      }
-    }
-    taskListParent.querySelectorAll(":scope > .mwi-task-profession-group").forEach((group) => {
-      if (!activeKeys.has(group.dataset.profession)) group.remove();
-    });
-    taskListParent.querySelectorAll(":scope > .mwi-task-combat-location").forEach((section) => {
-      if (!activeLocations.has(section.dataset.location)) section.remove();
-    });
+    if (sort) applyExplicitSort(rows);
+    else restoreStableOrders(rows);
+    ensureTaskToolbar(rows);
+    applyTaskFilters(rows);
+    return rows;
   }
   function wireMergeButtons(cards, tasks) {
     cards.forEach((card, index) => {
@@ -35744,12 +36973,7 @@ ${locks}` : ""}`;
     const name = runtime.api.getOriTextFromElement?.(
       panel.querySelector('div[class*="SkillActionDetail_name"]')
     );
-    let actionHrid = runtime.api.getActionHridFromItemName?.(name);
-    if (runtime.config.isZHInGameSetting && !actionHrid) {
-      actionHrid = runtime.api.getActionHridFromItemName?.(
-        runtime.api.getActionEnNameFromZhName?.(name)
-      );
-    }
+    const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
     if (actionHrid !== pending.actionHrid) return;
     runtime.api.reactInputTriggerHack?.(input, pending.count);
     document.querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast").forEach((node) => node.remove());
@@ -35780,10 +37004,11 @@ ${locks}` : ""}`;
       runtime.config.isZH,
       runtime.settings.get("taskAutoSort"),
       runtime.settings.get("taskIcons"),
-      combatGroupMode,
+      runtime.settings.get("taskStatistics"),
       [...pageNewTaskIds].sort().join(","),
-      [...collapsedProfessions].sort().join(","),
-      [...collapsedDungeonGroups].sort().join(",")
+      [...activeProfessionFilters].sort().join(","),
+      combatFilterEnabled,
+      [...activeDungeonFilters].sort().join(",")
     ];
     const rows = cards.map((card, index) => {
       const task = tasks[index] ?? {};
@@ -35794,16 +37019,16 @@ ${locks}` : ""}`;
           /(?:进度|progress)\s*[:：]\s*[\d,.]+\s*\/\s*[\d,.]+/i
         )?.[0] ?? "",
         isCompletedCard(card, task) ? "1" : "0",
-        card.dataset.mwitoolsProfession ?? "",
-        card.dataset.mwitoolsCollapsed ?? ""
+        taskId(task)
       ].join("");
     });
     return [...settings2, ...rows].join("");
   }
-  function renderTasks() {
+  function renderTasks({ forceSort = false } = {}) {
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
     if (!cards.length) {
       applyPendingMerge();
+      document.querySelectorAll(".mwi-task-toolbar").forEach((node) => node.remove());
       if (taskListParent && !taskListParent.isConnected) {
         originalCards = [];
         taskListParent = null;
@@ -35816,6 +37041,7 @@ ${locks}` : ""}`;
           pageTaskIds = /* @__PURE__ */ new Map();
           pageNewTaskIds = /* @__PURE__ */ new Set();
           pendingResetSlots = /* @__PURE__ */ new Set();
+          pageOrderBySlot = /* @__PURE__ */ new Map();
           runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
         }
       }
@@ -35825,8 +37051,10 @@ ${locks}` : ""}`;
     const enteredNewTaskPage = !taskListParent?.isConnected || observedParent && observedParent !== taskListParent;
     const resumedTaskPage = enteredNewTaskPage && consumeTemporaryTaskReturn();
     const resumedResetPage = enteredNewTaskPage && pendingResetSlots.size > 0;
+    const sortOnEntry = enteredNewTaskPage && !resumedResetPage;
     if (enteredNewTaskPage) {
-      ungroupCards();
+      cleanupListDecorations({ restoreOrder: false });
+      document.querySelectorAll(".mwi-task-toolbar").forEach((node) => node.remove());
       originalCards = [];
       if (!resumedTaskPage && !resumedResetPage) {
         pageClassifications = /* @__PURE__ */ new Map();
@@ -35834,7 +37062,10 @@ ${locks}` : ""}`;
         pageNewTaskIds = /* @__PURE__ */ new Set();
         pendingResetSlots = /* @__PURE__ */ new Set();
       }
-      combatGroupMode = readCombatGroupMode();
+      if (!resumedResetPage) {
+        pageOrderBySlot = /* @__PURE__ */ new Map();
+        resetTaskFilters();
+      }
       taskListParent = observedParent;
     }
     cards = cards.filter((card) => card.parentElement === taskListParent);
@@ -35850,12 +37081,11 @@ ${locks}` : ""}`;
       cardTasks,
       enteredNewTaskPage && !resumedTaskPage && !resumedResetPage
     );
-    ensureCombatModeToggle();
     const signature = taskRenderSignature(cards, cardTasks);
     const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
     const actionDetails = runtime.state.initData_actionDetailMap;
     const actionCategories = runtime.state.initData_actionCategoryDetailMap;
-    if (!enteredNewTaskPage && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature) {
+    if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature) {
       applyPendingMerge();
       return;
     }
@@ -35874,15 +37104,21 @@ ${locks}` : ""}`;
     cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
     wireMergeButtons(cards, cardTasks);
     wireResetButtons(cards);
-    groupCards(cards, cardTasks);
+    renderFlatTaskList(cards, cardTasks, {
+      sort: forceSort || sortOnEntry
+    });
     applyPendingMerge();
     lastRenderedCards = [...cards];
     lastActionDetails = actionDetails;
     lastActionCategories = actionCategories;
     lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
   }
+  function sortTasks() {
+    lastTaskRenderSignature = "";
+    renderTasks({ forceSort: true });
+  }
   function cleanupTasks() {
-    ungroupCards();
+    cleanupListDecorations();
     document.querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast"
     ).forEach((node) => node.remove());
@@ -35904,8 +37140,8 @@ ${locks}` : ""}`;
     lastTaskRenderSignature = "";
     lastActionDetails = null;
     lastActionCategories = null;
-    collapsedProfessions.clear();
-    collapsedDungeonGroups.clear();
+    pageOrderBySlot = /* @__PURE__ */ new Map();
+    resetTaskFilters();
   }
   runtime.features.register({
     id: "taskInsights",
@@ -35976,7 +37212,8 @@ ${locks}` : ""}`;
     taskRemaining,
     taskProjection,
     renderTasks,
-    restoreTaskOrder: renderTasks
+    sortTasks,
+    restoreTaskOrder: sortTasks
   });
 
   // src/features/task-train-planner.js
@@ -36500,20 +37737,9 @@ ${locks}` : ""}`;
     }
     return cards[context.originalIndex] ?? null;
   }
-  function expandTaskProfession(card, profession) {
-    const key = card?.dataset.mwitoolsProfession ?? profession;
-    if (!key) return;
-    const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
-    const group = groups.find(
-      (candidate) => candidate.dataset.profession === key
-    );
-    const header = group?.querySelector(".mwi-task-profession-header");
-    if (header?.getAttribute("aria-expanded") === "false") header.click();
-  }
   function restoreTaskPosition(context) {
     const card = findTaskCard(context);
     if (card) {
-      expandTaskProfession(card, context.profession);
       card.scrollIntoView?.({ block: "center", inline: "nearest" });
       return true;
     }
@@ -36698,18 +37924,13 @@ ${locks}` : ""}`;
       runtime.api.getOriTextFromElement?.(title) ?? title?.textContent ?? ""
     ).trim();
     if (!name) return "";
-    const mapped = runtime.state.itemEnNameToHridMap?.[name];
-    if (mapped) return mapped;
-    const translatedItem = runtime.data.ZHToItemHridMap?.[name];
-    if (translatedItem) return translatedItem;
-    const translated = runtime.api.getOthersFromZhName?.(name);
-    if (String(translated ?? "").startsWith("/abilities/")) {
-      return String(translated).replace("/abilities/", "/items/");
-    }
-    return normalizeItemHrid3(translated);
+    const itemHrid = resolveLocalizedEntity("item", name);
+    if (itemHrid) return itemHrid;
+    const abilityHrid = resolveLocalizedEntity("ability", name);
+    return abilityHrid ? abilityHrid.replace("/abilities/", "/items/") : normalizeItemHrid3(name);
   }
   function resolveAbilityBookItem(root) {
-    const itemHrid = itemHridFromIcon2(root) || itemHridFromTitle(root);
+    const itemHrid = resolveEntityFromElement("item", root) || itemHridFromIcon2(root) || itemHridFromTitle(root);
     return runtime.state.initData_itemDetailMap?.[itemHrid]?.abilityBookDetail ? itemHrid : "";
   }
   function abilityRecord(abilityHrid) {
@@ -36843,16 +38064,16 @@ ${locks}` : ""}`;
       panel,
       ".mwi-book-state",
       data.isLearned ? t11(
-        `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
-        `Current Lv.${data.level} · total XP ${exact(data.experience)}`
+        `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
+        `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`
       ) : t11("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
       t11(
-        `每本增加 ${exact(data.experienceGain)} 经验`,
-        `${exact(data.experienceGain)} XP per book`
+        `每本增加 ${exact(data.experienceGain, 0)} 经验`,
+        `${exact(data.experienceGain, 0)} XP per book`
       )
     );
     const requirement = calculateAbilityBookRequirement({
@@ -36982,13 +38203,7 @@ ${locks}` : ""}`;
     const categoryName = String(
       runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? ""
     ).trim();
-    const icon = item.querySelector("svg[aria-label]");
-    let itemName4 = icon?.getAttribute("aria-label")?.trim();
-    if (!itemName4) return null;
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName?.(itemName4) ?? itemName4;
-    }
-    const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName4];
+    const itemHrid = resolveEntityFromElement("item", item);
     const itemDetail = runtime.state.initData_itemDetailMap?.[itemHrid];
     if (!itemHrid || itemDetail?.isTradable !== true) return null;
     const levelText = item.querySelector('[class*="Item_enhancementLevel"]')?.textContent ?? "";
@@ -37018,7 +38233,111 @@ ${locks}` : ""}`;
     }
   });
 
-  // src/features/feedback/client.js
+  // src/features/opinion-center/announcements.js
+  var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
+  var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.6",
+      version: "26.4.6",
+      publishedAt: "2026-08-12",
+      title: Object.freeze({
+        zh: "26.4.6 更新公告",
+        en: "Version 26.4.6 update"
+      }),
+      emphasizedBodyIndexes: Object.freeze([6]),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "意见反馈升级为意见中心，新增版本公告，并统一使用红点提醒反馈回复和新公告。",
+          "任务页改为平铺布局，支持新任务、已完成任务、生活专业、战斗和四个副本的排序与图标筛选，并提供手动重新排序。",
+          "资产中心支持在历史记录缺失日期之间补录七项资产；同一轮资产估值固定使用一份行情快照，避免实时价格变化造成统计口径不一致。",
+          "公会经验统计改为近 6 小时、24 小时和成员本周平均速率；七日趋势使用 6 小时滚动平均，并修正升级经验与预计升级时间计算。",
+          "新增铁牛模式适配开关，自动识别铁牛和旧铁牛角色；开启后隐藏不可用的市场价格、利润与市场采购操作，同时保留资产和宝箱估值。",
+          "修复点金、分解、转化和解精炼的完成时间：现在会结合所选物品批量、催化剂、金币、完成次数和当前周期计算，缺少选择时不再显示无穷大。",
+          "生产利润和宝箱估算悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端均需 800 毫秒长按，并支持滑动取消与点外关闭。",
+          "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
+          "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。",
+          "资产与吃书经验不再显示浮点尾数；宝箱碎片自制钥匙会计入工匠减耗、浓缩倍率和泡饮成本，并可选择忽略所有牛铃价值。",
+          "购物车新增默认关闭的“加购后自动展开”，开启后任意入口成功加购都会直接打开购物清单。",
+          "兼容游戏全部九种内置语言；库存、悬浮窗、任务、行动、市场和 DPS 等功能现在会直接使用游戏当前语言的官方词表，不再因繁体中文或其他语言名称不同而失效。",
+          "移除作用有限的消耗品回复速度、单位回复成本和理论每日用量显示。",
+          "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
+          "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。",
+          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。"
+        ]),
+        en: Object.freeze([
+          "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
+          "Tasks now use a flat layout with sorting and icon filters for new, completed, profession, combat, and four dungeon categories, plus manual re-sorting.",
+          "The Asset Center can insert seven-component records into missing historical dates. One market snapshot is used per valuation session to keep totals consistent while live prices change.",
+          "Guild XP now shows 6-hour, 24-hour, and member this-week average rates. The seven-day trend uses a 6-hour rolling average, with corrected level requirements and ETA calculations.",
+          "Added an Iron Cow adaptation switch that recognizes both Iron Cow modes. When enabled, unavailable market prices, profits, and marketplace purchasing actions are hidden while asset and loot chest valuations remain available.",
+          "Fixed completion times for Coinify, Decompose, Transmute, and Unrefine by accounting for the selected stack, bulk size, catalyst, coins, completed count, and current cycle. Missing selections no longer appear as infinite.",
+          "Production profit and loot chest estimate tooltips now require holding Ctrl by default, with any single key configurable in settings. Both use an 800 ms long press on touch devices with movement cancellation and outside-tap dismissal.",
+          "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
+          "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further.",
+          "Asset and ability-book XP displays no longer show floating-point tails. Fragment-crafted key estimates now include Artisan reduction, concentration, and drink costs, with an option to ignore all Cowbell value.",
+          "The cart adds an off-by-default “Expand after adding” option that opens the shopping list after any successful addition.",
+          "Added compatibility with all nine built-in game languages. Inventory, tooltips, tasks, actions, marketplace tools, DPS, and related features now use the official dictionary for the active game language instead of failing on Traditional Chinese or other localized names.",
+          "Removed the low-value consumable recovery-rate, cost-per-recovery, and theoretical daily-use display.",
+          "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
+          "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths.",
+          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language."
+        ])
+      })
+    })
+  ]);
+  function defaultGetValue(key, fallback) {
+    try {
+      return typeof GM_getValue === "function" ? GM_getValue(key, fallback) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  function defaultSetValue(key, value) {
+    try {
+      if (typeof GM_setValue === "function") GM_setValue(key, value);
+    } catch {
+    }
+  }
+  function parseSeenIds(value) {
+    const parsed = typeof value === "string" ? JSON.parse(value || "[]") : value;
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  }
+  var AnnouncementStore = class {
+    constructor({
+      announcements = ANNOUNCEMENTS,
+      getValue = defaultGetValue,
+      setValue = defaultSetValue
+    } = {}) {
+      this.announcements = [...announcements].sort(
+        (left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)) || String(right.version).localeCompare(String(left.version), void 0, {
+          numeric: true
+        })
+      );
+      this.getValue = getValue;
+      this.setValue = setValue;
+      try {
+        this.seenIds = parseSeenIds(this.getValue(STORAGE_KEY, []));
+      } catch {
+        this.seenIds = /* @__PURE__ */ new Set();
+      }
+    }
+    list() {
+      return [...this.announcements];
+    }
+    unread() {
+      return this.announcements.filter((item) => !this.seenIds.has(item.id));
+    }
+    markAllRead() {
+      const unread = this.unread();
+      if (!unread.length) return 0;
+      for (const item of unread) this.seenIds.add(item.id);
+      this.setValue(STORAGE_KEY, [...this.seenIds]);
+      return unread.length;
+    }
+  };
+  var announcementStorageKey = STORAGE_KEY;
+
+  // src/features/opinion-center/client.js
   var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
@@ -37325,7 +38644,7 @@ ${locks}` : ""}`;
     };
   }
 
-  // src/features/feedback/panel.js
+  // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID13 = "mwitools-feedback-style";
@@ -37346,15 +38665,17 @@ ${locks}` : ""}`;
     style.id = STYLE_ID13;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
-    #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
+    #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
     .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
-    .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}.mwi-feedback-tab .mwi-feedback-badge{right:calc(50% - 52px);top:4px}
+    .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}
     .mwi-feedback-body{min-height:360px;overflow:auto;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
     .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
     .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
-    .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}
+    .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
+    .mwi-announcement-card li strong{color:#ff5f66}
+    @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
     @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -37372,12 +38693,16 @@ ${locks}` : ""}`;
     if (text !== void 0) element.textContent = text;
     return element;
   }
-  var FeedbackPanel = class {
-    constructor({ client, scope }) {
+  var OpinionCenterPanel = class {
+    constructor({ client, scope, announcements = new AnnouncementStore() }) {
       this.client = client;
       this.scope = scope;
+      this.announcements = announcements;
       this.items = [];
-      this.unread = 0;
+      this.feedbackUnread = 0;
+      this.announcementUnread = this.announcements.unread().length;
+      this.acknowledgedFeedbackIds = /* @__PURE__ */ new Set();
+      this.pendingReadIds = /* @__PURE__ */ new Set();
       this.currentDetailId = null;
       this.quota = null;
       this.editing = null;
@@ -37389,10 +38714,11 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见中心", "MWITools Feedback Center")}">
+        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t13("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}</button></nav>
         <div class="mwi-feedback-body">
+          <section class="mwi-feedback-view" data-view="announcements" hidden><div class="mwi-announcement-list"></div></section>
           <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t13("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
               <label class="mwi-feedback-field"><span>${t13("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t13("功能建议", "Feature request")}</option><option value="other">${t13("其他", "Other")}</option></select></label>
@@ -37433,6 +38759,7 @@ ${locks}` : ""}`;
       });
       this.scope.add(() => this.destroy());
       this.toggleBugFields();
+      this.renderAnnouncements();
     }
     ensureButton() {
       const totalLevel = this.findTotalLevel();
@@ -37442,12 +38769,21 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t13("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        const icon = makeElement("span", "", "✉");
+        const label = makeElement("span", "mwi-opinion-label");
+        const dot = makeElement("span", "mwi-opinion-dot");
+        dot.hidden = true;
+        button.append(icon, label, dot);
         this.scope.event(button, "click", () => this.open());
       }
+      button.querySelector(".mwi-opinion-label").textContent = t13(
+        "MWITools 意见中心",
+        "MWITools Feedback Center"
+      );
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
         totalLevel.insertAdjacentElement("afterend", button);
       }
+      this.updateUnreadIndicator();
       return button;
     }
     findTotalLevel() {
@@ -37465,17 +38801,46 @@ ${locks}` : ""}`;
       });
     }
     setUnread(count) {
-      this.unread = Math.max(0, Number(count) || 0);
-      for (const badge of document.querySelectorAll(
-        `#${BUTTON_ID} .mwi-feedback-badge,#${ROOT_ID2} .mwi-feedback-tab .mwi-feedback-badge`
-      )) {
-        badge.dataset.count = String(this.unread);
-        badge.textContent = String(this.unread);
-      }
+      this.feedbackUnread = Math.max(0, Number(count) || 0);
+      this.updateUnreadIndicator();
+    }
+    updateUnreadIndicator() {
+      const button = document.getElementById(BUTTON_ID);
+      if (!button) return;
+      const hasUnread = this.feedbackUnread > 0 || this.announcementUnread > 0;
+      button.dataset.unread = String(hasUnread);
+      const dot = button.querySelector(".mwi-opinion-dot");
+      if (dot) dot.hidden = !hasUnread;
+      button.setAttribute(
+        "aria-label",
+        hasUnread ? t13(
+          "MWITools 意见中心，有新内容",
+          "MWITools Feedback Center, new activity"
+        ) : t13("MWITools 意见中心", "MWITools Feedback Center")
+      );
     }
     async open() {
+      const hadAnnouncementUnread = this.announcementUnread > 0;
+      const hadFeedbackUnread = this.feedbackUnread > 0;
       this.root.hidden = false;
-      await this.refresh();
+      this.showTab(
+        hadAnnouncementUnread ? "announcements" : hadFeedbackUnread ? "mine" : "submit"
+      );
+      this.announcements.markAllRead();
+      this.announcementUnread = 0;
+      this.feedbackUnread = 0;
+      this.updateUnreadIndicator();
+      await this.refresh({ keepIndicatorClear: true });
+      const discoveredFeedbackUnread = this.feedbackUnread > 0;
+      if (!hadAnnouncementUnread && !hadFeedbackUnread && discoveredFeedbackUnread) {
+        this.showTab("mine");
+      }
+      const unreadItems = this.items.filter(
+        (item) => item.unread && !this.acknowledgedFeedbackIds.has(item.id)
+      );
+      this.acknowledgeFeedback(unreadItems);
+      this.feedbackUnread = 0;
+      this.updateUnreadIndicator();
     }
     close() {
       this.root.hidden = true;
@@ -37488,6 +38853,7 @@ ${locks}` : ""}`;
         view.hidden = view.dataset.view !== name;
       });
       if (name === "mine") this.renderList();
+      if (name === "announcements") this.renderAnnouncements();
     }
     toggleBugFields() {
       this.form.querySelector(".mwi-feedback-bug-fields").hidden = this.form.elements.type.value !== "bug";
@@ -37553,12 +38919,47 @@ ${locks}` : ""}`;
       );
       this.toggleBugFields();
     }
-    async refresh() {
+    unreadFeedbackCount(result) {
+      const unreadItems = this.items.filter((item) => item.unread);
+      const acknowledged = unreadItems.filter(
+        (item) => this.acknowledgedFeedbackIds.has(item.id)
+      ).length;
+      return Math.max(
+        0,
+        Number(result.unread ?? unreadItems.length) - acknowledged
+      );
+    }
+    acknowledgeFeedback(items) {
+      for (const item of items) {
+        if (!item?.id || this.pendingReadIds.has(item.id)) continue;
+        this.acknowledgedFeedbackIds.add(item.id);
+        this.pendingReadIds.add(item.id);
+        Promise.resolve().then(() => this.client.markRead(item.id)).then(() => {
+          this.pendingReadIds.delete(item.id);
+          this.acknowledgedFeedbackIds.delete(item.id);
+          item.unread = false;
+        }).catch(() => {
+        });
+      }
+    }
+    retryPendingReads() {
+      for (const id of [...this.pendingReadIds]) {
+        Promise.resolve().then(() => this.client.markRead(id)).then(() => {
+          this.pendingReadIds.delete(id);
+          this.acknowledgedFeedbackIds.delete(id);
+          const item = this.items.find((candidate) => candidate.id === id);
+          if (item) item.unread = false;
+        }).catch(() => {
+        });
+      }
+    }
+    async refresh({ keepIndicatorClear = false } = {}) {
       try {
         const result = await this.client.list();
         this.items = result.items ?? [];
         this.quota = result.quota;
-        this.setUnread(result.unread ?? 0);
+        this.feedbackUnread = this.unreadFeedbackCount(result);
+        if (!keepIndicatorClear) this.updateUnreadIndicator();
         this.renderQuota();
         this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
           if (!node.classList.contains("mwi-feedback-success"))
@@ -37569,6 +38970,7 @@ ${locks}` : ""}`;
         } else {
           this.renderList();
         }
+        this.retryPendingReads();
         return true;
       } catch (error) {
         this.renderQuota(error.message);
@@ -37576,6 +38978,55 @@ ${locks}` : ""}`;
           '[data-view="mine"] .mwi-feedback-error'
         ).textContent = error.message;
         return false;
+      }
+    }
+    renderAnnouncements() {
+      const host = this.root.querySelector(".mwi-announcement-list");
+      if (!host) return;
+      host.replaceChildren();
+      const announcements = this.announcements.list();
+      if (!announcements.length) {
+        host.append(
+          makeElement(
+            "div",
+            "mwi-feedback-empty",
+            t13("目前还没有公告。", "There are no announcements yet.")
+          )
+        );
+        return;
+      }
+      for (const item of announcements) {
+        const card = makeElement("article", "mwi-announcement-card");
+        const title = makeElement(
+          "h3",
+          "",
+          item.title?.[runtime.config.isZH ? "zh" : "en"] ?? item.version
+        );
+        const meta = makeElement(
+          "div",
+          "mwi-announcement-meta",
+          `${item.version} · ${item.publishedAt}`
+        );
+        const list = document.createElement("ul");
+        const body = item.body?.[runtime.config.isZH ? "zh" : "en"] ?? [];
+        const emphasizedIndexes = new Set(item.emphasizedBodyIndexes ?? []);
+        list.append(
+          ...body.map((line, index) => {
+            const listItem = makeElement("li");
+            if (!emphasizedIndexes.has(index)) {
+              listItem.textContent = line;
+              return listItem;
+            }
+            const strong = document.createElement("strong");
+            const underline = document.createElement("u");
+            underline.textContent = line;
+            strong.append(underline);
+            listItem.append(strong);
+            return listItem;
+          })
+        );
+        card.append(title, meta, list);
+        host.append(card);
       }
     }
     renderQuota(errorMessage = "") {
@@ -37794,8 +39245,9 @@ ${locks}` : ""}`;
     }
   };
   var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID13 };
+  var FeedbackPanel = OpinionCenterPanel;
 
-  // src/features/feedback/index.js
+  // src/features/opinion-center/index.js
   var activeClient = null;
   runtime.features.register({
     id: "feedback",
@@ -37807,7 +39259,11 @@ ${locks}` : ""}`;
         characterName: runtime.state.currentCharacterName
       });
       activeClient = client;
-      const panel = new FeedbackPanel({ client, scope });
+      const panel = new OpinionCenterPanel({
+        client,
+        scope,
+        announcements: new AnnouncementStore()
+      });
       let disposed = false;
       let failures = 0;
       let timer = null;
@@ -37846,6 +39302,8 @@ ${locks}` : ""}`;
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
+  var TREND_RATE_WINDOW_MS = 6 * HOUR_MS2;
+  var TREND_MINIMUM_COVERAGE_MS = HOUR_MS2;
   function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -37929,6 +39387,18 @@ ${locks}` : ""}`;
     ]);
     return Number.isFinite(Number(value)) ? Number(value) : null;
   }
+  function entityWeeklyXpRate(entity, now = Date.now()) {
+    const weeklyValue = findField(entity, ["weeklyGuildExperience"]);
+    const weeklyXp = weeklyValue === null ? NaN : Number(weeklyValue);
+    const weekStartedAt = Date.parse(
+      findField(entity, ["weeklyGuildExperienceWeekStartAt"]) ?? ""
+    );
+    const elapsed = now - weekStartedAt;
+    if (!Number.isFinite(weeklyXp) || weeklyXp < 0 || !Number.isFinite(weekStartedAt) || elapsed <= 0) {
+      return null;
+    }
+    return weeklyXp / elapsed * HOUR_MS2;
+  }
   function objectKey(kind, entity, parentId = "") {
     const id = entityId(entity);
     return id ? `${kind}:${parentId ? `${parentId}:` : ""}${id}` : "";
@@ -37987,7 +39457,7 @@ ${locks}` : ""}`;
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:860px !important; }
+    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
     .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
@@ -38030,13 +39500,22 @@ ${locks}` : ""}`;
   }
   function guildXpRatePoints(points, now = Date.now()) {
     const cutoff = now - TREND_WINDOW_MS;
-    const sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at).filter((point) => point.at >= cutoff);
+    const sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at);
     const rates = [];
     for (let index = 1; index < sorted.length; index += 1) {
-      const previous = sorted[index - 1];
       const current = sorted[index];
-      const elapsed = current.at - previous.at;
-      const gained = current.xp - previous.xp;
+      if (current.at < cutoff) continue;
+      let baselineIndex = index - 1;
+      while (baselineIndex > 0 && current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS) {
+        baselineIndex -= 1;
+      }
+      let baseline = sorted[baselineIndex];
+      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS) {
+        baseline = [...sorted.slice(0, baselineIndex)].reverse().find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS);
+      }
+      if (!baseline) continue;
+      const elapsed = current.at - baseline.at;
+      const gained = current.xp - baseline.xp;
       if (elapsed <= 0 || gained < 0) continue;
       rates.push({ at: current.at, rate: gained / elapsed * HOUR_MS2 });
     }
@@ -38071,8 +39550,8 @@ ${locks}` : ""}`;
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     const label = t14(
-      "公会经验获取速度（XP/小时）",
-      "Guild XP gain rate (XP/hour)"
+      "公会经验获取速度（6 小时滚动平均，XP/小时）",
+      "Guild XP gain rate (6-hour rolling average, XP/hour)"
     );
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", label);
@@ -38206,33 +39685,25 @@ ${locks}` : ""}`;
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
     const xp = entityXp(guild2);
-    const nextXp = Number(
-      findField(guild2, [
-        "nextLevelExperience",
-        "experienceForNextLevel",
-        "levelExperience"
-      ])
-    );
-    const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
-    const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
+    const level = Number(findField(guild2, ["level", "guildLevel"]));
+    const nextXp = Number.isInteger(level) ? Number(runtime.state.initData_levelExperienceTable?.[level + 1]) : NaN;
+    const remaining = Number.isFinite(nextXp) && xp !== null && nextXp > xp ? nextXp - xp : null;
+    const dayRate = Number(rates?.day);
+    const recentRate = Number(rates?.recent);
+    const estimateRate = Number.isFinite(dayRate) && dayRate > 0 ? dayRate : Number.isFinite(recentRate) && recentRate > 0 ? recentRate : null;
+    const etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
     grid.append(
-      metric2(t14("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
-      metric2(
-        t14("最近 XP/h", "Recent XP/h"),
-        rateText(rates?.recent, !rates?.lastSampleAt)
-      ),
-      metric2(t14("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
         t14("预计升级", "Level ETA"),
         Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t14("样本不足", "Not enough data")
-      )
+      ),
+      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day))
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
     trendLabel.textContent = t14(
-      "最近 7 天经验获取速度（XP/小时）",
-      "XP gain rate over the last 7 days (XP/hour)"
+      "最近 7 天经验获取速度（6 小时滚动平均）",
+      "XP gain rate over the last 7 days (6-hour rolling average)"
     );
     card.append(head, grid, trendLabel, trendSvg(rates?.points ?? []));
     if (runtime.settings.get("guildIdleMembers")) {
@@ -38263,10 +39734,12 @@ ${locks}` : ""}`;
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
-      for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t14("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")]
-      ].entries()) {
+      const columns = [
+        ["mwi-guild-recent-head", t14("近 6 小时 XP/h", "6h XP/h")],
+        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")],
+        ...kind === "member" ? [["mwi-guild-week-head", t14("本周平均 XP/h", "This-week avg XP/h")]] : []
+      ];
+      for (const [rateIndex, [className, label]] of columns.entries()) {
         const cell = document.createElement("th");
         cell.className = className;
         const labelNode = document.createElement("span");
@@ -38283,7 +39756,9 @@ ${locks}` : ""}`;
           if (!body) return;
           const direction = cell.dataset.direction === "desc" ? 1 : -1;
           cell.dataset.direction = direction === -1 ? "desc" : "asc";
-          header.querySelectorAll(".mwi-guild-recent-head,.mwi-guild-day-head").forEach((head) => {
+          header.querySelectorAll(
+            ".mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
+          ).forEach((head) => {
             if (head !== cell) {
               delete head.dataset.direction;
               head.setAttribute("aria-sort", "none");
@@ -38329,19 +39804,30 @@ ${locks}` : ""}`;
         key = objectKey(kind, source, parentId);
         if (key) row.dataset.mwiGuildEntityKey = key;
       }
-      return { row, key, rates: rateCache.get(key) };
+      const rates = rateCache.get(key);
+      return {
+        row,
+        key,
+        rates,
+        values: [
+          rates?.recent,
+          rates?.day,
+          ...kind === "member" ? [entityWeeklyXpRate(source)] : []
+        ]
+      };
     });
-    const maxima = ["recent", "day"].map(
-      (field) => Math.max(
+    const maxima = Array.from(
+      { length: kind === "member" ? 3 : 2 },
+      (_, index) => Math.max(
         0,
         ...rowEntries.map(
-          ({ rates }) => Number.isFinite(rates?.[field]) ? rates[field] : 0
+          ({ values }) => Number.isFinite(values[index]) ? values[index] : 0
         )
       )
     );
-    rowEntries.forEach(({ row, rates }) => {
+    rowEntries.forEach(({ row, rates, values }) => {
       row.querySelectorAll(".mwi-guild-rate-cell").forEach((cell) => cell.remove());
-      for (const [rateIndex, value] of [rates?.recent, rates?.day].entries()) {
+      for (const [rateIndex, value] of values.entries()) {
         const cell = document.createElement("td");
         cell.className = "mwi-guild-rate-cell";
         cell.dataset.sortValue = Number.isFinite(value) ? String(value) : "-1";
@@ -38357,7 +39843,11 @@ ${locks}` : ""}`;
           track.setAttribute("aria-hidden", "true");
           const fill = document.createElement("span");
           fill.className = "mwi-guild-rate-fill";
-          fill.style.width = `${Math.max(0, value / maxima[rateIndex] * 100)}%`;
+          const percentage = Math.max(
+            0,
+            Math.min(100, value / maxima[rateIndex] * 100)
+          );
+          fill.style.width = `${Math.round(percentage * 1e3) / 1e3}%`;
           track.append(fill);
           content.append(track);
         }
@@ -38379,7 +39869,7 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t14("最近 XP/h", "Recent XP/h")
+          textContent: t14("近 6 小时 XP/h", "6h XP/h")
         }),
         Object.assign(document.createElement("span"), {
           textContent: t14("24 小时 XP/h", "24h XP/h")
@@ -38411,7 +39901,7 @@ ${locks}` : ""}`;
   function renderGuildTables() {
     if (runtime.settings.get("guildMemberXp")) {
       const memberTable = document.querySelector(
-        'div[class*="GuildPanel"] table'
+        'div[class*="GuildPanel_membersTab"] table'
       );
       appendRateColumns(
         memberTable,
@@ -38490,7 +39980,7 @@ ${locks}` : ""}`;
               table.closest(".mwi-guild-members-wide")?.classList.remove("mwi-guild-members-wide");
             }
             table.querySelectorAll(
-              ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head"
+              ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
             ).forEach((node) => node.remove());
             table.classList.remove(`mwi-guild-${kind}-table`);
           });
@@ -38506,6 +39996,7 @@ ${locks}` : ""}`;
     renderGuildOverview,
     renderGuildTables,
     getGuildEntityXp: entityXp,
+    getGuildWeeklyXpRate: entityWeeklyXpRate,
     getGuildXpRatePoints: guildXpRatePoints,
     isGuildMemberIdle
   });
@@ -38514,25 +40005,26 @@ ${locks}` : ""}`;
   function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
+  var lastBattleSummaryMessage = null;
   async function handleBattleSummary(message) {
-    const marketJson = await runtime.api.fetchMarketJSON();
-    let hasMarketJson = true;
-    if (!marketJson) {
+    lastBattleSummaryMessage = message;
+    const suppressMarket = runtime.api.shouldSuppressMarketFeatures?.() ?? false;
+    const marketJson = suppressMarket ? null : await runtime.api.fetchMarketJSON();
+    if (!suppressMarket && !marketJson) {
       console.error(
         runtime.config.isZH ? "[MWITools] 市场数据不可用，战斗总结将不显示市场收益。" : "[MWITools] Market data is unavailable; market revenue is omitted from the battle summary."
       );
-      hasMarketJson = false;
     }
     let totalPriceAsk = 0;
     let totalPriceAskBid = 0;
     let totalRawCoins = 0;
-    if (hasMarketJson && message.unit.totalLootMap) {
+    if (marketJson && message.unit.totalLootMap) {
       for (const loot of Object.values(message.unit.totalLootMap)) {
         const itemCount = loot.count;
         if (loot.itemHrid === "/items/coin") {
           totalRawCoins += itemCount;
         }
-        if (marketJson.marketData[loot.itemHrid]) {
+        if (marketJson.marketData?.[loot.itemHrid]) {
           totalPriceAsk += marketJson.marketData[loot.itemHrid][0].a * itemCount;
           totalPriceAskBid += runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
         } else {
@@ -38556,6 +40048,18 @@ ${locks}` : ""}`;
         ".BattlePanel_gainedExp__3SaCa"
       )?.parentElement;
       if (elem) {
+        elem.querySelectorAll(
+          '[data-mwitools-battle-summary="true"],#script_battleNumbers,#script_totalIncome,#script_averageIncome,#script_totalIncomeDay,#script_avgRawCoinHour,#script_totalSkillsExp,#script_averageSkillsExp'
+        ).forEach((node) => node.remove());
+        const appendSummary = (id, html) => {
+          const row = document.createElement("div");
+          row.id = id;
+          row.dataset.mwitoolsBattleSummary = "true";
+          row.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+          row.innerHTML = html;
+          elem.append(row);
+          return row;
+        };
         let battleDurationSec = null;
         const combatInfoElement = document.querySelector(
           ".BattlePanel_combatInfo__sHGCe"
@@ -38571,47 +40075,43 @@ ${locks}` : ""}`;
             let seconds = parseInt(matches[5], 10) || 0;
             let battles = parseInt(matches[7], 10) - 1;
             battleDurationSec = days * 86400 + hours * 3600 + minutes * 60 + seconds;
-            let efficiencyPerHour = (battles / battleDurationSec * 3600).toFixed(1);
-            elem.insertAdjacentHTML(
-              "beforeend",
-              `<div id="script_battleNumbers" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "}${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}</div>`
+            const efficiencyPerHour = battleDurationSec ? (battles / battleDurationSec * 3600).toFixed(1) : "—";
+            appendSummary(
+              "script_battleNumbers",
+              `${runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "}${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}`
             );
           }
         }
-        document.querySelector("div#script_battleNumbers").insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(
-            totalPriceAsk
-          )} / ${runtime.api.numberFormatter(totalPriceAskBid)}</div>`
-        );
-        if (battleDurationSec) {
-          document.querySelector("div#script_totalIncome").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "}${runtime.api.numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60))} / ${runtime.api.numberFormatter(
-              totalPriceAskBid / (battleDurationSec / 60 / 60)
-            )}</div>`
+        if (!suppressMarket && marketJson) {
+          appendSummary(
+            "script_totalIncome",
+            `${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(totalPriceAsk)} / ${runtime.api.numberFormatter(totalPriceAskBid)}`
           );
-          document.querySelector("div#script_averageIncome").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_totalIncomeDay" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每天收获: " : "Revenue/day: "}${runtime.api.numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60) * 24)} / ${runtime.api.numberFormatter(
-              totalPriceAskBid / (battleDurationSec / 60 / 60) * 24
-            )}</div>`
-          );
-          document.querySelector("div#script_totalIncomeDay").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_avgRawCoinHour" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "}${runtime.api.numberFormatter(totalRawCoins / (battleDurationSec / 60 / 60))}</div>`
-          );
+          if (battleDurationSec) {
+            const hours = battleDurationSec / 3600;
+            appendSummary(
+              "script_averageIncome",
+              `${runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "}${runtime.api.numberFormatter(totalPriceAsk / hours)} / ${runtime.api.numberFormatter(totalPriceAskBid / hours)}`
+            );
+            appendSummary(
+              "script_totalIncomeDay",
+              `${runtime.config.isZH ? "每天收获: " : "Revenue/day: "}${runtime.api.numberFormatter(totalPriceAsk / hours * 24)} / ${runtime.api.numberFormatter(totalPriceAskBid / hours * 24)}`
+            );
+            appendSummary(
+              "script_avgRawCoinHour",
+              `${runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "}${runtime.api.numberFormatter(totalRawCoins / hours)}`
+            );
+          }
         }
-        document.querySelector("div#script_avgRawCoinHour").insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(
-            totalSkillsExp
-          )}</div>`
+        appendSummary(
+          "script_totalSkillsExp",
+          `${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(totalSkillsExp)}`
         );
         if (battleDurationSec) {
-          document.querySelector("div#script_totalSkillsExp").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "}${runtime.api.numberFormatter(totalSkillsExp / (battleDurationSec / 60 / 60))}</div>`
+          const hours = battleDurationSec / 3600;
+          appendSummary(
+            "script_averageSkillsExp",
+            `${runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "}${runtime.api.numberFormatter(totalSkillsExp / hours)}`
           );
           [
             { skillHrid: "/skills/magic", zhName: "魔法", enName: "Magic" },
@@ -38626,11 +40126,11 @@ ${locks}` : ""}`;
             },
             { skillHrid: "/skills/stamina", zhName: "耐力", enName: "Stamina" }
           ].forEach((skill) => {
-            const expGained = message.unit.totalSkillExperienceMap[skill.skillHrid];
+            const expGained = message.unit.totalSkillExperienceMap?.[skill.skillHrid];
             if (expGained) {
-              document.querySelector("div#script_totalSkillsExp").insertAdjacentHTML(
-                "afterend",
-                `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${runtime.config.isZH ? "经验: " : " exp/hour: "}${runtime.api.numberFormatter(expGained / (battleDurationSec / 60 / 60))}</div>`
+              appendSummary(
+                `script_${skill.skillHrid.split("/").at(-1)}ExpHour`,
+                `${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${runtime.config.isZH ? "经验: " : " exp/hour: "}${runtime.api.numberFormatter(expGained / hours)}`
               );
             }
           });
@@ -38894,14 +40394,9 @@ ${locks}` : ""}`;
         continue;
       }
       const taskStr = runtime.api.getOriTextFromElement(div);
-      if (!taskStr.startsWith("Defeat - ") && !taskStr.startsWith("击败 - ")) {
-        continue;
-      }
-      let monsterName2 = taskStr.replace("Defeat - ", "").replace("击败 - ", "");
-      let actionHrid = null;
-      if (runtime.config.isZHInGameSetting) {
-        actionHrid = (runtime.api.getOthersFromZhName(monsterName2) ? runtime.api.getOthersFromZhName(monsterName2) : runtime.api.getActionEnNameFromZhName(monsterName2))?.replaceAll("/monsters/", "/actions/combat/");
-      }
+      const monsterName2 = taskStr.split(/\s[-–]\s/).slice(1).join(" - ").trim();
+      const actionHrid = (resolveLocalizedEntity("monster", monsterName2) || resolveLocalizedEntity("action", monsterName2)).replaceAll("/monsters/", "/actions/combat/");
+      if (!actionHrid) continue;
       let actionObj = null;
       for (const action of Object.values(
         runtime.state.initData_actionDetailMap
@@ -38950,6 +40445,16 @@ ${locks}` : ""}`;
     handleTaskCard,
     addIndexToMaps
   });
+  var refreshVisibleBattleSummary = () => {
+    if (lastBattleSummaryMessage && document.querySelector(".BattlePanel_gainedExp__3SaCa")) {
+      void handleBattleSummary(lastBattleSummaryMessage);
+    }
+  };
+  runtime.settings.onChange?.(
+    "adaptIronCowMarketFeatures",
+    refreshVisibleBattleSummary
+  );
+  runtime.onMessage("init_character_data", refreshVisibleBattleSummary);
   Object.defineProperties(runtime.state, {
     onlyShowItemsAboveLevel: {
       enumerable: true,
@@ -39898,7 +41403,7 @@ ${locks}` : ""}`;
     if (Math.abs(Number(value)) >= 1e3) {
       return runtime.api.numberFormatter?.(Number(value), digits) ?? String(value);
     }
-    return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    return new Intl.NumberFormat(runtime.config.NUMBER_LOCALE || "en-US", {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits
     }).format(Number(value));
@@ -40084,8 +41589,10 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-tooltip.js
   function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
-    if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue) return;
     tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove();
+    if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue || runtime.api.shouldSuppressMarketFeatures?.()) {
+      return;
+    }
     const wrapper = document.createElement("div");
     wrapper.dataset.mwitoolsEnhancementMarket = "true";
     wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
@@ -40123,16 +41630,11 @@ ${locks}` : ""}`;
       0,
       Math.floor(Number(enhancementText?.match(/\+\s*(\d+)/)?.[1]) || 0)
     );
-    const iconHrid = [...tooltip?.querySelectorAll("svg use") ?? []].map(
-      (use) => String(use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "").split("#").at(-1)
-    ).filter(Boolean).map((fragment) => `/items/${fragment}`).find((itemHrid) => runtime.state.initData_itemDetailMap?.[itemHrid]);
+    const iconHrid = resolveEntityFromElement("item", tooltip);
     if (iconHrid) return { itemHrid: iconHrid, enhancementLevel };
-    let itemName4 = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
-    if (runtime.config.isZHInGameSetting) {
-      itemName4 = runtime.api.getItemEnNameFromZhName?.(itemName4);
-    }
+    const itemName4 = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
     return {
-      itemHrid: runtime.state.itemEnNameToHridMap?.[itemName4] ?? "",
+      itemHrid: resolveLocalizedEntity("item", itemName4),
       enhancementLevel
     };
   }
@@ -40154,9 +41656,13 @@ ${locks}` : ""}`;
     } else {
       hideEnhancementCostPanel();
     }
-    await runtime.api.fetchMarketJSON();
-    if (!tooltip.isConnected) return;
-    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) {
+      await runtime.api.fetchMarketJSON();
+      if (!tooltip.isConnected) return;
+      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    } else {
+      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    }
     if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
     const plan = calculateEnhancementPlan({
       itemHrid,
@@ -40166,6 +41672,14 @@ ${locks}` : ""}`;
     if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
   }
   runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
+  runtime.onMessage("init_character_data", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
+  });
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
+  });
 
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
@@ -40174,6 +41688,55 @@ ${locks}` : ""}`;
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
   var SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
+  var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+  function normalizeTooltipProfitShortcut(value) {
+    const code = String(value?.code ?? "").trim();
+    if (!code) return { code: "Control", display: "Ctrl" };
+    return {
+      code,
+      display: String(value?.display ?? code).trim() || code
+    };
+  }
+  function loadTooltipProfitShortcut() {
+    try {
+      return normalizeTooltipProfitShortcut(
+        JSON.parse(localStorage.getItem(TOOLTIP_PROFIT_SHORTCUT_KEY) || "null")
+      );
+    } catch {
+      return normalizeTooltipProfitShortcut(null);
+    }
+  }
+  var tooltipProfitShortcut = loadTooltipProfitShortcut();
+  function shortcutCodeFromEvent(event) {
+    if (["Control", "Shift", "Alt", "Meta"].includes(event?.key)) {
+      return event.key;
+    }
+    return String(event?.code ?? event?.key ?? "");
+  }
+  function shortcutDisplayFromEvent(event) {
+    if (event?.key === "Control") return "Ctrl";
+    if (event?.key === "Meta") return "Meta";
+    if (["Shift", "Alt"].includes(event?.key)) return event.key;
+    if (event?.code === "Space") return "Space";
+    if (String(event?.code).startsWith("Arrow")) {
+      return String(event.code).slice(5);
+    }
+    return event?.key?.length === 1 ? event.key.toUpperCase() : event?.key || event?.code;
+  }
+  function getTooltipProfitShortcut() {
+    return { ...tooltipProfitShortcut };
+  }
+  function setTooltipProfitShortcut(value) {
+    tooltipProfitShortcut = normalizeTooltipProfitShortcut(value);
+    localStorage.setItem(
+      TOOLTIP_PROFIT_SHORTCUT_KEY,
+      JSON.stringify(tooltipProfitShortcut)
+    );
+    return getTooltipProfitShortcut();
+  }
+  function matchesTooltipProfitShortcut(event) {
+    return shortcutCodeFromEvent(event) === tooltipProfitShortcut.code;
+  }
   function persistSettings() {
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
@@ -40282,6 +41845,8 @@ ${locks}` : ""}`;
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
+    .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
+    .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
     @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
     styleHost.appendChild(style);
@@ -40339,6 +41904,7 @@ ${locks}` : ""}`;
     );
     const descendants = getSettingDescendants(definition.id);
     const card = document.createElement("article");
+    let cancelShortcutCapture = null;
     card.className = "mwi-setting-card";
     if (options.child) card.classList.add("mwi-setting-child");
     card.dataset.search = [
@@ -40412,6 +41978,44 @@ ${locks}` : ""}`;
     }
     row.append(copy, toggle);
     card.append(row);
+    if (definition.id === "itemTooltip_profitRequireKey") {
+      const shortcutRow = document.createElement("div");
+      shortcutRow.className = "mwi-setting-shortcut-row";
+      const shortcutLabel = document.createElement("span");
+      shortcutLabel.textContent = runtime.config.isZH ? "触发按键" : "Trigger key";
+      const shortcutButton = document.createElement("button");
+      shortcutButton.type = "button";
+      shortcutButton.className = "mwi-setting-shortcut";
+      const updateShortcutText = () => {
+        shortcutButton.textContent = getTooltipProfitShortcut().display;
+      };
+      updateShortcutText();
+      shortcutButton.addEventListener("click", () => {
+        cancelShortcutCapture?.();
+        shortcutButton.textContent = runtime.config.isZH ? "请按一个键…" : "Press one key…";
+        const capture = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelShortcutCapture?.();
+          if (event.key === "Escape") {
+            updateShortcutText();
+            return;
+          }
+          setTooltipProfitShortcut({
+            code: shortcutCodeFromEvent(event),
+            display: shortcutDisplayFromEvent(event)
+          });
+          updateShortcutText();
+        };
+        cancelShortcutCapture = () => {
+          window.removeEventListener("keydown", capture, true);
+          cancelShortcutCapture = null;
+        };
+        window.addEventListener("keydown", capture, true);
+      });
+      shortcutRow.append(shortcutLabel, shortcutButton);
+      card.append(shortcutRow);
+    }
     for (const child of children) {
       card.append(createSettingCard(child, { child: true }));
     }
@@ -40435,6 +42039,7 @@ ${locks}` : ""}`;
       }
     );
     card._mwitoolsCleanup = () => {
+      cancelShortcutCapture?.();
       stopStatusListener?.();
       stopSettingListener?.();
     };
@@ -40623,6 +42228,7 @@ ${locks}` : ""}`;
     }
   }
   function getEquipmentWarning() {
+    if (runtime.state.labyrinthActive) return null;
     const currentActionHrid = runtime.state.currentActionsHridList?.[0]?.actionHrid;
     if (!currentActionHrid) return null;
     const hasHat = runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid === "/items/red_chefs_hat" ? true : false;
@@ -40795,7 +42401,16 @@ ${locks}` : ""}`;
     const title = runtime.api.getOriTextFromElement(
       node.querySelector(".MarketplacePanel_header__yahJo")
     );
-    if (!title || title.includes(" Now") || title.includes("立即")) {
+    const normalizedTitle = String(title ?? "").toLocaleLowerCase();
+    const immediateTitles = [
+      getGameTranslation("marketplacePanel.buyNow"),
+      getGameTranslation("marketplacePanel.sellNow"),
+      "Buy Now",
+      "Sell Now",
+      "立即购买",
+      "立即出售"
+    ].filter(Boolean).map((value) => value.toLocaleLowerCase());
+    if (!title || immediateTitles.some((value) => normalizedTitle.includes(value))) {
       return;
     }
     const label = node.querySelector("span.MarketplacePanel_bestPrice__3bgKp");
@@ -40821,13 +42436,22 @@ ${locks}` : ""}`;
       target?.click();
       return Boolean(target);
     };
-    if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best buy") || label.parentElement.textContent.includes("购买")) {
+    const priceLabel = String(
+      runtime.api.getOriTextFromElement(label.parentElement) ?? label.parentElement.textContent ?? ""
+    ).toLocaleLowerCase();
+    const buyLabel = getGameTranslation(
+      "marketplacePanel.buy"
+    ).toLocaleLowerCase();
+    const sellLabel = getGameTranslation(
+      "marketplacePanel.sell"
+    ).toLocaleLowerCase();
+    if (matchesGameTranslation("marketplacePanel.priceBestBuyOffer", priceLabel) || priceLabel.includes("best buy") || priceLabel.includes("购买") || buyLabel && priceLabel.includes(buyLabel)) {
       if (!clickAdjustmentButton("increase")) {
         console.error(
           runtime.config.isZH ? "[MWITools] 未找到提高收购价按钮。" : "[MWITools] The increase-bid-price button was not found."
         );
       }
-    } else if (runtime.api.getOriTextFromElement(label.parentElement).toLowerCase().includes("best sell") || label.parentElement.textContent.includes("出售")) {
+    } else if (matchesGameTranslation("marketplacePanel.priceBestSellOffer", priceLabel) || priceLabel.includes("best sell") || priceLabel.includes("出售") || sellLabel && priceLabel.includes(sellLabel)) {
       if (!clickAdjustmentButton("decrease")) {
         console.error(
           runtime.config.isZH ? "[MWITools] 未找到降低出售价按钮。" : "[MWITools] The decrease-ask-price button was not found."
@@ -40838,6 +42462,9 @@ ${locks}` : ""}`;
   Object.assign(runtime.api, {
     persistSettings,
     readSettings,
+    getTooltipProfitShortcut,
+    setTooltipProfitShortcut,
+    matchesTooltipProfitShortcut,
     getEquipmentWarning,
     checkEquipment,
     hasItemHridInInv,
@@ -40886,7 +42513,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.5");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.6");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -41376,7 +43003,16 @@ ${locks}` : ""}`;
       '[role="tab"][aria-selected="true"]'
     );
     const label = String(selected && selected.textContent || "").replace(/\s+/g, "").toLowerCase();
-    return label.startsWith("试炼") || label.startsWith("試煉") || label.startsWith("trials") || label.startsWith("trial");
+    const trialLabels = [
+      getGameTranslation("guildPanel.trials"),
+      getGameTranslation("guildPanel.combatTrial"),
+      getGameTranslation("guildPanel.skillingTrial"),
+      "试炼",
+      "試煉",
+      "trials",
+      "trial"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
+    return trialLabels.some((value) => label.startsWith(value));
   }
   function isSelectedGuildProgressTabBar(container) {
     if (!container || typeof container.querySelector !== "function") return false;
@@ -41384,13 +43020,29 @@ ${locks}` : ""}`;
       '[role="tab"][aria-selected="true"]'
     );
     const label = String(selected && selected.textContent || "").replace(/\s+/g, "").toLowerCase();
-    if (!(label.startsWith("进行中") || label.startsWith("進行中") || label.startsWith("inprogress")))
-      return false;
+    const progressLabels = [
+      getGameTranslation("guildPanel.trialInProgress"),
+      "进行中",
+      "進行中",
+      "inprogress"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
+    if (!progressLabels.some((value) => label.startsWith(value))) return false;
+    const contextLabels = [
+      getGameTranslation("guildPanel.trials"),
+      getGameTranslation("guildPanel.combatTrial"),
+      getGameTranslation("guildPanel.skillingTrial"),
+      getGameTranslation("navigationBar.guild"),
+      "试炼",
+      "試煉",
+      "trial",
+      "公会",
+      "公會",
+      "guild"
+    ].map((value) => String(value).replace(/\s+/g, "").toLowerCase()).filter(Boolean);
     let node = container;
     for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
       const context = String(node.textContent || "").replace(/\s+/g, "").toLowerCase();
-      if (context.includes("试炼") || context.includes("試煉") || context.includes("trial") || context.includes("公会") || context.includes("公會") || context.includes("guild"))
-        return true;
+      if (contextLabels.some((value) => context.includes(value))) return true;
       if (typeof document !== "undefined" && (node === document.body || node === document.documentElement))
         break;
     }
@@ -47807,11 +49459,17 @@ ${locks}` : ""}`;
           )
         ])
       ];
+      const combatZones = getGameTranslation("combatPanel.combatZones");
+      const labyrinthLabels = [
+        getGameTranslation("labyrinthPanel.labyrinth"),
+        getGameTranslation("labyrinthPanel.room"),
+        getGameTranslation("labyrinthPanel.automation")
+      ];
       for (const c of containers) {
         const t18 = c.textContent;
-        if (t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
+        if (combatZones && t18.includes(combatZones) || t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
           return c;
-        if (t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t18.includes(label)) || t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -50142,8 +51800,8 @@ ${locks}` : ""}`;
 
   // src/main.js
   function loadCachedClientData() {
-    const pageGlobal3 = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal3.localStorageUtil;
+    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+    const localStorageUtil = pageGlobal4.localStorageUtil;
     if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
       return false;
     }

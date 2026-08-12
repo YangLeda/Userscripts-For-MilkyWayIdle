@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  getGameTranslation,
+  matchesGameTranslation,
+} from "../core/game-localization.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
@@ -7,6 +11,65 @@ const SETTINGS_STYLE_ID = "mwitools-settings-style";
 const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
 const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
+const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+
+function normalizeTooltipProfitShortcut(value) {
+  const code = String(value?.code ?? "").trim();
+  if (!code) return { code: "Control", display: "Ctrl" };
+  return {
+    code,
+    display: String(value?.display ?? code).trim() || code,
+  };
+}
+
+function loadTooltipProfitShortcut() {
+  try {
+    return normalizeTooltipProfitShortcut(
+      JSON.parse(localStorage.getItem(TOOLTIP_PROFIT_SHORTCUT_KEY) || "null"),
+    );
+  } catch {
+    return normalizeTooltipProfitShortcut(null);
+  }
+}
+
+let tooltipProfitShortcut = loadTooltipProfitShortcut();
+
+function shortcutCodeFromEvent(event) {
+  if (["Control", "Shift", "Alt", "Meta"].includes(event?.key)) {
+    return event.key;
+  }
+  return String(event?.code ?? event?.key ?? "");
+}
+
+function shortcutDisplayFromEvent(event) {
+  if (event?.key === "Control") return "Ctrl";
+  if (event?.key === "Meta") return "Meta";
+  if (["Shift", "Alt"].includes(event?.key)) return event.key;
+  if (event?.code === "Space") return "Space";
+  if (String(event?.code).startsWith("Arrow")) {
+    return String(event.code).slice(5);
+  }
+  return event?.key?.length === 1
+    ? event.key.toUpperCase()
+    : event?.key || event?.code;
+}
+
+function getTooltipProfitShortcut() {
+  return { ...tooltipProfitShortcut };
+}
+
+function setTooltipProfitShortcut(value) {
+  tooltipProfitShortcut = normalizeTooltipProfitShortcut(value);
+  localStorage.setItem(
+    TOOLTIP_PROFIT_SHORTCUT_KEY,
+    JSON.stringify(tooltipProfitShortcut),
+  );
+  return getTooltipProfitShortcut();
+}
+
+function matchesTooltipProfitShortcut(event) {
+  return shortcutCodeFromEvent(event) === tooltipProfitShortcut.code;
+}
 
 function persistSettings() {
   const values = Object.fromEntries(
@@ -138,6 +201,8 @@ function addSettingsStyles() {
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
+    .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
+    .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
     @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
   styleHost.appendChild(style);
@@ -203,6 +268,7 @@ function createSettingCard(definition, options = {}) {
   );
   const descendants = getSettingDescendants(definition.id);
   const card = document.createElement("article");
+  let cancelShortcutCapture = null;
   card.className = "mwi-setting-card";
   if (options.child) card.classList.add("mwi-setting-child");
   card.dataset.search = [
@@ -280,6 +346,48 @@ function createSettingCard(definition, options = {}) {
   }
   row.append(copy, toggle);
   card.append(row);
+  if (definition.id === "itemTooltip_profitRequireKey") {
+    const shortcutRow = document.createElement("div");
+    shortcutRow.className = "mwi-setting-shortcut-row";
+    const shortcutLabel = document.createElement("span");
+    shortcutLabel.textContent = runtime.config.isZH
+      ? "触发按键"
+      : "Trigger key";
+    const shortcutButton = document.createElement("button");
+    shortcutButton.type = "button";
+    shortcutButton.className = "mwi-setting-shortcut";
+    const updateShortcutText = () => {
+      shortcutButton.textContent = getTooltipProfitShortcut().display;
+    };
+    updateShortcutText();
+    shortcutButton.addEventListener("click", () => {
+      cancelShortcutCapture?.();
+      shortcutButton.textContent = runtime.config.isZH
+        ? "请按一个键…"
+        : "Press one key…";
+      const capture = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        cancelShortcutCapture?.();
+        if (event.key === "Escape") {
+          updateShortcutText();
+          return;
+        }
+        setTooltipProfitShortcut({
+          code: shortcutCodeFromEvent(event),
+          display: shortcutDisplayFromEvent(event),
+        });
+        updateShortcutText();
+      };
+      cancelShortcutCapture = () => {
+        window.removeEventListener("keydown", capture, true);
+        cancelShortcutCapture = null;
+      };
+      window.addEventListener("keydown", capture, true);
+    });
+    shortcutRow.append(shortcutLabel, shortcutButton);
+    card.append(shortcutRow);
+  }
   for (const child of children) {
     card.append(createSettingCard(child, { child: true }));
   }
@@ -309,6 +417,7 @@ function createSettingCard(definition, options = {}) {
     },
   );
   card._mwitoolsCleanup = () => {
+    cancelShortcutCapture?.();
     stopStatusListener?.();
     stopSettingListener?.();
   };
@@ -524,6 +633,7 @@ function ensureSettingsPanel() {
 }
 
 function getEquipmentWarning() {
+  if (runtime.state.labyrinthActive) return null;
   const currentActionHrid =
     runtime.state.currentActionsHridList?.[0]?.actionHrid;
   if (!currentActionHrid) return null;
@@ -763,7 +873,21 @@ function handleMarketNewOrder(node) {
   const title = runtime.api.getOriTextFromElement(
     node.querySelector(".MarketplacePanel_header__yahJo"),
   );
-  if (!title || title.includes(" Now") || title.includes("立即")) {
+  const normalizedTitle = String(title ?? "").toLocaleLowerCase();
+  const immediateTitles = [
+    getGameTranslation("marketplacePanel.buyNow"),
+    getGameTranslation("marketplacePanel.sellNow"),
+    "Buy Now",
+    "Sell Now",
+    "立即购买",
+    "立即出售",
+  ]
+    .filter(Boolean)
+    .map((value) => value.toLocaleLowerCase());
+  if (
+    !title ||
+    immediateTitles.some((value) => normalizedTitle.includes(value))
+  ) {
     return;
   }
   const label = node.querySelector("span.MarketplacePanel_bestPrice__3bgKp");
@@ -797,12 +921,22 @@ function handleMarketNewOrder(node) {
     return Boolean(target);
   };
 
+  const priceLabel = String(
+    runtime.api.getOriTextFromElement(label.parentElement) ??
+      label.parentElement.textContent ??
+      "",
+  ).toLocaleLowerCase();
+  const buyLabel = getGameTranslation(
+    "marketplacePanel.buy",
+  ).toLocaleLowerCase();
+  const sellLabel = getGameTranslation(
+    "marketplacePanel.sell",
+  ).toLocaleLowerCase();
   if (
-    runtime.api
-      .getOriTextFromElement(label.parentElement)
-      .toLowerCase()
-      .includes("best buy") ||
-    label.parentElement.textContent.includes("购买")
+    matchesGameTranslation("marketplacePanel.priceBestBuyOffer", priceLabel) ||
+    priceLabel.includes("best buy") ||
+    priceLabel.includes("购买") ||
+    (buyLabel && priceLabel.includes(buyLabel))
   ) {
     if (!clickAdjustmentButton("increase")) {
       console.error(
@@ -812,11 +946,10 @@ function handleMarketNewOrder(node) {
       );
     }
   } else if (
-    runtime.api
-      .getOriTextFromElement(label.parentElement)
-      .toLowerCase()
-      .includes("best sell") ||
-    label.parentElement.textContent.includes("出售")
+    matchesGameTranslation("marketplacePanel.priceBestSellOffer", priceLabel) ||
+    priceLabel.includes("best sell") ||
+    priceLabel.includes("出售") ||
+    (sellLabel && priceLabel.includes(sellLabel))
   ) {
     if (!clickAdjustmentButton("decrease")) {
       console.error(
@@ -833,6 +966,9 @@ function handleMarketNewOrder(node) {
 Object.assign(runtime.api, {
   persistSettings,
   readSettings,
+  getTooltipProfitShortcut,
+  setTooltipProfitShortcut,
+  matchesTooltipProfitShortcut,
   getEquipmentWarning,
   checkEquipment,
   hasItemHridInInv,

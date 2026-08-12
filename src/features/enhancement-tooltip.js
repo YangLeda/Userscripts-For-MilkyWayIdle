@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveEntityFromElement,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 import { calculateEnhancementPlan } from "./enhancement-planner.js";
 import {
   hideEnhancementCostPanel,
@@ -6,10 +10,15 @@ import {
 } from "./enhancement-cost-panel.js";
 
 function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
-  if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue) return;
   tooltipContent
     .querySelector('[data-mwitools-enhancement-market="true"]')
     ?.remove();
+  if (
+    !runtime.settings.settingsMap.itemTooltip_prices.isTrue ||
+    runtime.api.shouldSuppressMarketFeatures?.()
+  ) {
+    return;
+  }
   const wrapper = document.createElement("div");
   wrapper.dataset.mwitoolsEnhancementMarket = "true";
   wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
@@ -56,23 +65,12 @@ export function readEnhancedTooltipItem(tooltip) {
     0,
     Math.floor(Number(enhancementText?.match(/\+\s*(\d+)/)?.[1]) || 0),
   );
-  const iconHrid = [...(tooltip?.querySelectorAll("svg use") ?? [])]
-    .map((use) =>
-      String(use.getAttribute("href") ?? use.getAttribute("xlink:href") ?? "")
-        .split("#")
-        .at(-1),
-    )
-    .filter(Boolean)
-    .map((fragment) => `/items/${fragment}`)
-    .find((itemHrid) => runtime.state.initData_itemDetailMap?.[itemHrid]);
+  const iconHrid = resolveEntityFromElement("item", tooltip);
   if (iconHrid) return { itemHrid: iconHrid, enhancementLevel };
 
-  let itemName = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
-  if (runtime.config.isZHInGameSetting) {
-    itemName = runtime.api.getItemEnNameFromZhName?.(itemName);
-  }
+  const itemName = runtime.api.getOriTextFromElement?.(itemNameElements[0]);
   return {
-    itemHrid: runtime.state.itemEnNameToHridMap?.[itemName] ?? "",
+    itemHrid: resolveLocalizedEntity("item", itemName),
     enhancementLevel,
   };
 }
@@ -97,9 +95,13 @@ export async function handleEnhancedItemTooltip(tooltip) {
     hideEnhancementCostPanel();
   }
 
-  await runtime.api.fetchMarketJSON();
-  if (!tooltip.isConnected) return;
-  appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) {
+    await runtime.api.fetchMarketJSON();
+    if (!tooltip.isConnected) return;
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  } else {
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  }
   if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
 
   const plan = calculateEnhancementPlan({
@@ -111,3 +113,17 @@ export async function handleEnhancedItemTooltip(tooltip) {
 }
 
 runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
+
+runtime.onMessage("init_character_data", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  document
+    .querySelectorAll('[data-mwitools-enhancement-market="true"]')
+    .forEach((row) => row.remove());
+});
+
+runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  document
+    .querySelectorAll('[data-mwitools-enhancement-market="true"]')
+    .forEach((row) => row.remove());
+});

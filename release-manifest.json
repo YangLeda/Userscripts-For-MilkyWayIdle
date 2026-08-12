@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "importantVersion": "26.4.1",
+  "importantVersion": "26.4.6",
   "title": {
     "zh": "MWITools 有重要更新",
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "强化成本现按市场价值计算强化材料、强化茶与保护材料，不再用自制取得成本低估消耗；精炼仍按工匠茶后的实际材料与制作茶消耗计算。同时修复手机端盈亏入口无法显示。建议前往 Greasy Fork 更新。",
-    "en": "Enhancement materials, enhancement teas, and protection items now use market value instead of cheaper self-crafting routes, while refining still uses Artisan-adjusted inputs and crafting drinks. This release also restores the mobile P/L entry. Update on Greasy Fork."
+    "zh": "本次重要更新新增意见中心与公告，升级任务、资产和公会经验工具，并完成游戏九种内置语言适配。生产利润和宝箱估算现在默认需要按住 Ctrl，移动端需长按。建议前往 Greasy Fork 更新。",
+    "en": "This important update adds the Feedback Center and announcements, upgrades task, asset, and guild XP tools, and supports all nine built-in game languages. Production profit and loot chest estimates now require holding Ctrl by default, or a long press on touch devices. Update on Greasy Fork."
   },
   "url": "https://greasyfork.org/zh-CN/scripts/494467-mwitools"
 }

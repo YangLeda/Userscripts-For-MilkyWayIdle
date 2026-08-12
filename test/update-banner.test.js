@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { JSDOM } from "jsdom";
@@ -45,4 +46,19 @@ test("important update banner links to Greasy Fork and remembers dismissal", () 
   );
   assert.equal(runtime.api.shouldShowImportantUpdate(manifest, "26.0"), false);
   delete globalThis.GM_info;
+});
+
+test("release 26.4.6 is the current important-update threshold", () => {
+  const releaseManifest = JSON.parse(
+    readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
+  );
+  assert.equal(releaseManifest.importantVersion, "26.4.6");
+  assert.equal(
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.5"),
+    true,
+  );
+  assert.equal(
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.6"),
+    false,
+  );
 });

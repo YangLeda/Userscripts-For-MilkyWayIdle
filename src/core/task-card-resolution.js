@@ -1,4 +1,6 @@
 import { runtime } from "./runtime.js";
+import { getLocalizedEntityName } from "./game-localization.js";
+import { parseCompactNumber } from "./market.js";
 
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
 
@@ -50,11 +52,11 @@ function cardActionLabel(card) {
 function cardRemaining(card) {
   const text = String(card?.textContent ?? "");
   const match = text.match(
-    /(?:进度|progress)\s*:?\s*([\d,.]+)\s*\/\s*([\d,.]+)/i,
+    /(?:进度|progress)\s*:?\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i,
   );
   if (!match) return null;
-  const current = Number(match[1].replaceAll(",", ""));
-  const target = Number(match[2].replaceAll(",", ""));
+  const current = parseCompactNumber(match[1]);
+  const target = parseCompactNumber(match[2]);
   return Number.isFinite(current) && Number.isFinite(target)
     ? Math.max(0, target - current)
     : null;
@@ -66,6 +68,7 @@ function actionLabels(actionHrid) {
     [
       detail?.name,
       runtime.data.ZHActionNames?.[actionHrid],
+      getLocalizedEntityName("action", actionHrid),
       String(actionHrid ?? "")
         .split("/")
         .at(-1)

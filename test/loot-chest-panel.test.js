@@ -18,13 +18,21 @@ globalThis.requestAnimationFrame = (callback) => {
 };
 globalThis.innerWidth = 1_200;
 globalThis.innerHeight = 800;
+globalThis.GM_addStyle = (css) => {
+  const style = document.createElement("style");
+  style.textContent = css;
+  document.head.append(style);
+  return style;
+};
 localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/data/translations.js");
 await import("../src/core/state.js");
+await import("../src/core/action-projection.js");
 await import("../src/core/asset-values.js");
+await import("../src/features/settings-and-notifications.js");
 await import("../src/features/production-profit-panel.js");
 await import("../src/features/item-tooltips.js");
 
@@ -49,6 +57,9 @@ const ITEM = {
   treasureOuter: "/items/treasure_outer_chest",
   cowbell: "/items/cowbell",
   cowbellBag: "/items/bag_of_10_cowbells",
+  cowbellBagChest: "/items/cowbell_bag_chest",
+  artisanTea: "/items/artisan_tea",
+  guzzlingPouch: "/items/guzzling_pouch",
   sealChest: "/items/purdoras_test_box",
   seal: "/items/seal_of_test_buff",
   coin: "/items/coin",
@@ -63,6 +74,13 @@ runtime.state.initData_itemDetailMap = Object.fromEntries(
 runtime.state.initData_itemDetailMap[ITEM.chest].openKeyItemHrid = ITEM.key;
 runtime.state.initData_itemDetailMap[ITEM.seal].scrollDetail = {
   personalBuffTypeHrid: "/personal_buff_types/test",
+};
+runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
+  buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
+};
+runtime.state.initData_itemDetailMap[ITEM.guzzlingPouch].equipmentDetail = {
+  noncombatStats: { drinkConcentration: 0.5 },
+  noncombatEnhancementBonuses: { drinkConcentration: 0.5 },
 };
 runtime.state.initData_openableLootDropMap = {
   [ITEM.chest]: [
@@ -100,9 +118,15 @@ runtime.state.initData_openableLootDropMap = {
   [ITEM.sealChest]: [
     { itemHrid: ITEM.seal, dropRate: 0.5, minCount: 1, maxCount: 3 },
   ],
+  [ITEM.cowbellBagChest]: [
+    { itemHrid: ITEM.cowbellBag, dropRate: 1, count: 1 },
+  ],
 };
 runtime.state.initData_actionDetailMap = {
   key_recipe: {
+    hrid: "key_recipe",
+    type: "/action_types/crafting",
+    baseTimeCost: 10_000_000_000,
     outputItems: [{ itemHrid: ITEM.key, count: 2 }],
     inputItems: [
       { itemHrid: ITEM.fragment, count: 5 },
@@ -110,6 +134,13 @@ runtime.state.initData_actionDetailMap = {
     ],
   },
 };
+runtime.state.initData_characterSkills = [];
+runtime.state.initData_characterItems = [];
+runtime.state.initData_actionTypeDrinkSlotsMap = {
+  "/action_types/crafting": [],
+};
+runtime.state.currentEquipmentMap = {};
+runtime.state.actionTypeBuffSources = {};
 runtime.state.initData_shopItemDetailMap = {
   rich: {
     itemHrid: ITEM.rich,
@@ -146,6 +177,7 @@ const askPrices = new Map([
   [ITEM.outside, 20_000],
   [ITEM.inner, 1],
   [ITEM.cowbellBag, 1_000],
+  [ITEM.artisanTea, 120],
 ]);
 const bidPrices = new Map([
   [ITEM.key, 240],
@@ -156,6 +188,7 @@ const bidPrices = new Map([
   [ITEM.outside, 10_000],
   [ITEM.inner, 1],
   [ITEM.cowbellBag, 1_000],
+  [ITEM.artisanTea, 60],
 ]);
 runtime.api.getAskPrice = (itemHrid) => askPrices.get(itemHrid) ?? 0;
 runtime.api.getBidPrice = (itemHrid) => bidPrices.get(itemHrid) ?? 0;
@@ -167,12 +200,30 @@ runtime.api.getNetSellPrice = (itemHrid) =>
   (bidPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
 runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
   (askPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
+runtime.api.getAssetAskPrice = (...args) => runtime.api.getAskPrice(...args);
+runtime.api.getAssetBidPrice = (...args) => runtime.api.getBidPrice(...args);
+runtime.api.getAssetFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  const bid = runtime.api.getBidPrice(itemHrid);
+  return ask && bid ? (ask + bid) / 2 : ask || bid || 0;
+};
+runtime.api.getAssetNetSellPrice = (...args) =>
+  runtime.api.getNetSellPrice(...args);
+runtime.api.getAssetNetSellPriceAtAsk = (...args) =>
+  runtime.api.getNetSellPriceAtAsk(...args);
 
-function setLootSettings({ sellAtAsk, buyAtAsk, fromFragments }) {
+function setLootSettings({
+  sellAtAsk,
+  buyAtAsk,
+  fromFragments,
+  ignoreCowbells = false,
+}) {
   runtime.settings.settingsMap.lootSellAtAsk.isTrue = Boolean(sellAtAsk);
   runtime.settings.settingsMap.lootBuyAtAsk.isTrue = Boolean(buyAtAsk);
   runtime.settings.settingsMap.lootKeyFromFragments.isTrue =
     Boolean(fromFragments);
+  runtime.settings.settingsMap.lootIgnoreCowbells.isTrue =
+    Boolean(ignoreCowbells);
 }
 
 function ensureAnchor() {
@@ -265,6 +316,52 @@ test("fragment crafting uses the actual recipe and never falls back silently", (
   askPrices.set(ITEM.fragment, 20);
 });
 
+test("fragment crafting includes Artisan reduction, concentration, and drink cost", () => {
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: ITEM.artisanTea }],
+  };
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: true,
+    fromFragments: true,
+  });
+
+  const artisan = runtime.api.projectLootChest(ITEM.chest);
+  assert.equal(artisan.keyCost, 92);
+  assert.equal(artisan.keyComplete, true);
+
+  runtime.state.currentEquipmentMap = {
+    back: { itemHrid: ITEM.guzzlingPouch, enhancementLevel: 0 },
+  };
+  const concentrated = runtime.api.projectLootChest(ITEM.chest);
+  assert.equal(concentrated.keyCost, 88);
+
+  runtime.state.currentEquipmentMap.back.enhancementLevel = 5;
+  const enhancedConcentrated = runtime.api.projectLootChest(ITEM.chest);
+  assert.ok(Math.abs(enhancedConcentrated.keyCost - 87.52) < 1e-12);
+
+  runtime.state.currentEquipmentMap.back.enhancementLevel = 0;
+
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: false,
+    fromFragments: true,
+  });
+  const concentratedAtBid = runtime.api.projectLootChest(ITEM.chest);
+  assert.equal(concentratedAtBid.keyCost, 65.25);
+
+  runtime.state.initData_actionTypeDrinkSlotsMap = null;
+  const waiting = runtime.api.projectLootChest(ITEM.chest);
+  assert.equal(waiting.keyComplete, false);
+  assert.equal(waiting.netValue, null);
+  assert.ok(waiting.missing.includes(ITEM.key));
+
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
+  runtime.state.currentEquipmentMap = {};
+});
+
 test("nested chests recurse while self-references terminate", () => {
   setLootSettings({
     sellAtAsk: false,
@@ -316,6 +413,34 @@ test("nested treasure chests include derived values for every inner loot item", 
   assert.equal(outer.complete, true);
 });
 
+test("Cowbell exclusion values direct, bag, and nested drops at zero", () => {
+  setLootSettings({
+    sellAtAsk: true,
+    buyAtAsk: true,
+    fromFragments: false,
+    ignoreCowbells: true,
+  });
+  runtime.api.invalidateAssetValueCache();
+
+  const treasure = runtime.api.projectLootChest(ITEM.treasure);
+  const cowbell = treasure.drops.find((drop) => drop.itemHrid === ITEM.cowbell);
+  assert.equal(cowbell.valueSource, "excluded");
+  assert.equal(cowbell.unitValue, 0);
+  assert.equal(cowbell.priced, true);
+  assert.equal(treasure.netValue, 100);
+  assert.equal(treasure.complete, true);
+
+  const bagChest = runtime.api.projectLootChest(ITEM.cowbellBagChest);
+  assert.equal(bagChest.drops[0].valueSource, "excluded");
+  assert.equal(bagChest.netValue, 0);
+  assert.equal(bagChest.complete, true);
+
+  const outer = runtime.api.projectLootChest(ITEM.treasureOuter);
+  assert.equal(outer.drops[0].nested, true);
+  assert.equal(outer.drops[0].unitValue, 100);
+  assert.ok(Math.abs(outer.netValue - 90) < 1e-10);
+});
+
 test("personal buff seals are retained as zero-value priced drops", () => {
   const box = runtime.api.projectLootChest(ITEM.sealChest);
   const seal = box.drops[0];
@@ -345,7 +470,7 @@ test("hover is read-only and pinned panels expose synchronized switches", async 
   assert.equal(runtime.api.pinActiveLootChestPanel(), true);
   let panel = document.querySelector("#mwitools-production-profit-panel");
   assert.ok(panel.classList.contains("mwi-profit-pinned"));
-  assert.equal(panel.querySelectorAll(".mwi-loot-switch").length, 3);
+  assert.equal(panel.querySelectorAll(".mwi-loot-switch").length, 4);
   assert.ok(panel.querySelector(".mwi-loot-controls.has-key"));
   assert.equal(panel.parentElement, document.body);
 
@@ -408,7 +533,7 @@ test("unkeyed pinned panels hide irrelevant key switches", () => {
   const panel = runtime.api.showLootChestPanel(ensureAnchor(), ITEM.unkeyed, {
     pinned: true,
   });
-  assert.equal(panel.querySelectorAll(".mwi-loot-switch").length, 1);
+  assert.equal(panel.querySelectorAll(".mwi-loot-switch").length, 2);
   assert.match(panel.textContent, /无需钥匙/);
   runtime.api.hideProductionProfitPanel();
 });
@@ -421,8 +546,8 @@ test("openable item tooltips route to the loot panel", async () => {
   runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
   runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
   runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
-  runtime.settings.settingsMap.showConsumTips.isTrue = false;
   runtime.settings.settingsMap.lootChestEstimate.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = false;
 
   const tooltip = document.createElement("div");
   tooltip.className = "MuiTooltip-popper";
@@ -441,5 +566,128 @@ test("openable item tooltips route to the loot panel", async () => {
   localStorage.setItem("i18nextLng", "zh-CN");
   runtime.config.isZH = true;
   runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
-  runtime.settings.settingsMap.showConsumTips.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+});
+
+test("loot chest estimates share the configured key and work without production profit", async () => {
+  runtime.api.hideProductionProfitPanel();
+  runtime.config.isZH = false;
+  runtime.state.itemEnNameToHridMap["test dungeon chest"] = ITEM.chest;
+  runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
+  runtime.settings.settingsMap.lootChestEstimate.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+  runtime.api.setTooltipProfitShortcut?.({ code: "Control", display: "Ctrl" });
+  await runtime.features.enable("itemTooltip_prices");
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
+
+  const makeTooltip = () => {
+    const tooltip = document.createElement("div");
+    tooltip.className = "MuiTooltip-popper";
+    tooltip.style.transform = "translate3d(0px, 0px, 0px)";
+    tooltip.innerHTML =
+      '<div class="ItemTooltipText_name__2JAHA"><span>test dungeon chest</span></div><div class="separator"></div>';
+    document.body.append(tooltip);
+    return tooltip;
+  };
+  const key = (type) =>
+    window.dispatchEvent(
+      new dom.window.KeyboardEvent(type, {
+        key: "Control",
+        code: "ControlLeft",
+        bubbles: true,
+      }),
+    );
+
+  let tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  key("keydown");
+  assert.match(
+    document.querySelector("#mwitools-production-profit-panel").textContent,
+    /Opening estimate/,
+  );
+  key("keyup");
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  tooltip.remove();
+
+  key("keydown");
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  assert.equal(runtime.api.pinActiveLootChestPanel(), true);
+  key("keyup");
+  assert.ok(
+    document.querySelector("#mwitools-production-profit-panel"),
+    "releasing the key must not close a pinned loot panel",
+  );
+
+  runtime.api.hideProductionProfitPanel();
+  tooltip.remove();
+
+  tooltip = makeTooltip();
+  await runtime.api.handleTooltipItem(tooltip);
+  const touchEvent = (type, x, y) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, {
+      pointerType: { value: "touch" },
+      pointerId: { value: 12 },
+    });
+    return event;
+  };
+  tooltip.dispatchEvent(touchEvent("pointerdown", 10, 10));
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.ok(
+    document.querySelector("#mwitools-production-profit-panel"),
+    "an 800 ms touch press should open the loot estimate",
+  );
+  tooltip.dispatchEvent(touchEvent("pointerup", 10, 10));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  document.body.dispatchEvent(touchEvent("pointerdown", 40, 40));
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+  tooltip.remove();
+
+  await runtime.features.disable("itemTooltip_prices");
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.config.isZH = true;
+});
+
+test("removed consumable efficiency content is no longer appended", async () => {
+  runtime.api.hideProductionProfitPanel();
+  runtime.config.isZH = false;
+  runtime.state.itemEnNameToHridMap["artisan tea"] = ITEM.artisanTea;
+  runtime.state.initData_itemDetailMap[ITEM.artisanTea].consumableDetail = {
+    buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
+    hitpointRestore: 500,
+    cooldownDuration: 60_000_000_000,
+  };
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = false;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = false;
+  const tooltip = document.createElement("div");
+  tooltip.className = "MuiTooltip-popper";
+  tooltip.style.transform = "translate3d(0px, 0px, 0px)";
+  tooltip.innerHTML =
+    '<div class="ItemTooltipText_name__2JAHA"><span>artisan tea</span></div><div class="separator"></div>';
+  document.body.append(tooltip);
+  await runtime.api.handleTooltipItem(tooltip);
+  assert.doesNotMatch(tooltip.textContent, /coins\/100hp|hp\/min|\/day/);
+  tooltip.remove();
+  runtime.settings.settingsMap.itemTooltip_prices.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.config.isZH = true;
 });

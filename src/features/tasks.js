@@ -1,5 +1,10 @@
 import { runtime } from "../core/runtime.js";
+import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
+import {
+  getLocalizedEntityName,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 import {
   resolveTaskCards,
   taskCardTaskId,
@@ -20,11 +25,12 @@ let lastRenderedCards = [];
 let lastTaskRenderSignature = "";
 let lastActionDetails = null;
 let lastActionCategories = null;
-let combatGroupMode = "planet";
 let taskSpriteManifestPromise = null;
 const taskSpriteBases = new Map();
-const collapsedProfessions = new Set();
-const collapsedDungeonGroups = new Set();
+let pageOrderBySlot = new Map();
+let activeProfessionFilters = new Set();
+let combatFilterEnabled = true;
+let activeDungeonFilters = new Set();
 
 // The live game currently exposes empty fightInfo for dungeon actions, so
 // dungeon membership cannot be derived from initData_actionDetailMap alone.
@@ -158,18 +164,13 @@ const PROFESSIONS = [
   ["enhancing", "强化", "Enhancing"],
   ["combat", "战斗", "Combat"],
 ].map(([key, zh, en], order) => ({ key, zh, en, order }));
-const COMPLETED_PROFESSION = {
-  key: "completed",
-  zh: "已完成",
-  en: "Completed",
-  order: -1,
-};
-const NEW_PROFESSION = {
-  key: "new",
-  zh: "新任务",
-  en: "New Tasks",
-  order: -2,
-};
+const LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
+const DUNGEON_FILTERS = [
+  ["/actions/combat/chimerical_den", "奇幻洞穴", "Chimerical Den"],
+  ["/actions/combat/sinister_circus", "邪恶马戏团", "Sinister Circus"],
+  ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
+  ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"],
+].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -215,27 +216,26 @@ function consumeTemporaryTaskReturn(now = Date.now()) {
   return true;
 }
 
-function combatModeStorageKey() {
-  const server = globalThis.location?.hostname ?? "unknown";
-  return `MWITools_task_combat_mode_v1:${server}:${String(runtime.state.currentCharacterId ?? "")}`;
+function resetTaskFilters() {
+  activeProfessionFilters = new Set(LIFE_PROFESSIONS.map(({ key }) => key));
+  combatFilterEnabled = true;
+  activeDungeonFilters = new Set(
+    DUNGEON_FILTERS.map(({ actionHrid }) => actionHrid),
+  );
 }
 
-function readCombatGroupMode() {
-  try {
-    return localStorage.getItem(combatModeStorageKey()) === "dungeon"
-      ? "dungeon"
-      : "planet";
-  } catch {
-    return "planet";
-  }
+function allTaskFiltersSelected() {
+  return (
+    activeProfessionFilters.size === LIFE_PROFESSIONS.length &&
+    combatFilterEnabled &&
+    activeDungeonFilters.size === DUNGEON_FILTERS.length
+  );
 }
 
-function writeCombatGroupMode(mode) {
-  try {
-    localStorage.setItem(combatModeStorageKey(), mode);
-  } catch {
-    // Ignore storage failures; the mode still works for this page visit.
-  }
+function clearTaskFilters() {
+  activeProfessionFilters.clear();
+  combatFilterEnabled = false;
+  activeDungeonFilters.clear();
 }
 
 function rememberSpriteBase(kind, value) {
@@ -250,18 +250,19 @@ function scanTaskSpriteBases() {
     document
       .querySelectorAll("svg use")
       .forEach((use) =>
-        ["items", "actions", "combat_monsters"].forEach((kind) =>
-          rememberSpriteBase(
-            kind,
-            use.getAttribute("href") ?? use.getAttribute("xlink:href"),
-          ),
+        ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
+          (kind) =>
+            rememberSpriteBase(
+              kind,
+              use.getAttribute("href") ?? use.getAttribute("xlink:href"),
+            ),
         ),
       );
     globalThis.performance
       ?.getEntriesByType?.("resource")
       ?.forEach((entry) =>
-        ["items", "actions", "combat_monsters"].forEach((kind) =>
-          rememberSpriteBase(kind, entry.name),
+        ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
+          (kind) => rememberSpriteBase(kind, entry.name),
         ),
       );
   } catch {
@@ -280,7 +281,13 @@ async function loadTaskSpriteManifest() {
       if (!response.ok) return;
       const manifest = await response.json();
       for (const value of Object.values(manifest?.files ?? {})) {
-        for (const kind of ["items", "actions", "combat_monsters"]) {
+        for (const kind of [
+          "items",
+          "actions",
+          "combat_monsters",
+          "skills",
+          "misc",
+        ]) {
           rememberSpriteBase(kind, value);
         }
       }
@@ -310,40 +317,33 @@ function addStyles() {
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
-    .mwi-task-profession-group { --mwi-task-group-accent:120,174,255; grid-column:1/-1; min-width:0; }
-    .mwi-task-profession-group[data-profession="new"] { --mwi-task-group-accent:230,181,79; }
-    .mwi-task-profession-group[data-profession="completed"] { --mwi-task-group-accent:90,200,149; }
-    .mwi-task-profession-group[data-profession="combat"] { --mwi-task-group-accent:238,115,103; }
-    .mwi-task-profession-header { display:flex; width:100%; min-height:32px; box-sizing:border-box; align-items:center; gap:7px; padding:5px 9px; border:0; border-left:3px solid rgba(var(--mwi-task-group-accent),.78); border-radius:0; background:transparent; color:var(--color-text-primary,#eee); font:inherit; text-align:left; cursor:pointer; }
-    .mwi-task-profession-header:hover { background:rgba(var(--mwi-task-group-accent),.075); }
-    .mwi-task-profession-header:focus-visible { outline:2px solid rgba(var(--mwi-task-group-accent),.72); outline-offset:-3px; }
-    .mwi-task-profession-title { font-weight:650; }
-    .mwi-task-profession-count { min-width:1.25rem; padding:0; border:0; background:transparent; color:rgba(var(--mwi-task-group-accent),.95); font-size:.68rem; font-weight:700; text-align:center; }
-    .mwi-task-profession-chevron { margin-left:auto; color:rgba(var(--mwi-task-group-accent),.9); transition:transform .15s ease; }
-    .mwi-task-profession-header[aria-expanded="false"] .mwi-task-profession-chevron { transform:rotate(-90deg); }
-    .mwi-task-profession-body { display:none; }
-    .mwi-task-combat-location { grid-column:1/-1; min-width:0; }
-    .mwi-task-combat-location-title { margin:0 0 6px; padding:4px 8px; border-left:2px solid rgba(255,255,255,.22); color:var(--color-text-secondary,#bbb); font-size:.7rem; font-weight:600; }
-    .mwi-task-combat-location-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
-    .mwi-task-dungeon-header { display:flex; width:100%; align-items:center; gap:8px; margin:0 0 6px; padding:5px 8px; border:0; border-left:2px solid rgba(183,126,255,.78); border-radius:0; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; font-weight:650; text-align:left; cursor:pointer; }
-    .mwi-task-dungeon-header:hover { background:rgba(183,126,255,.07); }
-    .mwi-task-dungeon-header:focus-visible { outline:2px solid rgba(183,126,255,.62); outline-offset:-3px; }
-    .mwi-task-dungeon-header span:last-child { margin-left:auto; transition:transform .15s ease; }
-    .mwi-task-dungeon-header[aria-expanded="false"] span:last-child { transform:rotate(-90deg); }
-    .mwi-task-dungeon-body { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)); gap:8px; min-width:0; }
-    .mwi-task-combat-mode { display:flex; width:max-content; gap:2px; margin:4px 0 8px; padding:2px; border:1px solid rgba(255,255,255,.12); border-radius:6px; background:rgba(0,0,0,.18); }
-    .mwi-task-combat-mode button { padding:3px 10px; border:0; border-radius:4px; background:transparent; color:var(--color-text-secondary,#bbb); font:inherit; font-size:.7rem; cursor:pointer; }
-    .mwi-task-combat-mode button[aria-pressed="true"] { background:${runtime.config.SCRIPT_COLOR_MAIN}; color:#18130a; font-weight:700; }
-    ${TASK_SELECTOR}[data-mwitools-collapsed="true"] { display:none !important; }
-    ${TASK_SELECTOR}[data-mwitools-dungeon-source="true"] { display:none !important; }
+    .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
+    .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
+    .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
+    .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
+    .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
+    .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
+    .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
+    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
+    .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
+    .mwi-task-filter-icon svg { width:100%; height:100%; }
+    .mwi-task-filter-label { white-space:nowrap; }
+    .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
+    .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
+    ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
-    .mwi-task-bg.mwi-task-bg--monster { left:42%; }
-    .mwi-task-bg.mwi-task-bg--dungeon { left:68%; }
     .mwi-task-bg svg { width:100%; height:100%; }
-    ${TASK_SELECTOR} > :not(.mwi-task-bg),[data-mwitools-task-mirror="true"] > :not(.mwi-task-bg) { position:relative; z-index:1; }
-    [data-mwitools-task-mirror="true"] { position:relative; }
+    ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+    @media (max-width:640px) {
+      .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-group--life { flex-wrap:wrap; }
+      .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
+    }
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -451,24 +451,14 @@ function targetNameFromCard(card) {
 function itemHridFromDisplayName(name) {
   if (!name) return "";
   const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
-  const englishName = runtime.config.isZHInGameSetting
-    ? (runtime.api.getItemEnNameFromZhName?.(normalized) ?? normalized)
-    : normalized;
-  if (runtime.state.itemEnNameToHridMap?.[englishName]) {
-    return runtime.state.itemEnNameToHridMap[englishName];
-  }
-  return (
-    Object.entries(runtime.data.ZHItemNames ?? {}).find(
-      ([, localizedName]) => localizedName === normalized,
-    )?.[0] ?? ""
-  );
+  return resolveLocalizedEntity("item", normalized);
 }
 
 function namedMonsterHridForCard(card) {
   const monsterName = targetNameFromCard(card)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
-  const translated = runtime.api.getOthersFromZhName?.(monsterName);
+  const translated = resolveLocalizedEntity("monster", monsterName);
   if (String(translated).startsWith("/monsters/")) return translated;
   if (String(translated).startsWith("/actions/combat/")) {
     return String(translated).replace("/actions/combat/", "/monsters/");
@@ -480,7 +470,7 @@ function namedMonsterHridForCard(card) {
       String(candidate?.hrid).startsWith("/actions/combat/") &&
       !candidate?.combatZoneInfo?.isDungeon &&
       (candidate?.name === monsterName ||
-        runtime.data.ZHActionNames?.[candidate.hrid] === monsterName),
+        getLocalizedEntityName("action", candidate.hrid) === monsterName),
   );
   return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
 }
@@ -589,29 +579,6 @@ function decorateCard(card, task) {
   card.appendChild(background);
 }
 
-function addDungeonArtwork(card, location) {
-  card.querySelector(":scope > .mwi-task-bg--dungeon")?.remove();
-  const monster = card.querySelector(":scope > .mwi-task-bg");
-  monster?.classList.remove("mwi-task-bg--monster");
-  const actionHrid = location?.isDungeon ? location.actionHrid : "";
-  if (!actionHrid) return;
-  const href = taskSpriteHref("actions", actionHrid);
-  if (!href) return;
-  monster?.classList.add("mwi-task-bg--monster");
-  const background = document.createElement("div");
-  background.className = "mwi-task-bg mwi-task-bg--dungeon";
-  background.dataset.spriteHref = href;
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("height", "100%");
-  svg.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", href);
-  svg.append(use);
-  background.append(svg);
-  card.append(background);
-}
-
 function visibleTaskTitle(card) {
   const name = card.querySelector('div[class*="RandomTask_name"]');
   const text = String(
@@ -638,7 +605,7 @@ function professionForCard(card, task) {
       return profession;
     }
   }
-  if (/^(击败|Defeat|Kill)(?:\s|[-–]|$)/i.test(title)) {
+  if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
     return PROFESSIONS.find(({ key }) => key === "combat");
   }
   const actionHrid = taskActionHrid(task);
@@ -653,11 +620,15 @@ function professionForCard(card, task) {
     key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
     zh: prefix,
     en: prefix,
-    order: PROFESSIONS.length - 0.5,
+    order: PROFESSIONS.length - 1.5,
   };
 }
 
 function isCompletedCard(card, task) {
+  const target = Number(
+    nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]),
+  );
+  if (target > 0 && taskRemaining(task) === 0) return true;
   if (
     [...card.querySelectorAll("button")].some((button) =>
       /claim|领取/i.test(button.textContent),
@@ -669,11 +640,11 @@ function isCompletedCard(card, task) {
     runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? "",
   );
   const progress = text.match(
-    /(?:进度|progress)\s*[:：]\s*([\d,.]+)\s*\/\s*([\d,.]+)/i,
+    /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i,
   );
   if (progress) {
-    const current = Number(progress[1].replaceAll(",", ""));
-    const target = Number(progress[2].replaceAll(",", ""));
+    const current = parseCompactNumber(progress[1]);
+    const target = parseCompactNumber(progress[2]);
     if (
       Number.isFinite(current) &&
       Number.isFinite(target) &&
@@ -689,14 +660,12 @@ function isCompletedCard(card, task) {
 function combatDetailForCard(card, task) {
   const taskDetail =
     runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-  const monsterName = visibleTaskTitle(card)
-    .replace(/^(击败|Defeat|Kill)\s*[-–]\s*/i, "")
+  const monsterName = targetNameFromCard(card)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
-  const translatedHrid = runtime.config.isZHInGameSetting
-    ? (runtime.api.getOthersFromZhName?.(monsterName) ??
-      runtime.api.getActionEnNameFromZhName?.(monsterName))
-    : null;
+  const translatedHrid =
+    resolveLocalizedEntity("monster", monsterName) ||
+    resolveLocalizedEntity("action", monsterName);
   const monsterHrid = String(translatedHrid ?? "").replace(
     "/actions/combat/",
     "/monsters/",
@@ -705,7 +674,7 @@ function combatDetailForCard(card, task) {
     runtime.state.initData_actionDetailMap ?? {},
   )) {
     if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-    const localizedName = runtime.data.ZHActionNames?.[detail.hrid];
+    const localizedName = getLocalizedEntityName("action", detail.hrid);
     if (
       detail.name?.toLowerCase() === monsterName.toLowerCase() ||
       localizedName === monsterName ||
@@ -956,9 +925,7 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
       if (freshIds.has(id)) pageNewTaskIds.add(id);
     } else if (changed) {
       if (pendingResetSlots.has(slot)) {
-        if (
-          pageClassifications.get(slot)?.profession?.key === NEW_PROFESSION.key
-        ) {
+        if (pageClassifications.get(slot)?.state === "new") {
           pageNewTaskIds.add(id);
         }
       } else if (freshIds.has(id)) {
@@ -981,50 +948,22 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
   if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
 }
 
-function ensureCombatModeToggle() {
-  if (!taskListParent?.isConnected) return;
-  let controls = taskListParent.parentElement?.querySelector(
-    ":scope > .mwi-task-combat-mode",
-  );
-  if (!controls) {
-    controls = document.createElement("div");
-    controls.className = "mwi-task-combat-mode";
-    for (const [mode, zh, en] of [
-      ["planet", "星球", "Planet"],
-      ["dungeon", "地牢", "Dungeon"],
-    ]) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.mode = mode;
-      button.textContent = t(zh, en);
-      button.addEventListener("click", () => {
-        if (combatGroupMode === mode) return;
-        combatGroupMode = mode;
-        writeCombatGroupMode(mode);
-        lastTaskRenderSignature = "";
-        renderTasks();
-      });
-      controls.appendChild(button);
-    }
-    taskListParent.insertAdjacentElement("beforebegin", controls);
-  }
-  for (const button of controls.querySelectorAll("button[data-mode]")) {
-    const pressed = String(button.dataset.mode === combatGroupMode);
-    if (button.getAttribute("aria-pressed") !== pressed) {
-      button.setAttribute("aria-pressed", pressed);
-    }
-  }
-}
-
-function ungroupCards() {
+function cleanupListDecorations({ restoreOrder = true } = {}) {
   if (!taskListParent?.isConnected) return;
   taskListParent
     .querySelectorAll(
-      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location",
+      ":scope > .mwi-task-profession-group,:scope > .mwi-task-combat-location,:scope > .mwi-task-toolbar",
     )
     .forEach((group) => group.remove());
   taskListParent.parentElement
-    ?.querySelector(":scope > .mwi-task-combat-mode")
+    ?.querySelectorAll(":scope > .mwi-task-combat-mode")
+    .forEach((node) => node.remove());
+  taskListParent
+    .querySelectorAll(':scope > [data-mwitools-task-mirror="true"]')
+    .forEach((node) => node.remove());
+  if (!restoreOrder) return;
+  taskListParent.parentElement
+    ?.querySelector(":scope > .mwi-task-toolbar")
     ?.remove();
   taskListParent
     .querySelectorAll(`:scope > ${TASK_SELECTOR}`)
@@ -1036,9 +975,11 @@ function ungroupCards() {
       delete card.dataset.mwitoolsTaskId;
       delete card.dataset.mwitoolsCollapsed;
       delete card.dataset.mwitoolsProfession;
+      delete card.dataset.mwitoolsTaskState;
+      delete card.dataset.mwitoolsDungeonHrids;
+      delete card.dataset.mwitoolsFiltered;
       delete card.dataset.mwitoolsLocation;
       delete card.dataset.mwitoolsDungeonSource;
-      delete card.dataset.mwitoolsTaskId;
     });
 }
 
@@ -1048,55 +989,46 @@ function orderedRows(cards, tasks) {
     const task = tasks[index];
     const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
     const completed = isCompletedCard(card, task);
-    const previous = pageClassifications.get(slot);
     const isNew = pageNewTaskIds.has(taskId(task));
-    const computedProfession = isNew
-      ? NEW_PROFESSION
-      : completed
-        ? COMPLETED_PROFESSION
-        : professionForCard(card, task);
-    const profession = isNew
-      ? NEW_PROFESSION
-      : !completed &&
-          previous &&
-          !previous.completed &&
-          previous.profession.key !== NEW_PROFESSION.key
-        ? previous.profession
-        : computedProfession;
+    const state = isNew ? "new" : completed ? "completed" : "normal";
+    const profession = professionForCard(card, task);
     const location =
-      profession.key === "combat"
-        ? !completed && previous?.profession.key === "combat"
-          ? previous.location
-          : combatLocationForCard(card, task)
-        : null;
+      profession.key === "combat" ? combatLocationForCard(card, task) : null;
     const dungeonLocations =
-      profession.key === "combat"
-        ? !completed && previous?.profession.key === "combat"
-          ? (previous.dungeonLocations ?? dungeonLocationsForCard(card, task))
-          : dungeonLocationsForCard(card, task)
-        : [];
-    const computedMonsterGroupKey =
+      profession.key === "combat" ? dungeonLocationsForCard(card, task) : [];
+    const monsterGroupKey =
       profession.key === "combat"
         ? monsterHridForCard(card, task) ||
           taskActionHrid(task) ||
           `combat-slot-${slot}`
         : "";
-    const monsterGroupKey =
-      profession.key === "combat" &&
-      !completed &&
-      previous?.profession.key === "combat"
-        ? (previous.monsterGroupKey ?? computedMonsterGroupKey)
-        : computedMonsterGroupKey;
     pageClassifications.set(slot, {
       completed,
+      state,
       profession,
       location,
       dungeonLocations,
       monsterGroupKey,
     });
+    const taskState = state;
+    if (card.dataset.mwitoolsTaskState !== taskState) {
+      card.dataset.mwitoolsTaskState = taskState;
+    }
+    if (card.dataset.mwitoolsProfession !== profession.key) {
+      card.dataset.mwitoolsProfession = profession.key;
+    }
+    const dungeonHrids = dungeonLocations
+      .filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid)
+      .map(({ actionHrid }) => actionHrid)
+      .join(",");
+    if (card.dataset.mwitoolsDungeonHrids !== dungeonHrids) {
+      card.dataset.mwitoolsDungeonHrids = dungeonHrids;
+    }
     return {
       card,
       task,
+      slot,
+      state,
       profession,
       location,
       dungeonLocations,
@@ -1106,9 +1038,35 @@ function orderedRows(cards, tasks) {
       chain: chains?.get(taskActionHrid(task))?.group ?? index,
     };
   });
+  const stateOrder = { new: 0, completed: 1, normal: 2 };
+  const firstSlotByMonster = new Map();
+  for (const row of rows) {
+    if (row.profession.key !== "combat") continue;
+    const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
+    const current = firstSlotByMonster.get(key);
+    if (current === undefined || row.info.originalIndex < current) {
+      firstSlotByMonster.set(key, row.info.originalIndex);
+    }
+  }
   rows.sort((left, right) => {
+    const taskStateOrder = stateOrder[left.state] - stateOrder[right.state];
+    if (taskStateOrder) return taskStateOrder;
     const professionOrder = left.profession.order - right.profession.order;
     if (professionOrder) return professionOrder;
+    if (left.profession.key === "combat") {
+      const locationOrder =
+        Number(left.location?.order ?? 99_999) -
+        Number(right.location?.order ?? 99_999);
+      if (locationOrder) return locationOrder;
+      const leftKey =
+        left.monsterGroupKey || `combat-slot-${left.info.originalIndex}`;
+      const rightKey =
+        right.monsterGroupKey || `combat-slot-${right.info.originalIndex}`;
+      return (
+        firstSlotByMonster.get(leftKey) - firstSlotByMonster.get(rightKey) ||
+        left.info.originalIndex - right.info.originalIndex
+      );
+    }
     if (!chains) {
       return left.info.originalIndex - right.info.originalIndex;
     }
@@ -1136,288 +1094,341 @@ function orderedRows(cards, tasks) {
   return rows;
 }
 
-function updateGroupCollapsedState(group, profession) {
-  const collapsed = collapsedProfessions.has(profession.key);
-  const header = group.querySelector(".mwi-task-profession-header");
-  const body = group.querySelector(".mwi-task-profession-body");
-  const expanded = String(!collapsed);
-  if (header.getAttribute("aria-expanded") !== expanded) {
-    header.setAttribute("aria-expanded", expanded);
+function updatePressedState(button, pressed) {
+  const value = String(Boolean(pressed));
+  if (button.getAttribute("aria-pressed") !== value) {
+    button.setAttribute("aria-pressed", value);
   }
-  if (body.hidden !== collapsed) body.hidden = collapsed;
 }
 
-function ensureProfessionGroup(parent, profession) {
-  let group = parent.querySelector(
-    `:scope > .mwi-task-profession-group[data-profession="${profession.key}"]`,
-  );
-  if (group) return group;
-  group = document.createElement("section");
-  group.className = "mwi-task-profession-group";
-  group.dataset.profession = profession.key;
-  const header = document.createElement("button");
-  header.type = "button";
-  header.className = "mwi-task-profession-header";
-  const title = document.createElement("span");
-  title.className = "mwi-task-profession-title";
+function createTaskFilterButton({
+  kind,
+  value,
+  label,
+  iconKind = "",
+  iconHrid = "",
+  fallback = "•",
+  showLabel = false,
+  onClick,
+}) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mwi-task-filter";
+  button.dataset.filterKind = kind;
+  button.dataset.filterValue = value;
+  button.dataset.iconKind = iconKind;
+  button.dataset.iconHrid = iconHrid;
+  button.dataset.iconFallback = fallback;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  const icon = document.createElement("span");
+  icon.className = "mwi-task-filter-icon";
   const count = document.createElement("span");
-  count.className = "mwi-task-profession-count";
-  const chevron = document.createElement("span");
-  chevron.className = "mwi-task-profession-chevron";
-  chevron.textContent = "▾";
-  header.append(title, count, chevron);
-  const body = document.createElement("div");
-  body.className = "mwi-task-profession-body";
-  header.addEventListener("click", () => {
-    if (collapsedProfessions.has(profession.key)) {
-      collapsedProfessions.delete(profession.key);
-    } else {
-      collapsedProfessions.add(profession.key);
-    }
-    renderTasks();
-  });
-  group.append(header, body);
-  return group;
-}
-
-function mirrorTaskCard(source, location) {
-  const mirror = source.cloneNode(true);
-  mirror.dataset.mwitoolsTaskMirror = "true";
-  mirror.removeAttribute("id");
-  mirror.style.order = "";
-  mirror.style.display = "";
-  delete mirror.dataset.mwitoolsDungeonSource;
-  delete mirror.dataset.mwitoolsCollapsed;
-  addDungeonArtwork(mirror, location);
-  mirror.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-  mirror.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const mirrorButton = event.target.closest("button");
-    if (mirrorButton) {
-      const mirrorButtons = [...mirror.querySelectorAll("button")];
-      const sourceButtons = [...source.querySelectorAll("button")];
-      sourceButtons[mirrorButtons.indexOf(mirrorButton)]?.click();
-      return;
-    }
-    source.click();
-  });
-  return mirror;
-}
-
-function groupMatchingMonsters(rows) {
-  const firstSlotByMonster = new Map();
-  for (const row of rows) {
-    const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
-    const current = firstSlotByMonster.get(key);
-    if (current === undefined || row.info.originalIndex < current) {
-      firstSlotByMonster.set(key, row.info.originalIndex);
-    }
+  count.className = "mwi-task-filter-count";
+  button.append(icon);
+  if (showLabel) {
+    const text = document.createElement("span");
+    text.className = "mwi-task-filter-label";
+    text.textContent = label;
+    button.append(text);
   }
-  return [...rows].sort((left, right) => {
-    const leftKey =
-      left.monsterGroupKey || `combat-slot-${left.info.originalIndex}`;
-    const rightKey =
-      right.monsterGroupKey || `combat-slot-${right.info.originalIndex}`;
-    return (
-      firstSlotByMonster.get(leftKey) - firstSlotByMonster.get(rightKey) ||
-      left.info.originalIndex - right.info.originalIndex
-    );
-  });
+  button.append(count);
+  button.addEventListener("click", onClick);
+  return button;
 }
 
-function renderDungeonCombatGroups(parent, rows, nextOrder) {
-  const locations = new Map();
+function updateTaskFilterIcon(button) {
+  const icon = button.querySelector(".mwi-task-filter-icon");
+  if (!icon) return;
+  const href = button.dataset.iconKind
+    ? taskSpriteHref(button.dataset.iconKind, button.dataset.iconHrid)
+    : "";
+  const signature = href || `fallback:${button.dataset.iconFallback}`;
+  if (icon.dataset.signature === signature) return;
+  icon.dataset.signature = signature;
+  icon.replaceChildren();
+  if (!href) {
+    icon.textContent = button.dataset.iconFallback || "•";
+    return;
+  }
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", href);
+  svg.append(use);
+  icon.append(svg);
+}
+
+function updateTaskFilterButton(button, { label, count, pressed }) {
+  updatePressedState(button, pressed);
+  const countText = String(count);
+  const countNode = button.querySelector(".mwi-task-filter-count");
+  if (countNode?.textContent !== countText) countNode.textContent = countText;
+  const title = `${label} (${countText})`;
+  if (button.title !== title) button.title = title;
+  if (button.getAttribute("aria-label") !== title) {
+    button.setAttribute("aria-label", title);
+  }
+  updateTaskFilterIcon(button);
+}
+
+function applyTaskFilters(rows) {
+  const statisticsEnabled = runtime.settings.get("taskStatistics");
+  const noFiltersSelected =
+    activeProfessionFilters.size === 0 &&
+    !combatFilterEnabled &&
+    activeDungeonFilters.size === 0;
   for (const row of rows) {
-    row.card.dataset.mwitoolsDungeonSource = "true";
-    for (const location of row.dungeonLocations ?? []) {
-      if (!locations.has(location.key)) {
-        locations.set(location.key, { location, rows: [] });
+    let visible = true;
+    if (statisticsEnabled) {
+      if (noFiltersSelected) {
+        visible = false;
+      } else if (row.profession.key === "combat") {
+        const dungeonHrids = row.dungeonLocations
+          .filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid)
+          .map(({ actionHrid }) => actionHrid);
+        visible =
+          combatFilterEnabled &&
+          (!dungeonHrids.length ||
+            dungeonHrids.some((actionHrid) =>
+              activeDungeonFilters.has(actionHrid),
+            ));
+      } else if (
+        LIFE_PROFESSIONS.some(({ key }) => key === row.profession.key)
+      ) {
+        visible = activeProfessionFilters.has(row.profession.key);
       }
-      locations.get(location.key).rows.push(row);
+    }
+    const filtered = String(!visible);
+    if (row.card.dataset.mwitoolsFiltered !== filtered) {
+      row.card.dataset.mwitoolsFiltered = filtered;
     }
   }
-  const orderedLocations = [...locations.values()].sort(
-    (left, right) =>
-      left.location.order - right.location.order ||
-      left.location.label.localeCompare(right.location.label),
-  );
-  const active = new Set();
-  for (const { location, rows: unsortedLocationRows } of orderedLocations) {
-    const locationRows = groupMatchingMonsters(unsortedLocationRows);
-    active.add(location.key);
-    let section = parent.querySelector(
-      `:scope > .mwi-task-combat-location[data-location="${location.key}"]`,
-    );
-    if (!section || section.dataset.mode !== "dungeon") {
-      section?.remove();
-      section = document.createElement("section");
-      section.className = "mwi-task-combat-location";
-      section.dataset.location = location.key;
-      section.dataset.mode = "dungeon";
-      const header = document.createElement("button");
-      header.type = "button";
-      header.className = "mwi-task-dungeon-header";
-      const title = document.createElement("span");
-      title.className = "mwi-task-combat-location-title-text";
-      const chevron = document.createElement("span");
-      chevron.textContent = "▾";
-      header.append(title, chevron);
-      const body = document.createElement("div");
-      body.className = "mwi-task-dungeon-body";
-      header.addEventListener("click", () => {
-        if (collapsedDungeonGroups.has(location.key)) {
-          collapsedDungeonGroups.delete(location.key);
-        } else {
-          collapsedDungeonGroups.add(location.key);
-        }
-        lastTaskRenderSignature = "";
-        renderTasks();
-      });
-      section.append(header, body);
-      parent.appendChild(section);
-    }
-    const collapsed = collapsedDungeonGroups.has(location.key);
-    const header = section.querySelector(".mwi-task-dungeon-header");
-    header.setAttribute("aria-expanded", String(!collapsed));
-    section.querySelector(".mwi-task-combat-location-title-text").textContent =
-      `${location.label} (${locationRows.length})`;
-    const body = section.querySelector(".mwi-task-dungeon-body");
-    body.hidden = collapsed;
-    body.replaceChildren(
-      ...locationRows.map(({ card }) => mirrorTaskCard(card, location)),
-    );
-    section.hidden = collapsedProfessions.has("combat");
-    section.style.order = String(nextOrder.value++);
-  }
-  return active;
 }
 
-function renderCombatGroups(parent, rows, nextOrder) {
-  if (combatGroupMode === "dungeon") {
-    return renderDungeonCombatGroups(parent, rows, nextOrder);
+function ensureTaskToolbar(rows) {
+  if (!taskListParent?.isConnected) return;
+  const statisticsEnabled = runtime.settings.get("taskStatistics");
+  const signature = [runtime.config.isZH, statisticsEnabled].join(":");
+  let toolbar = taskListParent.parentElement?.querySelector(
+    ":scope > .mwi-task-toolbar",
+  );
+  if (toolbar?.dataset.signature !== signature) {
+    toolbar?.remove();
+    toolbar = document.createElement("div");
+    toolbar.className = "mwi-task-toolbar";
+    toolbar.dataset.signature = signature;
+    toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute(
+      "aria-label",
+      t("任务排序与筛选", "Task sorting and filters"),
+    );
+
+    if (statisticsEnabled) {
+      const controls = document.createElement("div");
+      controls.className = "mwi-task-toolbar-controls";
+      controls.append(
+        createTaskFilterButton({
+          kind: "all",
+          value: "all",
+          label: t("全部任务", "All tasks"),
+          fallback: "☰",
+          showLabel: true,
+          onClick: () => {
+            if (allTaskFiltersSelected()) clearTaskFilters();
+            else resetTaskFilters();
+            lastTaskRenderSignature = "";
+            renderTasks();
+          },
+        }),
+      );
+      toolbar.append(controls);
+
+      const lifeFilters = document.createElement("div");
+      lifeFilters.className =
+        "mwi-task-filter-group mwi-task-filter-group--life";
+      for (const profession of LIFE_PROFESSIONS) {
+        lifeFilters.append(
+          createTaskFilterButton({
+            kind: "profession",
+            value: profession.key,
+            label: runtime.config.isZH ? profession.zh : profession.en,
+            iconKind: "skills",
+            iconHrid: profession.key,
+            fallback: (runtime.config.isZH ? profession.zh : profession.en)[0],
+            onClick: () => {
+              if (activeProfessionFilters.has(profession.key)) {
+                activeProfessionFilters.delete(profession.key);
+              } else {
+                activeProfessionFilters.add(profession.key);
+              }
+              lastTaskRenderSignature = "";
+              renderTasks();
+            },
+          }),
+        );
+      }
+      toolbar.append(lifeFilters);
+
+      const combatFilters = document.createElement("div");
+      combatFilters.className =
+        "mwi-task-filter-group mwi-task-filter-group--combat";
+      combatFilters.append(
+        createTaskFilterButton({
+          kind: "combat",
+          value: "combat",
+          label: t("战斗", "Combat"),
+          iconKind: "misc",
+          iconHrid: "combat",
+          fallback: "⚔",
+          onClick: () => {
+            combatFilterEnabled = !combatFilterEnabled;
+            lastTaskRenderSignature = "";
+            renderTasks();
+          },
+        }),
+      );
+
+      const dungeons = document.createElement("div");
+      dungeons.className = "mwi-task-dungeon-filters";
+      for (const dungeon of DUNGEON_FILTERS) {
+        dungeons.append(
+          createTaskFilterButton({
+            kind: "dungeon",
+            value: dungeon.actionHrid,
+            label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+            iconKind: "actions",
+            iconHrid: dungeon.actionHrid,
+            fallback: "◆",
+            onClick: () => {
+              if (activeDungeonFilters.has(dungeon.actionHrid)) {
+                activeDungeonFilters.delete(dungeon.actionHrid);
+              } else {
+                activeDungeonFilters.add(dungeon.actionHrid);
+              }
+              lastTaskRenderSignature = "";
+              renderTasks();
+            },
+          }),
+        );
+      }
+      combatFilters.append(dungeons);
+      toolbar.append(combatFilters);
+    }
+
+    const sortButton = document.createElement("button");
+    sortButton.type = "button";
+    sortButton.className = "mwi-task-sort-button";
+    sortButton.title = t("重新排序任务", "Sort tasks again");
+    sortButton.setAttribute("aria-label", sortButton.title);
+    const sortIcon = document.createElement("span");
+    sortIcon.className = "mwi-task-filter-icon";
+    sortIcon.textContent = "↕";
+    const sortLabel = document.createElement("span");
+    sortLabel.className = "mwi-task-filter-label";
+    sortLabel.textContent = t("任务排序", "Sort tasks");
+    sortButton.append(sortIcon, sortLabel);
+    sortButton.addEventListener("click", () => sortTasks());
+    const controls =
+      toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
+    controls.append(sortButton);
+    taskListParent.insertAdjacentElement("beforebegin", toolbar);
   }
-  for (const row of rows) delete row.card.dataset.mwitoolsDungeonSource;
-  const locations = new Map();
+
+  if (!statisticsEnabled) return;
+  const professionCounts = new Map(LIFE_PROFESSIONS.map(({ key }) => [key, 0]));
+  const dungeonCounts = new Map(
+    DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0]),
+  );
+  let combatCount = 0;
   for (const row of rows) {
-    const location = row.location ?? combatLocationForCard(row.card, row.task);
-    if (!locations.has(location.key))
-      locations.set(location.key, { location, rows: [] });
-    locations.get(location.key).rows.push(row);
+    if (professionCounts.has(row.profession.key)) {
+      professionCounts.set(
+        row.profession.key,
+        professionCounts.get(row.profession.key) + 1,
+      );
+    }
+    if (row.profession.key !== "combat") continue;
+    combatCount += 1;
+    for (const { isDungeon, actionHrid } of row.dungeonLocations) {
+      if (isDungeon && dungeonCounts.has(actionHrid)) {
+        dungeonCounts.set(actionHrid, dungeonCounts.get(actionHrid) + 1);
+      }
+    }
   }
-  const orderedLocations = [...locations.values()].sort(
-    (left, right) =>
-      left.location.order - right.location.order ||
-      left.location.label.localeCompare(right.location.label),
-  );
-  const active = new Set();
-  for (const { location, rows: unsortedLocationRows } of orderedLocations) {
-    const locationRows = groupMatchingMonsters(unsortedLocationRows);
-    active.add(location.key);
-    let section = parent.querySelector(
-      `:scope > .mwi-task-combat-location[data-location="${location.key}"]`,
+  const allSelected = allTaskFiltersSelected();
+  const allButton = toolbar.querySelector('[data-filter-kind="all"]');
+  updateTaskFilterButton(allButton, {
+    label: t("全部任务", "All tasks"),
+    count: rows.length,
+    pressed: allSelected,
+  });
+  for (const profession of LIFE_PROFESSIONS) {
+    const button = toolbar.querySelector(
+      `[data-filter-kind="profession"][data-filter-value="${profession.key}"]`,
     );
-    if (!section || section.dataset.mode === "dungeon") {
-      section?.remove();
-      section = document.createElement("section");
-      section.className = "mwi-task-combat-location";
-      section.dataset.location = location.key;
-      section.dataset.mode = "planet";
-      const title = document.createElement("h4");
-      title.className = "mwi-task-combat-location-title";
-      section.append(title);
-      parent.appendChild(section);
-    }
-    section.querySelector(".mwi-task-combat-location-title").textContent =
-      `${location.label} (${locationRows.length})`;
-    section.style.order = String(nextOrder.value++);
-    for (const row of locationRows) {
-      row.card.style.order = String(nextOrder.value++);
-      row.card.dataset.mwitoolsLocation = location.key;
-    }
+    updateTaskFilterButton(button, {
+      label: runtime.config.isZH ? profession.zh : profession.en,
+      count: professionCounts.get(profession.key),
+      pressed: activeProfessionFilters.has(profession.key),
+    });
   }
-  return active;
+  updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
+    label: t("战斗", "Combat"),
+    count: combatCount,
+    pressed: combatFilterEnabled,
+  });
+  const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
+  if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
+    dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
+  }
+  for (const dungeon of DUNGEON_FILTERS) {
+    const button = toolbar.querySelector(
+      `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`,
+    );
+    updateTaskFilterButton(button, {
+      label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+      count: dungeonCounts.get(dungeon.actionHrid),
+      pressed: activeDungeonFilters.has(dungeon.actionHrid),
+    });
+  }
 }
 
-function renderRegularGroup(rows, nextOrder) {
-  for (const row of rows) row.card.style.order = String(nextOrder.value++);
+function applyExplicitSort(rows) {
+  rows.forEach((row, index) => {
+    const order = index + 1;
+    const value = String(order);
+    if (row.card.style.order !== value) row.card.style.order = value;
+    pageOrderBySlot.set(row.slot, order);
+  });
 }
 
-function groupCards(cards, tasks) {
+function restoreStableOrders(rows) {
+  let nextOrder = Math.max(0, ...pageOrderBySlot.values()) + 1;
+  for (const row of rows) {
+    let order = pageOrderBySlot.get(row.slot);
+    if (!Number.isFinite(order)) {
+      const current = Number(row.card.style.order);
+      order =
+        row.card.style.order && Number.isFinite(current)
+          ? current
+          : nextOrder++;
+      pageOrderBySlot.set(row.slot, order);
+    }
+    const value = String(order);
+    if (row.card.style.order !== value) row.card.style.order = value;
+  }
+}
+
+function renderFlatTaskList(cards, tasks, { sort = false } = {}) {
   if (!taskListParent) return;
-  for (const card of cards) delete card.dataset.mwitoolsDungeonSource;
-  document
-    .querySelectorAll(".mwi-task-toolbar")
-    .forEach((node) => node.remove());
+  cleanupListDecorations({ restoreOrder: false });
   const rows = orderedRows(cards, tasks);
-  const customDefinitions = rows
-    .map((row) => row.profession)
-    .filter(
-      (profession, index, all) =>
-        ![NEW_PROFESSION, COMPLETED_PROFESSION, ...PROFESSIONS].some(
-          (known) => known.key === profession.key,
-        ) &&
-        all.findIndex((candidate) => candidate.key === profession.key) ===
-          index,
-    );
-  const definitions = [
-    NEW_PROFESSION,
-    COMPLETED_PROFESSION,
-    ...PROFESSIONS,
-    ...customDefinitions,
-  ];
-  const activeKeys = new Set([COMPLETED_PROFESSION.key]);
-  const activeLocations = new Set();
-  const nextOrder = { value: 1 };
-  for (const profession of definitions) {
-    const matching = rows.filter(
-      (row) => row.profession.key === profession.key,
-    );
-    if (!matching.length && profession.key !== COMPLETED_PROFESSION.key)
-      continue;
-    activeKeys.add(profession.key);
-    const group = ensureProfessionGroup(taskListParent, profession);
-    if (!group.isConnected) taskListParent.appendChild(group);
-    const title = runtime.config.isZH ? profession.zh : profession.en;
-    const titleNode = group.querySelector(".mwi-task-profession-title");
-    if (titleNode.textContent !== title) titleNode.textContent = title;
-    const count = String(matching.length);
-    const countNode = group.querySelector(".mwi-task-profession-count");
-    if (countNode.textContent !== count) countNode.textContent = count;
-    const groupOrder = String(nextOrder.value++);
-    if (group.style.order !== groupOrder) group.style.order = groupOrder;
-    updateGroupCollapsedState(group, profession);
-    for (const row of matching) {
-      if (row.card.dataset.mwitoolsProfession !== profession.key) {
-        row.card.dataset.mwitoolsProfession = profession.key;
-      }
-      const collapsed = String(collapsedProfessions.has(profession.key));
-      if (row.card.dataset.mwitoolsCollapsed !== collapsed) {
-        row.card.dataset.mwitoolsCollapsed = collapsed;
-      }
-    }
-    if (profession.key === "combat") {
-      for (const key of renderCombatGroups(
-        taskListParent,
-        matching,
-        nextOrder,
-      )) {
-        activeLocations.add(key);
-      }
-    } else {
-      renderRegularGroup(matching, nextOrder);
-    }
-  }
-  taskListParent
-    .querySelectorAll(":scope > .mwi-task-profession-group")
-    .forEach((group) => {
-      if (!activeKeys.has(group.dataset.profession)) group.remove();
-    });
-  taskListParent
-    .querySelectorAll(":scope > .mwi-task-combat-location")
-    .forEach((section) => {
-      if (!activeLocations.has(section.dataset.location)) section.remove();
-    });
+  if (sort) applyExplicitSort(rows);
+  else restoreStableOrders(rows);
+  ensureTaskToolbar(rows);
+  applyTaskFilters(rows);
+  return rows;
 }
 
 function wireMergeButtons(cards, tasks) {
@@ -1492,12 +1503,9 @@ function applyPendingMerge() {
   const name = runtime.api.getOriTextFromElement?.(
     panel.querySelector('div[class*="SkillActionDetail_name"]'),
   );
-  let actionHrid = runtime.api.getActionHridFromItemName?.(name);
-  if (runtime.config.isZHInGameSetting && !actionHrid) {
-    actionHrid = runtime.api.getActionHridFromItemName?.(
-      runtime.api.getActionEnNameFromZhName?.(name),
-    );
-  }
+  const actionHrid =
+    resolveLocalizedEntity("action", name) ||
+    runtime.api.getActionHridFromItemName?.(name);
   if (actionHrid !== pending.actionHrid) return;
   runtime.api.reactInputTriggerHack?.(input, pending.count);
   document
@@ -1539,10 +1547,11 @@ function taskRenderSignature(cards, tasks) {
     runtime.config.isZH,
     runtime.settings.get("taskAutoSort"),
     runtime.settings.get("taskIcons"),
-    combatGroupMode,
+    runtime.settings.get("taskStatistics"),
     [...pageNewTaskIds].sort().join(","),
-    [...collapsedProfessions].sort().join(","),
-    [...collapsedDungeonGroups].sort().join(","),
+    [...activeProfessionFilters].sort().join(","),
+    combatFilterEnabled,
+    [...activeDungeonFilters].sort().join(","),
   ];
   const rows = cards.map((card, index) => {
     const task = tasks[index] ?? {};
@@ -1553,17 +1562,19 @@ function taskRenderSignature(cards, tasks) {
         /(?:进度|progress)\s*[:：]\s*[\d,.]+\s*\/\s*[\d,.]+/i,
       )?.[0] ?? "",
       isCompletedCard(card, task) ? "1" : "0",
-      card.dataset.mwitoolsProfession ?? "",
-      card.dataset.mwitoolsCollapsed ?? "",
+      taskId(task),
     ].join("\u001f");
   });
   return [...settings, ...rows].join("\u001e");
 }
 
-function renderTasks() {
+function renderTasks({ forceSort = false } = {}) {
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
     applyPendingMerge();
+    document
+      .querySelectorAll(".mwi-task-toolbar")
+      .forEach((node) => node.remove());
     if (taskListParent && !taskListParent.isConnected) {
       originalCards = [];
       taskListParent = null;
@@ -1576,6 +1587,7 @@ function renderTasks() {
         pageTaskIds = new Map();
         pageNewTaskIds = new Set();
         pendingResetSlots = new Set();
+        pageOrderBySlot = new Map();
         runtime.state.mwitoolsPageNewTaskIds = new Set();
       }
     }
@@ -1587,8 +1599,12 @@ function renderTasks() {
     (observedParent && observedParent !== taskListParent);
   const resumedTaskPage = enteredNewTaskPage && consumeTemporaryTaskReturn();
   const resumedResetPage = enteredNewTaskPage && pendingResetSlots.size > 0;
+  const sortOnEntry = enteredNewTaskPage && !resumedResetPage;
   if (enteredNewTaskPage) {
-    ungroupCards();
+    cleanupListDecorations({ restoreOrder: false });
+    document
+      .querySelectorAll(".mwi-task-toolbar")
+      .forEach((node) => node.remove());
     originalCards = [];
     if (!resumedTaskPage && !resumedResetPage) {
       pageClassifications = new Map();
@@ -1596,7 +1612,10 @@ function renderTasks() {
       pageNewTaskIds = new Set();
       pendingResetSlots = new Set();
     }
-    combatGroupMode = readCombatGroupMode();
+    if (!resumedResetPage) {
+      pageOrderBySlot = new Map();
+      resetTaskFilters();
+    }
     taskListParent = observedParent;
   }
   cards = cards.filter((card) => card.parentElement === taskListParent);
@@ -1612,7 +1631,6 @@ function renderTasks() {
     cardTasks,
     enteredNewTaskPage && !resumedTaskPage && !resumedResetPage,
   );
-  ensureCombatModeToggle();
   const signature = taskRenderSignature(cards, cardTasks);
   const sameCards =
     cards.length === lastRenderedCards.length &&
@@ -1621,6 +1639,7 @@ function renderTasks() {
   const actionCategories = runtime.state.initData_actionCategoryDetailMap;
   if (
     !enteredNewTaskPage &&
+    !forceSort &&
     sameCards &&
     actionDetails === lastActionDetails &&
     actionCategories === lastActionCategories &&
@@ -1645,7 +1664,9 @@ function renderTasks() {
   cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
   wireMergeButtons(cards, cardTasks);
   wireResetButtons(cards);
-  groupCards(cards, cardTasks);
+  renderFlatTaskList(cards, cardTasks, {
+    sort: forceSort || sortOnEntry,
+  });
   applyPendingMerge();
   lastRenderedCards = [...cards];
   lastActionDetails = actionDetails;
@@ -1653,8 +1674,13 @@ function renderTasks() {
   lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
 }
 
+function sortTasks() {
+  lastTaskRenderSignature = "";
+  renderTasks({ forceSort: true });
+}
+
 function cleanupTasks() {
-  ungroupCards();
+  cleanupListDecorations();
   document
     .querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast",
@@ -1680,8 +1706,8 @@ function cleanupTasks() {
   lastTaskRenderSignature = "";
   lastActionDetails = null;
   lastActionCategories = null;
-  collapsedProfessions.clear();
-  collapsedDungeonGroups.clear();
+  pageOrderBySlot = new Map();
+  resetTaskFilters();
 }
 
 runtime.features.register({
@@ -1755,5 +1781,6 @@ Object.assign(runtime.api, {
   taskRemaining,
   taskProjection,
   renderTasks,
-  restoreTaskOrder: renderTasks,
+  sortTasks,
+  restoreTaskOrder: sortTasks,
 });

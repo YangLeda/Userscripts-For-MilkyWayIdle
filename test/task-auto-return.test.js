@@ -45,18 +45,15 @@ function setScrollable(element, scrollTop = 0) {
   element.scrollTop = scrollTop;
 }
 
-function taskPage({ task = true, collapsed = false, scrollTop = 143 } = {}) {
+function taskPage({ task = true, scrollTop = 143 } = {}) {
   const root = document.getElementById("root");
   root.innerHTML = `
     <div class="TasksPanel_taskList__test">
-      <section class="mwi-task-profession-group" data-profession="crafting">
-        <button class="mwi-task-profession-header" aria-expanded="${!collapsed}">Crafting</button>
-        ${
-          task
-            ? `<div class="RandomTask_randomTask__test" data-mwitools-original-index="0" data-mwitools-profession="crafting"><button>Go</button></div>`
-            : ""
-        }
-      </section>
+      ${
+        task
+          ? `<div class="RandomTask_randomTask__test" data-mwitools-original-index="0" data-mwitools-profession="crafting"><button>Go</button></div>`
+          : ""
+      }
     </div>`;
   const list = root.querySelector("[class*=TasksPanel_taskList]");
   setScrollable(list, scrollTop);
@@ -65,7 +62,6 @@ function taskPage({ task = true, collapsed = false, scrollTop = 143 } = {}) {
     list,
     card: root.querySelector("[class*=RandomTask_randomTask]"),
     go: root.querySelector("[class*=RandomTask_randomTask] button"),
-    header: root.querySelector(".mwi-task-profession-header"),
   };
 }
 
@@ -107,20 +103,15 @@ test("task return context uses the stable quest ID, profession and scroll", () =
   });
 });
 
-test("queue submission returns to the stable task and expands its group", async () => {
+test("queue submission returns to the stable task in the flat list", async () => {
   await runtime.features.restart("taskAutoReturn");
   const first = taskPage();
   let restored = 0;
-  let expanded = 0;
   const host = attachGameHost(() => {
-    const returned = taskPage({ collapsed: true });
+    const returned = taskPage();
     returned.card.scrollIntoView = () => {
       restored += 1;
     };
-    returned.header.addEventListener("click", () => {
-      expanded += 1;
-      returned.header.setAttribute("aria-expanded", "true");
-    });
   });
   first.go.click();
   const commit = actionPage();
@@ -129,7 +120,6 @@ test("queue submission returns to the stable task and expands its group", async 
   await settle(620);
   assert.deepEqual(host.targets, ["tasks"]);
   assert.equal(restored, 1);
-  assert.equal(expanded, 1);
 });
 
 test("manual close returns, while a non-task action never does", async () => {

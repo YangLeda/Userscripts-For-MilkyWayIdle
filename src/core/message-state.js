@@ -151,6 +151,12 @@ function applyCharacterData(payload) {
     payload.sharableCharacter?.name ??
     payload.combatUnit?.name ??
     "";
+  runtime.state.currentCharacterGameMode =
+    payload.character?.gameMode ??
+    payload.combatUnit?.character?.gameMode ??
+    payload.sharableCharacter?.gameMode ??
+    "standard";
+  runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
   runtime.state.initData_characterSkills = payload.characterSkills;
   runtime.state.initData_characterItems = payload.characterItems ?? [];
   runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -420,6 +426,13 @@ function applyGameMessage(payload) {
       break;
     case "leaderboard_updated":
       applyLeaderboard(payload);
+      break;
+    case "labyrinth_updated":
+      if (Object.hasOwn(payload, "labyrinth")) {
+        runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
+      } else if (Object.hasOwn(payload, "isActive")) {
+        runtime.state.labyrinthActive = Boolean(payload.isActive);
+      }
       break;
   }
 }

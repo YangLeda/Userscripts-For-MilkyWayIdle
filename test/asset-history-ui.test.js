@@ -42,11 +42,11 @@ const {
   pasteAssetShareToChat,
 } = await import("../src/features/asset-history/30-panel.js");
 
-function gameShell() {
+function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) {
   const shell = document.createElement("main");
   shell.className = "CharacterManagement_characterManagement__test";
   shell.innerHTML = `
-    <nav class="MuiTabs-flexContainer"><button role="tab" type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">库存</button><button role="tab" type="button" aria-selected="false">装备</button><button role="tab" type="button" aria-selected="false">技能</button><button role="tab" type="button" id="house" aria-selected="false">房屋</button><button role="tab" type="button" id="loadout" aria-selected="false">配装 <span>0</span></button></nav>
+    <nav class="MuiTabs-flexContainer"><button role="tab" type="button" class="NavigationTabs_selected__test" aria-selected="true" data-active="true">${labels[0]}</button><button role="tab" type="button" aria-selected="false">${labels[1]}</button><button role="tab" type="button" aria-selected="false">${labels[2]}</button><button role="tab" type="button" id="house" aria-selected="false">${labels[3]}</button><button role="tab" type="button" id="loadout" aria-selected="false">${labels[4]} <span>0</span></button></nav>
     <section class="Inventory_panel__test"><input placeholder="物品搜索"></section>
   `;
   const nativeTabs = [...shell.querySelectorAll('button[role="tab"]')];
@@ -63,6 +63,32 @@ function gameShell() {
   document.body.appendChild(shell);
   return shell;
 }
+
+test("P/L mounts beside character tabs in non-English game languages", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell([
+    "Inventario",
+    "Equipo",
+    "Habilidades",
+    "Casa",
+    "Configuraciones",
+  ]);
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+
+  const tab = document.querySelector("#mwitools-asset-history-tab");
+  assert.ok(tab);
+  assert.equal(tab.previousElementSibling, shell.querySelector("#loadout"));
+  assert.equal(tab.parentElement, shell.querySelector("nav"));
+
+  ui.destroy();
+  scope.cleanup();
+});
 
 test("asset sharing provides separate Chinese and English profit/loss phrases", () => {
   assert.ok(ASSET_SHARE_TEMPLATE_COUNT >= 10);
@@ -364,6 +390,7 @@ test("assetHistory feature survives repeated character-scoped enable and disable
   gameShell();
   runtime.settings.get = (id) => id === "assetHistory";
   await import("../src/features/asset-history/index.js");
+  assert.equal(typeof runtime.api.assetHistory.insertDay, "function");
   await runtime.features.handleCharacterData({ character: { id: "7" } });
   assert.equal(runtime.features.getStatus("assetHistory").status, "active");
   assert.equal(
@@ -441,5 +468,80 @@ test("asset center opens from the native P/L tab and cleans up its modal", () =>
   ui.destroy();
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-asset-center-modal"), null);
+  shell.remove();
+});
+
+test("asset center inserts one editable record into a historical date gap", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  intervals.clear();
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const scopeKey = "production:7";
+  const values = (equipment) => ({
+    equipment,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  });
+  store.updateDay("2026-08-01", values(100), scopeKey);
+  store.updateDay("2026-08-05", values(500), scopeKey);
+  const ui = createAssetHistoryUi({ scope, store, scopeKey });
+
+  document.querySelector("#mwitools-asset-history-tab").click();
+  document.querySelector("#mwi-asset-open-center").click();
+  const modal = document.querySelector("#mwitools-asset-center-modal");
+  modal.querySelector('[data-route="data"]').click();
+  let insertButtons = modal.querySelectorAll("[data-insert-after]");
+  assert.equal(insertButtons.length, 1);
+  assert.equal(insertButtons[0].dataset.insertAfter, "2026-08-01");
+  assert.equal(insertButtons[0].dataset.insertBefore, "2026-08-05");
+  assert.ok(insertButtons[0].nextElementSibling.matches("[data-edit-day]"));
+
+  const dialog = modal.querySelector("[data-edit-dialog]");
+  dialog.showModal = () => dialog.setAttribute("open", "");
+  dialog.close = () => dialog.removeAttribute("open");
+  insertButtons[0].click();
+  const dateWrap = dialog.querySelector("[data-insert-date-wrap]");
+  const dateInput = dialog.querySelector("[data-insert-date]");
+  assert.equal(dateWrap.hidden, false);
+  assert.equal(dateInput.min, "2026-08-02");
+  assert.equal(dateInput.max, "2026-08-04");
+  assert.equal(dateInput.value, "2026-08-02");
+  assert.equal(
+    dialog.querySelector('[data-edit-component="equipment"]').value,
+    "100",
+  );
+
+  const alerts = [];
+  const previousAlert = globalThis.alert;
+  globalThis.alert = (message) => alerts.push(message);
+  dateInput.value = "2026-08-05";
+  dialog.querySelector("[data-edit-save]").click();
+  assert.equal(store.getRole(scopeKey).days["2026-08-05"].inserted, undefined);
+  assert.equal(dialog.hasAttribute("open"), true);
+  assert.match(alerts.at(-1), /缺失日期/);
+
+  dateInput.value = "2026-08-03";
+  dialog.querySelector('[data-edit-component="equipment"]').value = "150";
+  dialog.querySelector("[data-edit-save]").click();
+  const inserted = store.getRole(scopeKey).days["2026-08-03"];
+  assert.equal(inserted.values.equipment, 150);
+  assert.equal(inserted.values.total, 2_850);
+  assert.equal(inserted.inserted, true);
+  insertButtons = modal.querySelectorAll("[data-insert-after]");
+  assert.equal(insertButtons.length, 2);
+
+  modal.querySelector('[data-edit-day="2026-08-03"]').click();
+  assert.equal(dialog.dataset.mode, "edit");
+  assert.equal(dateWrap.hidden, true);
+  globalThis.alert = previousAlert;
+
+  ui.destroy();
+  scope.cleanup();
   shell.remove();
 });

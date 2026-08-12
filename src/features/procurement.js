@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { parseCompactNumber } from "../core/market.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -20,6 +21,7 @@ let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
 let lastProductionSignature = "";
+let activeHoldRepeatStop = null;
 
 const MARKET_SESSION_OPEN_GRACE_MS = 2_500;
 
@@ -28,6 +30,10 @@ const STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" ari
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
+}
+
+function marketFeaturesSuppressed() {
+  return runtime.api.shouldSuppressMarketFeatures?.() ?? false;
 }
 
 function materialNoun(count) {
@@ -71,6 +77,9 @@ function addStyles() {
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
     .mwi-procurement-chain>summary{padding:4px 6px;cursor:pointer;color:var(--color-text-secondary,#aaa)}
+    .mwi-procurement-chain-presets{display:flex;gap:4px;padding:0 6px 5px}
+    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:.62rem;cursor:pointer}
+    .mwi-procurement-chain-preset[aria-pressed="true"]{border-color:#8293d6;background:rgba(82,100,154,.34);color:#fff}
     .mwi-procurement-chain-list{display:grid;gap:3px;padding:0 6px 6px}
     .mwi-procurement-chain-stage{display:flex;align-items:center;gap:6px;min-width:0}
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -222,24 +231,26 @@ function renderCart(body) {
     return;
   }
   const settings = procurement.getSettings();
+  const marketEnabled = !marketFeaturesSuppressed();
+  const pricesEnabled = marketEnabled && settings.pricesEnabled;
   let total = 0;
   let unpriced = 0;
   for (const item of items) {
     const row = document.createElement("article");
     row.className = "cart-row";
-    const price = settings.pricesEnabled
+    const price = pricesEnabled
       ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) ||
         runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) ||
         0
       : 0;
-    if (settings.pricesEnabled && item.quantity > 0) {
+    if (pricesEnabled && item.quantity > 0) {
       if (price > 0) total += price * item.quantity;
       else unpriced += 1;
     }
     row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t("在市场中打开", "Open in marketplace")}">${renderItemIcon(item)}</button>
-      <button class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-icon" ${marketEnabled ? `title="${t("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon(item)}</button>
+      <button class="item-name" title="${escapeHtml(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t("待购数量", "Quantity")}">
@@ -248,7 +259,7 @@ function renderCart(body) {
       <button class="delete" title="${t("删除", "Remove")}">×</button>
       <div class="row-bottom">
         <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t("库存", "Stock")} ${formatNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}` : "—"}</span>` : ""}
+        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}` : "—"}</span>` : ""}
         <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
     const setQuantity = (quantity) => {
@@ -264,11 +275,14 @@ function renderCart(body) {
       });
     });
     for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-      target.addEventListener("click", () => {
-        openMarketplace(item.itemHrid, item.enhancementLevel);
-      });
+      if (marketEnabled) {
+        target.addEventListener("click", () => {
+          openMarketplace(item.itemHrid, item.enhancementLevel);
+        });
+      }
     }
     row.querySelector(".delete").addEventListener("click", () => {
+      stopActiveHoldRepeat();
       procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
     });
     const quantityInput = row.querySelector(".qty");
@@ -284,6 +298,10 @@ function renderCart(body) {
           item.itemHrid,
           item.enhancementLevel,
         );
+        if (!latest) {
+          stopActiveHoldRepeat();
+          return;
+        }
         setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
       });
     }
@@ -298,30 +316,49 @@ function renderCart(body) {
   }
   const footer = shadow.querySelector(".panel-footer");
   footer.innerHTML = `
-    <span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>
+    ${marketEnabled ? `<span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t("清空未收藏", "Clear")}</button>`;
   footer.querySelector(".clear").addEventListener("click", () => {
+    stopActiveHoldRepeat();
     procurement.clearCart();
   });
+}
+
+function stopActiveHoldRepeat() {
+  activeHoldRepeatStop?.();
 }
 
 function installHoldRepeat(button, callback) {
   let delayTimer = null;
   let repeatTimer = null;
+  let pointerId = null;
   const stop = () => {
     clearTimeout(delayTimer);
     clearInterval(repeatTimer);
     delayTimer = null;
     repeatTimer = null;
+    pointerId = null;
+    window.removeEventListener("pointerup", stopForPointer, true);
+    window.removeEventListener("pointercancel", stopForPointer, true);
+    window.removeEventListener("blur", stop, true);
+    if (activeHoldRepeatStop === stop) activeHoldRepeatStop = null;
   };
-  button.addEventListener("pointerdown", () => {
+  const stopForPointer = (event) => {
+    if (pointerId === null || event.pointerId === pointerId) stop();
+  };
+  button.addEventListener("pointerdown", (event) => {
+    stopActiveHoldRepeat();
+    pointerId = event.pointerId;
+    activeHoldRepeatStop = stop;
+    window.addEventListener("pointerup", stopForPointer, true);
+    window.addEventListener("pointercancel", stopForPointer, true);
+    window.addEventListener("blur", stop, true);
     delayTimer = setTimeout(() => {
       repeatTimer = setInterval(callback, 90);
     }, 420);
   });
-  button.addEventListener("pointerup", stop);
-  button.addEventListener("pointercancel", stop);
-  button.addEventListener("pointerleave", stop);
+  button.addEventListener("pointerup", stopForPointer);
+  button.addEventListener("pointercancel", stopForPointer);
 }
 
 function renderPlans(body) {
@@ -440,6 +477,12 @@ const SETTING_SECTIONS = [
   {
     title: ["界面与快捷键", "Interface & shortcut"],
     rows: [
+      [
+        "autoExpandOnAddEnabled",
+        "加购后自动展开",
+        "Expand after adding",
+        "bool",
+      ],
       ["nextItemShortcut", "下一项快捷键", "Next item shortcut", "shortcut"],
       ["resetHandle", "重置把手位置", "Reset handle position", "button"],
       ["resetDrawer", "重置抽屉宽度", "Reset drawer width", "button"],
@@ -491,6 +534,10 @@ const SETTING_DESCRIPTIONS = {
   autoCollapseEnabled: [
     "所有项目补齐后收起购物车",
     "Collapse after every item is fulfilled",
+  ],
+  autoExpandOnAddEnabled: [
+    "任意入口成功加购后展开并显示清单",
+    "Open the cart list after any successful add",
   ],
   safetyLevel: [
     "为工匠茶的随机省料准备余量",
@@ -691,15 +738,18 @@ function createShell(scope) {
     procurement.setSetting("handleY", parseFloat(handle.style.top));
     if (!moved) {
       drawerOpen = !drawerOpen;
+      if (!drawerOpen) stopActiveHoldRepeat();
       renderShell();
     }
   });
   shadow.querySelector(".close").addEventListener("click", () => {
+    stopActiveHoldRepeat();
     drawerOpen = false;
     renderShell();
   });
   for (const tab of shadow.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => {
+      stopActiveHoldRepeat();
       activeTab = tab.dataset.tab;
       renderShell();
     });
@@ -728,12 +778,14 @@ function createShell(scope) {
   scope.event(window, "resize", renderShell);
   scope.event(document, "keydown", (event) => {
     if (event.key === "Escape" && drawerOpen) {
+      stopActiveHoldRepeat();
       drawerOpen = false;
       renderShell();
     }
   });
   scope.event(document, "pointerdown", (event) => {
     if (!drawerOpen || event.composedPath().includes(shell)) return;
+    stopActiveHoldRepeat();
     drawerOpen = false;
     renderShell();
   });
@@ -837,10 +889,12 @@ function resolveActionFunction(panel, actionHrid, fiberFunction = "") {
 }
 
 function parseRequirementNumber(text) {
-  const tokens = String(text ?? "").match(/(?:\d[\d,.]*|\.\d+)\s*[kmbt]?/gi);
+  const tokens = String(text ?? "").match(
+    /(?:\d(?:[\d.,\s\u00a0\u202f]*\d)?|\.\d+)\s*[kmbt]?/gi,
+  );
   if (!tokens?.length) return null;
   for (let index = tokens.length - 1; index >= 0; index -= 1) {
-    const value = Number(runtime.api.parseCompactNumber?.(tokens[index]));
+    const value = parseCompactNumber(tokens[index]);
     if (Number.isFinite(value) && value >= 0) return value;
   }
   return null;
@@ -1071,7 +1125,45 @@ function renderProductionProcurement() {
       row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml(stage.actionHrid)}"><span>${escapeHtml(stage.name)}</span><span>×${formatNumber(stage.count)}</span>`;
       list.append(row);
     }
-    details.append(heading, list);
+    const presets = document.createElement("div");
+    presets.className = "mwi-procurement-chain-presets";
+    const allButton = document.createElement("button");
+    allButton.type = "button";
+    allButton.className = "mwi-procurement-chain-preset";
+    allButton.textContent = t("全链条", "Full chain");
+    const previousButton = document.createElement("button");
+    previousButton.type = "button";
+    previousButton.className = "mwi-procurement-chain-preset";
+    previousButton.textContent = t("从上一步开始", "Start from previous");
+    const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+    const updatePresetState = () => {
+      const checked = checkboxes.map((input) => input.checked);
+      allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
+      previousButton.setAttribute(
+        "aria-pressed",
+        String(
+          Boolean(checked[0]) && checked.slice(1).every((value) => !value),
+        ),
+      );
+    };
+    allButton.addEventListener("click", () => {
+      checkboxes.forEach((input) => {
+        input.checked = true;
+      });
+      updatePresetState();
+    });
+    previousButton.addEventListener("click", () => {
+      checkboxes.forEach((input, index) => {
+        input.checked = index === 0;
+      });
+      updatePresetState();
+    });
+    checkboxes.forEach((input) =>
+      input.addEventListener("change", updatePresetState),
+    );
+    presets.append(allButton, previousButton);
+    updatePresetState();
+    details.append(heading, presets, list);
     root.append(details);
   }
   const existingSummary = isEnhancing
@@ -1128,10 +1220,8 @@ function findActiveHouseModal() {
 }
 
 function parseHouseCount(value) {
-  const normalized = String(value ?? "")
-    .replaceAll(",", "")
-    .trim();
-  const compact = Number(runtime.api.parseCompactNumber?.(normalized));
+  const normalized = String(value ?? "").trim();
+  const compact = parseRequirementNumber(normalized);
   if (Number.isFinite(compact) && compact >= 0) return compact;
   const match = normalized.match(/-?\d+(?:\.\d+)?/);
   const number = Number(match?.[0]);
@@ -1338,6 +1428,7 @@ function resolveMarketplaceHandler() {
 }
 
 function openMarketplace(itemHrid, enhancementLevel = 0) {
+  if (marketFeaturesSuppressed()) return false;
   const resolved = resolveMarketplaceHandler();
   if (!resolved) {
     showToast(
@@ -1495,7 +1586,9 @@ function highlightMarketItems(panel, scroll = false) {
   document
     .querySelectorAll(".mwi-procurement-market-target")
     .forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-  if (!procurement.getSettings().locateEnabled) return;
+  if (marketFeaturesSuppressed() || !procurement.getSettings().locateEnabled) {
+    return;
+  }
   const pending = new Set(
     pendingItems().map((item) => item.itemHrid.split("/").at(-1)),
   );
@@ -1522,7 +1615,12 @@ function highlightMarketItems(panel, scroll = false) {
 }
 
 function prefillPurchaseModal() {
-  if (!procurement.getSettings().autoPrefillEnabled) return;
+  if (
+    marketFeaturesSuppressed() ||
+    !procurement.getSettings().autoPrefillEnabled
+  ) {
+    return;
+  }
   for (const modal of document.querySelectorAll(
     '[class*="MarketplacePanel_modalContent"]',
   )) {
@@ -1555,7 +1653,11 @@ function prefillPurchaseModal() {
 }
 
 function renderMarketNav(panel) {
-  if (!marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
+  if (
+    marketFeaturesSuppressed() ||
+    !marketSessionActive ||
+    !procurement.getSettings().purchaseNavEnabled
+  ) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     return;
   }
@@ -1666,6 +1768,7 @@ function shortcutMatches(event, shortcut) {
 }
 
 function handleShortcut(event) {
+  if (marketFeaturesSuppressed()) return;
   const shortcut = procurement.getSettings().nextItemShortcut;
   if (!armedNextItem || !shortcut || !shortcutMatches(event, shortcut)) return;
   const active = document.activeElement;
@@ -1687,7 +1790,15 @@ function handleShortcut(event) {
 }
 
 function subscribeProcurement(scope) {
-  const rerender = () => {
+  const rerender = ({ reason, added } = {}) => {
+    if (
+      reason === "add" &&
+      Number(added) > 0 &&
+      procurement.getSettings().autoExpandOnAddEnabled
+    ) {
+      drawerOpen = true;
+      activeTab = "cart";
+    }
     renderShell();
     lastProductionSignature = "";
     renderProductionProcurement();
@@ -1757,12 +1868,19 @@ runtime.features.register({
     }
     createShell(scope);
     subscribeProcurement(scope);
+    scope.add(
+      runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+        clearMarketUi();
+        renderShell();
+      }),
+    );
     renderProductionProcurement();
     updateMarketUi();
     scope.interval(renderProductionProcurement, 350);
     scope.interval(updateMarketUi, 900);
     scope.event(document, "keydown", handleShortcut, true);
     scope.add(() => {
+      stopActiveHoldRepeat();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();

@@ -1,6 +1,7 @@
 import { runtime } from "../../core/runtime.js";
+import { AnnouncementStore } from "./announcements.js";
 import { FeedbackClient } from "./client.js";
-import { FeedbackPanel } from "./panel.js";
+import { OpinionCenterPanel } from "./panel.js";
 
 let activeClient = null;
 
@@ -14,7 +15,11 @@ runtime.features.register({
       characterName: runtime.state.currentCharacterName,
     });
     activeClient = client;
-    const panel = new FeedbackPanel({ client, scope });
+    const panel = new OpinionCenterPanel({
+      client,
+      scope,
+      announcements: new AnnouncementStore(),
+    });
     let disposed = false;
     let failures = 0;
     let timer = null;
@@ -51,4 +56,5 @@ runtime.api.feedback = {
 };
 
 export { FeedbackClient } from "./client.js";
-export { FeedbackPanel } from "./panel.js";
+export { AnnouncementStore } from "./announcements.js";
+export { FeedbackPanel, OpinionCenterPanel } from "./panel.js";

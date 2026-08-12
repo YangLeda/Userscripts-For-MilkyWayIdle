@@ -63,7 +63,7 @@ function calendarAverage(entries, key, windowDays = 7) {
 }
 
 function formatTooltip(value) {
-  return runtime.api.formatExactNumber?.(value) ?? String(value);
+  return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
 }
 
 export class AssetHistoryChart {

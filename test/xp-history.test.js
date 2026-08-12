@@ -4,7 +4,7 @@ import test from "node:test";
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/xp-history.js");
 
-test("XP rates enforce five-minute and coverage thresholds", () => {
+test("XP rates use a stable six-hour window and enforce coverage thresholds", () => {
   const hour = 60 * 60 * 1000;
   const now = 10 * 24 * hour;
   const short = runtime.api.calculateXpRates(
@@ -28,6 +28,21 @@ test("XP rates enforce five-minute and coverage thresholds", () => {
   assert.equal(Math.round(covered.recent), 100);
   assert.equal(Math.round(covered.hour), 100);
   assert.equal(Math.round(covered.day), 100);
+});
+
+test("the recent rate smooths a short burst across the six-hour window", () => {
+  const hour = 60 * 60 * 1000;
+  const now = 20 * 24 * hour;
+  const rates = runtime.api.calculateXpRates(
+    [
+      { at: now - 6 * hour, xp: 1_000 },
+      { at: now - 2 * 60 * 1000, xp: 1_500 },
+      { at: now, xp: 1_700 },
+    ],
+    now,
+  );
+
+  assert.equal(Math.round(rates.recent), 117);
 });
 
 test("old XP samples are retained hourly while recent samples stay detailed", () => {

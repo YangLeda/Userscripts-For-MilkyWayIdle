@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { resolveEntityFromElement } from "../core/game-localization.js";
 
 const INVENTORY_SELECTOR = 'div[class*="Inventory_items"]';
 const ITEM_SELECTOR = 'div[class*="Item_itemContainer"]';
@@ -16,13 +17,7 @@ export function inventoryItemTarget(target) {
       categoryButton?.textContent ??
       "",
   ).trim();
-  const icon = item.querySelector("svg[aria-label]");
-  let itemName = icon?.getAttribute("aria-label")?.trim();
-  if (!itemName) return null;
-  if (runtime.config.isZHInGameSetting) {
-    itemName = runtime.api.getItemEnNameFromZhName?.(itemName) ?? itemName;
-  }
-  const itemHrid = runtime.state.itemEnNameToHridMap?.[itemName];
+  const itemHrid = resolveEntityFromElement("item", item);
   const itemDetail = runtime.state.initData_itemDetailMap?.[itemHrid];
   if (!itemHrid || itemDetail?.isTradable !== true) return null;
   const levelText =

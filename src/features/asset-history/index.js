@@ -50,6 +50,9 @@ const assetHistoryApi = {
   updateDay(dayKey, values, scopeKey = currentScopeKey()) {
     return assetHistoryStore.updateDay(dayKey, values, scopeKey);
   },
+  insertDay(dayKey, values, scopeKey = currentScopeKey()) {
+    return assetHistoryStore.insertDay(dayKey, values, scopeKey);
+  },
   deleteDay(dayKey, scopeKey = currentScopeKey()) {
     return assetHistoryStore.deleteDay(dayKey, scopeKey);
   },

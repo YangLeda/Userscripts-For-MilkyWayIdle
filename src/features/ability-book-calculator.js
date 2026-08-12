@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveEntityFromElement,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 
 const STYLE_ID = "mwitools-ability-book-calculator-style";
 const PANEL_CLASS = "mwi-ability-book-calculator";
@@ -101,19 +105,19 @@ function itemHridFromTitle(root) {
     runtime.api.getOriTextFromElement?.(title) ?? title?.textContent ?? "",
   ).trim();
   if (!name) return "";
-  const mapped = runtime.state.itemEnNameToHridMap?.[name];
-  if (mapped) return mapped;
-  const translatedItem = runtime.data.ZHToItemHridMap?.[name];
-  if (translatedItem) return translatedItem;
-  const translated = runtime.api.getOthersFromZhName?.(name);
-  if (String(translated ?? "").startsWith("/abilities/")) {
-    return String(translated).replace("/abilities/", "/items/");
-  }
-  return normalizeItemHrid(translated);
+  const itemHrid = resolveLocalizedEntity("item", name);
+  if (itemHrid) return itemHrid;
+  const abilityHrid = resolveLocalizedEntity("ability", name);
+  return abilityHrid
+    ? abilityHrid.replace("/abilities/", "/items/")
+    : normalizeItemHrid(name);
 }
 
 export function resolveAbilityBookItem(root) {
-  const itemHrid = itemHridFromIcon(root) || itemHridFromTitle(root);
+  const itemHrid =
+    resolveEntityFromElement("item", root) ||
+    itemHridFromIcon(root) ||
+    itemHridFromTitle(root);
   return runtime.state.initData_itemDetailMap?.[itemHrid]?.abilityBookDetail
     ? itemHrid
     : "";
@@ -257,8 +261,8 @@ function updatePanel(panel, itemHrid, targetValues) {
     ".mwi-book-state",
     data.isLearned
       ? t(
-          `当前 Lv.${data.level} · 总经验 ${exact(data.experience)}`,
-          `Current Lv.${data.level} · total XP ${exact(data.experience)}`,
+          `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
+          `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`,
         )
       : t("当前：未学习", "Current: not learned"),
   );
@@ -266,8 +270,8 @@ function updatePanel(panel, itemHrid, targetValues) {
     panel,
     ".mwi-book-per-book",
     t(
-      `每本增加 ${exact(data.experienceGain)} 经验`,
-      `${exact(data.experienceGain)} XP per book`,
+      `每本增加 ${exact(data.experienceGain, 0)} 经验`,
+      `${exact(data.experienceGain, 0)} XP per book`,
     ),
   );
   const requirement = calculateAbilityBookRequirement({

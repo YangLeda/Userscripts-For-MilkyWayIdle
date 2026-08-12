@@ -184,9 +184,9 @@ test("openable values support expected drops, nesting and cycle guards", () => {
 });
 
 test("keyed dungeon chests subtract one dynamically declared key", () => {
-  const originalFairValue = runtime.api.getFairValue;
-  const originalNetSellPrice = runtime.api.getNetSellPrice;
-  const originalNetSellPriceAtAsk = runtime.api.getNetSellPriceAtAsk;
+  const originalFairValue = runtime.api.getAssetFairValue;
+  const originalNetSellPrice = runtime.api.getAssetNetSellPrice;
+  const originalNetSellPriceAtAsk = runtime.api.getAssetNetSellPriceAtAsk;
   const originalTaxRate = runtime.api.getMarketTaxRate;
   const chestHrids = [
     "/items/chimerical_chest",
@@ -241,8 +241,8 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
     "/items/dungeon_test_key": 200,
     "/items/dungeon_test_key_material": 50,
   };
-  runtime.api.getFairValue = (itemHrid) => fairValues[itemHrid] ?? 0;
-  runtime.api.getNetSellPrice = (itemHrid) =>
+  runtime.api.getAssetFairValue = (itemHrid) => fairValues[itemHrid] ?? 0;
+  runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 700
       : itemHrid === "/items/dungeon_test_key"
@@ -250,7 +250,7 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
         : itemHrid === "/items/dungeon_test_key_material"
           ? 40
           : 0;
-  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  runtime.api.getAssetNetSellPriceAtAsk = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 1_300
       : itemHrid === "/items/dungeon_test_key"
@@ -284,7 +284,7 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
 
   fairValues["/items/dungeon_test_loot"] = 100;
   fairValues["/items/dungeon_test_key_material"] = 100;
-  runtime.api.getNetSellPrice = (itemHrid) =>
+  runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 100
       : itemHrid === "/items/dungeon_test_key_material"
@@ -303,7 +303,7 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
   );
 
   delete fairValues["/items/dungeon_test_key_material"];
-  runtime.api.getNetSellPrice = (itemHrid) =>
+  runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot" ? 100 : 0;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
@@ -319,9 +319,9 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
   );
 
   Object.assign(runtime.api, {
-    getFairValue: originalFairValue,
-    getNetSellPrice: originalNetSellPrice,
-    getNetSellPriceAtAsk: originalNetSellPriceAtAsk,
+    getAssetFairValue: originalFairValue,
+    getAssetNetSellPrice: originalNetSellPrice,
+    getAssetNetSellPriceAtAsk: originalNetSellPriceAtAsk,
     getMarketTaxRate: originalTaxRate,
   });
   for (const chestHrid of [
@@ -389,16 +389,16 @@ test("output liquidation values recurse through openables for all valuation mode
     },
   ];
   const originals = {
-    fair: runtime.api.getFairValue,
-    conservative: runtime.api.getNetSellPrice,
-    aggressive: runtime.api.getNetSellPriceAtAsk,
+    fair: runtime.api.getAssetFairValue,
+    conservative: runtime.api.getAssetNetSellPrice,
+    aggressive: runtime.api.getAssetNetSellPriceAtAsk,
     tax: runtime.api.getMarketTaxRate,
   };
-  runtime.api.getNetSellPrice = (itemHrid) =>
+  runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/liquid_leaf" ? 90 : 0;
-  runtime.api.getFairValue = (itemHrid) =>
+  runtime.api.getAssetFairValue = (itemHrid) =>
     itemHrid === "/items/liquid_leaf" ? 110 : 0;
-  runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
+  runtime.api.getAssetNetSellPriceAtAsk = (itemHrid) =>
     itemHrid === "/items/liquid_leaf" ? 135 : 0;
   runtime.api.getMarketTaxRate = () => 0.1;
   runtime.api.invalidateAssetValueCache();
@@ -426,9 +426,9 @@ test("output liquidation values recurse through openables for all valuation mode
   assert.deepEqual(fair.missingItemHrids, ["/items/unpriced_leaf"]);
 
   Object.assign(runtime.api, {
-    getFairValue: originals.fair,
-    getNetSellPrice: originals.conservative,
-    getNetSellPriceAtAsk: originals.aggressive,
+    getAssetFairValue: originals.fair,
+    getAssetNetSellPrice: originals.conservative,
+    getAssetNetSellPriceAtAsk: originals.aggressive,
     getMarketTaxRate: originals.tax,
   });
   runtime.api.invalidateAssetValueCache();
@@ -436,10 +436,10 @@ test("output liquidation values recurse through openables for all valuation mode
 
 test("direct market and NPC sell values take priority without double tax", () => {
   const originals = {
-    fair: runtime.api.getFairValue,
+    fair: runtime.api.getAssetFairValue,
     tax: runtime.api.getMarketTaxRate,
   };
-  runtime.api.getFairValue = (itemHrid) =>
+  runtime.api.getAssetFairValue = (itemHrid) =>
     itemHrid === "/items/task_crate" ? 1_000 : 0;
   runtime.api.getMarketTaxRate = () => 0.05;
   runtime.api.invalidateAssetValueCache();
@@ -462,7 +462,7 @@ test("direct market and NPC sell values take priority without double tax", () =>
     },
   );
 
-  runtime.api.getFairValue = originals.fair;
+  runtime.api.getAssetFairValue = originals.fair;
   runtime.api.getMarketTaxRate = originals.tax;
   runtime.api.invalidateAssetValueCache();
 });
@@ -472,6 +472,31 @@ test("a direct server value wins over every derived route", () => {
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/task_token"), 999);
   delete runtime.state.marketItemValues["/items/task_token"];
+  runtime.api.invalidateAssetValueCache();
+});
+
+test("live orderbook prices wait for the next asset valuation session", () => {
+  const itemHrid = "/items/session_frozen_value";
+  runtime.state.initData_itemDetailMap[itemHrid] = {};
+  runtime.state.marketItemValues[itemHrid] = { 0: 100 };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(runtime.api.getAssetValue(itemHrid), 100);
+  runtime.api.applyMarketOrderBooks({
+    itemHrid,
+    orderBooks: {},
+    marketValues: { 0: 250 },
+  });
+
+  assert.equal(runtime.api.getFairValue(itemHrid), 250);
+  assert.equal(runtime.api.getAssetValue(itemHrid), 100);
+  assert.equal(runtime.api.isAssetValuationMarketDirty(), true);
+
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(runtime.api.getAssetValue(itemHrid), 250);
+
+  delete runtime.state.initData_itemDetailMap[itemHrid];
+  delete runtime.state.marketItemValues[itemHrid];
   runtime.api.invalidateAssetValueCache();
 });
 

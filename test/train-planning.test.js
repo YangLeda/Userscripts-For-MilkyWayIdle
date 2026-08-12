@@ -393,6 +393,63 @@ test("step shopping accumulates shared materials without buying train intermedia
   train.cancelTrain();
 });
 
+test("English and localized native queue buttons advance to the next train stop", async () => {
+  const originalResolver = runtime.api.resolveProductionAction;
+  runtime.api.resolveProductionAction = () => "/actions/crafting/board";
+  const plan = {
+    cycle: false,
+    truncated: false,
+    steps: [
+      {
+        kind: "craft",
+        actionHrid: "/actions/crafting/board",
+        outputHrid: "/items/board",
+        count: 1,
+      },
+      {
+        kind: "upgrade",
+        actionHrid: "/actions/crafting/final",
+        inputHrid: "/items/board",
+        outputHrid: "/items/final",
+        count: 1,
+      },
+    ],
+  };
+  for (const label of ["Add Queue #5", "Añadir a la cola"]) {
+    document.body.innerHTML = `
+      <div class="SkillActionDetail_regularComponent__test">
+        <div class="SkillActionDetail_maxActionCountInput__test"><input value="1"></div>
+        <div class="SkillActionDetail_buttonsContainer__test">
+          <button type="button">${label}</button>
+        </div>
+      </div>`;
+    const navigated = [];
+    assert.equal(
+      train.startTrain(plan, {
+        navigateAction(actionHrid) {
+          navigated.push(actionHrid);
+          return true;
+        },
+      }),
+      true,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    document
+      .querySelector(".SkillActionDetail_buttonsContainer__test > button")
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(train.getTrainState().index, 1, label);
+    assert.deepEqual(
+      navigated,
+      ["/actions/crafting/board", "/actions/crafting/final"],
+      label,
+    );
+    train.cancelTrain();
+  }
+  runtime.api.resolveProductionAction = originalResolver;
+  document.body.replaceChildren();
+});
+
 test("shop stops advance only after the expected inventory arrives", async () => {
   const navigated = [];
   const plan = planning.createTrainPlan("/items/final", {

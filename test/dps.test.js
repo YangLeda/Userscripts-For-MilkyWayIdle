@@ -48,6 +48,7 @@ const {
   formatRate,
   isSelectedGuildProgressTabBar,
   isSelectedTrialTabBar,
+  registerGameLocaleResources,
   ClassDebug,
   ClassProbe,
   ClassSystem,
@@ -291,6 +292,22 @@ assert(
     !isSelectedTrialTabBar(selectedTrialBar("概览")),
   "测试服带角标的已选试炼标签无法识别，或非试炼标签被误判",
 );
+registerGameLocaleResources("es", {
+  itemNames: { "/items/coin": "Moneda" },
+  actionNames: { "/actions/milking/cow": "Vaca" },
+  monsterNames: { "/monsters/rat": "Rata" },
+  abilityNames: { "/abilities/strike": "Golpe" },
+  guildPanel: {
+    trials: "Pruebas",
+    trialInProgress: "En curso",
+  },
+});
+localStorage.setItem("i18nextLng", "es");
+assert(
+  isSelectedTrialTabBar(selectedTrialBar("Pruebas 2")),
+  "非中英语言的公会试炼标签无法通过游戏词表识别",
+);
+localStorage.setItem("i18nextLng", "zh-CN");
 const selectedProgressBar = (label, context, parentContext = "") => ({
   textContent: context,
   querySelector: (selector) =>
@@ -314,6 +331,14 @@ assert(
     ),
   "公会进行中标签无法识别，或其他页面的进行中标签被误判",
 );
+localStorage.setItem("i18nextLng", "es");
+assert(
+  isSelectedGuildProgressTabBar(
+    selectedProgressBar("En curso", "Pruebas En curso"),
+  ),
+  "非中英语言的进行中公会试炼标签无法通过游戏词表识别",
+);
+localStorage.setItem("i18nextLng", "zh-CN");
 
 const sameDayMorning = new Date(2026, 7, 3, 8, 0, 0),
   sameDayNight = new Date(2026, 7, 3, 23, 30, 0),

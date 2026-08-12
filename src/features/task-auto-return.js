@@ -149,21 +149,9 @@ function findTaskCard(context) {
   return cards[context.originalIndex] ?? null;
 }
 
-function expandTaskProfession(card, profession) {
-  const key = card?.dataset.mwitoolsProfession ?? profession;
-  if (!key) return;
-  const groups = [...document.querySelectorAll(".mwi-task-profession-group")];
-  const group = groups.find(
-    (candidate) => candidate.dataset.profession === key,
-  );
-  const header = group?.querySelector(".mwi-task-profession-header");
-  if (header?.getAttribute("aria-expanded") === "false") header.click();
-}
-
 function restoreTaskPosition(context) {
   const card = findTaskCard(context);
   if (card) {
-    expandTaskProfession(card, context.profession);
     card.scrollIntoView?.({ block: "center", inline: "nearest" });
     return true;
   }

@@ -8,6 +8,10 @@ const SHOP_CURRENCY_HRIDS = new Set([
   "/items/task_token",
   "/items/labyrinth_token",
 ]);
+const COWBELL_VALUE_HRIDS = new Set([
+  "/items/cowbell",
+  "/items/bag_of_10_cowbells",
+]);
 const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
 const MAX_ACQUISITION_DEPTH = 12;
 
@@ -37,6 +41,7 @@ function invalidateAssetValueCache() {
   assetValueCache.clear();
   assetLiquidationCache.clear();
   guildCreditHridCache = null;
+  runtime.api.resetAssetValuationMarketSnapshot?.();
 }
 
 function getItemDetails(itemHrid) {
@@ -104,7 +109,7 @@ function getGuildCreditValue(creditItemHrid) {
   )) {
     const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
     if (!itemHrid || itemHrid === "/items/guild_token") continue;
-    const materialValue = runtime.api.getFairValue(itemHrid, 0);
+    const materialValue = runtime.api.getAssetFairValue(itemHrid, 0);
     if (!(materialValue > 0)) continue;
     for (const conversion of detail?.guildCreditConversions ?? []) {
       if (conversion?.creditItemHrid !== creditItemHrid) continue;
@@ -228,6 +233,7 @@ function getLootConfig(overrides = {}) {
     sellAtAsk: Boolean(settings.lootSellAtAsk?.isTrue),
     buyAtAsk: settings.lootBuyAtAsk?.isTrue !== false,
     fromFragments: Boolean(settings.lootKeyFromFragments?.isTrue),
+    ignoreCowbells: Boolean(settings.lootIgnoreCowbells?.isTrue),
     ...overrides,
   };
 }
@@ -235,8 +241,10 @@ function getLootConfig(overrides = {}) {
 function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
   if (itemHrid === "/items/coin") return 1;
   const price = sellAtAsk
-    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
-    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    ? positiveNumber(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(
+        runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel),
+      );
   if (!(price > 0)) return 0;
   const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
   return price * Math.max(0, 1 - taxRate);
@@ -245,8 +253,10 @@ function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
 function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
   if (itemHrid === "/items/coin") return 1;
   return buyAtAsk
-    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
-    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    ? positiveNumber(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(
+        runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel),
+      );
 }
 
 function lootDropIdentity(itemHrid, enhancementLevel = 0) {
@@ -297,7 +307,7 @@ function getLootKeyCost(keyItemHrid, config) {
   let bestValue = Number.POSITIVE_INFINITY;
   let sawRecipe = false;
   const missing = new Set();
-  for (const [, action] of entriesOfMap(
+  for (const [actionMapHrid, action] of entriesOfMap(
     runtime.state.initData_actionDetailMap,
   )) {
     const outputCount = (action?.outputItems ?? []).reduce((total, output) => {
@@ -309,32 +319,25 @@ function getLootKeyCost(keyItemHrid, config) {
     }, 0);
     if (!outputCount) continue;
     sawRecipe = true;
-
-    const inputs = [...(action?.inputItems ?? [])];
-    const upgradeItemHrid = action?.upgradeItemHrid;
-    if (upgradeItemHrid) {
-      inputs.unshift({ itemHrid: upgradeItemHrid, count: 1 });
-    }
-
-    let totalCost = 0;
-    let complete = true;
-    for (const input of inputs) {
-      const inputHrid = input?.itemHrid ?? input?.hrid;
-      const count = positiveNumber(input?.count);
-      if (!inputHrid || !count) continue;
-      const unitValue = lootPurchaseValue(
-        inputHrid,
-        Number(input?.enhancementLevel ?? 0) || 0,
-        config.buyAtAsk,
+    const actionHrid = action?.hrid ?? action?.actionHrid ?? actionMapHrid;
+    const projection = runtime.api.projectActionCraftingCost?.(actionHrid, {
+      getUnitPrice: (inputHrid, enhancementLevel = 0) =>
+        lootPurchaseValue(inputHrid, enhancementLevel, config.buyAtAsk),
+    });
+    if (
+      projection?.complete &&
+      Number.isFinite(projection.totalCostPerAction)
+    ) {
+      bestValue = Math.min(
+        bestValue,
+        projection.totalCostPerAction / outputCount,
       );
-      if (!(unitValue > 0)) {
-        complete = false;
-        missing.add(inputHrid);
-        continue;
-      }
-      totalCost += count * unitValue;
+      continue;
     }
-    if (complete) bestValue = Math.min(bestValue, totalCost / outputCount);
+    for (const missingItemHrid of projection?.missingPrices ?? []) {
+      missing.add(missingItemHrid);
+    }
+    if (!projection || projection.missing?.length) missing.add(keyItemHrid);
   }
 
   return {
@@ -370,6 +373,7 @@ function getBestLootRedemptions(drops, config) {
     if (
       !rewardItemHrid ||
       !rewardCount ||
+      (config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(rewardItemHrid)) ||
       !displayedItems.has(lootDropIdentity(rewardItemHrid, rewardLevel))
     ) {
       continue;
@@ -449,6 +453,8 @@ function projectLootChestInternal(itemHrid, config, visited) {
   const rows = [];
   let grossValue = 0;
   for (const drop of normalizedDrops) {
+    const cowbellExcluded =
+      config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(drop.itemHrid);
     const nestedChest = normalizeLootDrops(drop.itemHrid).length > 0;
     const marketValue = lootSaleValue(
       drop.itemHrid,
@@ -463,7 +469,11 @@ function projectLootChestInternal(itemHrid, config, visited) {
     let priced = false;
     let nestedMissing = [];
     let pendingSelfReference = false;
-    if (nestedChest && drop.itemHrid === itemHrid) {
+    if (cowbellExcluded) {
+      unitValue = 0;
+      valueSource = "excluded";
+      priced = true;
+    } else if (nestedChest && drop.itemHrid === itemHrid) {
       pendingSelfReference = true;
     } else if (nestedChest) {
       const nestedProjection = projectLootChestInternal(
@@ -761,7 +771,8 @@ function getEnhancedEquipmentCost(
     allowPhilosopherMirror: !backEquipment,
     getFairValue: (hrid, level = 0) =>
       acquisitionCostValue(hrid, level, context),
-    getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level),
+    getMarketValue: (hrid, level = 0) =>
+      runtime.api.getAssetFairValue(hrid, level),
   });
   return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
 }
@@ -809,7 +820,7 @@ function getAssetValueInternal(
 ) {
   if (!itemHrid) return 0;
   const level = Number(enhancementLevel) || 0;
-  const directFairValue = runtime.api.getFairValue(itemHrid, level);
+  const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
   const enhancedEquipment = level > 0 && isEquipment(itemHrid);
   const refinedBackEquipment =
@@ -938,16 +949,16 @@ function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
 function directLiquidationValue(itemHrid, enhancementLevel, mode) {
   if (mode === "conservative") {
     return positiveNumber(
-      runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel),
+      runtime.api.getAssetNetSellPrice?.(itemHrid, enhancementLevel),
     );
   }
   if (mode === "aggressive") {
     return positiveNumber(
-      runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel),
+      runtime.api.getAssetNetSellPriceAtAsk?.(itemHrid, enhancementLevel),
     );
   }
   const fairValue = positiveNumber(
-    runtime.api.getFairValue?.(itemHrid, enhancementLevel),
+    runtime.api.getAssetFairValue?.(itemHrid, enhancementLevel),
   );
   if (!fairValue) return 0;
   const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;

@@ -1,5 +1,7 @@
 import "../src/data/translations.js";
 
+export { registerGameLocaleResources } from "../src/core/game-localization.js";
+
 export { runtime } from "../src/core/runtime.js";
 export {
   CombatIdentity,

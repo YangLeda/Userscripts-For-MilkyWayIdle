@@ -82,6 +82,12 @@ function weekRange(date) {
   };
 }
 
+function shiftDayKey(dayKey, amount) {
+  const date = new Date(`${dayKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
 function addStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -171,7 +177,7 @@ export class AssetCenter {
         <div class="ep-nav-footer">${this.nav("settings", "⚙", this.t("设置/存档", "Settings"))}<button class="ep-nav-item" data-language><span class="ep-nav-icon">文</span><span class="ep-nav-text">${this.isZH() ? "EN" : "中文"}</span></button></div>
       </aside><main class="ep-main"><header class="ep-top"><div class="ep-top-main"><div class="ep-top-title"></div><div class="ep-top-sub"></div></div><button class="ep-close" data-close aria-label="${this.t("关闭", "Close")}">✕</button></header><div class="ep-page"></div></main>
       <input type="file" data-import-file accept="application/json" hidden>
-      <dialog data-edit-dialog><h3>${this.t("编辑分项资产", "Edit components")}</h3><div class="ep-edit-grid">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
+      <dialog data-edit-dialog><h3 data-editor-title>${this.t("编辑分项资产", "Edit components")}</h3><label data-insert-date-wrap hidden>${this.t("插入日期", "Insert date")}<input type="date" data-insert-date></label><div class="ep-edit-grid ep-section">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
     </div>`;
     document.body.append(this.root);
     const windowSize = this.store.getPreferences().windowSize;
@@ -334,7 +340,7 @@ export class AssetCenter {
   }
 
   metric(label, value, className = "") {
-    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
   }
 
   renderChartPage(page) {
@@ -547,8 +553,19 @@ export class AssetCenter {
   }
 
   renderDataPage(page) {
-    const entries = this.store.list(this.scopeKey).slice().reverse();
-    page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(([date, record]) => `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td><button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`).join("")}</tbody></table></div></section>`;
+    const chronological = this.store.list(this.scopeKey);
+    const entries = chronological
+      .map((entry, index) => ({ entry, previous: chronological[index - 1] }))
+      .reverse();
+    page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries
+      .map(({ entry: [date, record], previous }) => {
+        const insertButton =
+          previous && shiftDayKey(previous[0], 1) < date
+            ? `<button class="ep-btn" data-insert-after="${previous[0]}" data-insert-before="${date}">${this.t("插入", "Insert")}</button> `
+            : "";
+        return `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td>${insertButton}<button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`;
+      })
+      .join("")}</tbody></table></div></section>`;
     page
       .querySelector("[data-export]")
       .addEventListener("click", () => this.downloadBackup());
@@ -594,6 +611,16 @@ export class AssetCenter {
       }
     });
     page
+      .querySelectorAll("[data-insert-after]")
+      .forEach((button) =>
+        button.addEventListener("click", () =>
+          this.openInsertEditor(
+            button.dataset.insertAfter,
+            button.dataset.insertBefore,
+          ),
+        ),
+      );
+    page
       .querySelectorAll("[data-edit-day]")
       .forEach((button) =>
         button.addEventListener("click", () =>
@@ -616,8 +643,43 @@ export class AssetCenter {
 
   openEditor(date) {
     const dialog = this.root.querySelector("[data-edit-dialog]");
+    dialog.dataset.mode = "edit";
     dialog.dataset.date = date;
+    delete dialog.dataset.olderDate;
+    delete dialog.dataset.newerDate;
+    dialog.querySelector("[data-editor-title]").textContent = this.t(
+      "编辑分项资产",
+      "Edit components",
+    );
+    dialog.querySelector("[data-insert-date-wrap]").hidden = true;
     const values = this.store.getRole(this.scopeKey).days[date]?.values ?? {};
+    dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
+      input.value = Number.isFinite(values[input.dataset.editComponent])
+        ? values[input.dataset.editComponent]
+        : "";
+    });
+    dialog.showModal();
+  }
+
+  openInsertEditor(olderDate, newerDate) {
+    const dialog = this.root.querySelector("[data-edit-dialog]");
+    const dateInput = dialog.querySelector("[data-insert-date]");
+    const minimum = shiftDayKey(olderDate, 1);
+    const maximum = shiftDayKey(newerDate, -1);
+    dialog.dataset.mode = "insert";
+    dialog.dataset.olderDate = olderDate;
+    dialog.dataset.newerDate = newerDate;
+    delete dialog.dataset.date;
+    dialog.querySelector("[data-editor-title]").textContent = this.t(
+      "插入历史资产",
+      "Insert historical assets",
+    );
+    dialog.querySelector("[data-insert-date-wrap]").hidden = false;
+    dateInput.min = minimum;
+    dateInput.max = maximum;
+    dateInput.value = minimum;
+    const values =
+      this.store.getRole(this.scopeKey).days[olderDate]?.values ?? {};
     dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
       input.value = Number.isFinite(values[input.dataset.editComponent])
         ? values[input.dataset.editComponent]
@@ -631,7 +693,7 @@ export class AssetCenter {
     const values = Object.fromEntries(
       [...dialog.querySelectorAll("[data-edit-component]")].map((input) => [
         input.dataset.editComponent,
-        Number(input.value),
+        input.value.trim() === "" ? null : Number(input.value),
       ]),
     );
     if (
@@ -642,7 +704,30 @@ export class AssetCenter {
       return globalThis.alert?.(
         this.t("请填写全部七个分项。", "Enter all seven components."),
       );
-    this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+    if (dialog.dataset.mode === "insert") {
+      const dateInput = dialog.querySelector("[data-insert-date]");
+      const dayKey = dateInput.value;
+      if (!dayKey || dayKey < dateInput.min || dayKey > dateInput.max) {
+        return globalThis.alert?.(
+          this.t(
+            "请选择两条记录之间的缺失日期。",
+            "Choose a missing date between the two records.",
+          ),
+        );
+      }
+      try {
+        this.store.insertDay(dayKey, values, this.scopeKey);
+      } catch {
+        return globalThis.alert?.(
+          this.t(
+            "无法插入：日期已存在或数据无效。",
+            "Could not insert: the date already exists or the data is invalid.",
+          ),
+        );
+      }
+    } else {
+      this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+    }
     dialog.close();
     this.changed();
   }

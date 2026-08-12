@@ -67,6 +67,10 @@ let currentCharacterId = "";
 
 let currentCharacterName = "";
 
+let currentCharacterGameMode = "standard";
+
+let labyrinthActive = false;
+
 let characterQuests = [];
 
 let guild = null;
@@ -371,6 +375,24 @@ Object.defineProperties(runtime.state, {
     },
     set(value) {
       currentCharacterName = String(value ?? "");
+    },
+  },
+  currentCharacterGameMode: {
+    enumerable: true,
+    get() {
+      return currentCharacterGameMode;
+    },
+    set(value) {
+      currentCharacterGameMode = String(value ?? "standard").toLowerCase();
+    },
+  },
+  labyrinthActive: {
+    enumerable: true,
+    get() {
+      return labyrinthActive;
+    },
+    set(value) {
+      labyrinthActive = Boolean(value);
     },
   },
   characterQuests: {

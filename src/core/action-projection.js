@@ -16,6 +16,14 @@ const BUFF_TYPES = Object.freeze({
   rareFind: "/buff_types/rare_find",
 });
 
+const ALCHEMY_ACTION_HRIDS = Object.freeze({
+  coinify: "/actions/alchemy/coinify",
+  decompose: "/actions/alchemy/decompose",
+  transmute: "/actions/alchemy/transmute",
+  unrefine: "/actions/alchemy/unrefine",
+});
+const COIN_ITEM_HRID = "/items/coin";
+
 function asArray(value) {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -35,6 +43,82 @@ function getInventoryCount(itemHrid) {
         item.itemLocationHrid === "/item_locations/inventory",
     )
     .reduce((sum, item) => sum + Number(item.count || 0), 0);
+}
+
+function getInventoryItemByHash(hash) {
+  if (!hash) return null;
+  return (
+    (runtime.state.initData_characterItems ?? []).find(
+      (item) =>
+        item.hash === hash &&
+        item.itemLocationHrid === "/item_locations/inventory",
+    ) ?? null
+  );
+}
+
+function getAlchemyCoinCost(actionHrid, itemDetail) {
+  const itemLevel = Math.max(0, Number(itemDetail?.itemLevel) || 0);
+  if (actionHrid === ALCHEMY_ACTION_HRIDS.coinify) return 0;
+  if (
+    actionHrid === ALCHEMY_ACTION_HRIDS.decompose ||
+    actionHrid === ALCHEMY_ACTION_HRIDS.unrefine
+  ) {
+    return Math.floor(5 * (10 + itemLevel));
+  }
+  if (actionHrid === ALCHEMY_ACTION_HRIDS.transmute) {
+    return Math.max(50, Math.floor((Number(itemDetail?.sellPrice) || 0) / 5));
+  }
+  return 0;
+}
+
+function getAlchemyCapacity(action, detail, lessResource) {
+  if (detail?.function !== "/action_functions/alchemy") return null;
+  const primary = getInventoryItemByHash(action?.primaryItemHash);
+  if (!primary) {
+    return { known: false, maxCraftable: null, missing: ["primaryItem"] };
+  }
+  const primaryDetail =
+    runtime.state.initData_itemDetailMap?.[primary.itemHrid];
+  const bulkMultiplier = Math.max(
+    1,
+    Math.floor(Number(primaryDetail?.alchemyDetail?.bulkMultiplier) || 1),
+  );
+  let maxCraftable = Math.floor(
+    Math.max(0, Number(primary.count) || 0) / bulkMultiplier,
+  );
+
+  if (action?.secondaryItemHash) {
+    const secondary = getInventoryItemByHash(action.secondaryItemHash);
+    if (!secondary) {
+      return { known: false, maxCraftable: null, missing: ["secondaryItem"] };
+    }
+    maxCraftable =
+      primary.hash === secondary.hash
+        ? Math.floor(
+            Math.max(0, Number(primary.count) || 0) / (bulkMultiplier + 1),
+          )
+        : Math.min(maxCraftable, Math.max(0, Number(secondary.count) || 0));
+  }
+
+  const coinCost = getAlchemyCoinCost(action.actionHrid, primaryDetail);
+  if (coinCost > 0) {
+    const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
+    const effectiveCoinCost = coinCost * bulkMultiplier * (1 - reduction);
+    if (effectiveCoinCost > 0) {
+      maxCraftable = Math.min(
+        maxCraftable,
+        Math.floor(getInventoryCount(COIN_ITEM_HRID) / effectiveCoinCost),
+      );
+    }
+  }
+
+  return {
+    known: true,
+    maxCraftable: Math.max(0, maxCraftable),
+    bulkMultiplier,
+    coinCost,
+    primary,
+  };
 }
 
 function getExpectedOutputs(detail) {
@@ -115,6 +199,7 @@ function getEffectiveOutputs(detail, teaEffects) {
 function getDirectInputs(detail) {
   const inputs = asArray(detail?.inputItems).map((item) => ({
     itemHrid: item.itemHrid,
+    enhancementLevel: Number(item.enhancementLevel ?? 0) || 0,
     count: Number(item.count) || 0,
     isUpgradeItem: false,
     upgradeItemCount: 0,
@@ -133,6 +218,7 @@ function getDirectInputs(detail) {
     } else {
       inputs.push({
         itemHrid: detail.upgradeItemHrid,
+        enhancementLevel: 0,
         count: 1,
         isUpgradeItem: true,
         upgradeItemCount: 1,
@@ -277,6 +363,122 @@ function getEffectiveTeaEffects(actionHrid) {
       0,
       base.upgradedProduct * concentrationMultiplier,
     ),
+  };
+}
+
+function projectActionCraftingCost(actionOrHrid, options = {}) {
+  const action =
+    typeof actionOrHrid === "string"
+      ? { actionHrid: actionOrHrid }
+      : (actionOrHrid ?? {});
+  const actionHrid = action.actionHrid ?? action.hrid;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!actionHrid || !detail) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      missing: ["actionData"],
+      missingPrices: [],
+    };
+  }
+  if (!isPlayerDataReady()) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+      missingPrices: [],
+    };
+  }
+
+  const teaEffects = getEffectiveTeaEffects(actionHrid);
+  if (!teaEffects) {
+    return {
+      status: "waiting",
+      complete: false,
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+      missingPrices: [],
+    };
+  }
+
+  const getUnitPrice =
+    typeof options.getUnitPrice === "function"
+      ? options.getUnitPrice
+      : () => null;
+  const missingPrices = [];
+  const inputs = getDirectInputs(detail).map((input) => {
+    const effectiveCount = getEffectiveInputCount(
+      input,
+      teaEffects.lessResource,
+    );
+    const unitPrice = Number(
+      getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0),
+    );
+    if (!(unitPrice > 0)) missingPrices.push(input.itemHrid);
+    return {
+      ...input,
+      effectiveCount,
+      unitPrice: unitPrice > 0 ? unitPrice : null,
+      valuePerAction: unitPrice > 0 ? effectiveCount * unitPrice : null,
+    };
+  });
+  const materialCostPerAction = inputs.reduce(
+    (total, input) => total + (input.valuePerAction ?? 0),
+    0,
+  );
+
+  const timing = getEffectiveSeconds(actionHrid, detail, options);
+  const secondsPerAction = timing?.secondsPerAction ?? null;
+  const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
+  const drinks = teaEffects.drinks.map((drink) => {
+    const unitPrice = Number(getUnitPrice(drink.itemHrid, 0));
+    if (!(unitPrice > 0)) missingPrices.push(drink.itemHrid);
+    const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
+    const costPerHour = unitPrice > 0 ? unitPrice * countPerHour : null;
+    return {
+      ...drink,
+      unitPrice: unitPrice > 0 ? unitPrice : null,
+      countPerHour,
+      costPerHour,
+    };
+  });
+  const requiresTiming = drinks.length > 0;
+  const teaCostPerHour = drinks.reduce(
+    (total, drink) => total + (drink.costPerHour ?? 0),
+    0,
+  );
+  const teaCostPerAction = actionsPerHour
+    ? teaCostPerHour / actionsPerHour
+    : requiresTiming
+      ? null
+      : 0;
+  const complete =
+    missingPrices.length === 0 && (!requiresTiming || actionsPerHour !== null);
+  const totalCostPerAction = complete
+    ? materialCostPerAction + teaCostPerAction
+    : null;
+
+  return {
+    status: complete ? "complete" : "incomplete",
+    complete,
+    actionHrid,
+    detail,
+    inputs,
+    outputs: getExpectedOutputs(detail),
+    drinks,
+    teaEffects: { ...teaEffects, drinks },
+    secondsPerAction,
+    actionsPerHour,
+    materialCostPerAction,
+    teaCostPerHour,
+    teaCostPerAction,
+    totalCostPerAction,
+    missing: requiresTiming && !actionsPerHour ? ["actionTiming"] : [],
+    missingPrices: [...new Set(missingPrices)],
   };
 }
 
@@ -531,27 +733,53 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
   const outputs = getEffectiveOutputs(detail, teaEffects);
   const lessResource = teaEffects.lessResource;
 
-  let maxCraftable = Infinity;
-  for (const input of inputs) {
-    const effectiveCount = getEffectiveInputCount(input, lessResource);
-    if (effectiveCount > 0) {
-      maxCraftable = Math.min(
-        maxCraftable,
-        Math.floor(getInventoryCount(input.itemHrid) / effectiveCount),
-      );
-    }
+  const alchemyCapacity = getAlchemyCapacity(action, detail, lessResource);
+  if (alchemyCapacity && !alchemyCapacity.known) {
+    return {
+      status: "waiting",
+      actionHrid,
+      detail,
+      count: normalizedCount,
+      infinite,
+      effectiveCount: null,
+      effectivelyInfinite: false,
+      materialLimited: false,
+      maxCraftable: null,
+      missing: alchemyCapacity.missing,
+      missingPrices: [],
+      netProfitPerAction: null,
+      profitPerHour: null,
+      totalProfit: null,
+      secondsPerAction,
+      totalSeconds: null,
+      finishAt: null,
+    };
   }
-  if (!inputs.length) maxCraftable = Infinity;
+
+  let maxCraftable = alchemyCapacity?.maxCraftable ?? Infinity;
+  if (!alchemyCapacity) {
+    for (const input of inputs) {
+      const effectiveCount = getEffectiveInputCount(input, lessResource);
+      if (effectiveCount > 0) {
+        maxCraftable = Math.min(
+          maxCraftable,
+          Math.floor(getInventoryCount(input.itemHrid) / effectiveCount),
+        );
+      }
+    }
+    if (!inputs.length) maxCraftable = Infinity;
+  }
 
   const canApplyInventoryLimit =
-    respectInventoryLimit && !(infinite && maxCraftable === 0);
+    respectInventoryLimit &&
+    (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
   const executableCount = canApplyInventoryLimit
     ? Math.min(normalizedCount, maxCraftable)
     : normalizedCount;
   const effectivelyInfinite = !Number.isFinite(executableCount);
   const materialLimited =
     respectInventoryLimit &&
-    inputs.length > 0 &&
+    (inputs.length > 0 || Boolean(alchemyCapacity)) &&
     Number.isFinite(maxCraftable) &&
     maxCraftable > 0 &&
     (infinite || maxCraftable < normalizedCount);
@@ -815,6 +1043,7 @@ Object.assign(runtime.api, {
   getDirectInputs,
   getActionRemainingCount: getActionCount,
   isPlayerProjectionDataReady: isPlayerDataReady,
+  projectActionCraftingCost,
   projectAction,
   projectQueue,
   resolveProductionActionByItemHrid,

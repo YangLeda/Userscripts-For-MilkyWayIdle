@@ -558,9 +558,22 @@ function resetTrainTimeout() {
   );
 }
 
-function queueButton(panel) {
-  return [...panel.querySelectorAll(`${BUTTONS_SELECTOR} button,button`)].find(
-    (button) => /添加到队列|add to queue/i.test(button.textContent ?? ""),
+function queueSubmissionHost(panel) {
+  const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
+  if (buttonsContainer) return buttonsContainer;
+  return [...panel.querySelectorAll("button")].find((button) =>
+    /添加到队列|add to queue/i.test(button.textContent ?? ""),
+  );
+}
+
+function isNativeQueueSubmission(event, host) {
+  const button = event.target?.closest?.("button");
+  return Boolean(
+    button &&
+    host.contains(button) &&
+    !button.closest(`.${CONTROL_CLASS}`) &&
+    !button.disabled &&
+    button.getAttribute("aria-disabled") !== "true",
   );
 }
 
@@ -727,12 +740,16 @@ function wirePanel(context) {
       );
     }
   }
-  const button = queueButton(context.panel);
-  if (button && button !== activeTrain.queueButton) {
+  const submissionHost = queueSubmissionHost(context.panel);
+  if (submissionHost && submissionHost !== activeTrain.queueButton) {
     clearTrainListeners();
-    activeTrain.queueButton = button;
-    activeTrain.queueListener = () => notifyCurrentTrainStepQueued(context);
-    button.addEventListener("click", activeTrain.queueListener, true);
+    activeTrain.queueButton = submissionHost;
+    activeTrain.queueListener = (event) => {
+      if (isNativeQueueSubmission(event, submissionHost)) {
+        notifyCurrentTrainStepQueued(context);
+      }
+    };
+    submissionHost.addEventListener("click", activeTrain.queueListener, true);
   }
   maybeAutoAddCurrentStep(context);
   resetTrainTimeout();

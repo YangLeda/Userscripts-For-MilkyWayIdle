@@ -1,4 +1,106 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveEntityFromElement,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
+
+const TOUCH_PROFIT_LONG_PRESS_MS = 800;
+const TOUCH_PROFIT_MOVE_TOLERANCE = 12;
+
+let hoverPanelContext = null;
+let hoverPanelShortcutHeld = false;
+let touchHoverPanelPress = null;
+let touchHoverPanelAuthorizedUntil = 0;
+
+function isEditableTarget(target) {
+  return Boolean(
+    target?.closest?.('input,textarea,select,[contenteditable="true"]'),
+  );
+}
+
+function requiresHoverPanelShortcut() {
+  return Boolean(
+    runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue,
+  );
+}
+
+function canShowHoverPanel(context = hoverPanelContext) {
+  if (context?.kind === "loot") {
+    return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
+  }
+  return Boolean(
+    context?.kind === "profit" &&
+    runtime.settings.settingsMap.itemTooltip_profit?.isTrue &&
+    !runtime.api.shouldSuppressMarketFeatures?.(),
+  );
+}
+
+function hasEnabledHoverPanelFeature() {
+  return Boolean(
+    runtime.settings.settingsMap.lootChestEstimate?.isTrue ||
+    (runtime.settings.settingsMap.itemTooltip_profit?.isTrue &&
+      !runtime.api.shouldSuppressMarketFeatures?.()),
+  );
+}
+
+function showHoverPanelContext(context = hoverPanelContext, options = {}) {
+  if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
+    runtime.api.dismissHoverPanel?.();
+    return null;
+  }
+  if (context.kind === "loot") {
+    return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
+      sticky: Boolean(options.sticky),
+    });
+  }
+  return runtime.api.showProductionProfitPanel?.(
+    context.anchor,
+    context.itemHrid ?? null,
+    {
+      actionHrid: context.actionHrid,
+      sticky: Boolean(options.sticky),
+    },
+  );
+}
+
+function setHoverPanelContext(context) {
+  hoverPanelContext = context;
+  if (!canShowHoverPanel(context)) {
+    runtime.api.dismissHoverPanel?.();
+    return;
+  }
+  if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
+    showHoverPanelContext(context);
+    return;
+  }
+  if (Date.now() <= touchHoverPanelAuthorizedUntil) {
+    touchHoverPanelAuthorizedUntil = 0;
+    showHoverPanelContext(context, { sticky: true });
+    return;
+  }
+  if (touchHoverPanelPress?.authorized) {
+    touchHoverPanelPress.triggered = true;
+    showHoverPanelContext(context, { sticky: true });
+    return;
+  }
+  runtime.api.dismissHoverPanel?.();
+}
+
+function clearHoverPanelContext(anchor = null, kind = null) {
+  if (anchor && hoverPanelContext?.anchor !== anchor) return;
+  if (kind && hoverPanelContext?.kind !== kind) return;
+  clearTimeout(touchHoverPanelPress?.timer);
+  touchHoverPanelPress = null;
+  touchHoverPanelAuthorizedUntil = 0;
+  hoverPanelContext = null;
+  runtime.api.dismissHoverPanel?.();
+}
+
+function removeSuppressedTooltipContent() {
+  document
+    .querySelectorAll('[data-mwitools-tooltip-market="true"]')
+    .forEach((row) => row.remove());
+}
 
 /* 显示当前动作总时间 */
 const showTotalActionTime = () => {
@@ -112,7 +214,9 @@ const tooltipObserver = new MutationObserver(async function (mutations) {
         } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
           const actionHrid = resolveGatheringActionFromElement(added);
           if (actionHrid) {
-            runtime.api.showProductionProfitPanel?.(added, null, {
+            setHoverPanelContext({
+              kind: "profit",
+              anchor: added,
               actionHrid,
             });
           }
@@ -422,6 +526,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
+    clearHoverPanelContext();
     runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
@@ -430,11 +535,10 @@ async function handleTooltipItem(tooltip) {
   runtime.api.hideEnhancementCostPanel?.();
 
   const itemNameElem = itemNameElems[0];
-  let itemName = runtime.api.getOriTextFromElement(itemNameElem);
-  if (runtime.config.isZHInGameSetting) {
-    itemName = runtime.api.getItemEnNameFromZhName(itemName);
-  }
-  const itemHrid = runtime.state.itemEnNameToHridMap[itemName];
+  const itemName = runtime.api.getOriTextFromElement(itemNameElem);
+  const itemHrid =
+    resolveEntityFromElement("item", tooltip) ||
+    resolveLocalizedEntity("item", itemName);
 
   let amount = 0;
   let insertAfterElem = null;
@@ -456,7 +560,11 @@ async function handleTooltipItem(tooltip) {
   let fairValue = null;
 
   // 物品市场价格
-  if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+  const suppressMarket = Boolean(runtime.api.shouldSuppressMarketFeatures?.());
+  if (
+    runtime.settings.settingsMap.itemTooltip_prices.isTrue &&
+    !suppressMarket
+  ) {
     marketJson = await fetchMarketJSON();
     if (!marketJson || !marketJson.marketData) {
       console.error(
@@ -470,43 +578,11 @@ async function handleTooltipItem(tooltip) {
     bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
     fairValue = runtime.api.getFairValue(itemHrid, 0);
     appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
-  }
-
-  // 消耗品回复计算
-  if (runtime.settings.settingsMap.showConsumTips.isTrue) {
-    let itemDetail = runtime.state.initData_itemDetailMap[itemHrid];
-    const hp = itemDetail?.consumableDetail?.hitpointRestore;
-    const mp = itemDetail?.consumableDetail?.manapointRestore;
-    const cd = itemDetail?.consumableDetail?.cooldownDuration;
-    if (hp && cd) {
-      const hpPerMiniute = (60 / (cd / 1000000000)) * hp;
-      const pricePer100Hp = ask ? ask / (hp / 100) : null;
-      const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-        pricePer100Hp
-          ? pricePer100Hp.toFixed(0) +
-            (runtime.config.isZH ? "金/100血, " : "coins/100hp, ")
-          : ""
-      }${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-    } else if (mp && cd) {
-      const mpPerMiniute = (60 / (cd / 1000000000)) * mp;
-      const pricePer100Mp = ask ? ask / (mp / 100) : null;
-      const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
-        pricePer100Mp
-          ? pricePer100Mp.toFixed(0) +
-            (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")
-          : ""
-      }${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-    } else if (cd) {
-      const usePerday = (24 * 60 * 60) / (cd / 1000000000);
-      appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
-    }
   }
 
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
@@ -516,13 +592,14 @@ async function handleTooltipItem(tooltip) {
     dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid],
   );
   if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
-    runtime.api.showLootChestPanel?.(tooltip, itemHrid);
+    setHoverPanelContext({ kind: "loot", anchor: tooltip, itemHrid });
   } else if (
     !isOpenable &&
     runtime.settings.settingsMap.itemTooltip_profit.isTrue
   ) {
-    runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+    setHoverPanelContext({ kind: "profit", anchor: tooltip, itemHrid });
   } else {
+    clearHoverPanelContext();
     runtime.api.dismissHoverPanel?.();
   }
 
@@ -585,6 +662,7 @@ Object.assign(runtime.api, {
   getTeaBuffsByActionHrid,
   handleTooltipItem,
   getActionHridFromItemName,
+  clearTooltipProfitHoverContext: clearHoverPanelContext,
 });
 
 Object.defineProperties(runtime.state, {
@@ -654,32 +732,166 @@ runtime.features.register({
       },
       true,
     );
+    scope.event(
+      window,
+      "keydown",
+      (event) => {
+        if (
+          event.repeat ||
+          isEditableTarget(event.target) ||
+          !runtime.api.matchesTooltipProfitShortcut?.(event)
+        ) {
+          return;
+        }
+        hoverPanelShortcutHeld = true;
+        if (requiresHoverPanelShortcut()) showHoverPanelContext();
+      },
+      true,
+    );
+    scope.event(
+      window,
+      "keyup",
+      (event) => {
+        if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
+        hoverPanelShortcutHeld = false;
+        if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+      },
+      true,
+    );
+    scope.event(window, "blur", () => {
+      hoverPanelShortcutHeld = false;
+      runtime.api.dismissHoverPanel?.();
+    });
+    scope.event(
+      document,
+      "pointerdown",
+      (event) => {
+        if (
+          event.pointerType !== "touch" ||
+          !requiresHoverPanelShortcut() ||
+          !hasEnabledHoverPanelFeature()
+        ) {
+          return;
+        }
+        clearTimeout(touchHoverPanelPress?.timer);
+        touchHoverPanelAuthorizedUntil = 0;
+        const press = {
+          pointerId: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          authorized: false,
+          triggered: false,
+          timer: null,
+        };
+        press.timer = setTimeout(() => {
+          if (touchHoverPanelPress !== press) return;
+          press.authorized = true;
+          if (hoverPanelContext?.anchor?.isConnected) {
+            press.triggered = true;
+            showHoverPanelContext(hoverPanelContext, { sticky: true });
+          }
+        }, TOUCH_PROFIT_LONG_PRESS_MS);
+        touchHoverPanelPress = press;
+      },
+      true,
+    );
+    scope.event(
+      document,
+      "pointermove",
+      (event) => {
+        const press = touchHoverPanelPress;
+        if (!press || press.pointerId !== event.pointerId) return;
+        if (
+          Math.hypot(event.clientX - press.x, event.clientY - press.y) <=
+          TOUCH_PROFIT_MOVE_TOLERANCE
+        ) {
+          return;
+        }
+        clearTimeout(press.timer);
+        touchHoverPanelPress = null;
+        touchHoverPanelAuthorizedUntil = 0;
+      },
+      true,
+    );
+    const finishTouchPress = (event) => {
+      const press = touchHoverPanelPress;
+      if (!press || press.pointerId !== event.pointerId) return;
+      clearTimeout(press.timer);
+      if (press.authorized && !press.triggered) {
+        touchHoverPanelAuthorizedUntil = Date.now() + 500;
+      }
+      touchHoverPanelPress = null;
+    };
+    scope.event(document, "pointerup", finishTouchPress, true);
+    scope.event(
+      document,
+      "pointercancel",
+      (event) => {
+        if (touchHoverPanelPress?.pointerId !== event.pointerId) return;
+        clearTimeout(touchHoverPanelPress.timer);
+        touchHoverPanelPress = null;
+        touchHoverPanelAuthorizedUntil = 0;
+      },
+      true,
+    );
+    const stopRequireKey = runtime.settings.onChange(
+      "itemTooltip_profitRequireKey",
+      (required) => {
+        if (!required) showHoverPanelContext();
+        else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+      },
+    );
+    const stopIronCow = runtime.settings.onChange(
+      "adaptIronCowMarketFeatures",
+      () => {
+        if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+        clearHoverPanelContext(null, "profit");
+        removeSuppressedTooltipContent();
+      },
+    );
+    const stopLootEstimate = runtime.settings.onChange(
+      "lootChestEstimate",
+      (enabled) => {
+        if (!enabled) clearHoverPanelContext(null, "loot");
+      },
+    );
     scope.add(() => {
+      stopRequireKey?.();
+      stopIronCow?.();
+      stopLootEstimate?.();
       tooltipObserver.disconnect();
       for (const style of styles) style?.remove?.();
+      clearTimeout(touchHoverPanelPress?.timer);
+      touchHoverPanelPress = null;
+      hoverPanelShortcutHeld = false;
+      clearHoverPanelContext();
     });
   },
 });
 
-for (const id of ["itemTooltip_profit", "showConsumTips"]) {
-  runtime.features.register({
-    id,
-    setting: id,
-    dependsOn: ["itemTooltip_prices"],
-    initialize({ scope }) {
-      if (id !== "itemTooltip_profit") return;
-      scope.event(document, "mouseover", (event) => {
-        const card = gatheringCardFromEventTarget(event.target);
-        if (!card || card.contains(event.relatedTarget)) return;
-        const actionHrid = resolveGatheringActionFromElement(card);
-        if (!actionHrid) return;
-        runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
-      });
-      scope.event(document, "mouseout", (event) => {
-        const card = gatheringCardFromEventTarget(event.target);
-        if (!card || card.contains(event.relatedTarget)) return;
-        runtime.api.dismissHoverPanel?.();
-      });
-    },
-  });
-}
+runtime.features.register({
+  id: "itemTooltip_profit",
+  setting: "itemTooltip_profit",
+  dependsOn: ["itemTooltip_prices"],
+  initialize({ scope }) {
+    scope.event(document, "mouseover", (event) => {
+      const card = gatheringCardFromEventTarget(event.target);
+      if (!card || card.contains(event.relatedTarget)) return;
+      const actionHrid = resolveGatheringActionFromElement(card);
+      if (!actionHrid) return;
+      setHoverPanelContext({ kind: "profit", anchor: card, actionHrid });
+    });
+    scope.event(document, "mouseout", (event) => {
+      const card = gatheringCardFromEventTarget(event.target);
+      if (!card || card.contains(event.relatedTarget)) return;
+      clearHoverPanelContext(card, "profit");
+    });
+    scope.add(() => clearHoverPanelContext(null, "profit"));
+  },
+});
+
+runtime.onMessage("init_character_data", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  clearHoverPanelContext(null, "profit");
+  removeSuppressedTooltipContent();
+});

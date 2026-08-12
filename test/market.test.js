@@ -26,9 +26,30 @@ test("unified numbers use K/M/B/T, promote rounded boundaries and keep exact tit
   assert.equal(runtime.api.numberFormatter(-1_250_000), "-1.25M");
   assert.equal(runtime.api.numberFormatter(1_250_000_000_000_000), "1,250T");
   assert.equal(runtime.api.formatExactNumber(12_345_678_901), "12,345,678,901");
+  assert.equal(runtime.api.formatExactNumber(599.999999999, 0), "600");
+  assert.equal(runtime.api.formatExactNumber(1.49, 0), "1");
+  assert.equal(runtime.api.formatExactNumber(1.5, 0), "2");
+  assert.equal(runtime.api.formatExactNumber(-1.5, 0), "-2");
+  assert.equal(runtime.api.formatExactNumber(0.5), "0.5");
   const element = runtime.api.createFormattedNumber(12_345_678_901);
   assert.equal(element.textContent, "12.35B");
   assert.equal(element.title, "12,345,678,901");
+});
+
+test("number parsing and formatting follow the game locale instead of the system locale", () => {
+  localStorage.setItem("i18nextLng", "pt");
+  assert.equal(runtime.config.THOUSAND_SEPERATOR, ".");
+  assert.equal(runtime.config.DECIMAL_SEPERATOR, ",");
+  assert.equal(runtime.api.parseCompactNumber("14,2"), 14.2);
+  assert.equal(runtime.api.parseCompactNumber("1.234,5K"), 1_234_500);
+  assert.equal(runtime.api.numberFormatter(1_530), "1,53K");
+  assert.equal(runtime.api.formatExactNumber(1_234.5), "1.234,5");
+
+  localStorage.setItem("i18nextLng", "fr");
+  const groupedFrench = new Intl.NumberFormat("fr").format(1_234.5);
+  assert.equal(runtime.api.parseCompactNumber(groupedFrench), 1_234.5);
+
+  localStorage.setItem("i18nextLng", "en-US");
 });
 
 test("optional million cap keeps billion and trillion values in M", () => {
@@ -82,6 +103,38 @@ test("server values use exact enhancement levels and orderbook fallbacks", () =>
   assert.equal(runtime.api.getFairValue("/items/bid_only", 0), 75);
   assert.equal(runtime.api.getAskPrice("/items/test", 2), 500);
   assert.equal(runtime.api.getBidPrice("/items/test", 2), 0);
+});
+
+test("asset valuation prices stay frozen while live orderbook values update", () => {
+  runtime.api.resetAssetValuationMarketSnapshot();
+  runtime.state.marketItemValues = {
+    "/items/already_seen": { 0: 100 },
+    "/items/not_seen_yet": { 0: 200 },
+  };
+
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 100);
+
+  runtime.api.applyMarketOrderBooks({
+    itemHrid: "/items/already_seen",
+    orderBooks: {},
+    marketValues: { 0: 150 },
+  });
+  runtime.api.applyMarketOrderBooks({
+    itemHrid: "/items/not_seen_yet",
+    orderBooks: {},
+    marketValues: { 0: 250 },
+  });
+
+  assert.equal(runtime.api.getFairValue("/items/already_seen", 0), 150);
+  assert.equal(runtime.api.getFairValue("/items/not_seen_yet", 0), 250);
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 100);
+  assert.equal(runtime.api.getAssetFairValue("/items/not_seen_yet", 0), 200);
+  assert.equal(runtime.api.isAssetValuationMarketDirty(), true);
+
+  runtime.api.resetAssetValuationMarketSnapshot();
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 150);
+  assert.equal(runtime.api.getAssetFairValue("/items/not_seen_yet", 0), 250);
+  assert.equal(runtime.api.isAssetValuationMarketDirty(), false);
 });
 
 test("compressed game market values are restored at startup", () => {

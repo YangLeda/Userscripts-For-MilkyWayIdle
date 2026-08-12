@@ -13,6 +13,7 @@ import {
   isSelectedGuildProgressTabBar,
   isSelectedTrialTabBar,
 } from "./00-bootstrap.js";
+import { getGameTranslation } from "../../core/game-localization.js";
 import { ClassDebug, ClassProbe, ClassSystem } from "./10-combat-sources.js";
 import {
   HistoryStore,
@@ -1088,15 +1089,24 @@ const KikiMeter = (() => {
         ),
       ]),
     ];
+    const combatZones = getGameTranslation("combatPanel.combatZones");
+    const labyrinthLabels = [
+      getGameTranslation("labyrinthPanel.labyrinth"),
+      getGameTranslation("labyrinthPanel.room"),
+      getGameTranslation("labyrinthPanel.automation"),
+    ];
     for (const c of containers) {
       const t = c.textContent;
       if (
+        (combatZones && t.includes(combatZones)) ||
         t.includes("Combat Zones") ||
         t.includes("战斗区域") ||
         t.includes("戰鬥區域")
       )
         return c;
       if (
+        (labyrinthLabels.every(Boolean) &&
+          labyrinthLabels.every((label) => t.includes(label))) ||
         (t.includes("Labyrinth") &&
           t.includes("Room") &&
           t.includes("Automation")) ||

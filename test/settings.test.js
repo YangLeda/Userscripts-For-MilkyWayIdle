@@ -22,12 +22,15 @@ localStorage.setItem(
       isTrue: true,
     },
     removedOption: { id: "removed_option", isTrue: true },
+    removedConsumableTips: { id: "showConsumTips", isTrue: true },
   }),
 );
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/features/settings-and-notifications.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 
 test("legacy settings merge into current defaults", () => {
   assert.doesNotThrow(() => runtime.api.readSettings());
@@ -45,12 +48,14 @@ test("legacy settings merge into current defaults", () => {
     runtime.settings.settingsMap.includeCowbellsInAssets.isTrue,
     false,
   );
+  assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
     false,
   );
   assert.equal(runtime.settings.settingsMap.networth, undefined);
   assert.equal(runtime.settings.settingsMap.networkAlert, undefined);
+  assert.equal(runtime.settings.settingsMap.showConsumTips, undefined);
   assert.equal(runtime.settings.settingsMap.showDamage.isTrue, false);
   assert.equal(runtime.settings.settingsMap.showDamageGraph, undefined);
   assert.equal(
@@ -64,6 +69,7 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(stored.values.showDamageGraph, undefined);
   assert.equal(stored.values.damageGraphTransparentBackground, undefined);
   assert.equal(stored.values.profitValuationMode, undefined);
+  assert.equal(stored.values.showConsumTips, undefined);
   assert.equal(runtime.settings.settingsMap.profitValuationMode, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.hidden, undefined);
   assert.equal(runtime.settings.catalog.displayCapMM.group, "general");
@@ -85,6 +91,45 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
       .isTrue,
     true,
   );
+});
+
+test("iron-cow adaptation recognizes both game modes and remains opt-in", async () => {
+  runtime.state.currentCharacterGameMode = "ironcow";
+  assert.equal(runtime.api.isIronCowCharacter(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
+
+  await runtime.settings.set("adaptIronCowMarketFeatures", true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  runtime.state.currentCharacterGameMode = "legacy_ironcow";
+  assert.equal(runtime.api.isIronCowCharacter(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  runtime.state.currentCharacterGameMode = "standard";
+  assert.equal(runtime.api.isIronCowCharacter(), false);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+});
+
+test("profit tooltip shortcut uses separate single-key persistence", () => {
+  localStorage.removeItem("MWITools_tooltip_profit_key_v1");
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
+  assert.deepEqual(runtime.api.getTooltipProfitShortcut(), {
+    code: "Control",
+    display: "Ctrl",
+  });
+  runtime.api.setTooltipProfitShortcut({ code: "KeyK", display: "K" });
+  assert.equal(
+    JSON.parse(localStorage.getItem("MWITools_tooltip_profit_key_v1")).code,
+    "KeyK",
+  );
+  assert.equal(
+    runtime.api.matchesTooltipProfitShortcut({ code: "KeyK" }),
+    true,
+  );
+  assert.equal(
+    runtime.api.matchesTooltipProfitShortcut({ key: "Control" }),
+    false,
+  );
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
 });
 
 test("back mirror valuation resets to disabled once and then preserves user choice", () => {
@@ -189,6 +234,7 @@ test("card settings render every visible setting with nested children and search
     /\.mwi-settings-grid \{ display:flex; flex-direction:column;/,
   );
   assert.match(root.textContent, /牛铃计入总资产/);
+  assert.match(root.textContent, /宝箱估值忽略牛铃/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
   assert.match(root.textContent, /购物车与采购/);
   const lootSellToggle = root.querySelector(
@@ -255,4 +301,30 @@ test("market autofill selects semantic plus and minus buttons", () => {
 
   assert.equal(plusClicks, 1);
   assert.equal(minusClicks, 1);
+});
+
+test("market autofill recognizes the current official locale template", () => {
+  registerGameLocaleResources("es", {
+    itemNames: { "/items/coin": "Moneda" },
+    actionNames: { "/actions/milking/cow": "Vaca" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+    marketplacePanel: {
+      buy: "Comprar",
+      sell: "Vender",
+      priceBestBuyOffer: "Precio (mejor oferta de compra: <bestPrice />)",
+    },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  document.body.innerHTML = `
+    <div id="market-order-es">
+      <div class="MarketplacePanel_header__yahJo">Orden limitada</div>
+      <div id="best-label-es">Precio (mejor oferta de compra: <span class="MarketplacePanel_bestPrice__3bgKp">42</span>)</div>
+      <div class="MarketplacePanel_inputContainer__3xmB2"><div class="MarketplacePanel_priceInputs__3iWxy"><button id="plus-es">+</button></div></div>
+    </div>`;
+  let clicks = 0;
+  document.querySelector("#plus-es").addEventListener("click", () => clicks++);
+  runtime.api.handleMarketNewOrder(document.querySelector("#market-order-es"));
+  assert.equal(clicks, 1);
+  localStorage.setItem("i18nextLng", "en");
 });

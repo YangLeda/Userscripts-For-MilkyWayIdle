@@ -298,6 +298,7 @@ const CHARACTER_TAB_PATTERNS = {
 function findCharacterManagementLoadoutTab() {
   const groups = new Map();
   for (const button of document.querySelectorAll('button[role="tab"],button')) {
+    if (button.id === TAB_ID) continue;
     const parent = button.parentElement;
     if (!parent) continue;
     if (!groups.has(parent)) groups.set(parent, []);
@@ -305,12 +306,27 @@ function findCharacterManagementLoadoutTab() {
   }
   const candidates = [];
   for (const [parent, buttons] of groups) {
-    const matched = Object.fromEntries(
-      Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
-        key,
-        buttons.find((button) => pattern.test(buttonLabel(button))),
-      ]),
+    const inCharacterManagement = Boolean(
+      parent.closest('[class*="CharacterManagement_characterManagement"]'),
     );
+    const nativeTabs = buttons.filter((button) =>
+      button.matches('[role="tab"]'),
+    );
+    const structuralMatch = inCharacterManagement && nativeTabs.length >= 5;
+    const matched = structuralMatch
+      ? {
+          inventory: nativeTabs[0],
+          equipment: nativeTabs[1],
+          skills: nativeTabs[2],
+          house: nativeTabs[3],
+          loadout: nativeTabs.at(-1),
+        }
+      : Object.fromEntries(
+          Object.entries(CHARACTER_TAB_PATTERNS).map(([key, pattern]) => [
+            key,
+            buttons.find((button) => pattern.test(buttonLabel(button))),
+          ]),
+        );
     const supportingTabs = [
       matched.equipment,
       matched.skills,
@@ -319,12 +335,12 @@ function findCharacterManagementLoadoutTab() {
     if (!matched.inventory || !matched.loadout || supportingTabs < 2) continue;
     const rect = parent.getBoundingClientRect?.();
     const visible = Boolean(rect && rect.width > 0 && rect.height > 0);
-    const inCharacterManagement = Boolean(
-      parent.closest('[class*="CharacterManagement_characterManagement"]'),
-    );
     candidates.push({
       button: matched.loadout,
-      score: Number(visible) * 4 + Number(inCharacterManagement) * 2,
+      score:
+        Number(visible) * 4 +
+        Number(inCharacterManagement) * 2 +
+        Number(structuralMatch) * 8,
     });
   }
   candidates.sort((a, b) => b.score - a.score);
@@ -684,7 +700,7 @@ class AssetHistoryPanel {
       const node = this.host.querySelector(selector);
       node.textContent = formatNumber(value, signed);
       node.title = Number.isFinite(value)
-        ? runtime.api.formatExactNumber(value)
+        ? runtime.api.formatExactNumber(value, 0)
         : "";
       node.className = `mwi-asset-card-value ${className}`.trim();
     };
@@ -721,7 +737,7 @@ class AssetHistoryPanel {
           Number.isFinite(currentValue) && Number.isFinite(previousValue)
             ? currentValue - previousValue
             : null;
-        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+        row.innerHTML = `<td>${t(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
         return row;
       }),
     );
@@ -736,7 +752,7 @@ class AssetHistoryPanel {
       ...entries.map(([dayKey, record]) => {
         const row = document.createElement("tr");
         const total = record?.values?.total;
-        row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
+        row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t("删除", "Delete")}</button></td>`;
         row
           .querySelector("[data-edit]")
           .addEventListener("click", () => this.openEditor(dayKey));

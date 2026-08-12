@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  resolveLocalizedEntity,
+  getLocalizedEntityName,
+} from "../core/game-localization.js";
 
 /* 官方汉化 */
 // /static/js/main.9972e69d.chunk.js
@@ -2065,7 +2069,8 @@ const ZHToActionHridMap = inverseKV(ZHActionNames);
 const ZHToOthersMap = inverseKV(ZHOthersDic);
 
 function getItemEnNameFromZhName(zhName) {
-  const itemHrid = ZHToItemHridMap[zhName];
+  const itemHrid =
+    resolveLocalizedEntity("item", zhName) || ZHToItemHridMap[zhName];
   if (!itemHrid) {
     console.log(
       runtime.config.isZH
@@ -2092,7 +2097,8 @@ function getItemEnNameFromZhName(zhName) {
 }
 
 function getActionEnNameFromZhName(zhName) {
-  const actionHrid = ZHToActionHridMap[zhName];
+  const actionHrid =
+    resolveLocalizedEntity("action", zhName) || ZHToActionHridMap[zhName];
   if (!actionHrid) {
     console.log(
       runtime.config.isZH
@@ -2119,7 +2125,10 @@ function getActionEnNameFromZhName(zhName) {
 }
 
 function getOthersFromZhName(zhName) {
-  const key = ZHToOthersMap[zhName];
+  const key =
+    resolveLocalizedEntity("monster", zhName) ||
+    resolveLocalizedEntity("ability", zhName) ||
+    ZHToOthersMap[zhName];
   if (!key) {
     // console.log("Can not find EN key for " + zhName);
     return "";
@@ -2134,6 +2143,7 @@ Object.assign(runtime.api, {
   getItemEnNameFromZhName,
   getActionEnNameFromZhName,
   getOthersFromZhName,
+  getLocalizedEntityName,
 });
 
 Object.defineProperties(runtime.data, {

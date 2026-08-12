@@ -246,7 +246,8 @@ async function handleActionPanel(panel) {
   if (
     (panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children
       .length ?? 0) > 1 &&
-    runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue
+    runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue &&
+    !runtime.api.shouldSuppressMarketFeatures?.()
   ) {
     const marketJson = await runtime.api.fetchMarketJSON();
 
@@ -541,6 +542,15 @@ runtime.features.register({
     }, 1000);
     scope.add(removeInsertedDivs);
   },
+});
+
+runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+  for (const panel of document.querySelectorAll(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  )) {
+    delete panel.dataset.mwitoolsActionPanel;
+    void handleActionPanel(panel);
+  }
 });
 
 runtime.features.register({

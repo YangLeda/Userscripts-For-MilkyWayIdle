@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   createPlansByDefault: true,
   inventorySyncEnabled: true,
   autoCollapseEnabled: true,
+  autoExpandOnAddEnabled: false,
   locateEnabled: true,
   autoPrefillEnabled: true,
   purchaseNavEnabled: true,
@@ -229,7 +230,7 @@ function loadCharacterData(characterId) {
   refreshPlanProgress();
   ready = Boolean(activeCharacterId);
   emit("character:change", { characterId: activeCharacterId });
-  emit("cart:change", { items: getCartItems() });
+  emit("cart:change", { reason: "load", added: 0, items: getCartItems() });
   emit("plan:change", { plans: getPlans() });
   if (ready) emit("ready", { characterId: activeCharacterId });
 }
@@ -645,9 +646,9 @@ function getCartItem(itemHrid, enhancementLevel = 0) {
   );
 }
 
-function saveCartAndEmit() {
+function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
   persistData();
-  emit("cart:change", { items: getCartItems() });
+  emit("cart:change", { reason, added, items: getCartItems() });
 }
 
 function addToCart(input) {
@@ -678,7 +679,7 @@ function addToCart(input) {
     });
     added += 1;
   }
-  if (added) saveCartAndEmit();
+  if (added) saveCartAndEmit({ reason: "add", added });
   return { ok: added > 0, added, skipped };
 }
 
@@ -853,18 +854,25 @@ function applyRestockThresholds() {
   if (!settings.autoRestockEnabled) return;
   const now = Date.now();
   let changed = false;
+  let added = 0;
   for (const row of cart.values()) {
     if (!row.starred || !row.threshold || row.manualOverrideUntil > now)
       continue;
     const owned = getInventoryCount(row.itemHrid, row.enhancementLevel);
     const required = Math.max(0, row.threshold - owned);
     if (required !== row.quantity) {
+      if (required > row.quantity) added += 1;
       row.quantity = required;
       row.baselineStock = owned;
       changed = true;
     }
   }
-  if (changed) saveCartAndEmit();
+  if (changed) {
+    saveCartAndEmit({
+      reason: added ? "add" : "update",
+      added,
+    });
+  }
 }
 
 function getPlans() {

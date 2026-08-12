@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { resolveEntityFromElement } from "../core/game-localization.js";
 import {
   itemName as localizedItemName,
   localize,
@@ -82,22 +83,7 @@ export function findVisibleItemSelector(documentRef = document) {
 }
 
 function itemHridFromIcon(icon) {
-  let label = icon?.getAttribute?.("aria-label")?.trim();
-  if (label && runtime.config.isZHInGameSetting) {
-    label = runtime.api.getItemEnNameFromZhName?.(label) ?? label;
-  }
-  if (label && runtime.state.itemEnNameToHridMap?.[label]) {
-    return runtime.state.itemEnNameToHridMap[label];
-  }
-  const fragment = icon
-    ?.querySelector?.("use")
-    ?.getAttribute?.("href")
-    ?.split("#")
-    .at(-1);
-  if (!fragment) return "";
-  return Object.keys(runtime.state.initData_itemDetailMap ?? {}).find(
-    (itemHrid) => itemHrid.split("/").at(-1) === fragment,
-  );
+  return resolveEntityFromElement("item", icon);
 }
 
 function guildCreditHrids() {

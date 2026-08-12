@@ -5,6 +5,8 @@ const STORE_NAME = "xpSnapshots";
 const FALLBACK_KEY = "MWITools_xp_history_v1";
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+const RECENT_WINDOW_MS = 6 * HOUR_MS;
+const RECENT_MINIMUM_COVERAGE_MS = HOUR_MS;
 
 function openDatabase() {
   if (!globalThis.indexedDB) return Promise.resolve(null);
@@ -154,20 +156,13 @@ function calculateWindowRate(records, windowMs, minimumCoverageMs, now) {
 function calculateXpRates(records, now = Date.now()) {
   const sorted = [...records].sort((a, b) => a.at - b.at);
   const latest = sorted.at(-1);
-  let previous = null;
-  if (latest) {
-    previous = [...sorted]
-      .reverse()
-      .find(
-        (record) =>
-          latest.at - record.at >= 5 * 60 * 1000 && record.xp <= latest.xp,
-      );
-  }
   return {
-    recent:
-      latest && previous
-        ? ((latest.xp - previous.xp) / (latest.at - previous.at)) * HOUR_MS
-        : null,
+    recent: calculateWindowRate(
+      sorted,
+      RECENT_WINDOW_MS,
+      RECENT_MINIMUM_COVERAGE_MS,
+      now,
+    ),
     hour: calculateWindowRate(sorted, HOUR_MS, 30 * 60 * 1000, now),
     day: calculateWindowRate(sorted, 24 * HOUR_MS, 12 * HOUR_MS, now),
     lastSampleAt: latest?.at ?? null,
