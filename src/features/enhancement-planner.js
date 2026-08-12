@@ -345,6 +345,8 @@ function unavailableResult(missingMarketValues = []) {
   return {
     status: "unavailable",
     totalCost: null,
+    baseCost: null,
+    refinementCost: null,
     totalSeconds: null,
     normalProtectStart: null,
     expectedProtectionCount: null,
@@ -457,6 +459,10 @@ export function calculateEnhancementPlan({
     resolvePrice(getFairValue, hrid, level);
   const marketPrice = (hrid, level = 0) =>
     resolvePrice(getMarketValue, hrid, level);
+  const optionalMarketPrice = (hrid, level = 0) => {
+    if (hrid === "/items/coin") return 1;
+    return finitePositive(getMarketValue?.(hrid, level));
+  };
   const basePrice = acquisitionPrice(baseItemHrid, 0);
   let materialCostPerAction = 0;
   let hasMissingRequiredPrice = !basePrice;
@@ -489,16 +495,16 @@ export function calculateEnhancementPlan({
   if (forcedProtectionItemHrid) {
     considerProtection(
       forcedProtectionItemHrid,
-      marketPrice(forcedProtectionItemHrid, 0),
+      optionalMarketPrice(forcedProtectionItemHrid, 0),
     );
   } else {
-    considerProtection(baseItemHrid, marketPrice(baseItemHrid, 0));
+    considerProtection(baseItemHrid, optionalMarketPrice(baseItemHrid, 0));
     for (const candidate of new Set(item.protectionItemHrids ?? [])) {
-      considerProtection(candidate, marketPrice(candidate, 0));
+      considerProtection(candidate, optionalMarketPrice(candidate, 0));
     }
     considerProtection(
       "/items/mirror_of_protection",
-      marketPrice("/items/mirror_of_protection", 0),
+      optionalMarketPrice("/items/mirror_of_protection", 0),
     );
   }
   const protectionPrice = protectionChoice?.value ?? 0;
@@ -594,6 +600,7 @@ export function calculateEnhancementPlan({
   return {
     status: "complete",
     totalCost: best.totalCost + refinementCost,
+    baseCost: basePrice,
     refinementCost,
     totalSeconds: best.totalActions * stats.secondsPerAction,
     normalProtectStart:

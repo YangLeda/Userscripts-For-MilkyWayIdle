@@ -122,6 +122,11 @@ function renderPanel(panel, plan) {
       complete ? compactNumber(plan.totalCost, 1) : "—",
       plan?.totalCost,
     ),
+    metric(
+      t("底子成本", "Base cost"),
+      complete ? compactNumber(plan.baseCost, 1) : "—",
+      plan?.baseCost,
+    ),
     ...(complete && Number(plan.refinementCost) > 0
       ? [
           metric(

@@ -309,6 +309,13 @@ let settingsMap = {
     desc: isZH ? "生产面板显示净利润" : "Show net profit in production panels.",
     isTrue: true,
   },
+  procurementAssistant: {
+    id: "procurementAssistant",
+    desc: isZH
+      ? "启用购物车、采购计划和生产缺料加购"
+      : "Enable the shopping cart, procurement plans, and production shortage actions.",
+    isTrue: true,
+  },
   taskInsights: {
     id: "taskInsights",
     desc: isZH ? "任务显示利润和耗时" : "Show task profit and duration.",
@@ -611,6 +618,14 @@ const catalogRows = [
     "Production net profit",
     "同时显示市价、效率（高买低卖）和贪心（低买高卖）三种税后收入、成本与净利润。",
     "Show after-tax revenue, costs, and net profit for market, efficiency (buy high/sell low), and greedy (buy low/sell high) valuations.",
+  ],
+  [
+    "procurementAssistant",
+    "production",
+    "购物车与采购",
+    "Shopping cart & procurement",
+    "控制购物车入口、采购计划、生产缺料提示和市场采购导航；关闭后相关界面会立即移除，已有清单数据仍保留。",
+    "Control the shopping cart, procurement plans, production shortage hints, and marketplace navigation. Turning it off removes the related UI while preserving saved cart data.",
   ],
   [
     "actionPanel_foragingTotal",

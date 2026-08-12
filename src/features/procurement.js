@@ -1747,8 +1747,10 @@ function subscribeProcurement(scope) {
 
 runtime.features.register({
   id: "procurementAssistant",
+  setting: "procurementAssistant",
   scope: "character",
   initialize({ scope, characterId }) {
+    runtime.api.openProcurementMarketplace = openMarketplace;
     addStyles();
     if (procurement.activeCharacterId !== characterId) {
       procurement.loadCharacterData(characterId);

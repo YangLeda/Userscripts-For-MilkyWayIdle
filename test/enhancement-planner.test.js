@@ -249,6 +249,31 @@ test("planner compares resolved base cost with protection items and mirrors", ()
   assert.equal(basePlan.protectionUnitCost, 40_000);
 });
 
+test("protection candidates without a market value are skipped", () => {
+  const acquisitionValues = prices({
+    "/items/target": 1_000_000,
+    "/items/special_protection": 1,
+  });
+  const marketValues = prices({
+    "/items/target": 100_000,
+    "/items/special_protection": 0,
+    "/items/mirror_of_protection": 80_000,
+  });
+  const plan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 10,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => acquisitionValues[hrid] ?? 0,
+    getMarketValue: (hrid) => marketValues[hrid] ?? 0,
+  });
+
+  assert.equal(plan.status, "complete");
+  assert.equal(plan.protectionItemHrid, "/items/mirror_of_protection");
+  assert.equal(plan.protectionUnitCost, 80_000);
+  assert.ok(!plan.missingMarketValues.includes("/items/special_protection"));
+});
+
 test("enhancement and protection consumables use market values instead of acquisition costs", () => {
   const acquisitionValues = prices({
     "/items/target": 40_000,
@@ -286,6 +311,7 @@ test("enhancement and protection consumables use market values instead of acquis
   });
 
   assert.equal(plan.status, "complete");
+  assert.equal(plan.baseCost, 40_000);
   assert.deepEqual(acquisitionCalls, ["/items/target"]);
   assert.ok(marketCalls.includes("/items/material"));
   assert.ok(marketCalls.includes("/items/ultra_enhancing_tea"));

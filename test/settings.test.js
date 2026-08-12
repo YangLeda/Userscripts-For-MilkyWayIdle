@@ -158,6 +158,16 @@ test("card settings render every visible setting with nested children and search
     ).length,
   );
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
+  assert.equal(
+    root.querySelectorAll(".mwi-setting-more .mwi-setting-child").length,
+    0,
+  );
+  assert.ok(
+    [...root.querySelectorAll(".mwi-setting-child")].every(
+      (card) => card.closest("details") === null,
+    ),
+  );
+  assert.doesNotMatch(root.textContent, /更多设置/);
   assert.doesNotMatch(root.textContent, /利润估值口径/);
   assert.equal(root.querySelector('[role="radiogroup"]'), null);
   const topLevelCards = root.querySelectorAll(
@@ -180,6 +190,7 @@ test("card settings render every visible setting with nested children and search
   );
   assert.match(root.textContent, /牛铃计入总资产/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
+  assert.match(root.textContent, /购物车与采购/);
   const lootSellToggle = root.querySelector(
     'input[data-setting-id="lootSellAtAsk"]',
   );

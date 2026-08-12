@@ -75,7 +75,32 @@ test("procurement owns a standalone three-tab shell outside global settings", as
     Object.values(runtime.settings.catalog).some((setting) =>
       setting.id?.toLowerCase().includes("procurement"),
     ),
-    false,
+    true,
+  );
+});
+
+test("the global shopping-cart switch removes and restores every procurement entry", async () => {
+  assert.ok(document.querySelector("#mwitools-procurement-host"));
+  await runtime.settings.set("procurementAssistant", false);
+  assert.equal(document.querySelector("#mwitools-procurement-host"), null);
+  assert.equal(
+    document.querySelector("#mwitools-procurement-production"),
+    null,
+  );
+  assert.equal(
+    document.querySelector("#mwitools-procurement-market-nav"),
+    null,
+  );
+  assert.equal(
+    runtime.features.getStatus("procurementAssistant").status,
+    "disabled",
+  );
+
+  await runtime.settings.set("procurementAssistant", true);
+  assert.ok(document.querySelector("#mwitools-procurement-host"));
+  assert.equal(
+    runtime.features.getStatus("procurementAssistant").status,
+    "active",
   );
 });
 

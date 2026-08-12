@@ -267,30 +267,22 @@ function createSettingCard(definition, options = {}) {
   checkbox.setAttribute("aria-label", localizedText(definition.title));
   const track = document.createElement("span");
   toggle.append(checkbox, track);
-  if (definition.details || children.length) {
+  if (definition.details) {
     const details = document.createElement("details");
     details.className = "mwi-setting-more";
     const detailsSummary = document.createElement("summary");
-    detailsSummary.textContent = runtime.config.isZH
-      ? children.length
-        ? "详细说明与更多设置"
-        : "详细说明"
-      : children.length
-        ? "Details and more settings"
-        : "Details";
+    detailsSummary.textContent = runtime.config.isZH ? "详细说明" : "Details";
     details.append(detailsSummary);
-    if (definition.details) {
-      const detailsCopy = document.createElement("p");
-      detailsCopy.textContent = localizedText(definition.details);
-      details.append(detailsCopy);
-    }
-    for (const child of children) {
-      details.append(createSettingCard(child, { child: true }));
-    }
+    const detailsCopy = document.createElement("p");
+    detailsCopy.textContent = localizedText(definition.details);
+    details.append(detailsCopy);
     copy.append(details);
   }
   row.append(copy, toggle);
   card.append(row);
+  for (const child of children) {
+    card.append(createSettingCard(child, { child: true }));
+  }
 
   checkbox.addEventListener("change", async () => {
     await runtime.settings.set(definition.id, checkbox.checked);

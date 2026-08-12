@@ -41,6 +41,7 @@ function completePlan() {
   return {
     status: "complete",
     totalCost: 12_345_678,
+    baseCost: 1_234_567,
     totalSeconds: 456,
     normalProtectStart: 6,
     expectedProtectionCount: 7.25,
@@ -54,7 +55,7 @@ function completePlan() {
   };
 }
 
-test("enhancement UI is a separate seven-row sibling", () => {
+test("enhancement UI includes the base cost as a separate row", () => {
   const tooltip = anchor();
   const original = tooltip.innerHTML;
   const panel = showEnhancementCostPanel(tooltip, completePlan());
@@ -62,8 +63,9 @@ test("enhancement UI is a separate seven-row sibling", () => {
   assert.equal(tooltip.innerHTML, original);
   assert.equal(panel.parentElement, tooltip.parentElement);
   assert.equal(tooltip.nextElementSibling, panel);
-  assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 7);
+  assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 8);
   assert.match(panel.textContent, /总成本/);
+  assert.match(panel.textContent, /底子成本1\.2M/);
   assert.match(panel.textContent, /开始保护\+6/);
   assert.match(panel.textContent, /开始贤者保护\+10/);
   assert.match(panel.textContent, /普通保护 7\.3 次，贤者之镜 1\.0 次/);
@@ -82,14 +84,14 @@ test("refined plans show their included refining cost explicitly", () => {
     ...completePlan(),
     refinementCost: 750_000_000,
   });
-  assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 8);
+  assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 9);
   assert.match(panel.textContent, /其中精炼750\.0M/);
 });
 
 test("unavailable and normal-only plans keep the same compact fields", () => {
   let panel = showEnhancementCostPanel(anchor(), null);
   assert.equal(panel.dataset.status, "unavailable");
-  assert.equal(panel.querySelectorAll(".mwi-enhancement-value").length, 7);
+  assert.equal(panel.querySelectorAll(".mwi-enhancement-value").length, 8);
   assert.ok(
     [...panel.querySelectorAll(".mwi-enhancement-value")].every(
       (value) => value.textContent === "—",
@@ -153,6 +155,7 @@ test("English labels are synchronized", () => {
   runtime.config.isZH = false;
   const panel = showEnhancementCostPanel(anchor(), completePlan());
   assert.match(panel.textContent, /Total cost/);
+  assert.match(panel.textContent, /Base cost/);
   assert.match(panel.textContent, /Protect from/);
   assert.match(
     panel.textContent,
