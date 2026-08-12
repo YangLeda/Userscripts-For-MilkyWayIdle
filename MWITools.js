@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.5
+// @version      26.4.6
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
-// @description  Tools for MilkyWayIdle. Includes feedback, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
+// @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
 // @author       bot7420, shykai, Stella
 // @license      CC-BY-NC-SA-4.0
 // @match        https://www.milkywayidle.com/*
@@ -900,7 +900,7 @@
     },
     feedback: {
       id: "feedback",
-      desc: isZH ? "总等级下方显示意见反馈入口" : "Show the feedback entry below total level.",
+      desc: isZH ? "总等级下方显示意见中心入口" : "Show the Feedback Center below total level.",
       isTrue: true
     },
     invWorth: {
@@ -941,6 +941,11 @@
     itemTooltip_profit: {
       id: "itemTooltip_profit",
       desc: isZH ? "物品悬浮窗显示：生产成本和利润计算 [依赖上一项]" : "Item tooltip: Production cost and profit. [Depends on the previous selection]",
+      isTrue: true
+    },
+    itemTooltip_profitRequireKey: {
+      id: "itemTooltip_profitRequireKey",
+      desc: isZH ? "悬浮生产利润需要同时按住自定义按键" : "Require a custom held key for tooltip production profit.",
       isTrue: true
     },
     showConsumTips: {
@@ -1172,6 +1177,11 @@
       id: "forceMWIToolsDisplayZH",
       desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
       isTrue: false
+    },
+    adaptIronCowMarketFeatures: {
+      id: "adaptIronCowMarketFeatures",
+      desc: isZH ? "铁牛角色隐藏不可用的市场与利润功能" : "Hide unavailable marketplace and profit features for Iron Cow characters.",
+      isTrue: false
     }
   };
   var settingsGroups = {
@@ -1250,10 +1260,10 @@
     [
       "feedback",
       "general",
-      "意见反馈",
-      "Feedback",
-      "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
-      "Submit feedback with external image links below total level and follow its status."
+      "意见中心",
+      "Feedback Center",
+      "查看版本公告、提交意见，并通过红点关注反馈回复。",
+      "Read release announcements, submit feedback, and follow replies with a notification dot."
     ],
     [
       "forceMWIToolsDisplayZH",
@@ -1286,6 +1296,14 @@
       "Idle notification",
       "动作队列清空时发送浏览器通知；游戏页面需要保持打开。",
       "Send a browser notification when the action queue becomes empty while the game is open."
+    ],
+    [
+      "adaptIronCowMarketFeatures",
+      "general",
+      "铁牛模式适配",
+      "Iron Cow mode adaptation",
+      "铁牛角色隐藏市场价格、交易利润和市场采购操作；资产与宝箱估值仍保留。",
+      "Hide marketplace prices, trading profit, and marketplace procurement for Iron Cow characters while retaining asset and loot valuations."
     ],
     [
       "expPercentage",
@@ -1454,6 +1472,14 @@
       "Tooltip production profit",
       "在可生产物品的悬浮窗显示材料成本和预计利润。",
       "Show material cost and estimated profit for craftable items."
+    ],
+    [
+      "itemTooltip_profitRequireKey",
+      "market",
+      "悬浮利润需要按键",
+      "Require key for tooltip profit",
+      "桌面端悬浮时还需按住自定义单键；移动端使用长按。",
+      "Require a custom held key while hovering on desktop; use a long press on touch devices."
     ],
     [
       "showConsumTips",
@@ -1676,24 +1702,24 @@
       "guild",
       "公会经验总览",
       "Guild XP overview",
-      "显示最近、1 小时和 24 小时速率、升级时间与 7 天趋势。",
-      "Show recent, hourly, and daily XP rates, time to level, and a seven-day trend."
+      "显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
+      "Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average."
     ],
     [
       "guildMemberXp",
       "guild",
       "成员经验速率",
       "Member XP rates",
-      "在成员表增加最近和 24 小时 XP/h 两列。",
-      "Add recent and 24-hour XP/h columns to the member table."
+      "在成员表增加近 6 小时、24 小时和本周平均 XP/h。",
+      "Add 6-hour, 24-hour, and this-week average XP/h columns to the member table."
     ],
     [
       "guildLeaderboardXp",
       "guild",
       "公会榜经验速率",
       "Guild leaderboard XP rates",
-      "在全服公会榜显示本机采样得到的最近和 24 小时 XP/h。",
-      "Show locally sampled recent and 24-hour XP/h on the guild leaderboard."
+      "在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
+      "Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard."
     ],
     [
       "guildIdleMembers",
@@ -1764,6 +1790,7 @@
     productionProfit: "actionPanel_totalTime",
     showsKeyInfoInIcon: "itemIconLevel",
     itemTooltip_profit: "itemTooltip_prices",
+    itemTooltip_profitRequireKey: "itemTooltip_profit",
     showConsumTips: "itemTooltip_prices",
     lootChestEstimate: "itemTooltip_prices",
     lootSellAtAsk: "lootChestEstimate",
@@ -1789,6 +1816,16 @@
   var settingListeners = /* @__PURE__ */ new Map();
   function getSetting(id) {
     return settingsMap[id]?.isTrue;
+  }
+  function isIronCowCharacter() {
+    return ["ironcow", "legacy_ironcow"].includes(
+      String(runtime.state.currentCharacterGameMode ?? "").toLowerCase()
+    );
+  }
+  function shouldSuppressMarketFeatures() {
+    return Boolean(
+      settingsMap.adaptIronCowMarketFeatures?.isTrue && isIronCowCharacter()
+    );
   }
   async function setSetting(id, value, options = {}) {
     if (!settingsMap[id]) return false;
@@ -1902,6 +1939,10 @@
     get: getSetting,
     set: setSetting,
     onChange: onSettingChange
+  });
+  Object.assign(runtime.api, {
+    isIronCowCharacter,
+    shouldSuppressMarketFeatures
   });
   runtime.registerStart("core/config.js", () => {
     console.log(window.location.href);
@@ -18093,6 +18134,8 @@
   var guildDataLoaded = false;
   var currentCharacterId = "";
   var currentCharacterName = "";
+  var currentCharacterGameMode = "standard";
+  var labyrinthActive = false;
   var characterQuests = [];
   var guild = null;
   var guildCharacters = [];
@@ -18391,6 +18434,24 @@
         currentCharacterName = String(value ?? "");
       }
     },
+    currentCharacterGameMode: {
+      enumerable: true,
+      get() {
+        return currentCharacterGameMode;
+      },
+      set(value) {
+        currentCharacterGameMode = String(value ?? "standard").toLowerCase();
+      }
+    },
+    labyrinthActive: {
+      enumerable: true,
+      get() {
+        return labyrinthActive;
+      },
+      set(value) {
+        labyrinthActive = Boolean(value);
+      }
+    },
     characterQuests: {
       enumerable: true,
       get() {
@@ -18505,6 +18566,8 @@
   var MARKET_MAX_PRICE = 1e12;
   var TEST_MARKET_REFRESH_MS = 10 * 60 * 1e3;
   var PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1e3;
+  var assetValuationMarketSnapshot = null;
+  var assetValuationMarketDirty = false;
   function getMarketEnvironment(hostname = globalThis.location?.hostname ?? "") {
     if (hostname.startsWith("test.")) return "test";
     if (hostname.endsWith("milkywayidlecn.com")) return "china";
@@ -18529,8 +18592,40 @@
     const value = itemValues[enhancementLevel] ?? itemValues[String(enhancementLevel)];
     return Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null;
   }
+  function getMarketRecordFrom(marketApiJson2, itemHrid, enhancementLevel = 0) {
+    return marketApiJson2?.marketData?.[itemHrid]?.[enhancementLevel] ?? marketApiJson2?.marketData?.[itemHrid]?.[String(enhancementLevel)] ?? null;
+  }
   function getMarketRecord(itemHrid, enhancementLevel = 0) {
-    return runtime.state.marketApiJson?.marketData?.[itemHrid]?.[enhancementLevel] ?? runtime.state.marketApiJson?.marketData?.[itemHrid]?.[String(enhancementLevel)] ?? null;
+    return getMarketRecordFrom(
+      runtime.state.marketApiJson,
+      itemHrid,
+      enhancementLevel
+    );
+  }
+  function cloneMarketItemValues(source) {
+    return Object.fromEntries(
+      Object.entries(source ?? {}).map(([itemHrid, levels]) => [
+        itemHrid,
+        { ...levels ?? {} }
+      ])
+    );
+  }
+  function ensureAssetValuationMarketSnapshot() {
+    assetValuationMarketSnapshot ??= {
+      marketApiJson: runtime.state.marketApiJson,
+      marketItemValues: cloneMarketItemValues(runtime.state.marketItemValues)
+    };
+    return assetValuationMarketSnapshot;
+  }
+  function markAssetValuationMarketDirty() {
+    if (assetValuationMarketSnapshot) assetValuationMarketDirty = true;
+  }
+  function resetAssetValuationMarketSnapshot() {
+    assetValuationMarketSnapshot = null;
+    assetValuationMarketDirty = false;
+  }
+  function isAssetValuationMarketDirty() {
+    return assetValuationMarketDirty;
   }
   function getAskPrice(itemHrid, enhancementLevel = 0) {
     const price = Number(getMarketRecord(itemHrid, enhancementLevel)?.a);
@@ -18551,6 +18646,40 @@
     const bid = getBidPrice(itemHrid, enhancementLevel);
     if (ask > 0 && bid > 0) return (ask + bid) / 2;
     return ask || bid || 0;
+  }
+  function getAssetMarketRecord(itemHrid, enhancementLevel = 0) {
+    return getMarketRecordFrom(
+      ensureAssetValuationMarketSnapshot().marketApiJson,
+      itemHrid,
+      enhancementLevel
+    );
+  }
+  function getAssetAskPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.a);
+    return price > 0 ? price : 0;
+  }
+  function getAssetBidPrice(itemHrid, enhancementLevel = 0) {
+    const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.b);
+    return price > 0 ? price : 0;
+  }
+  function getAssetFairValue(itemHrid, enhancementLevel = 0) {
+    const snapshot = ensureAssetValuationMarketSnapshot();
+    const serverValue = getLevelValue(
+      snapshot.marketItemValues,
+      itemHrid,
+      enhancementLevel
+    );
+    if (serverValue !== null && serverValue > 0) return serverValue;
+    const ask = getAssetAskPrice(itemHrid, enhancementLevel);
+    const bid = getAssetBidPrice(itemHrid, enhancementLevel);
+    if (ask > 0 && bid > 0) return (ask + bid) / 2;
+    return ask || bid || 0;
+  }
+  function getAssetNetSellPrice(itemHrid, enhancementLevel = 0) {
+    return getAssetBidPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
+  }
+  function getAssetNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+    return getAssetAskPrice(itemHrid, enhancementLevel) * (1 - getMarketTaxRate(itemHrid));
   }
   function getMarketTaxRate(itemHrid) {
     return itemHrid === "/items/bag_of_10_cowbells" ? COWBELL_TAX_RATE : MARKET_TAX_RATE;
@@ -18698,7 +18827,7 @@
     if (!parsed) return false;
     runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
     runtime.state.marketItemValues = parsed.marketItemValues;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
     return true;
   }
   function validateMarketJsonFetch(jsonValue, isSave = false) {
@@ -18729,7 +18858,7 @@
       jsonObj.marketData[itemHrid] = { 0: prices };
     }
     runtime.state.marketApiJson = jsonObj;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
     if (isSave) {
       localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
       localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
@@ -18812,7 +18941,7 @@
     if (!payload.marketItemValues) return;
     runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
     runtime.state.marketItemValues = payload.marketItemValues;
-    runtime.api.invalidateAssetValueCache?.();
+    markAssetValuationMarketDirty();
   }
   function applyMarketOrderBooks(payload) {
     const orderBookPayload = payload.marketItemOrderBooks ?? payload;
@@ -18824,8 +18953,8 @@
         ...runtime.state.marketItemValues[itemHrid] ?? {},
         ...orderBookPayload.marketValues
       };
+      markAssetValuationMarketDirty();
     }
-    runtime.api.invalidateAssetValueCache?.();
     const minimums = orderBookPayload.priceBandMins ?? {};
     const maximums = orderBookPayload.priceBandMaxs ?? {};
     const levels = /* @__PURE__ */ new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
@@ -18870,6 +18999,13 @@
     getAskPrice,
     getBidPrice,
     getFairValue,
+    getAssetAskPrice,
+    getAssetBidPrice,
+    getAssetFairValue,
+    getAssetNetSellPrice,
+    getAssetNetSellPriceAtAsk,
+    resetAssetValuationMarketSnapshot,
+    isAssetValuationMarketDirty,
     getMarketTaxRate,
     getNetSellPrice,
     getNetSellPriceAtAsk,
@@ -18927,6 +19063,13 @@
     gourmet: "/buff_types/gourmet",
     rareFind: "/buff_types/rare_find"
   });
+  var ALCHEMY_ACTION_HRIDS = Object.freeze({
+    coinify: "/actions/alchemy/coinify",
+    decompose: "/actions/alchemy/decompose",
+    transmute: "/actions/alchemy/transmute",
+    unrefine: "/actions/alchemy/unrefine"
+  });
+  var COIN_ITEM_HRID = "/items/coin";
   function asArray(value) {
     if (Array.isArray(value)) return value;
     if (!value) return [];
@@ -18941,6 +19084,65 @@
     return (runtime.state.initData_characterItems ?? []).filter(
       (item) => item.itemHrid === itemHrid && item.itemLocationHrid === "/item_locations/inventory"
     ).reduce((sum, item) => sum + Number(item.count || 0), 0);
+  }
+  function getInventoryItemByHash(hash) {
+    if (!hash) return null;
+    return (runtime.state.initData_characterItems ?? []).find(
+      (item) => item.hash === hash && item.itemLocationHrid === "/item_locations/inventory"
+    ) ?? null;
+  }
+  function getAlchemyCoinCost(actionHrid, itemDetail) {
+    const itemLevel = Math.max(0, Number(itemDetail?.itemLevel) || 0);
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.coinify) return 0;
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.decompose || actionHrid === ALCHEMY_ACTION_HRIDS.unrefine) {
+      return Math.floor(5 * (10 + itemLevel));
+    }
+    if (actionHrid === ALCHEMY_ACTION_HRIDS.transmute) {
+      return Math.max(50, Math.floor((Number(itemDetail?.sellPrice) || 0) / 5));
+    }
+    return 0;
+  }
+  function getAlchemyCapacity(action, detail, lessResource) {
+    if (detail?.function !== "/action_functions/alchemy") return null;
+    const primary = getInventoryItemByHash(action?.primaryItemHash);
+    if (!primary) {
+      return { known: false, maxCraftable: null, missing: ["primaryItem"] };
+    }
+    const primaryDetail = runtime.state.initData_itemDetailMap?.[primary.itemHrid];
+    const bulkMultiplier = Math.max(
+      1,
+      Math.floor(Number(primaryDetail?.alchemyDetail?.bulkMultiplier) || 1)
+    );
+    let maxCraftable = Math.floor(
+      Math.max(0, Number(primary.count) || 0) / bulkMultiplier
+    );
+    if (action?.secondaryItemHash) {
+      const secondary = getInventoryItemByHash(action.secondaryItemHash);
+      if (!secondary) {
+        return { known: false, maxCraftable: null, missing: ["secondaryItem"] };
+      }
+      maxCraftable = primary.hash === secondary.hash ? Math.floor(
+        Math.max(0, Number(primary.count) || 0) / (bulkMultiplier + 1)
+      ) : Math.min(maxCraftable, Math.max(0, Number(secondary.count) || 0));
+    }
+    const coinCost = getAlchemyCoinCost(action.actionHrid, primaryDetail);
+    if (coinCost > 0) {
+      const reduction = Math.min(1, Math.max(0, Number(lessResource) || 0));
+      const effectiveCoinCost = coinCost * bulkMultiplier * (1 - reduction);
+      if (effectiveCoinCost > 0) {
+        maxCraftable = Math.min(
+          maxCraftable,
+          Math.floor(getInventoryCount(COIN_ITEM_HRID) / effectiveCoinCost)
+        );
+      }
+    }
+    return {
+      known: true,
+      maxCraftable: Math.max(0, maxCraftable),
+      bulkMultiplier,
+      coinCost,
+      primary
+    };
   }
   function getExpectedOutputs(detail) {
     if (asArray(detail?.outputItems).length) {
@@ -19361,21 +19563,45 @@
     const inputs = getDirectInputs(detail);
     const outputs = getEffectiveOutputs(detail, teaEffects);
     const lessResource = teaEffects.lessResource;
-    let maxCraftable = Infinity;
-    for (const input of inputs) {
-      const effectiveCount = getEffectiveInputCount(input, lessResource);
-      if (effectiveCount > 0) {
-        maxCraftable = Math.min(
-          maxCraftable,
-          Math.floor(getInventoryCount(input.itemHrid) / effectiveCount)
-        );
-      }
+    const alchemyCapacity = getAlchemyCapacity(action, detail, lessResource);
+    if (alchemyCapacity && !alchemyCapacity.known) {
+      return {
+        status: "waiting",
+        actionHrid,
+        detail,
+        count: normalizedCount,
+        infinite,
+        effectiveCount: null,
+        effectivelyInfinite: false,
+        materialLimited: false,
+        maxCraftable: null,
+        missing: alchemyCapacity.missing,
+        missingPrices: [],
+        netProfitPerAction: null,
+        profitPerHour: null,
+        totalProfit: null,
+        secondsPerAction,
+        totalSeconds: null,
+        finishAt: null
+      };
     }
-    if (!inputs.length) maxCraftable = Infinity;
-    const canApplyInventoryLimit = respectInventoryLimit && !(infinite && maxCraftable === 0);
+    let maxCraftable = alchemyCapacity?.maxCraftable ?? Infinity;
+    if (!alchemyCapacity) {
+      for (const input of inputs) {
+        const effectiveCount = getEffectiveInputCount(input, lessResource);
+        if (effectiveCount > 0) {
+          maxCraftable = Math.min(
+            maxCraftable,
+            Math.floor(getInventoryCount(input.itemHrid) / effectiveCount)
+          );
+        }
+      }
+      if (!inputs.length) maxCraftable = Infinity;
+    }
+    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
     const executableCount = canApplyInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
-    const materialLimited = respectInventoryLimit && inputs.length > 0 && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
+    const materialLimited = respectInventoryLimit && (inputs.length > 0 || Boolean(alchemyCapacity)) && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
     const valuationMode = "fair";
     const optionalOutputs = getOptionalOutputs(actionHrid, detail);
     const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
@@ -20873,6 +21099,8 @@
   var FALLBACK_KEY = "MWITools_xp_history_v1";
   var RETENTION_MS = 30 * 24 * 60 * 60 * 1e3;
   var HOUR_MS = 60 * 60 * 1e3;
+  var RECENT_WINDOW_MS = 6 * HOUR_MS;
+  var RECENT_MINIMUM_COVERAGE_MS = HOUR_MS;
   function openDatabase() {
     if (!globalThis.indexedDB) return Promise.resolve(null);
     return new Promise((resolve) => {
@@ -20995,14 +21223,13 @@
   function calculateXpRates(records, now = Date.now()) {
     const sorted = [...records].sort((a, b) => a.at - b.at);
     const latest = sorted.at(-1);
-    let previous = null;
-    if (latest) {
-      previous = [...sorted].reverse().find(
-        (record) => latest.at - record.at >= 5 * 60 * 1e3 && record.xp <= latest.xp
-      );
-    }
     return {
-      recent: latest && previous ? (latest.xp - previous.xp) / (latest.at - previous.at) * HOUR_MS : null,
+      recent: calculateWindowRate(
+        sorted,
+        RECENT_WINDOW_MS,
+        RECENT_MINIMUM_COVERAGE_MS,
+        now
+      ),
       hour: calculateWindowRate(sorted, HOUR_MS, 30 * 60 * 1e3, now),
       day: calculateWindowRate(sorted, 24 * HOUR_MS, 12 * HOUR_MS, now),
       lastSampleAt: latest?.at ?? null,
@@ -21047,6 +21274,7 @@
     assetValueCache.clear();
     assetLiquidationCache.clear();
     guildCreditHridCache = null;
+    runtime.api.resetAssetValuationMarketSnapshot?.();
   }
   function getItemDetails(itemHrid) {
     return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
@@ -21102,7 +21330,7 @@
     )) {
       const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
       if (!itemHrid || itemHrid === "/items/guild_token") continue;
-      const materialValue = runtime.api.getFairValue(itemHrid, 0);
+      const materialValue = runtime.api.getAssetFairValue(itemHrid, 0);
       if (!(materialValue > 0)) continue;
       for (const conversion of detail?.guildCreditConversions ?? []) {
         if (conversion?.creditItemHrid !== creditItemHrid) continue;
@@ -21208,14 +21436,18 @@
   }
   function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
     if (itemHrid === "/items/coin") return 1;
-    const price = sellAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    const price = sellAtAsk ? positiveNumber2(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(
+      runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel)
+    );
     if (!(price > 0)) return 0;
     const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
     return price * Math.max(0, 1 - taxRate);
   }
   function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
     if (itemHrid === "/items/coin") return 1;
-    return buyAtAsk ? positiveNumber2(runtime.api.getAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    return buyAtAsk ? positiveNumber2(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel)) : positiveNumber2(
+      runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel)
+    );
   }
   function lootDropIdentity(itemHrid, enhancementLevel = 0) {
     return `${itemHrid}:${Number(enhancementLevel) || 0}`;
@@ -21653,7 +21885,7 @@
       forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
       allowPhilosopherMirror: !backEquipment,
       getFairValue: (hrid, level = 0) => acquisitionCostValue(hrid, level, context),
-      getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level)
+      getMarketValue: (hrid, level = 0) => runtime.api.getAssetFairValue(hrid, level)
     });
     return plan?.status === "complete" ? positiveNumber2(plan.totalCost) : 0;
   }
@@ -21688,7 +21920,7 @@
   function getAssetValueInternal(itemHrid, enhancementLevel, context, options = {}) {
     if (!itemHrid) return 0;
     const level = Number(enhancementLevel) || 0;
-    const directFairValue = runtime.api.getFairValue(itemHrid, level);
+    const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
     const enhancedEquipment = level > 0 && isEquipment(itemHrid);
     const refinedBackEquipment = backEquipment && String(itemHrid).endsWith("_refined");
@@ -21784,16 +22016,16 @@
   function directLiquidationValue(itemHrid, enhancementLevel, mode) {
     if (mode === "conservative") {
       return positiveNumber2(
-        runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel)
+        runtime.api.getAssetNetSellPrice?.(itemHrid, enhancementLevel)
       );
     }
     if (mode === "aggressive") {
       return positiveNumber2(
-        runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
+        runtime.api.getAssetNetSellPriceAtAsk?.(itemHrid, enhancementLevel)
       );
     }
     const fairValue = positiveNumber2(
-      runtime.api.getFairValue?.(itemHrid, enhancementLevel)
+      runtime.api.getAssetFairValue?.(itemHrid, enhancementLevel)
     );
     if (!fairValue) return 0;
     const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
@@ -22266,6 +22498,8 @@
   function applyCharacterData(payload) {
     runtime.state.currentCharacterId = payload.character?.id ?? payload.character?.characterID ?? payload.characterID ?? payload.characterSkills?.[0]?.characterID ?? "";
     runtime.state.currentCharacterName = payload.character?.name ?? payload.characterName ?? payload.sharableCharacter?.name ?? payload.combatUnit?.name ?? "";
+    runtime.state.currentCharacterGameMode = payload.character?.gameMode ?? payload.combatUnit?.character?.gameMode ?? payload.sharableCharacter?.gameMode ?? "standard";
+    runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
     runtime.state.initData_characterSkills = payload.characterSkills;
     runtime.state.initData_characterItems = payload.characterItems ?? [];
     runtime.state.initData_characterHouseRoomMap = payload.characterHouseRoomMap;
@@ -22497,6 +22731,13 @@
         break;
       case "leaderboard_updated":
         applyLeaderboard(payload);
+        break;
+      case "labyrinth_updated":
+        if (Object.hasOwn(payload, "labyrinth")) {
+          runtime.state.labyrinthActive = Boolean(payload.labyrinth?.isActive);
+        } else if (Object.hasOwn(payload, "isActive")) {
+          runtime.state.labyrinthActive = Boolean(payload.isActive);
+        }
         break;
     }
   }
@@ -23397,6 +23638,12 @@
     const [year, month, day] = String(dayKey).split("-").map(Number);
     return Date.UTC(year, month - 1, day);
   }
+  function isValidDayKey(dayKey) {
+    const value = String(dayKey ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const timestamp = parseDayKey(value);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+  }
   function dayGap(left, right) {
     return Math.round((parseDayKey(right) - parseDayKey(left)) / 864e5);
   }
@@ -23651,6 +23898,31 @@
       this.getRole(scopeKey).days[dayKey] = {
         recordedAt: (/* @__PURE__ */ new Date()).toISOString(),
         values,
+        edited: true
+      };
+      this.save();
+      return values;
+    }
+    insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
+      if (!isValidDayKey(dayKey)) {
+        throw new TypeError("Asset history insertion requires a valid day key");
+      }
+      const values = normalizeAssetValues(componentValues);
+      if (!ASSET_COMPONENT_KEYS.every(
+        (key) => Number.isFinite(values[key]) && values[key] >= 0
+      )) {
+        throw new TypeError(
+          "Every inserted asset component needs a non-negative finite value"
+        );
+      }
+      const role = this.getRole(scopeKey);
+      if (Object.hasOwn(role.days, dayKey)) {
+        throw new RangeError(`Asset history already contains ${dayKey}`);
+      }
+      role.days[dayKey] = {
+        recordedAt: (/* @__PURE__ */ new Date(`${dayKey}T15:59:59.999Z`)).toISOString(),
+        values,
+        inserted: true,
         edited: true
       };
       this.save();
@@ -24780,6 +25052,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       month: date.getMonth()
     };
   }
+  function shiftDayKey(dayKey, amount) {
+    const date = /* @__PURE__ */ new Date(`${dayKey}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + amount);
+    return date.toISOString().slice(0, 10);
+  }
   function addStyles() {
     if (document.getElementById(STYLE_ID)) return;
     const style = document.createElement("style");
@@ -24862,7 +25139,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         <div class="ep-nav-footer">${this.nav("settings", "⚙", this.t("设置/存档", "Settings"))}<button class="ep-nav-item" data-language><span class="ep-nav-icon">文</span><span class="ep-nav-text">${this.isZH() ? "EN" : "中文"}</span></button></div>
       </aside><main class="ep-main"><header class="ep-top"><div class="ep-top-main"><div class="ep-top-title"></div><div class="ep-top-sub"></div></div><button class="ep-close" data-close aria-label="${this.t("关闭", "Close")}">✕</button></header><div class="ep-page"></div></main>
       <input type="file" data-import-file accept="application/json" hidden>
-      <dialog data-edit-dialog><h3>${this.t("编辑分项资产", "Edit components")}</h3><div class="ep-edit-grid">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
+      <dialog data-edit-dialog><h3 data-editor-title>${this.t("编辑分项资产", "Edit components")}</h3><label data-insert-date-wrap hidden>${this.t("插入日期", "Insert date")}<input type="date" data-insert-date></label><div class="ep-edit-grid ep-section">${ASSET_COMPONENT_KEYS.map((key) => `<label>${this.t(ASSET_COMPONENT_META[key].zh, ASSET_COMPONENT_META[key].en)}<input type="number" min="0" step="any" data-edit-component="${key}"></label>`).join("")}</div><div class="ep-toolbar"><span class="ep-spacer"></span><button class="ep-btn" data-edit-cancel>${this.t("取消", "Cancel")}</button><button class="ep-btn" data-edit-save>${this.t("保存", "Save")}</button></div></dialog>
     </div>`;
       document.body.append(this.root);
       const windowSize = this.store.getPreferences().windowSize;
@@ -25167,8 +25444,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       page.innerHTML = `<div class="ep-grid">${this.metric(this.t("已解锁", "Unlocked"), unlocked)}${this.metric(this.t("全部成就", "All achievements"), achievements.length)}${this.metric(this.t("完成度 %", "Completion %"), achievements.length ? unlocked / achievements.length * 100 : 0)}${this.metric(this.t("历史天数", "History days"), this.store.list(this.scopeKey).length)}</div><div class="ep-achievements ep-section">${achievements.map((item) => `<article class="ep-achievement ${item.unlocked ? "" : "locked"}"><span class="ep-achievement-icon">${item.icon}</span><div class="ep-grow"><strong>${this.isZH() ? item.zhName : item.enName}</strong><small>${this.isZH() ? item.zhDescription : item.enDescription}</small>${item.date ? `<small>${item.date}</small>` : ""}</div><span>${item.unlocked ? "✓" : "🔒"}</span></article>`).join("")}</div>`;
     }
     renderDataPage(page) {
-      const entries = this.store.list(this.scopeKey).slice().reverse();
-      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(([date, record]) => `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td><button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`).join("")}</tbody></table></div></section>`;
+      const chronological = this.store.list(this.scopeKey);
+      const entries = chronological.map((entry, index) => ({ entry, previous: chronological[index - 1] })).reverse();
+      page.innerHTML = `<section class="ep-card"><div class="ep-toolbar"><button class="ep-btn" data-export>📤 ${this.t("导出备份", "Export")}</button><button class="ep-btn" data-import>📥 ${this.t("导入备份", "Import")}</button><select data-import-mode><option value="merge">${this.t("合并当前角色", "Merge current role")}</option><option value="replace">${this.t("替换当前角色", "Replace current role")}</option><option value="full">${this.t("完整恢复", "Full restore")}</option></select><span class="ep-spacer"></span><button class="ep-btn danger" data-clean>${this.t("清理无效", "Clean invalid")}</button><button class="ep-btn danger" data-anomalies>${this.t("删除反转异常", "Remove anomalies")}</button></div><div class="ep-section-body"><table><thead><tr><th>${this.t("日期", "Date")}</th><th>${this.t("总资产", "Total")}</th><th>${this.t("操作", "Actions")}</th></tr></thead><tbody>${entries.map(({ entry: [date, record], previous }) => {
+        const insertButton = previous && shiftDayKey(previous[0], 1) < date ? `<button class="ep-btn" data-insert-after="${previous[0]}" data-insert-before="${date}">${this.t("插入", "Insert")}</button> ` : "";
+        return `<tr><td>${date}</td><td class="mono">${this.format(record.values.total)}</td><td>${insertButton}<button class="ep-btn" data-edit-day="${date}">${this.t("编辑", "Edit")}</button> <button class="ep-btn danger" data-delete-day="${date}">${this.t("删除", "Delete")}</button></td></tr>`;
+      }).join("")}</tbody></table></div></section>`;
       page.querySelector("[data-export]").addEventListener("click", () => this.downloadBackup());
       page.querySelector("[data-import]").addEventListener("click", () => {
         this.pendingImportMode = page.querySelector("[data-import-mode]").value;
@@ -25210,6 +25491,15 @@ ${values.map((item) => item.date).join("\n")}`
           this.changed();
         }
       });
+      page.querySelectorAll("[data-insert-after]").forEach(
+        (button) => button.addEventListener(
+          "click",
+          () => this.openInsertEditor(
+            button.dataset.insertAfter,
+            button.dataset.insertBefore
+          )
+        )
+      );
       page.querySelectorAll("[data-edit-day]").forEach(
         (button) => button.addEventListener(
           "click",
@@ -25229,8 +25519,39 @@ ${values.map((item) => item.date).join("\n")}`
     }
     openEditor(date) {
       const dialog = this.root.querySelector("[data-edit-dialog]");
+      dialog.dataset.mode = "edit";
       dialog.dataset.date = date;
+      delete dialog.dataset.olderDate;
+      delete dialog.dataset.newerDate;
+      dialog.querySelector("[data-editor-title]").textContent = this.t(
+        "编辑分项资产",
+        "Edit components"
+      );
+      dialog.querySelector("[data-insert-date-wrap]").hidden = true;
       const values = this.store.getRole(this.scopeKey).days[date]?.values ?? {};
+      dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
+        input.value = Number.isFinite(values[input.dataset.editComponent]) ? values[input.dataset.editComponent] : "";
+      });
+      dialog.showModal();
+    }
+    openInsertEditor(olderDate, newerDate) {
+      const dialog = this.root.querySelector("[data-edit-dialog]");
+      const dateInput = dialog.querySelector("[data-insert-date]");
+      const minimum = shiftDayKey(olderDate, 1);
+      const maximum = shiftDayKey(newerDate, -1);
+      dialog.dataset.mode = "insert";
+      dialog.dataset.olderDate = olderDate;
+      dialog.dataset.newerDate = newerDate;
+      delete dialog.dataset.date;
+      dialog.querySelector("[data-editor-title]").textContent = this.t(
+        "插入历史资产",
+        "Insert historical assets"
+      );
+      dialog.querySelector("[data-insert-date-wrap]").hidden = false;
+      dateInput.min = minimum;
+      dateInput.max = maximum;
+      dateInput.value = minimum;
+      const values = this.store.getRole(this.scopeKey).days[olderDate]?.values ?? {};
       dialog.querySelectorAll("[data-edit-component]").forEach((input) => {
         input.value = Number.isFinite(values[input.dataset.editComponent]) ? values[input.dataset.editComponent] : "";
       });
@@ -25241,7 +25562,7 @@ ${values.map((item) => item.date).join("\n")}`
       const values = Object.fromEntries(
         [...dialog.querySelectorAll("[data-edit-component]")].map((input) => [
           input.dataset.editComponent,
-          Number(input.value)
+          input.value.trim() === "" ? null : Number(input.value)
         ])
       );
       if (!ASSET_COMPONENT_KEYS.every(
@@ -25250,7 +25571,30 @@ ${values.map((item) => item.date).join("\n")}`
         return globalThis.alert?.(
           this.t("请填写全部七个分项。", "Enter all seven components.")
         );
-      this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      if (dialog.dataset.mode === "insert") {
+        const dateInput = dialog.querySelector("[data-insert-date]");
+        const dayKey = dateInput.value;
+        if (!dayKey || dayKey < dateInput.min || dayKey > dateInput.max) {
+          return globalThis.alert?.(
+            this.t(
+              "请选择两条记录之间的缺失日期。",
+              "Choose a missing date between the two records."
+            )
+          );
+        }
+        try {
+          this.store.insertDay(dayKey, values, this.scopeKey);
+        } catch {
+          return globalThis.alert?.(
+            this.t(
+              "无法插入：日期已存在或数据无效。",
+              "Could not insert: the date already exists or the data is invalid."
+            )
+          );
+        }
+      } else {
+        this.store.updateDay(dialog.dataset.date, values, this.scopeKey);
+      }
       dialog.close();
       this.changed();
     }
@@ -26246,6 +26590,9 @@ ${preview}`
     },
     updateDay(dayKey, values, scopeKey = currentScopeKey()) {
       return assetHistoryStore.updateDay(dayKey, values, scopeKey);
+    },
+    insertDay(dayKey, values, scopeKey = currentScopeKey()) {
+      return assetHistoryStore.insertDay(dayKey, values, scopeKey);
     },
     deleteDay(dayKey, scopeKey = currentScopeKey()) {
       return assetHistoryStore.deleteDay(dayKey, scopeKey);
@@ -30029,6 +30376,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     globalThis.removeEventListener?.("scroll", state.position, true);
     if (state.outsideHandler) {
       document.removeEventListener("mousedown", state.outsideHandler, true);
+      document.removeEventListener("pointerdown", state.outsideHandler, true);
     }
     for (const stop of state.settingStops ?? []) stop?.();
     state.panel?.remove();
@@ -30073,8 +30421,25 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     return panel;
   }
+  function attachStickyOutsideHandler(panel, anchor) {
+    const outsideHandler = (event) => {
+      if (!activePanel?.sticky || activePanel.panel !== panel) return;
+      if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
+      runtime.api.clearTooltipProfitHoverContext?.(anchor);
+      hideProductionProfitPanel();
+    };
+    globalThis.setTimeout?.(() => {
+      if (activePanel?.panel !== panel) return;
+      document.addEventListener("pointerdown", outsideHandler, true);
+      activePanel.outsideHandler = outsideHandler;
+    }, 0);
+  }
   function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     if (activePanel?.pinned) return null;
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+      return null;
+    }
     const actionHrid = options.actionHrid ?? runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
     if (!anchor?.isConnected || !actionHrid) {
       hideProductionProfitPanel();
@@ -30086,13 +30451,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
     const panel = createPanelElement();
+    const sticky = Boolean(options.sticky);
+    panel.classList.toggle("mwi-profit-pinned", sticky);
     renderPanel(panel, primaryItemHrid, projection, {
       directAction: Boolean(options.actionHrid)
     });
-    return mountPanel(anchor, panel, {
+    const mounted = mountPanel(anchor, panel, {
       itemHrid: primaryItemHrid,
-      actionHrid
+      actionHrid,
+      sticky
     });
+    if (sticky) attachStickyOutsideHandler(panel, anchor);
+    return mounted;
   }
   function showLootChestPanel(anchor, itemHrid, options = {}) {
     const pinned = Boolean(options.pinned);
@@ -30160,9 +30530,19 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function dismissHoverPanel() {
-    if (activePanel?.pinned) return;
+    if (activePanel?.pinned || activePanel?.sticky) return;
     hideProductionProfitPanel();
   }
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+    }
+  });
+  runtime.onMessage("init_character_data", () => {
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      hideProductionProfitPanel();
+    }
+  });
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     dismissHoverPanel,
@@ -30173,6 +30553,74 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/item-tooltips.js
+  var TOUCH_PROFIT_LONG_PRESS_MS = 800;
+  var TOUCH_PROFIT_MOVE_TOLERANCE = 12;
+  var profitHoverContext = null;
+  var profitShortcutHeld = false;
+  var touchProfitPress = null;
+  var touchProfitAuthorizedUntil = 0;
+  function isEditableTarget(target) {
+    return Boolean(
+      target?.closest?.('input,textarea,select,[contenteditable="true"]')
+    );
+  }
+  function requiresProfitShortcut() {
+    return Boolean(
+      runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue
+    );
+  }
+  function canShowTooltipProfit() {
+    return Boolean(
+      runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+    );
+  }
+  function showProfitContext(context = profitHoverContext, options = {}) {
+    if (!context?.anchor?.isConnected || !canShowTooltipProfit()) {
+      runtime.api.dismissHoverPanel?.();
+      return null;
+    }
+    return runtime.api.showProductionProfitPanel?.(
+      context.anchor,
+      context.itemHrid ?? null,
+      {
+        actionHrid: context.actionHrid,
+        sticky: Boolean(options.sticky)
+      }
+    );
+  }
+  function setProfitHoverContext(context) {
+    profitHoverContext = context;
+    if (!canShowTooltipProfit()) {
+      runtime.api.dismissHoverPanel?.();
+      return;
+    }
+    if (!requiresProfitShortcut() || profitShortcutHeld) {
+      showProfitContext(context);
+      return;
+    }
+    if (Date.now() <= touchProfitAuthorizedUntil) {
+      touchProfitAuthorizedUntil = 0;
+      showProfitContext(context, { sticky: true });
+      return;
+    }
+    if (touchProfitPress?.authorized) {
+      touchProfitPress.triggered = true;
+      showProfitContext(context, { sticky: true });
+      return;
+    }
+    runtime.api.dismissHoverPanel?.();
+  }
+  function clearProfitHoverContext(anchor = null) {
+    if (anchor && profitHoverContext?.anchor !== anchor) return;
+    clearTimeout(touchProfitPress?.timer);
+    touchProfitPress = null;
+    touchProfitAuthorizedUntil = 0;
+    profitHoverContext = null;
+    runtime.api.dismissHoverPanel?.();
+  }
+  function removeSuppressedTooltipContent() {
+    document.querySelectorAll('[data-mwitools-tooltip-market="true"]').forEach((row) => row.remove());
+  }
   var showTotalActionTime = () => {
     const targetNode = document.querySelector("div.Header_actionName__31-L2");
     if (targetNode) {
@@ -30262,9 +30710,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
             const actionHrid = resolveGatheringActionFromElement(added);
             if (actionHrid) {
-              runtime.api.showProductionProfitPanel?.(added, null, {
-                actionHrid
-              });
+              setProfitHoverContext({ anchor: added, actionHrid });
             }
           }
         }
@@ -30512,6 +30958,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       "div.ItemTooltipText_name__2JAHA span"
     );
     if (itemNameElems.length > 1) {
+      clearProfitHoverContext();
       runtime.api.dismissHoverPanel?.();
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
@@ -30539,7 +30986,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     let ask = null;
     let bid = null;
     let fairValue = null;
-    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+    const suppressMarket = Boolean(runtime.api.shouldSuppressMarketFeatures?.());
+    if (runtime.settings.settingsMap.itemTooltip_prices.isTrue && !suppressMarket) {
       marketJson = await fetchMarketJSON2();
       if (!marketJson || !marketJson.marketData) {
         console.error(
@@ -30550,8 +30998,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
       fairValue = runtime.api.getFairValue(itemHrid, 0);
       appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
     }
     if (runtime.settings.settingsMap.showConsumTips.isTrue) {
@@ -30561,14 +31009,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const cd = itemDetail?.consumableDetail?.cooldownDuration;
       if (hp && cd) {
         const hpPerMiniute = 60 / (cd / 1e9) * hp;
-        const pricePer100Hp = ask ? ask / (hp / 100) : null;
+        const pricePer100Hp = !suppressMarket && ask ? ask / (hp / 100) : null;
         const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Hp ? pricePer100Hp.toFixed(0) + (runtime.config.isZH ? "金/100血, " : "coins/100hp, ") : ""}${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
+        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Hp ? `<span data-mwitools-tooltip-market="true">${pricePer100Hp.toFixed(0) + (runtime.config.isZH ? "金/100血, " : "coins/100hp, ")}</span>` : ""}${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
       } else if (mp && cd) {
         const mpPerMiniute = 60 / (cd / 1e9) * mp;
-        const pricePer100Mp = ask ? ask / (mp / 100) : null;
+        const pricePer100Mp = !suppressMarket && ask ? ask / (mp / 100) : null;
         const usePerday = 24 * 60 * 60 / (cd / 1e9);
-        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ") : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
+        appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${pricePer100Mp ? `<span data-mwitools-tooltip-market="true">${pricePer100Mp.toFixed(0) + (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")}</span>` : ""}${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
       } else if (cd) {
         const usePerday = 24 * 60 * 60 / (cd / 1e9);
         appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}">${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
@@ -30580,10 +31028,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid]
     );
     if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
+      clearProfitHoverContext();
       runtime.api.showLootChestPanel?.(tooltip, itemHrid);
     } else if (!isOpenable && runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
-      runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+      setProfitHoverContext({ anchor: tooltip, itemHrid });
     } else {
+      clearProfitHoverContext();
       runtime.api.dismissHoverPanel?.();
     }
     const tootip = insertAfterElem.closest(".MuiTooltip-popper");
@@ -30635,7 +31085,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     getHousesEffBuffByActionHrid,
     getTeaBuffsByActionHrid,
     handleTooltipItem,
-    getActionHridFromItemName
+    getActionHridFromItemName,
+    clearTooltipProfitHoverContext: clearProfitHoverContext
   });
   Object.defineProperties(runtime.state, {
     tooltipObserver: {
@@ -30720,16 +31171,136 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           if (!card || card.contains(event.relatedTarget)) return;
           const actionHrid = resolveGatheringActionFromElement(card);
           if (!actionHrid) return;
-          runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
+          setProfitHoverContext({ anchor: card, actionHrid });
         });
         scope.event(document, "mouseout", (event) => {
           const card = gatheringCardFromEventTarget(event.target);
           if (!card || card.contains(event.relatedTarget)) return;
+          clearProfitHoverContext(card);
+        });
+        scope.event(
+          window,
+          "keydown",
+          (event) => {
+            if (event.repeat || isEditableTarget(event.target) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
+              return;
+            }
+            profitShortcutHeld = true;
+            if (requiresProfitShortcut()) showProfitContext();
+          },
+          true
+        );
+        scope.event(
+          window,
+          "keyup",
+          (event) => {
+            if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
+            profitShortcutHeld = false;
+            if (requiresProfitShortcut()) runtime.api.dismissHoverPanel?.();
+          },
+          true
+        );
+        scope.event(window, "blur", () => {
+          profitShortcutHeld = false;
           runtime.api.dismissHoverPanel?.();
+        });
+        scope.event(
+          document,
+          "pointerdown",
+          (event) => {
+            if (event.pointerType !== "touch" || !requiresProfitShortcut() || !canShowTooltipProfit()) {
+              return;
+            }
+            clearTimeout(touchProfitPress?.timer);
+            touchProfitAuthorizedUntil = 0;
+            const press = {
+              pointerId: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+              authorized: false,
+              triggered: false,
+              timer: null
+            };
+            press.timer = setTimeout(() => {
+              if (touchProfitPress !== press) return;
+              press.authorized = true;
+              if (profitHoverContext?.anchor?.isConnected) {
+                press.triggered = true;
+                showProfitContext(profitHoverContext, { sticky: true });
+              }
+            }, TOUCH_PROFIT_LONG_PRESS_MS);
+            touchProfitPress = press;
+          },
+          true
+        );
+        scope.event(
+          document,
+          "pointermove",
+          (event) => {
+            const press = touchProfitPress;
+            if (!press || press.pointerId !== event.pointerId) return;
+            if (Math.hypot(event.clientX - press.x, event.clientY - press.y) <= TOUCH_PROFIT_MOVE_TOLERANCE) {
+              return;
+            }
+            clearTimeout(press.timer);
+            touchProfitPress = null;
+            touchProfitAuthorizedUntil = 0;
+          },
+          true
+        );
+        const finishTouchPress = (event) => {
+          const press = touchProfitPress;
+          if (!press || press.pointerId !== event.pointerId) return;
+          clearTimeout(press.timer);
+          if (press.authorized && !press.triggered) {
+            touchProfitAuthorizedUntil = Date.now() + 500;
+          }
+          touchProfitPress = null;
+        };
+        scope.event(document, "pointerup", finishTouchPress, true);
+        scope.event(
+          document,
+          "pointercancel",
+          (event) => {
+            if (touchProfitPress?.pointerId !== event.pointerId) return;
+            clearTimeout(touchProfitPress.timer);
+            touchProfitPress = null;
+            touchProfitAuthorizedUntil = 0;
+          },
+          true
+        );
+        const stopRequireKey = runtime.settings.onChange(
+          "itemTooltip_profitRequireKey",
+          (required) => {
+            if (!required) showProfitContext();
+            else if (!profitShortcutHeld) runtime.api.dismissHoverPanel?.();
+          }
+        );
+        const stopIronCow = runtime.settings.onChange(
+          "adaptIronCowMarketFeatures",
+          () => {
+            if (runtime.api.shouldSuppressMarketFeatures?.()) {
+              clearProfitHoverContext();
+              removeSuppressedTooltipContent();
+            }
+          }
+        );
+        scope.add(() => {
+          stopRequireKey?.();
+          stopIronCow?.();
+          clearTimeout(touchProfitPress?.timer);
+          touchProfitPress = null;
+          profitShortcutHeld = false;
+          clearProfitHoverContext();
         });
       }
     });
   }
+  runtime.onMessage("init_character_data", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    clearProfitHoverContext();
+    removeSuppressedTooltipContent();
+  });
 
   // src/features/action-panel.js
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
@@ -30923,7 +31494,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       });
       updateTargetLevel();
     }
-    if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue) {
+    if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()) {
       const marketJson = await runtime.api.fetchMarketJSON();
       const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
       let drinksConsumedPerHourAskPrice = 0;
@@ -31135,6 +31706,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         waitForProgressBar();
       }, 1e3);
       scope.add(removeInsertedDivs);
+    }
+  });
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    for (const panel of document.querySelectorAll(
+      'div[class*="SkillActionDetail_regularComponent"]'
+    )) {
+      delete panel.dataset.mwitoolsActionPanel;
+      void handleActionPanel(panel);
     }
   });
   runtime.features.register({
@@ -31829,7 +32408,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         formatDuration(projection.totalSeconds)
       )
     );
-    if (runtime.settings.get("productionProfit")) {
+    const showProfit = runtime.settings.get("productionProfit") && !runtime.api.shouldSuppressMarketFeatures?.();
+    if (showProfit) {
       grid.append(
         metric(
           t6("每次净利润", "Per action"),
@@ -31849,7 +32429,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       );
     }
     card.append(title, grid);
-    if (projection.status === "incomplete") {
+    if (showProfit && projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
       warning.textContent = t6(
@@ -31965,6 +32545,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
+  function marketFeaturesSuppressed() {
+    return runtime.api.shouldSuppressMarketFeatures?.() ?? false;
+  }
   function materialNoun(count) {
     if (runtime.config.isZH) return "种材料";
     return Number(count) === 1 ? "material" : "materials";
@@ -31997,6 +32580,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
     .mwi-procurement-chain>summary{padding:4px 6px;cursor:pointer;color:var(--color-text-secondary,#aaa)}
+    .mwi-procurement-chain-presets{display:flex;gap:4px;padding:0 6px 5px}
+    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:.62rem;cursor:pointer}
+    .mwi-procurement-chain-preset[aria-pressed="true"]{border-color:#8293d6;background:rgba(82,100,154,.34);color:#fff}
     .mwi-procurement-chain-list{display:grid;gap:3px;padding:0 6px 6px}
     .mwi-procurement-chain-stage{display:flex;align-items:center;gap:6px;min-width:0}
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -32132,20 +32718,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return;
     }
     const settings2 = procurement.getSettings();
+    const marketEnabled = !marketFeaturesSuppressed();
+    const pricesEnabled = marketEnabled && settings2.pricesEnabled;
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
       const row = document.createElement("article");
       row.className = "cart-row";
-      const price = settings2.pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
-      if (settings2.pricesEnabled && item.quantity > 0) {
+      const price = pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
+      if (pricesEnabled && item.quantity > 0) {
         if (price > 0) total += price * item.quantity;
         else unpriced += 1;
       }
       row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t7("在市场中打开", "Open in marketplace")}">${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml4(item.name)}">${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-icon" ${marketEnabled ? `title="${t7("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
+      <button class="item-name" title="${escapeHtml4(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
@@ -32154,7 +32742,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       <button class="delete" title="${t7("删除", "Remove")}">×</button>
       <div class="row-bottom">
         <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t7("库存", "Stock")} ${formatNumber4(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings2.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t7("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
+        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t7("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
         <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t7("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
@@ -32170,9 +32758,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         });
       });
       for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-        target.addEventListener("click", () => {
-          openMarketplace(item.itemHrid, item.enhancementLevel);
-        });
+        if (marketEnabled) {
+          target.addEventListener("click", () => {
+            openMarketplace(item.itemHrid, item.enhancementLevel);
+          });
+        }
       }
       row.querySelector(".delete").addEventListener("click", () => {
         procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
@@ -32202,7 +32792,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    <span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>
+    ${marketEnabled ? `<span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t7("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       procurement.clearCart();
@@ -32894,7 +33484,45 @@ ${locks}` : ""}`;
         row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml4(stage.actionHrid)}"><span>${escapeHtml4(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
         list.append(row);
       }
-      details.append(heading, list);
+      const presets = document.createElement("div");
+      presets.className = "mwi-procurement-chain-presets";
+      const allButton = document.createElement("button");
+      allButton.type = "button";
+      allButton.className = "mwi-procurement-chain-preset";
+      allButton.textContent = t7("全链条", "Full chain");
+      const previousButton = document.createElement("button");
+      previousButton.type = "button";
+      previousButton.className = "mwi-procurement-chain-preset";
+      previousButton.textContent = t7("从上一步开始", "Start from previous");
+      const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+      const updatePresetState = () => {
+        const checked = checkboxes.map((input) => input.checked);
+        allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
+        previousButton.setAttribute(
+          "aria-pressed",
+          String(
+            Boolean(checked[0]) && checked.slice(1).every((value) => !value)
+          )
+        );
+      };
+      allButton.addEventListener("click", () => {
+        checkboxes.forEach((input) => {
+          input.checked = true;
+        });
+        updatePresetState();
+      });
+      previousButton.addEventListener("click", () => {
+        checkboxes.forEach((input, index) => {
+          input.checked = index === 0;
+        });
+        updatePresetState();
+      });
+      checkboxes.forEach(
+        (input) => input.addEventListener("change", updatePresetState)
+      );
+      presets.append(allButton, previousButton);
+      updatePresetState();
+      details.append(heading, presets, list);
       root.append(details);
     }
     const existingSummary = isEnhancing ? null : context.panel.querySelector("#mwi-production-summary");
@@ -33106,6 +33734,7 @@ ${locks}` : ""}`;
     return fallback;
   }
   function openMarketplace(itemHrid, enhancementLevel = 0) {
+    if (marketFeaturesSuppressed()) return false;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
@@ -33240,7 +33869,9 @@ ${locks}` : ""}`;
   }
   function highlightMarketItems(panel, scroll = false) {
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-    if (!procurement.getSettings().locateEnabled) return;
+    if (marketFeaturesSuppressed() || !procurement.getSettings().locateEnabled) {
+      return;
+    }
     const pending = new Set(
       pendingItems().map((item) => item.itemHrid.split("/").at(-1))
     );
@@ -33260,7 +33891,9 @@ ${locks}` : ""}`;
     }
   }
   function prefillPurchaseModal() {
-    if (!procurement.getSettings().autoPrefillEnabled) return;
+    if (marketFeaturesSuppressed() || !procurement.getSettings().autoPrefillEnabled) {
+      return;
+    }
     for (const modal of document.querySelectorAll(
       '[class*="MarketplacePanel_modalContent"]'
     )) {
@@ -33287,7 +33920,7 @@ ${locks}` : ""}`;
     }
   }
   function renderMarketNav(panel) {
-    if (!marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
+    if (marketFeaturesSuppressed() || !marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
@@ -33375,6 +34008,7 @@ ${locks}` : ""}`;
     return event.code === shortcut?.code && event.ctrlKey === Boolean(shortcut.ctrl) && event.shiftKey === Boolean(shortcut.shift) && event.altKey === Boolean(shortcut.alt) && event.metaKey === Boolean(shortcut.meta);
   }
   function handleShortcut(event) {
+    if (marketFeaturesSuppressed()) return;
     const shortcut = procurement.getSettings().nextItemShortcut;
     if (!armedNextItem || !shortcut || !shortcutMatches(event, shortcut)) return;
     const active = document.activeElement;
@@ -33457,6 +34091,12 @@ ${locks}` : ""}`;
       }
       createShell(scope);
       subscribeProcurement(scope);
+      scope.add(
+        runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+          clearMarketUi();
+          renderShell();
+        })
+      );
       renderProductionProcurement();
       updateMarketUi();
       scope.interval(renderProductionProcurement, 350);
@@ -34701,6 +35341,14 @@ ${locks}` : ""}`;
       DUNGEON_FILTERS.map(({ actionHrid }) => actionHrid)
     );
   }
+  function allTaskFiltersSelected() {
+    return activeProfessionFilters.size === LIFE_PROFESSIONS.length && combatFilterEnabled && activeDungeonFilters.size === DUNGEON_FILTERS.length;
+  }
+  function clearTaskFilters() {
+    activeProfessionFilters.clear();
+    combatFilterEnabled = false;
+    activeDungeonFilters.clear();
+  }
   function rememberSpriteBase(kind, value) {
     const base = String(value ?? "").split("#")[0];
     if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
@@ -34767,15 +35415,17 @@ ${locks}` : ""}`;
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
-    .mwi-task-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
-    .mwi-task-filter-group--dungeons { padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
+    .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-filter-group--dungeons[data-combat-enabled="false"] { opacity:.48; }
+    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -34789,10 +35439,8 @@ ${locks}` : ""}`;
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-group--life { flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
-      .mwi-task-filter-label { display:none; }
-      .mwi-task-sort-button { margin-left:0; }
-      .mwi-task-sort-button .mwi-task-filter-label { display:none; }
     }
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -35407,6 +36055,7 @@ ${locks}` : ""}`;
     iconKind = "",
     iconHrid = "",
     fallback = "•",
+    showLabel = false,
     onClick
   }) {
     const button = document.createElement("button");
@@ -35423,10 +36072,14 @@ ${locks}` : ""}`;
     icon.className = "mwi-task-filter-icon";
     const count = document.createElement("span");
     count.className = "mwi-task-filter-count";
-    const text = document.createElement("span");
-    text.className = "mwi-task-filter-label";
-    text.textContent = label;
-    button.append(icon, text, count);
+    button.append(icon);
+    if (showLabel) {
+      const text = document.createElement("span");
+      text.className = "mwi-task-filter-label";
+      text.textContent = label;
+      button.append(text);
+    }
+    button.append(count);
     button.addEventListener("click", onClick);
     return button;
   }
@@ -35463,10 +36116,13 @@ ${locks}` : ""}`;
   }
   function applyTaskFilters(rows) {
     const statisticsEnabled = runtime.settings.get("taskStatistics");
+    const noFiltersSelected = activeProfessionFilters.size === 0 && !combatFilterEnabled && activeDungeonFilters.size === 0;
     for (const row of rows) {
       let visible2 = true;
       if (statisticsEnabled) {
-        if (row.profession.key === "combat") {
+        if (noFiltersSelected) {
+          visible2 = false;
+        } else if (row.profession.key === "combat") {
           const dungeonHrids = row.dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).map(({ actionHrid }) => actionHrid);
           visible2 = combatFilterEnabled && (!dungeonHrids.length || dungeonHrids.some(
             (actionHrid) => activeDungeonFilters.has(actionHrid)
@@ -35499,23 +36155,28 @@ ${locks}` : ""}`;
         t9("任务排序与筛选", "Task sorting and filters")
       );
       if (statisticsEnabled) {
-        const filters = document.createElement("div");
-        filters.className = "mwi-task-filter-group";
-        filters.append(
+        const controls2 = document.createElement("div");
+        controls2.className = "mwi-task-toolbar-controls";
+        controls2.append(
           createTaskFilterButton({
             kind: "all",
             value: "all",
             label: t9("全部任务", "All tasks"),
             fallback: "☰",
+            showLabel: true,
             onClick: () => {
-              resetTaskFilters();
+              if (allTaskFiltersSelected()) clearTaskFilters();
+              else resetTaskFilters();
               lastTaskRenderSignature = "";
               renderTasks();
             }
           })
         );
+        toolbar.append(controls2);
+        const lifeFilters = document.createElement("div");
+        lifeFilters.className = "mwi-task-filter-group mwi-task-filter-group--life";
         for (const profession of LIFE_PROFESSIONS) {
-          filters.append(
+          lifeFilters.append(
             createTaskFilterButton({
               kind: "profession",
               value: profession.key,
@@ -35535,7 +36196,10 @@ ${locks}` : ""}`;
             })
           );
         }
-        filters.append(
+        toolbar.append(lifeFilters);
+        const combatFilters = document.createElement("div");
+        combatFilters.className = "mwi-task-filter-group mwi-task-filter-group--combat";
+        combatFilters.append(
           createTaskFilterButton({
             kind: "combat",
             value: "combat",
@@ -35550,9 +36214,8 @@ ${locks}` : ""}`;
             }
           })
         );
-        toolbar.append(filters);
         const dungeons = document.createElement("div");
-        dungeons.className = "mwi-task-filter-group mwi-task-filter-group--dungeons";
+        dungeons.className = "mwi-task-dungeon-filters";
         for (const dungeon of DUNGEON_FILTERS) {
           dungeons.append(
             createTaskFilterButton({
@@ -35574,7 +36237,8 @@ ${locks}` : ""}`;
             })
           );
         }
-        toolbar.append(dungeons);
+        combatFilters.append(dungeons);
+        toolbar.append(combatFilters);
       }
       const sortButton = document.createElement("button");
       sortButton.type = "button";
@@ -35589,7 +36253,8 @@ ${locks}` : ""}`;
       sortLabel.textContent = t9("任务排序", "Sort tasks");
       sortButton.append(sortIcon, sortLabel);
       sortButton.addEventListener("click", () => sortTasks());
-      toolbar.append(sortButton);
+      const controls = toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
+      controls.append(sortButton);
       taskListParent.insertAdjacentElement("beforebegin", toolbar);
     }
     if (!statisticsEnabled) return;
@@ -35613,7 +36278,7 @@ ${locks}` : ""}`;
         }
       }
     }
-    const allSelected = activeProfessionFilters.size === LIFE_PROFESSIONS.length && combatFilterEnabled && activeDungeonFilters.size === DUNGEON_FILTERS.length;
+    const allSelected = allTaskFiltersSelected();
     const allButton = toolbar.querySelector('[data-filter-kind="all"]');
     updateTaskFilterButton(allButton, {
       label: t9("全部任务", "All tasks"),
@@ -35635,9 +36300,7 @@ ${locks}` : ""}`;
       count: combatCount,
       pressed: combatFilterEnabled
     });
-    const dungeonGroup = toolbar.querySelector(
-      ".mwi-task-filter-group--dungeons"
-    );
+    const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
     if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
       dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
     }
@@ -37020,7 +37683,96 @@ ${locks}` : ""}`;
     }
   });
 
-  // src/features/feedback/client.js
+  // src/features/opinion-center/announcements.js
+  var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
+  var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.6",
+      version: "26.4.6",
+      publishedAt: "2026-08-12",
+      title: Object.freeze({
+        zh: "26.4.6 更新公告",
+        en: "Version 26.4.6 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "意见反馈升级为意见中心，新增版本公告，并统一使用红点提醒反馈回复和新公告。",
+          "任务页改为平铺布局，支持新任务、已完成任务、生活专业、战斗和四个副本的排序与图标筛选，并提供手动重新排序。",
+          "资产中心支持在历史记录缺失日期之间补录七项资产；同一轮资产估值固定使用一份行情快照，避免实时价格变化造成统计口径不一致。",
+          "公会经验统计改为近 6 小时、24 小时和成员本周平均速率；七日趋势使用 6 小时滚动平均，并修正升级经验与预计升级时间计算。",
+          "新增铁牛模式适配开关，自动识别铁牛和旧铁牛角色；开启后隐藏不可用的市场价格、利润与市场采购操作，同时保留资产和宝箱估值。",
+          "修复点金、分解、转化和解精炼的完成时间：现在会结合所选物品批量、催化剂、金币、完成次数和当前周期计算，缺少选择时不再显示无穷大。",
+          "生产利润悬浮默认需要同时按住 Ctrl，可在设置中改成任意单键；移动端改为 800 毫秒长按，并支持滑动取消与点外关闭。",
+          "迷宫活动期间暂停所有生活装备提醒，离开迷宫后自动恢复。",
+          "购物车升级链新增“从上一步开始”，可直接购买上一层成品与当前步骤材料，不再继续拆解上一层装备。"
+        ]),
+        en: Object.freeze([
+          "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
+          "Tasks now use a flat layout with sorting and icon filters for new, completed, profession, combat, and four dungeon categories, plus manual re-sorting.",
+          "The Asset Center can insert seven-component records into missing historical dates. One market snapshot is used per valuation session to keep totals consistent while live prices change.",
+          "Guild XP now shows 6-hour, 24-hour, and member this-week average rates. The seven-day trend uses a 6-hour rolling average, with corrected level requirements and ETA calculations.",
+          "Added an Iron Cow adaptation switch that recognizes both Iron Cow modes. When enabled, unavailable market prices, profits, and marketplace purchasing actions are hidden while asset and loot chest valuations remain available.",
+          "Fixed completion times for Coinify, Decompose, Transmute, and Unrefine by accounting for the selected stack, bulk size, catalyst, coins, completed count, and current cycle. Missing selections no longer appear as infinite.",
+          "Production profit tooltips now require holding Ctrl by default, with any single key configurable in settings. Touch devices use an 800 ms long press with movement cancellation and outside-tap dismissal.",
+          "All skilling equipment reminders pause during an active Labyrinth run and resume automatically after leaving it.",
+          "Upgrade chains now offer “Start from previous” to buy the direct predecessor and current-step materials without breaking the predecessor down further."
+        ])
+      })
+    })
+  ]);
+  function defaultGetValue(key, fallback) {
+    try {
+      return typeof GM_getValue === "function" ? GM_getValue(key, fallback) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  function defaultSetValue(key, value) {
+    try {
+      if (typeof GM_setValue === "function") GM_setValue(key, value);
+    } catch {
+    }
+  }
+  function parseSeenIds(value) {
+    const parsed = typeof value === "string" ? JSON.parse(value || "[]") : value;
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  }
+  var AnnouncementStore = class {
+    constructor({
+      announcements = ANNOUNCEMENTS,
+      getValue = defaultGetValue,
+      setValue = defaultSetValue
+    } = {}) {
+      this.announcements = [...announcements].sort(
+        (left, right) => String(right.publishedAt).localeCompare(String(left.publishedAt)) || String(right.version).localeCompare(String(left.version), void 0, {
+          numeric: true
+        })
+      );
+      this.getValue = getValue;
+      this.setValue = setValue;
+      try {
+        this.seenIds = parseSeenIds(this.getValue(STORAGE_KEY, []));
+      } catch {
+        this.seenIds = /* @__PURE__ */ new Set();
+      }
+    }
+    list() {
+      return [...this.announcements];
+    }
+    unread() {
+      return this.announcements.filter((item) => !this.seenIds.has(item.id));
+    }
+    markAllRead() {
+      const unread = this.unread();
+      if (!unread.length) return 0;
+      for (const item of unread) this.seenIds.add(item.id);
+      this.setValue(STORAGE_KEY, [...this.seenIds]);
+      return unread.length;
+    }
+  };
+  var announcementStorageKey = STORAGE_KEY;
+
+  // src/features/opinion-center/client.js
   var API_BASE = "https://feedback.43.167.210.211.sslip.io/api/v1";
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
@@ -37327,7 +38079,7 @@ ${locks}` : ""}`;
     };
   }
 
-  // src/features/feedback/panel.js
+  // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID13 = "mwitools-feedback-style";
@@ -37348,15 +38100,16 @@ ${locks}` : ""}`;
     style.id = STYLE_ID13;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
-    #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}.mwi-feedback-badge{position:absolute;right:-5px;top:-6px;display:none;min-width:16px;height:16px;padding:0 4px;border-radius:9px;background:#df4b4b;color:white;font:700 10px/16px sans-serif}.mwi-feedback-badge[data-count]:not([data-count="0"]){display:block}
+    #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
     .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
-    .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}.mwi-feedback-tab .mwi-feedback-badge{right:calc(50% - 52px);top:4px}
+    .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}
     .mwi-feedback-body{min-height:360px;overflow:auto;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
     .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
     .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
-    .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}
+    .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
+    @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
     @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -37374,12 +38127,16 @@ ${locks}` : ""}`;
     if (text !== void 0) element.textContent = text;
     return element;
   }
-  var FeedbackPanel = class {
-    constructor({ client, scope }) {
+  var OpinionCenterPanel = class {
+    constructor({ client, scope, announcements = new AnnouncementStore() }) {
       this.client = client;
       this.scope = scope;
+      this.announcements = announcements;
       this.items = [];
-      this.unread = 0;
+      this.feedbackUnread = 0;
+      this.announcementUnread = this.announcements.unread().length;
+      this.acknowledgedFeedbackIds = /* @__PURE__ */ new Set();
+      this.pendingReadIds = /* @__PURE__ */ new Set();
       this.currentDetailId = null;
       this.quota = null;
       this.editing = null;
@@ -37391,10 +38148,11 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见反馈", "MWITools Feedback")}">
-        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见反馈", "MWITools Feedback")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}<span class="mwi-feedback-badge" data-count="0">0</span></button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见中心", "MWITools Feedback Center")}">
+        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t13("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}</button></nav>
         <div class="mwi-feedback-body">
+          <section class="mwi-feedback-view" data-view="announcements" hidden><div class="mwi-announcement-list"></div></section>
           <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t13("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
               <label class="mwi-feedback-field"><span>${t13("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t13("功能建议", "Feature request")}</option><option value="other">${t13("其他", "Other")}</option></select></label>
@@ -37435,6 +38193,7 @@ ${locks}` : ""}`;
       });
       this.scope.add(() => this.destroy());
       this.toggleBugFields();
+      this.renderAnnouncements();
     }
     ensureButton() {
       const totalLevel = this.findTotalLevel();
@@ -37444,12 +38203,21 @@ ${locks}` : ""}`;
         button = document.createElement("button");
         button.type = "button";
         button.id = BUTTON_ID;
-        button.innerHTML = `<span>✉</span><span>${t13("MWITools 意见反馈", "MWITools Feedback")}</span><span class="mwi-feedback-badge" data-count="0">0</span>`;
+        const icon = makeElement("span", "", "✉");
+        const label = makeElement("span", "mwi-opinion-label");
+        const dot = makeElement("span", "mwi-opinion-dot");
+        dot.hidden = true;
+        button.append(icon, label, dot);
         this.scope.event(button, "click", () => this.open());
       }
+      button.querySelector(".mwi-opinion-label").textContent = t13(
+        "MWITools 意见中心",
+        "MWITools Feedback Center"
+      );
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
         totalLevel.insertAdjacentElement("afterend", button);
       }
+      this.updateUnreadIndicator();
       return button;
     }
     findTotalLevel() {
@@ -37467,17 +38235,46 @@ ${locks}` : ""}`;
       });
     }
     setUnread(count) {
-      this.unread = Math.max(0, Number(count) || 0);
-      for (const badge of document.querySelectorAll(
-        `#${BUTTON_ID} .mwi-feedback-badge,#${ROOT_ID2} .mwi-feedback-tab .mwi-feedback-badge`
-      )) {
-        badge.dataset.count = String(this.unread);
-        badge.textContent = String(this.unread);
-      }
+      this.feedbackUnread = Math.max(0, Number(count) || 0);
+      this.updateUnreadIndicator();
+    }
+    updateUnreadIndicator() {
+      const button = document.getElementById(BUTTON_ID);
+      if (!button) return;
+      const hasUnread = this.feedbackUnread > 0 || this.announcementUnread > 0;
+      button.dataset.unread = String(hasUnread);
+      const dot = button.querySelector(".mwi-opinion-dot");
+      if (dot) dot.hidden = !hasUnread;
+      button.setAttribute(
+        "aria-label",
+        hasUnread ? t13(
+          "MWITools 意见中心，有新内容",
+          "MWITools Feedback Center, new activity"
+        ) : t13("MWITools 意见中心", "MWITools Feedback Center")
+      );
     }
     async open() {
+      const hadAnnouncementUnread = this.announcementUnread > 0;
+      const hadFeedbackUnread = this.feedbackUnread > 0;
       this.root.hidden = false;
-      await this.refresh();
+      this.showTab(
+        hadAnnouncementUnread ? "announcements" : hadFeedbackUnread ? "mine" : "submit"
+      );
+      this.announcements.markAllRead();
+      this.announcementUnread = 0;
+      this.feedbackUnread = 0;
+      this.updateUnreadIndicator();
+      await this.refresh({ keepIndicatorClear: true });
+      const discoveredFeedbackUnread = this.feedbackUnread > 0;
+      if (!hadAnnouncementUnread && !hadFeedbackUnread && discoveredFeedbackUnread) {
+        this.showTab("mine");
+      }
+      const unreadItems = this.items.filter(
+        (item) => item.unread && !this.acknowledgedFeedbackIds.has(item.id)
+      );
+      this.acknowledgeFeedback(unreadItems);
+      this.feedbackUnread = 0;
+      this.updateUnreadIndicator();
     }
     close() {
       this.root.hidden = true;
@@ -37490,6 +38287,7 @@ ${locks}` : ""}`;
         view.hidden = view.dataset.view !== name;
       });
       if (name === "mine") this.renderList();
+      if (name === "announcements") this.renderAnnouncements();
     }
     toggleBugFields() {
       this.form.querySelector(".mwi-feedback-bug-fields").hidden = this.form.elements.type.value !== "bug";
@@ -37555,12 +38353,47 @@ ${locks}` : ""}`;
       );
       this.toggleBugFields();
     }
-    async refresh() {
+    unreadFeedbackCount(result) {
+      const unreadItems = this.items.filter((item) => item.unread);
+      const acknowledged = unreadItems.filter(
+        (item) => this.acknowledgedFeedbackIds.has(item.id)
+      ).length;
+      return Math.max(
+        0,
+        Number(result.unread ?? unreadItems.length) - acknowledged
+      );
+    }
+    acknowledgeFeedback(items) {
+      for (const item of items) {
+        if (!item?.id || this.pendingReadIds.has(item.id)) continue;
+        this.acknowledgedFeedbackIds.add(item.id);
+        this.pendingReadIds.add(item.id);
+        Promise.resolve().then(() => this.client.markRead(item.id)).then(() => {
+          this.pendingReadIds.delete(item.id);
+          this.acknowledgedFeedbackIds.delete(item.id);
+          item.unread = false;
+        }).catch(() => {
+        });
+      }
+    }
+    retryPendingReads() {
+      for (const id of [...this.pendingReadIds]) {
+        Promise.resolve().then(() => this.client.markRead(id)).then(() => {
+          this.pendingReadIds.delete(id);
+          this.acknowledgedFeedbackIds.delete(id);
+          const item = this.items.find((candidate) => candidate.id === id);
+          if (item) item.unread = false;
+        }).catch(() => {
+        });
+      }
+    }
+    async refresh({ keepIndicatorClear = false } = {}) {
       try {
         const result = await this.client.list();
         this.items = result.items ?? [];
         this.quota = result.quota;
-        this.setUnread(result.unread ?? 0);
+        this.feedbackUnread = this.unreadFeedbackCount(result);
+        if (!keepIndicatorClear) this.updateUnreadIndicator();
         this.renderQuota();
         this.root.querySelectorAll(".mwi-feedback-error").forEach((node) => {
           if (!node.classList.contains("mwi-feedback-success"))
@@ -37571,6 +38404,7 @@ ${locks}` : ""}`;
         } else {
           this.renderList();
         }
+        this.retryPendingReads();
         return true;
       } catch (error) {
         this.renderQuota(error.message);
@@ -37578,6 +38412,40 @@ ${locks}` : ""}`;
           '[data-view="mine"] .mwi-feedback-error'
         ).textContent = error.message;
         return false;
+      }
+    }
+    renderAnnouncements() {
+      const host = this.root.querySelector(".mwi-announcement-list");
+      if (!host) return;
+      host.replaceChildren();
+      const announcements = this.announcements.list();
+      if (!announcements.length) {
+        host.append(
+          makeElement(
+            "div",
+            "mwi-feedback-empty",
+            t13("目前还没有公告。", "There are no announcements yet.")
+          )
+        );
+        return;
+      }
+      for (const item of announcements) {
+        const card = makeElement("article", "mwi-announcement-card");
+        const title = makeElement(
+          "h3",
+          "",
+          item.title?.[runtime.config.isZH ? "zh" : "en"] ?? item.version
+        );
+        const meta = makeElement(
+          "div",
+          "mwi-announcement-meta",
+          `${item.version} · ${item.publishedAt}`
+        );
+        const list = document.createElement("ul");
+        const body = item.body?.[runtime.config.isZH ? "zh" : "en"] ?? [];
+        list.append(...body.map((line) => makeElement("li", "", line)));
+        card.append(title, meta, list);
+        host.append(card);
       }
     }
     renderQuota(errorMessage = "") {
@@ -37796,8 +38664,9 @@ ${locks}` : ""}`;
     }
   };
   var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID13 };
+  var FeedbackPanel = OpinionCenterPanel;
 
-  // src/features/feedback/index.js
+  // src/features/opinion-center/index.js
   var activeClient = null;
   runtime.features.register({
     id: "feedback",
@@ -37809,7 +38678,11 @@ ${locks}` : ""}`;
         characterName: runtime.state.currentCharacterName
       });
       activeClient = client;
-      const panel = new FeedbackPanel({ client, scope });
+      const panel = new OpinionCenterPanel({
+        client,
+        scope,
+        announcements: new AnnouncementStore()
+      });
       let disposed = false;
       let failures = 0;
       let timer = null;
@@ -37848,6 +38721,8 @@ ${locks}` : ""}`;
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
+  var TREND_RATE_WINDOW_MS = 6 * HOUR_MS2;
+  var TREND_MINIMUM_COVERAGE_MS = HOUR_MS2;
   function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -37931,6 +38806,18 @@ ${locks}` : ""}`;
     ]);
     return Number.isFinite(Number(value)) ? Number(value) : null;
   }
+  function entityWeeklyXpRate(entity, now = Date.now()) {
+    const weeklyValue = findField(entity, ["weeklyGuildExperience"]);
+    const weeklyXp = weeklyValue === null ? NaN : Number(weeklyValue);
+    const weekStartedAt = Date.parse(
+      findField(entity, ["weeklyGuildExperienceWeekStartAt"]) ?? ""
+    );
+    const elapsed = now - weekStartedAt;
+    if (!Number.isFinite(weeklyXp) || weeklyXp < 0 || !Number.isFinite(weekStartedAt) || elapsed <= 0) {
+      return null;
+    }
+    return weeklyXp / elapsed * HOUR_MS2;
+  }
   function objectKey(kind, entity, parentId = "") {
     const id = entityId(entity);
     return id ? `${kind}:${parentId ? `${parentId}:` : ""}${id}` : "";
@@ -37989,7 +38876,7 @@ ${locks}` : ""}`;
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:860px !important; }
+    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
     .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
@@ -38032,13 +38919,22 @@ ${locks}` : ""}`;
   }
   function guildXpRatePoints(points, now = Date.now()) {
     const cutoff = now - TREND_WINDOW_MS;
-    const sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at).filter((point) => point.at >= cutoff);
+    const sorted = [...points].map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) })).filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp)).sort((left, right) => left.at - right.at);
     const rates = [];
     for (let index = 1; index < sorted.length; index += 1) {
-      const previous = sorted[index - 1];
       const current = sorted[index];
-      const elapsed = current.at - previous.at;
-      const gained = current.xp - previous.xp;
+      if (current.at < cutoff) continue;
+      let baselineIndex = index - 1;
+      while (baselineIndex > 0 && current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS) {
+        baselineIndex -= 1;
+      }
+      let baseline = sorted[baselineIndex];
+      if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS) {
+        baseline = [...sorted.slice(0, baselineIndex)].reverse().find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS);
+      }
+      if (!baseline) continue;
+      const elapsed = current.at - baseline.at;
+      const gained = current.xp - baseline.xp;
       if (elapsed <= 0 || gained < 0) continue;
       rates.push({ at: current.at, rate: gained / elapsed * HOUR_MS2 });
     }
@@ -38073,8 +38969,8 @@ ${locks}` : ""}`;
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     const label = t14(
-      "公会经验获取速度（XP/小时）",
-      "Guild XP gain rate (XP/hour)"
+      "公会经验获取速度（6 小时滚动平均，XP/小时）",
+      "Guild XP gain rate (6-hour rolling average, XP/hour)"
     );
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", label);
@@ -38208,33 +39104,25 @@ ${locks}` : ""}`;
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
     const xp = entityXp(guild2);
-    const nextXp = Number(
-      findField(guild2, [
-        "nextLevelExperience",
-        "experienceForNextLevel",
-        "levelExperience"
-      ])
-    );
-    const remaining = Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
-    const etaHours = remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
+    const level = Number(findField(guild2, ["level", "guildLevel"]));
+    const nextXp = Number.isInteger(level) ? Number(runtime.state.initData_levelExperienceTable?.[level + 1]) : NaN;
+    const remaining = Number.isFinite(nextXp) && xp !== null && nextXp > xp ? nextXp - xp : null;
+    const dayRate = Number(rates?.day);
+    const recentRate = Number(rates?.recent);
+    const estimateRate = Number.isFinite(dayRate) && dayRate > 0 ? dayRate : Number.isFinite(recentRate) && recentRate > 0 ? recentRate : null;
+    const etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
     grid.append(
-      metric2(t14("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
-      metric2(
-        t14("最近 XP/h", "Recent XP/h"),
-        rateText(rates?.recent, !rates?.lastSampleAt)
-      ),
-      metric2(t14("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day)),
       metric2(
         t14("预计升级", "Level ETA"),
         Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t14("样本不足", "Not enough data")
-      )
+      ),
+      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day))
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
     trendLabel.textContent = t14(
-      "最近 7 天经验获取速度（XP/小时）",
-      "XP gain rate over the last 7 days (XP/hour)"
+      "最近 7 天经验获取速度（6 小时滚动平均）",
+      "XP gain rate over the last 7 days (6-hour rolling average)"
     );
     card.append(head, grid, trendLabel, trendSvg(rates?.points ?? []));
     if (runtime.settings.get("guildIdleMembers")) {
@@ -38265,10 +39153,12 @@ ${locks}` : ""}`;
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
-      for (const [rateIndex, [className, label]] of [
-        ["mwi-guild-recent-head", t14("最近 XP/h", "Recent XP/h")],
-        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")]
-      ].entries()) {
+      const columns = [
+        ["mwi-guild-recent-head", t14("近 6 小时 XP/h", "6h XP/h")],
+        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")],
+        ...kind === "member" ? [["mwi-guild-week-head", t14("本周平均 XP/h", "This-week avg XP/h")]] : []
+      ];
+      for (const [rateIndex, [className, label]] of columns.entries()) {
         const cell = document.createElement("th");
         cell.className = className;
         const labelNode = document.createElement("span");
@@ -38285,7 +39175,9 @@ ${locks}` : ""}`;
           if (!body) return;
           const direction = cell.dataset.direction === "desc" ? 1 : -1;
           cell.dataset.direction = direction === -1 ? "desc" : "asc";
-          header.querySelectorAll(".mwi-guild-recent-head,.mwi-guild-day-head").forEach((head) => {
+          header.querySelectorAll(
+            ".mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
+          ).forEach((head) => {
             if (head !== cell) {
               delete head.dataset.direction;
               head.setAttribute("aria-sort", "none");
@@ -38331,19 +39223,30 @@ ${locks}` : ""}`;
         key = objectKey(kind, source, parentId);
         if (key) row.dataset.mwiGuildEntityKey = key;
       }
-      return { row, key, rates: rateCache.get(key) };
+      const rates = rateCache.get(key);
+      return {
+        row,
+        key,
+        rates,
+        values: [
+          rates?.recent,
+          rates?.day,
+          ...kind === "member" ? [entityWeeklyXpRate(source)] : []
+        ]
+      };
     });
-    const maxima = ["recent", "day"].map(
-      (field) => Math.max(
+    const maxima = Array.from(
+      { length: kind === "member" ? 3 : 2 },
+      (_, index) => Math.max(
         0,
         ...rowEntries.map(
-          ({ rates }) => Number.isFinite(rates?.[field]) ? rates[field] : 0
+          ({ values }) => Number.isFinite(values[index]) ? values[index] : 0
         )
       )
     );
-    rowEntries.forEach(({ row, rates }) => {
+    rowEntries.forEach(({ row, rates, values }) => {
       row.querySelectorAll(".mwi-guild-rate-cell").forEach((cell) => cell.remove());
-      for (const [rateIndex, value] of [rates?.recent, rates?.day].entries()) {
+      for (const [rateIndex, value] of values.entries()) {
         const cell = document.createElement("td");
         cell.className = "mwi-guild-rate-cell";
         cell.dataset.sortValue = Number.isFinite(value) ? String(value) : "-1";
@@ -38381,7 +39284,7 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t14("最近 XP/h", "Recent XP/h")
+          textContent: t14("近 6 小时 XP/h", "6h XP/h")
         }),
         Object.assign(document.createElement("span"), {
           textContent: t14("24 小时 XP/h", "24h XP/h")
@@ -38413,7 +39316,7 @@ ${locks}` : ""}`;
   function renderGuildTables() {
     if (runtime.settings.get("guildMemberXp")) {
       const memberTable = document.querySelector(
-        'div[class*="GuildPanel"] table'
+        'div[class*="GuildPanel_membersTab"] table'
       );
       appendRateColumns(
         memberTable,
@@ -38492,7 +39395,7 @@ ${locks}` : ""}`;
               table.closest(".mwi-guild-members-wide")?.classList.remove("mwi-guild-members-wide");
             }
             table.querySelectorAll(
-              ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head"
+              ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
             ).forEach((node) => node.remove());
             table.classList.remove(`mwi-guild-${kind}-table`);
           });
@@ -38508,6 +39411,7 @@ ${locks}` : ""}`;
     renderGuildOverview,
     renderGuildTables,
     getGuildEntityXp: entityXp,
+    getGuildWeeklyXpRate: entityWeeklyXpRate,
     getGuildXpRatePoints: guildXpRatePoints,
     isGuildMemberIdle
   });
@@ -38516,25 +39420,26 @@ ${locks}` : ""}`;
   function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
+  var lastBattleSummaryMessage = null;
   async function handleBattleSummary(message) {
-    const marketJson = await runtime.api.fetchMarketJSON();
-    let hasMarketJson = true;
-    if (!marketJson) {
+    lastBattleSummaryMessage = message;
+    const suppressMarket = runtime.api.shouldSuppressMarketFeatures?.() ?? false;
+    const marketJson = suppressMarket ? null : await runtime.api.fetchMarketJSON();
+    if (!suppressMarket && !marketJson) {
       console.error(
         runtime.config.isZH ? "[MWITools] 市场数据不可用，战斗总结将不显示市场收益。" : "[MWITools] Market data is unavailable; market revenue is omitted from the battle summary."
       );
-      hasMarketJson = false;
     }
     let totalPriceAsk = 0;
     let totalPriceAskBid = 0;
     let totalRawCoins = 0;
-    if (hasMarketJson && message.unit.totalLootMap) {
+    if (marketJson && message.unit.totalLootMap) {
       for (const loot of Object.values(message.unit.totalLootMap)) {
         const itemCount = loot.count;
         if (loot.itemHrid === "/items/coin") {
           totalRawCoins += itemCount;
         }
-        if (marketJson.marketData[loot.itemHrid]) {
+        if (marketJson.marketData?.[loot.itemHrid]) {
           totalPriceAsk += marketJson.marketData[loot.itemHrid][0].a * itemCount;
           totalPriceAskBid += runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
         } else {
@@ -38558,6 +39463,18 @@ ${locks}` : ""}`;
         ".BattlePanel_gainedExp__3SaCa"
       )?.parentElement;
       if (elem) {
+        elem.querySelectorAll(
+          '[data-mwitools-battle-summary="true"],#script_battleNumbers,#script_totalIncome,#script_averageIncome,#script_totalIncomeDay,#script_avgRawCoinHour,#script_totalSkillsExp,#script_averageSkillsExp'
+        ).forEach((node) => node.remove());
+        const appendSummary = (id, html) => {
+          const row = document.createElement("div");
+          row.id = id;
+          row.dataset.mwitoolsBattleSummary = "true";
+          row.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+          row.innerHTML = html;
+          elem.append(row);
+          return row;
+        };
         let battleDurationSec = null;
         const combatInfoElement = document.querySelector(
           ".BattlePanel_combatInfo__sHGCe"
@@ -38573,47 +39490,43 @@ ${locks}` : ""}`;
             let seconds = parseInt(matches[5], 10) || 0;
             let battles = parseInt(matches[7], 10) - 1;
             battleDurationSec = days * 86400 + hours * 3600 + minutes * 60 + seconds;
-            let efficiencyPerHour = (battles / battleDurationSec * 3600).toFixed(1);
-            elem.insertAdjacentHTML(
-              "beforeend",
-              `<div id="script_battleNumbers" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "}${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}</div>`
+            const efficiencyPerHour = battleDurationSec ? (battles / battleDurationSec * 3600).toFixed(1) : "—";
+            appendSummary(
+              "script_battleNumbers",
+              `${runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "}${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}`
             );
           }
         }
-        document.querySelector("div#script_battleNumbers").insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(
-            totalPriceAsk
-          )} / ${runtime.api.numberFormatter(totalPriceAskBid)}</div>`
-        );
-        if (battleDurationSec) {
-          document.querySelector("div#script_totalIncome").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "}${runtime.api.numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60))} / ${runtime.api.numberFormatter(
-              totalPriceAskBid / (battleDurationSec / 60 / 60)
-            )}</div>`
+        if (!suppressMarket && marketJson) {
+          appendSummary(
+            "script_totalIncome",
+            `${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(totalPriceAsk)} / ${runtime.api.numberFormatter(totalPriceAskBid)}`
           );
-          document.querySelector("div#script_averageIncome").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_totalIncomeDay" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每天收获: " : "Revenue/day: "}${runtime.api.numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60) * 24)} / ${runtime.api.numberFormatter(
-              totalPriceAskBid / (battleDurationSec / 60 / 60) * 24
-            )}</div>`
-          );
-          document.querySelector("div#script_totalIncomeDay").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_avgRawCoinHour" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "}${runtime.api.numberFormatter(totalRawCoins / (battleDurationSec / 60 / 60))}</div>`
-          );
+          if (battleDurationSec) {
+            const hours = battleDurationSec / 3600;
+            appendSummary(
+              "script_averageIncome",
+              `${runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "}${runtime.api.numberFormatter(totalPriceAsk / hours)} / ${runtime.api.numberFormatter(totalPriceAskBid / hours)}`
+            );
+            appendSummary(
+              "script_totalIncomeDay",
+              `${runtime.config.isZH ? "每天收获: " : "Revenue/day: "}${runtime.api.numberFormatter(totalPriceAsk / hours * 24)} / ${runtime.api.numberFormatter(totalPriceAskBid / hours * 24)}`
+            );
+            appendSummary(
+              "script_avgRawCoinHour",
+              `${runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "}${runtime.api.numberFormatter(totalRawCoins / hours)}`
+            );
+          }
         }
-        document.querySelector("div#script_avgRawCoinHour").insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(
-            totalSkillsExp
-          )}</div>`
+        appendSummary(
+          "script_totalSkillsExp",
+          `${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(totalSkillsExp)}`
         );
         if (battleDurationSec) {
-          document.querySelector("div#script_totalSkillsExp").insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "}${runtime.api.numberFormatter(totalSkillsExp / (battleDurationSec / 60 / 60))}</div>`
+          const hours = battleDurationSec / 3600;
+          appendSummary(
+            "script_averageSkillsExp",
+            `${runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "}${runtime.api.numberFormatter(totalSkillsExp / hours)}`
           );
           [
             { skillHrid: "/skills/magic", zhName: "魔法", enName: "Magic" },
@@ -38628,11 +39541,11 @@ ${locks}` : ""}`;
             },
             { skillHrid: "/skills/stamina", zhName: "耐力", enName: "Stamina" }
           ].forEach((skill) => {
-            const expGained = message.unit.totalSkillExperienceMap[skill.skillHrid];
+            const expGained = message.unit.totalSkillExperienceMap?.[skill.skillHrid];
             if (expGained) {
-              document.querySelector("div#script_totalSkillsExp").insertAdjacentHTML(
-                "afterend",
-                `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${runtime.config.isZH ? "经验: " : " exp/hour: "}${runtime.api.numberFormatter(expGained / (battleDurationSec / 60 / 60))}</div>`
+              appendSummary(
+                `script_${skill.skillHrid.split("/").at(-1)}ExpHour`,
+                `${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${runtime.config.isZH ? "经验: " : " exp/hour: "}${runtime.api.numberFormatter(expGained / hours)}`
               );
             }
           });
@@ -38952,6 +39865,16 @@ ${locks}` : ""}`;
     handleTaskCard,
     addIndexToMaps
   });
+  var refreshVisibleBattleSummary = () => {
+    if (lastBattleSummaryMessage && document.querySelector(".BattlePanel_gainedExp__3SaCa")) {
+      void handleBattleSummary(lastBattleSummaryMessage);
+    }
+  };
+  runtime.settings.onChange?.(
+    "adaptIronCowMarketFeatures",
+    refreshVisibleBattleSummary
+  );
+  runtime.onMessage("init_character_data", refreshVisibleBattleSummary);
   Object.defineProperties(runtime.state, {
     onlyShowItemsAboveLevel: {
       enumerable: true,
@@ -40086,8 +41009,10 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-tooltip.js
   function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
-    if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue) return;
     tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove();
+    if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue || runtime.api.shouldSuppressMarketFeatures?.()) {
+      return;
+    }
     const wrapper = document.createElement("div");
     wrapper.dataset.mwitoolsEnhancementMarket = "true";
     wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
@@ -40156,9 +41081,13 @@ ${locks}` : ""}`;
     } else {
       hideEnhancementCostPanel();
     }
-    await runtime.api.fetchMarketJSON();
-    if (!tooltip.isConnected) return;
-    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) {
+      await runtime.api.fetchMarketJSON();
+      if (!tooltip.isConnected) return;
+      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    } else {
+      appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+    }
     if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
     const plan = calculateEnhancementPlan({
       itemHrid,
@@ -40168,6 +41097,14 @@ ${locks}` : ""}`;
     if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
   }
   runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
+  runtime.onMessage("init_character_data", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
+  });
+  runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+    document.querySelectorAll('[data-mwitools-enhancement-market="true"]').forEach((row) => row.remove());
+  });
 
   // src/features/settings-and-notifications.js
   var SETTINGS_V2_KEY = "MWITools_settings_v2";
@@ -40176,6 +41113,55 @@ ${locks}` : ""}`;
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
   var SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
+  var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+  function normalizeTooltipProfitShortcut(value) {
+    const code = String(value?.code ?? "").trim();
+    if (!code) return { code: "Control", display: "Ctrl" };
+    return {
+      code,
+      display: String(value?.display ?? code).trim() || code
+    };
+  }
+  function loadTooltipProfitShortcut() {
+    try {
+      return normalizeTooltipProfitShortcut(
+        JSON.parse(localStorage.getItem(TOOLTIP_PROFIT_SHORTCUT_KEY) || "null")
+      );
+    } catch {
+      return normalizeTooltipProfitShortcut(null);
+    }
+  }
+  var tooltipProfitShortcut = loadTooltipProfitShortcut();
+  function shortcutCodeFromEvent(event) {
+    if (["Control", "Shift", "Alt", "Meta"].includes(event?.key)) {
+      return event.key;
+    }
+    return String(event?.code ?? event?.key ?? "");
+  }
+  function shortcutDisplayFromEvent(event) {
+    if (event?.key === "Control") return "Ctrl";
+    if (event?.key === "Meta") return "Meta";
+    if (["Shift", "Alt"].includes(event?.key)) return event.key;
+    if (event?.code === "Space") return "Space";
+    if (String(event?.code).startsWith("Arrow")) {
+      return String(event.code).slice(5);
+    }
+    return event?.key?.length === 1 ? event.key.toUpperCase() : event?.key || event?.code;
+  }
+  function getTooltipProfitShortcut() {
+    return { ...tooltipProfitShortcut };
+  }
+  function setTooltipProfitShortcut(value) {
+    tooltipProfitShortcut = normalizeTooltipProfitShortcut(value);
+    localStorage.setItem(
+      TOOLTIP_PROFIT_SHORTCUT_KEY,
+      JSON.stringify(tooltipProfitShortcut)
+    );
+    return getTooltipProfitShortcut();
+  }
+  function matchesTooltipProfitShortcut(event) {
+    return shortcutCodeFromEvent(event) === tooltipProfitShortcut.code;
+  }
   function persistSettings() {
     const values = Object.fromEntries(
       Object.entries(runtime.settings.settingsMap).map(([id, setting]) => [
@@ -40284,6 +41270,8 @@ ${locks}` : ""}`;
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
+    .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
+    .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
     @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
     styleHost.appendChild(style);
@@ -40341,6 +41329,7 @@ ${locks}` : ""}`;
     );
     const descendants = getSettingDescendants(definition.id);
     const card = document.createElement("article");
+    let cancelShortcutCapture = null;
     card.className = "mwi-setting-card";
     if (options.child) card.classList.add("mwi-setting-child");
     card.dataset.search = [
@@ -40414,6 +41403,44 @@ ${locks}` : ""}`;
     }
     row.append(copy, toggle);
     card.append(row);
+    if (definition.id === "itemTooltip_profitRequireKey") {
+      const shortcutRow = document.createElement("div");
+      shortcutRow.className = "mwi-setting-shortcut-row";
+      const shortcutLabel = document.createElement("span");
+      shortcutLabel.textContent = runtime.config.isZH ? "触发按键" : "Trigger key";
+      const shortcutButton = document.createElement("button");
+      shortcutButton.type = "button";
+      shortcutButton.className = "mwi-setting-shortcut";
+      const updateShortcutText = () => {
+        shortcutButton.textContent = getTooltipProfitShortcut().display;
+      };
+      updateShortcutText();
+      shortcutButton.addEventListener("click", () => {
+        cancelShortcutCapture?.();
+        shortcutButton.textContent = runtime.config.isZH ? "请按一个键…" : "Press one key…";
+        const capture = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          cancelShortcutCapture?.();
+          if (event.key === "Escape") {
+            updateShortcutText();
+            return;
+          }
+          setTooltipProfitShortcut({
+            code: shortcutCodeFromEvent(event),
+            display: shortcutDisplayFromEvent(event)
+          });
+          updateShortcutText();
+        };
+        cancelShortcutCapture = () => {
+          window.removeEventListener("keydown", capture, true);
+          cancelShortcutCapture = null;
+        };
+        window.addEventListener("keydown", capture, true);
+      });
+      shortcutRow.append(shortcutLabel, shortcutButton);
+      card.append(shortcutRow);
+    }
     for (const child of children) {
       card.append(createSettingCard(child, { child: true }));
     }
@@ -40437,6 +41464,7 @@ ${locks}` : ""}`;
       }
     );
     card._mwitoolsCleanup = () => {
+      cancelShortcutCapture?.();
       stopStatusListener?.();
       stopSettingListener?.();
     };
@@ -40625,6 +41653,7 @@ ${locks}` : ""}`;
     }
   }
   function getEquipmentWarning() {
+    if (runtime.state.labyrinthActive) return null;
     const currentActionHrid = runtime.state.currentActionsHridList?.[0]?.actionHrid;
     if (!currentActionHrid) return null;
     const hasHat = runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid === "/items/red_chefs_hat" ? true : false;
@@ -40840,6 +41869,9 @@ ${locks}` : ""}`;
   Object.assign(runtime.api, {
     persistSettings,
     readSettings,
+    getTooltipProfitShortcut,
+    setTooltipProfitShortcut,
+    matchesTooltipProfitShortcut,
     getEquipmentWarning,
     checkEquipment,
     hasItemHridInInv,
@@ -40888,7 +41920,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.5");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.6");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

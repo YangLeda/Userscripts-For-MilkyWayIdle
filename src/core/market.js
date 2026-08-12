@@ -8,6 +8,9 @@ const MARKET_MAX_PRICE = 1_000_000_000_000;
 const TEST_MARKET_REFRESH_MS = 10 * 60 * 1000;
 const PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1000;
 
+let assetValuationMarketSnapshot = null;
+let assetValuationMarketDirty = false;
+
 function getMarketEnvironment(hostname = globalThis.location?.hostname ?? "") {
   if (hostname.startsWith("test.")) return "test";
   if (hostname.endsWith("milkywayidlecn.com")) return "china";
@@ -43,14 +46,52 @@ function getLevelValue(map, itemHrid, enhancementLevel = 0) {
     : null;
 }
 
-function getMarketRecord(itemHrid, enhancementLevel = 0) {
+function getMarketRecordFrom(marketApiJson, itemHrid, enhancementLevel = 0) {
   return (
-    runtime.state.marketApiJson?.marketData?.[itemHrid]?.[enhancementLevel] ??
-    runtime.state.marketApiJson?.marketData?.[itemHrid]?.[
-      String(enhancementLevel)
-    ] ??
+    marketApiJson?.marketData?.[itemHrid]?.[enhancementLevel] ??
+    marketApiJson?.marketData?.[itemHrid]?.[String(enhancementLevel)] ??
     null
   );
+}
+
+function getMarketRecord(itemHrid, enhancementLevel = 0) {
+  return getMarketRecordFrom(
+    runtime.state.marketApiJson,
+    itemHrid,
+    enhancementLevel,
+  );
+}
+
+function cloneMarketItemValues(source) {
+  return Object.fromEntries(
+    Object.entries(source ?? {}).map(([itemHrid, levels]) => [
+      itemHrid,
+      { ...(levels ?? {}) },
+    ]),
+  );
+}
+
+// Asset history uses one immutable price generation per page session. Live
+// orderbooks can continue changing without mixing prices inside one valuation.
+function ensureAssetValuationMarketSnapshot() {
+  assetValuationMarketSnapshot ??= {
+    marketApiJson: runtime.state.marketApiJson,
+    marketItemValues: cloneMarketItemValues(runtime.state.marketItemValues),
+  };
+  return assetValuationMarketSnapshot;
+}
+
+function markAssetValuationMarketDirty() {
+  if (assetValuationMarketSnapshot) assetValuationMarketDirty = true;
+}
+
+function resetAssetValuationMarketSnapshot() {
+  assetValuationMarketSnapshot = null;
+  assetValuationMarketDirty = false;
+}
+
+function isAssetValuationMarketDirty() {
+  return assetValuationMarketDirty;
 }
 
 function getAskPrice(itemHrid, enhancementLevel = 0) {
@@ -75,6 +116,53 @@ function getFairValue(itemHrid, enhancementLevel = 0) {
   const bid = getBidPrice(itemHrid, enhancementLevel);
   if (ask > 0 && bid > 0) return (ask + bid) / 2;
   return ask || bid || 0;
+}
+
+function getAssetMarketRecord(itemHrid, enhancementLevel = 0) {
+  return getMarketRecordFrom(
+    ensureAssetValuationMarketSnapshot().marketApiJson,
+    itemHrid,
+    enhancementLevel,
+  );
+}
+
+function getAssetAskPrice(itemHrid, enhancementLevel = 0) {
+  const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.a);
+  return price > 0 ? price : 0;
+}
+
+function getAssetBidPrice(itemHrid, enhancementLevel = 0) {
+  const price = Number(getAssetMarketRecord(itemHrid, enhancementLevel)?.b);
+  return price > 0 ? price : 0;
+}
+
+function getAssetFairValue(itemHrid, enhancementLevel = 0) {
+  const snapshot = ensureAssetValuationMarketSnapshot();
+  const serverValue = getLevelValue(
+    snapshot.marketItemValues,
+    itemHrid,
+    enhancementLevel,
+  );
+  if (serverValue !== null && serverValue > 0) return serverValue;
+
+  const ask = getAssetAskPrice(itemHrid, enhancementLevel);
+  const bid = getAssetBidPrice(itemHrid, enhancementLevel);
+  if (ask > 0 && bid > 0) return (ask + bid) / 2;
+  return ask || bid || 0;
+}
+
+function getAssetNetSellPrice(itemHrid, enhancementLevel = 0) {
+  return (
+    getAssetBidPrice(itemHrid, enhancementLevel) *
+    (1 - getMarketTaxRate(itemHrid))
+  );
+}
+
+function getAssetNetSellPriceAtAsk(itemHrid, enhancementLevel = 0) {
+  return (
+    getAssetAskPrice(itemHrid, enhancementLevel) *
+    (1 - getMarketTaxRate(itemHrid))
+  );
 }
 
 function getMarketTaxRate(itemHrid) {
@@ -263,7 +351,7 @@ function loadMarketItemValuesFromStorage() {
   if (!parsed) return false;
   runtime.state.marketValuesVersion = parsed.marketValuesVersion ?? null;
   runtime.state.marketItemValues = parsed.marketItemValues;
-  runtime.api.invalidateAssetValueCache?.();
+  markAssetValuationMarketDirty();
   return true;
 }
 
@@ -298,7 +386,7 @@ function validateMarketJsonFetch(jsonValue, isSave = false) {
     jsonObj.marketData[itemHrid] = { 0: prices };
   }
   runtime.state.marketApiJson = jsonObj;
-  runtime.api.invalidateAssetValueCache?.();
+  markAssetValuationMarketDirty();
   if (isSave) {
     localStorage.setItem("MWITools_marketAPI_timestamp", String(Date.now()));
     localStorage.setItem("MWITools_marketAPI_json", JSON.stringify(jsonObj));
@@ -405,7 +493,7 @@ function applyMarketItemValues(payload) {
   if (!payload.marketItemValues) return;
   runtime.state.marketValuesVersion = payload.marketValuesVersion ?? null;
   runtime.state.marketItemValues = payload.marketItemValues;
-  runtime.api.invalidateAssetValueCache?.();
+  markAssetValuationMarketDirty();
 }
 
 function applyMarketOrderBooks(payload) {
@@ -418,8 +506,8 @@ function applyMarketOrderBooks(payload) {
       ...(runtime.state.marketItemValues[itemHrid] ?? {}),
       ...orderBookPayload.marketValues,
     };
+    markAssetValuationMarketDirty();
   }
-  runtime.api.invalidateAssetValueCache?.();
   const minimums = orderBookPayload.priceBandMins ?? {};
   const maximums = orderBookPayload.priceBandMaxs ?? {};
   const levels = new Set([...Object.keys(minimums), ...Object.keys(maximums)]);
@@ -474,6 +562,13 @@ Object.assign(runtime.api, {
   getAskPrice,
   getBidPrice,
   getFairValue,
+  getAssetAskPrice,
+  getAssetBidPrice,
+  getAssetFairValue,
+  getAssetNetSellPrice,
+  getAssetNetSellPriceAtAsk,
+  resetAssetValuationMarketSnapshot,
+  isAssetValuationMarketDirty,
   getMarketTaxRate,
   getNetSellPrice,
   getNetSellPriceAtAsk,

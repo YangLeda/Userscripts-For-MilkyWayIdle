@@ -97,6 +97,57 @@ test("calendar-normalized averages, role isolation, and edits recompute totals",
   assert.equal(store.deleteDay("2026-08-09", a), true);
 });
 
+test("historical insertion validates dates, never overwrites, and stays role-scoped", () => {
+  localStorage.clear();
+  const store = new AssetHistoryStore(localStorage);
+  const a = "production:7";
+  const b = "china:7";
+  store.updateDay("2026-08-01", completeValues(), a);
+  store.updateDay("2026-08-05", completeValues(400), a);
+  store.updateDay("2026-08-03", completeValues(), b);
+
+  const inserted = store.insertDay("2026-08-03", completeValues(100), a);
+  assert.equal(inserted.equipment, 200);
+  assert.equal(inserted.total, 2_900);
+  assert.equal(store.getRole(a).days["2026-08-03"].inserted, true);
+  assert.equal(store.getRole(a).days["2026-08-03"].edited, true);
+  assert.equal(
+    store.getRole(a).days["2026-08-03"].recordedAt,
+    "2026-08-03T15:59:59.999Z",
+  );
+  assert.deepEqual(
+    store.list(a).map(([date]) => date),
+    ["2026-08-01", "2026-08-03", "2026-08-05"],
+  );
+  assert.equal(store.list(b).length, 1);
+  assert.equal(periodStatistics(store.list(a)).changes.length, 2);
+  assert.ok(buildHeatmap(store.list(a))["2026-08-03"]);
+
+  assert.throws(
+    () => store.insertDay("2026-08-03", completeValues(999), a),
+    /already contains/,
+  );
+  assert.equal(store.getRole(a).days["2026-08-03"].values.equipment, 200);
+  assert.throws(
+    () => store.insertDay("2026-02-30", completeValues(), a),
+    /valid day key/,
+  );
+  assert.throws(
+    () => store.insertDay("2026-08-04", { ...completeValues(), shrine: -1 }, a),
+    /non-negative/,
+  );
+  assert.throws(
+    () =>
+      store.insertDay(
+        "2026-08-04",
+        { ...completeValues(), shrine: undefined },
+        a,
+      ),
+    /non-negative/,
+  );
+  assert.equal(store.getRole(a).days["2026-08-04"], undefined);
+});
+
 test("legacy Everyday Profit data and both backup schemas remain compatible", () => {
   localStorage.clear();
   localStorage.setItem(

@@ -219,6 +219,20 @@ function resetTaskFilters() {
   );
 }
 
+function allTaskFiltersSelected() {
+  return (
+    activeProfessionFilters.size === LIFE_PROFESSIONS.length &&
+    combatFilterEnabled &&
+    activeDungeonFilters.size === DUNGEON_FILTERS.length
+  );
+}
+
+function clearTaskFilters() {
+  activeProfessionFilters.clear();
+  combatFilterEnabled = false;
+  activeDungeonFilters.clear();
+}
+
 function rememberSpriteBase(kind, value) {
   const base = String(value ?? "").split("#")[0];
   if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
@@ -298,15 +312,17 @@ function addStyles() {
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
-    .mwi-task-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
+    .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
-    .mwi-task-filter-group--dungeons { padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
+    .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-filter-group--dungeons[data-combat-enabled="false"] { opacity:.48; }
+    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -320,10 +336,8 @@ function addStyles() {
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-group--life { flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
-      .mwi-task-filter-label { display:none; }
-      .mwi-task-sort-button { margin-left:0; }
-      .mwi-task-sort-button .mwi-task-filter-label { display:none; }
     }
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -1097,6 +1111,7 @@ function createTaskFilterButton({
   iconKind = "",
   iconHrid = "",
   fallback = "•",
+  showLabel = false,
   onClick,
 }) {
   const button = document.createElement("button");
@@ -1113,10 +1128,14 @@ function createTaskFilterButton({
   icon.className = "mwi-task-filter-icon";
   const count = document.createElement("span");
   count.className = "mwi-task-filter-count";
-  const text = document.createElement("span");
-  text.className = "mwi-task-filter-label";
-  text.textContent = label;
-  button.append(icon, text, count);
+  button.append(icon);
+  if (showLabel) {
+    const text = document.createElement("span");
+    text.className = "mwi-task-filter-label";
+    text.textContent = label;
+    button.append(text);
+  }
+  button.append(count);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -1158,10 +1177,16 @@ function updateTaskFilterButton(button, { label, count, pressed }) {
 
 function applyTaskFilters(rows) {
   const statisticsEnabled = runtime.settings.get("taskStatistics");
+  const noFiltersSelected =
+    activeProfessionFilters.size === 0 &&
+    !combatFilterEnabled &&
+    activeDungeonFilters.size === 0;
   for (const row of rows) {
     let visible = true;
     if (statisticsEnabled) {
-      if (row.profession.key === "combat") {
+      if (noFiltersSelected) {
+        visible = false;
+      } else if (row.profession.key === "combat") {
         const dungeonHrids = row.dungeonLocations
           .filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid)
           .map(({ actionHrid }) => actionHrid);
@@ -1203,23 +1228,30 @@ function ensureTaskToolbar(rows) {
     );
 
     if (statisticsEnabled) {
-      const filters = document.createElement("div");
-      filters.className = "mwi-task-filter-group";
-      filters.append(
+      const controls = document.createElement("div");
+      controls.className = "mwi-task-toolbar-controls";
+      controls.append(
         createTaskFilterButton({
           kind: "all",
           value: "all",
           label: t("全部任务", "All tasks"),
           fallback: "☰",
+          showLabel: true,
           onClick: () => {
-            resetTaskFilters();
+            if (allTaskFiltersSelected()) clearTaskFilters();
+            else resetTaskFilters();
             lastTaskRenderSignature = "";
             renderTasks();
           },
         }),
       );
+      toolbar.append(controls);
+
+      const lifeFilters = document.createElement("div");
+      lifeFilters.className =
+        "mwi-task-filter-group mwi-task-filter-group--life";
       for (const profession of LIFE_PROFESSIONS) {
-        filters.append(
+        lifeFilters.append(
           createTaskFilterButton({
             kind: "profession",
             value: profession.key,
@@ -1239,7 +1271,12 @@ function ensureTaskToolbar(rows) {
           }),
         );
       }
-      filters.append(
+      toolbar.append(lifeFilters);
+
+      const combatFilters = document.createElement("div");
+      combatFilters.className =
+        "mwi-task-filter-group mwi-task-filter-group--combat";
+      combatFilters.append(
         createTaskFilterButton({
           kind: "combat",
           value: "combat",
@@ -1254,11 +1291,9 @@ function ensureTaskToolbar(rows) {
           },
         }),
       );
-      toolbar.append(filters);
 
       const dungeons = document.createElement("div");
-      dungeons.className =
-        "mwi-task-filter-group mwi-task-filter-group--dungeons";
+      dungeons.className = "mwi-task-dungeon-filters";
       for (const dungeon of DUNGEON_FILTERS) {
         dungeons.append(
           createTaskFilterButton({
@@ -1280,7 +1315,8 @@ function ensureTaskToolbar(rows) {
           }),
         );
       }
-      toolbar.append(dungeons);
+      combatFilters.append(dungeons);
+      toolbar.append(combatFilters);
     }
 
     const sortButton = document.createElement("button");
@@ -1296,7 +1332,9 @@ function ensureTaskToolbar(rows) {
     sortLabel.textContent = t("任务排序", "Sort tasks");
     sortButton.append(sortIcon, sortLabel);
     sortButton.addEventListener("click", () => sortTasks());
-    toolbar.append(sortButton);
+    const controls =
+      toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
+    controls.append(sortButton);
     taskListParent.insertAdjacentElement("beforebegin", toolbar);
   }
 
@@ -1321,10 +1359,7 @@ function ensureTaskToolbar(rows) {
       }
     }
   }
-  const allSelected =
-    activeProfessionFilters.size === LIFE_PROFESSIONS.length &&
-    combatFilterEnabled &&
-    activeDungeonFilters.size === DUNGEON_FILTERS.length;
+  const allSelected = allTaskFiltersSelected();
   const allButton = toolbar.querySelector('[data-filter-kind="all"]');
   updateTaskFilterButton(allButton, {
     label: t("全部任务", "All tasks"),
@@ -1346,9 +1381,7 @@ function ensureTaskToolbar(rows) {
     count: combatCount,
     pressed: combatFilterEnabled,
   });
-  const dungeonGroup = toolbar.querySelector(
-    ".mwi-task-filter-group--dungeons",
-  );
+  const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
   if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
     dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
   }

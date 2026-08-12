@@ -787,7 +787,10 @@ function renderProductionPanel() {
       formatDuration(projection.totalSeconds),
     ),
   );
-  if (runtime.settings.get("productionProfit")) {
+  const showProfit =
+    runtime.settings.get("productionProfit") &&
+    !runtime.api.shouldSuppressMarketFeatures?.();
+  if (showProfit) {
     grid.append(
       metric(
         t("每次净利润", "Per action"),
@@ -813,7 +816,7 @@ function renderProductionPanel() {
     );
   }
   card.append(title, grid);
-  if (projection.status === "incomplete") {
+  if (showProfit && projection.status === "incomplete") {
     const warning = document.createElement("div");
     warning.className = "mwi-production-warning";
     warning.textContent = t(

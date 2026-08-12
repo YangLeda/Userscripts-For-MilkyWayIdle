@@ -167,6 +167,17 @@ runtime.api.getNetSellPrice = (itemHrid) =>
   (bidPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
 runtime.api.getNetSellPriceAtAsk = (itemHrid) =>
   (askPrices.get(itemHrid) ?? 0) * (1 - runtime.api.getMarketTaxRate(itemHrid));
+runtime.api.getAssetAskPrice = (...args) => runtime.api.getAskPrice(...args);
+runtime.api.getAssetBidPrice = (...args) => runtime.api.getBidPrice(...args);
+runtime.api.getAssetFairValue = (itemHrid) => {
+  const ask = runtime.api.getAskPrice(itemHrid);
+  const bid = runtime.api.getBidPrice(itemHrid);
+  return ask && bid ? (ask + bid) / 2 : ask || bid || 0;
+};
+runtime.api.getAssetNetSellPrice = (...args) =>
+  runtime.api.getNetSellPrice(...args);
+runtime.api.getAssetNetSellPriceAtAsk = (...args) =>
+  runtime.api.getNetSellPriceAtAsk(...args);
 
 function setLootSettings({ sellAtAsk, buyAtAsk, fromFragments }) {
   runtime.settings.settingsMap.lootSellAtAsk.isTrue = Boolean(sellAtAsk);

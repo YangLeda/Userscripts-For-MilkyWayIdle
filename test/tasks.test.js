@@ -137,7 +137,15 @@ test("tasks use a flat sorted list with statistics filters", () => {
   assert.match(styles, /RandomTask_randomTask[^}]*min-width:\s*0\s*!important/);
   assert.match(
     styles,
-    /\.mwi-task-toolbar[^}]*display:flex[^}]*flex-wrap:wrap/,
+    /\.mwi-task-toolbar[^}]*display:flex[^}]*flex-direction:column/,
+  );
+  assert.match(
+    styles,
+    /\.mwi-task-filter-group--life,\.mwi-task-filter-group--combat\s*\{[^}]*flex-wrap:nowrap/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{\s*flex-wrap:wrap/,
   );
   assert.match(
     styles,
@@ -188,6 +196,50 @@ test("tasks use a flat sorted list with statistics filters", () => {
   const toolbar = document.querySelector(".mwi-task-toolbar");
   assert.ok(toolbar);
   assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 16);
+  const allFilter = toolbar.querySelector('[data-filter-kind="all"]');
+  const sortButton = toolbar.querySelector(".mwi-task-sort-button");
+  assert.equal(allFilter.parentElement.className, "mwi-task-toolbar-controls");
+  assert.equal(sortButton.parentElement, allFilter.parentElement);
+  assert.equal(
+    toolbar.querySelectorAll(
+      '[data-filter-kind="profession"] .mwi-task-filter-label,[data-filter-kind="combat"] .mwi-task-filter-label,[data-filter-kind="dungeon"] .mwi-task-filter-label',
+    ).length,
+    0,
+  );
+  assert.ok(
+    [
+      ...toolbar.querySelectorAll(
+        '[data-filter-kind="profession"],[data-filter-kind="combat"],[data-filter-kind="dungeon"]',
+      ),
+    ].every(
+      (button) =>
+        button.title.includes("(") &&
+        button.getAttribute("aria-label") === button.title &&
+        button.hasAttribute("aria-pressed"),
+    ),
+  );
+  assert.equal(
+    toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-label')
+      .textContent,
+    "全部任务",
+  );
+  assert.equal(
+    toolbar.querySelector(".mwi-task-sort-button .mwi-task-filter-label")
+      .textContent,
+    "任务排序",
+  );
+  assert.equal(
+    toolbar.querySelectorAll(
+      ":scope > .mwi-task-filter-group--life > .mwi-task-filter",
+    ).length,
+    10,
+  );
+  assert.equal(
+    toolbar.querySelectorAll(
+      ":scope > .mwi-task-filter-group--combat .mwi-task-filter",
+    ).length,
+    5,
+  );
   assert.equal(
     toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-count')
       .textContent,
@@ -204,7 +256,29 @@ test("tasks use a flat sorted list with statistics filters", () => {
       .textContent,
     "3",
   );
-  assert.ok(toolbar.querySelector(".mwi-task-sort-button"));
+  assert.ok(sortButton);
+
+  allFilter.click();
+  assert.equal(
+    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    6,
+  );
+  assert.ok(
+    [...toolbar.querySelectorAll(".mwi-task-filter")].every(
+      (button) => button.getAttribute("aria-pressed") === "false",
+    ),
+  );
+  assert.equal(
+    allFilter.querySelector(".mwi-task-filter-count").textContent,
+    "6",
+  );
+  allFilter.click();
+  assert.equal(
+    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    0,
+  );
 
   toolbar
     .querySelector(

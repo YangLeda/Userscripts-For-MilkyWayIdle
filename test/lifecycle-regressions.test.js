@@ -26,6 +26,7 @@ globalThis.GM_addStyle = (css) => {
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
+await import("../src/features/settings-and-notifications.js");
 await import("../src/features/navigation-action-queue.js");
 await import("../src/features/legacy-lifecycle.js");
 await import("../src/features/item-tooltips.js");
@@ -37,6 +38,7 @@ after(async () => {
 });
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+runtime.state.initData_characterItems = [];
 
 test("disabling queue timing disconnects observers that could recreate output", async () => {
   runtime.state.initData_actionDetailMap = {
@@ -102,4 +104,124 @@ test("tooltip observer ignores text nodes added to the page", async () => {
   await runtime.features.disable("itemTooltip_prices");
   window.removeEventListener("error", onError);
   assert.deepEqual(errors, []);
+});
+
+test("profit tooltips require the configured key in either hover order", async () => {
+  const calls = [];
+  const originalShow = runtime.api.showProductionProfitPanel;
+  const originalDismiss = runtime.api.dismissHoverPanel;
+  runtime.api.showProductionProfitPanel = (anchor, itemHrid, options) => {
+    calls.push({ type: "show", anchor, itemHrid, options });
+    return {};
+  };
+  runtime.api.dismissHoverPanel = () => calls.push({ type: "dismiss" });
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/foraging/key-test": {
+      hrid: "/actions/foraging/key-test",
+      type: "/action_types/foraging",
+    },
+  };
+  const card = document.createElement("div");
+  card.className = "SkillAction_skillAction__fixture";
+  card.__reactFiber$keyTest = {
+    memoizedProps: {
+      actionDetail:
+        runtime.state.initData_actionDetailMap["/actions/foraging/key-test"],
+    },
+  };
+  const input = document.createElement("input");
+  document.body.replaceChildren(card, input);
+  await runtime.features.enable("itemTooltip_profit");
+
+  card.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
+  assert.equal(
+    calls.some((call) => call.type === "show"),
+    false,
+  );
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keyup", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+
+  card.dispatchEvent(new dom.window.MouseEvent("mouseout", { bubbles: true }));
+  calls.length = 0;
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+  card.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keyup", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+
+  calls.length = 0;
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+  assert.equal(
+    calls.some((call) => call.type === "show"),
+    false,
+  );
+
+  const touchEvent = (type, x, y) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperties(event, {
+      pointerType: { value: "touch" },
+      pointerId: { value: 7 },
+    });
+    return event;
+  };
+  calls.length = 0;
+  card.dispatchEvent(touchEvent("pointerdown", 10, 10));
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  assert.equal(calls.find((call) => call.type === "show").options.sticky, true);
+  card.dispatchEvent(touchEvent("pointerup", 10, 10));
+  assert.equal(
+    calls.some((call) => call.type === "dismiss"),
+    false,
+  );
+
+  calls.length = 0;
+  card.dispatchEvent(touchEvent("pointerdown", 10, 10));
+  card.dispatchEvent(touchEvent("pointermove", 40, 40));
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.equal(
+    calls.some((call) => call.type === "show"),
+    false,
+  );
+
+  await runtime.features.disable("itemTooltip_profit");
+  runtime.api.showProductionProfitPanel = originalShow;
+  runtime.api.dismissHoverPanel = originalDismiss;
 });

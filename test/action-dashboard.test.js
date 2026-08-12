@@ -184,6 +184,20 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
   runtime.api.renderProductionPanel();
 });
 
+test("iron-cow adaptation keeps production timing but removes market profit", () => {
+  runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue = true;
+  runtime.state.currentCharacterGameMode = "ironcow";
+  runtime.api.renderProductionPanel();
+
+  const card = document.querySelector("#mwi-production-summary");
+  assert.match(card.textContent, /本次总耗时/);
+  assert.doesNotMatch(card.textContent, /净利润|市场价格缺失/);
+
+  runtime.state.currentCharacterGameMode = "standard";
+  runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue = false;
+  runtime.api.renderProductionPanel();
+});
+
 test("infinite production summaries use inventory capacity and expose a native-style max button", () => {
   const input = document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
@@ -651,6 +665,14 @@ test("equipment warnings float below community buffs without moving action conte
   runtime.api.checkEquipment();
   assert.equal(document.querySelectorAll("#script_item_warning").length, 1);
   assert.equal(document.querySelector("#script_item_warning"), warning);
+
+  runtime.state.labyrinthActive = true;
+  runtime.api.checkEquipment();
+  assert.equal(document.querySelector("#script_item_warning"), null);
+  assert.equal(runtime.api.getEquipmentWarning(), null);
+  runtime.state.labyrinthActive = false;
+  runtime.api.checkEquipment();
+  assert.ok(document.querySelector("#script_item_warning"));
 
   runtime.state.currentEquipmentMap = {
     "/item_locations/off_hand": { itemHrid: "/items/eye_watch", count: 1 },

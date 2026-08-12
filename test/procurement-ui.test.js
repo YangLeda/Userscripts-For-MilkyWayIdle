@@ -607,3 +607,111 @@ test("market shopping navigation renders item icons instead of name pills", () =
   );
   runtime.api.procurement.removeFromCart("/items/cotton");
 });
+
+test("iron-cow adaptation keeps shortages while suppressing market shopping UI", async () => {
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/board",
+    name: "Board",
+    quantity: 4,
+  });
+  runtime.state.currentCharacterGameMode = "ironcow";
+  await runtime.settings.set("adaptIronCowMarketFeatures", true);
+  runtime.api.renderProcurementShell();
+
+  const host = document.querySelector("#mwitools-procurement-host");
+  host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
+  assert.match(
+    host.shadowRoot.querySelector(".item-name").textContent,
+    /Board/,
+  );
+  assert.equal(host.shadowRoot.querySelector(".price"), null);
+  assert.equal(host.shadowRoot.querySelector(".footer-total"), null);
+  assert.equal(host.shadowRoot.querySelector(".item-name").disabled, true);
+  assert.equal(
+    runtime.api.openProcurementMarketplace("/items/board", 0),
+    false,
+  );
+
+  runtime.state.currentCharacterGameMode = "standard";
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+  runtime.api.procurement.clearCart({ includeStarred: true });
+});
+
+test("upgrade chains can start from the direct predecessor without expanding it", () => {
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__chain-fixture";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="2"></div>
+    <div class="SkillActionDetail_actionContainer__fixture"></div>
+    <section id="mwi-production-summary"></section>`;
+  document.body.append(panel);
+  const previousResolver = runtime.api.resolveProductionAction;
+  const previousCreatePlans =
+    runtime.api.procurement.getSettings().createPlansByDefault;
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.setSetting("createPlansByDefault", false);
+  Object.assign(runtime.state.initData_itemDetailMap, {
+    "/items/shadow_pants": { name: "Shadow Pants" },
+    "/items/beast_pants": { name: "Beast Pants" },
+    "/items/shadow_leather": { name: "Shadow Leather" },
+    "/items/beast_leather": { name: "Beast Leather" },
+  });
+  Object.assign(runtime.state.initData_actionDetailMap, {
+    "/actions/tailoring/shadow_pants": {
+      hrid: "/actions/tailoring/shadow_pants",
+      name: "Shadow Pants",
+      type: "/action_types/tailoring",
+      upgradeItemHrid: "/items/beast_pants",
+      inputItems: [
+        { itemHrid: "/items/beast_pants", count: 1 },
+        { itemHrid: "/items/shadow_leather", count: 2 },
+      ],
+      outputItems: [{ itemHrid: "/items/shadow_pants", count: 1 }],
+    },
+    "/actions/tailoring/beast_pants": {
+      hrid: "/actions/tailoring/beast_pants",
+      name: "Beast Pants",
+      type: "/action_types/tailoring",
+      inputItems: [{ itemHrid: "/items/beast_leather", count: 3 }],
+      outputItems: [{ itemHrid: "/items/beast_pants", count: 1 }],
+    },
+  });
+  runtime.api.resolveProductionAction = () => "/actions/tailoring/shadow_pants";
+  panel.querySelector('input[type="text"],input').value = "2";
+
+  runtime.api.renderProductionProcurement();
+  const root = document.querySelector("#mwitools-procurement-production");
+  const previousButton = root.querySelectorAll(
+    ".mwi-procurement-chain-preset",
+  )[1];
+  const allButton = root.querySelector(".mwi-procurement-chain-preset");
+  const checkedState = () =>
+    [...root.querySelectorAll(".mwi-procurement-chain-stage input")].map(
+      (input) => input.checked,
+    );
+  assert.deepEqual(checkedState(), [true, true]);
+  previousButton.click();
+  assert.deepEqual(checkedState(), [true, false]);
+  assert.equal(previousButton.getAttribute("aria-pressed"), "true");
+  allButton.click();
+  assert.deepEqual(checkedState(), [true, true]);
+  previousButton.click();
+  root.querySelector(".mwi-procurement-inline-button").click();
+
+  const itemHrids = runtime.api.procurement
+    .getCartItems()
+    .map((item) => item.itemHrid);
+  assert.equal(itemHrids.includes("/items/beast_pants"), true);
+  assert.equal(itemHrids.includes("/items/shadow_leather"), true);
+  assert.equal(itemHrids.includes("/items/beast_leather"), false);
+
+  runtime.api.resolveProductionAction = previousResolver;
+  runtime.api.procurement.setSetting(
+    "createPlansByDefault",
+    previousCreatePlans,
+  );
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.renderProductionProcurement();
+  panel.remove();
+});

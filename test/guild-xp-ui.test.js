@@ -62,7 +62,13 @@ test("guild overview exists only once and only while Overview is selected", asyn
   assert.equal(document.querySelectorAll(".mwi-guild-xp-card").length, 1);
   assert.equal(
     document.querySelector(".mwi-guild-trend-label").textContent,
-    "最近 7 天经验获取速度（XP/小时）",
+    "最近 7 天经验获取速度（6 小时滚动平均）",
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".mwi-guild-xp-metric small")].map(
+      (node) => node.textContent,
+    ),
+    ["预计升级", "24 小时平均"],
   );
   assert.ok(
     document
@@ -108,6 +114,114 @@ test("an async overview render cannot insert after the user leaves the tab", asy
   runtime.api.getXpHistory = async () => [];
 });
 
+test("guild overview calculates level ETA from the cumulative level table", async () => {
+  guildMarkup();
+  runtime.state.guild = {
+    id: "guild-eta",
+    level: 2,
+    experience: 200,
+  };
+  runtime.state.initData_levelExperienceTable = [0, 0, 100, 500];
+  runtime.api.calculateXpRates = () => ({
+    recent: 10,
+    hour: 10,
+    day: 10,
+    lastSampleAt: Date.now(),
+    points: [],
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const eta = [...document.querySelectorAll(".mwi-guild-xp-metric")].find(
+    (node) => node.querySelector("small")?.textContent === "预计升级",
+  );
+  assert.equal(eta.querySelector("strong").textContent, "108000s");
+});
+
+test("guild overview falls back to the recent XP rate when the 24-hour rate is unavailable", async () => {
+  guildMarkup();
+  runtime.state.guild = {
+    id: "guild-eta-recent-rate",
+    level: 2,
+    experience: 200,
+  };
+  runtime.state.initData_levelExperienceTable = [0, 0, 100, 500];
+  runtime.api.calculateXpRates = () => ({
+    recent: 20,
+    hour: null,
+    day: null,
+    lastSampleAt: Date.now(),
+    points: [],
+  });
+
+  await runtime.api.renderGuildOverview();
+
+  const eta = [...document.querySelectorAll(".mwi-guild-xp-metric")].find(
+    (node) => node.querySelector("small")?.textContent === "预计升级",
+  );
+  assert.equal(eta.querySelector("strong").textContent, "54000s");
+});
+
+test("guild overview never renders a zero ETA for incomplete data", async () => {
+  const cases = [
+    {
+      id: "guild-eta-no-table",
+      guild: { level: 2, experience: 200 },
+      table: null,
+      day: 10,
+    },
+    {
+      id: "guild-eta-max-level",
+      guild: { level: 2, experience: 100 },
+      table: [0, 0, 100],
+      day: 10,
+    },
+    {
+      id: "guild-eta-no-rate",
+      guild: { level: 2, experience: 200 },
+      table: [0, 0, 100, 500],
+      day: null,
+    },
+  ];
+
+  for (const scenario of cases) {
+    guildMarkup();
+    runtime.state.guild = { id: scenario.id, ...scenario.guild };
+    runtime.state.initData_levelExperienceTable = scenario.table;
+    runtime.api.calculateXpRates = () => ({
+      recent: null,
+      hour: null,
+      day: scenario.day,
+      lastSampleAt: Date.now(),
+      points: [],
+    });
+
+    await runtime.api.renderGuildOverview();
+
+    const eta = [...document.querySelectorAll(".mwi-guild-xp-metric")].find(
+      (node) => node.querySelector("small")?.textContent === "预计升级",
+    );
+    assert.equal(eta.querySelector("strong").textContent, "样本不足");
+  }
+});
+
+test("weekly guild experience is normalized to this-week XP per hour", () => {
+  const now = Date.parse("2026-08-12T12:00:00Z");
+  const rate = runtime.api.getGuildWeeklyXpRate(
+    {
+      weeklyGuildExperience: 12_000,
+      weeklyGuildExperienceWeekStartAt: "2026-08-07T12:00:00Z",
+    },
+    now,
+  );
+
+  assert.equal(rate, 100);
+  assert.equal(
+    runtime.api.getGuildWeeklyXpRate({ weeklyGuildExperience: 12_000 }, now),
+    null,
+  );
+});
+
 test("guild XP columns draw relative bars and sort in both directions", async () => {
   document.body.innerHTML = `
     <div class="GuildPanel_guildPanel__test">
@@ -117,11 +231,30 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
           <tbody><tr><td>Alice</td></tr><tr><td>Bob</td></tr><tr><td>Charlie</td></tr></tbody>
         </table>
       </div>
+      <div class="GuildPanel_applicationsTab__test">
+        <table id="application-table">
+          <thead><tr><th>申请</th><th>决定</th></tr></thead>
+          <tbody><tr><td>Applicant</td><td>—</td></tr></tbody>
+        </table>
+      </div>
     </div>`;
+  const weekStart = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
   runtime.state.guild = { id: "guild-table", guildExperience: 5000 };
   runtime.state.guildCharacters = [
-    { id: "alice", name: "Alice", guildExperience: 100 },
-    { id: "bob", name: "Bob", guildExperience: 200 },
+    {
+      id: "alice",
+      name: "Alice",
+      guildExperience: 100,
+      weeklyGuildExperience: 600,
+      weeklyGuildExperienceWeekStartAt: weekStart,
+    },
+    {
+      id: "bob",
+      name: "Bob",
+      guildExperience: 200,
+      weeklyGuildExperience: 2_400,
+      weeklyGuildExperienceWeekStartAt: weekStart,
+    },
     { id: "charlie", name: "Charlie", guildExperience: 300 },
   ];
   runtime.state.guildLeaderboard = [];
@@ -143,20 +276,36 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
   await runtime.api.sampleGuildState(false);
   runtime.api.renderGuildTables();
 
-  const table = document.querySelector("table");
+  const table = document.querySelector(".GuildPanel_membersTab__test table");
   assert.ok(
     document
       .querySelector(".GuildPanel_membersTab__test")
       .classList.contains("mwi-guild-members-wide"),
   );
-  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 6);
+  assert.deepEqual(
+    [...table.querySelectorAll("thead th")].map((cell) =>
+      cell.textContent.replace("↕", ""),
+    ),
+    ["成员", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+  );
+  assert.equal(table.querySelectorAll(".mwi-guild-rate-cell").length, 9);
+  assert.equal(
+    document.querySelectorAll(
+      "#application-table .mwi-guild-rate-cell,#application-table .mwi-guild-recent-head,#application-table .mwi-guild-day-head,#application-table .mwi-guild-week-head",
+    ).length,
+    0,
+  );
+  assert.equal(
+    document.querySelector("#application-table").rows[0].cells.length,
+    2,
+  );
   assert.deepEqual(
     [...table.querySelectorAll("tbody tr")].map((row) =>
       [...row.querySelectorAll(".mwi-guild-rate-fill")].map(
         (fill) => fill.style.width,
       ),
     ),
-    [["50%", "50%"], ["100%", "100%"], []],
+    [["50%", "50%", "25%"], ["100%", "100%", "100%"], []],
   );
 
   const recentHeader = table.querySelector(".mwi-guild-recent-head");
@@ -203,7 +352,7 @@ test("guild idle status requires an explicit empty activity type", async () => {
   );
 });
 
-test("guild trend converts cumulative XP samples into XP-per-hour points", () => {
+test("guild trend converts cumulative XP samples into rolling XP-per-hour points", () => {
   const now = Date.now();
   const hour = 60 * 60 * 1000;
   const points = runtime.api.getGuildXpRatePoints(
@@ -217,8 +366,24 @@ test("guild trend converts cumulative XP samples into XP-per-hour points", () =>
 
   assert.deepEqual(
     points.map((point) => point.rate),
-    [150, 400],
+    [150, 275],
   );
+});
+
+test("guild trend smooths a very short XP burst over at least one hour", () => {
+  const now = Date.now();
+  const hour = 60 * 60 * 1000;
+  const points = runtime.api.getGuildXpRatePoints(
+    [
+      { at: now - 2 * hour, xp: 0 },
+      { at: now - hour, xp: 600 },
+      { at: now - hour + 1_000, xp: 700 },
+    ],
+    now,
+  );
+
+  assert.equal(points.length, 2);
+  assert.ok(points.at(-1).rate < 1_000);
 });
 
 test("guild trend renders axes, readable ticks, grid lines, and bounded data", async () => {

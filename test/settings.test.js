@@ -87,6 +87,45 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   );
 });
 
+test("iron-cow adaptation recognizes both game modes and remains opt-in", async () => {
+  runtime.state.currentCharacterGameMode = "ironcow";
+  assert.equal(runtime.api.isIronCowCharacter(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
+
+  await runtime.settings.set("adaptIronCowMarketFeatures", true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  runtime.state.currentCharacterGameMode = "legacy_ironcow";
+  assert.equal(runtime.api.isIronCowCharacter(), true);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  runtime.state.currentCharacterGameMode = "standard";
+  assert.equal(runtime.api.isIronCowCharacter(), false);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+});
+
+test("profit tooltip shortcut uses separate single-key persistence", () => {
+  localStorage.removeItem("MWITools_tooltip_profit_key_v1");
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
+  assert.deepEqual(runtime.api.getTooltipProfitShortcut(), {
+    code: "Control",
+    display: "Ctrl",
+  });
+  runtime.api.setTooltipProfitShortcut({ code: "KeyK", display: "K" });
+  assert.equal(
+    JSON.parse(localStorage.getItem("MWITools_tooltip_profit_key_v1")).code,
+    "KeyK",
+  );
+  assert.equal(
+    runtime.api.matchesTooltipProfitShortcut({ code: "KeyK" }),
+    true,
+  );
+  assert.equal(
+    runtime.api.matchesTooltipProfitShortcut({ key: "Control" }),
+    false,
+  );
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
+});
+
 test("back mirror valuation resets to disabled once and then preserves user choice", () => {
   const correctionKey = "MWITools_back_mirror_default_disabled_v2";
   localStorage.removeItem(correctionKey);

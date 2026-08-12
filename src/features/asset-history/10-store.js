@@ -192,6 +192,16 @@ function parseDayKey(dayKey) {
   return Date.UTC(year, month - 1, day);
 }
 
+function isValidDayKey(dayKey) {
+  const value = String(dayKey ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const timestamp = parseDayKey(value);
+  return (
+    Number.isFinite(timestamp) &&
+    new Date(timestamp).toISOString().slice(0, 10) === value
+  );
+}
+
 export function dayGap(left, right) {
   return Math.round((parseDayKey(right) - parseDayKey(left)) / 86_400_000);
 }
@@ -500,6 +510,34 @@ export class AssetHistoryStore {
     this.getRole(scopeKey).days[dayKey] = {
       recordedAt: new Date().toISOString(),
       values,
+      edited: true,
+    };
+    this.save();
+    return values;
+  }
+
+  insertDay(dayKey, componentValues, scopeKey = this.scopeKey()) {
+    if (!isValidDayKey(dayKey)) {
+      throw new TypeError("Asset history insertion requires a valid day key");
+    }
+    const values = normalizeAssetValues(componentValues);
+    if (
+      !ASSET_COMPONENT_KEYS.every(
+        (key) => Number.isFinite(values[key]) && values[key] >= 0,
+      )
+    ) {
+      throw new TypeError(
+        "Every inserted asset component needs a non-negative finite value",
+      );
+    }
+    const role = this.getRole(scopeKey);
+    if (Object.hasOwn(role.days, dayKey)) {
+      throw new RangeError(`Asset history already contains ${dayKey}`);
+    }
+    role.days[dayKey] = {
+      recordedAt: new Date(`${dayKey}T15:59:59.999Z`).toISOString(),
+      values,
+      inserted: true,
       edited: true,
     };
     this.save();

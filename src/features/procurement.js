@@ -30,6 +30,10 @@ function t(zh, en) {
   return runtime.config.isZH ? zh : en;
 }
 
+function marketFeaturesSuppressed() {
+  return runtime.api.shouldSuppressMarketFeatures?.() ?? false;
+}
+
 function materialNoun(count) {
   if (runtime.config.isZH) return "种材料";
   return Number(count) === 1 ? "material" : "materials";
@@ -71,6 +75,9 @@ function addStyles() {
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
     .mwi-procurement-chain>summary{padding:4px 6px;cursor:pointer;color:var(--color-text-secondary,#aaa)}
+    .mwi-procurement-chain-presets{display:flex;gap:4px;padding:0 6px 5px}
+    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:.62rem;cursor:pointer}
+    .mwi-procurement-chain-preset[aria-pressed="true"]{border-color:#8293d6;background:rgba(82,100,154,.34);color:#fff}
     .mwi-procurement-chain-list{display:grid;gap:3px;padding:0 6px 6px}
     .mwi-procurement-chain-stage{display:flex;align-items:center;gap:6px;min-width:0}
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -222,24 +229,26 @@ function renderCart(body) {
     return;
   }
   const settings = procurement.getSettings();
+  const marketEnabled = !marketFeaturesSuppressed();
+  const pricesEnabled = marketEnabled && settings.pricesEnabled;
   let total = 0;
   let unpriced = 0;
   for (const item of items) {
     const row = document.createElement("article");
     row.className = "cart-row";
-    const price = settings.pricesEnabled
+    const price = pricesEnabled
       ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) ||
         runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) ||
         0
       : 0;
-    if (settings.pricesEnabled && item.quantity > 0) {
+    if (pricesEnabled && item.quantity > 0) {
       if (price > 0) total += price * item.quantity;
       else unpriced += 1;
     }
     row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" title="${t("在市场中打开", "Open in marketplace")}">${renderItemIcon(item)}</button>
-      <button class="item-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-icon" ${marketEnabled ? `title="${t("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon(item)}</button>
+      <button class="item-name" title="${escapeHtml(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t("待购数量", "Quantity")}">
@@ -248,7 +257,7 @@ function renderCart(body) {
       <button class="delete" title="${t("删除", "Remove")}">×</button>
       <div class="row-bottom">
         <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t("库存", "Stock")} ${formatNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${settings.pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}` : "—"}</span>` : ""}
+        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}` : "—"}</span>` : ""}
         <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
     const setQuantity = (quantity) => {
@@ -264,9 +273,11 @@ function renderCart(body) {
       });
     });
     for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-      target.addEventListener("click", () => {
-        openMarketplace(item.itemHrid, item.enhancementLevel);
-      });
+      if (marketEnabled) {
+        target.addEventListener("click", () => {
+          openMarketplace(item.itemHrid, item.enhancementLevel);
+        });
+      }
     }
     row.querySelector(".delete").addEventListener("click", () => {
       procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
@@ -298,7 +309,7 @@ function renderCart(body) {
   }
   const footer = shadow.querySelector(".panel-footer");
   footer.innerHTML = `
-    <span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>
+    ${marketEnabled ? `<span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
     <button class="clear">${t("清空未收藏", "Clear")}</button>`;
   footer.querySelector(".clear").addEventListener("click", () => {
     procurement.clearCart();
@@ -1071,7 +1082,45 @@ function renderProductionProcurement() {
       row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml(stage.actionHrid)}"><span>${escapeHtml(stage.name)}</span><span>×${formatNumber(stage.count)}</span>`;
       list.append(row);
     }
-    details.append(heading, list);
+    const presets = document.createElement("div");
+    presets.className = "mwi-procurement-chain-presets";
+    const allButton = document.createElement("button");
+    allButton.type = "button";
+    allButton.className = "mwi-procurement-chain-preset";
+    allButton.textContent = t("全链条", "Full chain");
+    const previousButton = document.createElement("button");
+    previousButton.type = "button";
+    previousButton.className = "mwi-procurement-chain-preset";
+    previousButton.textContent = t("从上一步开始", "Start from previous");
+    const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+    const updatePresetState = () => {
+      const checked = checkboxes.map((input) => input.checked);
+      allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
+      previousButton.setAttribute(
+        "aria-pressed",
+        String(
+          Boolean(checked[0]) && checked.slice(1).every((value) => !value),
+        ),
+      );
+    };
+    allButton.addEventListener("click", () => {
+      checkboxes.forEach((input) => {
+        input.checked = true;
+      });
+      updatePresetState();
+    });
+    previousButton.addEventListener("click", () => {
+      checkboxes.forEach((input, index) => {
+        input.checked = index === 0;
+      });
+      updatePresetState();
+    });
+    checkboxes.forEach((input) =>
+      input.addEventListener("change", updatePresetState),
+    );
+    presets.append(allButton, previousButton);
+    updatePresetState();
+    details.append(heading, presets, list);
     root.append(details);
   }
   const existingSummary = isEnhancing
@@ -1338,6 +1387,7 @@ function resolveMarketplaceHandler() {
 }
 
 function openMarketplace(itemHrid, enhancementLevel = 0) {
+  if (marketFeaturesSuppressed()) return false;
   const resolved = resolveMarketplaceHandler();
   if (!resolved) {
     showToast(
@@ -1495,7 +1545,9 @@ function highlightMarketItems(panel, scroll = false) {
   document
     .querySelectorAll(".mwi-procurement-market-target")
     .forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-  if (!procurement.getSettings().locateEnabled) return;
+  if (marketFeaturesSuppressed() || !procurement.getSettings().locateEnabled) {
+    return;
+  }
   const pending = new Set(
     pendingItems().map((item) => item.itemHrid.split("/").at(-1)),
   );
@@ -1522,7 +1574,12 @@ function highlightMarketItems(panel, scroll = false) {
 }
 
 function prefillPurchaseModal() {
-  if (!procurement.getSettings().autoPrefillEnabled) return;
+  if (
+    marketFeaturesSuppressed() ||
+    !procurement.getSettings().autoPrefillEnabled
+  ) {
+    return;
+  }
   for (const modal of document.querySelectorAll(
     '[class*="MarketplacePanel_modalContent"]',
   )) {
@@ -1555,7 +1612,11 @@ function prefillPurchaseModal() {
 }
 
 function renderMarketNav(panel) {
-  if (!marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
+  if (
+    marketFeaturesSuppressed() ||
+    !marketSessionActive ||
+    !procurement.getSettings().purchaseNavEnabled
+  ) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     return;
   }
@@ -1666,6 +1727,7 @@ function shortcutMatches(event, shortcut) {
 }
 
 function handleShortcut(event) {
+  if (marketFeaturesSuppressed()) return;
   const shortcut = procurement.getSettings().nextItemShortcut;
   if (!armedNextItem || !shortcut || !shortcutMatches(event, shortcut)) return;
   const active = document.activeElement;
@@ -1757,6 +1819,12 @@ runtime.features.register({
     }
     createShell(scope);
     subscribeProcurement(scope);
+    scope.add(
+      runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+        clearMarketUi();
+        renderShell();
+      }),
+    );
     renderProductionProcurement();
     updateMarketUi();
     scope.interval(renderProductionProcurement, 350);

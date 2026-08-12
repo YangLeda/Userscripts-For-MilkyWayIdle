@@ -704,6 +704,7 @@ function hideProductionProfitPanel() {
   globalThis.removeEventListener?.("scroll", state.position, true);
   if (state.outsideHandler) {
     document.removeEventListener("mousedown", state.outsideHandler, true);
+    document.removeEventListener("pointerdown", state.outsideHandler, true);
   }
   for (const stop of state.settingStops ?? []) stop?.();
   state.panel?.remove();
@@ -754,8 +755,26 @@ function mountPanel(anchor, panel, extraState = {}) {
   return panel;
 }
 
+function attachStickyOutsideHandler(panel, anchor) {
+  const outsideHandler = (event) => {
+    if (!activePanel?.sticky || activePanel.panel !== panel) return;
+    if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
+    runtime.api.clearTooltipProfitHoverContext?.(anchor);
+    hideProductionProfitPanel();
+  };
+  globalThis.setTimeout?.(() => {
+    if (activePanel?.panel !== panel) return;
+    document.addEventListener("pointerdown", outsideHandler, true);
+    activePanel.outsideHandler = outsideHandler;
+  }, 0);
+}
+
 function showProductionProfitPanel(anchor, itemHrid, options = {}) {
   if (activePanel?.pinned) return null;
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+    return null;
+  }
   const actionHrid =
     options.actionHrid ??
     runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
@@ -771,13 +790,18 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
   if (!primaryItemHrid) return null;
   const panel = createPanelElement();
+  const sticky = Boolean(options.sticky);
+  panel.classList.toggle("mwi-profit-pinned", sticky);
   renderPanel(panel, primaryItemHrid, projection, {
     directAction: Boolean(options.actionHrid),
   });
-  return mountPanel(anchor, panel, {
+  const mounted = mountPanel(anchor, panel, {
     itemHrid: primaryItemHrid,
     actionHrid,
+    sticky,
   });
+  if (sticky) attachStickyOutsideHandler(panel, anchor);
+  return mounted;
 }
 
 function showLootChestPanel(anchor, itemHrid, options = {}) {
@@ -850,9 +874,21 @@ function pinActiveLootChestPanel() {
 }
 
 function dismissHoverPanel() {
-  if (activePanel?.pinned) return;
+  if (activePanel?.pinned || activePanel?.sticky) return;
   hideProductionProfitPanel();
 }
+
+runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+  }
+});
+
+runtime.onMessage("init_character_data", () => {
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    hideProductionProfitPanel();
+  }
+});
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,

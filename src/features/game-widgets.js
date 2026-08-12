@@ -4,29 +4,33 @@ function t(zh, en) {
   return runtime.config.isZH ? zh : en;
 }
 
+let lastBattleSummaryMessage = null;
+
 /* 战斗总结 */
 async function handleBattleSummary(message) {
-  const marketJson = await runtime.api.fetchMarketJSON();
-  let hasMarketJson = true;
-  if (!marketJson) {
+  lastBattleSummaryMessage = message;
+  const suppressMarket = runtime.api.shouldSuppressMarketFeatures?.() ?? false;
+  const marketJson = suppressMarket
+    ? null
+    : await runtime.api.fetchMarketJSON();
+  if (!suppressMarket && !marketJson) {
     console.error(
       runtime.config.isZH
         ? "[MWITools] 市场数据不可用，战斗总结将不显示市场收益。"
         : "[MWITools] Market data is unavailable; market revenue is omitted from the battle summary.",
     );
-    hasMarketJson = false;
   }
   let totalPriceAsk = 0;
   let totalPriceAskBid = 0;
-  let totalRawCoins = 0; // For IC
+  let totalRawCoins = 0;
 
-  if (hasMarketJson && message.unit.totalLootMap) {
+  if (marketJson && message.unit.totalLootMap) {
     for (const loot of Object.values(message.unit.totalLootMap)) {
       const itemCount = loot.count;
       if (loot.itemHrid === "/items/coin") {
         totalRawCoins += itemCount;
       }
-      if (marketJson.marketData[loot.itemHrid]) {
+      if (marketJson.marketData?.[loot.itemHrid]) {
         totalPriceAsk += marketJson.marketData[loot.itemHrid][0].a * itemCount;
         totalPriceAskBid +=
           runtime.api.getNetSellPrice(loot.itemHrid, 0) * itemCount;
@@ -55,6 +59,20 @@ async function handleBattleSummary(message) {
       ".BattlePanel_gainedExp__3SaCa",
     )?.parentElement;
     if (elem) {
+      elem
+        .querySelectorAll(
+          '[data-mwitools-battle-summary="true"],#script_battleNumbers,#script_totalIncome,#script_averageIncome,#script_totalIncomeDay,#script_avgRawCoinHour,#script_totalSkillsExp,#script_averageSkillsExp',
+        )
+        .forEach((node) => node.remove());
+      const appendSummary = (id, html) => {
+        const row = document.createElement("div");
+        row.id = id;
+        row.dataset.mwitoolsBattleSummary = "true";
+        row.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+        row.innerHTML = html;
+        elem.append(row);
+        return row;
+      };
       // 战斗时长和次数
       let battleDurationSec = null;
       const combatInfoElement = document.querySelector(
@@ -72,77 +90,48 @@ async function handleBattleSummary(message) {
           let battles = parseInt(matches[7], 10) - 1; // 排除当前战斗
           battleDurationSec =
             days * 86400 + hours * 3600 + minutes * 60 + seconds;
-          let efficiencyPerHour = (
-            (battles / battleDurationSec) *
-            3600
-          ).toFixed(1);
-          elem.insertAdjacentHTML(
-            "beforeend",
-            `<div id="script_battleNumbers" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-              runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "
-            }${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}</div>`,
+          const efficiencyPerHour = battleDurationSec
+            ? ((battles / battleDurationSec) * 3600).toFixed(1)
+            : "—";
+          appendSummary(
+            "script_battleNumbers",
+            `${runtime.config.isZH ? "每小时战斗: " : "Encounters/hour: "}${efficiencyPerHour}${runtime.config.isZH ? " 次" : ""}`,
           );
         }
       }
-      // 总收入
-      document
-        .querySelector("div#script_battleNumbers")
-        .insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(
-            totalPriceAsk,
-          )} / ${runtime.api.numberFormatter(totalPriceAskBid)}</div>`,
+      if (!suppressMarket && marketJson) {
+        appendSummary(
+          "script_totalIncome",
+          `${runtime.config.isZH ? "总收获: " : "Total revenue: "}${runtime.api.numberFormatter(totalPriceAsk)} / ${runtime.api.numberFormatter(totalPriceAskBid)}`,
         );
-      // 平均收入
-      if (battleDurationSec) {
-        document
-          .querySelector("div#script_totalIncome")
-          .insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageIncome" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-              runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "
-            }${runtime.api.numberFormatter(totalPriceAsk / (battleDurationSec / 60 / 60))} / ${runtime.api.numberFormatter(
-              totalPriceAskBid / (battleDurationSec / 60 / 60),
-            )}</div>`,
+        if (battleDurationSec) {
+          const hours = battleDurationSec / 3600;
+          appendSummary(
+            "script_averageIncome",
+            `${runtime.config.isZH ? "每小时收获: " : "Revenue/hour: "}${runtime.api.numberFormatter(totalPriceAsk / hours)} / ${runtime.api.numberFormatter(totalPriceAskBid / hours)}`,
           );
-        document
-          .querySelector("div#script_averageIncome")
-          .insertAdjacentHTML(
-            "afterend",
-            `<div id="script_totalIncomeDay" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-              runtime.config.isZH ? "每天收获: " : "Revenue/day: "
-            }${runtime.api.numberFormatter((totalPriceAsk / (battleDurationSec / 60 / 60)) * 24)} / ${runtime.api.numberFormatter(
-              (totalPriceAskBid / (battleDurationSec / 60 / 60)) * 24,
-            )}</div>`,
+          appendSummary(
+            "script_totalIncomeDay",
+            `${runtime.config.isZH ? "每天收获: " : "Revenue/day: "}${runtime.api.numberFormatter((totalPriceAsk / hours) * 24)} / ${runtime.api.numberFormatter((totalPriceAskBid / hours) * 24)}`,
           );
-        document
-          .querySelector("div#script_totalIncomeDay")
-          .insertAdjacentHTML(
-            "afterend",
-            `<div id="script_avgRawCoinHour" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-              runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "
-            }${runtime.api.numberFormatter(totalRawCoins / (battleDurationSec / 60 / 60))}</div>`,
+          appendSummary(
+            "script_avgRawCoinHour",
+            `${runtime.config.isZH ? "每小时仅金币收获: " : "Raw coins/hour: "}${runtime.api.numberFormatter(totalRawCoins / hours)}`,
           );
+        }
       }
       // 总经验
-      document
-        .querySelector("div#script_avgRawCoinHour")
-        .insertAdjacentHTML(
-          "afterend",
-          `<div id="script_totalSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(
-            totalSkillsExp,
-          )}</div>`,
-        );
+      appendSummary(
+        "script_totalSkillsExp",
+        `${runtime.config.isZH ? "总经验: " : "Total exp: "}${runtime.api.numberFormatter(totalSkillsExp)}`,
+      );
       // 平均经验
       if (battleDurationSec) {
-        document
-          .querySelector("div#script_totalSkillsExp")
-          .insertAdjacentHTML(
-            "afterend",
-            `<div id="script_averageSkillsExp" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-              runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "
-            }${runtime.api.numberFormatter(totalSkillsExp / (battleDurationSec / 60 / 60))}</div>`,
-          );
+        const hours = battleDurationSec / 3600;
+        appendSummary(
+          "script_averageSkillsExp",
+          `${runtime.config.isZH ? "每小时总经验: " : "Total exp/hour: "}${runtime.api.numberFormatter(totalSkillsExp / hours)}`,
+        );
 
         [
           { skillHrid: "/skills/magic", zhName: "魔法", enName: "Magic" },
@@ -158,16 +147,12 @@ async function handleBattleSummary(message) {
           { skillHrid: "/skills/stamina", zhName: "耐力", enName: "Stamina" },
         ].forEach((skill) => {
           const expGained =
-            message.unit.totalSkillExperienceMap[skill.skillHrid];
+            message.unit.totalSkillExperienceMap?.[skill.skillHrid];
           if (expGained) {
-            document
-              .querySelector("div#script_totalSkillsExp")
-              .insertAdjacentHTML(
-                "afterend",
-                `<div style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${
-                  runtime.config.isZH ? "经验: " : " exp/hour: "
-                }${runtime.api.numberFormatter(expGained / (battleDurationSec / 60 / 60))}</div>`,
-              );
+            appendSummary(
+              `script_${skill.skillHrid.split("/").at(-1)}ExpHour`,
+              `${runtime.config.isZH ? "每小时" : ""}${runtime.config.isZH ? skill.zhName : skill.enName}${runtime.config.isZH ? "经验: " : " exp/hour: "}${runtime.api.numberFormatter(expGained / hours)}`,
+            );
           }
         });
       } else {
@@ -542,6 +527,20 @@ Object.assign(runtime.api, {
   handleTaskCard,
   addIndexToMaps,
 });
+
+const refreshVisibleBattleSummary = () => {
+  if (
+    lastBattleSummaryMessage &&
+    document.querySelector(".BattlePanel_gainedExp__3SaCa")
+  ) {
+    void handleBattleSummary(lastBattleSummaryMessage);
+  }
+};
+runtime.settings.onChange?.(
+  "adaptIronCowMarketFeatures",
+  refreshVisibleBattleSummary,
+);
+runtime.onMessage("init_character_data", refreshVisibleBattleSummary);
 
 Object.defineProperties(runtime.state, {
   onlyShowItemsAboveLevel: {

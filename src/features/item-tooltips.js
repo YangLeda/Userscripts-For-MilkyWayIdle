@@ -1,5 +1,85 @@
 import { runtime } from "../core/runtime.js";
 
+const TOUCH_PROFIT_LONG_PRESS_MS = 800;
+const TOUCH_PROFIT_MOVE_TOLERANCE = 12;
+
+let profitHoverContext = null;
+let profitShortcutHeld = false;
+let touchProfitPress = null;
+let touchProfitAuthorizedUntil = 0;
+
+function isEditableTarget(target) {
+  return Boolean(
+    target?.closest?.('input,textarea,select,[contenteditable="true"]'),
+  );
+}
+
+function requiresProfitShortcut() {
+  return Boolean(
+    runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue,
+  );
+}
+
+function canShowTooltipProfit() {
+  return Boolean(
+    runtime.settings.settingsMap.itemTooltip_profit?.isTrue &&
+    !runtime.api.shouldSuppressMarketFeatures?.(),
+  );
+}
+
+function showProfitContext(context = profitHoverContext, options = {}) {
+  if (!context?.anchor?.isConnected || !canShowTooltipProfit()) {
+    runtime.api.dismissHoverPanel?.();
+    return null;
+  }
+  return runtime.api.showProductionProfitPanel?.(
+    context.anchor,
+    context.itemHrid ?? null,
+    {
+      actionHrid: context.actionHrid,
+      sticky: Boolean(options.sticky),
+    },
+  );
+}
+
+function setProfitHoverContext(context) {
+  profitHoverContext = context;
+  if (!canShowTooltipProfit()) {
+    runtime.api.dismissHoverPanel?.();
+    return;
+  }
+  if (!requiresProfitShortcut() || profitShortcutHeld) {
+    showProfitContext(context);
+    return;
+  }
+  if (Date.now() <= touchProfitAuthorizedUntil) {
+    touchProfitAuthorizedUntil = 0;
+    showProfitContext(context, { sticky: true });
+    return;
+  }
+  if (touchProfitPress?.authorized) {
+    touchProfitPress.triggered = true;
+    showProfitContext(context, { sticky: true });
+    return;
+  }
+  runtime.api.dismissHoverPanel?.();
+}
+
+function clearProfitHoverContext(anchor = null) {
+  if (anchor && profitHoverContext?.anchor !== anchor) return;
+  clearTimeout(touchProfitPress?.timer);
+  touchProfitPress = null;
+  touchProfitAuthorizedUntil = 0;
+  profitHoverContext = null;
+  runtime.api.dismissHoverPanel?.();
+}
+
+function removeSuppressedTooltipContent() {
+  document
+    .querySelectorAll('[data-mwitools-tooltip-market="true"]')
+    .forEach((row) => row.remove());
+}
+
 /* 显示当前动作总时间 */
 const showTotalActionTime = () => {
   const targetNode = document.querySelector("div.Header_actionName__31-L2");
@@ -112,9 +192,7 @@ const tooltipObserver = new MutationObserver(async function (mutations) {
         } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
           const actionHrid = resolveGatheringActionFromElement(added);
           if (actionHrid) {
-            runtime.api.showProductionProfitPanel?.(added, null, {
-              actionHrid,
-            });
+            setProfitHoverContext({ anchor: added, actionHrid });
           }
         }
       }
@@ -422,6 +500,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
+    clearProfitHoverContext();
     runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
@@ -456,7 +535,11 @@ async function handleTooltipItem(tooltip) {
   let fairValue = null;
 
   // 物品市场价格
-  if (runtime.settings.settingsMap.itemTooltip_prices.isTrue) {
+  const suppressMarket = Boolean(runtime.api.shouldSuppressMarketFeatures?.());
+  if (
+    runtime.settings.settingsMap.itemTooltip_prices.isTrue &&
+    !suppressMarket
+  ) {
     marketJson = await fetchMarketJSON();
     if (!marketJson || !marketJson.marketData) {
       console.error(
@@ -470,8 +553,8 @@ async function handleTooltipItem(tooltip) {
     bid = marketJson?.marketData[itemHrid]?.[0]?.b ?? 0;
     fairValue = runtime.api.getFairValue(itemHrid, 0);
     appendHTMLStr += `
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
-    <div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter(fairValue * amount)})` : ""}</div>
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter(ask)} / ${numberFormatter(bid)} (${
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
@@ -485,22 +568,26 @@ async function handleTooltipItem(tooltip) {
     const cd = itemDetail?.consumableDetail?.cooldownDuration;
     if (hp && cd) {
       const hpPerMiniute = (60 / (cd / 1000000000)) * hp;
-      const pricePer100Hp = ask ? ask / (hp / 100) : null;
+      const pricePer100Hp = !suppressMarket && ask ? ask / (hp / 100) : null;
       const usePerday = (24 * 60 * 60) / (cd / 1000000000);
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
         pricePer100Hp
-          ? pricePer100Hp.toFixed(0) +
-            (runtime.config.isZH ? "金/100血, " : "coins/100hp, ")
+          ? `<span data-mwitools-tooltip-market="true">${
+              pricePer100Hp.toFixed(0) +
+              (runtime.config.isZH ? "金/100血, " : "coins/100hp, ")
+            }</span>`
           : ""
       }${hpPerMiniute.toFixed(0) + (runtime.config.isZH ? "血/分" : "hp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
     } else if (mp && cd) {
       const mpPerMiniute = (60 / (cd / 1000000000)) * mp;
-      const pricePer100Mp = ask ? ask / (mp / 100) : null;
+      const pricePer100Mp = !suppressMarket && ask ? ask / (mp / 100) : null;
       const usePerday = (24 * 60 * 60) / (cd / 1000000000);
       appendHTMLStr += `<div style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP}; font-size: 0.625rem;">${
         pricePer100Mp
-          ? pricePer100Mp.toFixed(0) +
-            (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")
+          ? `<span data-mwitools-tooltip-market="true">${
+              pricePer100Mp.toFixed(0) +
+              (runtime.config.isZH ? "金/100蓝, " : "coins/100mp, ")
+            }</span>`
           : ""
       }${mpPerMiniute.toFixed(0) + (runtime.config.isZH ? "蓝/分" : "mp/min")}, ${usePerday.toFixed(0)}${runtime.config.isZH ? "个/天" : "/day"}</div>`;
     } else if (cd) {
@@ -516,13 +603,15 @@ async function handleTooltipItem(tooltip) {
     dropMap instanceof Map ? dropMap.get(itemHrid) : dropMap?.[itemHrid],
   );
   if (isOpenable && runtime.settings.settingsMap.lootChestEstimate?.isTrue) {
+    clearProfitHoverContext();
     runtime.api.showLootChestPanel?.(tooltip, itemHrid);
   } else if (
     !isOpenable &&
     runtime.settings.settingsMap.itemTooltip_profit.isTrue
   ) {
-    runtime.api.showProductionProfitPanel?.(tooltip, itemHrid);
+    setProfitHoverContext({ anchor: tooltip, itemHrid });
   } else {
+    clearProfitHoverContext();
     runtime.api.dismissHoverPanel?.();
   }
 
@@ -585,6 +674,7 @@ Object.assign(runtime.api, {
   getTeaBuffsByActionHrid,
   handleTooltipItem,
   getActionHridFromItemName,
+  clearTooltipProfitHoverContext: clearProfitHoverContext,
 });
 
 Object.defineProperties(runtime.state, {
@@ -673,13 +763,145 @@ for (const id of ["itemTooltip_profit", "showConsumTips"]) {
         if (!card || card.contains(event.relatedTarget)) return;
         const actionHrid = resolveGatheringActionFromElement(card);
         if (!actionHrid) return;
-        runtime.api.showProductionProfitPanel?.(card, null, { actionHrid });
+        setProfitHoverContext({ anchor: card, actionHrid });
       });
       scope.event(document, "mouseout", (event) => {
         const card = gatheringCardFromEventTarget(event.target);
         if (!card || card.contains(event.relatedTarget)) return;
+        clearProfitHoverContext(card);
+      });
+      scope.event(
+        window,
+        "keydown",
+        (event) => {
+          if (
+            event.repeat ||
+            isEditableTarget(event.target) ||
+            !runtime.api.matchesTooltipProfitShortcut?.(event)
+          ) {
+            return;
+          }
+          profitShortcutHeld = true;
+          if (requiresProfitShortcut()) showProfitContext();
+        },
+        true,
+      );
+      scope.event(
+        window,
+        "keyup",
+        (event) => {
+          if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
+          profitShortcutHeld = false;
+          if (requiresProfitShortcut()) runtime.api.dismissHoverPanel?.();
+        },
+        true,
+      );
+      scope.event(window, "blur", () => {
+        profitShortcutHeld = false;
         runtime.api.dismissHoverPanel?.();
+      });
+      scope.event(
+        document,
+        "pointerdown",
+        (event) => {
+          if (
+            event.pointerType !== "touch" ||
+            !requiresProfitShortcut() ||
+            !canShowTooltipProfit()
+          ) {
+            return;
+          }
+          clearTimeout(touchProfitPress?.timer);
+          touchProfitAuthorizedUntil = 0;
+          const press = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            authorized: false,
+            triggered: false,
+            timer: null,
+          };
+          press.timer = setTimeout(() => {
+            if (touchProfitPress !== press) return;
+            press.authorized = true;
+            if (profitHoverContext?.anchor?.isConnected) {
+              press.triggered = true;
+              showProfitContext(profitHoverContext, { sticky: true });
+            }
+          }, TOUCH_PROFIT_LONG_PRESS_MS);
+          touchProfitPress = press;
+        },
+        true,
+      );
+      scope.event(
+        document,
+        "pointermove",
+        (event) => {
+          const press = touchProfitPress;
+          if (!press || press.pointerId !== event.pointerId) return;
+          if (
+            Math.hypot(event.clientX - press.x, event.clientY - press.y) <=
+            TOUCH_PROFIT_MOVE_TOLERANCE
+          ) {
+            return;
+          }
+          clearTimeout(press.timer);
+          touchProfitPress = null;
+          touchProfitAuthorizedUntil = 0;
+        },
+        true,
+      );
+      const finishTouchPress = (event) => {
+        const press = touchProfitPress;
+        if (!press || press.pointerId !== event.pointerId) return;
+        clearTimeout(press.timer);
+        if (press.authorized && !press.triggered) {
+          touchProfitAuthorizedUntil = Date.now() + 500;
+        }
+        touchProfitPress = null;
+      };
+      scope.event(document, "pointerup", finishTouchPress, true);
+      scope.event(
+        document,
+        "pointercancel",
+        (event) => {
+          if (touchProfitPress?.pointerId !== event.pointerId) return;
+          clearTimeout(touchProfitPress.timer);
+          touchProfitPress = null;
+          touchProfitAuthorizedUntil = 0;
+        },
+        true,
+      );
+      const stopRequireKey = runtime.settings.onChange(
+        "itemTooltip_profitRequireKey",
+        (required) => {
+          if (!required) showProfitContext();
+          else if (!profitShortcutHeld) runtime.api.dismissHoverPanel?.();
+        },
+      );
+      const stopIronCow = runtime.settings.onChange(
+        "adaptIronCowMarketFeatures",
+        () => {
+          if (runtime.api.shouldSuppressMarketFeatures?.()) {
+            clearProfitHoverContext();
+            removeSuppressedTooltipContent();
+          }
+        },
+      );
+      scope.add(() => {
+        stopRequireKey?.();
+        stopIronCow?.();
+        clearTimeout(touchProfitPress?.timer);
+        touchProfitPress = null;
+        profitShortcutHeld = false;
+        clearProfitHoverContext();
       });
     },
   });
 }
+
+runtime.onMessage("init_character_data", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  clearProfitHoverContext();
+  removeSuppressedTooltipContent();
+});

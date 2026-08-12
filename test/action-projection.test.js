@@ -92,6 +92,13 @@ runtime.api.getFairValue = (itemHrid) => {
   const netSell = runtime.api.getNetSellPrice(itemHrid);
   return netSell > 0 ? netSell / 0.95 : 0;
 };
+runtime.api.getAssetAskPrice = (...args) => runtime.api.getAskPrice(...args);
+runtime.api.getAssetBidPrice = (...args) => runtime.api.getBidPrice(...args);
+runtime.api.getAssetFairValue = (...args) => runtime.api.getFairValue(...args);
+runtime.api.getAssetNetSellPrice = (...args) =>
+  runtime.api.getNetSellPrice(...args);
+runtime.api.getAssetNetSellPriceAtAsk = (...args) =>
+  runtime.api.getNetSellPriceAtAsk(...args);
 
 test("action projection shares duration, direct material capacity and net profit", () => {
   const result = runtime.api.projectAction("/actions/crafting/test", 5, {
@@ -572,4 +579,115 @@ test("projection waits for actual character data instead of applying defaults", 
   assert.deepEqual(result.missing, ["playerData"]);
   assert.equal(result.profitPerHour, null);
   runtime.state.initData_characterSkills = skills;
+});
+
+test("alchemy projections use selected stacks, bulk size, catalyst, coins and live progress", () => {
+  const previous = {
+    actions: runtime.state.initData_actionDetailMap,
+    items: runtime.state.initData_itemDetailMap,
+    inventory: runtime.state.initData_characterItems,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+  };
+  const actionHrids = [
+    "/actions/alchemy/coinify",
+    "/actions/alchemy/decompose",
+    "/actions/alchemy/transmute",
+    "/actions/alchemy/unrefine",
+  ];
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    actionHrids.map((hrid) => [
+      hrid,
+      {
+        hrid,
+        type: "/action_types/alchemy",
+        function: "/action_functions/alchemy",
+        baseTimeCost: 10_000_000_000,
+      },
+    ]),
+  );
+  runtime.state.initData_itemDetailMap = {
+    "/items/alchemy_target": {
+      itemLevel: 10,
+      sellPrice: 1_000,
+      alchemyDetail: { bulkMultiplier: 5 },
+    },
+    "/items/catalyst": {},
+    "/items/coin": {},
+  };
+  runtime.state.initData_characterItems = [
+    {
+      hash: "target-stack",
+      itemHrid: "/items/alchemy_target",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 25,
+    },
+    {
+      hash: "catalyst-stack",
+      itemHrid: "/items/catalyst",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 1,
+    },
+    {
+      hash: "coin-stack",
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      count: 1_200,
+    },
+  ];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/alchemy": [],
+  };
+
+  const capacityByAction = Object.fromEntries(
+    actionHrids.map((actionHrid) => {
+      const result = runtime.api.projectAction({
+        actionHrid,
+        primaryItemHash: "target-stack",
+        hasMaxCount: false,
+      });
+      return [actionHrid, result.maxCraftable];
+    }),
+  );
+  assert.deepEqual(capacityByAction, {
+    "/actions/alchemy/coinify": 5,
+    "/actions/alchemy/decompose": 2,
+    "/actions/alchemy/transmute": 1,
+    "/actions/alchemy/unrefine": 2,
+  });
+
+  const catalystLimited = runtime.api.projectAction({
+    actionHrid: "/actions/alchemy/coinify",
+    primaryItemHash: "target-stack",
+    secondaryItemHash: "catalyst-stack",
+    hasMaxCount: false,
+  });
+  assert.equal(catalystLimited.effectiveCount, 1);
+  assert.equal(catalystLimited.totalSeconds, 10);
+
+  const finite = runtime.api.projectAction(
+    {
+      actionHrid: "/actions/alchemy/coinify",
+      primaryItemHash: "target-stack",
+      hasMaxCount: true,
+      maxCount: 5,
+      currentCount: 2,
+    },
+    undefined,
+    { durationPerAction: 10, currentCycleRemainingSeconds: 2 },
+  );
+  assert.equal(finite.effectiveCount, 3);
+  assert.equal(finite.totalSeconds, 22);
+
+  const missingSelection = runtime.api.projectAction({
+    actionHrid: "/actions/alchemy/coinify",
+    hasMaxCount: false,
+  });
+  assert.equal(missingSelection.status, "waiting");
+  assert.deepEqual(missingSelection.missing, ["primaryItem"]);
+  assert.equal(missingSelection.totalSeconds, null);
+
+  runtime.state.initData_actionDetailMap = previous.actions;
+  runtime.state.initData_itemDetailMap = previous.items;
+  runtime.state.initData_characterItems = previous.inventory;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
 });

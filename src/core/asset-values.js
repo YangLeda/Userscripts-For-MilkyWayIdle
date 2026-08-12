@@ -37,6 +37,7 @@ function invalidateAssetValueCache() {
   assetValueCache.clear();
   assetLiquidationCache.clear();
   guildCreditHridCache = null;
+  runtime.api.resetAssetValuationMarketSnapshot?.();
 }
 
 function getItemDetails(itemHrid) {
@@ -104,7 +105,7 @@ function getGuildCreditValue(creditItemHrid) {
   )) {
     const itemHrid = detail?.hrid ?? detail?.itemHrid ?? fallbackHrid;
     if (!itemHrid || itemHrid === "/items/guild_token") continue;
-    const materialValue = runtime.api.getFairValue(itemHrid, 0);
+    const materialValue = runtime.api.getAssetFairValue(itemHrid, 0);
     if (!(materialValue > 0)) continue;
     for (const conversion of detail?.guildCreditConversions ?? []) {
       if (conversion?.creditItemHrid !== creditItemHrid) continue;
@@ -235,8 +236,10 @@ function getLootConfig(overrides = {}) {
 function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
   if (itemHrid === "/items/coin") return 1;
   const price = sellAtAsk
-    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
-    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    ? positiveNumber(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(
+        runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel),
+      );
   if (!(price > 0)) return 0;
   const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;
   return price * Math.max(0, 1 - taxRate);
@@ -245,8 +248,10 @@ function lootSaleValue(itemHrid, enhancementLevel, sellAtAsk) {
 function lootPurchaseValue(itemHrid, enhancementLevel, buyAtAsk) {
   if (itemHrid === "/items/coin") return 1;
   return buyAtAsk
-    ? positiveNumber(runtime.api.getAskPrice?.(itemHrid, enhancementLevel))
-    : positiveNumber(runtime.api.getBidPrice?.(itemHrid, enhancementLevel));
+    ? positiveNumber(runtime.api.getAssetAskPrice?.(itemHrid, enhancementLevel))
+    : positiveNumber(
+        runtime.api.getAssetBidPrice?.(itemHrid, enhancementLevel),
+      );
 }
 
 function lootDropIdentity(itemHrid, enhancementLevel = 0) {
@@ -761,7 +766,8 @@ function getEnhancedEquipmentCost(
     allowPhilosopherMirror: !backEquipment,
     getFairValue: (hrid, level = 0) =>
       acquisitionCostValue(hrid, level, context),
-    getMarketValue: (hrid, level = 0) => runtime.api.getFairValue(hrid, level),
+    getMarketValue: (hrid, level = 0) =>
+      runtime.api.getAssetFairValue(hrid, level),
   });
   return plan?.status === "complete" ? positiveNumber(plan.totalCost) : 0;
 }
@@ -809,7 +815,7 @@ function getAssetValueInternal(
 ) {
   if (!itemHrid) return 0;
   const level = Number(enhancementLevel) || 0;
-  const directFairValue = runtime.api.getFairValue(itemHrid, level);
+  const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
   const enhancedEquipment = level > 0 && isEquipment(itemHrid);
   const refinedBackEquipment =
@@ -938,16 +944,16 @@ function getAssetValue(itemHrid, enhancementLevel = 0, options = {}) {
 function directLiquidationValue(itemHrid, enhancementLevel, mode) {
   if (mode === "conservative") {
     return positiveNumber(
-      runtime.api.getNetSellPrice?.(itemHrid, enhancementLevel),
+      runtime.api.getAssetNetSellPrice?.(itemHrid, enhancementLevel),
     );
   }
   if (mode === "aggressive") {
     return positiveNumber(
-      runtime.api.getNetSellPriceAtAsk?.(itemHrid, enhancementLevel),
+      runtime.api.getAssetNetSellPriceAtAsk?.(itemHrid, enhancementLevel),
     );
   }
   const fairValue = positiveNumber(
-    runtime.api.getFairValue?.(itemHrid, enhancementLevel),
+    runtime.api.getAssetFairValue?.(itemHrid, enhancementLevel),
   );
   if (!fairValue) return 0;
   const taxRate = Number(runtime.api.getMarketTaxRate?.(itemHrid)) || 0;

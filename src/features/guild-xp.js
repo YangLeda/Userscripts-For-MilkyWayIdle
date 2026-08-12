@@ -4,6 +4,8 @@ const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
 const HOUR_MS = 60 * 60 * 1000;
 const TREND_WINDOW_MS = 7 * 24 * HOUR_MS;
+const TREND_RATE_WINDOW_MS = 6 * HOUR_MS;
+const TREND_MINIMUM_COVERAGE_MS = HOUR_MS;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -104,6 +106,24 @@ function entityXp(entity) {
   return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
+function entityWeeklyXpRate(entity, now = Date.now()) {
+  const weeklyValue = findField(entity, ["weeklyGuildExperience"]);
+  const weeklyXp = weeklyValue === null ? NaN : Number(weeklyValue);
+  const weekStartedAt = Date.parse(
+    findField(entity, ["weeklyGuildExperienceWeekStartAt"]) ?? "",
+  );
+  const elapsed = now - weekStartedAt;
+  if (
+    !Number.isFinite(weeklyXp) ||
+    weeklyXp < 0 ||
+    !Number.isFinite(weekStartedAt) ||
+    elapsed <= 0
+  ) {
+    return null;
+  }
+  return (weeklyXp / elapsed) * HOUR_MS;
+}
+
 function objectKey(kind, entity, parentId = "") {
   const id = entityId(entity);
   return id ? `${kind}:${parentId ? `${parentId}:` : ""}${id}` : "";
@@ -166,7 +186,7 @@ function addStyles() {
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:860px !important; }
+    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
     .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
@@ -217,14 +237,27 @@ function guildXpRatePoints(points, now = Date.now()) {
   const sorted = [...points]
     .map((point) => ({ at: Number(point?.at), xp: Number(point?.xp) }))
     .filter((point) => Number.isFinite(point.at) && Number.isFinite(point.xp))
-    .sort((left, right) => left.at - right.at)
-    .filter((point) => point.at >= cutoff);
+    .sort((left, right) => left.at - right.at);
   const rates = [];
   for (let index = 1; index < sorted.length; index += 1) {
-    const previous = sorted[index - 1];
     const current = sorted[index];
-    const elapsed = current.at - previous.at;
-    const gained = current.xp - previous.xp;
+    if (current.at < cutoff) continue;
+    let baselineIndex = index - 1;
+    while (
+      baselineIndex > 0 &&
+      current.at - sorted[baselineIndex - 1].at <= TREND_RATE_WINDOW_MS
+    ) {
+      baselineIndex -= 1;
+    }
+    let baseline = sorted[baselineIndex];
+    if (current.at - baseline.at < TREND_MINIMUM_COVERAGE_MS) {
+      baseline = [...sorted.slice(0, baselineIndex)]
+        .reverse()
+        .find((point) => current.at - point.at >= TREND_MINIMUM_COVERAGE_MS);
+    }
+    if (!baseline) continue;
+    const elapsed = current.at - baseline.at;
+    const gained = current.xp - baseline.xp;
     if (elapsed <= 0 || gained < 0) continue;
     rates.push({ at: current.at, rate: (gained / elapsed) * HOUR_MS });
   }
@@ -266,8 +299,8 @@ function trendSvg(points) {
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
   const label = t(
-    "公会经验获取速度（XP/小时）",
-    "Guild XP gain rate (XP/hour)",
+    "公会经验获取速度（6 小时滚动平均，XP/小时）",
+    "Guild XP gain rate (6-hour rolling average, XP/hour)",
   );
   svg.setAttribute("role", "img");
   svg.setAttribute("aria-label", label);
@@ -425,37 +458,38 @@ async function renderGuildOverview() {
   const grid = document.createElement("div");
   grid.className = "mwi-guild-xp-grid";
   const xp = entityXp(guild);
-  const nextXp = Number(
-    findField(guild, [
-      "nextLevelExperience",
-      "experienceForNextLevel",
-      "levelExperience",
-    ]),
-  );
+  const level = Number(findField(guild, ["level", "guildLevel"]));
+  const nextXp = Number.isInteger(level)
+    ? Number(runtime.state.initData_levelExperienceTable?.[level + 1])
+    : NaN;
   const remaining =
-    Number.isFinite(nextXp) && xp !== null ? Math.max(0, nextXp - xp) : null;
+    Number.isFinite(nextXp) && xp !== null && nextXp > xp ? nextXp - xp : null;
+  const dayRate = Number(rates?.day);
+  const recentRate = Number(rates?.recent);
+  const estimateRate =
+    Number.isFinite(dayRate) && dayRate > 0
+      ? dayRate
+      : Number.isFinite(recentRate) && recentRate > 0
+        ? recentRate
+        : null;
   const etaHours =
-    remaining !== null && Number(rates?.day) > 0 ? remaining / rates.day : null;
+    remaining !== null && estimateRate !== null
+      ? remaining / estimateRate
+      : null;
   grid.append(
-    metric(t("当前经验", "Current XP"), runtime.api.createFormattedNumber(xp)),
-    metric(
-      t("最近 XP/h", "Recent XP/h"),
-      rateText(rates?.recent, !rates?.lastSampleAt),
-    ),
-    metric(t("1 小时平均", "1-hour average"), rateText(rates?.hour)),
-    metric(t("24 小时平均", "24-hour average"), rateText(rates?.day)),
     metric(
       t("预计升级", "Level ETA"),
       Number.isFinite(etaHours)
         ? runtime.api.timeReadable(etaHours * 3600)
         : t("样本不足", "Not enough data"),
     ),
+    metric(t("24 小时平均", "24-hour average"), rateText(rates?.day)),
   );
   const trendLabel = document.createElement("div");
   trendLabel.className = "mwi-guild-trend-label";
   trendLabel.textContent = t(
-    "最近 7 天经验获取速度（XP/小时）",
-    "XP gain rate over the last 7 days (XP/hour)",
+    "最近 7 天经验获取速度（6 小时滚动平均）",
+    "XP gain rate over the last 7 days (6-hour rolling average)",
   );
   card.append(head, grid, trendLabel, trendSvg(rates?.points ?? []));
 
@@ -490,10 +524,14 @@ function appendRateColumns(table, rows, kind, parentId = "") {
   }
   const header = table.tHead.rows[0];
   if (!header.querySelector(".mwi-guild-recent-head")) {
-    for (const [rateIndex, [className, label]] of [
-      ["mwi-guild-recent-head", t("最近 XP/h", "Recent XP/h")],
+    const columns = [
+      ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
       ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
-    ].entries()) {
+      ...(kind === "member"
+        ? [["mwi-guild-week-head", t("本周平均 XP/h", "This-week avg XP/h")]]
+        : []),
+    ];
+    for (const [rateIndex, [className, label]] of columns.entries()) {
       const cell = document.createElement("th");
       cell.className = className;
       const labelNode = document.createElement("span");
@@ -511,7 +549,9 @@ function appendRateColumns(table, rows, kind, parentId = "") {
         const direction = cell.dataset.direction === "desc" ? 1 : -1;
         cell.dataset.direction = direction === -1 ? "desc" : "asc";
         header
-          .querySelectorAll(".mwi-guild-recent-head,.mwi-guild-day-head")
+          .querySelectorAll(
+            ".mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head",
+          )
           .forEach((head) => {
             if (head !== cell) {
               delete head.dataset.direction;
@@ -565,22 +605,32 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       key = objectKey(kind, source, parentId);
       if (key) row.dataset.mwiGuildEntityKey = key;
     }
-    return { row, key, rates: rateCache.get(key) };
+    const rates = rateCache.get(key);
+    return {
+      row,
+      key,
+      rates,
+      values: [
+        rates?.recent,
+        rates?.day,
+        ...(kind === "member" ? [entityWeeklyXpRate(source)] : []),
+      ],
+    };
   });
-  const maxima = ["recent", "day"].map((field) =>
+  const maxima = Array.from({ length: kind === "member" ? 3 : 2 }, (_, index) =>
     Math.max(
       0,
-      ...rowEntries.map(({ rates }) =>
-        Number.isFinite(rates?.[field]) ? rates[field] : 0,
+      ...rowEntries.map(({ values }) =>
+        Number.isFinite(values[index]) ? values[index] : 0,
       ),
     ),
   );
 
-  rowEntries.forEach(({ row, rates }) => {
+  rowEntries.forEach(({ row, rates, values }) => {
     row
       .querySelectorAll(".mwi-guild-rate-cell")
       .forEach((cell) => cell.remove());
-    for (const [rateIndex, value] of [rates?.recent, rates?.day].entries()) {
+    for (const [rateIndex, value] of values.entries()) {
       const cell = document.createElement("td");
       cell.className = "mwi-guild-rate-cell";
       cell.dataset.sortValue = Number.isFinite(value) ? String(value) : "-1";
@@ -619,7 +669,7 @@ function appendLeaderboardDivRates(rows) {
     head.className = "mwi-guild-div-rate-head";
     head.append(
       Object.assign(document.createElement("span"), {
-        textContent: t("最近 XP/h", "Recent XP/h"),
+        textContent: t("近 6 小时 XP/h", "6h XP/h"),
       }),
       Object.assign(document.createElement("span"), {
         textContent: t("24 小时 XP/h", "24h XP/h"),
@@ -652,7 +702,7 @@ function appendLeaderboardDivRates(rows) {
 function renderGuildTables() {
   if (runtime.settings.get("guildMemberXp")) {
     const memberTable = document.querySelector(
-      'div[class*="GuildPanel"] table',
+      'div[class*="GuildPanel_membersTab"] table',
     );
     appendRateColumns(
       memberTable,
@@ -745,7 +795,7 @@ for (const id of ["guildMemberXp", "guildLeaderboardXp", "guildIdleMembers"]) {
             }
             table
               .querySelectorAll(
-                ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head",
+                ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head",
               )
               .forEach((node) => node.remove());
             table.classList.remove(`mwi-guild-${kind}-table`);
@@ -765,6 +815,7 @@ Object.assign(runtime.api, {
   renderGuildOverview,
   renderGuildTables,
   getGuildEntityXp: entityXp,
+  getGuildWeeklyXpRate: entityWeeklyXpRate,
   getGuildXpRatePoints: guildXpRatePoints,
   isGuildMemberIdle,
 });

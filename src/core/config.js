@@ -89,8 +89,8 @@ let settingsMap = {
   feedback: {
     id: "feedback",
     desc: isZH
-      ? "总等级下方显示意见反馈入口"
-      : "Show the feedback entry below total level.",
+      ? "总等级下方显示意见中心入口"
+      : "Show the Feedback Center below total level.",
     isTrue: true,
   },
   invWorth: {
@@ -143,6 +143,13 @@ let settingsMap = {
     desc: isZH
       ? "物品悬浮窗显示：生产成本和利润计算 [依赖上一项]"
       : "Item tooltip: Production cost and profit. [Depends on the previous selection]",
+    isTrue: true,
+  },
+  itemTooltip_profitRequireKey: {
+    id: "itemTooltip_profitRequireKey",
+    desc: isZH
+      ? "悬浮生产利润需要同时按住自定义按键"
+      : "Require a custom held key for tooltip production profit.",
     isTrue: true,
   },
   showConsumTips: {
@@ -443,6 +450,13 @@ let settingsMap = {
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
     isTrue: false,
   },
+  adaptIronCowMarketFeatures: {
+    id: "adaptIronCowMarketFeatures",
+    desc: isZH
+      ? "铁牛角色隐藏不可用的市场与利润功能"
+      : "Hide unavailable marketplace and profit features for Iron Cow characters.",
+    isTrue: false,
+  },
 };
 
 const settingsGroups = {
@@ -522,10 +536,10 @@ const catalogRows = [
   [
     "feedback",
     "general",
-    "意见反馈",
-    "Feedback",
-    "在总等级下方提交意见、填写外部图片链接并查看处理状态。",
-    "Submit feedback with external image links below total level and follow its status.",
+    "意见中心",
+    "Feedback Center",
+    "查看版本公告、提交意见，并通过红点关注反馈回复。",
+    "Read release announcements, submit feedback, and follow replies with a notification dot.",
   ],
   [
     "forceMWIToolsDisplayZH",
@@ -558,6 +572,14 @@ const catalogRows = [
     "Idle notification",
     "动作队列清空时发送浏览器通知；游戏页面需要保持打开。",
     "Send a browser notification when the action queue becomes empty while the game is open.",
+  ],
+  [
+    "adaptIronCowMarketFeatures",
+    "general",
+    "铁牛模式适配",
+    "Iron Cow mode adaptation",
+    "铁牛角色隐藏市场价格、交易利润和市场采购操作；资产与宝箱估值仍保留。",
+    "Hide marketplace prices, trading profit, and marketplace procurement for Iron Cow characters while retaining asset and loot valuations.",
   ],
   [
     "expPercentage",
@@ -726,6 +748,14 @@ const catalogRows = [
     "Tooltip production profit",
     "在可生产物品的悬浮窗显示材料成本和预计利润。",
     "Show material cost and estimated profit for craftable items.",
+  ],
+  [
+    "itemTooltip_profitRequireKey",
+    "market",
+    "悬浮利润需要按键",
+    "Require key for tooltip profit",
+    "桌面端悬浮时还需按住自定义单键；移动端使用长按。",
+    "Require a custom held key while hovering on desktop; use a long press on touch devices.",
   ],
   [
     "showConsumTips",
@@ -948,24 +978,24 @@ const catalogRows = [
     "guild",
     "公会经验总览",
     "Guild XP overview",
-    "显示最近、1 小时和 24 小时速率、升级时间与 7 天趋势。",
-    "Show recent, hourly, and daily XP rates, time to level, and a seven-day trend.",
+    "显示 24 小时速率、升级时间与 6 小时滚动平均的 7 天趋势。",
+    "Show the 24-hour rate, time to level, and a seven-day trend using a 6-hour rolling average.",
   ],
   [
     "guildMemberXp",
     "guild",
     "成员经验速率",
     "Member XP rates",
-    "在成员表增加最近和 24 小时 XP/h 两列。",
-    "Add recent and 24-hour XP/h columns to the member table.",
+    "在成员表增加近 6 小时、24 小时和本周平均 XP/h。",
+    "Add 6-hour, 24-hour, and this-week average XP/h columns to the member table.",
   ],
   [
     "guildLeaderboardXp",
     "guild",
     "公会榜经验速率",
     "Guild leaderboard XP rates",
-    "在全服公会榜显示本机采样得到的最近和 24 小时 XP/h。",
-    "Show locally sampled recent and 24-hour XP/h on the guild leaderboard.",
+    "在全服公会榜显示本机采样得到的近 6 小时和 24 小时 XP/h。",
+    "Show locally sampled 6-hour and 24-hour XP/h on the guild leaderboard.",
   ],
   [
     "guildIdleMembers",
@@ -1038,6 +1068,7 @@ const settingParents = {
   productionProfit: "actionPanel_totalTime",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
+  itemTooltip_profitRequireKey: "itemTooltip_profit",
   showConsumTips: "itemTooltip_prices",
   lootChestEstimate: "itemTooltip_prices",
   lootSellAtAsk: "lootChestEstimate",
@@ -1066,6 +1097,18 @@ const settingListeners = new Map();
 
 function getSetting(id) {
   return settingsMap[id]?.isTrue;
+}
+
+function isIronCowCharacter() {
+  return ["ironcow", "legacy_ironcow"].includes(
+    String(runtime.state.currentCharacterGameMode ?? "").toLowerCase(),
+  );
+}
+
+function shouldSuppressMarketFeatures() {
+  return Boolean(
+    settingsMap.adaptIronCowMarketFeatures?.isTrue && isIronCowCharacter(),
+  );
 }
 
 async function setSetting(id, value, options = {}) {
@@ -1187,6 +1230,11 @@ Object.assign(runtime.settings, {
   get: getSetting,
   set: setSetting,
   onChange: onSettingChange,
+});
+
+Object.assign(runtime.api, {
+  isIronCowCharacter,
+  shouldSuppressMarketFeatures,
 });
 
 runtime.registerStart("core/config.js", () => {

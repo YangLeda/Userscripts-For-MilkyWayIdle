@@ -6,10 +6,15 @@ import {
 } from "./enhancement-cost-panel.js";
 
 function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
-  if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue) return;
   tooltipContent
     .querySelector('[data-mwitools-enhancement-market="true"]')
     ?.remove();
+  if (
+    !runtime.settings.settingsMap.itemTooltip_prices.isTrue ||
+    runtime.api.shouldSuppressMarketFeatures?.()
+  ) {
+    return;
+  }
   const wrapper = document.createElement("div");
   wrapper.dataset.mwitoolsEnhancementMarket = "true";
   wrapper.style.color = runtime.config.SCRIPT_COLOR_TOOLTIP;
@@ -97,9 +102,13 @@ export async function handleEnhancedItemTooltip(tooltip) {
     hideEnhancementCostPanel();
   }
 
-  await runtime.api.fetchMarketJSON();
-  if (!tooltip.isConnected) return;
-  appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) {
+    await runtime.api.fetchMarketJSON();
+    if (!tooltip.isConnected) return;
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  } else {
+    appendMarketRows(tooltipContent, itemHrid, enhancementLevel);
+  }
   if (!runtime.settings.settingsMap.enhanceSim.isTrue) return;
 
   const plan = calculateEnhancementPlan({
@@ -111,3 +120,17 @@ export async function handleEnhancedItemTooltip(tooltip) {
 }
 
 runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
+
+runtime.onMessage("init_character_data", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  document
+    .querySelectorAll('[data-mwitools-enhancement-market="true"]')
+    .forEach((row) => row.remove());
+});
+
+runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
+  document
+    .querySelectorAll('[data-mwitools-enhancement-market="true"]')
+    .forEach((row) => row.remove());
+});

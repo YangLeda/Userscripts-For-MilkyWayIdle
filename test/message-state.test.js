@@ -221,6 +221,35 @@ test("character, action and equipment messages update canonical state", () => {
   );
 });
 
+test("character game mode and labyrinth activity follow authoritative messages", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    character: { id: "iron-1", gameMode: "ironcow" },
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [],
+    labyrinth: { isActive: true },
+  });
+  assert.equal(runtime.state.currentCharacterGameMode, "ironcow");
+  assert.equal(runtime.state.labyrinthActive, true);
+
+  runtime.api.applyGameMessage({
+    type: "labyrinth_updated",
+    labyrinth: { isActive: false },
+  });
+  assert.equal(runtime.state.labyrinthActive, false);
+
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    character: { id: "iron-2", gameMode: "legacy_ironcow" },
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [],
+  });
+  assert.equal(runtime.state.currentCharacterGameMode, "legacy_ironcow");
+  assert.equal(runtime.state.labyrinthActive, false);
+});
+
 test("authoritative action buffs and skill levels stay current", () => {
   runtime.api.applyGameMessage({
     type: "init_character_data",

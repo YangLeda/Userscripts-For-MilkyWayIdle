@@ -84,6 +84,38 @@ test("server values use exact enhancement levels and orderbook fallbacks", () =>
   assert.equal(runtime.api.getBidPrice("/items/test", 2), 0);
 });
 
+test("asset valuation prices stay frozen while live orderbook values update", () => {
+  runtime.api.resetAssetValuationMarketSnapshot();
+  runtime.state.marketItemValues = {
+    "/items/already_seen": { 0: 100 },
+    "/items/not_seen_yet": { 0: 200 },
+  };
+
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 100);
+
+  runtime.api.applyMarketOrderBooks({
+    itemHrid: "/items/already_seen",
+    orderBooks: {},
+    marketValues: { 0: 150 },
+  });
+  runtime.api.applyMarketOrderBooks({
+    itemHrid: "/items/not_seen_yet",
+    orderBooks: {},
+    marketValues: { 0: 250 },
+  });
+
+  assert.equal(runtime.api.getFairValue("/items/already_seen", 0), 150);
+  assert.equal(runtime.api.getFairValue("/items/not_seen_yet", 0), 250);
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 100);
+  assert.equal(runtime.api.getAssetFairValue("/items/not_seen_yet", 0), 200);
+  assert.equal(runtime.api.isAssetValuationMarketDirty(), true);
+
+  runtime.api.resetAssetValuationMarketSnapshot();
+  assert.equal(runtime.api.getAssetFairValue("/items/already_seen", 0), 150);
+  assert.equal(runtime.api.getAssetFairValue("/items/not_seen_yet", 0), 250);
+  assert.equal(runtime.api.isAssetValuationMarketDirty(), false);
+});
+
 test("compressed game market values are restored at startup", () => {
   const cached = {
     marketValuesVersion: "test-version",
