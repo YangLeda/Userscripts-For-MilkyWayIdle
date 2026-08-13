@@ -18,12 +18,14 @@ function addInventorySummaryStyles() {
     #script_inventory_summary {
       --mwi-inventory-heading-font-size: .875rem;
       --mwi-inventory-heading-line-height: 1.2;
+      display: block !important;
       margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
       font-size: var(--mwi-inventory-heading-font-size);
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
+    #script_inv_sort_controls { display: block !important; }
     [class*="Item_enhancementLevel"] ~ #script_stack_price {
       margin-top: 15px;
     }

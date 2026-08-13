@@ -404,7 +404,7 @@ test("announcement history preserves each release separately through 26.4.9", ()
   assert.match(previous.body.zh.join("\n"), /炼金与强化/);
   assert.match(
     current.body.zh.join("\n"),
-    /切换到技能页再返回库存.*残留的隐藏状态/,
+    /切换到技能页再返回库存.*晚到回调再次写入隐藏状态也会保持可见/,
   );
   assert.match(
     current.body.zh.join("\n"),

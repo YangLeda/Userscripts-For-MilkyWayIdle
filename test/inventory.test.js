@@ -186,6 +186,14 @@ test("inventory asset summaries rerender without restoring the removed header UI
   ).textContent;
   assert.match(
     summaryStyles,
+    /#script_inventory_summary\s*\{[^}]*display:\s*block !important/s,
+  );
+  assert.match(
+    summaryStyles,
+    /#script_inv_sort_controls\s*\{\s*display:\s*block !important;/,
+  );
+  assert.match(
+    summaryStyles,
     /\[class\*="Item_enhancementLevel"\] ~ #script_stack_price \{\s*margin-top: 15px;/,
   );
   assert.doesNotMatch(summaryStyles, /#script_stack_price[^}]*text-shadow/);
