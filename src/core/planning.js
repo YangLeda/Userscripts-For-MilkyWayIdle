@@ -12,6 +12,8 @@ let cachedRevision = -1;
 let cachedResult = null;
 let lastResult = null;
 let lastCalculatedAt = null;
+let decisionResult = null;
+let decisionCalculatedAt = null;
 let recipeCache = new Map();
 
 function positiveInteger(value, fallback = 1) {
@@ -85,8 +87,14 @@ function invalidate() {
   recipeCache = new Map();
 }
 
+function clearDecisionResult() {
+  decisionResult = null;
+  decisionCalculatedAt = null;
+}
+
 function saveState(state, reason) {
   invalidate();
+  if (reason === "goal") clearDecisionResult();
   return procurement.setPlanningData(state, reason);
 }
 
@@ -192,6 +200,7 @@ function setNodePolicy(goalId, itemHrid, policy) {
     state.overrides[goalId][item] = normalizePolicy(policy);
   }
   saveState(state, "node-policy");
+  updateDecisionPolicy(goalId, item, getNodePolicy(goalId, item));
   return true;
 }
 
@@ -399,21 +408,21 @@ function calculateFresh() {
       policies: new Set(),
       branches: new Map(),
     };
-    const branch = decision.branches.get(entry.goalId) ?? {
+    const branchKey = `${entry.goalId}\u0000${entry.policy}`;
+    const branch = decision.branches.get(branchKey) ?? {
       goalId: entry.goalId,
+      policy: entry.policy,
       requiredOutput: 0,
       inventoryUsed: 0,
       virtualUsed: 0,
       remaining: 0,
-      policies: new Set(),
     };
     branch.requiredOutput += entry.amount;
     branch.inventoryUsed += entry.inventoryUsed;
     branch.virtualUsed += entry.virtualUsed;
     branch.remaining += entry.remaining;
-    branch.policies.add(entry.policy);
     decision.policies.add(entry.policy);
-    decision.branches.set(entry.goalId, branch);
+    decision.branches.set(branchKey, branch);
     decisions.set(entry.itemHrid, decision);
   };
 
@@ -625,11 +634,13 @@ function calculateFresh() {
       const branches = [...decision.branches.values()]
         .map((branch) => ({
           ...branch,
-          policies: [...branch.policies],
-          policy:
-            branch.policies.size === 1 ? [...branch.policies][0] : "mixed",
+          policies: [branch.policy],
         }))
-        .sort((left, right) => left.goalId.localeCompare(right.goalId));
+        .sort(
+          (left, right) =>
+            left.goalId.localeCompare(right.goalId) ||
+            left.policy.localeCompare(right.policy),
+        );
       return {
         itemHrid: decision.itemHrid,
         name: itemName(decision.itemHrid),
@@ -711,6 +722,51 @@ function calculate() {
   return cachedResult;
 }
 
+function calculateDecisions() {
+  decisionResult = calculateFresh();
+  decisionCalculatedAt = new Date().toISOString();
+  return decisionResult;
+}
+
+function getDecisionResult() {
+  return decisionResult;
+}
+
+function updateDecisionPolicy(goalId, itemHrid, policy) {
+  const node = decisionResult?.nodes?.find(
+    (entry) => entry.itemHrid === itemHrid,
+  );
+  if (!node) return;
+  const merged = new Map();
+  for (const branch of node.branches) {
+    const next =
+      branch.goalId === goalId
+        ? { ...branch, policy, policies: [policy] }
+        : branch;
+    const key = `${next.goalId}\u0000${next.policy}`;
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, { ...next });
+      continue;
+    }
+    for (const field of [
+      "requiredOutput",
+      "inventoryUsed",
+      "virtualUsed",
+      "remaining",
+    ]) {
+      current[field] += next[field];
+    }
+  }
+  node.branches = [...merged.values()].sort(
+    (left, right) =>
+      left.goalId.localeCompare(right.goalId) ||
+      left.policy.localeCompare(right.policy),
+  );
+  node.policies = [...new Set(node.branches.map((branch) => branch.policy))];
+  node.policy = node.policies.length === 1 ? node.policies[0] : "mixed";
+}
+
 function getPolicy(itemHrid) {
   const item = procurement.normalizeItemHrid(itemHrid);
   const state = getState();
@@ -732,6 +788,9 @@ function setPolicy(itemHrid, policy) {
     state.overrides[goal.id][item] = mapped;
   }
   saveState(state, "legacy-policy");
+  for (const goal of state.goals) {
+    updateDecisionPolicy(goal.id, item, mapped);
+  }
   return true;
 }
 
@@ -790,6 +849,11 @@ function recalculate() {
   return result;
 }
 
+function calculateMaterials() {
+  cachedResult = null;
+  return recalculate();
+}
+
 function getResult() {
   return lastResult;
 }
@@ -825,17 +889,26 @@ function addShortagesToCart(materials = lastResult?.materials ?? []) {
   );
 }
 
+procurement.on("planning:change", (event) => {
+  invalidate();
+  if (event?.reason === "goal" || event?.reason === "load") {
+    clearDecisionResult();
+  }
+});
+procurement.on("cart:change", invalidate);
 for (const eventName of [
-  "planning:change",
-  "cart:change",
   "plan:change",
   "inventory:change",
   "settings:change",
 ]) {
-  procurement.on(eventName, invalidate);
+  procurement.on(eventName, () => {
+    invalidate();
+    clearDecisionResult();
+  });
 }
 procurement.on("character:change", () => {
   invalidate();
+  clearDecisionResult();
   lastResult = null;
   lastCalculatedAt = null;
 });
@@ -850,7 +923,10 @@ for (const messageType of [
   "skills_updated",
   "init_character_data",
 ]) {
-  runtime.onMessage(messageType, invalidate);
+  runtime.onMessage(messageType, () => {
+    invalidate();
+    clearDecisionResult();
+  });
 }
 
 runtime.api.planning = {
@@ -867,6 +943,9 @@ runtime.api.planning = {
   getPolicy,
   setPolicy,
   isCraftableItem,
+  calculateDecisions,
+  getDecisionResult,
+  calculateMaterials,
   calculate,
   recalculate,
   getResult,
@@ -877,6 +956,7 @@ runtime.api.planning = {
     calculationCount,
     dirty: isDirty(),
     lastCalculatedAt,
+    decisionCalculatedAt,
   }),
   reconcilePlanningCart,
   addShortagesToCart,

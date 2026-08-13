@@ -297,6 +297,29 @@ test("planning only replaces its result snapshot after explicit calculation", ()
   assert.equal(planning.getDiagnostics().calculationCount, before + 2);
 });
 
+test("decision calculation stays separate from the final material snapshot", () => {
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-three-stage");
+  const goal = planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/board",
+    target: 2,
+  });
+  const finalSnapshot = planning.calculateMaterials();
+  planning.updateGoal(goal.id, { target: 4 });
+  assert.equal(planning.getDecisionResult(), null);
+  assert.equal(planning.getResult(), finalSnapshot);
+
+  const decisions = planning.calculateDecisions();
+  assert.equal(decisions.nodes[0].requiredOutput, 4);
+  assert.equal(planning.getDecisionResult(), decisions);
+  assert.equal(planning.getResult(), finalSnapshot);
+
+  planning.setNodePolicy(goal.id, "/items/board", "buy");
+  assert.equal(planning.getDecisionResult().nodes[0].policy, "buy");
+  assert.equal(planning.getResult(), finalSnapshot);
+});
+
 test("chain, single-layer, and buy strategies stop at the intended depth", () => {
   runtime.state.initData_itemDetailMap = {
     ...runtime.state.initData_itemDetailMap,
@@ -412,6 +435,50 @@ test("shared inventory is assigned to buy branches before crafting branches", ()
   assert.equal(chainBranch.inventoryUsed, 0);
   assert.equal(
     result.materials.find((row) => row.itemHrid === "/items/log").required,
+    6,
+  );
+});
+
+test("mixed shared items expand to explicit per-house policies", () => {
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-explicit-house-branches");
+  const singleGoal = planning.upsertGoal({
+    kind: "house",
+    targetHrid: "/house_rooms/chain_room",
+    target: 1,
+    policy: "single",
+  });
+  const buyGoal = planning.upsertGoal({
+    kind: "house",
+    targetHrid: "/house_rooms/buy_room",
+    target: 1,
+    policy: "buy",
+  });
+
+  const decisions = planning.calculateDecisions();
+  const board = decisions.nodes.find(
+    (node) => node.itemHrid === "/items/board",
+  );
+  assert.equal(board.policy, "mixed");
+  assert.deepEqual(
+    board.branches.map((branch) => [branch.goalId, branch.policy]),
+    [
+      [buyGoal.id, "buy"],
+      [singleGoal.id, "single"],
+    ].sort(([left], [right]) => left.localeCompare(right)),
+  );
+  assert.equal(
+    board.branches.some((branch) => branch.policy === "mixed"),
+    false,
+  );
+
+  const materials = planning.calculateMaterials().materials;
+  assert.equal(
+    materials.find((row) => row.itemHrid === "/items/board").required,
+    3,
+  );
+  assert.equal(
+    materials.find((row) => row.itemHrid === "/items/log").required,
     6,
   );
 });

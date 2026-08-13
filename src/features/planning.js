@@ -21,10 +21,6 @@ function number(value) {
   return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
 }
 
-function exact(value) {
-  return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
-}
-
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -44,11 +40,11 @@ function tail(value) {
 }
 
 function houseName(hrid) {
-  return (
-    runtime.data?.ZHOthersDic?.[hrid] ??
-    runtime.state.initData_houseRoomDetailMap?.[hrid]?.name ??
-    tail(hrid)
-  );
+  const chinese = runtime.data?.ZHOthersDic?.[hrid];
+  const english = runtime.state.initData_houseRoomDetailMap?.[hrid]?.name;
+  return runtime.config.isZH
+    ? chinese || english || tail(hrid)
+    : english || chinese || tail(hrid);
 }
 
 function currentHouseLevel(hrid) {
@@ -195,8 +191,8 @@ function goalSources(ids, goals) {
 
 const POLICY_OPTIONS = Object.freeze([
   ["chain", "全链条制作", "Full chain"],
-  ["single", "制作一层", "One layer"],
-  ["buy", "购买", "Buy"],
+  ["single", "单步制作", "One step"],
+  ["buy", "直接购买", "Buy directly"],
 ]);
 
 function policyLabel(policy) {
@@ -257,7 +253,7 @@ function addStyles() {
     #${PANEL_ID}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
     #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} input,#${PANEL_ID} select{font:inherit}
     .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
-    .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden]{display:none!important}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
+    .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
     .planning-editor-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
     .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
     .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:10px}.planning-add-title>span:first-child{flex:1}
@@ -271,11 +267,11 @@ function addStyles() {
     .planning-option{display:flex;width:100%;min-width:0;align-items:center;gap:8px;border:0;border-bottom:1px solid rgba(152,167,233,.22);border-radius:4px;background:transparent;color:#eef2f7;padding:6px 7px;text-align:left;cursor:pointer}.planning-option:last-child{border-bottom:0}.planning-option:hover,.planning-option[data-active="true"]{background:#35425f}.planning-option-icon,.planning-picker-icon,.planning-goal-icon{display:grid;width:32px;height:32px;flex:0 0 32px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-option-icon svg,.planning-picker-icon svg,.planning-goal-icon svg{width:28px;height:28px}.planning-icon-fallback{color:#aebbd2;font-size:.75rem;font-weight:700}.planning-option-copy{min-width:0;flex:1}.planning-option-copy strong,.planning-option-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-option-copy strong{font-size:.76rem}.planning-option-copy small{margin-top:2px;color:#94a3b8;font-size:.61rem}
     .planning-picker-button{display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.planning-picker-icon{width:28px;height:28px;flex-basis:28px}.planning-picker-icon svg{width:25px;height:25px}.planning-picker-copy{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-picker-arrow{color:#94a3b8}
     .planning-content-grid,.planning-results-column{display:grid;grid-template-columns:1fr;gap:10px;min-width:0}.planning-section{overflow:visible}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{margin:0;font-size:.82rem}.planning-empty{padding:18px 11px;color:#94a3b8;font-size:.72rem;text-align:center}
-    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(140px,1fr) auto 78px minmax(260px,330px) 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem;content-visibility:auto;contain-intrinsic-size:48px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-goal-current{color:#94a3b8;white-space:nowrap}.planning-goal input[type="number"]{width:78px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
-    .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));min-width:252px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-height:26px;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 6px;font-size:.62rem;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;min-width:252px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(85px,.45fr) minmax(85px,.45fr) minmax(85px,.45fr) minmax(252px,1fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(120px,1fr) auto minmax(252px,1fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-row strong{color:#d8e0ec}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
+    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(150px,1fr) minmax(216px,280px) 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem;content-visibility:auto;contain-intrinsic-size:48px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-values{display:flex;min-width:0;align-items:center;justify-content:center;gap:5px;color:#94a3b8;white-space:nowrap}.planning-goal-arrow{color:#64748b}.planning-goal input[type="number"]{width:70px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
+    .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;min-width:216px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-width:0;min-height:26px;overflow:hidden;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 4px;font-size:clamp(.52rem,.72vw,.61rem);line-height:1.15;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;width:100%;min-width:216px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-copy{display:flex;min-width:0;align-items:center;gap:7px}.planning-source-copy strong{overflow:hidden;color:#d8e0ec;text-overflow:ellipsis;white-space:nowrap}.planning-source-icon{display:grid;width:26px;height:26px;flex:0 0 26px;place-items:center}.planning-source-icon svg{width:24px;height:24px}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
     .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
-    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 78px 28px}.planning-goal-current{display:none}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:3/5}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-step-yield{display:none}.planning-source-row{grid-template-columns:1fr}.planning-source-row>.planning-policy-switch{width:100%;min-width:0}}
-    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title{align-items:flex-start;flex-direction:column}.planning-add-title .planning-policy-switch{width:100%;min-width:0}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}}
+    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(130px,1fr) minmax(210px,260px) 28px}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-source-row{grid-template-columns:minmax(0,1fr) auto}.planning-source-row>.planning-policy-switch{grid-column:1/3;min-width:0}}
+    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title{align-items:flex-start;flex-direction:column}.planning-add-title .planning-policy-switch{width:100%;min-width:0}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -648,14 +644,18 @@ function renderGoals(host, goals) {
     const icon = document.createElement("span");
     icon.className = "planning-goal-icon";
     icon.innerHTML = goalIcon(goal);
-    const name = document.createElement("div");
-    name.className = "planning-goal-name";
-    name.textContent = goalLabel(goal);
-    name.title = goal.targetHrid;
+    icon.title = goalLabel(goal);
+    icon.setAttribute("role", "img");
+    icon.setAttribute("aria-label", goalLabel(goal));
+    const values = document.createElement("div");
+    values.className = "planning-goal-values";
     const current = document.createElement("span");
     current.className = "planning-goal-current";
     current.dataset.goalId = goal.id;
     current.textContent = `${t("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel(goal.targetHrid) : procurement.getInventoryCount(goal.targetHrid, 0))}`;
+    const arrow = document.createElement("span");
+    arrow.className = "planning-goal-arrow";
+    arrow.textContent = "→";
     const target = document.createElement("input");
     target.type = "number";
     target.min = "1";
@@ -670,6 +670,7 @@ function renderGoals(host, goals) {
     target.addEventListener("change", () => {
       planning.updateGoal(goal.id, { target: target.value });
     });
+    values.append(current, arrow, target);
     const policy = createPolicyControl(goal.policy, (next) => {
       planning.setGoalPolicy(goal.id, next);
     });
@@ -679,7 +680,7 @@ function renderGoals(host, goals) {
     remove.textContent = "×";
     remove.title = t("删除", "Remove");
     remove.addEventListener("click", () => planning.removeGoal(goal.id));
-    row.append(toggle, icon, name, current, target, policy, remove);
+    row.append(toggle, icon, values, policy, remove);
     section.append(row);
   }
   host.append(section);
@@ -704,7 +705,7 @@ function renderSteps(host, result) {
   const section = document.createElement("section");
   section.className = "planning-section";
   const heading = document.createElement("h3");
-  heading.textContent = `${t("需要制作", "Production needed")} · ${result.nodes.length}`;
+  heading.textContent = `${t("第 2 步：选择制作方式", "Step 2: Choose production methods")} · ${result.nodes.length}`;
   section.append(heading);
   if (!result.nodes.length) {
     const empty = document.createElement("div");
@@ -725,34 +726,36 @@ function renderSteps(host, result) {
     const required = document.createElement("span");
     required.className = "planning-step-count";
     required.textContent = `${t("所需", "Required")} ${number(node.requiredOutput)}`;
-    const output = document.createElement("span");
-    output.className = "planning-step-count planning-step-yield";
-    output.textContent = `${t("单次", "Yield")} ${exact(node.outputCount)}`;
-    const actions = document.createElement("span");
-    actions.className = "planning-step-count";
-    actions.textContent = `${t("预计次数", "Est. actions")} ${node.actionCount == null ? "—" : number(node.actionCount)}`;
     const policy = createPolicyControl(node.policy, (next) => {
-      node.branches.forEach((branch) =>
-        planning.setNodePolicy(branch.goalId, node.itemHrid, next),
-      );
+      for (const goalId of new Set(
+        node.branches.map((branch) => branch.goalId),
+      )) {
+        planning.setNodePolicy(goalId, node.itemHrid, next);
+      }
     });
-    summary.append(icon, label, required, output, actions, policy);
+    summary.append(icon, label, required, policy);
     const sources = document.createElement("div");
     sources.className = "planning-source-list";
-    const goals = new Map(
-      result.goals.map((goal) => [goal.id, goalLabel(goal)]),
-    );
+    const goals = new Map(result.goals.map((goal) => [goal.id, goal]));
     for (const branch of node.branches) {
       const source = document.createElement("div");
       source.className = "planning-source-row";
+      const sourceCopy = document.createElement("span");
+      sourceCopy.className = "planning-source-copy";
+      const sourceIcon = document.createElement("span");
+      sourceIcon.className = "planning-source-icon";
+      const goal = goals.get(branch.goalId);
+      if (goal) sourceIcon.innerHTML = goalIcon(goal);
       const name = document.createElement("strong");
-      name.textContent = goals.get(branch.goalId) ?? branch.goalId;
+      name.textContent = goal ? goalLabel(goal) : branch.goalId;
+      name.title = name.textContent;
+      sourceCopy.append(sourceIcon, name);
       const count = document.createElement("span");
-      count.textContent = `${t("所需", "Required")} ${number(branch.requiredOutput)} · ${t("剩余", "Remaining")} ${number(branch.remaining)}`;
+      count.textContent = `${t("所需", "Required")} ${number(branch.requiredOutput)}`;
       const branchPolicy = createPolicyControl(branch.policy, (next) => {
         planning.setNodePolicy(branch.goalId, node.itemHrid, next);
       });
-      source.append(name, count, branchPolicy);
+      source.append(sourceCopy, count, branchPolicy);
       sources.append(source);
     }
     row.append(summary, sources);
@@ -855,6 +858,7 @@ export class PlanningPanel {
     this.signatures = {};
     this.route = "targets";
     this.result = planning.getResult();
+    this.decisionResult = planning.getDecisionResult();
     this.catalogDirty = false;
     this.houseDirty = false;
     this.build();
@@ -888,11 +892,17 @@ export class PlanningPanel {
     this.targetPage = document.createElement("div");
     this.targetPage.className = "planning-page";
     this.targetPage.dataset.page = "targets";
+    const stageOneTitle = document.createElement("h2");
+    stageOneTitle.className = "planning-stage-title";
+    stageOneTitle.textContent = t(
+      "第 1 步：选择目标",
+      "Step 1: Choose targets",
+    );
     const intro = document.createElement("p");
     intro.className = "planning-intro";
     intro.textContent = t(
-      "设置目标不会自动重算。房屋成本固定；点击开始计算后，制作链才会读取当前茶饮、装备、社区 Buff、暴饮之囊、库存和安全余量。",
-      "Editing targets does not recalculate automatically. House costs stay fixed; Start calculation reads current buffs, inventory, and safety margins.",
+      "设置目标不会自动重算。房屋成本固定；计算第 2 步时，制作链才会读取当前茶饮、装备、社区 Buff、暴饮之囊、库存和安全余量。",
+      "Editing targets does not recalculate automatically. House costs stay fixed; calculating Step 2 reads current buffs, inventory, and safety margins.",
     );
     const calculateBar = document.createElement("div");
     calculateBar.className = "planning-calculate-bar";
@@ -900,16 +910,35 @@ export class PlanningPanel {
     this.targetCalculate = document.createElement("button");
     this.targetCalculate.type = "button";
     this.targetCalculate.className = "planning-primary";
-    this.targetCalculate.textContent = t("开始计算", "Start calculation");
-    this.targetCalculate.addEventListener("click", () => this.recalculate());
+    this.targetCalculate.textContent = t("计算第 2 步", "Calculate Step 2");
+    this.targetCalculate.addEventListener("click", () =>
+      this.calculateDecisions(),
+    );
     calculateBar.append(this.targetStatus, this.targetCalculate);
     this.editorHost = document.createElement("div");
     this.goalsHost = document.createElement("div");
+    this.decisionStage = document.createElement("div");
+    this.decisionStage.className = "planning-stage";
+    this.stepsHost = document.createElement("div");
+    const stageTwoBar = document.createElement("div");
+    stageTwoBar.className = "planning-calculate-bar";
+    this.decisionStatus = document.createElement("span");
+    this.materialCalculate = document.createElement("button");
+    this.materialCalculate.type = "button";
+    this.materialCalculate.className = "planning-primary";
+    this.materialCalculate.textContent = t("计算第 3 步", "Calculate Step 3");
+    this.materialCalculate.addEventListener("click", () =>
+      this.calculateMaterials(),
+    );
+    stageTwoBar.append(this.decisionStatus, this.materialCalculate);
+    this.decisionStage.append(this.stepsHost, stageTwoBar);
     this.targetPage.append(
+      stageOneTitle,
       intro,
-      calculateBar,
       this.editorHost,
       this.goalsHost,
+      calculateBar,
+      this.decisionStage,
     );
 
     this.listPage = document.createElement("div");
@@ -917,21 +946,19 @@ export class PlanningPanel {
     this.listPage.dataset.page = "list";
     const listBar = document.createElement("div");
     listBar.className = "planning-calculate-bar";
+    const stageThreeTitle = document.createElement("strong");
+    stageThreeTitle.textContent = t(
+      "第 3 步：基础材料清单",
+      "Step 3: Base-material list",
+    );
     this.listStatus = document.createElement("span");
-    this.listCalculate = document.createElement("button");
-    this.listCalculate.type = "button";
-    this.listCalculate.className = "planning-primary";
-    this.listCalculate.textContent = t("重新计算", "Recalculate");
-    this.listCalculate.addEventListener("click", () => this.recalculate());
-    listBar.append(this.listStatus, this.listCalculate);
-    this.stepsHost = document.createElement("div");
+    listBar.append(stageThreeTitle, this.listStatus);
     this.materialsHost = document.createElement("div");
     this.warningHost = document.createElement("div");
     this.footer = document.createElement("div");
     this.footer.className = "planning-footer";
     this.listPage.append(
       listBar,
-      this.stepsHost,
       this.materialsHost,
       this.warningHost,
       this.footer,
@@ -939,6 +966,7 @@ export class PlanningPanel {
     this.host.append(tabs, this.targetPage, this.listPage);
     this.editor = createPlanningEditor(this.editorHost, this.cleanup);
     this.setRoute(this.route);
+    this.renderDecision(true);
     this.renderResult(true);
   }
 
@@ -953,9 +981,18 @@ export class PlanningPanel {
     this.listPage.hidden = this.route !== "list";
   }
 
-  recalculate() {
-    this.result = planning.recalculate();
-    this.signatures.nodes = null;
+  calculateDecisions() {
+    this.decisionResult = planning.calculateDecisions();
+    this.signatures.decisions = null;
+    this.renderDecision(true);
+    this.updateStatus();
+    globalThis.requestAnimationFrame?.(() =>
+      this.decisionStage?.scrollIntoView?.({ block: "start" }),
+    );
+  }
+
+  calculateMaterials() {
+    this.result = planning.calculateMaterials();
     this.signatures.materials = null;
     this.renderResult(true);
     this.updateStatus();
@@ -976,11 +1013,13 @@ export class PlanningPanel {
       if (this.catalogSignature !== nextCatalogSignature) {
         const route = this.route;
         const result = this.result;
+        const decisionResult = this.decisionResult;
         this.cleanup.forEach((dispose) => dispose());
         this.cleanup = [];
         this.signatures = {};
         this.route = route;
         this.result = result;
+        this.decisionResult = decisionResult;
         this.build();
         this.catalogSignature = nextCatalogSignature;
       }
@@ -997,31 +1036,59 @@ export class PlanningPanel {
     } else {
       updateGoalCurrentValues(this.goalsHost, goals);
     }
+    const currentDecision = planning.getDecisionResult();
+    if (currentDecision !== this.decisionResult) {
+      this.decisionResult = currentDecision;
+      this.renderDecision(true);
+    } else if (currentDecision) {
+      this.renderDecision();
+    }
     this.updateStatus();
   }
 
   updateStatus() {
     const dirty = planning.isDirty();
     const diagnostics = planning.getDiagnostics();
-    const copy = dirty
+    const listCopy = dirty
       ? t("目标已更改，等待计算", "Targets changed; calculation pending")
       : diagnostics.lastCalculatedAt
         ? t("当前清单已计算", "List is up to date")
         : t("尚未计算", "Not calculated yet");
-    for (const node of [this.targetStatus, this.listStatus]) {
-      node.className = dirty ? "planning-dirty" : "planning-clean";
-      node.textContent = copy;
+    this.listStatus.className = dirty ? "planning-dirty" : "planning-clean";
+    this.listStatus.textContent = listCopy;
+    const decisionReady = Boolean(this.decisionResult);
+    this.targetStatus.className = decisionReady
+      ? "planning-clean"
+      : "planning-dirty";
+    this.targetStatus.textContent = decisionReady
+      ? t("第 2 步已生成", "Step 2 is ready")
+      : t("等待计算第 2 步", "Step 2 is pending");
+    this.decisionStatus.className = "planning-dirty";
+    this.decisionStatus.textContent = t(
+      "调整策略不会自动计算材料",
+      "Policy edits do not calculate materials automatically",
+    );
+  }
+
+  renderDecision(force = false) {
+    const result = this.decisionResult;
+    this.decisionStage.hidden = !result;
+    if (!result) {
+      this.stepsHost.replaceChildren();
+      this.signatures.decisions = null;
+      return;
     }
-    this.targetCalculate.textContent = this.result
-      ? t("重新计算", "Recalculate")
-      : t("开始计算", "Start calculation");
+    const signature = JSON.stringify(result.nodes);
+    if (force || this.signatures.decisions !== signature) {
+      renderSteps(this.stepsHost, result);
+      this.signatures.decisions = signature;
+    }
   }
 
   renderResult(force = false) {
     const result = this.result;
     if (!result) {
       if (!force && this.signatures.empty) return;
-      this.stepsHost.replaceChildren();
       this.materialsHost.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "planning-empty planning-section";
@@ -1029,19 +1096,14 @@ export class PlanningPanel {
         "请在“目标”页点击开始计算。",
         "Choose Start calculation on the Targets tab.",
       );
-      this.stepsHost.append(empty);
+      this.materialsHost.append(empty);
       this.warningHost.replaceChildren();
       this.footer.textContent = "";
       this.signatures.empty = true;
       return;
     }
     this.signatures.empty = false;
-    const nodesSignature = JSON.stringify(result.nodes);
     const materialsSignature = JSON.stringify(result.materials);
-    if (force || this.signatures.nodes !== nodesSignature) {
-      renderSteps(this.stepsHost, result);
-      this.signatures.nodes = nodesSignature;
-    }
     if (force || this.signatures.materials !== materialsSignature) {
       renderMaterials(this.materialsHost, result);
       this.signatures.materials = materialsSignature;
@@ -1057,8 +1119,8 @@ export class PlanningPanel {
       this.warningHost.append(warning);
     }
     this.footer.textContent = t(
-      `规划 ${result.goals.length} 项 · 决策 ${result.nodes.length} 项 · 基础材料 ${result.materials.length} 种`,
-      `${result.goals.length} goals · ${result.nodes.length} decisions · ${result.materials.length} base materials`,
+      `规划 ${result.goals.length} 项 · 基础材料 ${result.materials.length} 种`,
+      `${result.goals.length} goals · ${result.materials.length} base materials`,
     );
   }
 

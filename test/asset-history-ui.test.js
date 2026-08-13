@@ -203,6 +203,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     houseResults.querySelector(".planning-option-icon").innerHTML,
     /skills_sprite/,
   );
+  assert.match(houseResults.textContent, /工作室/);
   houseResults.querySelector(".planning-option").click();
   const level = panel.querySelector(".planning-level-select");
   level.value = "8";
@@ -219,6 +220,8 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     panel.querySelector(".planning-goal input[type=number]").value,
     "8",
   );
+  assert.equal(panel.querySelector(".planning-goal-name"), null);
+  assert.equal(panel.querySelector(".planning-goal-icon").title, "工作室");
 
   const targets = panel.querySelector('[data-page="targets"]');
   const list = panel.querySelector('[data-page="list"]');
@@ -235,16 +238,67 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     beforeCalculation,
   );
   targets.querySelector(".planning-calculate-bar .planning-primary").click();
-  assert.equal(targets.hidden, true);
-  assert.equal(list.hidden, false);
+  assert.equal(targets.hidden, false);
+  assert.equal(list.hidden, true);
   assert.equal(
     runtime.api.planning.getDiagnostics().calculationCount,
     beforeCalculation + 1,
   );
+  const decisionStage = targets.querySelector(".planning-stage");
+  assert.equal(decisionStage.hidden, false);
+  assert.match(decisionStage.textContent, /第 2 步：选择制作方式/);
+  assert.doesNotMatch(decisionStage.textContent, /预计次数|单次/);
+
+  decisionStage
+    .querySelector(".planning-calculate-bar .planning-primary")
+    .click();
+  assert.equal(targets.hidden, true);
+  assert.equal(list.hidden, false);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 2,
+  );
   assert.ok(list.querySelector(".planning-section"));
+  assert.equal(list.querySelector(".planning-step"), null);
+
+  panel.querySelector('[data-route="targets"]').click();
+  const materialSnapshot = list.querySelector(".planning-section");
+  goalTarget.value = "6";
+  goalTarget.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await settleDom();
+  assert.equal(decisionStage.hidden, true);
+  assert.equal(list.querySelector(".planning-section"), materialSnapshot);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 2,
+  );
 
   planningUi.destroy();
   planningScope.cleanup();
+
+  runtime.config.isZH = false;
+  const englishScope = runtime.createCleanupScope();
+  const englishUi = createPlanningUi({ scope: englishScope });
+  document.querySelector("#mwitools-planning-tab").click();
+  await settleDom();
+  const englishPanel = document.querySelector("#mwitools-planning-panel");
+  assert.match(
+    englishPanel.querySelector(".planning-picker-copy").textContent,
+    /Workshop/,
+  );
+  assert.deepEqual(
+    [...englishPanel.querySelectorAll(".planning-policy-switch button")]
+      .slice(0, 3)
+      .map((button) => button.textContent),
+    ["Full chain", "One step", "Buy directly"],
+  );
+  assert.match(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /white-space:nowrap/,
+  );
+  englishUi.destroy();
+  englishScope.cleanup();
+  runtime.config.isZH = true;
   assetUi.destroy();
   assetScope.cleanup();
 });
