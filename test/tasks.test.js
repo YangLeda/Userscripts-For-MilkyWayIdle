@@ -149,14 +149,14 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /\.mwi-task-filter-group--life,\.mwi-task-filter-group--combat\s*\{[^}]*flex-wrap:nowrap/,
   );
-  assert.match(styles, /\.mwi-task-filter-groups\s*\{[^}]*flex-wrap:wrap/);
+  assert.match(styles, /\.mwi-task-filter-groups\s*\{[^}]*flex-wrap:nowrap/);
   assert.match(
     styles,
     /\.mwi-task-filter-group--combat\s*\{[^}]*flex:0 0 auto/,
   );
   assert.match(
     styles,
-    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{[^}]*flex-wrap:wrap/,
+    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-groups\s*\{[^}]*flex-wrap:wrap[\s\S]*\.mwi-task-filter-group--life\s*\{[^}]*flex-wrap:wrap/,
   );
   assert.match(
     styles,
@@ -207,10 +207,13 @@ test("tasks use a flat sorted list with statistics filters", () => {
   const toolbar = document.querySelector(".mwi-task-toolbar");
   assert.ok(toolbar);
   assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 14);
-  const allFilter = toolbar.querySelector('[data-filter-kind="all"]');
+  const resetFilter = toolbar.querySelector('[data-filter-kind="reset"]');
   const sortButton = toolbar.querySelector(".mwi-task-sort-button");
-  assert.equal(allFilter.parentElement.className, "mwi-task-toolbar-controls");
-  assert.equal(sortButton.parentElement, allFilter.parentElement);
+  assert.equal(
+    resetFilter.parentElement.className,
+    "mwi-task-toolbar-controls",
+  );
+  assert.equal(sortButton.parentElement, resetFilter.parentElement);
   assert.equal(
     toolbar.querySelectorAll(
       '[data-filter-kind="profession"] .mwi-task-filter-label,[data-filter-kind="combat"] .mwi-task-filter-label,[data-filter-kind="dungeon"] .mwi-task-filter-label',
@@ -230,9 +233,9 @@ test("tasks use a flat sorted list with statistics filters", () => {
     ),
   );
   assert.equal(
-    toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-label')
+    toolbar.querySelector('[data-filter-kind="reset"] .mwi-task-filter-label')
       .textContent,
-    "全部任务",
+    "重置筛选",
   );
   assert.equal(
     toolbar.querySelector(".mwi-task-sort-button .mwi-task-filter-label")
@@ -263,11 +266,9 @@ test("tasks use a flat sorted list with statistics filters", () => {
     ),
     null,
   );
-  assert.equal(
-    toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-count')
-      .textContent,
-    "6",
-  );
+  assert.equal(resetFilter.querySelector(".mwi-task-filter-count"), null);
+  assert.equal(resetFilter.hasAttribute("aria-pressed"), false);
+  assert.equal(resetFilter.disabled, true);
   assert.equal(
     toolbar.querySelector(
       '[data-filter-kind="profession"][data-filter-value="crafting"] .mwi-task-filter-count',
@@ -280,27 +281,17 @@ test("tasks use a flat sorted list with statistics filters", () => {
     "3",
   );
   assert.ok(sortButton);
-
-  allFilter.click();
-  assert.equal(
-    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
-      .length,
-    6,
-  );
-  assert.ok(
-    [...toolbar.querySelectorAll(".mwi-task-filter")].every(
-      (button) => button.getAttribute("aria-pressed") === "false",
-    ),
-  );
-  assert.equal(
-    allFilter.querySelector(".mwi-task-filter-count").textContent,
-    "6",
-  );
-  allFilter.click();
   assert.equal(
     taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
       .length,
     0,
+  );
+  assert.ok(
+    [
+      ...toolbar.querySelectorAll(
+        '[data-filter-kind="profession"],[data-filter-kind="combat"],[data-filter-kind="dungeon"]',
+      ),
+    ].every((button) => button.getAttribute("aria-pressed") === "false"),
   );
 
   toolbar
@@ -309,12 +300,18 @@ test("tasks use a flat sorted list with statistics filters", () => {
     )
     .click();
   assert.equal(
-    taskList.querySelectorAll(
-      `${TASK_SELECTOR}[data-mwitools-profession="crafting"][data-mwitools-filtered="true"]`,
-    ).length,
-    2,
+    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    4,
   );
-  toolbar.querySelector('[data-filter-kind="all"]').click();
+  toolbar.querySelector('[data-filter-kind="combat"]').click();
+  assert.equal(
+    taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
+      .length,
+    1,
+  );
+  assert.equal(resetFilter.disabled, false);
+  resetFilter.click();
   assert.equal(
     taskList.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
       .length,
@@ -979,15 +976,15 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
   assert.equal(
     list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
       .length,
-    4,
+    1,
   );
   toolbar.querySelector('[data-filter-kind="combat"]').click();
   assert.equal(
     list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
       .length,
-    5,
+    0,
   );
-  toolbar.querySelector('[data-filter-kind="all"]').click();
+  toolbar.querySelector('[data-filter-kind="reset"]').click();
   assert.equal(
     list.querySelectorAll(`${TASK_SELECTOR}[data-mwitools-filtered="true"]`)
       .length,

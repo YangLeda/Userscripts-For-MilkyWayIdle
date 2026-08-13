@@ -77,9 +77,9 @@
     mod
   ));
 
-  // ../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
+  // node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -39670,7 +39670,7 @@ ${locks}` : ""}`;
   var taskRemainingCache = /* @__PURE__ */ new WeakMap();
   var pageOrderBySlot = /* @__PURE__ */ new Map();
   var activeProfessionFilters = /* @__PURE__ */ new Set();
-  var combatFilterEnabled = true;
+  var combatFilterEnabled = false;
   var activeDungeonFilters = /* @__PURE__ */ new Set();
   var KNOWN_DUNGEON_ROSTERS = [
     {
@@ -39840,19 +39840,12 @@ ${locks}` : ""}`;
     return true;
   }
   function resetTaskFilters() {
-    activeProfessionFilters = new Set(LIFE_PROFESSIONS.map(({ key }) => key));
-    combatFilterEnabled = true;
-    activeDungeonFilters = new Set(
-      DUNGEON_FILTERS.map(({ actionHrid }) => actionHrid)
-    );
-  }
-  function allTaskFiltersSelected() {
-    return activeProfessionFilters.size === LIFE_PROFESSIONS.length && combatFilterEnabled && activeDungeonFilters.size === DUNGEON_FILTERS.length;
-  }
-  function clearTaskFilters() {
     activeProfessionFilters.clear();
     combatFilterEnabled = false;
     activeDungeonFilters.clear();
+  }
+  function hasActiveTaskFilters() {
+    return activeProfessionFilters.size > 0 || combatFilterEnabled || activeDungeonFilters.size > 0;
   }
   function rememberSpriteBase(kind, value) {
     const base = String(value ?? "").split("#")[0];
@@ -39928,17 +39921,17 @@ ${locks}` : ""}`;
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
     .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
     .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
-    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:wrap; gap:4px; }
+    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:nowrap; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
     .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
+    .mwi-task-filter:disabled { opacity:.38; cursor:default; filter:saturate(.35); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -39952,6 +39945,7 @@ ${locks}` : ""}`;
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-groups { flex-wrap:wrap; }
       .mwi-task-filter-group--life { min-width:0; flex:1 1 auto; flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
     }
@@ -40670,6 +40664,7 @@ ${locks}` : ""}`;
     iconHrid = "",
     fallback = "•",
     showLabel = false,
+    showCount = true,
     onClick
   }) {
     const button = document.createElement("button");
@@ -40693,7 +40688,7 @@ ${locks}` : ""}`;
       text.textContent = label;
       button.append(text);
     }
-    button.append(count);
+    if (showCount) button.append(count);
     button.addEventListener("click", onClick);
     return button;
   }
@@ -40730,20 +40725,16 @@ ${locks}` : ""}`;
   }
   function applyTaskFilters(rows2) {
     const statisticsEnabled = runtime.settings.get("taskStatistics");
-    const noFiltersSelected = activeProfessionFilters.size === 0 && !combatFilterEnabled && activeDungeonFilters.size === 0;
+    const hasActiveFilters = hasActiveTaskFilters();
     for (const row of rows2) {
       let visible2 = true;
-      if (statisticsEnabled) {
-        if (noFiltersSelected) {
-          visible2 = false;
-        } else if (row.profession.key === "combat") {
-          const dungeonHrids = row.dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).map(({ actionHrid }) => actionHrid);
-          visible2 = combatFilterEnabled && (!dungeonHrids.length || dungeonHrids.some(
-            (actionHrid) => activeDungeonFilters.has(actionHrid)
-          ));
-        } else if (LIFE_PROFESSIONS.some(({ key }) => key === row.profession.key)) {
-          visible2 = activeProfessionFilters.has(row.profession.key);
-        }
+      if (statisticsEnabled && hasActiveFilters) {
+        const professionMatches = activeProfessionFilters.has(row.profession.key);
+        const combatMatches = combatFilterEnabled && row.profession.key === "combat";
+        const dungeonMatches = row.profession.key === "combat" && row.dungeonLocations.some(
+          ({ isDungeon, actionHrid }) => isDungeon && activeDungeonFilters.has(actionHrid)
+        );
+        visible2 = professionMatches || combatMatches || dungeonMatches;
       }
       const filtered = String(!visible2);
       if (row.card.dataset.mwitoolsFiltered !== filtered) {
@@ -40773,14 +40764,14 @@ ${locks}` : ""}`;
         controls2.className = "mwi-task-toolbar-controls";
         controls2.append(
           createTaskFilterButton({
-            kind: "all",
-            value: "all",
-            label: t10("全部任务", "All tasks"),
-            fallback: "☰",
+            kind: "reset",
+            value: "reset",
+            label: t10("重置筛选", "Reset filters"),
+            fallback: "↺",
             showLabel: true,
+            showCount: false,
             onClick: () => {
-              if (allTaskFiltersSelected()) clearTaskFilters();
-              else resetTaskFilters();
+              resetTaskFilters();
               lastTaskRenderSignature = "";
               renderTasks();
             }
@@ -40895,13 +40886,10 @@ ${locks}` : ""}`;
         }
       }
     }
-    const allSelected = allTaskFiltersSelected();
-    const allButton = toolbar.querySelector('[data-filter-kind="all"]');
-    updateTaskFilterButton(allButton, {
-      label: t10("全部任务", "All tasks"),
-      count: rows2.length,
-      pressed: allSelected
-    });
+    const resetButton = toolbar.querySelector('[data-filter-kind="reset"]');
+    resetButton.disabled = !hasActiveTaskFilters();
+    resetButton.title = t10("清除全部任务筛选", "Clear all task filters");
+    resetButton.setAttribute("aria-label", resetButton.title);
     for (const profession of LIFE_PROFESSIONS) {
       const button = toolbar.querySelector(
         `[data-filter-kind="profession"][data-filter-value="${profession.key}"]`
@@ -40917,10 +40905,6 @@ ${locks}` : ""}`;
       count: combatCount,
       pressed: combatFilterEnabled
     });
-    const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
-    if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
-      dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
-    }
     for (const dungeon of DUNGEON_FILTERS) {
       const button = toolbar.querySelector(
         `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`
@@ -42558,7 +42542,9 @@ ${locks}` : ""}`;
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能被残留的隐藏状态遮住；摘要和排序栏现在始终跟随游戏原生库存面板显隐，即使复用旧节点或晚到回调再次写入隐藏状态也会保持可见。",
           "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
           "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。",
-          "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。"
+          "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。",
+          "任务筛选现在默认全部未选并显示所有任务，选择多个专业、战斗或副本时按并集显示，副本也可独立筛选；新增一键重置筛选，桌面端全部筛选按钮保持同一行，移动端按空间换行。",
+          "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42569,7 +42555,9 @@ ${locks}` : ""}`;
           "Fixed combat and skilling gear scores and total assets being obscured by a stale hidden state after switching to Abilities and returning to Inventory. The summary and sorting bar now always follow the native Inventory panel, remaining visible even when a reused node or delayed callback writes another hidden state.",
           "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
           "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times.",
-          "Skilling equipment reminders now use the current Red Culinary Hat identifier. Red Culinary Hat, Eye Watch, Collector's Boots, and Enchanted Gloves all contribute to skilling gear score while equipped."
+          "Skilling equipment reminders now use the current Red Culinary Hat identifier. Red Culinary Hat, Eye Watch, Collector's Boots, and Enchanted Gloves all contribute to skilling gear score while equipped.",
+          "Task filters now start unselected while showing every task, combine selected professions, combat, and dungeons as a union, and let dungeon filters work independently. A one-click reset was added; desktop keeps every filter on one row while mobile wraps as needed.",
+          "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately."
         ])
       })
     }),
@@ -43093,6 +43081,40 @@ ${locks}` : ""}`;
     };
   }
 
+  // src/features/header-tools.js
+  var HEADER_TOOLS_ID = "mwitools-header-tools";
+  function findHeaderTotalLevel(documentRef = document) {
+    const direct = documentRef.querySelector(
+      '[class*="Header_totalLevel"],[class*="totalLevel"]'
+    );
+    if (direct) return direct;
+    return [
+      ...documentRef.querySelectorAll(
+        'header div,header span,[class*="Header"] div'
+      )
+    ].find((node) => {
+      const text = node.textContent?.trim() ?? "";
+      return text.length < 80 && /^(总等级|Total Level)\s*[:：]/i.test(text);
+    });
+  }
+  function ensureHeaderToolsHost(documentRef = document) {
+    const totalLevel = findHeaderTotalLevel(documentRef);
+    if (!totalLevel?.parentElement) return null;
+    let host = documentRef.getElementById(HEADER_TOOLS_ID);
+    if (!host) {
+      host = documentRef.createElement("div");
+      host.id = HEADER_TOOLS_ID;
+    }
+    if (host.parentElement !== totalLevel.parentElement || host.previousElementSibling !== totalLevel) {
+      totalLevel.insertAdjacentElement("afterend", host);
+    }
+    return host;
+  }
+  function removeHeaderToolsHostIfEmpty(documentRef = document) {
+    const host = documentRef.getElementById(HEADER_TOOLS_ID);
+    if (host && !host.childElementCount) host.remove();
+  }
+
   // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
@@ -43113,7 +43135,8 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID15;
     style.textContent = `
-    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
+    #${HEADER_TOOLS_ID}{display:flex;align-items:center;justify-content:center;gap:4px;width:max-content;max-width:100%;margin:2px auto 0}
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;overflow:hidden;overscroll-behavior:contain;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;min-height:0;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
@@ -43211,8 +43234,8 @@ ${locks}` : ""}`;
       this.renderAnnouncements();
     }
     ensureButton() {
-      const totalLevel = this.findTotalLevel();
-      if (!totalLevel?.parentElement) return null;
+      const host = ensureHeaderToolsHost();
+      if (!host) return null;
       let button = document.getElementById(BUTTON_ID);
       if (!button) {
         button = document.createElement("button");
@@ -43226,25 +43249,14 @@ ${locks}` : ""}`;
         this.scope.event(button, "click", () => this.open());
       }
       button.querySelector(".mwi-opinion-label").textContent = "MWITools";
-      if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
-        totalLevel.insertAdjacentElement("afterend", button);
+      if (button.parentElement !== host || button !== host.lastElementChild) {
+        host.append(button);
       }
       this.updateUnreadIndicator();
       return button;
     }
     findTotalLevel() {
-      const direct = document.querySelector(
-        '[class*="Header_totalLevel"],[class*="totalLevel"]'
-      );
-      if (direct) return direct;
-      return [
-        ...document.querySelectorAll(
-          'header div,header span,[class*="Header"] div'
-        )
-      ].find((node) => {
-        const text = node.textContent?.trim() ?? "";
-        return text.length < 80 && /^(总等级|Total Level)\s*[:：]/i.test(text);
-      });
+      return findHeaderTotalLevel();
     }
     setUnread(count) {
       this.feedbackUnread = Math.max(0, Number(count) || 0);
@@ -43693,6 +43705,7 @@ ${locks}` : ""}`;
     destroy() {
       if (!this.root?.hidden) this.close();
       document.getElementById(BUTTON_ID)?.remove();
+      removeHeaderToolsHostIfEmpty();
       this.root?.remove();
       document.getElementById(STYLE_ID15)?.remove();
     }
@@ -46361,6 +46374,9 @@ ${locks}` : ""}`;
   var EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
   var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
   var SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
+  var SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root";
+  var SETTINGS_BUTTON_ID = "mwitools-settings-button";
+  var SETTINGS_POPOVER_ID = "mwitools-settings-popover";
   var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
   var GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
   function normalizeGuildCreditRecommendationCount(value) {
@@ -46381,6 +46397,9 @@ ${locks}` : ""}`;
       GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
       String(guildCreditRecommendationCount)
     );
+    document.querySelectorAll?.("[data-mwitools-guild-credit-count]").forEach((select) => {
+      select.value = String(guildCreditRecommendationCount);
+    });
     if (runtime.settings.get("guildCreditConversionsSort")) {
       void runtime.api.renderGuildCreditRecommendations?.();
     }
@@ -46532,10 +46551,20 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = SETTINGS_STYLE_ID;
     style.textContent = `
-    #script_settings { width:100%; margin-top:14px; color:var(--color-text-primary,#eee); }
+    #${HEADER_TOOLS_ID} { display:flex; align-items:center; justify-content:center; gap:4px; width:max-content; max-width:100%; margin:2px auto 0; }
+    #${SETTINGS_BUTTON_ID} { display:inline-flex; width:22px; height:20px; flex:0 0 22px; align-items:center; justify-content:center; box-sizing:border-box; margin:0; padding:0; border:1px solid rgba(160,176,210,.45); border-radius:4px; background:rgba(118,138,180,.12); color:#bdc9e5; font:700 13px/1 sans-serif; cursor:pointer; }
+    #${SETTINGS_BUTTON_ID}:hover,#${SETTINGS_BUTTON_ID}[aria-expanded="true"] { border-color:rgba(245,158,11,.65); background:rgba(245,158,11,.16); color:#ffd27a; }
+    #${SETTINGS_BUTTON_ID}:focus-visible { outline:2px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); outline-offset:1px; }
+    #${SETTINGS_POPOVER_ID} { position:fixed; z-index:2147482500; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; padding:10px; border:1px solid rgba(116,132,170,.72); border-radius:9px; background:var(--color-background-primary,#171b2a); box-shadow:0 18px 54px rgba(0,0,0,.62); color:var(--color-text-primary,#eee); }
+    #${SETTINGS_POPOVER_ID}[hidden] { display:none; }
+    #script_settings,[${SETTINGS_ROOT_ATTRIBUTE}] { width:100%; color:var(--color-text-primary,#eee); }
+    #script_settings { margin-top:14px; }
     [${SETTINGS_PANEL_ATTRIBUTE}] { width:100%; box-sizing:border-box; }
     [${SETTINGS_TAB_ATTRIBUTE}][aria-selected="true"] { color:var(--color-primary,#fff); }
     .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
+    .mwi-settings-hero-actions { display:flex; align-items:center; gap:7px; }
+    .mwi-settings-close { display:inline-flex; width:30px; height:30px; flex:0 0 30px; align-items:center; justify-content:center; border:0; border-radius:5px; background:rgba(255,255,255,.06); color:var(--color-text-secondary,#aaa); font-size:19px; cursor:pointer; }
+    .mwi-settings-close:hover { background:rgba(255,255,255,.12); color:var(--color-text-primary,#fff); }
     .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
     .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:calc(.78rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
     .mwi-settings-search { width:min(320px,100%); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(0,0,0,.2); color:inherit; padding:7px 9px; }
@@ -46574,7 +46603,7 @@ ${locks}` : ""}`;
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
     styleHost.appendChild(style);
   }
@@ -46623,6 +46652,24 @@ ${locks}` : ""}`;
       parent = runtime.settings.catalog[parent]?.parent;
     }
     return true;
+  }
+  function settingsRoots() {
+    return [
+      ...document.querySelectorAll(
+        `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}]`
+      )
+    ];
+  }
+  function cleanupSettingsRoot(root) {
+    for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+      card._mwitoolsCleanup?.();
+    }
+  }
+  function renderAllSettings() {
+    for (const root of settingsRoots()) renderSettings(root);
+    const label = runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings";
+    document.getElementById(SETTINGS_BUTTON_ID)?.setAttribute("aria-label", label);
+    document.getElementById(SETTINGS_POPOVER_ID)?.setAttribute("aria-label", label);
   }
   function createSelectSettingCard(definition, options = {}) {
     const card = document.createElement("article");
@@ -46821,6 +46868,7 @@ ${locks}` : ""}`;
       countLabel.textContent = runtime.config.isZH ? "推荐数量" : "Recommendations";
       const countSelect = document.createElement("select");
       countSelect.className = "mwi-setting-select";
+      countSelect.dataset.mwitoolsGuildCreditCount = "";
       countSelect.setAttribute(
         "aria-label",
         runtime.config.isZH ? "公会信用推荐数量" : "Guild credit recommendations"
@@ -46849,7 +46897,7 @@ ${locks}` : ""}`;
       await runtime.settings.set(definition.id, checkbox.checked);
       if (definition.id === "forceMWIToolsDisplayZH" || definition.id === "useOrangeAsMainColor" || children.length) {
         applyVisualSettings();
-        renderSettings(document.querySelector("#script_settings"));
+        renderAllSettings();
         return;
       }
       setStatus();
@@ -46873,9 +46921,7 @@ ${locks}` : ""}`;
   }
   function renderSettings(root) {
     if (!root) return;
-    for (const card of root.querySelectorAll(".mwi-setting-card")) {
-      card._mwitoolsCleanup?.();
-    }
+    cleanupSettingsRoot(root);
     root.replaceChildren();
     const hero = document.createElement("div");
     hero.className = "mwi-settings-hero";
@@ -46891,7 +46937,19 @@ ${locks}` : ""}`;
     search.className = "mwi-settings-search";
     search.type = "search";
     search.placeholder = runtime.config.isZH ? "搜索功能或说明" : "Search settings";
-    hero.append(heroCopy, search);
+    const heroActions = document.createElement("div");
+    heroActions.className = "mwi-settings-hero-actions";
+    heroActions.append(search);
+    if (root.hasAttribute(SETTINGS_ROOT_ATTRIBUTE)) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "mwi-settings-close";
+      close.dataset.mwitoolsSettingsClose = "";
+      close.setAttribute("aria-label", runtime.config.isZH ? "关闭" : "Close");
+      close.textContent = "×";
+      heroActions.append(close);
+    }
+    hero.append(heroCopy, heroActions);
     root.append(hero);
     for (const [groupId, group] of Object.entries(runtime.settings.groups)) {
       const definitions = Object.values(runtime.settings.catalog).filter(
@@ -46928,6 +46986,110 @@ ${locks}` : ""}`;
         );
       }
     });
+  }
+  function positionSettingsPopover() {
+    const button = document.getElementById(SETTINGS_BUTTON_ID);
+    const popover = document.getElementById(SETTINGS_POPOVER_ID);
+    if (!button || !popover || popover.hidden) return;
+    const rect = button.getBoundingClientRect();
+    const viewportWidth = Math.max(
+      320,
+      globalThis.innerWidth || document.documentElement?.clientWidth || 0
+    );
+    const viewportHeight = Math.max(
+      320,
+      globalThis.innerHeight || document.documentElement?.clientHeight || 0
+    );
+    const margin = 8;
+    const width = Math.min(620, viewportWidth - margin * 2);
+    let top = rect.bottom + 6;
+    let maxHeight = viewportHeight - top - margin;
+    if (maxHeight < 240) {
+      top = margin;
+      maxHeight = viewportHeight - margin * 2;
+    }
+    const left = Math.min(
+      viewportWidth - width - margin,
+      Math.max(margin, rect.right - width)
+    );
+    Object.assign(popover.style, {
+      width: `${width}px`,
+      maxHeight: `${Math.max(180, maxHeight)}px`,
+      left: `${left}px`,
+      top: `${top}px`
+    });
+  }
+  function closeSettingsPopover({ restoreFocus = false } = {}) {
+    const button = document.getElementById(SETTINGS_BUTTON_ID);
+    const popover = document.getElementById(SETTINGS_POPOVER_ID);
+    if (!popover || popover.hidden) return false;
+    popover.hidden = true;
+    button?.setAttribute("aria-expanded", "false");
+    if (restoreFocus) button?.focus();
+    return true;
+  }
+  function ensureSettingsPopover() {
+    let popover = document.getElementById(SETTINGS_POPOVER_ID);
+    if (popover) {
+      popover.setAttribute(
+        "aria-label",
+        runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings"
+      );
+      return popover;
+    }
+    popover = document.createElement("section");
+    popover.id = SETTINGS_POPOVER_ID;
+    popover.hidden = true;
+    popover.setAttribute("role", "dialog");
+    popover.setAttribute(
+      "aria-label",
+      runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings"
+    );
+    const root = document.createElement("div");
+    root.setAttribute(SETTINGS_ROOT_ATTRIBUTE, "");
+    popover.append(root);
+    popover.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-mwitools-settings-close]")) {
+        closeSettingsPopover({ restoreFocus: true });
+      }
+    });
+    document.body.append(popover);
+    renderSettings(root);
+    return popover;
+  }
+  function toggleSettingsPopover() {
+    const button = document.getElementById(SETTINGS_BUTTON_ID);
+    const popover = ensureSettingsPopover();
+    if (!button) return false;
+    if (!popover.hidden) return closeSettingsPopover();
+    renderSettings(popover.querySelector(`[${SETTINGS_ROOT_ATTRIBUTE}]`));
+    popover.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+    positionSettingsPopover();
+    popover.querySelector(".mwi-settings-search")?.focus();
+    return true;
+  }
+  function ensureSettingsLauncher() {
+    const host = ensureHeaderToolsHost();
+    if (!host) return null;
+    let button = document.getElementById(SETTINGS_BUTTON_ID);
+    if (!button) {
+      button = document.createElement("button");
+      button.type = "button";
+      button.id = SETTINGS_BUTTON_ID;
+      button.textContent = "⚙";
+      button.setAttribute("aria-expanded", "false");
+      button.setAttribute("aria-controls", SETTINGS_POPOVER_ID);
+      button.addEventListener("click", () => toggleSettingsPopover());
+    }
+    button.setAttribute(
+      "aria-label",
+      runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings"
+    );
+    if (button.parentElement !== host || button !== host.firstElementChild) {
+      host.prepend(button);
+    }
+    return button;
   }
   function restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab) {
     const customTab = tabList?.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
@@ -47306,9 +47468,11 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addSettingsStyles();
       ensureSettingsPanel();
+      ensureSettingsLauncher();
       const render = () => {
         addSettingsStyles();
         ensureSettingsPanel();
+        ensureSettingsLauncher();
       };
       const scheduler = createFrameScheduler(render);
       const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
@@ -47316,7 +47480,7 @@ ${locks}` : ""}`;
         const relevant = records.some((record) => {
           const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
           if (target?.closest?.(
-            `#script_settings,[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}]`
+            `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`
           )) {
             return false;
           }
@@ -47324,7 +47488,11 @@ ${locks}` : ""}`;
             return true;
           }
           return [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && (node.matches?.('[class*="SettingsPanel_settingsPanel"]') || node.querySelector?.('[class*="SettingsPanel_settingsPanel"]'))
+            (node) => node?.nodeType === 1 && (node.matches?.(
+              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+            ) || node.querySelector?.(
+              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+            ))
           );
         });
         if (relevant) scheduler.schedule();
@@ -47333,12 +47501,23 @@ ${locks}` : ""}`;
         childList: true,
         subtree: true
       });
+      scope.event(document, "click", (event) => {
+        const popover = document.getElementById(SETTINGS_POPOVER_ID);
+        if (!popover || popover.hidden || popover.contains(event.target) || event.target.closest?.(`#${SETTINGS_BUTTON_ID}`)) {
+          return;
+        }
+        closeSettingsPopover();
+      });
+      scope.event(document, "keydown", (event) => {
+        if (event.key === "Escape") {
+          closeSettingsPopover({ restoreFocus: true });
+        }
+      });
+      scope.event(globalThis, "resize", positionSettingsPopover);
+      scope.event(globalThis, "scroll", positionSettingsPopover, true);
       scope.add(() => {
         scheduler.cancel();
-        const root = document.querySelector("#script_settings");
-        for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
-          card._mwitoolsCleanup?.();
-        }
+        for (const root of settingsRoots()) cleanupSettingsRoot(root);
         const customTab = document.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
         const tabList = customTab?.parentElement;
         if (tabList?._mwitoolsRestoreSettings) {
@@ -47347,7 +47526,10 @@ ${locks}` : ""}`;
         }
         customTab?.remove();
         document.querySelector(`[${SETTINGS_PANEL_ATTRIBUTE}]`)?.remove();
-        root?.remove();
+        document.querySelector("#script_settings")?.remove();
+        document.getElementById(SETTINGS_POPOVER_ID)?.remove();
+        document.getElementById(SETTINGS_BUTTON_ID)?.remove();
+        removeHeaderToolsHostIfEmpty();
         document.getElementById(SETTINGS_STYLE_ID)?.remove();
       });
     }

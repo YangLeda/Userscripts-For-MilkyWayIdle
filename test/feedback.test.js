@@ -21,6 +21,8 @@ const { normalizeImageLinks } =
   await import("../src/features/opinion-center/client.js");
 const { ANNOUNCEMENTS, AnnouncementStore } =
   await import("../src/features/opinion-center/announcements.js");
+const { ensureHeaderToolsHost, removeHeaderToolsHostIfEmpty } =
+  await import("../src/features/header-tools.js");
 runtime.config.isZH = true;
 
 function announcementStore({ seen = [], announcements } = {}) {
@@ -49,7 +51,7 @@ test("feedback image links only accept up to three HTTP(S) URLs", () => {
   assert.throws(() => normalizeImageLinks("not a url"), /格式/);
 });
 
-test("feedback button sits below total level and UI remains a singleton", async () => {
+test("feedback button shares the header tools row after settings and remains a singleton", async () => {
   const client = {
     list: async () => ({
       items: [],
@@ -58,11 +60,19 @@ test("feedback button sits below total level and UI remains a singleton", async 
     }),
   };
   const scope = runtime.createCleanupScope();
+  const host = ensureHeaderToolsHost();
+  const settingsButton = document.createElement("button");
+  settingsButton.id = "mwitools-settings-button";
+  host.append(settingsButton);
   const panel = new FeedbackPanel({ client, scope });
   const first = panel.ensureButton();
   const second = panel.ensureButton();
   assert.equal(first, second);
-  assert.equal(first.previousElementSibling.textContent, "总等级: 2178");
+  assert.equal(host.previousElementSibling.textContent, "总等级: 2178");
+  assert.deepEqual(
+    [...host.children].map((element) => element.id),
+    ["mwitools-settings-button", "mwitools-feedback-button"],
+  );
   assert.equal(first.textContent, "✉MWITools");
   assert.equal(
     document.querySelectorAll("#mwitools-feedback-button").length,
@@ -132,8 +142,11 @@ test("feedback button sits below total level and UI remains a singleton", async 
   );
   runtime.config.isZH = true;
   scope.cleanup();
+  settingsButton.remove();
+  removeHeaderToolsHostIfEmpty();
   assert.equal(document.querySelector("#mwitools-feedback-button"), null);
   assert.equal(document.querySelector("#mwitools-feedback-root"), null);
+  assert.equal(document.querySelector("#mwitools-header-tools"), null);
 });
 
 test("opinion center combines feedback and announcement unread states into one dot", async () => {

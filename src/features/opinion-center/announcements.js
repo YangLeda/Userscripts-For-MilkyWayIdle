@@ -20,6 +20,8 @@ export const ANNOUNCEMENTS = Object.freeze([
         "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
         "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。",
         "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。",
+        "任务筛选现在默认全部未选并显示所有任务，选择多个专业、战斗或副本时按并集显示，副本也可独立筛选；新增一键重置筛选，桌面端全部筛选按钮保持同一行，移动端按空间换行。",
+        "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。",
       ]),
       en: Object.freeze([
         "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -31,6 +33,8 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
         "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times.",
         "Skilling equipment reminders now use the current Red Culinary Hat identifier. Red Culinary Hat, Eye Watch, Collector's Boots, and Enchanted Gloves all contribute to skilling gear score while equipped.",
+        "Task filters now start unselected while showing every task, combine selected professions, combat, and dungeons as a union, and let dungeon filters work independently. A one-click reset was added; desktop keeps every filter on one row while mobile wraps as needed.",
+        "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately.",
       ]),
     }),
   }),
