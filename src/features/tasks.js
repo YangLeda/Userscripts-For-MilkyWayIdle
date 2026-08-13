@@ -695,8 +695,22 @@ function visibleTaskTitle(card) {
 
 function isQuestTaskCard(card) {
   // Full-capacity task pages can include a task-points reward tile that shares
-  // the native card class but has no quest identity or task-name element.
-  return Boolean(card.querySelector('div[class*="RandomTask_name"]'));
+  // the native card and name classes but has no quest identity or progress.
+  if (!card.querySelector('div[class*="RandomTask_name"]')) return false;
+  if (
+    /(?:进度|progress)\s*:?[\s\S]*?\d[\d,.\s\u00a0\u202f]*\s*\/\s*\d/i.test(
+      String(card.textContent ?? ""),
+    )
+  ) {
+    return true;
+  }
+  return [...card.querySelectorAll("button")].some((button) =>
+    matchesGameTranslations(
+      ["randomTask.reroll", "randomTask.go", "questModal.go"],
+      button.textContent,
+      { fallbackPatterns: [/^(?:reset|重置|go|前往)$/i] },
+    ),
+  );
 }
 
 function professionForCard(card, task, title = visibleTaskTitle(card)) {

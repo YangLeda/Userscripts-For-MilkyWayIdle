@@ -1545,7 +1545,8 @@ test("full task capacity still renders the task module beside its reward card", 
     "afterbegin",
     `<div class="TasksPanel_taskList__reward-card">
        <div class="RandomTask_randomTask__reward">
-         <div>小紫牛的礼物: 42 / 50 任务积分</div>
+         <div class="RandomTask_name__reward">小紫牛的礼物</div>
+         <div>42 / 50 任务积分</div>
          <button>领取</button>
        </div>
        ${quests.map(() => card("制作 - 木板", "0 / 5")).join("")}

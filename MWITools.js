@@ -37288,7 +37288,19 @@ ${locks}` : ""}`;
     return text.trim().split("\n")[0].trim();
   }
   function isQuestTaskCard(card) {
-    return Boolean(card.querySelector('div[class*="RandomTask_name"]'));
+    if (!card.querySelector('div[class*="RandomTask_name"]')) return false;
+    if (/(?:进度|progress)\s*:?[\s\S]*?\d[\d,.\s\u00a0\u202f]*\s*\/\s*\d/i.test(
+      String(card.textContent ?? "")
+    )) {
+      return true;
+    }
+    return [...card.querySelectorAll("button")].some(
+      (button) => matchesGameTranslations(
+        ["randomTask.reroll", "randomTask.go", "questModal.go"],
+        button.textContent,
+        { fallbackPatterns: [/^(?:reset|重置|go|前往)$/i] }
+      )
+    );
   }
   function professionForCard(card, task, title = visibleTaskTitle(card)) {
     for (const profession of PROFESSIONS) {
