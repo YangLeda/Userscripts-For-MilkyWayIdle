@@ -63,7 +63,7 @@ test("feedback button sits below total level and UI remains a singleton", () => 
   const second = panel.ensureButton();
   assert.equal(first, second);
   assert.equal(first.previousElementSibling.textContent, "总等级: 2178");
-  assert.match(first.textContent, /MWITools 意见中心/);
+  assert.equal(first.textContent, "✉MWITools");
   assert.equal(
     document.querySelectorAll("#mwitools-feedback-button").length,
     1,
@@ -79,7 +79,22 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     document.querySelector(".mwi-feedback-head h2").textContent,
     "MWITools 意见中心",
   );
+  const launcherStyle = document.querySelector(
+    "#mwitools-feedback-style",
+  ).textContent;
+  assert.match(launcherStyle, /font-size:10px/);
+  assert.match(launcherStyle, /white-space:nowrap/);
+  assert.match(
+    launcherStyle,
+    /@media\(max-width:620px\)\{#mwitools-feedback-button\{font-size:9px\}/,
+  );
   runtime.config.isZH = false;
+  panel.ensureButton();
+  assert.equal(
+    first.querySelector(".mwi-opinion-label").textContent,
+    "MWITools",
+  );
+  assert.match(first.getAttribute("aria-label"), /MWITools Feedback Center/);
   panel.items = [
     {
       id: "english-status",

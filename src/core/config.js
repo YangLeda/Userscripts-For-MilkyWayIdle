@@ -65,8 +65,8 @@ let settingsMap = {
   totalActionTime: {
     id: "totalActionTime",
     desc: isZH
-      ? "左上角显示：当前动作预计总耗时、预计何时完成"
-      : "Top left: Estimated total time of the current action, estimated complete time.",
+      ? "左上角显示：当前动作剩余次数和剩余时间"
+      : "Top left: Remaining count and time for the current action.",
     isTrue: true,
   },
   actionPanel_totalTime: {
@@ -481,8 +481,8 @@ const settingsGroups = {
   actionBar: {
     title: { zh: "动作栏", en: "Action Bar" },
     summary: {
-      zh: "在顶部查看当前动作还剩多少次、还需多久以及预计完成时间。",
-      en: "See the current action's remaining count, time left, and estimated finish time.",
+      zh: "在顶部查看当前动作还剩多少次、还需多久。",
+      en: "See the current action's remaining count and time left.",
     },
   },
   production: {
@@ -605,8 +605,8 @@ const catalogRows = [
     "actionBar",
     "当前动作时间",
     "Current action timing",
-    "在顶部显示剩余次数、剩余时间和预计完成时刻。",
-    "Show remaining count, time remaining, and estimated completion time.",
+    "在顶部显示剩余次数和剩余时间。",
+    "Show remaining count and time remaining.",
   ],
   [
     "actionBarProfit",

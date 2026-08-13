@@ -123,6 +123,10 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     document.querySelector("#mwitools-action-dashboard-style").textContent,
     /grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,110px\),1fr\)\)/,
   );
+  assert.match(
+    document.querySelector("#mwitools-action-dashboard-style").textContent,
+    /@media\(max-width:520px\).*mwi-production-metrics,.mwi-production-output-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+  );
   const output = card.querySelector(".mwi-production-output-item");
   assert.ok(output);
   assert.match(
@@ -427,7 +431,7 @@ test("combat dialogs never render the production summary", () => {
   assert.equal(document.querySelector("#mwi-production-summary"), null);
 });
 
-test("the top action bar shows only current-action count, time left, and finish time", () => {
+test("the top action bar shows only current-action count and time left", () => {
   runtime.state.currentActionsHridList = [
     {
       actionHrid: "/actions/crafting/lumber",
@@ -448,8 +452,7 @@ test("the top action bar shows only current-action count, time left, and finish 
   assert.ok(dashboard);
   assert.match(dashboard.textContent, /剩余 6/);
   assert.match(dashboard.textContent, /还需 53s/);
-  assert.match(dashboard.textContent, /预计完成/);
-  assert.doesNotMatch(dashboard.textContent, /利润|全部完成|999/);
+  assert.doesNotMatch(dashboard.textContent, /预计完成|利润|全部完成|999/);
   assert.equal(dashboard.children.length, 1);
   assert.equal(
     document
@@ -461,7 +464,7 @@ test("the top action bar shows only current-action count, time left, and finish 
   const dashboardStyle = document.querySelector(
     "#mwitools-action-dashboard-style",
   ).textContent;
-  assert.match(dashboardStyle, /flex-wrap:wrap/);
+  assert.match(dashboardStyle, /flex-wrap:nowrap/);
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
 });
 
@@ -632,7 +635,7 @@ test("enhancement actions use the finite amount shown in the native header", () 
   const dashboard = document.querySelector("#mwi-action-dashboard");
   assert.match(dashboard.textContent, /剩余 2\.94K/);
   assert.doesNotMatch(dashboard.textContent, /∞/);
-  assert.doesNotMatch(dashboard.textContent, /预计完成 —/);
+  assert.doesNotMatch(dashboard.textContent, /预计完成/);
   assert.match(dashboard.querySelector("span").title, /强化栏/);
 });
 

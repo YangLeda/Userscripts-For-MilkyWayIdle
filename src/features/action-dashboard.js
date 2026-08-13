@@ -30,15 +30,6 @@ function formatDuration(seconds) {
   return parts.join(runtime.config.isZH ? "" : " ");
 }
 
-function formatClock(timestamp) {
-  if (!Number.isFinite(timestamp)) return "—";
-  return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(timestamp));
-}
-
 function number(value) {
   return runtime.api.createFormattedNumber(value);
 }
@@ -170,7 +161,7 @@ function addStyles() {
   style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
@@ -197,7 +188,7 @@ function addStyles() {
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-line{gap:2px 8px}}
+    @media(max-width:520px){.mwi-action-line{gap:2px 8px}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -401,11 +392,7 @@ function renderActionDashboard() {
   currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
     projection.totalSeconds,
   )}`;
-  const eta = document.createElement("strong");
-  eta.textContent = projection.finishAt
-    ? `${t("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}`
-    : `${t("预计完成", "Finishes at")} —`;
-  primary.append(remaining, currentTime, eta);
+  primary.append(remaining, currentTime);
   root.append(primary);
 }
 

@@ -890,7 +890,7 @@
     },
     totalActionTime: {
       id: "totalActionTime",
-      desc: isZH ? "左上角显示：当前动作预计总耗时、预计何时完成" : "Top left: Estimated total time of the current action, estimated complete time.",
+      desc: isZH ? "左上角显示：当前动作剩余次数和剩余时间" : "Top left: Remaining count and time for the current action.",
       isTrue: true
     },
     actionPanel_totalTime: {
@@ -1210,8 +1210,8 @@
     actionBar: {
       title: { zh: "动作栏", en: "Action Bar" },
       summary: {
-        zh: "在顶部查看当前动作还剩多少次、还需多久以及预计完成时间。",
-        en: "See the current action's remaining count, time left, and estimated finish time."
+        zh: "在顶部查看当前动作还剩多少次、还需多久。",
+        en: "See the current action's remaining count and time left."
       }
     },
     production: {
@@ -1333,8 +1333,8 @@
       "actionBar",
       "当前动作时间",
       "Current action timing",
-      "在顶部显示剩余次数、剩余时间和预计完成时刻。",
-      "Show remaining count, time remaining, and estimated completion time."
+      "在顶部显示剩余次数和剩余时间。",
+      "Show remaining count and time remaining."
     ],
     [
       "actionBarProfit",
@@ -32354,14 +32354,6 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (minutes > 0) parts.push(t6(`${minutes}分`, `${minutes}m`));
     return parts.join(runtime.config.isZH ? "" : " ");
   }
-  function formatClock(timestamp) {
-    if (!Number.isFinite(timestamp)) return "—";
-    return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    }).format(new Date(timestamp));
-  }
   function number(value) {
     return runtime.api.createFormattedNumber(value);
   }
@@ -32471,7 +32463,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
@@ -32498,7 +32490,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-line{gap:2px 8px}}
+    @media(max-width:520px){.mwi-action-line{gap:2px 8px}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -32660,9 +32652,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     currentTime.textContent = `${t6("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
-    const eta = document.createElement("strong");
-    eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
-    primary.append(remaining, currentTime, eta);
+    primary.append(remaining, currentTime);
     root.append(primary);
   }
   function findActionPanel() {
@@ -38462,7 +38452,8 @@ ${locks}` : ""}`;
           "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
           "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
           "修复任务页重复出现多个规划火车、资产中心日期选择器被实时刷新关闭，以及强化当前行动条的剩余次数与预计完成时间偶尔不显示。",
-          "意见审理台现在显示反馈者使用的 MWITools 版本；重大更新清单支持 GitHub 失败后从反馈服务器读取，并明确显示最新版本且每个版本最多提醒一次。"
+          "意见审理台现在显示反馈者使用的 MWITools 版本；重大更新清单支持 GitHub 失败后从反馈服务器读取，并明确显示最新版本且每个版本最多提醒一次。",
+          "移动端生产摘要改为紧凑双列，顶部行动条只保留剩余次数和时间；意见中心入口统一精简为单行 MWITools。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38488,7 +38479,8 @@ ${locks}` : ""}`;
           "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
           "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
           "Fixed duplicate train-planning controls on tasks, live asset refreshes closing date pickers, and remaining counts and completion estimates intermittently missing from the current-action bar while enhancing.",
-          "The feedback review console now shows each reporter's MWITools version. Important-update manifests fall back to the feedback server when GitHub fails, show the latest version explicitly, and appear at most once per version."
+          "The feedback review console now shows each reporter's MWITools version. Important-update manifests fall back to the feedback server when GitHub fails, show the latest version explicitly, and appear at most once per version.",
+          "Mobile production summaries now use a compact two-column layout, the current-action bar keeps only the remaining count and time, and the Feedback Center launcher is shortened to a single-line MWITools label."
         ])
       })
     })
@@ -38872,7 +38864,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID13;
     style.textContent = `
-    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
@@ -38884,7 +38876,7 @@ ${locks}` : ""}`;
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
     .mwi-announcement-card li strong{color:#ff5f66}
     @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
-    @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+    @media(max-width:620px){#${BUTTON_ID}{font-size:9px}#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -38984,10 +38976,7 @@ ${locks}` : ""}`;
         button.append(icon, label, dot);
         this.scope.event(button, "click", () => this.open());
       }
-      button.querySelector(".mwi-opinion-label").textContent = t13(
-        "MWITools 意见中心",
-        "MWITools Feedback Center"
-      );
+      button.querySelector(".mwi-opinion-label").textContent = "MWITools";
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
         totalLevel.insertAdjacentElement("afterend", button);
       }
