@@ -11,6 +11,7 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "修复角色页“规划”标签被误认成游戏原生“配装”标签，导致点击后立即重建并关闭；“盈亏”和“规划”现在会稳定共存，点击后保持打开。",
         "“规划”已从采购抽屉移到角色页“盈亏”旁，并改用带游戏原生物品与房屋技能图标的稳定搜索选择器，数据刷新时不再反复重建输入区或让已打开的选择菜单消失；项目对应的采购项全部买完或清除后，项目也会自动删除。",
         "新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；采购抽屉原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
         "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；前五名彩色徽章默认启用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，也可在设置中关闭。",
@@ -20,6 +21,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。",
       ]),
       en: Object.freeze([
+        "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
         "Planning has moved from the procurement drawer to a character tab beside P/L, with stable item and house pickers that use native game item and skill icons and no longer rebuild the input area or close an open menu during data refreshes. Projects are also removed automatically once all of their shopping rows are purchased or cleared.",
         "MWITools now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. Procurement “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
         "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Top-five rainbow badges now enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause by default, with an option to turn the effect off.",

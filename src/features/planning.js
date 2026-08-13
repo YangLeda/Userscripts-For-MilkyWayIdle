@@ -1009,6 +1009,7 @@ export function createPlanningUi({ scope }) {
     ({ shell, navigationBranch } = found);
     tab = anchor.cloneNode(true);
     tab.id = TAB_ID;
+    tab.dataset.mwitoolsCharacterTab = "true";
     tab.type = "button";
     const badge = tab.querySelector(
       ".TabsComponent_badge__1Du26,.MuiBadge-root",

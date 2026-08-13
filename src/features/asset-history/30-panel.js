@@ -299,7 +299,12 @@ const CHARACTER_TAB_PATTERNS = {
 export function findCharacterManagementLoadoutTab() {
   const groups = new Map();
   for (const button of document.querySelectorAll('button[role="tab"],button')) {
-    if (button.id === TAB_ID) continue;
+    if (
+      button.id === TAB_ID ||
+      button.dataset.mwitoolsCharacterTab === "true"
+    ) {
+      continue;
+    }
     const parent = button.parentElement;
     if (!parent) continue;
     if (!groups.has(parent)) groups.set(parent, []);
@@ -944,6 +949,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     ({ shell, navigationBranch } = found);
     tab = loadout.cloneNode(true);
     tab.id = TAB_ID;
+    tab.dataset.mwitoolsCharacterTab = "true";
     tab.type = "button";
     const badgeText = tab.querySelector(
       ".TabsComponent_badge__1Du26, .MuiBadge-root",

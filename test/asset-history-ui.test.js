@@ -155,7 +155,9 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   assert.ok(planningTab);
   assert.equal(planningTab.previousElementSibling, assetTab);
   planningTab.click();
+  await settleDom();
   const panel = document.querySelector("#mwitools-planning-panel");
+  assert.equal(document.querySelector("#mwitools-planning-tab"), planningTab);
   assert.equal(panel.hidden, false);
   const search = panel.querySelector(".planning-search-input");
   search.focus();
