@@ -364,6 +364,21 @@ test("replacing a loadout panel restores one stable set of production modules", 
   assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
   assert.equal(oldPanel.querySelector("#mwi-production-summary"), null);
   assert.equal(oldPanel.querySelector(".mwi-production-quick-inputs"), null);
+  const mount = panel.querySelector(".mwi-production-extensions");
+  const styles = document.querySelector(
+    "#mwitools-action-dashboard-style",
+  ).textContent;
+  assert.match(
+    styles,
+    /\.mwi-production-extensions \{ display:contents!important; \}/,
+    "the logical mount must not become a stretchable layout box",
+  );
+  assert.match(
+    styles,
+    /\.mwi-production-extensions > \* \{ flex:0 0 auto!important;[^}]*height:auto!important; \}/,
+    "production modules must keep intrinsic height across repeated renders",
+  );
+  assert.equal(dom.window.getComputedStyle(mount).display, "contents");
 
   panel.remove();
   oldPanel.hidden = false;

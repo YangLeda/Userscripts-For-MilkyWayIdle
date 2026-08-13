@@ -33232,7 +33232,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
     .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
-    .mwi-production-extensions { display:flex; width:100%; max-width:100%; min-width:0; box-sizing:border-box; flex-direction:column; }
+    .mwi-production-extensions { display:contents!important; }
+    .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
     .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
     .mwi-production-card-title::before { content:"▸"; color:var(--color-text-secondary,#aaa); transition:transform .12s ease; }
     .mwi-production-card[data-expanded="true"] .mwi-production-card-title::before { transform:rotate(90deg); }
@@ -39993,7 +39994,7 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "生产面板改用稳定挂载区：切换配装或游戏重建面板后，次数快捷输入、本次生产摘要、缺料提示和目标等级会自动恢复且不再重复；未填写数量与材料充足时也保持稳定占位，可在设置中隐藏仅材料充足的提示。",
+          "生产面板改用稳定挂载区：切换配装或游戏重建面板后，次数快捷输入、本次生产摘要、缺料提示和目标等级会自动恢复且不再重复；未填写数量与材料充足时也保持稳定占位，且不会再让弹窗持续变高，可在设置中隐藏仅材料充足的提示。",
           "本次生产摘要默认折叠，并可改为始终展开或关闭；新增三档 MWITools 字号，仅调整插件界面，改善生产、采购、库存价值、设置与利润详情中的小字阅读。",
           "总资产默认计入公会代币与奇幻、阴森、秘法、海盗地下城代币，并统一归入不可交易代币；设置中可关闭，当前资产、库存分类和后续历史快照会使用相同口径。",
           "普通物品悬浮窗新增效率与贪心两档生产总成本（含材料与茶饮），订单簿缺价时使用市场价值兜底，并提示自定义按键与移动端长按查看完整详情。",
@@ -40016,7 +40017,7 @@ ${locks}` : ""}`;
           "生产、全链条与火车现在统一读取当前茶饮、社区等行动增益和暴饮之囊；换茶后会即时重算，链条按实际产量规划，采集利润与队列耗时不再漏算社区速度。"
         ]),
         en: Object.freeze([
-          "Production panels now use a stable mount area. Quick counts, production summary, shortage hints, and target level automatically return once a loadout switch or game render replaces the panel, without duplicates. Waiting and ready states keep their space stable, with an option to hide only the ready hint.",
+          "Production panels now use a stable mount area. Quick counts, production summary, shortage hints, and target level automatically return once a loadout switch or game render replaces the panel, without duplicates. Waiting and ready states keep their space stable without making the dialog grow continuously, with an option to hide only the ready hint.",
           "Production summary is collapsed by default and can be set to always expanded or off. Three MWITools font-size levels improve small text in production, procurement, inventory values, settings, and profit details without changing the game's native UI.",
           "Total assets now include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens by default under non-tradable tokens. The setting applies the same inclusion rule to current assets, inventory categories, and future history snapshots.",
           "Regular item tooltips now show Efficiency and Greedy total production costs including materials and drinks, fall back to market value when an order-book side is missing, and explain the custom-key or mobile long-press gesture for full details.",

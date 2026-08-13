@@ -204,7 +204,8 @@ function addStyles() {
     .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
     .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
-    .mwi-production-extensions { display:flex; width:100%; max-width:100%; min-width:0; box-sizing:border-box; flex-direction:column; }
+    .mwi-production-extensions { display:contents!important; }
+    .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
     .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
     .mwi-production-card-title::before { content:"▸"; color:var(--color-text-secondary,#aaa); transition:transform .12s ease; }
     .mwi-production-card[data-expanded="true"] .mwi-production-card-title::before { transform:rotate(90deg); }
