@@ -890,7 +890,7 @@
     },
     totalActionTime: {
       id: "totalActionTime",
-      desc: isZH ? "左上角显示：当前动作剩余次数和剩余时间" : "Top left: Remaining count and time for the current action.",
+      desc: isZH ? "左上角显示：当前动作剩余时长和预计结束时间" : "Top left: Time remaining and expected finish time for the current action.",
       isTrue: true
     },
     actionPanel_totalTime: {
@@ -1225,8 +1225,8 @@
     actionBar: {
       title: { zh: "动作栏", en: "Action Bar" },
       summary: {
-        zh: "在顶部查看当前动作还剩多少次、还需多久。",
-        en: "See the current action's remaining count and time left."
+        zh: "在顶部查看当前动作剩余时长和预计结束时间。",
+        en: "See the current action's time remaining and expected finish time."
       }
     },
     production: {
@@ -1356,8 +1356,8 @@
       "actionBar",
       "当前动作时间",
       "Current action timing",
-      "在顶部显示剩余次数和剩余时间。",
-      "Show remaining count and time remaining."
+      "在顶部显示剩余时长和预计结束时间。",
+      "Show time remaining and the expected finish time."
     ],
     [
       "actionBarProfit",
@@ -21665,6 +21665,14 @@
     }
     const after = inventoryCounts();
     const keys = /* @__PURE__ */ new Set([...before.keys(), ...after.keys()]);
+    const changes = [...keys].map((key) => ({
+      key,
+      ...parseItemKey(key),
+      before: before.get(key) ?? 0,
+      after: after.get(key) ?? 0,
+      delta: (after.get(key) ?? 0) - (before.get(key) ?? 0)
+    })).filter((change) => change.delta !== 0);
+    if (!changes.length) return;
     for (const key of keys) {
       const delta = (after.get(key) ?? 0) - (before.get(key) ?? 0);
       const row = cart.get(key);
@@ -21688,12 +21696,7 @@
     refreshPlanProgress();
     persistData();
     emit("inventory:change", {
-      changes: [...keys].map((key) => ({
-        ...parseItemKey(key),
-        before: before.get(key) ?? 0,
-        after: after.get(key) ?? 0,
-        delta: (after.get(key) ?? 0) - (before.get(key) ?? 0)
-      }))
+      changes: changes.map(({ key: _key, ...change }) => change)
     });
   }
   function applyRestockThresholds() {
@@ -22801,14 +22804,12 @@
     lastCalculatedAt = null;
   });
   for (const messageType of [
-    "items_updated",
     "house_rooms_updated",
     "community_buffs_updated",
     "consumable_buffs_updated",
     "equipment_buffs_updated",
     "personal_buffs_updated",
     "guild_buffs_updated",
-    "skills_updated",
     "init_character_data"
   ]) {
     runtime.onMessage(messageType, () => {
@@ -29002,6 +29003,7 @@ ${preview}`
   var ASSET_TAB_ID = "mwitools-asset-history-tab";
   var procurement2 = runtime.api.procurement;
   var planning = runtime.api.planning;
+  var spriteBaseCache = /* @__PURE__ */ new Map();
   function t3(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -29077,12 +29079,17 @@ ${preview}`
     ) ?? null;
   }
   function findSpriteBase(kind) {
+    const cached = spriteBaseCache.get(kind);
+    if (cached) return cached;
     const needle = `${kind}_sprite`;
     for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
       if (!entry.name?.includes(needle) || !entry.name.endsWith(".svg")) continue;
       try {
-        return new URL(entry.name).pathname;
+        const pathname = new URL(entry.name).pathname;
+        spriteBaseCache.set(kind, pathname);
+        return pathname;
       } catch {
+        spriteBaseCache.set(kind, entry.name);
         return entry.name;
       }
     }
@@ -29090,7 +29097,9 @@ ${preview}`
       `svg use[href*="${needle}"],svg use[xlink\\:href*="${needle}"]`
     );
     const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
+    const base = href.includes("#") ? href.split("#")[0] : "";
+    if (base) spriteBaseCache.set(kind, base);
+    return base;
   }
   function iconMarkup(kind, hrid, label) {
     const bare = String(hrid ?? "").split("/").at(-1);
@@ -29184,7 +29193,7 @@ ${preview}`
     .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
     .planning-editor-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
     .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
-    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:10px}.planning-add-title>span:first-child{flex:1}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:8px}.planning-add-title>span:first-child{min-width:max-content;flex:1}.planning-add-title .planning-policy-switch{width:min(100%,204px);min-width:192px}
     .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
     .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
     .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
@@ -29199,7 +29208,8 @@ ${preview}`
     .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;min-width:216px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-width:0;min-height:26px;overflow:hidden;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 4px;font-size:clamp(.52rem,.72vw,.61rem);line-height:1.15;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;width:100%;min-width:216px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-copy{display:flex;min-width:0;align-items:center;gap:7px}.planning-source-copy strong{overflow:hidden;color:#d8e0ec;text-overflow:ellipsis;white-space:nowrap}.planning-source-icon{display:grid;width:26px;height:26px;flex:0 0 26px;place-items:center}.planning-source-icon svg{width:24px;height:24px}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
     .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
     @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(130px,1fr) minmax(210px,260px) 28px}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-source-row{grid-template-columns:minmax(0,1fr) auto}.planning-source-row>.planning-policy-switch{grid-column:1/3;min-width:0}}
-    @media(max-width:760px){#${PANEL_ID2}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title{align-items:flex-start;flex-direction:column}.planning-add-title .planning-policy-switch{width:100%;min-width:0}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
+    @media(max-width:760px){#${PANEL_ID2}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title .planning-policy-switch{width:min(100%,192px);min-width:180px}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
+    @media(max-width:420px){.planning-add-title{display:grid;grid-template-columns:1fr}.planning-add-title .planning-policy-switch{width:100%;min-width:0}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -29579,10 +29589,14 @@ ${preview}`
     host.append(section);
   }
   function updateGoalCurrentValues(host, goals) {
+    const nodes = new Map(
+      [...host.querySelectorAll(".planning-goal-current")].map((node) => [
+        node.dataset.goalId,
+        node
+      ])
+    );
     for (const goal of goals) {
-      const node = [...host.querySelectorAll(".planning-goal-current")].find(
-        (candidate) => candidate.dataset.goalId === goal.id
-      );
+      const node = nodes.get(goal.id);
       if (!node) continue;
       const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
       node.textContent = `${t3("当前", "Current")} ${number(current)}`;
@@ -29744,6 +29758,8 @@ ${preview}`
       this.decisionResult = planning.getDecisionResult();
       this.catalogDirty = false;
       this.houseDirty = false;
+      this.updatePending = false;
+      this.updateCount = 0;
       this.build();
       this.catalogSignature = catalogSignature();
       this.unsubscribe = [
@@ -29880,10 +29896,16 @@ ${preview}`
     scheduleUpdate({ catalog = false, house = false } = {}) {
       this.catalogDirty ||= catalog;
       this.houseDirty ||= house;
+      if (this.host.hidden) {
+        this.updatePending = true;
+        return;
+      }
       this.updateScheduler?.schedule();
     }
     update() {
       if (!this.host?.isConnected) return;
+      this.updatePending = false;
+      this.updateCount += 1;
       if (this.catalogDirty) {
         const nextCatalogSignature = catalogSignature();
         this.catalogDirty = false;
@@ -30081,6 +30103,7 @@ ${preview}`
     };
     const setActive = (next) => {
       const nextActive = Boolean(next);
+      const activating = nextActive && !active;
       if (nextActive && !active) captureIdleStyle();
       active = nextActive;
       if (tab) {
@@ -30123,7 +30146,7 @@ ${preview}`
         node.style.display = "none";
       }
       syncViewport();
-      panel?.update();
+      if (activating || panel?.updatePending) panel?.update();
     };
     const teardown = () => {
       setActive(false);
@@ -30187,7 +30210,7 @@ ${preview}`
         if (otherSelected && otherSelected !== lastActiveNativeTab || tab.getAttribute("aria-selected") !== "true") {
           if (active) setActive(false);
         } else if (active) {
-          setActive(true);
+          syncViewport();
         }
         return;
       }
@@ -30203,10 +30226,11 @@ ${preview}`
         const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
         if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
         if (record.type === "attributes") {
+          const management = target?.closest?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          );
           return Boolean(
-            target?.closest?.(
-              '[class*="CharacterManagement_characterManagement"]'
-            )
+            management && (target === management || target === navigationBranch || target?.parentElement === navigationBranch)
           );
         }
         return [...record.addedNodes, ...record.removedNodes].some(
@@ -30239,13 +30263,11 @@ ${preview}`
       }
     });
     for (const messageType of [
-      "items_updated",
       "community_buffs_updated",
       "consumable_buffs_updated",
       "equipment_buffs_updated",
       "personal_buffs_updated",
-      "guild_buffs_updated",
-      "skills_updated"
+      "guild_buffs_updated"
     ]) {
       scope.add(runtime.onMessage(messageType, () => panel?.scheduleUpdate()));
     }
@@ -30263,6 +30285,9 @@ ${preview}`
       destroy() {
         teardown();
         document.getElementById(STYLE_ID4)?.remove();
+      },
+      getDiagnostics() {
+        return { updateCount: panel?.updateCount ?? 0 };
       }
     };
   }
@@ -35599,6 +35624,56 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     }
   });
 
+  // src/core/time-format.js
+  function formatRemainingDuration(seconds, isZH2 = true) {
+    if (seconds === Infinity) return "∞";
+    if (!Number.isFinite(seconds)) return "—";
+    const normalized = Math.max(0, Math.round(seconds));
+    const units = [
+      [86400, "天", "d"],
+      [3600, "小时", "h"],
+      [60, "分", "m"],
+      [1, "秒", "s"]
+    ];
+    let remainder = normalized;
+    const parts = [];
+    for (const [size, zh, en] of units) {
+      const value = Math.floor(remainder / size);
+      remainder %= size;
+      if (value > 0 || size === 1 && parts.length === 0) {
+        parts.push(`${value}${isZH2 ? zh : en}`);
+      }
+    }
+    return parts.join(isZH2 ? "" : " ");
+  }
+  function format24HourClock(timestamp, isZH2 = true) {
+    if (!Number.isFinite(timestamp)) return "—";
+    return new Intl.DateTimeFormat(isZH2 ? "zh-CN" : "en-US", {
+      hour: "2-digit",
+      hourCycle: "h23",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(new Date(timestamp));
+  }
+  function calendarDayOffset(fromTimestamp, toTimestamp) {
+    const from = new Date(fromTimestamp);
+    const to = new Date(toTimestamp);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
+    const fromDay = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+    const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+    return Math.round((toDay - fromDay) / 864e5);
+  }
+  function formatRemainingTiming(totalSeconds, finishAt, { isZH: isZH2 = true, now = Date.now() } = {}) {
+    const duration = formatRemainingDuration(totalSeconds, isZH2);
+    if (!Number.isFinite(finishAt)) return duration;
+    const clock = format24HourClock(finishAt, isZH2);
+    const dayOffset = Math.max(0, calendarDayOffset(now, finishAt));
+    const finish = isZH2 ? `（${clock}）` : ` (${clock})`;
+    if (dayOffset === 0) return `${duration}${finish}`;
+    const offset = isZH2 ? `（+${dayOffset}天）` : ` (+${dayOffset} ${dayOffset === 1 ? "day" : "days"})`;
+    return `${duration}${finish}${offset}`;
+  }
+
   // src/features/action-dashboard.js
   var PRODUCTION_PROFILE_MESSAGES = Object.freeze([
     "init_character_data",
@@ -35648,14 +35723,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (hours > 0) parts.push(t7(`${hours}小时`, `${hours}h`));
     if (minutes > 0) parts.push(t7(`${minutes}分`, `${minutes}m`));
     return parts.join(runtime.config.isZH ? "" : " ");
-  }
-  function formatClock(timestamp) {
-    if (!Number.isFinite(timestamp)) return "—";
-    return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    }).format(new Date(timestamp));
   }
   function number2(value) {
     return runtime.api.createFormattedNumber(value);
@@ -35771,8 +35838,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
-    .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
-    .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
+    .mwi-action-time { overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-extensions { display:contents!important; }
     .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
@@ -35804,7 +35870,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px}.mwi-production-card-title{padding-bottom:3px}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-production-card{padding:5px}.mwi-production-card-title{padding-bottom:3px}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -35981,33 +36047,25 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     root.removeAttribute("title");
     const primary = document.createElement("div");
     primary.className = "mwi-action-line";
-    const remaining = document.createElement("span");
-    const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
-    const effectiveCount = projection.effectiveCount ?? projection.count;
-    remaining.append(
-      `${t7("剩余", "Remaining")} `,
-      effectivelyInfinite ? "∞" : number2(effectiveCount)
+    const currentTime = document.createElement("strong");
+    currentTime.className = "mwi-action-time";
+    currentTime.textContent = formatRemainingTiming(
+      projection.totalSeconds,
+      projection.finishAt,
+      { isZH: runtime.config.isZH }
     );
     if (projection.materialLimited) {
-      remaining.title = t7(
+      currentTime.title = t7(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     } else if (enhancementCount !== null) {
-      remaining.title = t7(
+      currentTime.title = t7(
         "已按强化栏当前可处理数量计算",
         "Based on the amount currently available for enhancement"
       );
     }
-    const currentTime = document.createElement("span");
-    currentTime.className = "mwi-action-time";
-    currentTime.textContent = `${t7("还需", "Time left")} ${formatDuration(
-      projection.totalSeconds
-    )}`;
-    const eta = document.createElement("strong");
-    eta.className = "mwi-action-eta";
-    eta.textContent = projection.finishAt ? `${t7("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t7("预计完成", "Finishes at")} —`;
-    primary.append(remaining, currentTime, eta);
+    primary.append(currentTime);
     root.append(primary);
     return root;
   }
@@ -42537,27 +42595,29 @@ ${locks}` : ""}`;
           "修复角色页“规划”标签被误认成游戏原生“配装”标签，导致点击后立即重建并关闭；“盈亏”和“规划”现在会稳定共存，点击后保持打开。",
           "“规划”已从采购抽屉移到角色页“盈亏”旁，并改用带游戏原生物品与房屋技能图标的稳定搜索选择器，数据刷新时不再反复重建输入区或让已打开的选择菜单消失；项目对应的采购项全部买完或清除后，项目也会自动删除。",
           "新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；采购抽屉原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
-          "规划改为“选择目标 → 选择制作方式 → 基础材料清单”三步流程：第一次计算只展开可按房屋来源分别调整的全链条制作、单步制作或直接购买策略，第二次计算才生成清单；共享物品的混合策略不再污染展开项，房屋名称支持中文，目标行和英文策略开关也更加紧凑稳定。",
+          "规划改为“选择目标 → 选择制作方式 → 基础材料清单”三步流程：第一次计算只展开可按房屋来源分别调整的全链条制作、单步制作或直接购买策略，第二次计算才生成清单；共享物品的混合策略不再污染展开项，房屋名称支持中文，目标行和英文策略开关也更加紧凑稳定。无变化的游戏数据不再清空第 2 步，返回目标页会保留已生成的制作方式；添加器开关在常用宽度保持同排，角色页观察与隐藏面板更新也已收窄，减少滚动和切页卡顿。",
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；前五名彩色徽章默认启用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，也可在设置中关闭。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能被残留的隐藏状态遮住；摘要和排序栏现在始终跟随游戏原生库存面板显隐，即使复用旧节点或晚到回调再次写入隐藏状态也会保持可见。",
           "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
           "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。",
           "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。",
           "任务筛选现在默认全部未选并显示所有任务，选择多个专业、战斗或副本时按并集显示，副本也可独立筛选；新增一键重置筛选，桌面端全部筛选按钮保持同一行，移动端按空间换行。",
-          "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。"
+          "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。",
+          "顶部当前动作条和行动队列中的每项动作现在统一显示纯剩余时长与括号内的 24 小时制结束时间，不再显示剩余次数或多余文字标签；结束时间跨日时会用第二组括号标记 +1 天、+2 天等实际相隔天数，队列总时间也会显示最终结束时刻。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
           "Planning has moved from the procurement drawer to a character tab beside P/L, with stable item and house pickers that use native game item and skill icons and no longer rebuild the input area or close an open menu during data refreshes. Projects are also removed automatically once all of their shopping rows are purchased or cleared.",
           "MWITools now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. Procurement “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
-          "Planning now follows three explicit steps: choose targets, choose production methods, then calculate the base-material list. The first calculation only opens per-target Full chain, One step, or Buy directly decisions, while the second creates the list. Mixed shared items no longer contaminate expanded source policies, house names are localized in Chinese, and compact target rows and English policy controls fit more reliably.",
+          "Planning now follows three explicit steps: choose targets, choose production methods, then calculate the base-material list. The first calculation only opens per-target Full chain, One step, or Buy directly decisions, while the second creates the list. Mixed shared items no longer contaminate expanded source policies, house names are localized in Chinese, and compact target rows and English policy controls fit more reliably. Unchanged game data no longer clears Step 2 when returning from the List, picker policy controls stay inline at common widths, and narrower character-page observation plus deferred hidden-panel updates reduce scrolling and tab-switching stutter.",
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Top-five rainbow badges now enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause by default, with an option to turn the effect off.",
           "Fixed combat and skilling gear scores and total assets being obscured by a stale hidden state after switching to Abilities and returning to Inventory. The summary and sorting bar now always follow the native Inventory panel, remaining visible even when a reused node or delayed callback writes another hidden state.",
           "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
           "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times.",
           "Skilling equipment reminders now use the current Red Culinary Hat identifier. Red Culinary Hat, Eye Watch, Collector's Boots, and Enchanted Gloves all contribute to skilling gear score while equipped.",
           "Task filters now start unselected while showing every task, combine selected professions, combat, and dungeons as a union, and let dungeon filters work independently. A one-click reset was added; desktop keeps every filter on one row while mobile wraps as needed.",
-          "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately."
+          "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately.",
+          "The top current-action bar and every action in the queue now share the same plain time-remaining and parenthesized 24-hour finish-time format, without remaining counts or extra text labels. A second parenthetical marker shows +1 day, +2 days, and so on after midnight, and the queue total now includes its final finish time."
         ])
       })
     }),
@@ -45286,6 +45346,7 @@ ${locks}` : ""}`;
     let hasSkippedFirstAction = false;
     let accumulatedTimeSec = 0;
     let isAccumulatedTimeInfinite = false;
+    const now = Date.now();
     for (const actionObj of runtime.state.currentActionsHridList) {
       const actionHrid = actionObj.actionHrid;
       const count = actionObj.maxCount - actionObj.currentCount;
@@ -45301,28 +45362,38 @@ ${locks}` : ""}`;
       if (totalTimeSec === null || totalTimeSec === void 0) {
         isAccumulatedTimeInfinite = true;
       }
-      let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
+      let finishAt = null;
       if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
         accumulatedTimeSec += totalTimeSec;
-        const currentTime = /* @__PURE__ */ new Date();
-        currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
-        completion = `${runtime.config.isZH ? "到 " : "Complete at "}${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(currentTime.getSeconds()).padStart(2, "0")}`;
+        finishAt = now + accumulatedTimeSec * 1e3;
       }
       if (hasSkippedFirstAction) {
         const unavailable = !Number.isFinite(totalTimeSec);
-        const html2 = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${isInfinite || unavailable ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`} ${completion}</div>`;
         const target = actionDivList[actionDivListIndex]?.querySelector("div");
         const current = target?.querySelector("div.script_actionTime");
-        if (current) current.outerHTML = html2;
-        else target?.insertAdjacentHTML("beforeend", html2);
+        const output = current ?? document.createElement("div");
+        output.className = "script_actionTime";
+        output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+        output.textContent = formatRemainingTiming(
+          isInfinite || unavailable || isAccumulatedTimeInfinite ? Infinity : totalTimeSec,
+          finishAt,
+          { isZH: runtime.config.isZH, now }
+        );
+        if (!current) target?.append(output);
         actionDivListIndex += 1;
       }
       hasSkippedFirstAction = true;
     }
-    const html = `<div id="script_queueTotalTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总时间：" : "Total time: "}${isAccumulatedTimeInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(accumulatedTimeSec)}]`}</div>`;
     const currentTotal = document.querySelector("div#script_queueTotalTime");
-    if (currentTotal) currentTotal.outerHTML = html;
-    else added.insertAdjacentHTML("afterend", html);
+    const total = currentTotal ?? document.createElement("div");
+    total.id = "script_queueTotalTime";
+    total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+    total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${formatRemainingTiming(
+      isAccumulatedTimeInfinite ? Infinity : accumulatedTimeSec,
+      isAccumulatedTimeInfinite ? null : now + accumulatedTimeSec * 1e3,
+      { isZH: runtime.config.isZH, now }
+    )}`;
+    if (!currentTotal) added.insertAdjacentElement("afterend", total);
   }
   function getOriTextFromElement(element) {
     if (!element) {

@@ -913,14 +913,12 @@ procurement.on("character:change", () => {
   lastCalculatedAt = null;
 });
 for (const messageType of [
-  "items_updated",
   "house_rooms_updated",
   "community_buffs_updated",
   "consumable_buffs_updated",
   "equipment_buffs_updated",
   "personal_buffs_updated",
   "guild_buffs_updated",
-  "skills_updated",
   "init_character_data",
 ]) {
   runtime.onMessage(messageType, () => {

@@ -120,6 +120,8 @@ test("disabling queue timing disconnects observers that could recreate output", 
 });
 
 test("queued action timing uses community speed and total efficiency", () => {
+  const originalLanguage = runtime.config.isZH;
+  runtime.config.isZH = true;
   runtime.settings.settingsMap.actionQueue.isTrue = true;
   runtime.state.initData_characterSkills = [];
   runtime.state.initData_actionTypeDrinkSlotsMap = {
@@ -164,9 +166,75 @@ test("queued action timing uses community speed and total efficiency", () => {
   const menu = document.querySelector(
     ".QueuedActions_queuedActionsEditMenu__3OoQH",
   );
-  runtime.api.handleActionQueueMenueCalculateTime(menu);
-  assert.match(document.querySelector(".script_actionTime").textContent, /16s/);
-  runtime.api.disconnectActionQueueObserver();
+  try {
+    runtime.api.handleActionQueueMenueCalculateTime(menu);
+    assert.match(
+      document.querySelector(".script_actionTime").textContent,
+      /^16秒（\d{2}:\d{2}:\d{2}）$/,
+    );
+    assert.match(
+      document.querySelector("#script_queueTotalTime").textContent,
+      /^总时间：20秒（\d{2}:\d{2}:\d{2}）$/,
+    );
+  } finally {
+    runtime.config.isZH = originalLanguage;
+    runtime.api.disconnectActionQueueObserver();
+  }
+});
+
+test("queued action timing marks multi-day finishes with the shared format", () => {
+  const originalNow = Date.now;
+  const originalLanguage = runtime.config.isZH;
+  const originalEfficiency = runtime.api.getTotalEffiPercentage;
+  const originalSpeed = runtime.api.getToolsSpeedBuffByActionHrid;
+  Date.now = () => new Date(2026, 7, 13, 23, 30, 0).getTime();
+  runtime.config.isZH = true;
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/current": {
+      type: "/action_types/crafting",
+      baseTimeCost: 3_600_000_000_000,
+      outputItems: [],
+    },
+    "/actions/crafting/queued": {
+      type: "/action_types/crafting",
+      baseTimeCost: 3_600_000_000_000,
+      outputItems: [],
+    },
+  };
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/current",
+      maxCount: 1,
+      currentCount: 0,
+    },
+    {
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 26,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.getTotalEffiPercentage = () => 0;
+  runtime.api.getToolsSpeedBuffByActionHrid = () => 0;
+  document.body.innerHTML = `<div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div>`;
+  try {
+    runtime.api.handleActionQueueMenueCalculateTime(
+      document.body.firstElementChild,
+    );
+    assert.equal(
+      document.querySelector(".script_actionTime").textContent,
+      "1天2小时（02:30:00）（+2天）",
+    );
+    assert.equal(
+      document.querySelector("#script_queueTotalTime").textContent,
+      "总时间：1天3小时（02:30:00）（+2天）",
+    );
+  } finally {
+    Date.now = originalNow;
+    runtime.config.isZH = originalLanguage;
+    runtime.api.getTotalEffiPercentage = originalEfficiency;
+    runtime.api.getToolsSpeedBuffByActionHrid = originalSpeed;
+  }
 });
 
 test("replacing one hundred queue menus retains only the active observer", () => {

@@ -262,6 +262,18 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   assert.equal(list.querySelector(".planning-step"), null);
 
   panel.querySelector('[data-route="targets"]').click();
+  assert.equal(decisionStage.hidden, false);
+  const updatesBeforeIdleMutations = planningUi.getDiagnostics().updateCount;
+  const nativeContent = shell.querySelector("section");
+  nativeContent.classList.add("game-frame-tick");
+  nativeContent.classList.remove("game-frame-tick");
+  runtime.dispatchMessage({ type: "items_updated", endCharacterItems: [] });
+  await settleDom();
+  assert.equal(decisionStage.hidden, false);
+  assert.equal(
+    planningUi.getDiagnostics().updateCount,
+    updatesBeforeIdleMutations,
+  );
   const materialSnapshot = list.querySelector(".planning-section");
   goalTarget.value = "6";
   goalTarget.dispatchEvent(new window.Event("change", { bubbles: true }));
@@ -295,6 +307,14 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   assert.match(
     document.querySelector("#mwitools-planning-style").textContent,
     /white-space:nowrap/,
+  );
+  assert.doesNotMatch(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /\.planning-add-title\{align-items:flex-start;flex-direction:column\}/,
+  );
+  assert.match(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /@media\(max-width:420px\).*\.planning-add-title\{display:grid/,
   );
   englishUi.destroy();
   englishScope.cleanup();

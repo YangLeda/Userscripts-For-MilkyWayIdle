@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { formatRemainingTiming } from "../core/time-format.js";
 
 export const THIRD_PARTY_LINKS = [
   {
@@ -148,6 +149,7 @@ function handleActionQueueMenueCalculateTime(added) {
   let hasSkippedFirstAction = false;
   let accumulatedTimeSec = 0;
   let isAccumulatedTimeInfinite = false;
+  const now = Date.now();
   for (const actionObj of runtime.state.currentActionsHridList) {
     const actionHrid = actionObj.actionHrid;
     const count = actionObj.maxCount - actionObj.currentCount;
@@ -165,38 +167,42 @@ function handleActionQueueMenueCalculateTime(added) {
       isAccumulatedTimeInfinite = true;
     }
 
-    let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
+    let finishAt = null;
     if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
       accumulatedTimeSec += totalTimeSec;
-      const currentTime = new Date();
-      currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
-      completion = `${runtime.config.isZH ? "到 " : "Complete at "}${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(currentTime.getSeconds()).padStart(2, "0")}`;
+      finishAt = now + accumulatedTimeSec * 1000;
     }
 
     if (hasSkippedFirstAction) {
       const unavailable = !Number.isFinite(totalTimeSec);
-      const html = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-        isInfinite || unavailable
-          ? "[ ∞ ] "
-          : `[${runtime.api.timeReadable(totalTimeSec)}]`
-      } ${completion}</div>`;
       const target = actionDivList[actionDivListIndex]?.querySelector("div");
       const current = target?.querySelector("div.script_actionTime");
-      if (current) current.outerHTML = html;
-      else target?.insertAdjacentHTML("beforeend", html);
+      const output = current ?? document.createElement("div");
+      output.className = "script_actionTime";
+      output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+      output.textContent = formatRemainingTiming(
+        isInfinite || unavailable || isAccumulatedTimeInfinite
+          ? Infinity
+          : totalTimeSec,
+        finishAt,
+        { isZH: runtime.config.isZH, now },
+      );
+      if (!current) target?.append(output);
       actionDivListIndex += 1;
     }
     hasSkippedFirstAction = true;
   }
 
-  const html = `<div id="script_queueTotalTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "总时间：" : "Total time: "}${
-    isAccumulatedTimeInfinite
-      ? "[ ∞ ] "
-      : `[${runtime.api.timeReadable(accumulatedTimeSec)}]`
-  }</div>`;
   const currentTotal = document.querySelector("div#script_queueTotalTime");
-  if (currentTotal) currentTotal.outerHTML = html;
-  else added.insertAdjacentHTML("afterend", html);
+  const total = currentTotal ?? document.createElement("div");
+  total.id = "script_queueTotalTime";
+  total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+  total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${formatRemainingTiming(
+    isAccumulatedTimeInfinite ? Infinity : accumulatedTimeSec,
+    isAccumulatedTimeInfinite ? null : now + accumulatedTimeSec * 1000,
+    { isZH: runtime.config.isZH, now },
+  )}`;
+  if (!currentTotal) added.insertAdjacentElement("afterend", total);
 }
 
 function getOriTextFromElement(element) {

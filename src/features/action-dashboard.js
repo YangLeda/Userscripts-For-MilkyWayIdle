@@ -6,6 +6,7 @@ import {
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { formatRemainingTiming } from "../core/time-format.js";
 
 const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "init_character_data",
@@ -60,15 +61,6 @@ function formatDuration(seconds) {
   if (hours > 0) parts.push(t(`${hours}小时`, `${hours}h`));
   if (minutes > 0) parts.push(t(`${minutes}分`, `${minutes}m`));
   return parts.join(runtime.config.isZH ? "" : " ");
-}
-
-function formatClock(timestamp) {
-  if (!Number.isFinite(timestamp)) return "—";
-  return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(new Date(timestamp));
 }
 
 function number(value) {
@@ -207,8 +199,7 @@ function addStyles() {
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
-    .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
-    .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
+    .mwi-action-time { overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-extensions { display:contents!important; }
     .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
@@ -240,7 +231,7 @@ function addStyles() {
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px}.mwi-production-card-title{padding-bottom:3px}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-production-card{padding:5px}.mwi-production-card-title{padding-bottom:3px}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -469,36 +460,25 @@ function renderActionDashboard() {
 
   const primary = document.createElement("div");
   primary.className = "mwi-action-line";
-  const remaining = document.createElement("span");
-  const effectivelyInfinite =
-    projection.effectivelyInfinite ?? projection.infinite;
-  const effectiveCount = projection.effectiveCount ?? projection.count;
-  remaining.append(
-    `${t("剩余", "Remaining")} `,
-    effectivelyInfinite ? "∞" : number(effectiveCount),
+  const currentTime = document.createElement("strong");
+  currentTime.className = "mwi-action-time";
+  currentTime.textContent = formatRemainingTiming(
+    projection.totalSeconds,
+    projection.finishAt,
+    { isZH: runtime.config.isZH },
   );
   if (projection.materialLimited) {
-    remaining.title = t(
+    currentTime.title = t(
       "已按当前库存中的可用原料计算",
       "Limited by materials currently in inventory",
     );
   } else if (enhancementCount !== null) {
-    remaining.title = t(
+    currentTime.title = t(
       "已按强化栏当前可处理数量计算",
       "Based on the amount currently available for enhancement",
     );
   }
-  const currentTime = document.createElement("span");
-  currentTime.className = "mwi-action-time";
-  currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
-    projection.totalSeconds,
-  )}`;
-  const eta = document.createElement("strong");
-  eta.className = "mwi-action-eta";
-  eta.textContent = projection.finishAt
-    ? `${t("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}`
-    : `${t("预计完成", "Finishes at")} —`;
-  primary.append(remaining, currentTime, eta);
+  primary.append(currentTime);
   root.append(primary);
   return root;
 }

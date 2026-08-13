@@ -1222,6 +1222,16 @@ function applyInventoryUpdates(items) {
   }
   const after = inventoryCounts();
   const keys = new Set([...before.keys(), ...after.keys()]);
+  const changes = [...keys]
+    .map((key) => ({
+      key,
+      ...parseItemKey(key),
+      before: before.get(key) ?? 0,
+      after: after.get(key) ?? 0,
+      delta: (after.get(key) ?? 0) - (before.get(key) ?? 0),
+    }))
+    .filter((change) => change.delta !== 0);
+  if (!changes.length) return;
   for (const key of keys) {
     const delta = (after.get(key) ?? 0) - (before.get(key) ?? 0);
     const row = cart.get(key);
@@ -1245,12 +1255,7 @@ function applyInventoryUpdates(items) {
   refreshPlanProgress();
   persistData();
   emit("inventory:change", {
-    changes: [...keys].map((key) => ({
-      ...parseItemKey(key),
-      before: before.get(key) ?? 0,
-      after: after.get(key) ?? 0,
-      delta: (after.get(key) ?? 0) - (before.get(key) ?? 0),
-    })),
+    changes: changes.map(({ key: _key, ...change }) => change),
   });
 }
 

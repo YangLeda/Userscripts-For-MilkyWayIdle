@@ -12,6 +12,7 @@ const STYLE_ID = "mwitools-planning-style";
 const ASSET_TAB_ID = "mwitools-asset-history-tab";
 const procurement = runtime.api.procurement;
 const planning = runtime.api.planning;
+const spriteBaseCache = new Map();
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -134,13 +135,18 @@ function resolveItemInput(value, candidates) {
 }
 
 function findSpriteBase(kind) {
+  const cached = spriteBaseCache.get(kind);
+  if (cached) return cached;
   const needle = `${kind}_sprite`;
   for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
     []) {
     if (!entry.name?.includes(needle) || !entry.name.endsWith(".svg")) continue;
     try {
-      return new URL(entry.name).pathname;
+      const pathname = new URL(entry.name).pathname;
+      spriteBaseCache.set(kind, pathname);
+      return pathname;
     } catch {
+      spriteBaseCache.set(kind, entry.name);
       return entry.name;
     }
   }
@@ -149,7 +155,9 @@ function findSpriteBase(kind) {
   );
   const href =
     use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
+  const base = href.includes("#") ? href.split("#")[0] : "";
+  if (base) spriteBaseCache.set(kind, base);
+  return base;
 }
 
 function iconMarkup(kind, hrid, label) {
@@ -256,7 +264,7 @@ function addStyles() {
     .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
     .planning-editor-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
     .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
-    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:10px}.planning-add-title>span:first-child{flex:1}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:8px}.planning-add-title>span:first-child{min-width:max-content;flex:1}.planning-add-title .planning-policy-switch{width:min(100%,204px);min-width:192px}
     .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
     .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
     .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
@@ -271,7 +279,8 @@ function addStyles() {
     .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;min-width:216px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-width:0;min-height:26px;overflow:hidden;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 4px;font-size:clamp(.52rem,.72vw,.61rem);line-height:1.15;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;width:100%;min-width:216px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-copy{display:flex;min-width:0;align-items:center;gap:7px}.planning-source-copy strong{overflow:hidden;color:#d8e0ec;text-overflow:ellipsis;white-space:nowrap}.planning-source-icon{display:grid;width:26px;height:26px;flex:0 0 26px;place-items:center}.planning-source-icon svg{width:24px;height:24px}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
     .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
     @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(130px,1fr) minmax(210px,260px) 28px}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-source-row{grid-template-columns:minmax(0,1fr) auto}.planning-source-row>.planning-policy-switch{grid-column:1/3;min-width:0}}
-    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title{align-items:flex-start;flex-direction:column}.planning-add-title .planning-policy-switch{width:100%;min-width:0}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
+    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title .planning-policy-switch{width:min(100%,192px);min-width:180px}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
+    @media(max-width:420px){.planning-add-title{display:grid;grid-template-columns:1fr}.planning-add-title .planning-policy-switch{width:100%;min-width:0}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -687,10 +696,14 @@ function renderGoals(host, goals) {
 }
 
 function updateGoalCurrentValues(host, goals) {
+  const nodes = new Map(
+    [...host.querySelectorAll(".planning-goal-current")].map((node) => [
+      node.dataset.goalId,
+      node,
+    ]),
+  );
   for (const goal of goals) {
-    const node = [...host.querySelectorAll(".planning-goal-current")].find(
-      (candidate) => candidate.dataset.goalId === goal.id,
-    );
+    const node = nodes.get(goal.id);
     if (!node) continue;
     const current =
       goal.kind === "house"
@@ -861,6 +874,8 @@ export class PlanningPanel {
     this.decisionResult = planning.getDecisionResult();
     this.catalogDirty = false;
     this.houseDirty = false;
+    this.updatePending = false;
+    this.updateCount = 0;
     this.build();
     this.catalogSignature = catalogSignature();
     this.unsubscribe = [
@@ -1002,11 +1017,17 @@ export class PlanningPanel {
   scheduleUpdate({ catalog = false, house = false } = {}) {
     this.catalogDirty ||= catalog;
     this.houseDirty ||= house;
+    if (this.host.hidden) {
+      this.updatePending = true;
+      return;
+    }
     this.updateScheduler?.schedule();
   }
 
   update() {
     if (!this.host?.isConnected) return;
+    this.updatePending = false;
+    this.updateCount += 1;
     if (this.catalogDirty) {
       const nextCatalogSignature = catalogSignature();
       this.catalogDirty = false;
@@ -1224,6 +1245,7 @@ export function createPlanningUi({ scope }) {
   };
   const setActive = (next) => {
     const nextActive = Boolean(next);
+    const activating = nextActive && !active;
     if (nextActive && !active) captureIdleStyle();
     active = nextActive;
     if (tab) {
@@ -1270,7 +1292,7 @@ export function createPlanningUi({ scope }) {
       node.style.display = "none";
     }
     syncViewport();
-    panel?.update();
+    if (activating || panel?.updatePending) panel?.update();
   };
   const teardown = () => {
     setActive(false);
@@ -1341,7 +1363,7 @@ export function createPlanningUi({ scope }) {
       ) {
         if (active) setActive(false);
       } else if (active) {
-        setActive(true);
+        syncViewport();
       }
       return;
     }
@@ -1362,10 +1384,14 @@ export function createPlanningUi({ scope }) {
           : record.target?.parentElement;
       if (target?.closest?.(`#${TAB_ID},#${PANEL_ID}`)) return false;
       if (record.type === "attributes") {
+        const management = target?.closest?.(
+          '[class*="CharacterManagement_characterManagement"]',
+        );
         return Boolean(
-          target?.closest?.(
-            '[class*="CharacterManagement_characterManagement"]',
-          ),
+          management &&
+          (target === management ||
+            target === navigationBranch ||
+            target?.parentElement === navigationBranch),
         );
       }
       return [...record.addedNodes, ...record.removedNodes].some(
@@ -1410,13 +1436,11 @@ export function createPlanningUi({ scope }) {
     }
   });
   for (const messageType of [
-    "items_updated",
     "community_buffs_updated",
     "consumable_buffs_updated",
     "equipment_buffs_updated",
     "personal_buffs_updated",
     "guild_buffs_updated",
-    "skills_updated",
   ]) {
     scope.add(runtime.onMessage(messageType, () => panel?.scheduleUpdate()));
   }
@@ -1434,6 +1458,9 @@ export function createPlanningUi({ scope }) {
     destroy() {
       teardown();
       document.getElementById(STYLE_ID)?.remove();
+    },
+    getDiagnostics() {
+      return { updateCount: panel?.updateCount ?? 0 };
     },
   };
 }
