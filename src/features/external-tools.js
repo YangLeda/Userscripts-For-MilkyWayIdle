@@ -240,13 +240,13 @@ function constructGroupExportObj() {
           }
           const profile = profileList[0];
 
-          const battlePlayerList = battleObj.players.filter(
-            (item) => item.character.id === member.characterID,
-          );
-          let battlePlayer = null;
-          if (battlePlayerList.length === 1) {
-            battlePlayer = battlePlayerList[0];
-          }
+          const battlePlayers = Array.isArray(battleObj?.players)
+            ? battleObj.players
+            : [];
+          const battlePlayer =
+            battlePlayers.find(
+              (item) => item.character?.id === member.characterID,
+            ) ?? null;
 
           exportObj[i] = JSON.stringify(
             constructPlayerExportObjFromStoredProfile(

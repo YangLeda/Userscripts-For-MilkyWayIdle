@@ -35,6 +35,10 @@ runtime.onMessage("battle_unit_fetched", (payload) => {
     runtime.api.handleBattleSummary(payload);
 });
 
+runtime.onMessage("new_battle", (_payload, message) => {
+  if (typeof message === "string") GM_setValue("new_battle", message);
+});
+
 runtime.onMessage("items_updated", () => {
   if (runtime.settings.settingsMap.checkEquipment.isTrue)
     runtime.api.checkEquipment();

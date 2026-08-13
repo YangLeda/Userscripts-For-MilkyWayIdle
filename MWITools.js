@@ -39093,7 +39093,8 @@ ${locks}` : ""}`;
           "移动端意见中心压缩了表单和公告的空白，输入框会按内容与屏幕高度自适应；标题与三个页签保持可见，公告和表单改为弹窗正文内独立滚动。",
           "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
           "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
-          "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。"
+          "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
+          "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。"
         ]),
         en: Object.freeze([
           "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size and hides the finish time when space is tight to stay compact.",
@@ -39104,7 +39105,8 @@ ${locks}` : ""}`;
           "The mobile Feedback Center now removes excess form and announcement spacing, and text boxes adapt to their content and screen height. The title and all three tabs stay visible while announcements and forms scroll independently inside the modal body.",
           "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
           "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
-          "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data."
+          "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",
+          "Combat simulators once again read teammates' actual food and coffee from the latest battle. Group imports also no longer stop when matching battle data has not been captured yet."
         ])
       })
     }),
@@ -51981,13 +51983,10 @@ ${locks}` : ""}`;
               continue;
             }
             const profile = profileList[0];
-            const battlePlayerList = battleObj.players.filter(
-              (item) => item.character.id === member.characterID
-            );
-            let battlePlayer = null;
-            if (battlePlayerList.length === 1) {
-              battlePlayer = battlePlayerList[0];
-            }
+            const battlePlayers = Array.isArray(battleObj?.players) ? battleObj.players : [];
+            const battlePlayer = battlePlayers.find(
+              (item) => item.character?.id === member.characterID
+            ) ?? null;
             exportObj[i] = JSON.stringify(
               constructPlayerExportObjFromStoredProfile(
                 profile,
@@ -52914,6 +52913,9 @@ ${locks}` : ""}`;
   runtime.onMessage("battle_unit_fetched", (payload) => {
     if (runtime.settings.settingsMap.battlePanel.isTrue)
       runtime.api.handleBattleSummary(payload);
+  });
+  runtime.onMessage("new_battle", (_payload, message) => {
+    if (typeof message === "string") GM_setValue("new_battle", message);
   });
   runtime.onMessage("items_updated", () => {
     if (runtime.settings.settingsMap.checkEquipment.isTrue)
