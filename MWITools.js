@@ -19711,17 +19711,25 @@
       (left, right) => (Number(right.enhancementLevel) || 0) - (Number(left.enhancementLevel) || 0)
     )[0];
   }
-  function getDrinkConcentrationMultiplier() {
-    const pouch = getEquippedItem("/items/guzzling_pouch");
-    if (!pouch) return 1;
+  function getDrinkConcentrationMultiplier(options = {}) {
+    const overrideLevel = Number(options.guzzlingPouchLevel);
+    const hasOverride = Number.isFinite(overrideLevel) && overrideLevel >= 0;
+    const pouch = hasOverride ? null : getEquippedItem("/items/guzzling_pouch");
+    if (!hasOverride && !pouch) return 1;
     const detail = runtime.state.initData_itemDetailMap?.["/items/guzzling_pouch"];
+    const fallback = hasOverride ? 0.1 : 0;
     const base = Number(
-      detail?.equipmentDetail?.noncombatStats?.drinkConcentration ?? 0
+      detail?.equipmentDetail?.noncombatStats?.drinkConcentration ?? fallback
     );
     const enhancement = Number(
       detail?.equipmentDetail?.noncombatEnhancementBonuses?.drinkConcentration ?? base
     );
-    const level = Math.max(0, Math.floor(Number(pouch.enhancementLevel) || 0));
+    const level = Math.max(
+      0,
+      Math.floor(
+        hasOverride ? overrideLevel : Number(pouch.enhancementLevel) || 0
+      )
+    );
     return Math.max(
       1,
       1 + base + enhancement * (ENHANCEMENT_BONUSES[level] ?? 0)
@@ -19732,11 +19740,11 @@
     if (!slots || typeof slots !== "object") return null;
     return asArray(slots[detail.type]).filter((drink) => drink?.itemHrid);
   }
-  function getEffectiveTeaEffects(actionHrid) {
+  function getEffectiveTeaEffects(actionHrid, options = {}) {
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     const drinks = detail ? getSelectedDrinks(detail) : null;
     if (!detail || drinks === null) return null;
-    const concentrationMultiplier = getDrinkConcentrationMultiplier();
+    const concentrationMultiplier = getDrinkConcentrationMultiplier(options);
     const base = {
       efficiency: 0,
       extraExp: 0,
@@ -19807,8 +19815,8 @@
         missingPrices: []
       };
     }
-    const teaEffects = getEffectiveTeaEffects(actionHrid);
-    if (!teaEffects) {
+    const profile = getActionProductionProfile(action, options);
+    if (profile.status !== "complete") {
       return {
         status: "waiting",
         complete: false,
@@ -19818,13 +19826,11 @@
         missingPrices: []
       };
     }
+    const { teaEffects } = profile;
     const getUnitPrice = typeof options.getUnitPrice === "function" ? options.getUnitPrice : () => null;
     const missingPrices = [];
-    const inputs = getDirectInputs(detail).map((input) => {
-      const effectiveCount = getEffectiveInputCount(
-        input,
-        teaEffects.lessResource
-      );
+    const inputs = profile.inputs.map((input) => {
+      const effectiveCount = input.effectiveCount;
       const unitPrice = Number(
         getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0)
       );
@@ -19840,7 +19846,7 @@
       (total, input) => total + (input.valuePerAction ?? 0),
       0
     );
-    const timing = getEffectiveSeconds(actionHrid, detail, options);
+    const timing = profile.timing;
     const secondsPerAction = timing?.secondsPerAction ?? null;
     const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
     const drinks = teaEffects.drinks.map((drink) => {
@@ -19884,6 +19890,54 @@
   }
   function isPlayerDataReady() {
     return Array.isArray(runtime.state.initData_characterSkills) && Array.isArray(runtime.state.initData_characterItems) && runtime.state.initData_actionTypeDrinkSlotsMap !== null && runtime.state.initData_actionTypeDrinkSlotsMap !== void 0;
+  }
+  function getActionProductionProfile(actionOrHrid, context = {}) {
+    const action = typeof actionOrHrid === "string" ? { actionHrid: actionOrHrid } : actionOrHrid ?? {};
+    const actionHrid = action.actionHrid ?? action.hrid;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!actionHrid || !detail) {
+      return { status: "waiting", actionHrid, missing: ["actionData"] };
+    }
+    if (!isPlayerDataReady()) {
+      return {
+        status: "waiting",
+        actionHrid,
+        detail,
+        missing: ["playerData"]
+      };
+    }
+    const teaEffects = getEffectiveTeaEffects(actionHrid, context);
+    if (!teaEffects) {
+      return {
+        status: "waiting",
+        actionHrid,
+        detail,
+        missing: ["playerData"]
+      };
+    }
+    const timing = getEffectiveSeconds(actionHrid, detail, context);
+    const inputs = getDirectInputs(detail).map((input) => ({
+      ...input,
+      effectiveCount: getEffectiveInputCount(input, teaEffects.lessResource)
+    }));
+    const outputs = getEffectiveOutputs(detail, teaEffects);
+    return {
+      status: "complete",
+      actionHrid,
+      detail,
+      inputs,
+      outputs,
+      teaEffects,
+      timing,
+      secondsPerAction: timing?.secondsPerAction ?? null,
+      actionsPerHour: timing?.secondsPerAction ? 3600 / timing.secondsPerAction : null,
+      baseSeconds: timing?.baseSeconds ?? null,
+      cycleSeconds: timing?.cycleSeconds ?? null,
+      efficiencyPercent: timing?.efficiencyPercent ?? 0,
+      speedPercent: timing?.speedPercent ?? 0,
+      timingSource: timing?.timingSource ?? null,
+      missing: timing ? [] : ["actionTiming"]
+    };
   }
   function getActionCount(action) {
     if (action?.hasMaxCount === false) return Infinity;
@@ -19929,6 +19983,51 @@
       secondsPerAction: cycleSeconds / getEfficiencyMultiplier(actionHrid),
       speedPercent,
       timingSource: "calculated"
+    };
+  }
+  function getProjectedTotalSeconds(actionHrid, count, timing, context = {}) {
+    if (!Number.isFinite(count)) return Infinity;
+    if (!timing?.secondsPerAction) return null;
+    const liveDuration = Number(context.durationPerAction);
+    if (Number.isFinite(liveDuration) && liveDuration > 0) {
+      const cycles = Math.max(
+        count > 0 ? 1 : 0,
+        Math.round(count / getEfficiencyMultiplier(actionHrid))
+      );
+      const currentCycleRemaining = Number(context.currentCycleRemainingSeconds);
+      return cycles > 0 && Number.isFinite(currentCycleRemaining) && currentCycleRemaining >= 0 ? Math.min(liveDuration, currentCycleRemaining) + Math.max(0, cycles - 1) * liveDuration : cycles * liveDuration;
+    }
+    return count * timing.secondsPerAction;
+  }
+  function projectActionTiming(actionOrHrid, requestedCount, context = {}) {
+    const action = typeof actionOrHrid === "string" ? { actionHrid: actionOrHrid } : actionOrHrid ?? {};
+    const actionHrid = action.actionHrid ?? action.hrid;
+    const profile = getActionProductionProfile(action, context);
+    const count = requestedCount === void 0 ? getActionCount(action) : Number(requestedCount);
+    const infinite = count === Infinity || !Number.isFinite(count);
+    const normalizedCount = infinite ? Infinity : Math.max(0, count);
+    if (profile.status !== "complete") {
+      return {
+        ...profile,
+        count: normalizedCount,
+        infinite,
+        totalSeconds: null,
+        finishAt: null
+      };
+    }
+    const totalSeconds = getProjectedTotalSeconds(
+      actionHrid,
+      normalizedCount,
+      profile.timing,
+      context
+    );
+    const now = Number(context.now ?? Date.now());
+    return {
+      ...profile,
+      count: normalizedCount,
+      infinite,
+      totalSeconds,
+      finishAt: Number.isFinite(totalSeconds) && totalSeconds !== null ? now + totalSeconds * 1e3 : null
     };
   }
   var PROFIT_VALUATION_MODES = /* @__PURE__ */ new Set(["conservative", "fair", "aggressive"]);
@@ -20066,9 +20165,8 @@
         totalSeconds: null
       };
     }
-    const timing = getEffectiveSeconds(actionHrid, detail, context);
-    const teaEffects = getEffectiveTeaEffects(actionHrid);
-    if (!teaEffects) {
+    const profile = getActionProductionProfile(action, context);
+    if (profile.status !== "complete") {
       return {
         status: "waiting",
         actionHrid,
@@ -20086,9 +20184,9 @@
         totalSeconds: null
       };
     }
-    const secondsPerAction = timing?.secondsPerAction ?? null;
-    const inputs = getDirectInputs(detail);
-    const outputs = getEffectiveOutputs(detail, teaEffects);
+    const { timing, teaEffects, outputs } = profile;
+    const secondsPerAction = profile.secondsPerAction;
+    const inputs = profile.inputs;
     const lessResource = teaEffects.lessResource;
     const alchemyCapacity = getAlchemyCapacity(action, detail, lessResource);
     if (alchemyCapacity && !alchemyCapacity.known) {
@@ -20252,24 +20350,12 @@
       };
     });
     const complete = selectedValuation.complete;
-    let totalSeconds = null;
-    if (effectivelyInfinite) {
-      totalSeconds = Infinity;
-    } else if (secondsPerAction !== null) {
-      const liveDuration = Number(context.durationPerAction);
-      if (Number.isFinite(liveDuration) && liveDuration > 0) {
-        const cycles = Math.max(
-          executableCount > 0 ? 1 : 0,
-          Math.round(executableCount / getEfficiencyMultiplier(actionHrid))
-        );
-        const currentCycleRemaining = Number(
-          context.currentCycleRemainingSeconds
-        );
-        totalSeconds = cycles > 0 && Number.isFinite(currentCycleRemaining) && currentCycleRemaining >= 0 ? Math.min(liveDuration, currentCycleRemaining) + Math.max(0, cycles - 1) * liveDuration : cycles * liveDuration;
-      } else {
-        totalSeconds = executableCount * secondsPerAction;
-      }
-    }
+    const totalSeconds = getProjectedTotalSeconds(
+      actionHrid,
+      executableCount,
+      timing,
+      context
+    );
     const now = Number(context.now ?? Date.now());
     return {
       status: complete ? "complete" : "incomplete",
@@ -20344,12 +20430,14 @@
     getActionSpeedPercent,
     getDrinkConcentrationMultiplier,
     getEffectiveTeaEffects,
+    getActionProductionProfile,
     getInventoryCount,
     getExpectedOutputs,
     getDirectInputs,
     getActionRemainingCount: getActionCount,
     isPlayerProjectionDataReady: isPlayerDataReady,
     projectActionCraftingCost,
+    projectActionTiming,
     projectAction,
     projectQueue,
     resolveProductionActionByItemHrid
@@ -20389,29 +20477,6 @@
     99: 2.326,
     99.9: 3.09
   });
-  var ENHANCEMENT_BONUSES2 = Object.freeze([
-    0,
-    0.02,
-    0.042,
-    0.066,
-    0.092,
-    0.12,
-    0.15,
-    0.182,
-    0.216,
-    0.255,
-    0.29,
-    0.33,
-    0.372,
-    0.416,
-    0.462,
-    0.51,
-    0.56,
-    0.612,
-    0.666,
-    0.722,
-    0.78
-  ]);
   var listeners = /* @__PURE__ */ new Map();
   var cart = /* @__PURE__ */ new Map();
   var plans = /* @__PURE__ */ new Map();
@@ -20679,22 +20744,30 @@
     }
     return level;
   }
-  function getDrinkConcentration() {
+  function getProductionProfile(actionHrid) {
     const level = getGuzzlingPouchLevel();
-    if (level < 0) return 1;
-    const item = runtime.state.initData_itemDetailMap?.["/items/guzzling_pouch"];
-    const base = Number(
-      item?.equipmentDetail?.noncombatStats?.drinkConcentration ?? 0.1
+    return runtime.api.getActionProductionProfile?.(
+      actionHrid,
+      level >= 0 ? { guzzlingPouchLevel: level } : {}
     );
-    const enhancement = Number(
-      item?.equipmentDetail?.noncombatEnhancementBonuses?.drinkConcentration ?? base
-    );
-    return 1 + base + enhancement * (ENHANCEMENT_BONUSES2[level] ?? 0);
   }
   function getTeaSavings(actionHrid) {
+    const profile = getProductionProfile(actionHrid);
+    if (profile?.status === "complete") {
+      return Math.min(
+        1,
+        Math.max(0, Number(profile.teaEffects?.lessResource) || 0)
+      );
+    }
     const buffs = runtime.api.getTeaBuffsByActionHrid?.(actionHrid) ?? {};
-    const baseSavings = Math.max(0, Number(buffs.lessResource) || 0) / 100;
-    return Math.min(1, baseSavings * getDrinkConcentration());
+    const level = getGuzzlingPouchLevel();
+    const concentration = runtime.api.getDrinkConcentrationMultiplier?.(
+      level >= 0 ? { guzzlingPouchLevel: level } : {}
+    ) ?? 1;
+    return Math.min(
+      1,
+      Math.max(0, Number(buffs.lessResource) || 0) / 100 * concentration
+    );
   }
   function isBackEquipmentForProcurement(itemHrid) {
     const detail = runtime.state.initData_itemDetailMap?.[normalizeItemHrid(itemHrid)];
@@ -20824,6 +20897,23 @@
     }
     return producerActionIndex.get(target) ?? null;
   }
+  function getEffectiveProducerOutput(producer, itemHrid) {
+    const profile = getProductionProfile(producer?.actionHrid);
+    if (profile?.status !== "complete") {
+      return {
+        known: false,
+        count: Math.max(0, Number(producer?.outputCount) || 0)
+      };
+    }
+    const target = normalizeItemHrid(itemHrid);
+    return {
+      known: true,
+      count: (profile.outputs ?? []).reduce(
+        (total, output) => normalizeItemHrid(output?.itemHrid) === target ? total + Math.max(0, Number(output?.count) || 0) : total,
+        0
+      )
+    };
+  }
   function mergeMaterial(target, material) {
     const key = itemKey(material.itemHrid, material.enhancementLevel);
     const existing = target.get(key);
@@ -20854,6 +20944,7 @@
     const visited = /* @__PURE__ */ new Set();
     let cycle = false;
     let truncated = false;
+    const unavailableOutputs = /* @__PURE__ */ new Set();
     const calculationOptions = {
       ...options,
       excludeActionHrids: options.excludeActionHrids ?? /* @__PURE__ */ new Set([actionHrid])
@@ -20895,13 +20986,22 @@
         );
         if (upgradeMaterial?.purchasable !== false) {
           if (producer) {
-            visit(
-              producer.actionHrid,
-              Math.ceil(
-                Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
-              ),
-              depth + 1
+            const effectiveOutput = getEffectiveProducerOutput(
+              producer,
+              upgradeHrid
             );
+            if (!effectiveOutput.known || effectiveOutput.count > 0) {
+              visit(
+                producer.actionHrid,
+                Math.ceil(
+                  Math.max(0, Number(upgradeMaterial?.suggested) || 0) / effectiveOutput.count
+                ),
+                depth + 1
+              );
+            } else {
+              unavailableOutputs.add(upgradeHrid);
+              mergeMaterial(leaves, upgradeMaterial);
+            }
           } else if (upgradeMaterial) {
             mergeMaterial(leaves, upgradeMaterial);
           }
@@ -20915,7 +21015,8 @@
       stages,
       leaves: [...leaves.values()],
       cycle,
-      truncated
+      truncated,
+      unavailableOutputs: [...unavailableOutputs]
     };
   }
   function selectUpgradeChainMaterials(chain, selectedActionHrids) {
@@ -21560,12 +21661,34 @@
       return positiveNumber(taskCounts.get(itemHrid));
     return positiveNumber(taskCounts?.[itemHrid]);
   }
+  function effectiveStepOutput(step) {
+    const fallback = positiveNumber(step.outputCount) || 1;
+    if (!step.actionHrid) return { known: true, count: fallback };
+    const profile = runtime.api.getActionProductionProfile?.(step.actionHrid);
+    if (profile?.status !== "complete") {
+      return { known: false, count: fallback };
+    }
+    const target = normalizeItemHrid2(step.outputHrid);
+    return {
+      known: true,
+      count: (profile.outputs ?? []).reduce(
+        (total, output) => normalizeItemHrid2(output?.itemHrid) === target ? total + positiveNumber(output?.count) : total,
+        0
+      )
+    };
+  }
   function planTrainCounts(chain, taskCounts = {}) {
     const procurement2 = runtime.api.procurement;
     const planned = chain.steps.map((step) => ({ ...step, count: 0 }));
+    const unavailableOutputs = /* @__PURE__ */ new Set();
     let requiredByAbove = 0;
     for (let index = planned.length - 1; index >= 0; index -= 1) {
       const step = planned[index];
+      const effectiveOutput = effectiveStepOutput(step);
+      const outputCount = effectiveOutput.count;
+      step.baseOutputCount = positiveNumber(step.outputCount) || 1;
+      step.outputCount = outputCount;
+      step.outputCountSource = effectiveOutput.known ? "player" : "recipe";
       const inventory = positiveNumber(
         procurement2?.getInventoryCount?.(step.outputHrid, 0)
       );
@@ -21574,14 +21697,23 @@
       step.requiredByAbove = requiredByAbove;
       step.inventory = inventory;
       step.shortageUnits = shortageUnits;
-      step.count = step.kind === "shop" ? Math.max(ownActions, Math.ceil(shortageUnits)) : Math.max(
-        ownActions,
-        Math.ceil(shortageUnits / (positiveNumber(step.outputCount) || 1))
-      );
-      step.plannedOutput = step.count * (positiveNumber(step.outputCount) || 1);
+      if (effectiveOutput.known && outputCount <= 0) {
+        step.unavailableOutput = true;
+        step.count = 0;
+        step.plannedOutput = 0;
+        unavailableOutputs.add(step.outputHrid);
+        requiredByAbove = 0;
+        continue;
+      }
+      step.count = step.kind === "shop" ? Math.max(ownActions, Math.ceil(shortageUnits)) : Math.max(ownActions, Math.ceil(shortageUnits / outputCount));
+      step.plannedOutput = step.count * outputCount;
       requiredByAbove = step.inputHrid ? step.count * (positiveNumber(step.inputCount) || 1) : 0;
     }
-    return { ...chain, steps: planned };
+    return {
+      ...chain,
+      steps: planned,
+      unavailableOutputs: [...unavailableOutputs]
+    };
   }
   function applyShopPreference(plan, taskCounts = {}) {
     const root = plan.steps[0];
@@ -23017,6 +23149,9 @@
       runtime.state.equipmentTaskActionBuffs = payload.equipmentTaskActionBuffs ?? [];
     } else if (reset) {
       runtime.state.equipmentTaskActionBuffs = [];
+    }
+    if (Object.hasOwn(payload, "actionTypeDrinkSlotsMap")) {
+      runtime.state.initData_actionTypeDrinkSlotsMap = payload.actionTypeDrinkSlotsMap ?? {};
     }
   }
   function normalizeGuildBuffLevels(candidate) {
@@ -31244,11 +31379,21 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const mounted = mountPanel(anchor, panel, {
       itemHrid: primaryItemHrid,
       actionHrid,
+      directAction: Boolean(options.actionHrid),
       sticky,
       kind: "profit"
     });
     if (sticky) attachStickyOutsideHandler(panel, anchor);
     return mounted;
+  }
+  function rerenderActiveProductionProfitPanel() {
+    const state = activePanel;
+    if (state?.kind !== "profit" || !state.panel?.isConnected) return;
+    const projection = runtime.api.projectAction(state.actionHrid, 1);
+    renderPanel(state.panel, state.itemHrid, projection, {
+      directAction: state.directAction
+    });
+    state.position?.();
   }
   function showLootChestPanel(anchor, itemHrid, options = {}) {
     const pinned = Boolean(options.pinned);
@@ -31337,8 +31482,24 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   runtime.onMessage("init_character_data", () => {
     if (runtime.api.shouldSuppressMarketFeatures?.()) {
       hideProductionProfitPanel();
+    } else {
+      rerenderActiveProductionProfitPanel();
     }
   });
+  for (const messageType of [
+    "items_updated",
+    "skills_updated",
+    "house_rooms_updated",
+    "achievement_buffs_updated",
+    "moo_pass_buffs_updated",
+    "community_buffs_updated",
+    "consumable_buffs_updated",
+    "equipment_buffs_updated",
+    "personal_buffs_updated",
+    "guild_buffs_updated"
+  ]) {
+    runtime.onMessage(messageType, rerenderActiveProductionProfitPanel);
+  }
   Object.assign(runtime.api, {
     hideProductionProfitPanel,
     dismissHoverPanel,
@@ -32348,37 +32509,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     panel.dataset.mwitoolsActionPanel = "true";
     if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()) {
-      const marketJson = await runtime.api.fetchMarketJSON();
-      const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
-      let drinksConsumedPerHourAskPrice = 0;
-      let drinksConsumedPerHourBidPrice = 0;
-      const drinksList = runtime.state.initData_actionTypeDrinkSlotsMap[runtime.state.initData_actionDetailMap[actionHrid].type];
-      for (const drink of drinksList) {
-        if (!drink || !drink.itemHrid) {
-          continue;
-        }
-        drinksConsumedPerHourAskPrice += (marketJson?.marketData[drink.itemHrid]?.[0]?.a ?? 0) * 12;
-        drinksConsumedPerHourBidPrice += (marketJson?.marketData[drink.itemHrid]?.[0]?.b ?? 0) * 12;
-      }
-      const baseTimePerActionSec = runtime.state.initData_actionDetailMap[actionHrid].baseTimeCost / 1e9;
-      const toolPercent = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-      const actualTimePerActionSec = baseTimePerActionSec / (1 + toolPercent / 100);
-      let actionPerHour = 3600 / actualTimePerActionSec;
-      const dropTable = runtime.state.initData_actionDetailMap[actionHrid].dropTable;
-      let virtualItemNetBid = 0;
-      for (const drop of dropTable) {
-        const bid = marketJson?.marketData[drop.itemHrid]?.[0]?.b ?? 0;
-        const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
-        virtualItemNetBid += bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
-      }
-      let droprate = 1;
-      let itemPerHour = actionPerHour * droprate;
-      const totalEffiBuff = getTotalEffiPercentage(actionHrid);
-      actionPerHour *= 1 + totalEffiBuff / 100;
-      itemPerHour *= 1 + totalEffiBuff / 100;
-      const extraFreeItemPerHour = itemPerHour * teaBuffs.quantity / 100;
-      const bidAfterTax = virtualItemNetBid;
-      const profitPerHour = itemPerHour * bidAfterTax + extraFreeItemPerHour * bidAfterTax - drinksConsumedPerHourAskPrice;
+      const projection = runtime.api.projectAction?.(actionHrid, 1);
+      const profitPerHour = projection?.valuations?.conservative?.profitPerHour;
+      if (!Number.isFinite(profitPerHour)) return true;
       const profitPerDay = 24 * profitPerHour;
       const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}<span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerHour)}">${runtime.api.numberFormatter(profitPerHour)}</span>${runtime.config.isZH ? "/小时" : "/hour"}, <span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerDay)}">${runtime.api.numberFormatter(profitPerDay)}</span>${runtime.config.isZH ? "/天" : "/day"}</div>`;
       panel.querySelector("#mwi-level-progress")?.insertAdjacentHTML("beforeend", htmlStr);
@@ -32672,6 +32805,27 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         childList: true,
         subtree: true
       });
+      for (const messageType of [
+        "items_updated",
+        "skills_updated",
+        "house_rooms_updated",
+        "achievement_buffs_updated",
+        "moo_pass_buffs_updated",
+        "community_buffs_updated",
+        "consumable_buffs_updated",
+        "equipment_buffs_updated",
+        "personal_buffs_updated",
+        "guild_buffs_updated"
+      ]) {
+        scope.add(
+          runtime.onMessage(messageType, () => {
+            document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
+              delete panel.dataset.mwitoolsActionPanel;
+              scheduleActionPanel(panel);
+            });
+          })
+        );
+      }
       scope.add(() => {
         attachScheduler.cancel();
         panelObserver?.disconnect();
@@ -32686,6 +32840,19 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/action-dashboard.js
+  var PRODUCTION_PROFILE_MESSAGES = Object.freeze([
+    "init_character_data",
+    "items_updated",
+    "skills_updated",
+    "house_rooms_updated",
+    "achievement_buffs_updated",
+    "moo_pass_buffs_updated",
+    "community_buffs_updated",
+    "consumable_buffs_updated",
+    "equipment_buffs_updated",
+    "personal_buffs_updated",
+    "guild_buffs_updated"
+  ]);
   var STYLE_ID7 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
@@ -33533,7 +33700,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const renderer = bindActionUiRenderer(scope, render, [
         "actions_updated",
         "action_completed",
-        "init_character_data"
+        ...PRODUCTION_PROFILE_MESSAGES
       ]);
       render();
       scope.add(() => {
@@ -33564,7 +33731,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       renderProductionQuickInputs();
       bindActionUiRenderer(scope, renderProductionQuickInputs, [
         "actions_updated",
-        "init_character_data"
+        ...PRODUCTION_PROFILE_MESSAGES
       ]);
       scope.add(removeProductionQuickInputs);
     }
@@ -33576,12 +33743,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     initialize({ scope }) {
       renderProductionPanel();
       bindActionUiRenderer(scope, renderProductionPanel, [
-        "items_updated",
         "actions_updated",
         "action_completed",
         "market_item_values_updated",
         "market_item_order_books_updated",
-        "init_character_data"
+        ...PRODUCTION_PROFILE_MESSAGES
       ]);
       scope.add(
         runtime.settings.onChange?.("productionProfit", () => {
@@ -35388,6 +35554,15 @@ ${locks}` : ""}`;
       scope.event(document, "change", scheduleFromInput, true);
       for (const messageType of [
         "items_updated",
+        "skills_updated",
+        "house_rooms_updated",
+        "achievement_buffs_updated",
+        "moo_pass_buffs_updated",
+        "community_buffs_updated",
+        "consumable_buffs_updated",
+        "equipment_buffs_updated",
+        "personal_buffs_updated",
+        "guild_buffs_updated",
         "market_item_values_updated",
         "market_item_order_books_updated",
         "init_character_data"
@@ -36086,6 +36261,15 @@ ${locks}` : ""}`;
   }
   function startTrain(plan, options = {}) {
     cancelTrain("");
+    if (plan?.unavailableOutputs?.length) {
+      showToast2(
+        t8(
+          "当前茶饮使火车所需产物无法产出，请调整茶饮后重新规划",
+          "Current drinks prevent a required train output; change drinks and replan"
+        )
+      );
+      return false;
+    }
     if (plan?.cycle || plan?.truncated) {
       showToast2(
         plan.cycle ? t8(
@@ -39431,7 +39615,8 @@ ${locks}` : ""}`;
           "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
           "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。",
           "修复中英文下顶部当前动作时间在窄窗口中与动作名称或排队按钮重叠；可用空间不足时会自动精简显示。",
-          "修复刷新任务或页面时任务图标串位、被替换后消失，以及火车提示漂移并撑出横向滚动条；普通任务不再显示“无需火车”。"
+          "修复刷新任务或页面时任务图标串位、被替换后消失，以及火车提示漂移并撑出横向滚动条；普通任务不再显示“无需火车”。",
+          "生产、全链条与火车现在统一读取当前茶饮、社区等行动增益和暴饮之囊；换茶后会即时重算，链条按实际产量规划，采集利润与队列耗时不再漏算社区速度。"
         ]),
         en: Object.freeze([
           "Reduced background polling and repeated work across idle, production, market, and combat-stat views on mobile, and fixed memory growth after repeatedly opening the action queue to reduce heat, battery drain, and long-session stutter.",
@@ -39446,7 +39631,8 @@ ${locks}` : ""}`;
           "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",
           "Combat simulators once again read teammates' actual food and coffee from the latest battle. Group imports also no longer stop when matching battle data has not been captured yet.",
           "Fixed the top current-action timing overlapping the action name or queued-actions button in narrow windows in both Chinese and English. The summary now simplifies itself when space is limited.",
-          'Fixed task icons moving to the wrong card or disappearing after task and page refreshes, along with train labels drifting and causing horizontal overflow. Ordinary tasks no longer show "No train needed."'
+          'Fixed task icons moving to the wrong card or disappearing after task and page refreshes, along with train labels drifting and causing horizontal overflow. Ordinary tasks no longer show "No train needed."',
+          "Production, full-chain planning, and trains now share the current drinks, community and other action buffs, and Guzzling Pouch effects. Drink changes recalculate immediately, chains use effective output, and gathering profit and queue timing no longer miss community speed."
         ])
       })
     }),
@@ -42100,21 +42286,24 @@ ${locks}` : ""}`;
       if (isInfinite) isAccumulatedTimeInfinite = true;
       const detail = runtime.state.initData_actionDetailMap[actionHrid];
       if (!detail) continue;
-      const baseTimePerActionSec = detail.baseTimeCost / 1e9;
-      const totalEffBuff = runtime.api.getTotalEffiPercentage(actionHrid);
-      const toolSpeedBuff = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-      let timePerActionSec = baseTimePerActionSec / (1 + toolSpeedBuff / 100);
-      timePerActionSec /= 1 + totalEffBuff / 100;
-      const totalTimeSec = count * timePerActionSec;
+      const timing = runtime.api.projectActionTiming?.(
+        actionHrid,
+        isInfinite ? Infinity : count
+      );
+      const totalTimeSec = timing?.totalSeconds;
+      if (totalTimeSec === null || totalTimeSec === void 0) {
+        isAccumulatedTimeInfinite = true;
+      }
       let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
-      if (!isAccumulatedTimeInfinite) {
+      if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
         accumulatedTimeSec += totalTimeSec;
         const currentTime = /* @__PURE__ */ new Date();
         currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
         completion = `${runtime.config.isZH ? "到 " : "Complete at "}${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(currentTime.getSeconds()).padStart(2, "0")}`;
       }
       if (hasSkippedFirstAction) {
-        const html2 = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${isInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`} ${completion}</div>`;
+        const unavailable = !Number.isFinite(totalTimeSec);
+        const html2 = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${isInfinite || unavailable ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`} ${completion}</div>`;
         const target = actionDivList[actionDivListIndex]?.querySelector("div");
         const current = target?.querySelector("div.script_actionTime");
         if (current) current.outerHTML = html2;

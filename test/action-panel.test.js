@@ -240,6 +240,34 @@ test("target-level estimate retries cleanly after a partially mounted panel", as
   );
 });
 
+test("legacy gathering profit renders the shared conservative projection", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const drops = panel.querySelector(
+    'div[class*="SkillActionDetail_dropTable"]',
+  );
+  drops.replaceChildren(
+    document.createElement("span"),
+    document.createElement("span"),
+  );
+  const originalProjection = runtime.api.projectAction;
+  const originalSetting =
+    runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue;
+  runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue = true;
+  runtime.api.projectAction = () => ({
+    valuations: { conservative: { profitPerHour: 123 } },
+  });
+  delete panel.dataset.mwitoolsActionPanel;
+
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  assert.match(panel.querySelector("#totalProfit").textContent, /123.*2\.95K/);
+
+  runtime.api.projectAction = originalProjection;
+  runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue =
+    originalSetting;
+});
+
 test("efficiency follows the game's authoritative buff maps", () => {
   runtime.state.initData_characterSkills = [
     { skillHrid: "/skills/crafting", level: 136, experience: 1_000 },

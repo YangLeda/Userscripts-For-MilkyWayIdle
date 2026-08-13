@@ -827,11 +827,22 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
   const mounted = mountPanel(anchor, panel, {
     itemHrid: primaryItemHrid,
     actionHrid,
+    directAction: Boolean(options.actionHrid),
     sticky,
     kind: "profit",
   });
   if (sticky) attachStickyOutsideHandler(panel, anchor);
   return mounted;
+}
+
+function rerenderActiveProductionProfitPanel() {
+  const state = activePanel;
+  if (state?.kind !== "profit" || !state.panel?.isConnected) return;
+  const projection = runtime.api.projectAction(state.actionHrid, 1);
+  renderPanel(state.panel, state.itemHrid, projection, {
+    directAction: state.directAction,
+  });
+  state.position?.();
 }
 
 function showLootChestPanel(anchor, itemHrid, options = {}) {
@@ -929,8 +940,25 @@ runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
 runtime.onMessage("init_character_data", () => {
   if (runtime.api.shouldSuppressMarketFeatures?.()) {
     hideProductionProfitPanel();
+  } else {
+    rerenderActiveProductionProfitPanel();
   }
 });
+
+for (const messageType of [
+  "items_updated",
+  "skills_updated",
+  "house_rooms_updated",
+  "achievement_buffs_updated",
+  "moo_pass_buffs_updated",
+  "community_buffs_updated",
+  "consumable_buffs_updated",
+  "equipment_buffs_updated",
+  "personal_buffs_updated",
+  "guild_buffs_updated",
+]) {
+  runtime.onMessage(messageType, rerenderActiveProductionProfitPanel);
+}
 
 Object.assign(runtime.api, {
   hideProductionProfitPanel,

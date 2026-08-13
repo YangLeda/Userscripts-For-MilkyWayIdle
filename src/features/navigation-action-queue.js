@@ -156,15 +156,17 @@ function handleActionQueueMenueCalculateTime(added) {
 
     const detail = runtime.state.initData_actionDetailMap[actionHrid];
     if (!detail) continue;
-    const baseTimePerActionSec = detail.baseTimeCost / 1_000_000_000;
-    const totalEffBuff = runtime.api.getTotalEffiPercentage(actionHrid);
-    const toolSpeedBuff = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-    let timePerActionSec = baseTimePerActionSec / (1 + toolSpeedBuff / 100);
-    timePerActionSec /= 1 + totalEffBuff / 100;
-    const totalTimeSec = count * timePerActionSec;
+    const timing = runtime.api.projectActionTiming?.(
+      actionHrid,
+      isInfinite ? Infinity : count,
+    );
+    const totalTimeSec = timing?.totalSeconds;
+    if (totalTimeSec === null || totalTimeSec === undefined) {
+      isAccumulatedTimeInfinite = true;
+    }
 
     let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
-    if (!isAccumulatedTimeInfinite) {
+    if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
       accumulatedTimeSec += totalTimeSec;
       const currentTime = new Date();
       currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
@@ -172,8 +174,11 @@ function handleActionQueueMenueCalculateTime(added) {
     }
 
     if (hasSkippedFirstAction) {
+      const unavailable = !Number.isFinite(totalTimeSec);
       const html = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-        isInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`
+        isInfinite || unavailable
+          ? "[ ∞ ] "
+          : `[${runtime.api.timeReadable(totalTimeSec)}]`
       } ${completion}</div>`;
       const target = actionDivList[actionDivListIndex]?.querySelector("div");
       const current = target?.querySelector("div.script_actionTime");

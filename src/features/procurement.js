@@ -2049,6 +2049,15 @@ runtime.features.register({
     scope.event(document, "change", scheduleFromInput, true);
     for (const messageType of [
       "items_updated",
+      "skills_updated",
+      "house_rooms_updated",
+      "achievement_buffs_updated",
+      "moo_pass_buffs_updated",
+      "community_buffs_updated",
+      "consumable_buffs_updated",
+      "equipment_buffs_updated",
+      "personal_buffs_updated",
+      "guild_buffs_updated",
       "market_item_values_updated",
       "market_item_order_books_updated",
       "init_character_data",

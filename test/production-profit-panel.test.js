@@ -170,6 +170,28 @@ test("profit UI displays three valuation rows with revenue, costs, and profit", 
   );
 });
 
+test("open profit UI refreshes when equipped drinks change", () => {
+  const panel = runtime.api.showProductionProfitPanel(
+    nativeTooltip(),
+    "/items/panel-output",
+  );
+  runtime.state.initData_itemDetailMap["/items/artisan_tea"] = {
+    name: "Artisan Tea",
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/artisan", flatBoost: 0.1 }],
+    },
+  };
+  runtime.state.initData_actionTypeDrinkSlotsMap["/action_types/crafting"] = [
+    { itemHrid: "/items/artisan_tea" },
+  ];
+  runtime.dispatchMessage({ type: "consumable_buffs_updated" });
+  assert.match(panel.textContent, /工匠.*10%/);
+
+  runtime.state.initData_actionTypeDrinkSlotsMap["/action_types/crafting"] = [];
+  delete runtime.state.initData_itemDetailMap["/items/artisan_tea"];
+  runtime.dispatchMessage({ type: "consumable_buffs_updated" });
+});
+
 test("gathering drop-table products open the same profit panel", () => {
   const panel = runtime.api.showProductionProfitPanel(
     nativeTooltip(),

@@ -26,6 +26,7 @@ globalThis.GM_addStyle = (css) => {
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
+await import("../src/core/action-projection.js");
 await import("../src/features/settings-and-notifications.js");
 await import("../src/features/navigation-action-queue.js");
 await import("../src/features/legacy-lifecycle.js");
@@ -90,6 +91,56 @@ test("disabling queue timing disconnects observers that could recreate output", 
   await settle();
   assert.equal(document.querySelector(".script_actionTime"), null);
   assert.equal(document.querySelector("#script_queueTotalTime"), null);
+});
+
+test("queued action timing uses community speed and total efficiency", () => {
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/action_speed", flatBoost: 0.25 },
+      ],
+    },
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/current": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+    },
+    "/actions/crafting/queued": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+    },
+  };
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/current",
+      maxCount: 1,
+      currentCount: 0,
+    },
+    {
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 4,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.getTotalEffiPercentage = () => 100;
+  runtime.api.timeReadable = (seconds) => `${seconds}s`;
+  document.body.innerHTML = `<div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div>`;
+
+  const menu = document.querySelector(
+    ".QueuedActions_queuedActionsEditMenu__3OoQH",
+  );
+  runtime.api.handleActionQueueMenueCalculateTime(menu);
+  assert.match(document.querySelector(".script_actionTime").textContent, /16s/);
+  runtime.api.disconnectActionQueueObserver();
 });
 
 test("replacing one hundred queue menus retains only the active observer", () => {

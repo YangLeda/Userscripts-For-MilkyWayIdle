@@ -260,68 +260,9 @@ async function handleActionPanel(panel) {
     runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue &&
     !runtime.api.shouldSuppressMarketFeatures?.()
   ) {
-    const marketJson = await runtime.api.fetchMarketJSON();
-
-    // 茶效率
-    const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
-
-    // 消耗饮料
-    let drinksConsumedPerHourAskPrice = 0;
-    let drinksConsumedPerHourBidPrice = 0;
-
-    const drinksList =
-      runtime.state.initData_actionTypeDrinkSlotsMap[
-        runtime.state.initData_actionDetailMap[actionHrid].type
-      ];
-    for (const drink of drinksList) {
-      if (!drink || !drink.itemHrid) {
-        continue;
-      }
-      drinksConsumedPerHourAskPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0]?.a ?? 0) * 12;
-      drinksConsumedPerHourBidPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0]?.b ?? 0) * 12;
-    }
-
-    // 每小时动作数（包含工具缩减动作时间）
-    const baseTimePerActionSec =
-      runtime.state.initData_actionDetailMap[actionHrid].baseTimeCost /
-      1000000000;
-    const toolPercent = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-    const actualTimePerActionSec =
-      baseTimePerActionSec / (1 + toolPercent / 100);
-    let actionPerHour = 3600 / actualTimePerActionSec;
-
-    // 将掉落表看作每次动作掉落一件虚拟物品
-    const dropTable =
-      runtime.state.initData_actionDetailMap[actionHrid].dropTable;
-    let virtualItemNetBid = 0;
-    for (const drop of dropTable) {
-      const bid = marketJson?.marketData[drop.itemHrid]?.[0]?.b ?? 0;
-      const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
-      virtualItemNetBid +=
-        bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
-    }
-    let droprate = 1;
-    let itemPerHour = actionPerHour * droprate;
-
-    const totalEffiBuff = getTotalEffiPercentage(actionHrid);
-
-    // 总效率影响动作数/生产物品数
-    actionPerHour *= 1 + totalEffiBuff / 100;
-    itemPerHour *= 1 + totalEffiBuff / 100;
-
-    // 茶额外产品数量（不消耗原料）
-    const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
-
-    // 出售市场税
-    const bidAfterTax = virtualItemNetBid;
-
-    // 每小时利润
-    const profitPerHour =
-      itemPerHour * bidAfterTax +
-      extraFreeItemPerHour * bidAfterTax -
-      drinksConsumedPerHourAskPrice;
+    const projection = runtime.api.projectAction?.(actionHrid, 1);
+    const profitPerHour = projection?.valuations?.conservative?.profitPerHour;
+    if (!Number.isFinite(profitPerHour)) return true;
     const profitPerDay = 24 * profitPerHour;
 
     const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${
@@ -687,6 +628,27 @@ runtime.features.register({
       childList: true,
       subtree: true,
     });
+    for (const messageType of [
+      "items_updated",
+      "skills_updated",
+      "house_rooms_updated",
+      "achievement_buffs_updated",
+      "moo_pass_buffs_updated",
+      "community_buffs_updated",
+      "consumable_buffs_updated",
+      "equipment_buffs_updated",
+      "personal_buffs_updated",
+      "guild_buffs_updated",
+    ]) {
+      scope.add(
+        runtime.onMessage(messageType, () => {
+          document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
+            delete panel.dataset.mwitoolsActionPanel;
+            scheduleActionPanel(panel);
+          });
+        }),
+      );
+    }
     scope.add(() => {
       attachScheduler.cancel();
       panelObserver?.disconnect();

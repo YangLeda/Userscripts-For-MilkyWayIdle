@@ -41,12 +41,14 @@ runtime.state.initData_actionDetailMap = {
   "/actions/crafting/board": {
     hrid: "/actions/crafting/board",
     name: "Board",
+    type: "/action_types/crafting",
     inputItems: [{ itemHrid: "/items/glue", count: 1 }],
     outputItems: [{ itemHrid: "/items/board", count: 2 }],
   },
   "/actions/crafting/final": {
     hrid: "/actions/crafting/final",
     name: "Final",
+    type: "/action_types/crafting",
     inputItems: [{ itemHrid: "/items/nail", count: 2 }],
     upgradeItemHrid: "/items/board",
     outputItems: [{ itemHrid: "/items/final", count: 1 }],
@@ -54,6 +56,7 @@ runtime.state.initData_actionDetailMap = {
   "/actions/crafting/supreme": {
     hrid: "/actions/crafting/supreme",
     name: "Supreme",
+    type: "/action_types/crafting",
     inputItems: [{ itemHrid: "/items/nail", count: 1 }],
     upgradeItemHrid: "/items/final",
     outputItems: [{ itemHrid: "/items/supreme", count: 1 }],
@@ -109,6 +112,85 @@ test("train planning builds a proportional chain and prefers a cheaper shop root
   assert.equal(planning.trainChainDepth("/items/final"), 1);
   assert.equal(planning.trainChainDepth("/items/board"), 0);
   assert.equal(planning.trainChainDepth("/items/log"), -1);
+});
+
+test("train planning uses current tea output counts", () => {
+  const previous = {
+    skills: runtime.state.initData_characterSkills,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+    buffs: runtime.state.actionTypeBuffSources,
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/gourmet_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_itemDetailMap["/items/gourmet_tea"] = {
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/gourmet", flatBoost: 1 }],
+    },
+  };
+
+  const plan = planning.createTrainPlan(
+    "/items/final",
+    { "/items/final": 3 },
+    { preferShop: false },
+  );
+  assert.equal(plan.steps[0].count, 1);
+  assert.equal(plan.steps[0].outputCount, 4);
+  assert.equal(plan.steps[0].outputCountSource, "player");
+  assert.deepEqual(plan.unavailableOutputs, []);
+
+  runtime.state.initData_characterSkills = previous.skills;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+  runtime.state.actionTypeBuffSources = previous.buffs;
+  delete runtime.state.initData_itemDetailMap["/items/gourmet_tea"];
+});
+
+test("train planning blocks a route when current tea removes its output", () => {
+  const previous = {
+    skills: runtime.state.initData_characterSkills,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+    buffs: runtime.state.actionTypeBuffSources,
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/processing_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_itemDetailMap["/items/processing_tea"] = {
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/processing", flatBoost: 1 }],
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/crafting/board_lumber"] = {
+    hrid: "/actions/crafting/board_lumber",
+    type: "/action_types/crafting",
+    inputItems: [{ itemHrid: "/items/board", count: 1 }],
+    outputItems: [{ itemHrid: "/items/board_lumber", count: 1 }],
+  };
+
+  const plan = planning.createTrainPlan(
+    "/items/final",
+    { "/items/final": 3 },
+    { preferShop: false },
+  );
+  assert.deepEqual(plan.unavailableOutputs, ["/items/board"]);
+  assert.equal(train.startTrain(plan, { navigateAction: () => true }), false);
+
+  runtime.state.initData_characterSkills = previous.skills;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+  runtime.state.actionTypeBuffSources = previous.buffs;
+  delete runtime.state.initData_itemDetailMap["/items/processing_tea"];
+  delete runtime.state.initData_actionDetailMap[
+    "/actions/crafting/board_lumber"
+  ];
 });
 
 test("train action index is reused and invalidates when action data changes", () => {

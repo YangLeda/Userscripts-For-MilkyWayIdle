@@ -826,6 +826,15 @@ function goToCurrentStep() {
 
 export function startTrain(plan, options = {}) {
   cancelTrain("");
+  if (plan?.unavailableOutputs?.length) {
+    showToast(
+      t(
+        "当前茶饮使火车所需产物无法产出，请调整茶饮后重新规划",
+        "Current drinks prevent a required train output; change drinks and replan",
+      ),
+    );
+    return false;
+  }
   if (plan?.cycle || plan?.truncated) {
     showToast(
       plan.cycle

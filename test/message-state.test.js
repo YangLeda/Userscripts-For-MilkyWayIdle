@@ -259,6 +259,9 @@ test("authoritative action buffs and skill levels stay current", () => {
     characterItems: [],
     characterActions: [],
     characterQuests: [],
+    actionTypeDrinkSlotsMap: {
+      "/action_types/crafting": [{ itemHrid: "/items/old_tea" }],
+    },
     communityActionTypeBuffsMap: {
       "/action_types/crafting": [
         { typeHrid: "/buff_types/efficiency", flatBoost: 0.1 },
@@ -283,6 +286,18 @@ test("authoritative action buffs and skill levels stay current", () => {
     },
   });
   runtime.api.applyGameMessage({
+    type: "consumable_buffs_updated",
+    actionTypeDrinkSlotsMap: {
+      "/action_types/crafting": [{ itemHrid: "/items/new_tea" }],
+    },
+    consumableActionTypeBuffsMap: {},
+  });
+  runtime.api.applyGameMessage({
+    type: "equipment_buffs_updated",
+    equipmentActionTypeBuffsMap:
+      runtime.state.actionTypeBuffSources.equipmentActionTypeBuffsMap,
+  });
+  runtime.api.applyGameMessage({
     type: "skills_updated",
     endCharacterSkills: [
       { skillHrid: "/skills/crafting", level: 101, experience: 2_000 },
@@ -303,6 +318,10 @@ test("authoritative action buffs and skill levels stay current", () => {
   );
   assert.equal(runtime.state.equipmentTaskActionBuffs[0].flatBoost, 0.3);
   assert.equal(runtime.state.initData_characterSkills[0].level, 101);
+  assert.deepEqual(
+    runtime.state.initData_actionTypeDrinkSlotsMap["/action_types/crafting"],
+    [{ itemHrid: "/items/new_tea" }],
+  );
 });
 
 test("guild buff levels update canonical state before feature effects", () => {

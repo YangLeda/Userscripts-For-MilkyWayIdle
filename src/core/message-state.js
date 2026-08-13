@@ -78,6 +78,11 @@ function applyActionTypeBuffs(payload, reset = false) {
   } else if (reset) {
     runtime.state.equipmentTaskActionBuffs = [];
   }
+
+  if (Object.hasOwn(payload, "actionTypeDrinkSlotsMap")) {
+    runtime.state.initData_actionTypeDrinkSlotsMap =
+      payload.actionTypeDrinkSlotsMap ?? {};
+  }
 }
 
 function normalizeGuildBuffLevels(candidate) {

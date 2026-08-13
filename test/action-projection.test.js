@@ -471,6 +471,33 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
   assert.ok(Math.abs(result.profitPerHour - -140_280) < 1e-8);
 });
 
+test("production profiles combine community timing buffs and pouch overrides", () => {
+  const previousBuffs = runtime.state.actionTypeBuffSources;
+  const previousEfficiency = runtime.api.getTotalEffiPercentage;
+  runtime.state.actionTypeBuffSources = {
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/action_speed", flatBoost: 0.2 },
+      ],
+    },
+  };
+  runtime.api.getTotalEffiPercentage = () => 50;
+
+  const profile = runtime.api.getActionProductionProfile(
+    "/actions/crafting/tea-test",
+    { guzzlingPouchLevel: 0 },
+  );
+  assert.equal(profile.status, "complete");
+  assert.equal(profile.speedPercent, 20);
+  assert.equal(profile.efficiencyPercent, 50);
+  assert.ok(Math.abs(profile.teaEffects.lessResource - 0.11) < 1e-12);
+  assert.ok(Math.abs(profile.outputs[0].count - 1.22) < 1e-12);
+  assert.ok(Math.abs(profile.secondsPerAction - 20 / 9) < 1e-12);
+
+  runtime.state.actionTypeBuffSources = previousBuffs;
+  runtime.api.getTotalEffiPercentage = previousEfficiency;
+});
+
 test("gathering processing tea splits raw drops into recipe outputs", () => {
   const previous = {
     actions: runtime.state.initData_actionDetailMap,

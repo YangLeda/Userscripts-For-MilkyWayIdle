@@ -7,6 +7,20 @@ import {
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
 
+const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
+  "init_character_data",
+  "items_updated",
+  "skills_updated",
+  "house_rooms_updated",
+  "achievement_buffs_updated",
+  "moo_pass_buffs_updated",
+  "community_buffs_updated",
+  "consumable_buffs_updated",
+  "equipment_buffs_updated",
+  "personal_buffs_updated",
+  "guild_buffs_updated",
+]);
+
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
 const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
@@ -1034,7 +1048,7 @@ runtime.features.register({
     const renderer = bindActionUiRenderer(scope, render, [
       "actions_updated",
       "action_completed",
-      "init_character_data",
+      ...PRODUCTION_PROFILE_MESSAGES,
     ]);
     render();
     scope.add(() => {
@@ -1069,7 +1083,7 @@ runtime.features.register({
     renderProductionQuickInputs();
     bindActionUiRenderer(scope, renderProductionQuickInputs, [
       "actions_updated",
-      "init_character_data",
+      ...PRODUCTION_PROFILE_MESSAGES,
     ]);
     scope.add(removeProductionQuickInputs);
   },
@@ -1082,12 +1096,11 @@ runtime.features.register({
   initialize({ scope }) {
     renderProductionPanel();
     bindActionUiRenderer(scope, renderProductionPanel, [
-      "items_updated",
       "actions_updated",
       "action_completed",
       "market_item_values_updated",
       "market_item_order_books_updated",
-      "init_character_data",
+      ...PRODUCTION_PROFILE_MESSAGES,
     ]);
     scope.add(
       runtime.settings.onChange?.("productionProfit", () => {
