@@ -1533,6 +1533,36 @@ test("rerolled reused cards merge the latest matching task totals", () => {
   assert.equal(runtime.state.pendingMergedTask, null);
 });
 
+test("task-point reward cards do not block strict task module rendering", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<div class="TasksPanel_taskList__reward-card">
+       <div class="RandomTask_randomTask__reward">
+         <div>小紫牛的礼物: 42 / 50 任务积分</div>
+         <button>领取</button>
+       </div>
+       ${card("制作 - 木板", "0 / 5")}
+     </div>`,
+  );
+  const quest = {
+    id: "reward-card-quest",
+    actionHrid: "/actions/crafting/lumber",
+    currentCount: 0,
+    goalCount: 5,
+  };
+  runtime.state.characterQuests = [quest];
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  const list = document.querySelector(".TasksPanel_taskList__reward-card");
+  const [rewardCard, questCard] = list.querySelectorAll(TASK_SELECTOR);
+  questCard.__reactFiber$quest = { memoizedProps: { characterQuest: quest } };
+
+  assert.equal(runtime.api.renderTasks({ allowReusedPositional: false }), true);
+  assert.equal(rewardCard.dataset.mwitoolsTaskId, undefined);
+  assert.equal(questCard.dataset.mwitoolsTaskId, "reward-card-quest");
+  assert.ok(document.querySelector(".mwi-task-toolbar"));
+});
+
 test("reused task cards keep the old icon during transition and settle on the new task", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(

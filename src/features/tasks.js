@@ -693,6 +693,10 @@ function visibleTaskTitle(card) {
   return text.trim().split("\n")[0].trim();
 }
 
+function isQuestTaskCard(card) {
+  return Boolean(card.querySelector('div[class*="RandomTask_name"]'));
+}
+
 function professionForCard(card, task, title = visibleTaskTitle(card)) {
   for (const profession of PROFESSIONS) {
     const labels = [profession.zh, profession.en];
@@ -1837,7 +1841,18 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     }
     taskListParent = observedParent;
   }
-  cards = cards.filter((card) => card.parentElement === taskListParent);
+  cards = cards.filter(
+    (card) => card.parentElement === taskListParent && isQuestTaskCard(card),
+  );
+  if (!cards.length) {
+    document
+      .querySelectorAll(".mwi-task-toolbar")
+      .forEach((node) => node.remove());
+    lastRenderedCards = [];
+    lastTaskRenderSignature = "";
+    applyPendingMerge();
+    return true;
+  }
   const tasks = runtime.state.characterQuests ?? [];
   const cardEntries = resolveTaskCards(cards, tasks, {
     taskActionHrid,
