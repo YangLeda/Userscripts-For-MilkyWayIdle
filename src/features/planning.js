@@ -746,7 +746,7 @@ function renderSteps(host, result) {
     label.textContent = node.name;
     const required = document.createElement("span");
     required.className = "planning-step-count";
-    required.textContent = `${t("所需", "Required")} ${number(node.requiredOutput)}`;
+    required.textContent = `${t("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
     const policy = createPolicyControl(node.policy, (next) => {
       for (const goalId of new Set(
         node.branches.map((branch) => branch.goalId),
@@ -772,7 +772,7 @@ function renderSteps(host, result) {
       name.title = name.textContent;
       sourceCopy.append(sourceIcon, name);
       const count = document.createElement("span");
-      count.textContent = `${t("所需", "Required")} ${number(branch.requiredOutput)}`;
+      count.textContent = `${t("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
       const branchPolicy = createPolicyControl(branch.policy, (next) => {
         planning.setNodePolicy(branch.goalId, node.itemHrid, next);
       });
@@ -817,7 +817,7 @@ function renderMaterials(host, result) {
   for (const material of result.materials) {
     const row = document.createElement("details");
     row.className = "planning-material";
-    row.dataset.missing = String(material.addableShortage > 0);
+    row.dataset.missing = String(material.remainingShortage > 0);
     const summary = document.createElement("summary");
     const icon = document.createElement("span");
     icon.className = "planning-row-icon";
@@ -827,8 +827,8 @@ function renderMaterials(host, result) {
     name.textContent = material.name;
     name.title = material.itemHrid;
     const missing = document.createElement("strong");
-    missing.textContent = material.addableShortage
-      ? `${t("还需", "Need")} ${wholeNumber(material.addableShortage)}`
+    missing.textContent = material.remainingShortage
+      ? `${t("还需", "Need")} ${wholeNumber(material.remainingShortage)}`
       : t("已覆盖", "Covered");
     summary.append(icon, name, missing);
     const grid = document.createElement("div");
@@ -850,7 +850,10 @@ function renderMaterials(host, result) {
         wholeNumber(material.cart.total),
         `${t("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t("手工", "Manual")} ${wholeNumber(material.cart.manual)}`,
       ),
-      metric(t("仍需购买", "To buy"), wholeNumber(material.addableShortage)),
+      metric(
+        t("材料缺口", "Shortage"),
+        wholeNumber(material.remainingShortage),
+      ),
     );
     const actions = document.createElement("div");
     actions.className = "planning-material-actions";

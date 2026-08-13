@@ -390,6 +390,34 @@ test("confirmed purchases suppress the matching inventory delta only once", () =
   assert.equal(procurement.getCartItem("/items/board").quantity, 4);
 });
 
+test("zero-count updates remove depleted stacks even when their stable id is omitted", () => {
+  const previousItems = runtime.state.initData_characterItems;
+  runtime.state.initData_characterItems = [
+    {
+      id: "fragment-stack",
+      itemHrid: "/items/stone_key_fragment",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
+  procurement.loadCharacterData("inventory-depletion");
+  assert.equal(procurement.getInventoryCount("/items/stone_key_fragment"), 1);
+
+  procurement.applyInventoryUpdates([
+    {
+      itemHrid: "/items/stone_key_fragment",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 0,
+    },
+  ]);
+  assert.equal(procurement.getInventoryCount("/items/stone_key_fragment"), 0);
+
+  runtime.state.initData_characterItems = previousItems;
+  procurement.loadCharacterData("character-a");
+});
+
 test("shopping data is isolated by server and character", () => {
   procurement.addToCart({ itemHrid: "/items/nail", quantity: 7 });
   procurement.loadCharacterData("character-b");

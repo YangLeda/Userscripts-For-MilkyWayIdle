@@ -425,6 +425,16 @@ function inventoryEntryKey(item) {
   );
 }
 
+function sameInventorySlot(left, right) {
+  return (
+    normalizeItemHrid(left?.itemHrid) === normalizeItemHrid(right?.itemHrid) &&
+    String(left?.itemLocationHrid ?? "") ===
+      String(right?.itemLocationHrid ?? "") &&
+    normalizeEnhancementLevel(left?.enhancementLevel) ===
+      normalizeEnhancementLevel(right?.enhancementLevel)
+  );
+}
+
 function rebuildInventorySnapshot(items) {
   inventoryEntries.clear();
   for (const item of items ?? []) {
@@ -499,6 +509,21 @@ function getEffectiveInventory(
 function getProjectReservedInventory(itemHrid, enhancementLevel = 0) {
   const owned = getInventoryCount(itemHrid, enhancementLevel);
   return Math.min(owned, getLockedDetails(itemHrid, enhancementLevel).total);
+}
+
+function getInventoryAllocationSnapshot() {
+  const snapshot = new Map();
+  for (const [key, owned] of inventoryCounts()) {
+    const { itemHrid, enhancementLevel } = parseItemKey(key);
+    snapshot.set(key, {
+      owned,
+      projectInventory: Math.min(
+        owned,
+        getLockedDetails(itemHrid, enhancementLevel).total,
+      ),
+    });
+  }
+  return snapshot;
 }
 
 function isCoin(itemHrid) {
@@ -1217,8 +1242,17 @@ function applyInventoryUpdates(items) {
   for (const item of items ?? []) {
     if (!item?.itemHrid) continue;
     const key = inventoryEntryKey(item);
-    if (Number(item.count) <= 0) inventoryEntries.delete(key);
-    else inventoryEntries.set(key, { ...item });
+    const lacksStableId = item.hash == null && item.id == null;
+    const matchingKeys = [...inventoryEntries]
+      .filter(
+        ([currentKey, current]) =>
+          currentKey === key ||
+          ((Number(item.count) <= 0 || lacksStableId) &&
+            sameInventorySlot(current, item)),
+      )
+      .map(([currentKey]) => currentKey);
+    for (const currentKey of matchingKeys) inventoryEntries.delete(currentKey);
+    if (Number(item.count) > 0) inventoryEntries.set(key, { ...item });
   }
   const after = inventoryCounts();
   const keys = new Set([...before.keys(), ...after.keys()]);
@@ -1592,6 +1626,7 @@ Object.assign(runtime.api, {
     getEffectiveInventory,
     getLockedDetails,
     getProjectReservedInventory,
+    getInventoryAllocationSnapshot,
     suggestedMaterialCount,
     calculateRequirements,
     getProducerAction,

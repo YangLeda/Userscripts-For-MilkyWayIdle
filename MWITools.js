@@ -20991,6 +20991,9 @@
       item?.hash ?? item?.id ?? `${item?.itemLocationHrid ?? ""}:${itemKey(item?.itemHrid, item?.enhancementLevel)}`
     );
   }
+  function sameInventorySlot(left, right) {
+    return normalizeItemHrid(left?.itemHrid) === normalizeItemHrid(right?.itemHrid) && String(left?.itemLocationHrid ?? "") === String(right?.itemLocationHrid ?? "") && normalizeEnhancementLevel(left?.enhancementLevel) === normalizeEnhancementLevel(right?.enhancementLevel);
+  }
   function rebuildInventorySnapshot(items) {
     inventoryEntries.clear();
     for (const item of items ?? []) {
@@ -21044,6 +21047,20 @@
   function getProjectReservedInventory(itemHrid, enhancementLevel = 0) {
     const owned = getInventoryCount2(itemHrid, enhancementLevel);
     return Math.min(owned, getLockedDetails(itemHrid, enhancementLevel).total);
+  }
+  function getInventoryAllocationSnapshot() {
+    const snapshot = /* @__PURE__ */ new Map();
+    for (const [key, owned] of inventoryCounts()) {
+      const { itemHrid, enhancementLevel } = parseItemKey(key);
+      snapshot.set(key, {
+        owned,
+        projectInventory: Math.min(
+          owned,
+          getLockedDetails(itemHrid, enhancementLevel).total
+        )
+      });
+    }
+    return snapshot;
   }
   function isCoin(itemHrid) {
     return normalizeItemHrid(itemHrid) === "/items/coin";
@@ -21673,8 +21690,12 @@
     for (const item of items ?? []) {
       if (!item?.itemHrid) continue;
       const key = inventoryEntryKey(item);
-      if (Number(item.count) <= 0) inventoryEntries.delete(key);
-      else inventoryEntries.set(key, { ...item });
+      const lacksStableId = item.hash == null && item.id == null;
+      const matchingKeys = [...inventoryEntries].filter(
+        ([currentKey, current]) => currentKey === key || (Number(item.count) <= 0 || lacksStableId) && sameInventorySlot(current, item)
+      ).map(([currentKey]) => currentKey);
+      for (const currentKey of matchingKeys) inventoryEntries.delete(currentKey);
+      if (Number(item.count) > 0) inventoryEntries.set(key, { ...item });
     }
     const after = inventoryCounts();
     const keys = /* @__PURE__ */ new Set([...before.keys(), ...after.keys()]);
@@ -21999,6 +22020,7 @@
       getEffectiveInventory,
       getLockedDetails,
       getProjectReservedInventory,
+      getInventoryAllocationSnapshot,
       suggestedMaterialCount,
       calculateRequirements,
       getProducerAction,
@@ -22045,6 +22067,7 @@
   var lastCalculatedAt = null;
   var decisionResult = null;
   var decisionCalculatedAt = null;
+  var decisionInventorySnapshot = null;
   var recipeCache = /* @__PURE__ */ new Map();
   function positiveInteger(value, fallback = 1) {
     const number3 = Math.ceil(Number(value) || 0);
@@ -22110,6 +22133,7 @@
   function clearDecisionResult() {
     decisionResult = null;
     decisionCalculatedAt = null;
+    decisionInventorySnapshot = null;
   }
   function saveState(state, reason) {
     invalidate();
@@ -22318,7 +22342,7 @@
     const otherUsed = allocateProportionally(other, available - buyUsed, field);
     return buyUsed + otherUsed;
   }
-  function calculateFresh() {
+  function calculateFresh({ inventorySnapshot = null } = {}) {
     calculationCount += 1;
     const state = getState();
     const goals = state.goals.filter((goal) => goal.enabled).sort(
@@ -22331,15 +22355,24 @@
     const materials = /* @__PURE__ */ new Map();
     const warnings = [];
     let pending = [];
+    const supplyFor = (itemHrid) => {
+      const key = procurement.itemKey(itemHrid, 0);
+      if (inventorySnapshot) {
+        return inventorySnapshot.get(key) ?? { owned: 0, projectInventory: 0 };
+      }
+      const owned = procurement.getInventoryCount(itemHrid, 0);
+      return {
+        owned,
+        projectInventory: procurement.getProjectReservedInventory(itemHrid, 0)
+      };
+    };
     const inventoryFor = (itemHrid) => {
       const key = procurement.itemKey(itemHrid, 0);
       if (!inventoryPool.has(key)) {
+        const supply = supplyFor(itemHrid);
         inventoryPool.set(
           key,
-          Math.max(
-            0,
-            procurement.getInventoryCount(itemHrid, 0) - procurement.getProjectReservedInventory(itemHrid, 0)
-          )
+          Math.max(0, supply.owned - supply.projectInventory)
         );
       }
       return inventoryPool.get(key) ?? 0;
@@ -22587,6 +22620,10 @@
           (sum, branch) => sum + branch.requiredOutput,
           0
         ),
+        requiredAfterSupply: branches.reduce(
+          (sum, branch) => sum + branch.remaining,
+          0
+        ),
         outputCount: decision.outputCount,
         actionCount: actionsByItem.get(decision.itemHrid) ?? null,
         sourceIds: branches.map((branch) => branch.goalId),
@@ -22596,11 +22633,7 @@
       };
     }).sort((left, right) => left.name.localeCompare(right.name));
     const resultMaterials = [...materials.values()].map((entry) => {
-      const owned = procurement.getInventoryCount(entry.itemHrid, 0);
-      const projectInventory = procurement.getProjectReservedInventory(
-        entry.itemHrid,
-        0
-      );
+      const { owned, projectInventory } = supplyFor(entry.itemHrid);
       const cart2 = procurement.getCartAllocationSummary(entry.itemHrid, 0);
       const branches = [...entry.branches.values()].map((branch) => ({
         ...branch,
@@ -22610,6 +22643,10 @@
       const requiredAfterSupply = branches.reduce(
         (sum, branch) => sum + branch.requiredAfterSupply,
         0
+      );
+      const remainingShortage = Math.max(
+        0,
+        Math.ceil(requiredAfterSupply - EPSILON)
       );
       const addableShortage = Math.max(
         0,
@@ -22627,6 +22664,7 @@
         projectInventory,
         availableInventory: Math.max(0, owned - projectInventory),
         requiredAfterSupply,
+        remainingShortage,
         cart: cart2,
         addableShortage,
         purchasable: detail?.isTradable === true && entry.itemHrid !== "/items/coin"
@@ -22652,7 +22690,10 @@
     return cachedResult;
   }
   function calculateDecisions() {
-    decisionResult = calculateFresh();
+    decisionInventorySnapshot = procurement.getInventoryAllocationSnapshot();
+    decisionResult = calculateFresh({
+      inventorySnapshot: decisionInventorySnapshot
+    });
     decisionCalculatedAt = (/* @__PURE__ */ new Date()).toISOString();
     return decisionResult;
   }
@@ -22748,11 +22789,15 @@
         0,
         Math.ceil(material.requiredAfterSupply - cart2.planning - EPSILON)
       );
+      material.remainingShortage = Math.max(
+        0,
+        Math.ceil(material.requiredAfterSupply - EPSILON)
+      );
     }
     return result;
   }
-  function recalculate() {
-    const result = calculate();
+  function recalculate({ inventorySnapshot = null } = {}) {
+    const result = inventorySnapshot ? calculateFresh({ inventorySnapshot }) : calculate();
     reconcilePlanningCart(result);
     refreshResultCartState(result);
     cachedResult = result;
@@ -22762,7 +22807,7 @@
   }
   function calculateMaterials() {
     cachedResult = null;
-    return recalculate();
+    return recalculate({ inventorySnapshot: decisionInventorySnapshot });
   }
   function getResult() {
     return lastResult;
@@ -22805,10 +22850,7 @@
     "inventory:change",
     "settings:change"
   ]) {
-    procurement.on(eventName, () => {
-      invalidate();
-      clearDecisionResult();
-    });
+    procurement.on(eventName, invalidate);
   }
   procurement.on("character:change", () => {
     invalidate();
@@ -22826,10 +22868,7 @@
     "guild_buffs_updated",
     "init_character_data"
   ]) {
-    runtime.onMessage(messageType, () => {
-      invalidate();
-      clearDecisionResult();
-    });
+    runtime.onMessage(messageType, invalidate);
   }
   runtime.api.planning = {
     getGoals,
@@ -29649,7 +29688,7 @@ ${preview}`
       label.textContent = node.name;
       const required = document.createElement("span");
       required.className = "planning-step-count";
-      required.textContent = `${t3("所需", "Required")} ${number(node.requiredOutput)}`;
+      required.textContent = `${t3("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
       const policy = createPolicyControl(node.policy, (next) => {
         for (const goalId of new Set(
           node.branches.map((branch) => branch.goalId)
@@ -29675,7 +29714,7 @@ ${preview}`
         name.title = name.textContent;
         sourceCopy.append(sourceIcon, name);
         const count = document.createElement("span");
-        count.textContent = `${t3("所需", "Required")} ${number(branch.requiredOutput)}`;
+        count.textContent = `${t3("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
         const branchPolicy = createPolicyControl(branch.policy, (next) => {
           planning.setNodePolicy(branch.goalId, node.itemHrid, next);
         });
@@ -29719,7 +29758,7 @@ ${preview}`
     for (const material of result.materials) {
       const row = document.createElement("details");
       row.className = "planning-material";
-      row.dataset.missing = String(material.addableShortage > 0);
+      row.dataset.missing = String(material.remainingShortage > 0);
       const summary = document.createElement("summary");
       const icon = document.createElement("span");
       icon.className = "planning-row-icon";
@@ -29729,7 +29768,7 @@ ${preview}`
       name.textContent = material.name;
       name.title = material.itemHrid;
       const missing = document.createElement("strong");
-      missing.textContent = material.addableShortage ? `${t3("还需", "Need")} ${wholeNumber(material.addableShortage)}` : t3("已覆盖", "Covered");
+      missing.textContent = material.remainingShortage ? `${t3("还需", "Need")} ${wholeNumber(material.remainingShortage)}` : t3("已覆盖", "Covered");
       summary.append(icon, name, missing);
       const grid = document.createElement("div");
       grid.className = "planning-material-grid";
@@ -29750,7 +29789,10 @@ ${preview}`
           wholeNumber(material.cart.total),
           `${t3("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t3("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t3("手工", "Manual")} ${wholeNumber(material.cart.manual)}`
         ),
-        metric4(t3("仍需购买", "To buy"), wholeNumber(material.addableShortage))
+        metric4(
+          t3("材料缺口", "Shortage"),
+          wholeNumber(material.remainingShortage)
+        )
       );
       const actions = document.createElement("div");
       actions.className = "planning-material-actions";
@@ -42666,7 +42708,7 @@ ${locks}` : ""}`;
           "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。",
           "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。",
           "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。",
-          "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。"
+          "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42684,7 +42726,7 @@ ${locks}` : ""}`;
           "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout.",
           "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes.",
           "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure.",
-          "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip."
+          "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned."
         ])
       })
     }),

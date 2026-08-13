@@ -259,6 +259,15 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   assert.equal(decisionStage.hidden, false);
   assert.match(decisionStage.textContent, /第 2 步：选择制作方式/);
   assert.doesNotMatch(decisionStage.textContent, /预计次数|单次/);
+  const decisionSection = decisionStage.querySelector(".planning-section");
+  runtime.api.procurement.emit("inventory:change", {});
+  runtime.api.procurement.emit("plan:change", {});
+  await settleDom();
+  assert.equal(decisionStage.hidden, false);
+  assert.equal(
+    decisionStage.querySelector(".planning-section"),
+    decisionSection,
+  );
 
   panel.scrollTop = 410;
   shell.scrollTop = 93;

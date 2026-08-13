@@ -14,6 +14,7 @@ let lastResult = null;
 let lastCalculatedAt = null;
 let decisionResult = null;
 let decisionCalculatedAt = null;
+let decisionInventorySnapshot = null;
 let recipeCache = new Map();
 
 function positiveInteger(value, fallback = 1) {
@@ -90,6 +91,7 @@ function invalidate() {
 function clearDecisionResult() {
   decisionResult = null;
   decisionCalculatedAt = null;
+  decisionInventorySnapshot = null;
 }
 
 function saveState(state, reason) {
@@ -346,7 +348,7 @@ function allocatePool(entries, available, field) {
   return buyUsed + otherUsed;
 }
 
-function calculateFresh() {
+function calculateFresh({ inventorySnapshot = null } = {}) {
   calculationCount += 1;
   const state = getState();
   const goals = state.goals
@@ -364,16 +366,25 @@ function calculateFresh() {
   const warnings = [];
   let pending = [];
 
+  const supplyFor = (itemHrid) => {
+    const key = procurement.itemKey(itemHrid, 0);
+    if (inventorySnapshot) {
+      return inventorySnapshot.get(key) ?? { owned: 0, projectInventory: 0 };
+    }
+    const owned = procurement.getInventoryCount(itemHrid, 0);
+    return {
+      owned,
+      projectInventory: procurement.getProjectReservedInventory(itemHrid, 0),
+    };
+  };
+
   const inventoryFor = (itemHrid) => {
     const key = procurement.itemKey(itemHrid, 0);
     if (!inventoryPool.has(key)) {
+      const supply = supplyFor(itemHrid);
       inventoryPool.set(
         key,
-        Math.max(
-          0,
-          procurement.getInventoryCount(itemHrid, 0) -
-            procurement.getProjectReservedInventory(itemHrid, 0),
-        ),
+        Math.max(0, supply.owned - supply.projectInventory),
       );
     }
     return inventoryPool.get(key) ?? 0;
@@ -648,6 +659,10 @@ function calculateFresh() {
           (sum, branch) => sum + branch.requiredOutput,
           0,
         ),
+        requiredAfterSupply: branches.reduce(
+          (sum, branch) => sum + branch.remaining,
+          0,
+        ),
         outputCount: decision.outputCount,
         actionCount: actionsByItem.get(decision.itemHrid) ?? null,
         sourceIds: branches.map((branch) => branch.goalId),
@@ -660,11 +675,7 @@ function calculateFresh() {
     .sort((left, right) => left.name.localeCompare(right.name));
   const resultMaterials = [...materials.values()]
     .map((entry) => {
-      const owned = procurement.getInventoryCount(entry.itemHrid, 0);
-      const projectInventory = procurement.getProjectReservedInventory(
-        entry.itemHrid,
-        0,
-      );
+      const { owned, projectInventory } = supplyFor(entry.itemHrid);
       const cart = procurement.getCartAllocationSummary(entry.itemHrid, 0);
       const branches = [...entry.branches.values()]
         .map((branch) => ({
@@ -677,6 +688,10 @@ function calculateFresh() {
       const requiredAfterSupply = branches.reduce(
         (sum, branch) => sum + branch.requiredAfterSupply,
         0,
+      );
+      const remainingShortage = Math.max(
+        0,
+        Math.ceil(requiredAfterSupply - EPSILON),
       );
       const addableShortage = Math.max(
         0,
@@ -694,6 +709,7 @@ function calculateFresh() {
         projectInventory,
         availableInventory: Math.max(0, owned - projectInventory),
         requiredAfterSupply,
+        remainingShortage,
         cart,
         addableShortage,
         purchasable:
@@ -723,7 +739,10 @@ function calculate() {
 }
 
 function calculateDecisions() {
-  decisionResult = calculateFresh();
+  decisionInventorySnapshot = procurement.getInventoryAllocationSnapshot();
+  decisionResult = calculateFresh({
+    inventorySnapshot: decisionInventorySnapshot,
+  });
   decisionCalculatedAt = new Date().toISOString();
   return decisionResult;
 }
@@ -835,12 +854,18 @@ function refreshResultCartState(result) {
       0,
       Math.ceil(material.requiredAfterSupply - cart.planning - EPSILON),
     );
+    material.remainingShortage = Math.max(
+      0,
+      Math.ceil(material.requiredAfterSupply - EPSILON),
+    );
   }
   return result;
 }
 
-function recalculate() {
-  const result = calculate();
+function recalculate({ inventorySnapshot = null } = {}) {
+  const result = inventorySnapshot
+    ? calculateFresh({ inventorySnapshot })
+    : calculate();
   reconcilePlanningCart(result);
   refreshResultCartState(result);
   cachedResult = result;
@@ -851,7 +876,7 @@ function recalculate() {
 
 function calculateMaterials() {
   cachedResult = null;
-  return recalculate();
+  return recalculate({ inventorySnapshot: decisionInventorySnapshot });
 }
 
 function getResult() {
@@ -901,10 +926,7 @@ for (const eventName of [
   "inventory:change",
   "settings:change",
 ]) {
-  procurement.on(eventName, () => {
-    invalidate();
-    clearDecisionResult();
-  });
+  procurement.on(eventName, invalidate);
 }
 procurement.on("character:change", () => {
   invalidate();
@@ -922,10 +944,7 @@ for (const messageType of [
   "guild_buffs_updated",
   "init_character_data",
 ]) {
-  runtime.onMessage(messageType, () => {
-    invalidate();
-    clearDecisionResult();
-  });
+  runtime.onMessage(messageType, invalidate);
 }
 
 runtime.api.planning = {

@@ -320,6 +320,100 @@ test("decision calculation stays separate from the final material snapshot", () 
   assert.equal(planning.getResult(), finalSnapshot);
 });
 
+test("Step 3 keeps using the inventory snapshot captured by Step 2", () => {
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-stable-decisions");
+  const goal = planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/board",
+    target: 2,
+  });
+  const decisions = planning.calculateDecisions();
+
+  procurement.applyInventoryUpdates([
+    {
+      id: "late-boards",
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 100,
+    },
+  ]);
+  procurement.emit("plan:change", {});
+  procurement.emit("settings:change", {});
+  runtime.dispatchMessage({ type: "community_buffs_updated" });
+  runtime.dispatchMessage({ type: "equipment_buffs_updated" });
+
+  assert.equal(planning.getDecisionResult(), decisions);
+  assert.equal(planning.isDirty(), true);
+  const materials = planning.calculateMaterials();
+  assert.equal(
+    materials.steps.find((step) => step.itemHrid === "/items/board")
+      .requiredOutput,
+    2,
+  );
+  assert.equal(
+    materials.materials.find((row) => row.itemHrid === "/items/log").required,
+    4,
+  );
+
+  planning.updateGoal(goal.id, { target: 3 });
+  assert.equal(planning.getDecisionResult(), null);
+  planning.calculateDecisions();
+  const refreshed = planning.calculateMaterials();
+  assert.equal(
+    refreshed.steps.some((step) => step.itemHrid === "/items/board"),
+    false,
+  );
+});
+
+test("Step 2 displays the production shortage instead of the final holding target", () => {
+  runtime.state.initData_characterItems = [
+    {
+      id: "owned-boards",
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 352,
+    },
+  ];
+  procurement.loadCharacterData("planning-decision-shortage");
+  planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/board",
+    target: 353,
+  });
+
+  const board = planning
+    .calculateDecisions()
+    .nodes.find((node) => node.itemHrid === "/items/board");
+  assert.equal(board.requiredOutput, 353);
+  assert.equal(board.requiredAfterSupply, 1);
+  assert.equal(board.branches[0].remaining, 1);
+});
+
+test("a planning cart allocation does not masquerade as owned inventory", () => {
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-cart-is-not-inventory");
+  planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/log",
+    target: 1,
+    policy: "buy",
+  });
+  planning.calculateDecisions();
+  let material = planning.calculateMaterials().materials[0];
+  assert.equal(material.purchasable, true);
+  assert.equal(material.remainingShortage, 1);
+  assert.equal(material.addableShortage, 1);
+
+  planning.addShortagesToCart();
+  material = planning.calculateMaterials().materials[0];
+  assert.equal(material.cart.planning, 1);
+  assert.equal(material.remainingShortage, 1);
+  assert.equal(material.addableShortage, 0);
+});
+
 test("chain, single-layer, and buy strategies stop at the intended depth", () => {
   runtime.state.initData_itemDetailMap = {
     ...runtime.state.initData_itemDetailMap,
