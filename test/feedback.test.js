@@ -21,6 +21,8 @@ const { normalizeImageLinks } =
   await import("../src/features/opinion-center/client.js");
 const { ANNOUNCEMENTS, AnnouncementStore } =
   await import("../src/features/opinion-center/announcements.js");
+const { ensureHeaderToolsHost, removeHeaderToolsHostIfEmpty } =
+  await import("../src/features/header-tools.js");
 runtime.config.isZH = true;
 
 function announcementStore({ seen = [], announcements } = {}) {
@@ -49,7 +51,7 @@ test("feedback image links only accept up to three HTTP(S) URLs", () => {
   assert.throws(() => normalizeImageLinks("not a url"), /格式/);
 });
 
-test("feedback button sits below total level and UI remains a singleton", async () => {
+test("feedback button shares the header tools row after settings and remains a singleton", async () => {
   const client = {
     list: async () => ({
       items: [],
@@ -58,11 +60,19 @@ test("feedback button sits below total level and UI remains a singleton", async 
     }),
   };
   const scope = runtime.createCleanupScope();
+  const host = ensureHeaderToolsHost();
+  const settingsButton = document.createElement("button");
+  settingsButton.id = "mwitools-settings-button";
+  host.append(settingsButton);
   const panel = new FeedbackPanel({ client, scope });
   const first = panel.ensureButton();
   const second = panel.ensureButton();
   assert.equal(first, second);
-  assert.equal(first.previousElementSibling.textContent, "总等级: 2178");
+  assert.equal(host.previousElementSibling.textContent, "总等级: 2178");
+  assert.deepEqual(
+    [...host.children].map((element) => element.id),
+    ["mwitools-settings-button", "mwitools-feedback-button"],
+  );
   assert.equal(first.textContent, "✉MWITools");
   assert.equal(
     document.querySelectorAll("#mwitools-feedback-button").length,
@@ -132,8 +142,11 @@ test("feedback button sits below total level and UI remains a singleton", async 
   );
   runtime.config.isZH = true;
   scope.cleanup();
+  settingsButton.remove();
+  removeHeaderToolsHostIfEmpty();
   assert.equal(document.querySelector("#mwitools-feedback-button"), null);
   assert.equal(document.querySelector("#mwitools-feedback-root"), null);
+  assert.equal(document.querySelector("#mwitools-header-tools"), null);
 });
 
 test("opinion center combines feedback and announcement unread states into one dot", async () => {
@@ -381,25 +394,39 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.8", () => {
+test("announcement history preserves each release separately through 26.4.9", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
   const older = ANNOUNCEMENTS[2];
+  const oldest = ANNOUNCEMENTS[3];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.8");
-  assert.equal(previous.version, "26.4.7");
-  assert.equal(older.version, "26.4.6");
-  assert.equal(older.publishedAt, "2026-08-12");
+  assert.equal(current.version, "26.4.9");
+  assert.equal(previous.version, "26.4.8");
+  assert.equal(older.version, "26.4.7");
+  assert.equal(oldest.version, "26.4.6");
+  assert.equal(oldest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(older.body.zh.length, 20);
-  assert.equal(older.body.en.length, 20);
-  assert.match(older.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.equal(oldest.body.zh.length, 20);
+  assert.equal(oldest.body.en.length, 20);
+  assert.match(oldest.body.zh.join("\n"), /任务页改为平铺布局/);
   assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
-  assert.match(previous.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
-  assert.match(current.body.zh.join("\n"), /炼金与强化/);
+  assert.match(older.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(previous.body.zh.join("\n"), /炼金与强化/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /切换到技能页再返回库存.*晚到回调再次写入隐藏状态也会保持可见/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /评分和总资产现在会在本次页面会话首次计算后保持不变.*单独移除摘要时也会自动补回/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /更换战斗技能后，目标等级和生产次数快捷输入不显示/,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

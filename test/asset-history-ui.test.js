@@ -22,6 +22,13 @@ globalThis.clearInterval = (id) => intervals.delete(id);
 const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
+await import("../src/data/translations.js");
+await import("../src/core/state.js");
+await import("../src/core/market.js");
+await import("../src/core/action-projection.js");
+await import("../src/core/procurement.js");
+await import("../src/core/planning.js");
 runtime.config.isZH = true;
 runtime.api.numberFormatter = (value) => {
   const number = Number(value);
@@ -34,6 +41,10 @@ runtime.api.numberFormatter = (value) => {
 runtime.api.formatExactNumber = (value) =>
   new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 20 }).format(value);
 runtime.api.getLatestAssetSnapshot = () => null;
+runtime.api.getSelfBuildScores = async () => ({
+  assets: { allHouses: 0, allAbilities: 0 },
+});
+runtime.api.getGuildShrineValue = () => 0;
 const { AssetHistoryStore } =
   await import("../src/features/asset-history/10-store.js");
 const { AssetCenter } =
@@ -44,6 +55,7 @@ const {
   createAssetHistoryUi,
   pasteAssetShareToChat,
 } = await import("../src/features/asset-history/30-panel.js");
+const { createPlanningUi } = await import("../src/features/planning.js");
 
 function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) {
   const shell = document.createElement("main");
@@ -91,6 +103,232 @@ test("P/L mounts beside character tabs in non-English game languages", () => {
 
   ui.destroy();
   scope.cleanup();
+});
+
+test("规划 mounts beside P/L and keeps icon pickers stable during updates", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  shell
+    .querySelector("section")
+    .insertAdjacentHTML(
+      "beforeend",
+      '<svg><use href="/static/media/items_sprite.test.svg#nail"></use></svg><svg><use href="/static/media/skills_sprite.test.svg#carpentry"></use></svg>',
+    );
+  runtime.state.initData_itemDetailMap = {
+    "/items/nail": { name: "Nail", isTradable: true, sortIndex: 1 },
+    "/items/board": { name: "Board", isTradable: true, sortIndex: 2 },
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/nail": {
+      hrid: "/actions/crafting/nail",
+      name: "Nail",
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      inputItems: [{ itemHrid: "/items/board", count: 1 }],
+      outputItems: [{ itemHrid: "/items/nail", count: 1 }],
+    },
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {};
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_shopItemDetailMap = {};
+  runtime.state.initData_characterItems = [];
+  runtime.state.initData_houseRoomDetailMap = {
+    "/house_rooms/workshop": {
+      hrid: "/house_rooms/workshop",
+      name: "Workshop",
+      skillHrid: "/skills/carpentry",
+      sortIndex: 1,
+      upgradeCostsMap: {
+        6: [{ itemHrid: "/items/nail", count: 10_000 }],
+        7: [{ itemHrid: "/items/nail", count: 2_345 }],
+        8: [{ itemHrid: "/items/nail", count: 30 }],
+      },
+    },
+  };
+  runtime.state.initData_characterHouseRoomMap = {
+    "/house_rooms/workshop": {
+      houseRoomHrid: "/house_rooms/workshop",
+      level: 5,
+    },
+  };
+  runtime.api.procurement.loadCharacterData("planning-ui");
+  const assetScope = runtime.createCleanupScope();
+  const assetUi = createAssetHistoryUi({
+    scope: assetScope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:planning-ui",
+  });
+  const planningScope = runtime.createCleanupScope();
+  const planningUi = createPlanningUi({ scope: planningScope });
+
+  const assetTab = document.querySelector("#mwitools-asset-history-tab");
+  const planningTab = document.querySelector("#mwitools-planning-tab");
+  assert.ok(assetTab);
+  assert.ok(planningTab);
+  assert.equal(planningTab.previousElementSibling, assetTab);
+  planningTab.click();
+  await settleDom();
+  const panel = document.querySelector("#mwitools-planning-panel");
+  assert.equal(document.querySelector("#mwitools-planning-tab"), planningTab);
+  assert.equal(panel.hidden, false);
+  const search = panel.querySelector(".planning-search-input");
+  search.focus();
+  search.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const results = panel.querySelector(
+    ".planning-search-wrap .planning-results",
+  );
+  assert.equal(results.dataset.open, "true");
+  assert.match(
+    results.querySelector(".planning-option-icon").innerHTML,
+    /items_sprite/,
+  );
+  assert.equal(results.querySelectorAll(".planning-option").length, 1);
+  assert.match(results.textContent, /Nail/);
+  assert.doesNotMatch(results.textContent, /Board/);
+
+  runtime.api.procurement.emit("inventory:change", {});
+  await settleDom();
+  assert.equal(panel.querySelector(".planning-search-input"), search);
+  assert.equal(results.dataset.open, "true");
+
+  panel.querySelector(".planning-picker-button").click();
+  const houseResults = panel.querySelector(
+    ".planning-house-wrap .planning-results",
+  );
+  assert.equal(houseResults.dataset.open, "true");
+  assert.match(
+    houseResults.querySelector(".planning-option-icon").innerHTML,
+    /skills_sprite/,
+  );
+  assert.match(houseResults.textContent, /工作室/);
+  houseResults.querySelector(".planning-option").click();
+  const level = panel.querySelector(".planning-level-select");
+  level.value = "8";
+  runtime.api.procurement.emit("inventory:change", {});
+  await settleDom();
+  assert.equal(level.value, "8");
+  panel
+    .querySelector(".planning-house-wrap")
+    .closest(".planning-add-card")
+    .querySelector(".planning-primary")
+    .click();
+  await settleDom();
+  assert.equal(
+    panel.querySelector(".planning-goal input[type=number]").value,
+    "8",
+  );
+  assert.equal(panel.querySelector(".planning-goal-name"), null);
+  assert.equal(panel.querySelector(".planning-goal-icon").title, "工作室");
+
+  const targets = panel.querySelector('[data-page="targets"]');
+  const list = panel.querySelector('[data-page="list"]');
+  assert.equal(targets.hidden, false);
+  assert.equal(list.hidden, true);
+  const beforeCalculation =
+    runtime.api.planning.getDiagnostics().calculationCount;
+  const goalTarget = panel.querySelector(".planning-goal input[type=number]");
+  goalTarget.value = "7";
+  goalTarget.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await settleDom();
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation,
+  );
+  targets.querySelector(".planning-calculate-bar .planning-primary").click();
+  assert.equal(targets.hidden, false);
+  assert.equal(list.hidden, true);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 1,
+  );
+  const decisionStage = targets.querySelector(".planning-stage");
+  assert.equal(decisionStage.hidden, false);
+  assert.match(decisionStage.textContent, /第 2 步：选择制作方式/);
+  assert.doesNotMatch(decisionStage.textContent, /预计次数|单次/);
+
+  decisionStage
+    .querySelector(".planning-calculate-bar .planning-primary")
+    .click();
+  assert.equal(targets.hidden, true);
+  assert.equal(list.hidden, false);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 2,
+  );
+  assert.ok(list.querySelector(".planning-section"));
+  assert.equal(list.querySelector(".planning-step"), null);
+  assert.match(
+    list.querySelector(".planning-material summary strong").textContent,
+    /12,345/,
+  );
+  assert.doesNotMatch(
+    list.querySelector(".planning-material summary strong").textContent,
+    /[KMB]/,
+  );
+
+  panel.querySelector('[data-route="targets"]').click();
+  assert.equal(decisionStage.hidden, false);
+  const updatesBeforeIdleMutations = planningUi.getDiagnostics().updateCount;
+  const nativeContent = shell.querySelector("section");
+  nativeContent.classList.add("game-frame-tick");
+  nativeContent.classList.remove("game-frame-tick");
+  runtime.dispatchMessage({ type: "items_updated", endCharacterItems: [] });
+  await settleDom();
+  assert.equal(decisionStage.hidden, false);
+  assert.equal(
+    planningUi.getDiagnostics().updateCount,
+    updatesBeforeIdleMutations,
+  );
+  const materialSnapshot = list.querySelector(".planning-section");
+  goalTarget.value = "6";
+  goalTarget.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await settleDom();
+  assert.equal(decisionStage.hidden, true);
+  assert.equal(list.querySelector(".planning-section"), materialSnapshot);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 2,
+  );
+
+  planningUi.destroy();
+  planningScope.cleanup();
+
+  runtime.config.isZH = false;
+  const englishScope = runtime.createCleanupScope();
+  const englishUi = createPlanningUi({ scope: englishScope });
+  document.querySelector("#mwitools-planning-tab").click();
+  await settleDom();
+  const englishPanel = document.querySelector("#mwitools-planning-panel");
+  assert.match(
+    englishPanel.querySelector(".planning-picker-copy").textContent,
+    /Workshop/,
+  );
+  assert.deepEqual(
+    [...englishPanel.querySelectorAll(".planning-policy-switch button")]
+      .slice(0, 3)
+      .map((button) => button.textContent),
+    ["Full chain", "One step", "Buy"],
+  );
+  assert.match(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /white-space:nowrap/,
+  );
+  assert.doesNotMatch(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /\.planning-add-title\{align-items:flex-start;flex-direction:column\}/,
+  );
+  assert.match(
+    document.querySelector("#mwitools-planning-style").textContent,
+    /@media\(max-width:420px\).*\.planning-add-title\{display:grid/,
+  );
+  englishUi.destroy();
+  englishScope.cleanup();
+  runtime.config.isZH = true;
+  assetUi.destroy();
+  assetScope.cleanup();
 });
 
 test("asset sharing provides separate Chinese and English profit/loss phrases", () => {

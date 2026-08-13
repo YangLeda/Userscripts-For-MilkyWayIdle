@@ -179,11 +179,19 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.equal(document.querySelectorAll(".mwi-summary-icon").length, 0);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    1,
+    0,
   );
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
   ).textContent;
+  assert.match(
+    summaryStyles,
+    /#script_inventory_summary\s*\{[^}]*display:\s*block !important/s,
+  );
+  assert.match(
+    summaryStyles,
+    /#script_inv_sort_controls\s*\{\s*display:\s*block !important;/,
+  );
   assert.match(
     summaryStyles,
     /\[class\*="Item_enhancementLevel"\] ~ #script_stack_price \{\s*margin-top: 15px;/,
@@ -251,15 +259,8 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.equal(noneButton.style.fontWeight, "500");
 
-  const profitTab = document.createElement("button");
-  profitTab.id = "mwitools-asset-history-tab";
-  profitTab.setAttribute("aria-selected", "true");
-  profitTab.dataset.active = "true";
-  document.body.prepend(profitTab);
-  await runtime.api.calculateNetworth();
-  assert.equal(summary.style.display, "none");
-  assert.equal(sortControls.style.display, "none");
-  profitTab.remove();
+  summary.style.display = "none";
+  sortControls.style.display = "none";
   await runtime.api.calculateNetworth();
   assert.equal(summary.style.display, "");
   assert.equal(sortControls.style.display, "");
@@ -394,21 +395,57 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
 });
 
-test("inventory display stays frozen until a forced refresh", async () => {
-  await runtime.api.calculateNetworth({ force: true });
-  const before = document.querySelector("#currentAssets").textContent;
+test("inventory scores and total assets stay frozen for the page session", async () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const originalRefresh = runtime.api.refreshAssetSnapshot;
+  let refreshCount = 0;
+  runtime.state.currentCharacterId = "frozen-inventory-session";
+  runtime.api.refreshAssetSnapshot = async () => {
+    refreshCount += 1;
+    return originalRefresh();
+  };
+
+  await runtime.api.calculateNetworth();
+  const before = document.querySelector(
+    "#script_inventory_summary",
+  ).textContent;
 
   runtime.state.marketItemValues["/items/milk"][0] = 2_000;
   runtime.api.invalidateAssetValueCache();
-  await runtime.api.calculateNetworth();
-  assert.equal(document.querySelector("#currentAssets").textContent, before);
-
+  document.querySelector("#script_inventory_summary").remove();
   await runtime.api.calculateNetworth({ force: true });
-  assert.notEqual(document.querySelector("#currentAssets").textContent, before);
+
+  assert.equal(
+    document.querySelector("#script_inventory_summary").textContent,
+    before,
+  );
+  assert.equal(refreshCount, 1);
+  assert.equal(
+    document.querySelectorAll("#script_refresh_inventory_btn").length,
+    0,
+  );
 
   runtime.state.marketItemValues["/items/milk"][0] = 1_000;
   runtime.api.invalidateAssetValueCache();
+  runtime.api.refreshAssetSnapshot = originalRefresh;
+  runtime.state.currentCharacterId = originalCharacterId;
+});
+
+test("inventory summary returns when the game reuses a processed inventory node", async () => {
   await runtime.api.calculateNetworth({ force: true });
+  const inventory = document.querySelector('div[class*="Inventory_items"]');
+  const originalSummary = document.querySelector("#script_inventory_summary");
+  assert.ok(originalSummary);
+  assert.ok(inventory.classList.contains("script_buildScore_added"));
+  assert.ok(inventory.dataset.mwitoolsInventoryDisplayVersion);
+
+  originalSummary.remove();
+  await runtime.api.calculateNetworth();
+
+  const restoredSummary = document.querySelector("#script_inventory_summary");
+  assert.ok(restoredSummary);
+  assert.match(restoredSummary.textContent, /战斗着装评分/);
+  assert.match(restoredSummary.textContent, /总资产/);
 });
 
 test("listing values use explicit balances and never infer buy reserves", () => {
@@ -450,6 +487,8 @@ test("listing values use explicit balances and never infer buy reserves", () => 
 });
 
 test("guild currencies move to fixed assets while task tokens stay inventory", async () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  runtime.state.currentCharacterId = "guild-currency-display";
   runtime.state.initData_itemDetailMap = {
     "/items/credit_material": {
       guildCreditConversions: [
@@ -547,14 +586,14 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   await runtime.settings.set("includeCowbellsInAssets", true);
   runtime.api.invalidateAssetValueCache();
-  await runtime.api.calculateNetworth({ force: true });
-  await Promise.resolve();
-  assert.match(
-    document.querySelector("#nonCurrentAssets").textContent,
-    /不可交易代币：450/,
-  );
+  await runtime.api.calculateNetworth();
+  assert.match(document.querySelector("#nonCurrentAssets").textContent, /250/);
+
+  const freshSnapshot = await runtime.api.getAssetSnapshot();
+  assert.equal(freshSnapshot.values.nonTradableTokens, 450);
 
   await runtime.settings.set("includeCowbellsInAssets", false);
+  runtime.state.currentCharacterId = originalCharacterId;
 });
 
 test("optional token setting excludes the same stacks from inventory category values", async () => {
@@ -699,7 +738,7 @@ test("equipment sorting uses enhancement, stack size, and derived badge values",
   runtime.api.fetchMarketJSON = originalFetch;
 });
 
-test("all nine game languages keep asset and build-score summaries on the inventory tab", async () => {
+test("all nine game languages leave inventory summary visibility to the native panel", async () => {
   const { registerGameLocaleResources } =
     await import("../src/core/game-localization.js");
   runtime.settings.settingsMap.invWorth.isTrue = true;
@@ -755,9 +794,16 @@ test("all nine game languages keep asset and build-score summaries on the invent
     document
       .querySelector("#equipment-tab")
       .setAttribute("aria-selected", "true");
+    document
+      .querySelector(".TabPanel_tabPanel__test")
+      .classList.add("TabPanel_hidden__test");
     await runtime.api.calculateNetworth({ force: true });
     summary = document.querySelector("#script_inventory_summary");
-    assert.equal(summary.style.display, "none", locale);
+    assert.equal(summary.style.display, "", locale);
+    assert.ok(
+      summary.closest('[class*="TabPanel_hidden"]'),
+      `${locale} native panel`,
+    );
 
     document
       .querySelector("#equipment-tab")
@@ -765,6 +811,9 @@ test("all nine game languages keep asset and build-score summaries on the invent
     document
       .querySelector("#inventory-tab")
       .setAttribute("aria-selected", "true");
+    document
+      .querySelector(".TabPanel_tabPanel__test")
+      .classList.remove("TabPanel_hidden__test");
     await runtime.api.calculateNetworth({ force: true });
     summary = document.querySelector("#script_inventory_summary");
     assert.notEqual(summary.style.display, "none", locale);

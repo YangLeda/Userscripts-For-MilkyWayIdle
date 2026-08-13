@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.8",
-  "importantVersion": "26.4.8",
+  "latestVersion": "26.4.9",
+  "importantVersion": "26.4.9",
   "title": {
-    "zh": "MWITools 有重要更新",
-    "en": "Important MWITools update"
+    "zh": "MWITools 26.4.9 重要更新",
+    "en": "Important MWITools 26.4.9 update"
   },
   "message": {
-    "zh": "26.4.8 重要更新修复配装切换后生产摘要、快捷输入和缺料提示消失、面板跳动或弹窗持续变高，新增代币资产、摘要显示模式、缺料隐藏和字号设置，并补充生产成本悬浮提示及装备价值排序。建议前往 Greasy Fork 更新。",
-    "en": "The important 26.4.8 update fixes production summaries, quick inputs, and shortage hints disappearing, shifting, or making the dialog grow continuously after loadout changes. It also adds token assets, summary and shortage display controls, font sizing, compact production costs, and equipment value sorting. Update on Greasy Fork."
+    "zh": "26.4.9 是重要功能更新：新增独立三步规划计算器和快捷设置，重做任务筛选与动作队列时间，并修复加工茶、库存摘要、生产控件等问题。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.9 is an important feature update. It adds the standalone three-step planner and quick settings, redesigns task filters and action-queue timing, and fixes Processing Tea, inventory summaries, production controls, and more. Update on Greasy Fork."
   }
 }

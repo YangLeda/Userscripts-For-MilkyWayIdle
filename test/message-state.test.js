@@ -286,7 +286,7 @@ test("authoritative action buffs and skill levels stay current", () => {
     },
   });
   runtime.api.applyGameMessage({
-    type: "consumable_buffs_updated",
+    type: "action_type_consumable_slots_updated",
     actionTypeDrinkSlotsMap: {
       "/action_types/crafting": [{ itemHrid: "/items/new_tea" }],
     },

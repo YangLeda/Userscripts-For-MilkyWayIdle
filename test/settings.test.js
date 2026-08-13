@@ -62,6 +62,11 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(runtime.settings.getPreference("uiFontScale"), "standard");
   assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
+  assert.equal(runtime.settings.settingsMap.leaderboardBadgeGlint.isTrue, true);
+  assert.equal(
+    runtime.settings.catalog.leaderboardBadgeGlint.parent,
+    "leaderboardOverlay",
+  );
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
     false,
@@ -237,6 +242,7 @@ test("the settings catalog exposes every persisted setting and enum preference",
 
 test("card settings render every visible setting with nested children and search", async (t) => {
   document.body.innerHTML = `
+    <header><div id="identity"><div class="Header_totalLevel__test">总等级: 2178</div></div></header>
     <div class="SettingsPanel_settingsPanel__test">
       <div role="tablist">
         <button class="MuiTab-root Mui-selected" role="tab" aria-selected="true">Profile</button>
@@ -253,6 +259,12 @@ test("card settings render every visible setting with nested children and search
   const root = document.querySelector("#script_settings");
   const customTab = document.querySelector("[data-mwitools-settings-tab]");
   const customPanel = document.querySelector("[data-mwitools-settings-panel]");
+  const settingsButton = document.querySelector("#mwitools-settings-button");
+  const headerTools = document.querySelector("#mwitools-header-tools");
+  assert.ok(settingsButton);
+  assert.equal(settingsButton.parentElement, headerTools);
+  assert.equal(headerTools.previousElementSibling.textContent, "总等级: 2178");
+  assert.equal(settingsButton.getAttribute("aria-expanded"), "false");
   assert.equal(root.dataset.mwitoolsVersion, "3");
   assert.equal(customTab.textContent, "MWITools");
   assert.equal(customPanel.contains(root), true);
@@ -358,6 +370,44 @@ test("card settings render every visible setting with nested children and search
   await runtime.settings.set("lootSellAtAsk", true);
   assert.equal(lootSellToggle.checked, true);
 
+  settingsButton.click();
+  const popover = document.querySelector("#mwitools-settings-popover");
+  const popoverRoot = popover.querySelector("[data-mwitools-settings-root]");
+  assert.equal(popover.hidden, false);
+  assert.equal(settingsButton.getAttribute("aria-expanded"), "true");
+  assert.equal(
+    popoverRoot.querySelectorAll(".mwi-settings-group").length,
+    root.querySelectorAll(".mwi-settings-group").length,
+  );
+  const popupLootSellToggle = popoverRoot.querySelector(
+    'input[data-setting-id="lootSellAtAsk"]',
+  );
+  assert.equal(popupLootSellToggle.checked, true);
+  popupLootSellToggle.checked = false;
+  popupLootSellToggle.dispatchEvent(
+    new dom.window.Event("change", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve));
+  assert.equal(runtime.settings.get("lootSellAtAsk"), false);
+  assert.equal(lootSellToggle.checked, false);
+  document.body.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true }),
+  );
+  assert.equal(popover.hidden, true);
+  assert.equal(settingsButton.getAttribute("aria-expanded"), "false");
+  settingsButton.click();
+  settingsButton.click();
+  assert.equal(popover.hidden, true);
+  settingsButton.click();
+  popover.querySelector("[data-mwitools-settings-close]").click();
+  assert.equal(popover.hidden, true);
+  settingsButton.click();
+  document.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+  assert.equal(popover.hidden, true);
+  assert.equal(document.activeElement, settingsButton);
+
   const search = root.querySelector(".mwi-settings-search");
   search.value = "Idle members";
   search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
@@ -384,6 +434,9 @@ test("card settings render every visible setting with nested children and search
   await runtime.features.disable("settingsUi");
   assert.equal(document.querySelector("[data-mwitools-settings-tab]"), null);
   assert.equal(document.querySelector("[data-mwitools-settings-panel]"), null);
+  assert.equal(document.querySelector("#mwitools-settings-button"), null);
+  assert.equal(document.querySelector("#mwitools-settings-popover"), null);
+  assert.equal(document.querySelector("#mwitools-header-tools"), null);
 });
 
 test("market autofill selects semantic plus and minus buttons", () => {

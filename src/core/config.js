@@ -65,8 +65,8 @@ let settingsMap = {
   totalActionTime: {
     id: "totalActionTime",
     desc: isZH
-      ? "左上角显示：当前动作剩余次数和剩余时间"
-      : "Top left: Remaining count and time for the current action.",
+      ? "左上角显示：当前动作剩余时长和预计结束时间"
+      : "Top left: Time remaining and expected finish time for the current action.",
     isTrue: true,
   },
   actionPanel_totalTime: {
@@ -470,6 +470,13 @@ let settingsMap = {
       : "Show XP rates on standard leaderboards.",
     isTrue: true,
   },
+  leaderboardBadgeGlint: {
+    id: "leaderboardBadgeGlint",
+    desc: isZH
+      ? "前五名排行榜徽章显示扫光与闪光"
+      : "Animate top-five leaderboard badges with a sweep and glint.",
+    isTrue: true,
+  },
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -495,8 +502,8 @@ const settingsGroups = {
   actionBar: {
     title: { zh: "动作栏", en: "Action Bar" },
     summary: {
-      zh: "在顶部查看当前动作还剩多少次、还需多久。",
-      en: "See the current action's remaining count and time left.",
+      zh: "在顶部查看当前动作剩余时长和预计结束时间。",
+      en: "See the current action's time remaining and expected finish time.",
     },
   },
   production: {
@@ -627,8 +634,8 @@ const catalogRows = [
     "actionBar",
     "当前动作时间",
     "Current action timing",
-    "在顶部显示剩余次数和剩余时间。",
-    "Show remaining count and time remaining.",
+    "在顶部显示剩余时长和预计结束时间。",
+    "Show time remaining and the expected finish time.",
   ],
   [
     "actionBarProfit",
@@ -1071,6 +1078,14 @@ const catalogRows = [
     "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order.",
   ],
   [
+    "leaderboardBadgeGlint",
+    "leaderboard",
+    "前五名徽章闪光",
+    "Top-five badge glint",
+    "前五名彩色徽章默认用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿组成循环；可在此关闭。",
+    "Top-five rainbow badges default to a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause. Turn this off to disable the effect.",
+  ],
+  [
     "guildCreditConversionsSort",
     "guild",
     "公会信用兑换性价比推荐",
@@ -1156,6 +1171,7 @@ const settingParents = {
   guildMemberXp: "guildXpTracking",
   guildLeaderboardXp: "guildXpTracking",
   guildIdleMembers: "guildOverview",
+  leaderboardBadgeGlint: "leaderboardOverlay",
 };
 
 for (const [id, parent] of Object.entries(settingParents)) {

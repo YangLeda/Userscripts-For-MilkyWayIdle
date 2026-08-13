@@ -24,6 +24,7 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
+await import("../src/core/planning.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/procurement.js");
 
@@ -940,11 +941,14 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     runtime.api.procurement.getSettings().createPlansByDefault;
   const previousCreatePlan = runtime.api.procurement.createPlan;
   const plannedMaterials = [];
+  const previousPlanIds = new Set(
+    runtime.api.procurement.getPlans().map((plan) => plan.id),
+  );
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.procurement.setSetting("createPlansByDefault", true);
-  runtime.api.procurement.createPlan = (_actionHrid, _count, materials) => {
+  runtime.api.procurement.createPlan = (actionHrid, count, materials) => {
     plannedMaterials.push(materials.map((material) => material.itemHrid));
-    return { id: `test-plan-${plannedMaterials.length}` };
+    return previousCreatePlan(actionHrid, count, materials);
   };
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/shadow_pants": { name: "Shadow Pants" },
@@ -1005,6 +1009,10 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     "/items/shadow_leather",
   ]);
 
+  runtime.api.procurement
+    .getPlans()
+    .filter((plan) => !previousPlanIds.has(plan.id))
+    .forEach((plan) => runtime.api.procurement.removePlan(plan.id));
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.renderProductionProcurement();
   root = document.querySelector("#mwitools-procurement-production");
@@ -1045,6 +1053,10 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
 
   runtime.api.resolveProductionAction = previousResolver;
   runtime.api.procurement.createPlan = previousCreatePlan;
+  runtime.api.procurement
+    .getPlans()
+    .filter((plan) => !previousPlanIds.has(plan.id))
+    .forEach((plan) => runtime.api.procurement.removePlan(plan.id));
   runtime.api.procurement.setSetting(
     "createPlansByDefault",
     previousCreatePlans,

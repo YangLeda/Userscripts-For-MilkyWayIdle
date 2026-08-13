@@ -380,8 +380,8 @@ function renderPlans(body) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = t(
-      "还没有制作计划。把生产缺料加入购物车时可以同时创建。",
-      "No crafting plans yet. Create one when adding production materials.",
+      "还没有生产项目。把生产缺料加入购物车时可以同时创建。",
+      "No production projects yet. Create one when adding production materials.",
     );
     body.append(empty);
     return;
@@ -420,7 +420,7 @@ function renderPlans(body) {
     body.append(row);
   }
   const footer = shadow.querySelector(".panel-footer");
-  footer.innerHTML = `<span>${t("制作计划", "Plans")} ${plans.length}</span><button class="clear">${t("清空计划", "Clear plans")}</button>`;
+  footer.innerHTML = `<span>${t("生产项目", "Projects")} ${plans.length}</span><button class="clear">${t("清空项目", "Clear projects")}</button>`;
   footer.querySelector(".clear").addEventListener("click", () => {
     for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
   });
@@ -434,8 +434,8 @@ const SETTING_SECTIONS = [
       ["upgradeChainEnabled", "升级链材料", "Upgrade-chain materials", "bool"],
       [
         "createPlansByDefault",
-        "默认建立制作计划",
-        "Create plans by default",
+        "默认建立生产项目",
+        "Create projects by default",
         "bool",
       ],
       ["inventorySyncEnabled", "精确库存同步", "Exact inventory sync", "bool"],
@@ -725,7 +725,7 @@ function createShell(scope) {
     <aside class="drawer" data-open="false" aria-label="${t("购物车", "Shopping cart")}">
       <div class="resize"></div>
       <header class="header"><div class="title">${t("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t("清单", "Cart")}</button><button class="tab" data-tab="plans">${t("计划", "Plans")}</button><button class="tab" data-tab="settings">${t("设置", "Settings")}</button></nav>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t("清单", "Cart")}</button><button class="tab" data-tab="plans">${t("项目", "Projects")}</button><button class="tab" data-tab="settings">${t("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -1264,17 +1264,20 @@ function renderProductionProcurement() {
   chainModeInput?.addEventListener("change", updateSummary);
   add.addEventListener("click", () => {
     const scopedMaterials = selectedMaterials();
-    const result = procurement.addRequirementsToCart(
-      scopedMaterials,
-      isEnhancing ? "enhancing" : "production",
-    );
-    if (!isEnhancing && settings.createPlansByDefault && result.added > 0) {
-      procurement.createPlan(
-        context.actionHrid,
-        context.count,
-        scopedMaterials,
-      );
-    }
+    const project =
+      !isEnhancing && settings.createPlansByDefault
+        ? procurement.createPlan(
+            context.actionHrid,
+            context.count,
+            scopedMaterials,
+          )
+        : null;
+    const result = project
+      ? procurement.addProjectRequirementsToCart(project.id)
+      : procurement.addRequirementsToCart(
+          scopedMaterials,
+          isEnhancing ? "enhancing" : "production",
+        );
     showToast(
       result.added
         ? t(
@@ -1971,6 +1974,7 @@ function subscribeProcurement(scope) {
   };
   scope.add(procurement.on("cart:change", rerender));
   scope.add(procurement.on("plan:change", rerender));
+  scope.add(procurement.on("inventory:change", rerender));
   scope.add(
     procurement.on("settings:change", ({ id, value }) => {
       if (id === "badgesEnabled" && !value) clearProductionUi();
@@ -2048,6 +2052,7 @@ runtime.features.register({
     renderProductionProcurement();
     updateMarketUi();
     const renderScheduler = createFrameScheduler(() => {
+      renderShell();
       renderProductionProcurement();
       updateMarketUi();
     });
@@ -2102,6 +2107,7 @@ runtime.features.register({
       "moo_pass_buffs_updated",
       "community_buffs_updated",
       "consumable_buffs_updated",
+      "action_type_consumable_slots_updated",
       "equipment_buffs_updated",
       "personal_buffs_updated",
       "guild_buffs_updated",

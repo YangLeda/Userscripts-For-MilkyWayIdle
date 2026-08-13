@@ -1,7 +1,7 @@
 import { runtime } from "./runtime.js";
 import { actionName, itemName } from "./localization.js";
 
-const DATA_VERSION = 1;
+const DATA_VERSION = 3;
 const SETTINGS_KEY = "MWITools_procurement_settings_v1";
 const DATA_PREFIX = "MWITools_procurement_v1";
 const MANUAL_OVERRIDE_MS = 5 * 60 * 1000;
@@ -42,6 +42,11 @@ const cart = new Map();
 const plans = new Map();
 const inventoryEntries = new Map();
 const purchaseSuppressions = new Map();
+let planningData = {
+  goals: [],
+  overrides: {},
+  defaults: { item: "chain", house: "chain" },
+};
 let activeCharacterId = "";
 let activeStorageKey = "";
 let ready = false;
@@ -112,6 +117,81 @@ function parseItemKey(key) {
   };
 }
 
+function emptyAllocations() {
+  return { manual: 0, planning: 0, projects: {} };
+}
+
+function normalizeAllocations(value, fallbackQuantity = 0) {
+  const projects = Object.fromEntries(
+    Object.entries(value?.projects ?? {})
+      .map(([id, quantity]) => [
+        id,
+        Math.max(0, Math.ceil(Number(quantity) || 0)),
+      ])
+      .filter(([, quantity]) => quantity > 0),
+  );
+  const normalized = {
+    manual: Math.max(0, Math.ceil(Number(value?.manual) || 0)),
+    planning: Math.max(0, Math.ceil(Number(value?.planning) || 0)),
+    projects,
+  };
+  const allocated = allocationTotal(normalized);
+  const fallback = Math.max(0, Math.ceil(Number(fallbackQuantity) || 0));
+  if (allocated < fallback) normalized.manual += fallback - allocated;
+  return normalized;
+}
+
+function allocationTotal(allocations) {
+  return (
+    Math.max(0, Number(allocations?.manual) || 0) +
+    Math.max(0, Number(allocations?.planning) || 0) +
+    Object.values(allocations?.projects ?? {}).reduce(
+      (sum, quantity) => sum + Math.max(0, Number(quantity) || 0),
+      0,
+    )
+  );
+}
+
+function allocationOwner(value = {}) {
+  if (value?.allocation?.kind === "planning" || value?.source === "planning") {
+    return { kind: "planning", id: "planning" };
+  }
+  const projectId = value?.allocation?.projectId ?? value?.projectId;
+  if (value?.allocation?.kind === "project" && projectId) {
+    return { kind: "project", id: String(projectId) };
+  }
+  return { kind: "manual", id: "manual" };
+}
+
+function getAllocationQuantity(row, owner) {
+  const allocations = row?.allocations ?? emptyAllocations();
+  if (owner?.kind === "planning") return allocations.planning ?? 0;
+  if (owner?.kind === "project") {
+    return allocations.projects?.[owner.id] ?? 0;
+  }
+  return allocations.manual ?? 0;
+}
+
+function changeAllocation(row, owner, delta) {
+  row.allocations = normalizeAllocations(row.allocations);
+  if (owner.kind === "planning") {
+    row.allocations.planning = Math.max(
+      0,
+      (row.allocations.planning ?? 0) + delta,
+    );
+  } else if (owner.kind === "project") {
+    const next = Math.max(
+      0,
+      (row.allocations.projects?.[owner.id] ?? 0) + delta,
+    );
+    if (next) row.allocations.projects[owner.id] = next;
+    else delete row.allocations.projects[owner.id];
+  } else {
+    row.allocations.manual = Math.max(0, (row.allocations.manual ?? 0) + delta);
+  }
+  row.quantity = allocationTotal(row.allocations);
+}
+
 function getEnvironment() {
   return runtime.api.getMarketEnvironment?.() ?? "production";
 }
@@ -179,12 +259,50 @@ function serializeData() {
     version: DATA_VERSION,
     cart: [...cart.values()],
     plans: [...plans.values()],
+    planning: planningData,
   };
 }
 
 function persistData() {
   if (!activeStorageKey) return;
   localStorage.setItem(activeStorageKey, JSON.stringify(serializeData()));
+}
+
+function normalizePlanningData(next) {
+  return {
+    goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
+    overrides:
+      next?.overrides && typeof next.overrides === "object"
+        ? clone(next.overrides)
+        : {},
+    defaults: {
+      item: String(next?.defaults?.item ?? "chain"),
+      house: String(next?.defaults?.house ?? "chain"),
+    },
+  };
+}
+
+function migratePlanningData(value) {
+  const migrated = normalizePlanningData(value);
+  const legacyPolicies =
+    value?.policies && typeof value.policies === "object" ? value.policies : {};
+  migrated.goals = migrated.goals.map((goal) => ({
+    ...goal,
+    policy: String(goal?.policy ?? "chain"),
+  }));
+  for (const goal of migrated.goals) {
+    const goalId = String(
+      goal?.id ??
+        `${goal?.kind === "house" ? "house" : "item"}:${goal?.targetHrid ?? goal?.hrid ?? ""}`,
+    );
+    if (!goalId) continue;
+    const overrides = { ...(migrated.overrides[goalId] ?? {}) };
+    for (const [itemHrid, policy] of Object.entries(legacyPolicies)) {
+      if (policy === "acquire") overrides[itemHrid] = "buy";
+    }
+    if (Object.keys(overrides).length) migrated.overrides[goalId] = overrides;
+  }
+  return migrated;
 }
 
 function loadCharacterData(characterId) {
@@ -194,11 +312,14 @@ function loadCharacterData(characterId) {
     : "";
   cart.clear();
   plans.clear();
+  planningData = normalizePlanningData(null);
+  let storedVersion = 0;
   if (activeStorageKey) {
     try {
       const stored = JSON.parse(
         localStorage.getItem(activeStorageKey) || "null",
       );
+      storedVersion = Math.max(0, Number(stored?.version) || 0);
       for (const row of stored?.cart ?? []) {
         const key = itemKey(row.itemHrid ?? row.itemId, row.enhancementLevel);
         if (!key) continue;
@@ -207,11 +328,16 @@ function loadCharacterData(characterId) {
           itemHrid: parseItemKey(key).itemHrid,
           enhancementLevel: parseItemKey(key).enhancementLevel,
           quantity: Math.max(0, Math.ceil(Number(row.quantity) || 0)),
+          allocations: normalizeAllocations(row.allocations, row.quantity),
         });
       }
       for (const plan of stored?.plans ?? []) {
         if (plan?.id) plans.set(plan.id, plan);
       }
+      planningData =
+        storedVersion < 3
+          ? migratePlanningData(stored?.planning)
+          : normalizePlanningData(stored?.planning);
     } catch (error) {
       console.warn(
         runtime.config.isZH
@@ -222,12 +348,62 @@ function loadCharacterData(characterId) {
     }
   }
   rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
+  if (storedVersion < 3) {
+    if (storedVersion < 2) migrateLegacyCartAllocations();
+    persistData();
+  }
   refreshPlanProgress();
   ready = Boolean(activeCharacterId);
   emit("character:change", { characterId: activeCharacterId });
   emit("cart:change", { reason: "load", added: 0, items: getCartItems() });
   emit("plan:change", { plans: getPlans() });
+  emit("planning:change", { planning: getPlanningData() });
   if (ready) emit("ready", { characterId: activeCharacterId });
+}
+
+function migrateLegacyCartAllocations() {
+  const availableInventory = inventoryCounts();
+  const orderedPlans = [...plans.values()]
+    .filter((plan) => plan.status !== "completed")
+    .sort(
+      (left, right) =>
+        String(left.createdAt ?? "").localeCompare(
+          String(right.createdAt ?? ""),
+        ) || String(left.id).localeCompare(String(right.id)),
+    );
+  for (const plan of orderedPlans) {
+    for (const [key, rawQuantity] of Object.entries(plan.materials ?? {})) {
+      const demand = Math.max(0, Math.ceil(Number(rawQuantity) || 0));
+      const inventory = Math.min(
+        demand,
+        Math.max(0, availableInventory.get(key) ?? 0),
+      );
+      availableInventory.set(
+        key,
+        Math.max(0, (availableInventory.get(key) ?? 0) - inventory),
+      );
+      const row = cart.get(key);
+      if (!row) continue;
+      const claim = Math.min(
+        Math.max(0, demand - inventory),
+        Math.max(0, row.allocations?.manual ?? 0),
+      );
+      if (!claim) continue;
+      changeAllocation(row, { kind: "manual" }, -claim);
+      changeAllocation(row, { kind: "project", id: String(plan.id) }, claim);
+    }
+  }
+}
+
+function getPlanningData() {
+  return clone(planningData);
+}
+
+function setPlanningData(next, reason = "update") {
+  planningData = normalizePlanningData(next);
+  persistData();
+  emit("planning:change", { reason, planning: getPlanningData() });
+  return getPlanningData();
 }
 
 function resolveItemName(rawItemHrid) {
@@ -318,6 +494,11 @@ function getEffectiveInventory(
     0,
     owned - getLockedDetails(itemHrid, enhancementLevel, excludePlanId).total,
   );
+}
+
+function getProjectReservedInventory(itemHrid, enhancementLevel = 0) {
+  const owned = getInventoryCount(itemHrid, enhancementLevel);
+  return Math.min(owned, getLockedDetails(itemHrid, enhancementLevel).total);
 }
 
 function isCoin(itemHrid) {
@@ -462,8 +643,11 @@ function materialRequirement(input, actionHrid, actionCount, options = {}) {
     options.excludeActionHrids,
   );
   const effectiveOwned = Math.max(0, owned - locked.total);
-  const cartQuantity =
-    cart.get(itemKey(itemHrid, enhancementLevel))?.quantity ?? 0;
+  const cartRow = cart.get(itemKey(itemHrid, enhancementLevel));
+  const cartQuantity = getAllocationQuantity(
+    cartRow,
+    options.cartOwner ?? { kind: "manual" },
+  );
   return {
     itemHrid,
     enhancementLevel,
@@ -492,7 +676,6 @@ function calculateRequirements(actionHrid, count, options = {}) {
   const inputs = runtime.api.getDirectInputs?.(detail) ?? [];
   const calculationOptions = {
     ...options,
-    excludeActionHrids: options.excludeActionHrids ?? new Set([actionHrid]),
   };
   const excludedUpgradeHrid = isRefinedBackUpgrade(detail)
     ? normalizeItemHrid(detail.upgradeItemHrid)
@@ -598,7 +781,6 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
   const unavailableOutputs = new Set();
   const calculationOptions = {
     ...options,
-    excludeActionHrids: options.excludeActionHrids ?? new Set([actionHrid]),
   };
 
   const visit = (currentHrid, currentCount, depth) => {
@@ -720,6 +902,131 @@ function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
   emit("cart:change", { reason, added, items: getCartItems() });
 }
 
+function resizeCartAllocations(row, quantity) {
+  const target = Math.max(0, Math.ceil(Number(quantity) || 0));
+  row.allocations = normalizeAllocations(row.allocations, row.quantity);
+  let delta = target - allocationTotal(row.allocations);
+  if (delta > 0) {
+    changeAllocation(row, { kind: "manual" }, delta);
+    return;
+  }
+  let remove = -delta;
+  const take = (owner) => {
+    if (remove <= 0) return;
+    const amount = Math.min(remove, getAllocationQuantity(row, owner));
+    if (!amount) return;
+    changeAllocation(row, owner, -amount);
+    remove -= amount;
+  };
+  take({ kind: "manual" });
+  take({ kind: "planning" });
+  const newestProjects = [...plans.values()]
+    .sort(
+      (left, right) =>
+        String(right.createdAt ?? "").localeCompare(
+          String(left.createdAt ?? ""),
+        ) || String(right.id).localeCompare(String(left.id)),
+    )
+    .map((plan) => String(plan.id));
+  for (const id of newestProjects) take({ kind: "project", id });
+  for (const id of Object.keys(row.allocations.projects ?? {})) {
+    take({ kind: "project", id });
+  }
+  row.quantity = allocationTotal(row.allocations);
+}
+
+function consumeCartAllocations(row, quantity) {
+  let remaining = Math.max(0, Math.floor(Number(quantity) || 0));
+  const take = (owner) => {
+    if (remaining <= 0) return;
+    const amount = Math.min(remaining, getAllocationQuantity(row, owner));
+    if (!amount) return;
+    changeAllocation(row, owner, -amount);
+    remaining -= amount;
+  };
+  const oldestProjects = [...plans.values()]
+    .sort(
+      (left, right) =>
+        String(left.createdAt ?? "").localeCompare(
+          String(right.createdAt ?? ""),
+        ) || String(left.id).localeCompare(String(right.id)),
+    )
+    .map((plan) => String(plan.id));
+  for (const id of oldestProjects) take({ kind: "project", id });
+  take({ kind: "planning" });
+  take({ kind: "manual" });
+  for (const id of Object.keys(row.allocations.projects ?? {})) {
+    take({ kind: "project", id });
+  }
+  row.quantity = allocationTotal(row.allocations);
+}
+
+function getCartAllocationSummary(itemHrid, enhancementLevel = 0) {
+  const row = cart.get(itemKey(itemHrid, enhancementLevel));
+  const allocations = normalizeAllocations(row?.allocations, row?.quantity);
+  return clone({
+    total: allocationTotal(allocations),
+    manual: allocations.manual,
+    planning: allocations.planning,
+    project: Object.values(allocations.projects).reduce(
+      (sum, quantity) => sum + quantity,
+      0,
+    ),
+    projects: allocations.projects,
+  });
+}
+
+function projectIdsFromCartRow(row) {
+  return Object.keys(row?.allocations?.projects ?? {});
+}
+
+function deleteProjectsWithoutCartAllocations(candidateIds) {
+  let changed = false;
+  for (const id of new Set(candidateIds ?? [])) {
+    const stillListed = [...cart.values()].some(
+      (row) => Number(row.allocations?.projects?.[id]) > 0,
+    );
+    if (!stillListed && plans.delete(id)) changed = true;
+  }
+  if (changed) savePlansAndEmit();
+  return changed;
+}
+
+function releaseCartAllocation(owner, itemHrid = null, enhancementLevel = 0) {
+  let changed = false;
+  const rows = itemHrid
+    ? [cart.get(itemKey(itemHrid, enhancementLevel))].filter(Boolean)
+    : [...cart.values()];
+  for (const row of rows) {
+    const quantity = getAllocationQuantity(row, owner);
+    if (!quantity) continue;
+    changeAllocation(row, owner, -quantity);
+    changeAllocation(row, { kind: "manual" }, quantity);
+    changed = true;
+  }
+  if (changed) saveCartAndEmit({ reason: "allocation" });
+  return changed;
+}
+
+function moveCartAllocationToManual(
+  itemHrid,
+  enhancementLevel,
+  owner,
+  quantity,
+) {
+  const row = cart.get(itemKey(itemHrid, enhancementLevel));
+  if (!row) return 0;
+  const moved = Math.min(
+    Math.max(0, Math.ceil(Number(quantity) || 0)),
+    getAllocationQuantity(row, owner),
+  );
+  if (!moved) return 0;
+  changeAllocation(row, owner, -moved);
+  changeAllocation(row, { kind: "manual" }, moved);
+  saveCartAndEmit({ reason: "allocation" });
+  return moved;
+}
+
 function addToCart(input) {
   const rows = Array.isArray(input) ? input : [input];
   let added = 0;
@@ -734,25 +1041,36 @@ function addToCart(input) {
     }
     const key = itemKey(itemHrid, enhancementLevel);
     const existing = cart.get(key);
-    cart.set(key, {
+    const owner = allocationOwner(value);
+    const row = {
       itemHrid,
       enhancementLevel,
       name: value.name || existing?.name || resolveItemName(itemHrid),
-      quantity: (existing?.quantity ?? 0) + quantity,
+      quantity: existing?.quantity ?? 0,
+      allocations: normalizeAllocations(
+        existing?.allocations,
+        existing?.quantity,
+      ),
       starred: Boolean(existing?.starred ?? value.starred),
       threshold: existing?.threshold ?? value.threshold ?? null,
       baselineStock: getInventoryCount(itemHrid, enhancementLevel),
       source: value.source ?? existing?.source ?? "manual",
       updatedAt: new Date().toISOString(),
       manualOverrideUntil: existing?.manualOverrideUntil ?? 0,
-    });
+    };
+    changeAllocation(row, owner, quantity);
+    cart.set(key, row);
     added += 1;
   }
   if (added) saveCartAndEmit({ reason: "add", added });
   return { ok: added > 0, added, skipped };
 }
 
-function addRequirementsToCart(materials, source = "material") {
+function addRequirementsToCart(
+  materials,
+  source = "material",
+  allocation = null,
+) {
   return addToCart(
     (materials ?? [])
       .filter(
@@ -764,6 +1082,7 @@ function addRequirementsToCart(materials, source = "material") {
         name: material.name,
         quantity: material.addableShortage,
         source,
+        allocation,
       })),
   );
 }
@@ -780,24 +1099,27 @@ function setCartItemQuantity(itemHrid, quantity, enhancementLevel = 0) {
   const key = itemKey(itemHrid, enhancementLevel);
   const row = cart.get(key);
   if (!row) return { ok: false };
+  const affectedProjects = projectIdsFromCartRow(row);
   const normalized = Math.max(0, Math.ceil(Number(quantity) || 0));
   if (!normalized && !row.starred) cart.delete(key);
   else {
-    row.quantity = normalized;
+    resizeCartAllocations(row, normalized);
     row.baselineStock = getInventoryCount(row.itemHrid, row.enhancementLevel);
     row.manualOverrideUntil = Date.now() + MANUAL_OVERRIDE_MS;
     row.updatedAt = new Date().toISOString();
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return { ok: true };
 }
 
 function updateCartItem(itemHrid, enhancementLevel, patch) {
   const row = cart.get(itemKey(itemHrid, enhancementLevel));
   if (!row) return false;
+  const affectedProjects = projectIdsFromCartRow(row);
   Object.assign(row, patch, { updatedAt: new Date().toISOString() });
   if (Object.hasOwn(patch, "quantity")) {
-    row.quantity = Math.max(0, Math.ceil(Number(patch.quantity) || 0));
+    resizeCartAllocations(row, patch.quantity);
     row.manualOverrideUntil = Date.now() + MANUAL_OVERRIDE_MS;
   }
   if (Object.hasOwn(patch, "threshold")) {
@@ -807,20 +1129,31 @@ function updateCartItem(itemHrid, enhancementLevel, patch) {
         : Math.max(0, Math.ceil(Number(patch.threshold) || 0));
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return true;
 }
 
 function removeFromCart(itemHrid, enhancementLevel = 0) {
-  const removed = cart.delete(itemKey(itemHrid, enhancementLevel));
-  if (removed) saveCartAndEmit();
+  const key = itemKey(itemHrid, enhancementLevel);
+  const affectedProjects = projectIdsFromCartRow(cart.get(key));
+  const removed = cart.delete(key);
+  if (removed) {
+    saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
+  }
   return { ok: removed };
 }
 
 function clearCart({ includeStarred = false } = {}) {
+  const affectedProjects = new Set();
   for (const [key, row] of cart) {
-    if (includeStarred || !row.starred) cart.delete(key);
+    if (includeStarred || !row.starred) {
+      projectIdsFromCartRow(row).forEach((id) => affectedProjects.add(id));
+      cart.delete(key);
+    }
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return { ok: true };
 }
 
@@ -830,7 +1163,8 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
   const acquired = Math.max(0, Math.floor(Number(quantity) || 0));
   if (!row || !acquired || !settings.inventorySyncEnabled) return false;
   const before = row.quantity;
-  row.quantity = Math.max(0, row.quantity - acquired);
+  const affectedProjects = projectIdsFromCartRow(row);
+  consumeCartAllocations(row, acquired);
   row.baselineStock = getInventoryCount(row.itemHrid, row.enhancementLevel);
   row.updatedAt = new Date().toISOString();
   let fulfilled = false;
@@ -840,6 +1174,7 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
     else cart.delete(key);
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   if (fulfilled) {
     emit("item:fulfilled", { item: clone(row), source: options.source });
     if (![...cart.values()].some((candidate) => candidate.quantity > 0)) {
@@ -887,6 +1222,16 @@ function applyInventoryUpdates(items) {
   }
   const after = inventoryCounts();
   const keys = new Set([...before.keys(), ...after.keys()]);
+  const changes = [...keys]
+    .map((key) => ({
+      key,
+      ...parseItemKey(key),
+      before: before.get(key) ?? 0,
+      after: after.get(key) ?? 0,
+      delta: (after.get(key) ?? 0) - (before.get(key) ?? 0),
+    }))
+    .filter((change) => change.delta !== 0);
+  if (!changes.length) return;
   for (const key of keys) {
     const delta = (after.get(key) ?? 0) - (before.get(key) ?? 0);
     const row = cart.get(key);
@@ -910,12 +1255,7 @@ function applyInventoryUpdates(items) {
   refreshPlanProgress();
   persistData();
   emit("inventory:change", {
-    changes: [...keys].map((key) => ({
-      ...parseItemKey(key),
-      before: before.get(key) ?? 0,
-      after: after.get(key) ?? 0,
-      delta: (after.get(key) ?? 0) - (before.get(key) ?? 0),
-    })),
+    changes: changes.map(({ key: _key, ...change }) => change),
   });
 }
 
@@ -931,7 +1271,7 @@ function applyRestockThresholds() {
     const required = Math.max(0, row.threshold - owned);
     if (required !== row.quantity) {
       if (required > row.quantity) added += 1;
-      row.quantity = required;
+      resizeCartAllocations(row, required);
       row.baselineStock = owned;
       changed = true;
     }
@@ -976,6 +1316,14 @@ function createPlan(actionHrid, count, materials = null) {
         material.suggested,
       ]),
   );
+  const matching = [...plans.values()].find(
+    (plan) =>
+      plan.status !== "completed" &&
+      plan.actionHrid === actionHrid &&
+      plan.targetCount === targetCount &&
+      JSON.stringify(plan.materials ?? {}) === JSON.stringify(lockedMaterials),
+  );
+  if (matching) return clone({ ...matching, reused: true });
   const output = runtime.api.getExpectedOutputs?.(detail)?.[0] ?? null;
   const id =
     globalThis.crypto?.randomUUID?.() ?? `plan-${Date.now()}-${Math.random()}`;
@@ -997,6 +1345,68 @@ function createPlan(actionHrid, count, materials = null) {
   plans.set(id, plan);
   savePlansAndEmit();
   return clone(plan);
+}
+
+function addProjectRequirementsToCart(planId) {
+  const plan = plans.get(planId);
+  if (!plan || plan.status === "completed") {
+    return { ok: false, added: 0, skipped: 0 };
+  }
+  const demandByKey = new Map();
+  for (const candidate of plans.values()) {
+    if (candidate.status === "completed") continue;
+    for (const [key, quantity] of Object.entries(candidate.materials ?? {})) {
+      demandByKey.set(
+        key,
+        (demandByKey.get(key) ?? 0) +
+          Math.max(0, Math.ceil(Number(quantity) || 0)),
+      );
+    }
+  }
+  const rows = [];
+  for (const [key, demand] of demandByKey) {
+    const parsed = parseItemKey(key);
+    const desired = Math.max(
+      0,
+      demand - getInventoryCount(parsed.itemHrid, parsed.enhancementLevel),
+    );
+    const summary = getCartAllocationSummary(
+      parsed.itemHrid,
+      parsed.enhancementLevel,
+    );
+    const addable = Math.max(0, desired - summary.project);
+    if (!addable || isCoin(parsed.itemHrid)) continue;
+    rows.push({
+      itemHrid: parsed.itemHrid,
+      enhancementLevel: parsed.enhancementLevel,
+      name: resolveItemName(parsed.itemHrid),
+      quantity: addable,
+      source: "project",
+      allocation: { kind: "project", projectId: String(planId) },
+    });
+  }
+  return addToCart(rows);
+}
+
+function releaseExcessProjectAllocations(plan) {
+  let changed = false;
+  for (const row of cart.values()) {
+    const owner = { kind: "project", id: String(plan.id) };
+    const allocated = getAllocationQuantity(row, owner);
+    const allowed = Math.max(
+      0,
+      Math.ceil(
+        Number(plan.materials?.[itemKey(row.itemHrid, row.enhancementLevel)]) ||
+          0,
+      ),
+    );
+    const excess = Math.max(0, allocated - allowed);
+    if (!excess) continue;
+    changeAllocation(row, owner, -excess);
+    changeAllocation(row, { kind: "manual" }, excess);
+    changed = true;
+  }
+  if (changed) saveCartAndEmit({ reason: "allocation" });
 }
 
 function refreshPlanProgress() {
@@ -1058,18 +1468,27 @@ function updatePlan(id, patch) {
           material.suggested,
         ]),
     );
+    releaseExcessProjectAllocations(plan);
   }
   if (patch.status === "completed" || patch.status === "active") {
+    if (patch.status === "completed" && plan.status !== "completed") {
+      releaseCartAllocation({ kind: "project", id: String(plan.id) });
+    }
     plan.status = patch.status;
   }
   plan.updatedAt = new Date().toISOString();
   savePlansAndEmit();
+  runtime.api.planning?.reconcilePlanningCart?.();
   return true;
 }
 
 function removePlan(id) {
+  releaseCartAllocation({ kind: "project", id: String(id) });
   const removed = plans.delete(id);
-  if (removed) savePlansAndEmit();
+  if (removed) {
+    savePlansAndEmit();
+    runtime.api.planning?.reconcilePlanningCart?.();
+  }
   return removed;
 }
 
@@ -1172,6 +1591,7 @@ Object.assign(runtime.api, {
     getInventoryCount,
     getEffectiveInventory,
     getLockedDetails,
+    getProjectReservedInventory,
     suggestedMaterialCount,
     calculateRequirements,
     getProducerAction,
@@ -1180,16 +1600,22 @@ Object.assign(runtime.api, {
     aggregateRequirements,
     getCartItems,
     getCartItem,
+    getCartAllocationSummary,
     addToCart,
     addRequirementsToCart,
+    releaseCartAllocation,
+    moveCartAllocationToManual,
     setCartItemQuantity,
     updateCartItem,
     removeFromCart,
     clearCart,
     getPlans,
     createPlan,
+    addProjectRequirementsToCart,
     updatePlan,
     removePlan,
+    getPlanningData,
+    setPlanningData,
     confirmMarketPurchase,
     applyInventoryUpdates,
     applyRestockThresholds,

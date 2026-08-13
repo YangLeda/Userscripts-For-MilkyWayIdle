@@ -283,7 +283,7 @@ test("selected upgrade stages buy predecessor items when their producer is exclu
   );
 });
 
-test("plans lock inventory and cart additions do not duplicate listed shortages", () => {
+test("projects lock inventory and only duplicate their own cart shortages", () => {
   const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
   const plan = procurement.createPlan(
     "/actions/crafting/final",
@@ -294,14 +294,73 @@ test("plans lock inventory and cart additions do not duplicate listed shortages"
   assert.equal(procurement.getLockedDetails("/items/log").total, 6);
   assert.equal(procurement.getEffectiveInventory("/items/log"), 0);
 
-  const first = procurement.addRequirementsToCart(chain.leaves, "production");
-  const second = procurement.addRequirementsToCart(
-    procurement.calculateUpgradeChain("/actions/crafting/final", 3).leaves,
-    "production",
-  );
+  const first = procurement.addProjectRequirementsToCart(plan.id);
+  const second = procurement.addProjectRequirementsToCart(plan.id);
   assert.equal(first.added, 2);
   assert.equal(second.added, 0);
+  assert.deepEqual(
+    procurement
+      .getCartItems()
+      .map((item) => [item.itemHrid, item.allocations.projects[plan.id]]),
+    [
+      ["/items/nail", 5],
+      ["/items/log", 1],
+    ],
+  );
   procurement.removePlan(plan.id);
+  assert.deepEqual(
+    procurement
+      .getCartItems()
+      .map((item) => [item.itemHrid, item.allocations.manual]),
+    [
+      ["/items/nail", 5],
+      ["/items/log", 1],
+    ],
+  );
+});
+
+test("projects disappear after their shopping rows are fulfilled or cleared", () => {
+  for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
+  procurement.clearCart({ includeStarred: true });
+  const purchased = procurement.createPlan("/actions/crafting/board", 10, [
+    {
+      itemHrid: "/items/log",
+      enhancementLevel: 0,
+      suggested: 10,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(purchased.id);
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === purchased.id),
+    true,
+  );
+  procurement.confirmMarketPurchase("/items/log", 5);
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === purchased.id),
+    false,
+  );
+
+  const cleared = procurement.createPlan("/actions/crafting/final", 3, [
+    {
+      itemHrid: "/items/nail",
+      enhancementLevel: 0,
+      suggested: 6,
+      purchasable: true,
+    },
+    {
+      itemHrid: "/items/log",
+      enhancementLevel: 0,
+      suggested: 6,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(cleared.id);
+  procurement.clearCart({ includeStarred: true });
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === cleared.id),
+    false,
+  );
 });
 
 test("confirmed purchases suppress the matching inventory delta only once", () => {
@@ -341,5 +400,93 @@ test("shopping data is isolated by server and character", () => {
   assert.notEqual(
     window.MWITools.shopping.getCartItems(),
     procurement.getCartItems(),
+  );
+});
+
+test("v1 shopping data migrates project claims in creation order", () => {
+  localStorage.setItem(
+    "MWITools_procurement_v1:production:legacy-character",
+    JSON.stringify({
+      version: 1,
+      cart: [
+        {
+          itemHrid: "/items/log",
+          enhancementLevel: 0,
+          quantity: 10,
+        },
+      ],
+      plans: [
+        {
+          id: "legacy-project",
+          actionHrid: "/actions/crafting/board",
+          targetCount: 4,
+          materials: { "/items/log#0": 8 },
+          status: "active",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    }),
+  );
+  procurement.loadCharacterData("legacy-character");
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
+    total: 10,
+    manual: 7,
+    planning: 0,
+    project: 3,
+    projects: { "legacy-project": 3 },
+  });
+  assert.equal(
+    JSON.parse(
+      localStorage.getItem(
+        "MWITools_procurement_v1:production:legacy-character",
+      ),
+    ).version,
+    3,
+  );
+});
+
+test("v2 planning policies migrate to per-goal v3 strategies", () => {
+  localStorage.setItem(
+    "MWITools_procurement_v1:production:legacy-planning-character",
+    JSON.stringify({
+      version: 2,
+      cart: [],
+      plans: [],
+      planning: {
+        goals: [
+          {
+            id: "item:/items/board",
+            kind: "item",
+            targetHrid: "/items/board",
+            target: 7,
+          },
+        ],
+        policies: { "/items/board": "acquire", "/items/log": "produce" },
+      },
+    }),
+  );
+  procurement.loadCharacterData("legacy-planning-character");
+  assert.deepEqual(procurement.getPlanningData(), {
+    goals: [
+      {
+        id: "item:/items/board",
+        kind: "item",
+        targetHrid: "/items/board",
+        target: 7,
+        policy: "chain",
+      },
+    ],
+    overrides: {
+      "item:/items/board": { "/items/board": "buy" },
+    },
+    defaults: { item: "chain", house: "chain" },
+  });
+  assert.equal(
+    JSON.parse(
+      localStorage.getItem(
+        "MWITools_procurement_v1:production:legacy-planning-character",
+      ),
+    ).version,
+    3,
   );
 });

@@ -42,7 +42,7 @@ const taskActionCache = new WeakMap();
 const taskRemainingCache = new WeakMap();
 let pageOrderBySlot = new Map();
 let activeProfessionFilters = new Set();
-let combatFilterEnabled = true;
+let combatFilterEnabled = false;
 let activeDungeonFilters = new Set();
 
 // The live game currently exposes empty fightInfo for dungeon actions, so
@@ -228,25 +228,17 @@ function consumeTemporaryTaskReturn(now = Date.now()) {
 }
 
 function resetTaskFilters() {
-  activeProfessionFilters = new Set(LIFE_PROFESSIONS.map(({ key }) => key));
-  combatFilterEnabled = true;
-  activeDungeonFilters = new Set(
-    DUNGEON_FILTERS.map(({ actionHrid }) => actionHrid),
-  );
-}
-
-function allTaskFiltersSelected() {
-  return (
-    activeProfessionFilters.size === LIFE_PROFESSIONS.length &&
-    combatFilterEnabled &&
-    activeDungeonFilters.size === DUNGEON_FILTERS.length
-  );
-}
-
-function clearTaskFilters() {
   activeProfessionFilters.clear();
   combatFilterEnabled = false;
   activeDungeonFilters.clear();
+}
+
+function hasActiveTaskFilters() {
+  return (
+    activeProfessionFilters.size > 0 ||
+    combatFilterEnabled ||
+    activeDungeonFilters.size > 0
+  );
 }
 
 function rememberSpriteBase(kind, value) {
@@ -336,17 +328,17 @@ function addStyles() {
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
     .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
     .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
-    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:wrap; gap:4px; }
+    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:nowrap; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
     .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
+    .mwi-task-filter:disabled { opacity:.38; cursor:default; filter:saturate(.35); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
-    .mwi-task-dungeon-filters[data-combat-enabled="false"] { opacity:.48; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -360,6 +352,7 @@ function addStyles() {
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
+      .mwi-task-filter-groups { flex-wrap:wrap; }
       .mwi-task-filter-group--life { min-width:0; flex:1 1 auto; flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
     }
@@ -1282,6 +1275,7 @@ function createTaskFilterButton({
   iconHrid = "",
   fallback = "•",
   showLabel = false,
+  showCount = true,
   onClick,
 }) {
   const button = document.createElement("button");
@@ -1305,7 +1299,7 @@ function createTaskFilterButton({
     text.textContent = label;
     button.append(text);
   }
-  button.append(count);
+  if (showCount) button.append(count);
   button.addEventListener("click", onClick);
   return button;
 }
@@ -1347,30 +1341,20 @@ function updateTaskFilterButton(button, { label, count, pressed }) {
 
 function applyTaskFilters(rows) {
   const statisticsEnabled = runtime.settings.get("taskStatistics");
-  const noFiltersSelected =
-    activeProfessionFilters.size === 0 &&
-    !combatFilterEnabled &&
-    activeDungeonFilters.size === 0;
+  const hasActiveFilters = hasActiveTaskFilters();
   for (const row of rows) {
     let visible = true;
-    if (statisticsEnabled) {
-      if (noFiltersSelected) {
-        visible = false;
-      } else if (row.profession.key === "combat") {
-        const dungeonHrids = row.dungeonLocations
-          .filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid)
-          .map(({ actionHrid }) => actionHrid);
-        visible =
-          combatFilterEnabled &&
-          (!dungeonHrids.length ||
-            dungeonHrids.some((actionHrid) =>
-              activeDungeonFilters.has(actionHrid),
-            ));
-      } else if (
-        LIFE_PROFESSIONS.some(({ key }) => key === row.profession.key)
-      ) {
-        visible = activeProfessionFilters.has(row.profession.key);
-      }
+    if (statisticsEnabled && hasActiveFilters) {
+      const professionMatches = activeProfessionFilters.has(row.profession.key);
+      const combatMatches =
+        combatFilterEnabled && row.profession.key === "combat";
+      const dungeonMatches =
+        row.profession.key === "combat" &&
+        row.dungeonLocations.some(
+          ({ isDungeon, actionHrid }) =>
+            isDungeon && activeDungeonFilters.has(actionHrid),
+        );
+      visible = professionMatches || combatMatches || dungeonMatches;
     }
     const filtered = String(!visible);
     if (row.card.dataset.mwitoolsFiltered !== filtered) {
@@ -1402,14 +1386,14 @@ function ensureTaskToolbar(rows) {
       controls.className = "mwi-task-toolbar-controls";
       controls.append(
         createTaskFilterButton({
-          kind: "all",
-          value: "all",
-          label: t("全部任务", "All tasks"),
-          fallback: "☰",
+          kind: "reset",
+          value: "reset",
+          label: t("重置筛选", "Reset filters"),
+          fallback: "↺",
           showLabel: true,
+          showCount: false,
           onClick: () => {
-            if (allTaskFiltersSelected()) clearTaskFilters();
-            else resetTaskFilters();
+            resetTaskFilters();
             lastTaskRenderSignature = "";
             renderTasks();
           },
@@ -1532,13 +1516,10 @@ function ensureTaskToolbar(rows) {
       }
     }
   }
-  const allSelected = allTaskFiltersSelected();
-  const allButton = toolbar.querySelector('[data-filter-kind="all"]');
-  updateTaskFilterButton(allButton, {
-    label: t("全部任务", "All tasks"),
-    count: rows.length,
-    pressed: allSelected,
-  });
+  const resetButton = toolbar.querySelector('[data-filter-kind="reset"]');
+  resetButton.disabled = !hasActiveTaskFilters();
+  resetButton.title = t("清除全部任务筛选", "Clear all task filters");
+  resetButton.setAttribute("aria-label", resetButton.title);
   for (const profession of LIFE_PROFESSIONS) {
     const button = toolbar.querySelector(
       `[data-filter-kind="profession"][data-filter-value="${profession.key}"]`,
@@ -1554,10 +1535,6 @@ function ensureTaskToolbar(rows) {
     count: combatCount,
     pressed: combatFilterEnabled,
   });
-  const dungeonGroup = toolbar.querySelector(".mwi-task-dungeon-filters");
-  if (dungeonGroup.dataset.combatEnabled !== String(combatFilterEnabled)) {
-    dungeonGroup.dataset.combatEnabled = String(combatFilterEnabled);
-  }
   for (const dungeon of DUNGEON_FILTERS) {
     const button = toolbar.querySelector(
       `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`,

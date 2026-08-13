@@ -1897,6 +1897,24 @@ const ZHActionNames = {
 };
 
 const ZHOthersDic = {
+  // houseRoomNames
+  "/house_rooms/dairy_barn": "奶牛棚",
+  "/house_rooms/garden": "花园",
+  "/house_rooms/log_shed": "原木棚",
+  "/house_rooms/forge": "锻造间",
+  "/house_rooms/workshop": "工作室",
+  "/house_rooms/sewing_parlor": "缝纫室",
+  "/house_rooms/kitchen": "厨房",
+  "/house_rooms/brewery": "冲泡室",
+  "/house_rooms/laboratory": "实验室",
+  "/house_rooms/observatory": "天文台",
+  "/house_rooms/dining_room": "餐厅",
+  "/house_rooms/library": "图书馆",
+  "/house_rooms/dojo": "道场",
+  "/house_rooms/gym": "健身房",
+  "/house_rooms/armory": "军械库",
+  "/house_rooms/archery_range": "射箭场",
+  "/house_rooms/mystical_study": "神秘书房",
   // monsterNames
   "/monsters/abyssal_imp": "\u6df1\u6e0a\u5c0f\u9b3c",
   "/monsters/acrobat": "\u6742\u6280\u5e08",

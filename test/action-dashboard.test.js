@@ -437,11 +437,30 @@ test("gathering dialogs without a count input still render expected outputs", ()
     hrid: "/items/milk",
     name: "Milk",
   };
+  runtime.state.initData_itemDetailMap["/items/cheese"] = {
+    hrid: "/items/cheese",
+    name: "Cheese",
+  };
+  runtime.state.initData_itemDetailMap["/items/processing_tea"] = {
+    hrid: "/items/processing_tea",
+    name: "Processing Tea",
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/processing", flatBoost: 0.15 }],
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/cheesesmithing/cheese"] = {
+    hrid: "/actions/cheesesmithing/cheese",
+    type: "/action_types/cheesesmithing",
+    inputItems: [{ itemHrid: "/items/milk", count: 2 }],
+    outputItems: [{ itemHrid: "/items/cheese", count: 1 }],
+  };
   runtime.data.ZHActionNames["/actions/milking/cow"] = "奶牛";
   runtime.data.ZHItemNames["/items/milk"] = "牛奶";
+  runtime.data.ZHItemNames["/items/cheese"] = "奶酪";
   const previousNetSell = runtime.api.getNetSellPrice;
   runtime.api.getNetSellPrice = (itemHrid) =>
-    itemHrid === "/items/milk" ? 50 : previousNetSell(itemHrid);
+    ({ "/items/milk": 50, "/items/cheese": 120 })[itemHrid] ??
+    previousNetSell(itemHrid);
 
   runtime.api.renderProductionPanel();
 
@@ -458,7 +477,32 @@ test("gathering dialogs without a count input still render expected outputs", ()
   assert.equal(hiddenOldPanel.querySelector("#mwi-production-summary"), null);
   assert.equal(document.querySelector(".mwi-max-action-button"), null);
 
+  runtime.api.applyGameMessage({
+    type: "action_type_consumable_slots_updated",
+    actionTypeDrinkSlotsMap: {
+      "/action_types/milking": [{ itemHrid: "/items/processing_tea" }],
+    },
+  });
+  runtime.api.renderProductionPanel();
+
+  assert.deepEqual(
+    [...card.querySelectorAll(".mwi-production-output-item")].map(
+      (item) => item.title,
+    ),
+    ["牛奶 ×1.7", "奶酪 ×0.15"],
+  );
+  assert.match(card.textContent, /预期单次产出.*牛奶.*奶酪/s);
+
   runtime.api.getNetSellPrice = previousNetSell;
+  runtime.api.applyGameMessage({
+    type: "action_type_consumable_slots_updated",
+    actionTypeDrinkSlotsMap: {},
+  });
+  delete runtime.state.initData_itemDetailMap["/items/cheese"];
+  delete runtime.state.initData_itemDetailMap["/items/processing_tea"];
+  delete runtime.state.initData_actionDetailMap[
+    "/actions/cheesesmithing/cheese"
+  ];
   panel.remove();
   modal.append(originalPanel);
   hiddenOldPanel.remove();
@@ -564,7 +608,9 @@ test("nameless action panels are ignored without reading a missing element", () 
   }
 });
 
-test("the top action bar keeps finish time on desktop and hides it on mobile", () => {
+test("the top action bar shows only duration and a 24-hour finish time", () => {
+  const originalNow = Date.now;
+  Date.now = () => new Date(2026, 7, 13, 12, 0, 0).getTime();
   runtime.state.currentActionsHridList = [
     {
       actionHrid: "/actions/crafting/lumber",
@@ -579,47 +625,94 @@ test("the top action bar keeps finish time on desktop and hides it on mobile", (
       currentCount: 0,
     },
   ];
-  runtime.api.renderActionDashboard();
+  try {
+    runtime.api.renderActionDashboard();
 
-  const dashboard = document.querySelector("#mwi-action-dashboard");
-  assert.ok(dashboard);
-  assert.match(dashboard.textContent, /剩余 6/);
-  assert.match(dashboard.textContent, /还需 53s/);
-  assert.match(dashboard.textContent, /预计完成/);
-  assert.doesNotMatch(dashboard.textContent, /利润|全部完成|999/);
-  assert.equal(dashboard.querySelector(".mwi-action-eta")?.tagName, "STRONG");
-  assert.equal(dashboard.children.length, 1);
-  assert.equal(
-    document
-      .querySelector('[class*="Header_actionName"]')
-      .classList.contains("mwi-action-dashboard-host"),
-    true,
-  );
-  assert.equal(dom.window.getComputedStyle(dashboard).position, "absolute");
-  const dashboardStyle = document.querySelector(
-    "#mwitools-action-dashboard-style",
-  ).textContent;
-  assert.match(dashboardStyle, /flex-wrap:nowrap/);
-  assert.match(
-    dashboardStyle,
-    /\.mwi-action-dashboard \{[^}]*font-size:inherit/,
-  );
-  assert.match(
-    dashboardStyle,
-    /\.mwi-action-dashboard\[data-compact="true"\][^}]*width:max-content[^}]*padding-inline:4px/,
-  );
-  assert.match(
-    dashboardStyle,
-    /\.mwi-action-dashboard\[data-compact="true"\] \.mwi-action-eta \{ display:none; \}/,
-  );
-  assert.match(dashboardStyle, /\.mwi-action-dashboard \{[^}]*overflow:hidden/);
-  assert.match(
-    dashboardStyle,
-    /\.mwi-action-dashboard\[data-tight="true"\] \.mwi-action-time \{ display:none; \}/,
-  );
+    const dashboard = document.querySelector("#mwi-action-dashboard");
+    assert.ok(dashboard);
+    assert.equal(dashboard.textContent, "53秒（12:00:53）");
+    assert.doesNotMatch(
+      dashboard.textContent,
+      /剩余|还需|预计完成|利润|全部完成|999/,
+    );
+    assert.equal(
+      dashboard.querySelector(".mwi-action-time")?.tagName,
+      "STRONG",
+    );
+    assert.equal(dashboard.querySelector(".mwi-action-eta"), null);
+    assert.equal(dashboard.children.length, 1);
+    assert.equal(
+      document
+        .querySelector('[class*="Header_actionName"]')
+        .classList.contains("mwi-action-dashboard-host"),
+      true,
+    );
+    assert.equal(dom.window.getComputedStyle(dashboard).position, "absolute");
+    const dashboardStyle = document.querySelector(
+      "#mwitools-action-dashboard-style",
+    ).textContent;
+    assert.match(dashboardStyle, /flex-wrap:nowrap/);
+    assert.match(
+      dashboardStyle,
+      /\.mwi-action-dashboard \{[^}]*font-size:inherit/,
+    );
+    assert.match(
+      dashboardStyle,
+      /\.mwi-action-dashboard\[data-compact="true"\][^}]*width:max-content[^}]*padding-inline:4px/,
+    );
+    assert.match(
+      dashboardStyle,
+      /\.mwi-action-time \{[^}]*font-variant-numeric:tabular-nums/,
+    );
+    assert.match(
+      dashboardStyle,
+      /\.mwi-action-dashboard \{[^}]*overflow:hidden/,
+    );
+    assert.doesNotMatch(
+      dashboardStyle,
+      /mwi-action-eta|mwi-action-time[^}]*display:none/,
+    );
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
-test("the top action bar drops finish time when its actual header space is narrow", () => {
+test("the top action bar marks one-day and multi-day calendar offsets", () => {
+  const originalNow = Date.now;
+  const logItem = runtime.state.initData_characterItems.find(
+    ({ itemHrid }) => itemHrid === "/items/log",
+  );
+  const originalLogCount = logItem.count;
+  Date.now = () => new Date(2026, 7, 13, 23, 59, 30).getTime();
+  try {
+    logItem.count = 50_000;
+    runtime.state.currentActionsHridList = [
+      {
+        actionHrid: "/actions/crafting/lumber",
+        hasMaxCount: true,
+        maxCount: 6,
+        currentCount: 0,
+      },
+    ];
+    runtime.api.renderActionDashboard();
+    assert.equal(
+      document.querySelector("#mwi-action-dashboard").textContent,
+      "53秒（00:00:23）（+1天）",
+    );
+
+    runtime.state.currentActionsHridList[0].maxCount = 9_000;
+    runtime.api.renderActionDashboard();
+    assert.equal(
+      document.querySelector("#mwi-action-dashboard").textContent,
+      "1天59分53秒（00:59:23）（+2天）",
+    );
+  } finally {
+    Date.now = originalNow;
+    logItem.count = originalLogCount;
+  }
+});
+
+test("the top action bar keeps its full timing summary in narrow header space", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   const nativeLabel = host.querySelector("span");
   host.getBoundingClientRect = () => ({
@@ -628,17 +721,25 @@ test("the top action bar drops finish time when its actual header space is narro
     width: 360,
   });
   nativeLabel.getBoundingClientRect = () => ({ right: 80 });
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
 
   runtime.api.renderActionDashboard();
 
   const dashboard = document.querySelector("#mwi-action-dashboard");
   assert.equal(dashboard.dataset.compact, "true");
-  assert.match(dashboard.textContent, /剩余/);
-  assert.match(dashboard.textContent, /还需/);
+  assert.match(dashboard.textContent, /^53秒（\d{2}:\d{2}:\d{2}）/);
+  assert.doesNotMatch(dashboard.textContent, /剩余|还需|预计完成/);
   assert.equal(
-    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-time"))
       .display,
-    "none",
+    "inline",
   );
 });
 
@@ -668,29 +769,31 @@ test("a zero-width action-name box uses the current-action and queue boundaries"
   });
   runtime.config.isZH = false;
   nativeLabel.textContent = "Lumber";
+  try {
+    runtime.api.renderActionDashboard();
 
-  runtime.api.renderActionDashboard();
-
-  const dashboard = document.querySelector("#mwi-action-dashboard");
-  assert.match(dashboard.textContent, /Remaining/);
-  assert.equal(dashboard.dataset.compact, "true");
-  assert.equal(dashboard.dataset.tight, "false");
-  assert.equal(dashboard.style.left, "160px");
-  assert.equal(
-    dashboard.style.getPropertyValue("--mwi-action-dashboard-max-width"),
-    "243px",
-  );
-  assert.equal(
-    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
-      .display,
-    "none",
-  );
-  runtime.config.isZH = true;
-  nativeLabel.textContent = "木板";
-  queuedActions.remove();
+    const dashboard = document.querySelector("#mwi-action-dashboard");
+    assert.match(dashboard.textContent, /^53s \(\d{2}:\d{2}:\d{2}\)/);
+    assert.doesNotMatch(
+      dashboard.textContent,
+      /Remaining|Time left|Finishes at|AM|PM/,
+    );
+    assert.equal(dashboard.dataset.compact, "true");
+    assert.equal(dashboard.dataset.tight, "false");
+    assert.equal(dashboard.style.left, "160px");
+    assert.equal(
+      dashboard.style.getPropertyValue("--mwi-action-dashboard-max-width"),
+      "243px",
+    );
+    assert.equal(dashboard.querySelector(".mwi-action-eta"), null);
+  } finally {
+    runtime.config.isZH = true;
+    nativeLabel.textContent = "木板";
+    queuedActions.remove();
+  }
 });
 
-test("an extremely narrow action header keeps only the remaining count", () => {
+test("an extremely narrow action header keeps the timing summary visible", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   const currentAction = host.closest('div[class*="Header_currentAction"]');
   const nativeLabel = host.querySelector("span");
@@ -709,7 +812,7 @@ test("an extremely narrow action header keeps only the remaining count", () => {
   assert.equal(
     dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-time"))
       .display,
-    "none",
+    "inline",
   );
 });
 
@@ -739,7 +842,7 @@ test("the top action bar follows ordinal order and hides on header mismatch or c
   runtime.api.renderActionDashboard();
   assert.match(
     document.querySelector("#mwi-action-dashboard").textContent,
-    /6/,
+    /^53秒/,
   );
 
   host.firstElementChild.textContent = "奇幻洞穴";
@@ -792,7 +895,7 @@ test("the top action estimate keeps the completed-cycle progress after the bar r
   runtime.api.renderActionDashboard();
   assert.match(
     document.querySelector("#mwi-action-dashboard").textContent,
-    /还需 53s/,
+    /^53秒（/,
   );
 
   runtime.api.applyGameMessage({
@@ -803,9 +906,8 @@ test("the top action estimate keeps the completed-cycle progress after the bar r
   runtime.api.renderActionDashboard();
 
   const text = document.querySelector("#mwi-action-dashboard").textContent;
-  assert.match(text, /剩余 5/);
-  assert.match(text, /还需 50s/);
-  assert.doesNotMatch(text, /还需 1m/);
+  assert.match(text, /^50秒（/);
+  assert.doesNotMatch(text, /剩余|还需|预计完成|1分/);
   active.style.transform = "matrix(0.7, 0, 0, 1, 0, 0)";
 });
 
@@ -826,10 +928,10 @@ test("material-limited infinite production shows a finite live remainder", () =>
   runtime.api.renderActionDashboard();
 
   const dashboard = document.querySelector("#mwi-action-dashboard");
-  assert.match(dashboard.textContent, /剩余 10/);
-  assert.match(dashboard.textContent, /还需 93s/);
+  assert.match(dashboard.textContent, /^1分33秒（/);
+  assert.doesNotMatch(dashboard.textContent, /剩余|还需|预计完成/);
   assert.doesNotMatch(dashboard.textContent, /∞/);
-  assert.match(dashboard.querySelector("span").title, /当前库存/);
+  assert.match(dashboard.querySelector(".mwi-action-time").title, /当前库存/);
 
   runtime.api.applyGameMessage({
     type: "action_completed",
@@ -846,9 +948,8 @@ test("material-limited infinite production shows a finite live remainder", () =>
   active.style.transform = "matrix(0, 0, 0, 1, 0, 0)";
   runtime.api.renderActionDashboard();
 
-  assert.match(dashboard.textContent, /剩余 9/);
-  assert.match(dashboard.textContent, /还需 90s/);
-  assert.doesNotMatch(dashboard.textContent, /还需 100s/);
+  assert.match(dashboard.textContent, /^1分30秒（/);
+  assert.doesNotMatch(dashboard.textContent, /剩余|还需|预计完成|1分40秒/);
   runtime.state.initData_characterItems.find(
     ({ itemHrid }) => itemHrid === "/items/log",
   ).count = 20;
@@ -878,10 +979,9 @@ test("enhancement actions use the finite amount shown in the native header", () 
   runtime.api.renderActionDashboard();
 
   const dashboard = document.querySelector("#mwi-action-dashboard");
-  assert.match(dashboard.textContent, /剩余 2\.94K/);
-  assert.doesNotMatch(dashboard.textContent, /∞/);
-  assert.match(dashboard.textContent, /预计完成/);
-  assert.match(dashboard.querySelector("span").title, /强化栏/);
+  assert.match(dashboard.textContent, /^8小时9分23秒（/);
+  assert.doesNotMatch(dashboard.textContent, /∞|剩余|还需|预计完成|2\.94K/);
+  assert.match(dashboard.querySelector(".mwi-action-time").title, /强化栏/);
 });
 
 test("unenhanced items and trailing warnings keep enhancement estimates visible", () => {
@@ -905,8 +1005,8 @@ test("unenhanced items and trailing warnings keep enhancement estimates visible"
 
   const dashboard = document.querySelector("#mwi-action-dashboard");
   assert.ok(dashboard);
-  assert.match(dashboard.textContent, /剩余 2\.94K/);
-  assert.doesNotMatch(dashboard.textContent, /∞|预计完成 —/);
+  assert.match(dashboard.textContent, /^8小时9分23秒（/);
+  assert.doesNotMatch(dashboard.textContent, /∞|剩余|还需|预计完成|2\.94K/);
 });
 
 test("equipment warnings float below community buffs without moving action content", () => {
@@ -988,6 +1088,59 @@ test("equipment warnings float below community buffs without moving action conte
   runtime.api.checkEquipment();
   assert.equal(document.querySelector("#script_item_warning"), null);
   assert.equal(nativeName.outerHTML, nativeMarkup);
+});
+
+test("every skilling equipment reminder uses the current game item HRID", () => {
+  const previousItems = runtime.state.initData_characterItems;
+  const previousActions = runtime.state.currentActionsHridList;
+  const previousEquipment = runtime.state.currentEquipmentMap;
+  const cases = [
+    {
+      actionHrid: "/actions/cooking/test",
+      itemHrid: "/items/red_culinary_hat",
+      locationHrid: "/item_locations/head",
+    },
+    {
+      actionHrid: "/actions/crafting/test",
+      itemHrid: "/items/eye_watch",
+      locationHrid: "/item_locations/off_hand",
+    },
+    {
+      actionHrid: "/actions/woodcutting/test",
+      itemHrid: "/items/collectors_boots",
+      locationHrid: "/item_locations/feet",
+    },
+    {
+      actionHrid: "/actions/enhancing",
+      itemHrid: "/items/enchanted_gloves",
+      locationHrid: "/item_locations/hands",
+    },
+  ];
+
+  try {
+    runtime.state.labyrinthActive = false;
+    for (const { actionHrid, itemHrid, locationHrid } of cases) {
+      runtime.state.currentActionsHridList = [{ actionHrid }];
+      runtime.state.initData_characterItems = [
+        {
+          itemHrid,
+          itemLocationHrid: "/item_locations/inventory",
+          count: 1,
+        },
+      ];
+      runtime.state.currentEquipmentMap = {};
+      assert.equal(runtime.api.getEquipmentWarning()?.itemHrid, itemHrid);
+
+      runtime.state.currentEquipmentMap = {
+        [locationHrid]: { itemHrid, itemLocationHrid: locationHrid, count: 1 },
+      };
+      assert.equal(runtime.api.getEquipmentWarning(), null);
+    }
+  } finally {
+    runtime.state.initData_characterItems = previousItems;
+    runtime.state.currentActionsHridList = previousActions;
+    runtime.state.currentEquipmentMap = previousEquipment;
+  }
 });
 
 test("every localized skilling action resolves to its canonical action HRID", () => {

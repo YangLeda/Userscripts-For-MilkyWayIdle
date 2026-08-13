@@ -4,6 +4,11 @@ import {
   matchesGameTranslation,
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import {
+  ensureHeaderToolsHost,
+  HEADER_TOOLS_ID,
+  removeHeaderToolsHostIfEmpty,
+} from "./header-tools.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
@@ -12,6 +17,9 @@ const SETTINGS_STYLE_ID = "mwitools-settings-style";
 const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
 const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
+const SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root";
+const SETTINGS_BUTTON_ID = "mwitools-settings-button";
+const SETTINGS_POPOVER_ID = "mwitools-settings-popover";
 const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
 const GUILD_CREDIT_RECOMMENDATION_COUNT_KEY =
   "MWITools_guild_credit_recommendation_count_v1";
@@ -39,6 +47,11 @@ function setGuildCreditRecommendationCount(value) {
     GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
     String(guildCreditRecommendationCount),
   );
+  document
+    .querySelectorAll?.("[data-mwitools-guild-credit-count]")
+    .forEach((select) => {
+      select.value = String(guildCreditRecommendationCount);
+    });
   if (runtime.settings.get("guildCreditConversionsSort")) {
     void runtime.api.renderGuildCreditRecommendations?.();
   }
@@ -233,10 +246,20 @@ function addSettingsStyles() {
   const style = document.createElement("style");
   style.id = SETTINGS_STYLE_ID;
   style.textContent = `
-    #script_settings { width:100%; margin-top:14px; color:var(--color-text-primary,#eee); }
+    #${HEADER_TOOLS_ID} { display:flex; align-items:center; justify-content:center; gap:4px; width:max-content; max-width:100%; margin:2px auto 0; }
+    #${SETTINGS_BUTTON_ID} { display:inline-flex; width:22px; height:20px; flex:0 0 22px; align-items:center; justify-content:center; box-sizing:border-box; margin:0; padding:0; border:1px solid rgba(160,176,210,.45); border-radius:4px; background:rgba(118,138,180,.12); color:#bdc9e5; font:700 13px/1 sans-serif; cursor:pointer; }
+    #${SETTINGS_BUTTON_ID}:hover,#${SETTINGS_BUTTON_ID}[aria-expanded="true"] { border-color:rgba(245,158,11,.65); background:rgba(245,158,11,.16); color:#ffd27a; }
+    #${SETTINGS_BUTTON_ID}:focus-visible { outline:2px solid var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); outline-offset:1px; }
+    #${SETTINGS_POPOVER_ID} { position:fixed; z-index:2147482500; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; padding:10px; border:1px solid rgba(116,132,170,.72); border-radius:9px; background:var(--color-background-primary,#171b2a); box-shadow:0 18px 54px rgba(0,0,0,.62); color:var(--color-text-primary,#eee); }
+    #${SETTINGS_POPOVER_ID}[hidden] { display:none; }
+    #script_settings,[${SETTINGS_ROOT_ATTRIBUTE}] { width:100%; color:var(--color-text-primary,#eee); }
+    #script_settings { margin-top:14px; }
     [${SETTINGS_PANEL_ATTRIBUTE}] { width:100%; box-sizing:border-box; }
     [${SETTINGS_TAB_ATTRIBUTE}][aria-selected="true"] { color:var(--color-primary,#fff); }
     .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
+    .mwi-settings-hero-actions { display:flex; align-items:center; gap:7px; }
+    .mwi-settings-close { display:inline-flex; width:30px; height:30px; flex:0 0 30px; align-items:center; justify-content:center; border:0; border-radius:5px; background:rgba(255,255,255,.06); color:var(--color-text-secondary,#aaa); font-size:19px; cursor:pointer; }
+    .mwi-settings-close:hover { background:rgba(255,255,255,.12); color:var(--color-text-primary,#fff); }
     .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
     .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:calc(.78rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
     .mwi-settings-search { width:min(320px,100%); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(0,0,0,.2); color:inherit; padding:7px 9px; }
@@ -275,7 +298,7 @@ function addSettingsStyles() {
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
   styleHost.appendChild(style);
 }
@@ -331,6 +354,33 @@ function areSettingParentsEnabled(definition) {
     parent = runtime.settings.catalog[parent]?.parent;
   }
   return true;
+}
+
+function settingsRoots() {
+  return [
+    ...document.querySelectorAll(
+      `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}]`,
+    ),
+  ];
+}
+
+function cleanupSettingsRoot(root) {
+  for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+    card._mwitoolsCleanup?.();
+  }
+}
+
+function renderAllSettings() {
+  for (const root of settingsRoots()) renderSettings(root);
+  const label = runtime.config.isZH
+    ? "MWITools 快捷设置"
+    : "MWITools quick settings";
+  document
+    .getElementById(SETTINGS_BUTTON_ID)
+    ?.setAttribute("aria-label", label);
+  document
+    .getElementById(SETTINGS_POPOVER_ID)
+    ?.setAttribute("aria-label", label);
 }
 
 function createSelectSettingCard(definition, options = {}) {
@@ -548,6 +598,7 @@ function createSettingCard(definition, options = {}) {
       : "Recommendations";
     const countSelect = document.createElement("select");
     countSelect.className = "mwi-setting-select";
+    countSelect.dataset.mwitoolsGuildCreditCount = "";
     countSelect.setAttribute(
       "aria-label",
       runtime.config.isZH ? "公会信用推荐数量" : "Guild credit recommendations",
@@ -581,7 +632,7 @@ function createSettingCard(definition, options = {}) {
       children.length
     ) {
       applyVisualSettings();
-      renderSettings(document.querySelector("#script_settings"));
+      renderAllSettings();
       return;
     }
     setStatus();
@@ -607,9 +658,7 @@ function createSettingCard(definition, options = {}) {
 
 function renderSettings(root) {
   if (!root) return;
-  for (const card of root.querySelectorAll(".mwi-setting-card")) {
-    card._mwitoolsCleanup?.();
-  }
+  cleanupSettingsRoot(root);
   root.replaceChildren();
 
   const hero = document.createElement("div");
@@ -630,7 +679,19 @@ function renderSettings(root) {
   search.placeholder = runtime.config.isZH
     ? "搜索功能或说明"
     : "Search settings";
-  hero.append(heroCopy, search);
+  const heroActions = document.createElement("div");
+  heroActions.className = "mwi-settings-hero-actions";
+  heroActions.append(search);
+  if (root.hasAttribute(SETTINGS_ROOT_ATTRIBUTE)) {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "mwi-settings-close";
+    close.dataset.mwitoolsSettingsClose = "";
+    close.setAttribute("aria-label", runtime.config.isZH ? "关闭" : "Close");
+    close.textContent = "×";
+    heroActions.append(close);
+  }
+  hero.append(heroCopy, heroActions);
   root.append(hero);
 
   for (const [groupId, group] of Object.entries(runtime.settings.groups)) {
@@ -673,6 +734,115 @@ function renderSettings(root) {
       );
     }
   });
+}
+
+function positionSettingsPopover() {
+  const button = document.getElementById(SETTINGS_BUTTON_ID);
+  const popover = document.getElementById(SETTINGS_POPOVER_ID);
+  if (!button || !popover || popover.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const viewportWidth = Math.max(
+    320,
+    globalThis.innerWidth || document.documentElement?.clientWidth || 0,
+  );
+  const viewportHeight = Math.max(
+    320,
+    globalThis.innerHeight || document.documentElement?.clientHeight || 0,
+  );
+  const margin = 8;
+  const width = Math.min(620, viewportWidth - margin * 2);
+  let top = rect.bottom + 6;
+  let maxHeight = viewportHeight - top - margin;
+  if (maxHeight < 240) {
+    top = margin;
+    maxHeight = viewportHeight - margin * 2;
+  }
+  const left = Math.min(
+    viewportWidth - width - margin,
+    Math.max(margin, rect.right - width),
+  );
+  Object.assign(popover.style, {
+    width: `${width}px`,
+    maxHeight: `${Math.max(180, maxHeight)}px`,
+    left: `${left}px`,
+    top: `${top}px`,
+  });
+}
+
+function closeSettingsPopover({ restoreFocus = false } = {}) {
+  const button = document.getElementById(SETTINGS_BUTTON_ID);
+  const popover = document.getElementById(SETTINGS_POPOVER_ID);
+  if (!popover || popover.hidden) return false;
+  popover.hidden = true;
+  button?.setAttribute("aria-expanded", "false");
+  if (restoreFocus) button?.focus();
+  return true;
+}
+
+function ensureSettingsPopover() {
+  let popover = document.getElementById(SETTINGS_POPOVER_ID);
+  if (popover) {
+    popover.setAttribute(
+      "aria-label",
+      runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings",
+    );
+    return popover;
+  }
+  popover = document.createElement("section");
+  popover.id = SETTINGS_POPOVER_ID;
+  popover.hidden = true;
+  popover.setAttribute("role", "dialog");
+  popover.setAttribute(
+    "aria-label",
+    runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings",
+  );
+  const root = document.createElement("div");
+  root.setAttribute(SETTINGS_ROOT_ATTRIBUTE, "");
+  popover.append(root);
+  popover.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-mwitools-settings-close]")) {
+      closeSettingsPopover({ restoreFocus: true });
+    }
+  });
+  document.body.append(popover);
+  renderSettings(root);
+  return popover;
+}
+
+function toggleSettingsPopover() {
+  const button = document.getElementById(SETTINGS_BUTTON_ID);
+  const popover = ensureSettingsPopover();
+  if (!button) return false;
+  if (!popover.hidden) return closeSettingsPopover();
+  renderSettings(popover.querySelector(`[${SETTINGS_ROOT_ATTRIBUTE}]`));
+  popover.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  positionSettingsPopover();
+  popover.querySelector(".mwi-settings-search")?.focus();
+  return true;
+}
+
+function ensureSettingsLauncher() {
+  const host = ensureHeaderToolsHost();
+  if (!host) return null;
+  let button = document.getElementById(SETTINGS_BUTTON_ID);
+  if (!button) {
+    button = document.createElement("button");
+    button.type = "button";
+    button.id = SETTINGS_BUTTON_ID;
+    button.textContent = "⚙";
+    button.setAttribute("aria-expanded", "false");
+    button.setAttribute("aria-controls", SETTINGS_POPOVER_ID);
+    button.addEventListener("click", () => toggleSettingsPopover());
+  }
+  button.setAttribute(
+    "aria-label",
+    runtime.config.isZH ? "MWITools 快捷设置" : "MWITools quick settings",
+  );
+  if (button.parentElement !== host || button !== host.firstElementChild) {
+    host.prepend(button);
+  }
+  return button;
 }
 
 function restoreNativeSettingsPanels(tabList, panelsContainer, selectedTab) {
@@ -820,7 +990,7 @@ function getEquipmentWarning() {
   if (!currentActionHrid) return null;
   const hasHat =
     runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid ===
-    "/items/red_chefs_hat"
+    "/items/red_culinary_hat"
       ? true
       : false; // Cooking, Brewing
   const hasOffHand =
@@ -852,10 +1022,10 @@ function getEquipmentWarning() {
     currentActionHrid.includes("/actions/cooking/") ||
     currentActionHrid.includes("/actions/brewing/")
   ) {
-    if (!hasHat && hasItemHridInInv("/items/red_chefs_hat")) {
+    if (!hasHat && hasItemHridInInv("/items/red_culinary_hat")) {
       return {
         code: "missing-production-hat",
-        itemHrid: "/items/red_chefs_hat",
+        itemHrid: "/items/red_culinary_hat",
         text: runtime.config.isZH
           ? "未装备生活帽"
           : "Skilling hat not equipped",
@@ -1166,9 +1336,11 @@ runtime.features.register({
   initialize({ scope }) {
     addSettingsStyles();
     ensureSettingsPanel();
+    ensureSettingsLauncher();
     const render = () => {
       addSettingsStyles();
       ensureSettingsPanel();
+      ensureSettingsLauncher();
     };
     const scheduler = createFrameScheduler(render);
     const MutationObserverRef =
@@ -1181,7 +1353,7 @@ runtime.features.register({
             : record.target?.parentElement;
         if (
           target?.closest?.(
-            `#script_settings,[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}]`,
+            `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`,
           )
         ) {
           return false;
@@ -1192,8 +1364,12 @@ runtime.features.register({
         return [...record.addedNodes, ...record.removedNodes].some(
           (node) =>
             node?.nodeType === 1 &&
-            (node.matches?.('[class*="SettingsPanel_settingsPanel"]') ||
-              node.querySelector?.('[class*="SettingsPanel_settingsPanel"]')),
+            (node.matches?.(
+              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]',
+            ) ||
+              node.querySelector?.(
+                '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]',
+              )),
         );
       });
       if (relevant) scheduler.schedule();
@@ -1202,12 +1378,28 @@ runtime.features.register({
       childList: true,
       subtree: true,
     });
+    scope.event(document, "click", (event) => {
+      const popover = document.getElementById(SETTINGS_POPOVER_ID);
+      if (
+        !popover ||
+        popover.hidden ||
+        popover.contains(event.target) ||
+        event.target.closest?.(`#${SETTINGS_BUTTON_ID}`)
+      ) {
+        return;
+      }
+      closeSettingsPopover();
+    });
+    scope.event(document, "keydown", (event) => {
+      if (event.key === "Escape") {
+        closeSettingsPopover({ restoreFocus: true });
+      }
+    });
+    scope.event(globalThis, "resize", positionSettingsPopover);
+    scope.event(globalThis, "scroll", positionSettingsPopover, true);
     scope.add(() => {
       scheduler.cancel();
-      const root = document.querySelector("#script_settings");
-      for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
-        card._mwitoolsCleanup?.();
-      }
+      for (const root of settingsRoots()) cleanupSettingsRoot(root);
       const customTab = document.querySelector(`[${SETTINGS_TAB_ATTRIBUTE}]`);
       const tabList = customTab?.parentElement;
       if (tabList?._mwitoolsRestoreSettings) {
@@ -1216,7 +1408,10 @@ runtime.features.register({
       }
       customTab?.remove();
       document.querySelector(`[${SETTINGS_PANEL_ATTRIBUTE}]`)?.remove();
-      root?.remove();
+      document.querySelector("#script_settings")?.remove();
+      document.getElementById(SETTINGS_POPOVER_ID)?.remove();
+      document.getElementById(SETTINGS_BUTTON_ID)?.remove();
+      removeHeaderToolsHostIfEmpty();
       document.getElementById(SETTINGS_STYLE_ID)?.remove();
     });
   },

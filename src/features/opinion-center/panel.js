@@ -1,6 +1,12 @@
 import { feedbackContext, normalizeImageLinks } from "./client.js";
 import { AnnouncementStore } from "./announcements.js";
 import { runtime } from "../../core/runtime.js";
+import {
+  ensureHeaderToolsHost,
+  findHeaderTotalLevel,
+  HEADER_TOOLS_ID,
+  removeHeaderToolsHostIfEmpty,
+} from "../header-tools.js";
 
 const ROOT_ID = "mwitools-feedback-root";
 const BUTTON_ID = "mwitools-feedback-button";
@@ -23,7 +29,8 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
+    #${HEADER_TOOLS_ID}{display:flex;align-items:center;justify-content:center;gap:4px;width:max-content;max-width:100%;margin:2px auto 0}
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;overflow:hidden;overscroll-behavior:contain;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;min-height:0;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
@@ -124,8 +131,8 @@ export class OpinionCenterPanel {
   }
 
   ensureButton() {
-    const totalLevel = this.findTotalLevel();
-    if (!totalLevel?.parentElement) return null;
+    const host = ensureHeaderToolsHost();
+    if (!host) return null;
     let button = document.getElementById(BUTTON_ID);
     if (!button) {
       button = document.createElement("button");
@@ -139,29 +146,15 @@ export class OpinionCenterPanel {
       this.scope.event(button, "click", () => this.open());
     }
     button.querySelector(".mwi-opinion-label").textContent = "MWITools";
-    if (
-      button.parentElement !== totalLevel.parentElement ||
-      button.previousElementSibling !== totalLevel
-    ) {
-      totalLevel.insertAdjacentElement("afterend", button);
+    if (button.parentElement !== host || button !== host.lastElementChild) {
+      host.append(button);
     }
     this.updateUnreadIndicator();
     return button;
   }
 
   findTotalLevel() {
-    const direct = document.querySelector(
-      '[class*="Header_totalLevel"],[class*="totalLevel"]',
-    );
-    if (direct) return direct;
-    return [
-      ...document.querySelectorAll(
-        'header div,header span,[class*="Header"] div',
-      ),
-    ].find((node) => {
-      const text = node.textContent?.trim() ?? "";
-      return text.length < 80 && /^(总等级|Total Level)\s*[:：]/i.test(text);
-    });
+    return findHeaderTotalLevel();
   }
 
   setUnread(count) {
@@ -653,6 +646,7 @@ export class OpinionCenterPanel {
   destroy() {
     if (!this.root?.hidden) this.close();
     document.getElementById(BUTTON_ID)?.remove();
+    removeHeaderToolsHostIfEmpty();
     this.root?.remove();
     document.getElementById(STYLE_ID)?.remove();
   }
