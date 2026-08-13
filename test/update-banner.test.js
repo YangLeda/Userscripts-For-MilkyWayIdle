@@ -106,18 +106,22 @@ test("latest version alone does not trigger an important update", () => {
   );
 });
 
-test("release 26.4.6 is the current important-update threshold", () => {
+test("release 26.4.7 is the current important-update threshold", () => {
   const releaseManifest = JSON.parse(
     readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
   );
   assert.equal(releaseManifest.latestVersion, "26.4.7");
-  assert.equal(releaseManifest.importantVersion, "26.4.6");
+  assert.equal(releaseManifest.importantVersion, "26.4.7");
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.5"),
     true,
   );
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.6"),
+    true,
+  );
+  assert.equal(
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.7"),
     false,
   );
 });

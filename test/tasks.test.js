@@ -136,6 +136,10 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /TasksPanel_taskList[^}]*repeat\(auto-fill,minmax\(min\(100%,270px\),1fr\)/,
   );
+  assert.match(
+    styles,
+    /TasksPanel_taskList[^}]*> \*[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*box-sizing:\s*border-box/,
+  );
   assert.match(styles, /RandomTask_randomTask[^}]*min-width:\s*0\s*!important/);
   assert.match(
     styles,
