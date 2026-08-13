@@ -241,6 +241,15 @@ function timeReadable(sec) {
 /* 物品 ToolTips */
 const tooltipObserver = new MutationObserver(async function (mutations) {
   for (const mutation of mutations) {
+    for (const removed of mutation.removedNodes) {
+      if (
+        removed?.nodeType === 1 &&
+        (removed.matches?.(".MuiTooltip-popper") ||
+          removed.querySelector?.(".MuiTooltip-popper"))
+      ) {
+        runtime.api.disconnectActionQueueObserver?.(removed);
+      }
+    }
     for (const added of mutation.addedNodes) {
       if (
         added?.nodeType === 1 &&
@@ -756,18 +765,18 @@ runtime.features.register({
         width: 10px !important;
       }`),
     ];
-    let observing = false;
     const attach = () => {
-      if (observing || !document.body) return;
+      if (!document.body) return false;
       tooltipObserver.observe(document.body, {
         attributes: false,
         childList: true,
         characterData: false,
       });
-      observing = true;
+      return true;
     };
-    attach();
-    scope.interval(attach, 250);
+    if (!attach()) {
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
+    }
     scope.event(
       document,
       "dblclick",

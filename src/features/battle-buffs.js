@@ -497,9 +497,23 @@ function createBuffTracker(scope) {
 
   function tickCountdowns() {
     const units = getBattleUnits();
+    let active = false;
     for (const unitEl of [...units.players, ...units.monsters]) {
-      if (UNIT_STATE.has(unitEl)) renderUnit(unitEl);
+      if (!UNIT_STATE.has(unitEl)) continue;
+      renderUnit(unitEl);
+      if (UNIT_STATE.get(unitEl)?.effects?.size) active = true;
     }
+    return active;
+  }
+
+  function hasActiveEffects() {
+    const now = Date.now();
+    const units = getBattleUnits();
+    return [...units.players, ...units.monsters].some((unitEl) =>
+      [...(UNIT_STATE.get(unitEl)?.effects?.values?.() ?? [])].some(
+        (effect) => effect.expiresAt > now,
+      ),
+    );
   }
 
   function removeAllBuffBars() {
@@ -516,6 +530,7 @@ function createBuffTracker(scope) {
   return {
     handleNewBattle,
     applyBattleUpdated,
+    hasActiveEffects,
     tickCountdowns,
     removeAllBuffBars,
   };
@@ -526,21 +541,36 @@ runtime.features.register({
   setting: "battleBuffs",
   initialize({ scope }) {
     const tracker = createBuffTracker(scope);
-
-    scope.interval(() => tracker.tickCountdowns(), 1000);
+    let countdownTimer = null;
+    const tick = () => {
+      countdownTimer = null;
+      if (tracker.tickCountdowns()) {
+        countdownTimer = setTimeout(tick, 1000);
+      }
+    };
+    const ensureCountdown = () => {
+      if (countdownTimer === null && tracker.hasActiveEffects()) {
+        countdownTimer = setTimeout(tick, 1000);
+      }
+    };
 
     scope.add(
       runtime.onMessage("new_battle", (payload) => {
         tracker.handleNewBattle(payload);
+        ensureCountdown();
       }),
     );
     scope.add(
       runtime.onMessage("battle_updated", (payload) => {
         tracker.applyBattleUpdated(payload);
+        ensureCountdown();
       }),
     );
 
-    scope.add(() => tracker.removeAllBuffBars());
+    scope.add(() => {
+      if (countdownTimer !== null) clearTimeout(countdownTimer);
+      tracker.removeAllBuffBars();
+    });
   },
 });
 

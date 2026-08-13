@@ -19,6 +19,7 @@ globalThis.setInterval = (callback) => {
   return id;
 };
 globalThis.clearInterval = (id) => intervals.delete(id);
+const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
 runtime.config.isZH = true;
@@ -141,7 +142,7 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
-test("盈亏 visually suppresses native selection without mutating React tab state", () => {
+test("盈亏 visually suppresses native selection without mutating React tab state", async () => {
   document.body.replaceChildren();
   intervals.clear();
   const shell = gameShell();
@@ -243,7 +244,7 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   tab.click();
   houseTab.setAttribute("aria-selected", "false");
   inventoryTab.setAttribute("aria-selected", "true");
-  for (const callback of intervals.values()) callback();
+  await settleDom();
   assert.equal(tab.dataset.active, "false");
   assert.equal(nativeContent.hidden, false);
 
@@ -306,7 +307,7 @@ test("mobile mounts P/L beside the visible character-management tabs", () => {
   });
 });
 
-test("mobile remounts P/L when a different character-management panel becomes visible", () => {
+test("mobile remounts P/L when a different character-management panel becomes visible", async () => {
   document.body.replaceChildren();
   intervals.clear();
   Object.defineProperty(window, "innerWidth", {
@@ -331,7 +332,7 @@ test("mobile remounts P/L when a different character-management panel becomes vi
     width: 356,
     height: 24,
   });
-  for (const callback of intervals.values()) callback();
+  await settleDom();
 
   const tab = document.querySelector("#mwitools-asset-history-tab");
   assert.equal(tab.parentElement, visibleMobileShell.querySelector("nav"));
@@ -356,7 +357,7 @@ test("mobile remounts P/L when a different character-management panel becomes vi
   });
 });
 
-test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", () => {
+test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", async () => {
   document.body.replaceChildren();
   intervals.clear();
   let shell = gameShell();
@@ -368,7 +369,7 @@ test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", 
   });
   shell.remove();
   shell = gameShell();
-  for (const callback of intervals.values()) callback();
+  await settleDom();
   assert.equal(
     document.querySelectorAll("#mwitools-asset-history-tab").length,
     1,

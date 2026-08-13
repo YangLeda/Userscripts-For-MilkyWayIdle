@@ -85,11 +85,24 @@ function add3rdPartyLinks() {
   targetNode.insertBefore(fragment, targetNode.firstChild);
 }
 
-const actionQueueObservers = new Map();
+let activeActionQueueObserver = null;
+
+function disconnectActionQueueObserver(root = null) {
+  if (!activeActionQueueObserver) return false;
+  if (
+    root &&
+    activeActionQueueObserver.menu !== root &&
+    !root.contains?.(activeActionQueueObserver.menu)
+  ) {
+    return false;
+  }
+  activeActionQueueObserver.observer.disconnect();
+  activeActionQueueObserver = null;
+  return true;
+}
 
 function disconnectActionQueueObservers() {
-  for (const observer of actionQueueObservers.values()) observer.disconnect();
-  actionQueueObservers.clear();
+  disconnectActionQueueObserver();
 }
 
 function handleActionQueueMenue(added) {
@@ -97,16 +110,16 @@ function handleActionQueueMenue(added) {
   handleActionQueueMenueCalculateTime(added);
 
   const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-  if (!listDiv || actionQueueObservers.has(added)) return;
+  if (!listDiv || activeActionQueueObserver?.menu === added) return;
+  disconnectActionQueueObserver();
   const observer = new MutationObserver(() => {
-    if (!runtime.settings.get("actionQueue")) {
-      observer.disconnect();
-      actionQueueObservers.delete(added);
+    if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+      disconnectActionQueueObserver(added);
       return;
     }
     handleActionQueueMenueCalculateTime(added);
   });
-  actionQueueObservers.set(added, observer);
+  activeActionQueueObserver = { menu: added, observer };
   observer.observe(listDiv, {
     characterData: false,
     subtree: false,
@@ -195,7 +208,10 @@ function getOriTextFromElement(element) {
 
 Object.assign(runtime.api, {
   add3rdPartyLinks,
+  disconnectActionQueueObserver,
   disconnectActionQueueObservers,
+  getActiveActionQueueObserverCount: () =>
+    activeActionQueueObserver === null ? 0 : 1,
   getOriTextFromElement,
   handleActionQueueMenue,
   handleActionQueueMenueCalculateTime,

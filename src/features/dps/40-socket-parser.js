@@ -669,6 +669,26 @@ const SocketHook = (() => {
       }
     }
   }
+
+  function hasReflectionDefinitions(payload = {}) {
+    const sources = [
+      payload,
+      payload.data,
+      payload.initGameData,
+      payload.init_game_data,
+      payload.initClientData,
+      payload.init_client_data,
+      payload.clientData,
+      payload.client_data,
+    ].filter((value) => value && typeof value === "object");
+    return sources.some(
+      (source) =>
+        source.abilityDetailMap ||
+        source.gameAbilityDetailMap ||
+        source.itemDetailMap ||
+        source.gameItemDetailMap,
+    );
+  }
   function abilityHridsFrom(value, depth = 0, out = new Set()) {
     if (depth > 7 || value === null || value === undefined) return out;
     if (typeof value === "string") {
@@ -2547,14 +2567,16 @@ const SocketHook = (() => {
   }
 
   function handleMessage(message) {
-    let obj;
-    try {
-      obj = JSON.parse(message);
-    } catch (e) {
-      ClassProbe.recordUnparsed(message);
-      return;
+    let obj = message;
+    if (typeof message === "string") {
+      try {
+        obj = JSON.parse(message);
+      } catch (e) {
+        ClassProbe.recordUnparsed(message);
+        return;
+      }
     }
-    if (!obj || !obj.type) return;
+    if (!obj || typeof obj !== "object" || !obj.type) return;
     const messageData =
       obj.data && typeof obj.data === "object" ? obj.data : obj;
     // 国际服、国服及测试服把客户端物品表放在不同消息/层级中；只要本次
@@ -2565,8 +2587,9 @@ const SocketHook = (() => {
       obj.itemDetailMap ||
       obj.gameItemDetailMap;
     if (receivedItemDetails) ClassSystem.cacheItemDetails(receivedItemDetails);
-    cacheReflectionDefinitions(obj);
-    cacheReflectionDefinitions(messageData);
+    if (receivedItemDetails || hasReflectionDefinitions(obj)) {
+      cacheReflectionDefinitions(obj);
+    }
     Capture.record(obj.type, obj);
     ClassDebug.record(obj.type, obj);
     ClassProbe.record(obj.type, obj);
@@ -2594,7 +2617,12 @@ const SocketHook = (() => {
         }),
       );
     }
-    const guildSnapshot = guildCombatSnapshotFromMessage(obj);
+    const guildSnapshot =
+      obj.type === "init_character_data" ||
+      obj.type === "new_guild_battle" ||
+      obj.type === "guild_battle_updated"
+        ? guildCombatSnapshotFromMessage(obj)
+        : null;
     if (guildSnapshot) processGuildCombatSnapshot(guildSnapshot);
     if (obj.type === "battle_unit_fetched" || obj.type === "profile_shared") {
       const learned =

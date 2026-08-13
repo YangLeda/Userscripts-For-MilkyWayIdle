@@ -1,10 +1,14 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
 const MARKET_NAV_ID = "mwitools-procurement-market-nav";
 const PRODUCTION_ID = "mwitools-procurement-production";
+const PROCUREMENT_SURFACE_SELECTOR =
+  'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
+const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
 const procurement = runtime.api.procurement;
 
 let shell = null;
@@ -1996,10 +2000,64 @@ runtime.features.register({
     );
     renderProductionProcurement();
     updateMarketUi();
-    scope.interval(renderProductionProcurement, 350);
-    scope.interval(updateMarketUi, 900);
+    const renderScheduler = createFrameScheduler(() => {
+      renderProductionProcurement();
+      updateMarketUi();
+    });
+    const scheduleRender = () => renderScheduler.schedule();
+    const MutationObserverRef =
+      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        const changed = [...record.addedNodes, ...record.removedNodes].filter(
+          (node) => node?.nodeType === 1,
+        );
+        if (
+          target?.closest?.(OWNED_PROCUREMENT_SELECTOR) ||
+          (changed.length &&
+            changed.every(
+              (node) =>
+                node.matches?.(OWNED_PROCUREMENT_SELECTOR) ||
+                node.closest?.(OWNED_PROCUREMENT_SELECTOR),
+            ))
+        ) {
+          return false;
+        }
+        if (target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) return true;
+        return changed.some(
+          (node) =>
+            node.matches?.(PROCUREMENT_SURFACE_SELECTOR) ||
+            node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR),
+        );
+      });
+      if (relevant) scheduleRender();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
+    const scheduleFromInput = (event) => {
+      if (event.target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) {
+        scheduleRender();
+      }
+    };
+    scope.event(document, "input", scheduleFromInput, true);
+    scope.event(document, "change", scheduleFromInput, true);
+    for (const messageType of [
+      "items_updated",
+      "market_item_values_updated",
+      "market_item_order_books_updated",
+      "init_character_data",
+    ]) {
+      scope.add(runtime.onMessage(messageType, scheduleRender));
+    }
     scope.event(document, "keydown", handleShortcut, true);
     scope.add(() => {
+      renderScheduler.cancel();
       stopActiveHoldRepeat();
       clearProductionUi();
       clearMarketUi();

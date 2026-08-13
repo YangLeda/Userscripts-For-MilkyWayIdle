@@ -5,10 +5,16 @@ import {
   getLocalizedEntityName,
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
 const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
+const ACTION_SURFACE_SELECTOR =
+  'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
+const OWNED_ACTION_UI_SELECTOR =
+  "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button";
+let productionDataRevision = 0;
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -342,7 +348,7 @@ function renderActionDashboard() {
   const current = actions[0];
   if (!host || !current || !actionMatchesHeader(current, host)) {
     clearActionDashboard();
-    return;
+    return null;
   }
   const timing = getLiveActionTiming(host);
   const enhancementCount = getNativeEnhancementCount(host, current);
@@ -422,6 +428,67 @@ function renderActionDashboard() {
     : `${t("预计完成", "Finishes at")} —`;
   primary.append(remaining, currentTime, eta);
   root.append(primary);
+  return root;
+}
+
+function mutationElement(node) {
+  return node?.nodeType === 1 ? node : node?.parentElement;
+}
+
+function isOwnedActionUi(node) {
+  const element = mutationElement(node);
+  return Boolean(
+    element?.matches?.(OWNED_ACTION_UI_SELECTOR) ||
+    element?.closest?.(OWNED_ACTION_UI_SELECTOR),
+  );
+}
+
+function shouldScheduleActionUi(records) {
+  return records.some((record) => {
+    const target = mutationElement(record.target);
+    const changed = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      isOwnedActionUi(target) ||
+      (changed.length && changed.every(isOwnedActionUi))
+    ) {
+      return false;
+    }
+    if (target?.closest?.(ACTION_SURFACE_SELECTOR)) return true;
+    return changed.some(
+      (node) =>
+        node.matches?.(ACTION_SURFACE_SELECTOR) ||
+        node.querySelector?.(ACTION_SURFACE_SELECTOR),
+    );
+  });
+}
+
+function bindActionUiRenderer(scope, render, messages = []) {
+  const scheduler = createFrameScheduler(render);
+  const schedule = () => scheduler.schedule();
+  const MutationObserverRef =
+    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+  const observer = new MutationObserverRef((records) => {
+    if (shouldScheduleActionUi(records)) schedule();
+  });
+  scope.observer(observer, document.body, { childList: true, subtree: true });
+  const scheduleFromInput = (event) => {
+    if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
+  };
+  scope.event(document, "input", scheduleFromInput, true);
+  scope.event(document, "change", scheduleFromInput, true);
+  for (const message of messages) {
+    scope.add(
+      runtime.onMessage(message, () => {
+        productionDataRevision += 1;
+        schedule();
+      }),
+    );
+  }
+  scope.add(() => scheduler.cancel());
+  return { schedule };
 }
 
 function findActionPanel() {
@@ -780,8 +847,27 @@ function renderProductionPanel() {
   const count = input
     ? runtime.api.parseCompactNumber(input.value)
     : Number.POSITIVE_INFINITY;
+  const durationPerAction = getProductionPanelDuration(panel);
+  const showProfit =
+    runtime.settings.get("productionProfit") &&
+    !runtime.api.shouldSuppressMarketFeatures?.();
+  const signature = JSON.stringify([
+    actionHrid,
+    Number.isFinite(count) ? count : "infinite",
+    durationPerAction,
+    showProfit,
+    runtime.config.isZH,
+    productionDataRevision,
+    (runtime.state.initData_characterItems ?? []).map((item) => [
+      item.itemHrid,
+      item.itemLocationHrid,
+      item.enhancementLevel ?? 0,
+      item.count ?? 0,
+    ]),
+  ]);
+  if (existingCard?.dataset.renderSignature === signature) return existingCard;
   const projection = runtime.api.projectAction(actionHrid, count, {
-    durationPerAction: getProductionPanelDuration(panel),
+    durationPerAction,
     respectInventoryLimit: !Number.isFinite(count),
   });
   syncMaxButton(panel, input, projection.maxCraftable);
@@ -797,6 +883,7 @@ function renderProductionPanel() {
     if (anchor) anchor.insertAdjacentElement("afterend", card);
     else panel.appendChild(card);
   }
+  card.dataset.renderSignature = signature;
   const extensions = [
     ...card.querySelectorAll('[data-mwitools-production-extension="true"]'),
   ];
@@ -841,9 +928,6 @@ function renderProductionPanel() {
       formatDuration(projection.totalSeconds),
     ),
   );
-  const showProfit =
-    runtime.settings.get("productionProfit") &&
-    !runtime.api.shouldSuppressMarketFeatures?.();
   if (showProfit) {
     grid.append(
       metric(
@@ -900,9 +984,22 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     addStyles();
-    renderActionDashboard();
-    scope.interval(renderActionDashboard, 500);
+    let refreshTimer = null;
+    const render = () => {
+      const mounted = renderActionDashboard();
+      if (refreshTimer !== null) clearTimeout(refreshTimer);
+      refreshTimer = mounted
+        ? setTimeout(() => renderer.schedule(), 1000)
+        : null;
+    };
+    const renderer = bindActionUiRenderer(scope, render, [
+      "actions_updated",
+      "action_completed",
+      "init_character_data",
+    ]);
+    render();
     scope.add(() => {
+      if (refreshTimer !== null) clearTimeout(refreshTimer);
       document.querySelector("#mwi-action-dashboard")?.remove();
       document
         .querySelectorAll(".mwi-action-dashboard-host")
@@ -931,7 +1028,10 @@ runtime.features.register({
   dependsOn: ["actionPanel_totalTime"],
   initialize({ scope }) {
     renderProductionQuickInputs();
-    scope.interval(renderProductionQuickInputs, 350);
+    bindActionUiRenderer(scope, renderProductionQuickInputs, [
+      "actions_updated",
+      "init_character_data",
+    ]);
     scope.add(removeProductionQuickInputs);
   },
 });
@@ -942,7 +1042,26 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     renderProductionPanel();
-    scope.interval(renderProductionPanel, 350);
+    bindActionUiRenderer(scope, renderProductionPanel, [
+      "items_updated",
+      "actions_updated",
+      "action_completed",
+      "market_item_values_updated",
+      "market_item_order_books_updated",
+      "init_character_data",
+    ]);
+    scope.add(
+      runtime.settings.onChange?.("productionProfit", () => {
+        productionDataRevision += 1;
+        renderProductionPanel();
+      }),
+    );
+    scope.add(
+      runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+        productionDataRevision += 1;
+        renderProductionPanel();
+      }),
+    );
     scope.add(() =>
       document.querySelector("#mwi-production-summary")?.remove(),
     );

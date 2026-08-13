@@ -3,6 +3,7 @@ import {
   getGameTranslation,
   matchesGameTranslation,
 } from "../core/game-localization.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
@@ -1053,11 +1054,44 @@ runtime.features.register({
   initialize({ scope }) {
     addSettingsStyles();
     ensureSettingsPanel();
-    scope.interval(() => {
+    const render = () => {
       addSettingsStyles();
       ensureSettingsPanel();
-    }, 500);
+    };
+    const scheduler = createFrameScheduler(render);
+    const MutationObserverRef =
+      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (
+          target?.closest?.(
+            `#script_settings,[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}]`,
+          )
+        ) {
+          return false;
+        }
+        if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+          return true;
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.('[class*="SettingsPanel_settingsPanel"]') ||
+              node.querySelector?.('[class*="SettingsPanel_settingsPanel"]')),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     scope.add(() => {
+      scheduler.cancel();
       const root = document.querySelector("#script_settings");
       for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
         card._mwitoolsCleanup?.();

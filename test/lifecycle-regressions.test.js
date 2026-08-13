@@ -92,6 +92,21 @@ test("disabling queue timing disconnects observers that could recreate output", 
   assert.equal(document.querySelector("#script_queueTotalTime"), null);
 });
 
+test("replacing one hundred queue menus retains only the active observer", () => {
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  for (let index = 0; index < 100; index += 1) {
+    const root = document.createElement("div");
+    root.innerHTML = `<div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div>`;
+    document.body.append(root);
+    const menu = root.firstElementChild;
+    runtime.api.handleActionQueueMenue(menu);
+    assert.equal(runtime.api.getActiveActionQueueObserverCount(), 1);
+    root.remove();
+    runtime.api.disconnectActionQueueObserver(root);
+    assert.equal(runtime.api.getActiveActionQueueObserverCount(), 0);
+  }
+});
+
 test("tooltip observer ignores text nodes added to the page", async () => {
   const errors = [];
   const onError = (event) => {

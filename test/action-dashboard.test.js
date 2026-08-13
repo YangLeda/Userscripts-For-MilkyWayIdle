@@ -889,3 +889,25 @@ test("the top action dashboard recognizes the current localized action name", ()
   assert.ok(document.querySelector("#mwi-action-dashboard"));
   localStorage.setItem("i18nextLng", "zh-CN");
 });
+
+test("unchanged production summaries reuse their DOM without mutations", () => {
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  localStorage.setItem("i18nextLng", "zh-CN");
+  document.querySelector('div[class*="SkillActionDetail_name"]').textContent =
+    "木板";
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "5";
+  runtime.api.renderProductionPanel();
+  const card = document.querySelector("#mwi-production-summary");
+  const firstChild = card.firstElementChild;
+  const observer = new dom.window.MutationObserver(() => {});
+  observer.observe(card, { attributes: true, childList: true, subtree: true });
+
+  runtime.api.renderProductionPanel();
+
+  assert.equal(card.firstElementChild, firstChild);
+  assert.equal(observer.takeRecords().length, 0);
+  observer.disconnect();
+});

@@ -39,10 +39,19 @@ function createUserscriptWindow(url) {
     },
   );
   const { window } = dom;
-  const calls = { intervals: 0, styles: 0, requests: 0 };
+  const calls = {
+    intervals: 0,
+    intervalDelays: [],
+    styles: 0,
+    requests: 0,
+  };
 
   window.console = { ...console, log() {}, error() {} };
-  window.setInterval = () => (calls.intervals += 1);
+  window.setInterval = (_callback, delay) => {
+    calls.intervals += 1;
+    calls.intervalDelays.push(Number(delay));
+    return calls.intervals;
+  };
   window.clearInterval = () => {};
   window.setTimeout = () => 0;
   window.MutationObserver = class {
@@ -60,7 +69,10 @@ function createUserscriptWindow(url) {
       return new Promise(() => {});
     },
   };
-  window.localStorageUtil = { getInitClientData: () => ({}) };
+  window.localStorage.setItem("initClientData", "cached");
+  window.localStorageUtil = {
+    getInitClientData: () => ({ actionDetailMap: {}, itemDetailMap: {} }),
+  };
   window.math = {};
 
   return { calls, dom, window };
@@ -76,6 +88,14 @@ for (const [buildName, userscript] of userscripts) {
     assert.equal(calls.requests, 2);
     assert.equal(calls.styles, 2);
     assert.ok(calls.intervals >= 2);
+    const idleCallbacksPerSecond = calls.intervalDelays.reduce(
+      (total, delay) => total + (delay > 0 ? 1000 / delay : 0),
+      0,
+    );
+    assert.ok(
+      idleCallbacksPerSecond <= 2,
+      `idle callbacks must stay at or below 2/s, got ${idleCallbacksPerSecond}`,
+    );
     dom.window.close();
   });
 

@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
 const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
@@ -580,10 +581,40 @@ runtime.features.register({
   setting: "expPercentage",
   initialize({ scope }) {
     waitForProgressBar();
-    scope.interval(() => {
+    const render = () => {
       removeInsertedDivs();
       waitForProgressBar();
-    }, 1000);
+    };
+    const scheduler = createFrameScheduler(render);
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.(".insertedSpan")) return false;
+        return Boolean(
+          target?.matches?.(".NavigationBar_currentExperience__3GDeX") ||
+          target?.closest?.(".NavigationBar_currentExperience__3GDeX") ||
+          [...record.addedNodes, ...record.removedNodes].some(
+            (node) =>
+              node?.nodeType === 1 &&
+              (node.matches?.(".NavigationBar_currentExperience__3GDeX") ||
+                node.querySelector?.(
+                  ".NavigationBar_currentExperience__3GDeX",
+                )),
+          ),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      attributes: true,
+      attributeFilter: ["style"],
+      childList: true,
+      subtree: true,
+    });
+    scope.add(() => scheduler.cancel());
     scope.add(removeInsertedDivs);
   },
 });
@@ -603,9 +634,11 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     let observed = null;
+    let panelObserver = null;
     const attach = () => {
       const target = document.querySelector(MAIN_PANEL_SELECTOR);
       if (!target || observed === target) return;
+      panelObserver?.disconnect();
       observed = target;
       const observer = new MutationObserver((mutations) => {
         const panels = new Set();
@@ -627,18 +660,37 @@ runtime.features.register({
         }
         panels.forEach(scheduleActionPanel);
       });
-      scope.observer(observer, target, {
+      observer.observe(target, {
         childList: true,
         characterData: true,
         subtree: true,
       });
+      panelObserver = observer;
       target
         .querySelectorAll(ACTION_PANEL_SELECTOR)
         .forEach(scheduleActionPanel);
     };
     attach();
-    scope.interval(attach, 500);
+    const attachScheduler = createFrameScheduler(attach);
+    const mountObserver = new MutationObserver((records) => {
+      const relevant = records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.(MAIN_PANEL_SELECTOR) ||
+              node.querySelector?.(MAIN_PANEL_SELECTOR)),
+        ),
+      );
+      if (relevant) attachScheduler.schedule();
+    });
+    scope.observer(mountObserver, document.body, {
+      childList: true,
+      subtree: true,
+    });
     scope.add(() => {
+      attachScheduler.cancel();
+      panelObserver?.disconnect();
+      panelObserver = null;
       clearActionPanelRetries();
       document
         .querySelectorAll(

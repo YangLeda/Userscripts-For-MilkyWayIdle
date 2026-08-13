@@ -23805,7 +23805,7 @@
     const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
     const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
     const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
-    const intervalMs = options.intervalMs ?? 1e3;
+    const intervalMs = options.intervalMs ?? 1e4;
     const detected = /* @__PURE__ */ new Set();
     let lastSignature = "";
     let dismissed = false;
@@ -25386,6 +25386,39 @@
       doublingDays: mu > 0 ? Math.ceil(Math.LN2 / mu) : null,
       series,
       probabilities
+    };
+  }
+
+  // src/core/frame-scheduler.js
+  function createFrameScheduler(callback) {
+    let active = true;
+    let pending = false;
+    let cancelPending = null;
+    const run = () => {
+      pending = false;
+      cancelPending = null;
+      if (active) callback();
+    };
+    return {
+      schedule() {
+        if (!active || pending) return false;
+        pending = true;
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          const id = globalThis.requestAnimationFrame(run);
+          cancelPending = () => globalThis.cancelAnimationFrame?.(id);
+        } else {
+          const id = globalThis.setTimeout(run, 0);
+          cancelPending = () => globalThis.clearTimeout(id);
+        }
+        return true;
+      },
+      cancel() {
+        if (!active) return;
+        active = false;
+        cancelPending?.();
+        cancelPending = null;
+        pending = false;
+      }
     };
   }
 
@@ -27236,7 +27269,38 @@ ${preview}`
     };
     addStyles3();
     ensureMounted();
-    scope.interval(ensureMounted, 500);
+    const mountScheduler = createFrameScheduler(ensureMounted);
+    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const mountObserver = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
+          return false;
+        }
+        if (record.type === "attributes") {
+          return Boolean(
+            target?.closest?.(
+              '[class*="CharacterManagement_characterManagement"]'
+            )
+          );
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) && (node.matches?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          ) || node.querySelector?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          ))
+        );
+      });
+      if (relevant) mountScheduler.schedule();
+    });
+    scope.observer(mountObserver, document.body, {
+      attributes: true,
+      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+      childList: true,
+      subtree: true
+    });
+    scope.add(() => mountScheduler.cancel());
     const handleTabBranchClick = (event) => {
       if (!active || event.target.closest(`#${TAB_ID}`) || event.target.closest(`#${PANEL_ID}`)) {
         return;
@@ -28597,9 +28661,22 @@ ${preview}`
     }
     function tickCountdowns() {
       const units = getBattleUnits();
+      let active = false;
       for (const unitEl of [...units.players, ...units.monsters]) {
-        if (UNIT_STATE.has(unitEl)) renderUnit(unitEl);
+        if (!UNIT_STATE.has(unitEl)) continue;
+        renderUnit(unitEl);
+        if (UNIT_STATE.get(unitEl)?.effects?.size) active = true;
       }
+      return active;
+    }
+    function hasActiveEffects() {
+      const now = Date.now();
+      const units = getBattleUnits();
+      return [...units.players, ...units.monsters].some(
+        (unitEl) => [...UNIT_STATE.get(unitEl)?.effects?.values?.() ?? []].some(
+          (effect) => effect.expiresAt > now
+        )
+      );
     }
     function removeAllBuffBars() {
       const units = getBattleUnits();
@@ -28614,6 +28691,7 @@ ${preview}`
     return {
       handleNewBattle,
       applyBattleUpdated,
+      hasActiveEffects,
       tickCountdowns,
       removeAllBuffBars
     };
@@ -28623,18 +28701,34 @@ ${preview}`
     setting: "battleBuffs",
     initialize({ scope }) {
       const tracker = createBuffTracker(scope);
-      scope.interval(() => tracker.tickCountdowns(), 1e3);
+      let countdownTimer = null;
+      const tick = () => {
+        countdownTimer = null;
+        if (tracker.tickCountdowns()) {
+          countdownTimer = setTimeout(tick, 1e3);
+        }
+      };
+      const ensureCountdown = () => {
+        if (countdownTimer === null && tracker.hasActiveEffects()) {
+          countdownTimer = setTimeout(tick, 1e3);
+        }
+      };
       scope.add(
         runtime.onMessage("new_battle", (payload) => {
           tracker.handleNewBattle(payload);
+          ensureCountdown();
         })
       );
       scope.add(
         runtime.onMessage("battle_updated", (payload) => {
           tracker.applyBattleUpdated(payload);
+          ensureCountdown();
         })
       );
-      scope.add(() => tracker.removeAllBuffBars());
+      scope.add(() => {
+        if (countdownTimer !== null) clearTimeout(countdownTimer);
+        tracker.removeAllBuffBars();
+      });
     }
   });
   Object.assign(runtime.api, {
@@ -31445,6 +31539,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   var tooltipObserver = new MutationObserver(async function(mutations) {
     for (const mutation of mutations) {
+      for (const removed of mutation.removedNodes) {
+        if (removed?.nodeType === 1 && (removed.matches?.(".MuiTooltip-popper") || removed.querySelector?.(".MuiTooltip-popper"))) {
+          runtime.api.disconnectActionQueueObserver?.(removed);
+        }
+      }
       for (const added of mutation.addedNodes) {
         if (added?.nodeType === 1 && added.classList.contains("MuiTooltip-popper")) {
           if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
@@ -31860,18 +31959,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         width: 10px !important;
       }`)
       ];
-      let observing = false;
       const attach = () => {
-        if (observing || !document.body) return;
+        if (!document.body) return false;
         tooltipObserver.observe(document.body, {
           attributes: false,
           childList: true,
           characterData: false
         });
-        observing = true;
+        return true;
       };
-      attach();
-      scope.interval(attach, 250);
+      if (!attach()) {
+        scope.event(document, "DOMContentLoaded", attach, { once: true });
+      }
       scope.event(
         document,
         "dblclick",
@@ -32487,10 +32586,32 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "expPercentage",
     initialize({ scope }) {
       waitForProgressBar();
-      scope.interval(() => {
+      const render = () => {
         removeInsertedDivs();
         waitForProgressBar();
-      }, 1e3);
+      };
+      const scheduler = createFrameScheduler(render);
+      const observer = new MutationObserver((records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(".insertedSpan")) return false;
+          return Boolean(
+            target?.matches?.(".NavigationBar_currentExperience__3GDeX") || target?.closest?.(".NavigationBar_currentExperience__3GDeX") || [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node?.nodeType === 1 && (node.matches?.(".NavigationBar_currentExperience__3GDeX") || node.querySelector?.(
+                ".NavigationBar_currentExperience__3GDeX"
+              ))
+            )
+          );
+        });
+        if (relevant) scheduler.schedule();
+      });
+      scope.observer(observer, document.body, {
+        attributes: true,
+        attributeFilter: ["style"],
+        childList: true,
+        subtree: true
+      });
+      scope.add(() => scheduler.cancel());
       scope.add(removeInsertedDivs);
     }
   });
@@ -32508,9 +32629,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     scope: "character",
     initialize({ scope }) {
       let observed = null;
+      let panelObserver = null;
       const attach = () => {
         const target = document.querySelector(MAIN_PANEL_SELECTOR);
         if (!target || observed === target) return;
+        panelObserver?.disconnect();
         observed = target;
         const observer = new MutationObserver((mutations) => {
           const panels = /* @__PURE__ */ new Set();
@@ -32527,16 +32650,32 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           }
           panels.forEach(scheduleActionPanel);
         });
-        scope.observer(observer, target, {
+        observer.observe(target, {
           childList: true,
           characterData: true,
           subtree: true
         });
+        panelObserver = observer;
         target.querySelectorAll(ACTION_PANEL_SELECTOR).forEach(scheduleActionPanel);
       };
       attach();
-      scope.interval(attach, 500);
+      const attachScheduler = createFrameScheduler(attach);
+      const mountObserver = new MutationObserver((records) => {
+        const relevant = records.some(
+          (record) => [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.(MAIN_PANEL_SELECTOR) || node.querySelector?.(MAIN_PANEL_SELECTOR))
+          )
+        );
+        if (relevant) attachScheduler.schedule();
+      });
+      scope.observer(mountObserver, document.body, {
+        childList: true,
+        subtree: true
+      });
       scope.add(() => {
+        attachScheduler.cancel();
+        panelObserver?.disconnect();
+        panelObserver = null;
         clearActionPanelRetries();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
@@ -32550,6 +32689,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var STYLE_ID7 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
+  var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
+  var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button";
+  var productionDataRevision = 0;
   function t6(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -32819,7 +32961,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const current = actions[0];
     if (!host || !current || !actionMatchesHeader(current, host)) {
       clearActionDashboard();
-      return;
+      return null;
     }
     const timing = getLiveActionTiming(host);
     const enhancementCount = getNativeEnhancementCount(host, current);
@@ -32891,6 +33033,56 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
+    return root;
+  }
+  function mutationElement(node) {
+    return node?.nodeType === 1 ? node : node?.parentElement;
+  }
+  function isOwnedActionUi(node) {
+    const element = mutationElement(node);
+    return Boolean(
+      element?.matches?.(OWNED_ACTION_UI_SELECTOR) || element?.closest?.(OWNED_ACTION_UI_SELECTOR)
+    );
+  }
+  function shouldScheduleActionUi(records) {
+    return records.some((record) => {
+      const target = mutationElement(record.target);
+      const changed = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (isOwnedActionUi(target) || changed.length && changed.every(isOwnedActionUi)) {
+        return false;
+      }
+      if (target?.closest?.(ACTION_SURFACE_SELECTOR)) return true;
+      return changed.some(
+        (node) => node.matches?.(ACTION_SURFACE_SELECTOR) || node.querySelector?.(ACTION_SURFACE_SELECTOR)
+      );
+    });
+  }
+  function bindActionUiRenderer(scope, render, messages = []) {
+    const scheduler = createFrameScheduler(render);
+    const schedule = () => scheduler.schedule();
+    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      if (shouldScheduleActionUi(records)) schedule();
+    });
+    scope.observer(observer, document.body, { childList: true, subtree: true });
+    const scheduleFromInput = (event) => {
+      if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
+    };
+    scope.event(document, "input", scheduleFromInput, true);
+    scope.event(document, "change", scheduleFromInput, true);
+    for (const message of messages) {
+      scope.add(
+        runtime.onMessage(message, () => {
+          productionDataRevision += 1;
+          schedule();
+        })
+      );
+    }
+    scope.add(() => scheduler.cancel());
+    return { schedule };
   }
   function findActionPanel() {
     const candidates = [
@@ -33189,8 +33381,25 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return;
     }
     const count = input ? runtime.api.parseCompactNumber(input.value) : Number.POSITIVE_INFINITY;
+    const durationPerAction = getProductionPanelDuration(panel);
+    const showProfit = runtime.settings.get("productionProfit") && !runtime.api.shouldSuppressMarketFeatures?.();
+    const signature = JSON.stringify([
+      actionHrid,
+      Number.isFinite(count) ? count : "infinite",
+      durationPerAction,
+      showProfit,
+      runtime.config.isZH,
+      productionDataRevision,
+      (runtime.state.initData_characterItems ?? []).map((item) => [
+        item.itemHrid,
+        item.itemLocationHrid,
+        item.enhancementLevel ?? 0,
+        item.count ?? 0
+      ])
+    ]);
+    if (existingCard?.dataset.renderSignature === signature) return existingCard;
     const projection = runtime.api.projectAction(actionHrid, count, {
-      durationPerAction: getProductionPanelDuration(panel),
+      durationPerAction,
       respectInventoryLimit: !Number.isFinite(count)
     });
     syncMaxButton(panel, input, projection.maxCraftable);
@@ -33203,6 +33412,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       if (anchor) anchor.insertAdjacentElement("afterend", card);
       else panel.appendChild(card);
     }
+    card.dataset.renderSignature = signature;
     const extensions = [
       ...card.querySelectorAll('[data-mwitools-production-extension="true"]')
     ];
@@ -33238,7 +33448,6 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         formatDuration(projection.totalSeconds)
       )
     );
-    const showProfit = runtime.settings.get("productionProfit") && !runtime.api.shouldSuppressMarketFeatures?.();
     if (showProfit) {
       grid.append(
         metric(
@@ -33285,9 +33494,20 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     scope: "character",
     initialize({ scope }) {
       addStyles5();
-      renderActionDashboard();
-      scope.interval(renderActionDashboard, 500);
+      let refreshTimer2 = null;
+      const render = () => {
+        const mounted = renderActionDashboard();
+        if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
+        refreshTimer2 = mounted ? setTimeout(() => renderer.schedule(), 1e3) : null;
+      };
+      const renderer = bindActionUiRenderer(scope, render, [
+        "actions_updated",
+        "action_completed",
+        "init_character_data"
+      ]);
+      render();
       scope.add(() => {
+        if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelector("#mwi-action-dashboard")?.remove();
         document.querySelectorAll(".mwi-action-dashboard-host").forEach(
           (element) => element.classList.remove("mwi-action-dashboard-host")
@@ -33312,7 +33532,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     dependsOn: ["actionPanel_totalTime"],
     initialize({ scope }) {
       renderProductionQuickInputs();
-      scope.interval(renderProductionQuickInputs, 350);
+      bindActionUiRenderer(scope, renderProductionQuickInputs, [
+        "actions_updated",
+        "init_character_data"
+      ]);
       scope.add(removeProductionQuickInputs);
     }
   });
@@ -33322,7 +33545,26 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     scope: "character",
     initialize({ scope }) {
       renderProductionPanel();
-      scope.interval(renderProductionPanel, 350);
+      bindActionUiRenderer(scope, renderProductionPanel, [
+        "items_updated",
+        "actions_updated",
+        "action_completed",
+        "market_item_values_updated",
+        "market_item_order_books_updated",
+        "init_character_data"
+      ]);
+      scope.add(
+        runtime.settings.onChange?.("productionProfit", () => {
+          productionDataRevision += 1;
+          renderProductionPanel();
+        })
+      );
+      scope.add(
+        runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
+          productionDataRevision += 1;
+          renderProductionPanel();
+        })
+      );
       scope.add(
         () => document.querySelector("#mwi-production-summary")?.remove()
       );
@@ -33354,6 +33596,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
+  var PROCUREMENT_SURFACE_SELECTOR = 'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
+  var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
   var procurement = runtime.api.procurement;
   var shell = null;
   var shadow = null;
@@ -35077,10 +35321,52 @@ ${locks}` : ""}`;
       );
       renderProductionProcurement();
       updateMarketUi();
-      scope.interval(renderProductionProcurement, 350);
-      scope.interval(updateMarketUi, 900);
+      const renderScheduler = createFrameScheduler(() => {
+        renderProductionProcurement();
+        updateMarketUi();
+      });
+      const scheduleRender = () => renderScheduler.schedule();
+      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+      const observer = new MutationObserverRef((records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const changed = [...record.addedNodes, ...record.removedNodes].filter(
+            (node) => node?.nodeType === 1
+          );
+          if (target?.closest?.(OWNED_PROCUREMENT_SELECTOR) || changed.length && changed.every(
+            (node) => node.matches?.(OWNED_PROCUREMENT_SELECTOR) || node.closest?.(OWNED_PROCUREMENT_SELECTOR)
+          )) {
+            return false;
+          }
+          if (target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) return true;
+          return changed.some(
+            (node) => node.matches?.(PROCUREMENT_SURFACE_SELECTOR) || node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR)
+          );
+        });
+        if (relevant) scheduleRender();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
+      const scheduleFromInput = (event) => {
+        if (event.target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) {
+          scheduleRender();
+        }
+      };
+      scope.event(document, "input", scheduleFromInput, true);
+      scope.event(document, "change", scheduleFromInput, true);
+      for (const messageType of [
+        "items_updated",
+        "market_item_values_updated",
+        "market_item_order_books_updated",
+        "init_character_data"
+      ]) {
+        scope.add(runtime.onMessage(messageType, scheduleRender));
+      }
       scope.event(document, "keydown", handleShortcut, true);
       scope.add(() => {
+        renderScheduler.cancel();
         stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
@@ -35095,39 +35381,6 @@ ${locks}` : ""}`;
     updateProcurementMarketUi: updateMarketUi,
     openProcurementMarketplace: openMarketplace
   });
-
-  // src/core/frame-scheduler.js
-  function createFrameScheduler(callback) {
-    let active = true;
-    let pending = false;
-    let cancelPending = null;
-    const run = () => {
-      pending = false;
-      cancelPending = null;
-      if (active) callback();
-    };
-    return {
-      schedule() {
-        if (!active || pending) return false;
-        pending = true;
-        if (typeof globalThis.requestAnimationFrame === "function") {
-          const id = globalThis.requestAnimationFrame(run);
-          cancelPending = () => globalThis.cancelAnimationFrame?.(id);
-        } else {
-          const id = globalThis.setTimeout(run, 0);
-          cancelPending = () => globalThis.clearTimeout(id);
-        }
-        return true;
-      },
-      cancel() {
-        if (!active) return;
-        active = false;
-        cancelPending?.();
-        cancelPending = null;
-        pending = false;
-      }
-    };
-  }
 
   // src/features/semi-auto-train.js
   var STYLE_ID9 = "mwitools-semi-auto-train-style";
@@ -39085,6 +39338,7 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "降低手机端空闲、生产、市场和战斗统计的后台轮询与重复计算，修复反复打开行动队列后的内存占用增长，减少长时间挂机时的发热、耗电和卡顿。",
           "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号，并在可用空间不足时隐藏预计完成时间以保持紧凑。",
           "手机端长按打开生产收益、宝箱估值或强化成本后，松手及原生物品提示消失时详情会继续显示；点击详情内部可滚动或操作，只有点击窗口外才会关闭。",
           "制造和指定次数强化的多材料余缺提示改为固定四列逐行对齐，不再横向撑宽；物品价格会下移避开强化等级，同时保留原有文字样式。",
@@ -39097,6 +39351,7 @@ ${locks}` : ""}`;
           "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。"
         ]),
         en: Object.freeze([
+          "Reduced background polling and repeated work across idle, production, market, and combat-stat views on mobile, and fixed memory growth after repeatedly opening the action queue to reduce heat, battery drain, and long-session stutter.",
           "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size and hides the finish time when space is tight to stay compact.",
           "On mobile, production profit, loot valuation, and enhancement cost details opened by a long press now remain visible after release or after the native item tooltip disappears. Taps and scrolling inside remain interactive, and only a tap outside closes the detail window.",
           "Multi-material shortage indicators in production and fixed-count enhancing now stay aligned in four explicit columns without widening the panel. Item prices move below enhancement levels while keeping their existing text style.",
@@ -40211,9 +40466,29 @@ ${locks}` : ""}`;
       };
       const ensure = () => panel.ensureButton();
       ensure();
-      scope.interval(ensure, 750);
+      const ensureScheduler = createFrameScheduler(ensure);
+      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+      const observer = new MutationObserverRef((records) => {
+        const relevant = records.some(
+          (record) => [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && !node.matches?.(
+              "#mwitools-feedback-root,#mwitools-feedback-button"
+            ) && (node.matches?.(
+              '[class*="Header_totalLevel"],[class*="totalLevel"]'
+            ) || node.querySelector?.(
+              '[class*="Header_totalLevel"],[class*="totalLevel"]'
+            ))
+          )
+        );
+        if (relevant) ensureScheduler.schedule();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
       schedule(1500);
       scope.add(() => {
+        ensureScheduler.cancel();
         disposed = true;
         clearTimeout(timer);
         if (activeClient === client) activeClient = null;
@@ -40237,6 +40512,32 @@ ${locks}` : ""}`;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
   var TREND_RATE_WINDOW_MS = 6 * HOUR_MS2;
   var TREND_MINIMUM_COVERAGE_MS = HOUR_MS2;
+  var GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]';
+  var OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
+  function observeGuildSurface(scope, render) {
+    const scheduler = createFrameScheduler(render);
+    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+        const changed = [...record.addedNodes, ...record.removedNodes].filter(
+          (node) => node?.nodeType === 1
+        );
+        if (target?.closest?.(OWNED_GUILD_SELECTOR) || changed.length && changed.every(
+          (node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)
+        )) {
+          return false;
+        }
+        if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
+        return changed.some(
+          (node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR)
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, { childList: true, subtree: true });
+    scope.add(() => scheduler.cancel());
+  }
   function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -40893,7 +41194,7 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addStyles13();
       renderGuildOverview();
-      scope.interval(renderGuildOverview, 1500);
+      observeGuildSurface(scope, renderGuildOverview);
       scope.add(
         () => document.querySelectorAll(".mwi-guild-xp-card").forEach((node) => node.remove())
       );
@@ -40909,7 +41210,9 @@ ${locks}` : ""}`;
         addStyles13();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
-        if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
+        if (id !== "guildIdleMembers") {
+          observeGuildSurface(scope, renderGuildTables);
+        }
         scope.add(() => {
           if (id === "guildIdleMembers") {
             document.querySelectorAll(".mwi-guild-idle").forEach((node) => node.remove());
@@ -41657,25 +41960,33 @@ ${locks}` : ""}`;
     links.forEach((link) => fragment.append(link));
     targetNode.insertBefore(fragment, targetNode.firstChild);
   }
-  var actionQueueObservers = /* @__PURE__ */ new Map();
+  var activeActionQueueObserver = null;
+  function disconnectActionQueueObserver(root = null) {
+    if (!activeActionQueueObserver) return false;
+    if (root && activeActionQueueObserver.menu !== root && !root.contains?.(activeActionQueueObserver.menu)) {
+      return false;
+    }
+    activeActionQueueObserver.observer.disconnect();
+    activeActionQueueObserver = null;
+    return true;
+  }
   function disconnectActionQueueObservers() {
-    for (const observer of actionQueueObservers.values()) observer.disconnect();
-    actionQueueObservers.clear();
+    disconnectActionQueueObserver();
   }
   function handleActionQueueMenue(added) {
     if (!runtime.settings.get("actionQueue")) return;
     handleActionQueueMenueCalculateTime(added);
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-    if (!listDiv || actionQueueObservers.has(added)) return;
+    if (!listDiv || activeActionQueueObserver?.menu === added) return;
+    disconnectActionQueueObserver();
     const observer = new MutationObserver(() => {
-      if (!runtime.settings.get("actionQueue")) {
-        observer.disconnect();
-        actionQueueObservers.delete(added);
+      if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+        disconnectActionQueueObserver(added);
         return;
       }
       handleActionQueueMenueCalculateTime(added);
     });
-    actionQueueObservers.set(added, observer);
+    activeActionQueueObserver = { menu: added, observer };
     observer.observe(listDiv, {
       characterData: false,
       subtree: false,
@@ -41743,7 +42054,9 @@ ${locks}` : ""}`;
   }
   Object.assign(runtime.api, {
     add3rdPartyLinks,
+    disconnectActionQueueObserver,
     disconnectActionQueueObservers,
+    getActiveActionQueueObserverCount: () => activeActionQueueObserver === null ? 0 : 1,
     getOriTextFromElement,
     handleActionQueueMenue,
     handleActionQueueMenueCalculateTime
@@ -43629,11 +43942,35 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addSettingsStyles();
       ensureSettingsPanel();
-      scope.interval(() => {
+      const render = () => {
         addSettingsStyles();
         ensureSettingsPanel();
-      }, 500);
+      };
+      const scheduler = createFrameScheduler(render);
+      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+      const observer = new MutationObserverRef((records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(
+            `#script_settings,[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}]`
+          )) {
+            return false;
+          }
+          if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+            return true;
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.('[class*="SettingsPanel_settingsPanel"]') || node.querySelector?.('[class*="SettingsPanel_settingsPanel"]'))
+          );
+        });
+        if (relevant) scheduler.schedule();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
       scope.add(() => {
+        scheduler.cancel();
         const root = document.querySelector("#script_settings");
         for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
           card._mwitoolsCleanup?.();
@@ -46575,6 +46912,21 @@ ${locks}` : ""}`;
         }
       }
     }
+    function hasReflectionDefinitions(payload = {}) {
+      const sources = [
+        payload,
+        payload.data,
+        payload.initGameData,
+        payload.init_game_data,
+        payload.initClientData,
+        payload.init_client_data,
+        payload.clientData,
+        payload.client_data
+      ].filter((value) => value && typeof value === "object");
+      return sources.some(
+        (source) => source.abilityDetailMap || source.gameAbilityDetailMap || source.itemDetailMap || source.gameItemDetailMap
+      );
+    }
     function abilityHridsFrom(value, depth = 0, out = /* @__PURE__ */ new Set()) {
       if (depth > 7 || value === null || value === void 0) return out;
       if (typeof value === "string") {
@@ -48004,19 +48356,22 @@ ${locks}` : ""}`;
       }
     }
     function handleMessage2(message) {
-      let obj;
-      try {
-        obj = JSON.parse(message);
-      } catch (e) {
-        ClassProbe.recordUnparsed(message);
-        return;
+      let obj = message;
+      if (typeof message === "string") {
+        try {
+          obj = JSON.parse(message);
+        } catch (e) {
+          ClassProbe.recordUnparsed(message);
+          return;
+        }
       }
-      if (!obj || !obj.type) return;
+      if (!obj || typeof obj !== "object" || !obj.type) return;
       const messageData = obj.data && typeof obj.data === "object" ? obj.data : obj;
       const receivedItemDetails = messageData.itemDetailMap || messageData.gameItemDetailMap || obj.itemDetailMap || obj.gameItemDetailMap;
       if (receivedItemDetails) ClassSystem.cacheItemDetails(receivedItemDetails);
-      cacheReflectionDefinitions(obj);
-      cacheReflectionDefinitions(messageData);
+      if (receivedItemDetails || hasReflectionDefinitions(obj)) {
+        cacheReflectionDefinitions(obj);
+      }
       Capture.record(obj.type, obj);
       ClassDebug.record(obj.type, obj);
       ClassProbe.record(obj.type, obj);
@@ -48035,7 +48390,7 @@ ${locks}` : ""}`;
           })
         );
       }
-      const guildSnapshot = guildCombatSnapshotFromMessage(obj);
+      const guildSnapshot = obj.type === "init_character_data" || obj.type === "new_guild_battle" || obj.type === "guild_battle_updated" ? guildCombatSnapshotFromMessage(obj) : null;
       if (guildSnapshot) processGuildCombatSnapshot(guildSnapshot);
       if (obj.type === "battle_unit_fetched" || obj.type === "profile_shared") {
         const learned = obj.type === "profile_shared" ? ClassSystem.learnProfile(obj) : ClassSystem.learnBattleUnit(obj);
@@ -51771,8 +52126,8 @@ ${locks}` : ""}`;
         if (cleanupApplication) return;
         cleanupApplication = start(scope);
         scope.add(
-          runtime.onMessage("*", (_payload, rawMessage) => {
-            SocketHook.handleMessage(rawMessage);
+          runtime.onMessage("*", (payload) => {
+            SocketHook.handleMessage(payload);
           })
         );
       };
@@ -52750,17 +53105,39 @@ ${locks}` : ""}`;
   function removeAll(selector) {
     document.querySelectorAll(selector).forEach((node) => node.remove());
   }
+  function observeRelevantDom(scope, selector, callback) {
+    const scheduler = createFrameScheduler(callback);
+    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+        if (target?.closest?.(selector)) return true;
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) => node?.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector))
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, { childList: true, subtree: true });
+    scope.add(() => scheduler.cancel());
+    return scheduler;
+  }
+  function refreshInventoryIfNeeded(className) {
+    const needsRender = [
+      ...document.querySelectorAll('div[class*="Inventory_items"]')
+    ].some((node) => !node.classList.contains(className));
+    if (needsRender) runtime.api.scheduleNetworthRefresh?.();
+  }
   var adapters = {
     invWorth: {
       scope: "character",
       initialize({ scope }) {
         runtime.api.scheduleNetworthRefresh?.();
-        scope.interval(() => {
-          const needsRender = [
-            ...document.querySelectorAll('div[class*="Inventory_items"]')
-          ].some((node) => !node.classList.contains("script_buildScore_added"));
-          if (needsRender) runtime.api.scheduleNetworthRefresh?.();
-        }, 500);
+        observeRelevantDom(
+          scope,
+          'div[class*="Inventory_items"]',
+          () => refreshInventoryIfNeeded("script_buildScore_added")
+        );
       },
       cleanup() {
         removeAll("#script_inventory_summary");
@@ -52778,12 +53155,11 @@ ${locks}` : ""}`;
       scope: "character",
       initialize({ scope }) {
         runtime.api.scheduleNetworthRefresh?.();
-        scope.interval(() => {
-          const needsRender = [
-            ...document.querySelectorAll('div[class*="Inventory_items"]')
-          ].some((node) => !node.classList.contains("script_invSort_added"));
-          if (needsRender) runtime.api.scheduleNetworthRefresh?.();
-        }, 500);
+        observeRelevantDom(
+          scope,
+          'div[class*="Inventory_items"]',
+          () => refreshInventoryIfNeeded("script_invSort_added")
+        );
       },
       cleanup() {
         removeAll("#script_inv_sort_controls,#script_stack_price");
@@ -52802,7 +53178,11 @@ ${locks}` : ""}`;
       scope: "character",
       initialize({ scope }) {
         runtime.api.checkEquipment?.();
-        scope.interval(() => runtime.api.checkEquipment?.(), 500);
+        observeRelevantDom(
+          scope,
+          'div[class*="Header_actionInfo"]',
+          () => runtime.api.checkEquipment?.()
+        );
       },
       cleanup() {
         removeAll("#script_item_warning");
@@ -52830,7 +53210,11 @@ ${locks}` : ""}`;
   adapters.ThirdPartyLinks = {
     initialize({ scope }) {
       runtime.api.add3rdPartyLinks?.();
-      scope.interval(() => runtime.api.add3rdPartyLinks?.(), 500);
+      observeRelevantDom(
+        scope,
+        'div[class*="NavigationBar_minorNavigationLinks"]',
+        () => runtime.api.add3rdPartyLinks?.()
+      );
     },
     cleanup() {
       removeAll('[data-mwitools-external-link="true"]');
@@ -52846,11 +53230,13 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope }) {
       let observed = null;
+      let listingObserver = null;
       const attach = () => {
         const target = document.querySelector(
           ".MarketplacePanel_marketListings__1GCyQ"
         );
         if (!target || target === observed) return;
+        listingObserver?.disconnect();
         observed = target;
         const observer = new MutationObserver((mutations) => {
           for (const mutation of mutations) {
@@ -52861,10 +53247,20 @@ ${locks}` : ""}`;
             }
           }
         });
-        scope.observer(observer, target, { childList: true });
+        observer.observe(target, { childList: true });
+        listingObserver = observer;
       };
       attach();
-      scope.interval(attach, 500);
+      observeRelevantDom(
+        scope,
+        ".MarketplacePanel_marketListings__1GCyQ",
+        attach
+      );
+      scope.add(() => {
+        listingObserver?.disconnect();
+        listingObserver = null;
+        observed = null;
+      });
     }
   };
   for (const [id, adapter] of Object.entries(adapters)) {

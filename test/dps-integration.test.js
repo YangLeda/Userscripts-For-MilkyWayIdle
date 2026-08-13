@@ -105,6 +105,19 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(document.querySelectorAll("#kikimeter-tab-btn").length, 1);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  const originalParse = JSON.parse;
+  let parseCount = 0;
+  JSON.parse = (...args) => {
+    parseCount += 1;
+    return originalParse(...args);
+  };
+  try {
+    runtime.api.handleMessage(JSON.stringify({ type: "performance_probe" }));
+  } finally {
+    JSON.parse = originalParse;
+  }
+  assert.equal(parseCount, 1, "core-dispatched messages must be parsed once");
+
   const installBoxMetrics = (element, width, height) => {
     Object.defineProperties(element, {
       offsetWidth: { configurable: true, get: () => width },
