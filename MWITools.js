@@ -39628,7 +39628,7 @@ ${locks}` : ""}`;
           "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。",
           "修复中英文下顶部当前动作时间在窄窗口中与动作名称或排队按钮重叠；可用空间不足时会自动精简显示。",
           "修复刷新任务或页面时任务图标串位、被替换后消失，以及火车提示漂移并撑出横向滚动条；普通任务不再显示“无需火车”。",
-          "修复出现任务积分奖励卡时任务统计、筛选和背景图标整组不显示；奖励卡不再参与普通任务的身份匹配。",
+          "修复任务数量达到容量上限时任务统计、筛选和背景图标整组不显示；满额页面的任务积分奖励卡不再参与普通任务的身份匹配。",
           "生产、全链条与火车现在统一读取当前茶饮、社区等行动增益和暴饮之囊；换茶后会即时重算，链条按实际产量规划，采集利润与队列耗时不再漏算社区速度。"
         ]),
         en: Object.freeze([
@@ -39645,7 +39645,7 @@ ${locks}` : ""}`;
           "Combat simulators once again read teammates' actual food and coffee from the latest battle. Group imports also no longer stop when matching battle data has not been captured yet.",
           "Fixed the top current-action timing overlapping the action name or queued-actions button in narrow windows in both Chinese and English. The summary now simplifies itself when space is limited.",
           'Fixed task icons moving to the wrong card or disappearing after task and page refreshes, along with train labels drifting and causing horizontal overflow. Ordinary tasks no longer show "No train needed."',
-          "Fixed task statistics, filters, and background icons all disappearing when a task-point reward card was present. Reward cards no longer participate in ordinary task identity matching.",
+          "Fixed task statistics, filters, and background icons all disappearing when task capacity was full. The task-point reward tile on full-capacity pages no longer participates in ordinary task identity matching.",
           "Production, full-chain planning, and trains now share the current drinks, community and other action buffs, and Guzzling Pouch effects. Drink changes recalculate immediately, chains use effective output, and gathering profit and queue timing no longer miss community speed."
         ])
       })

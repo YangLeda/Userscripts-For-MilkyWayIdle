@@ -694,6 +694,8 @@ function visibleTaskTitle(card) {
 }
 
 function isQuestTaskCard(card) {
+  // Full-capacity task pages can include a task-points reward tile that shares
+  // the native card class but has no quest identity or task-name element.
   return Boolean(card.querySelector('div[class*="RandomTask_name"]'));
 }
 
