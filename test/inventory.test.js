@@ -179,7 +179,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.equal(document.querySelectorAll(".mwi-summary-icon").length, 0);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    1,
+    0,
   );
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
@@ -394,21 +394,40 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
 });
 
-test("inventory display stays frozen until a forced refresh", async () => {
-  await runtime.api.calculateNetworth({ force: true });
-  const before = document.querySelector("#currentAssets").textContent;
+test("inventory scores and total assets stay frozen for the page session", async () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const originalRefresh = runtime.api.refreshAssetSnapshot;
+  let refreshCount = 0;
+  runtime.state.currentCharacterId = "frozen-inventory-session";
+  runtime.api.refreshAssetSnapshot = async () => {
+    refreshCount += 1;
+    return originalRefresh();
+  };
+
+  await runtime.api.calculateNetworth();
+  const before = document.querySelector(
+    "#script_inventory_summary",
+  ).textContent;
 
   runtime.state.marketItemValues["/items/milk"][0] = 2_000;
   runtime.api.invalidateAssetValueCache();
-  await runtime.api.calculateNetworth();
-  assert.equal(document.querySelector("#currentAssets").textContent, before);
-
+  document.querySelector("#script_inventory_summary").remove();
   await runtime.api.calculateNetworth({ force: true });
-  assert.notEqual(document.querySelector("#currentAssets").textContent, before);
+
+  assert.equal(
+    document.querySelector("#script_inventory_summary").textContent,
+    before,
+  );
+  assert.equal(refreshCount, 1);
+  assert.equal(
+    document.querySelectorAll("#script_refresh_inventory_btn").length,
+    0,
+  );
 
   runtime.state.marketItemValues["/items/milk"][0] = 1_000;
   runtime.api.invalidateAssetValueCache();
-  await runtime.api.calculateNetworth({ force: true });
+  runtime.api.refreshAssetSnapshot = originalRefresh;
+  runtime.state.currentCharacterId = originalCharacterId;
 });
 
 test("inventory summary returns when the game reuses a processed inventory node", async () => {
@@ -467,6 +486,8 @@ test("listing values use explicit balances and never infer buy reserves", () => 
 });
 
 test("guild currencies move to fixed assets while task tokens stay inventory", async () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  runtime.state.currentCharacterId = "guild-currency-display";
   runtime.state.initData_itemDetailMap = {
     "/items/credit_material": {
       guildCreditConversions: [
@@ -564,14 +585,14 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
 
   await runtime.settings.set("includeCowbellsInAssets", true);
   runtime.api.invalidateAssetValueCache();
-  await runtime.api.calculateNetworth({ force: true });
-  await Promise.resolve();
-  assert.match(
-    document.querySelector("#nonCurrentAssets").textContent,
-    /不可交易代币：450/,
-  );
+  await runtime.api.calculateNetworth();
+  assert.match(document.querySelector("#nonCurrentAssets").textContent, /250/);
+
+  const freshSnapshot = await runtime.api.getAssetSnapshot();
+  assert.equal(freshSnapshot.values.nonTradableTokens, 450);
 
   await runtime.settings.set("includeCowbellsInAssets", false);
+  runtime.state.currentCharacterId = originalCharacterId;
 });
 
 test("optional token setting excludes the same stacks from inventory category values", async () => {

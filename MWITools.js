@@ -77,9 +77,9 @@
     mod
   ));
 
-  // ../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
+  // ../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "../../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -29105,6 +29105,7 @@ ${preview}`
   var inventoryRefreshTimer = null;
   var inventoryDisplayVersion = 0;
   var frozenInventoryDisplays = /* @__PURE__ */ new Map();
+  var frozenInventoryDisplayPromises = /* @__PURE__ */ new Map();
   var INVENTORY_SUMMARY_STYLE_ID = "mwitools-inventory-summary-style";
   function addInventorySummaryStyles() {
     if (document.getElementById(INVENTORY_SUMMARY_STYLE_ID)) return;
@@ -29475,23 +29476,29 @@ ${preview}`
       heading.appendChild(value);
     }
   }
-  async function getFrozenInventoryDisplay(force = false) {
+  async function getFrozenInventoryDisplay() {
     const key = inventoryDisplayKey();
     if (!key) return null;
-    if (!force && frozenInventoryDisplays.has(key)) {
+    if (frozenInventoryDisplays.has(key)) {
       return frozenInventoryDisplays.get(key);
     }
-    const snapshot = await runtime.api.refreshAssetSnapshot();
-    if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
-    const display = {
-      snapshot,
-      categoryValues: calculateInventoryCategoryValues(),
-      version: ++inventoryDisplayVersion
-    };
-    frozenInventoryDisplays.set(key, display);
-    return display;
+    if (frozenInventoryDisplayPromises.has(key)) {
+      return frozenInventoryDisplayPromises.get(key);
+    }
+    const pendingDisplay = runtime.api.refreshAssetSnapshot().then((snapshot) => {
+      if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
+      const display = {
+        snapshot,
+        categoryValues: calculateInventoryCategoryValues(),
+        version: ++inventoryDisplayVersion
+      };
+      frozenInventoryDisplays.set(key, display);
+      return display;
+    }).finally(() => frozenInventoryDisplayPromises.delete(key));
+    frozenInventoryDisplayPromises.set(key, pendingDisplay);
+    return pendingDisplay;
   }
-  async function calculateNetworth(options = {}) {
+  async function calculateNetworth() {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     const targetNodes = document.querySelectorAll(
       'div[class*="Inventory_items"]'
@@ -29499,7 +29506,7 @@ ${preview}`
     if (!targetNodes.length) return;
     const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
     const showSort = runtime.settings.settingsMap.invSort.isTrue;
-    const display = showWorth ? await getFrozenInventoryDisplay(options.force === true) : null;
+    const display = showWorth ? await getFrozenInventoryDisplay() : null;
     if (showWorth && !display) return;
     const snapshot = display?.snapshot;
     addInventorySummaryStyles();
@@ -29750,12 +29757,7 @@ ${preview}`
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const refreshButton = `<button
-        id="script_refresh_inventory_btn"
-        style="border-radius: 4px; padding: 2px 8px; margin-left: 6px; cursor: pointer; font: inherit; font-size: 0.78rem; background-color: rgba(255, 255, 255, 0.08); color: var(--color-text-primary, #e8ebef); border: 1px solid rgba(255, 255, 255, 0.16);">
-        ${runtime.config.isZH ? "刷新" : "Refresh"}
-        </button>`;
-    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
     if (!invElem.isConnected || !invElem.parentElement) return;
     const existingSummary = invElem.parentElement.querySelector(
       "#script_inventory_summary"
@@ -29869,22 +29871,6 @@ ${preview}`
       invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
       updateSortButtonStyles("none");
     }
-    const refreshButtonElement = invElem.parentElement.querySelector(
-      "button#script_refresh_inventory_btn"
-    );
-    refreshButtonElement?.addEventListener("click", async () => {
-      const idleText = runtime.config.isZH ? "刷新" : "Refresh";
-      refreshButtonElement.disabled = true;
-      refreshButtonElement.textContent = runtime.config.isZH ? "刷新中…" : "Refreshing…";
-      try {
-        await calculateNetworth({ force: true });
-      } finally {
-        if (refreshButtonElement.isConnected) {
-          refreshButtonElement.disabled = false;
-          refreshButtonElement.textContent = idleText;
-        }
-      }
-    });
   }
   async function addGuildCreditConversionsSortButton() {
     const selectorContainer = document.querySelector(".ItemSelector_menu__12sEM");
@@ -40056,11 +40042,13 @@ ${locks}` : ""}`;
         zh: Object.freeze([
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧，所有榜单前五名的彩色徽章边框还会显示流光效果。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
+          "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，刷新网页后才会重新计算。",
           "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。"
         ]),
         en: Object.freeze([
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, friend-list badges stay beside the name, and all top-five rainbow borders gain a flowing highlight.",
           "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
+          "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display; reloading the page recalculates it.",
           "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times."
         ])
       })

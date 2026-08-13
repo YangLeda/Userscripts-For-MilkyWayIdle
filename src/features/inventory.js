@@ -8,6 +8,7 @@ import {
 let inventoryRefreshTimer = null;
 let inventoryDisplayVersion = 0;
 const frozenInventoryDisplays = new Map();
+const frozenInventoryDisplayPromises = new Map();
 const INVENTORY_SUMMARY_STYLE_ID = "mwitools-inventory-summary-style";
 
 function addInventorySummaryStyles() {
@@ -418,24 +419,33 @@ function addInventoryCategoryValues(
   }
 }
 
-async function getFrozenInventoryDisplay(force = false) {
+async function getFrozenInventoryDisplay() {
   const key = inventoryDisplayKey();
   if (!key) return null;
-  if (!force && frozenInventoryDisplays.has(key)) {
+  if (frozenInventoryDisplays.has(key)) {
     return frozenInventoryDisplays.get(key);
   }
-  const snapshot = await runtime.api.refreshAssetSnapshot();
-  if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
-  const display = {
-    snapshot,
-    categoryValues: calculateInventoryCategoryValues(),
-    version: ++inventoryDisplayVersion,
-  };
-  frozenInventoryDisplays.set(key, display);
-  return display;
+  if (frozenInventoryDisplayPromises.has(key)) {
+    return frozenInventoryDisplayPromises.get(key);
+  }
+  const pendingDisplay = runtime.api
+    .refreshAssetSnapshot()
+    .then((snapshot) => {
+      if (!snapshot) return frozenInventoryDisplays.get(key) ?? null;
+      const display = {
+        snapshot,
+        categoryValues: calculateInventoryCategoryValues(),
+        version: ++inventoryDisplayVersion,
+      };
+      frozenInventoryDisplays.set(key, display);
+      return display;
+    })
+    .finally(() => frozenInventoryDisplayPromises.delete(key));
+  frozenInventoryDisplayPromises.set(key, pendingDisplay);
+  return pendingDisplay;
 }
 
-async function calculateNetworth(options = {}) {
+async function calculateNetworth() {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
   const targetNodes = document.querySelectorAll(
     'div[class*="Inventory_items"]',
@@ -444,9 +454,7 @@ async function calculateNetworth(options = {}) {
 
   const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
   const showSort = runtime.settings.settingsMap.invSort.isTrue;
-  const display = showWorth
-    ? await getFrozenInventoryDisplay(options.force === true)
-    : null;
+  const display = showWorth ? await getFrozenInventoryDisplay() : null;
   if (showWorth && !display) return;
   const snapshot = display?.snapshot;
   addInventorySummaryStyles();
@@ -749,16 +757,9 @@ async function addInvSortButton(invElem) {
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-  const refreshButton = `<button
-        id="script_refresh_inventory_btn"
-        style="border-radius: 4px; padding: 2px 8px; margin-left: 6px; cursor: pointer; font: inherit; font-size: 0.78rem; background-color: rgba(255, 255, 255, 0.08); color: var(--color-text-primary, #e8ebef); border: 1px solid rgba(255, 255, 255, 0.16);">
-        ${runtime.config.isZH ? "刷新" : "Refresh"}
-        </button>`;
   const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     showSort ? (runtime.config.isZH ? "物品排序：" : "Sort items by: ") : ""
-  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${
-    showWorth ? ` ${refreshButton}` : ""
-  }</div>`;
+  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
   if (!invElem.isConnected || !invElem.parentElement) return;
   const existingSummary = invElem.parentElement.querySelector(
     "#script_inventory_summary",
@@ -907,25 +908,6 @@ async function addInvSortButton(invElem) {
       ?.addEventListener("click", () => sortItemsBy("none"));
     updateSortButtonStyles("none");
   }
-
-  const refreshButtonElement = invElem.parentElement.querySelector(
-    "button#script_refresh_inventory_btn",
-  );
-  refreshButtonElement?.addEventListener("click", async () => {
-    const idleText = runtime.config.isZH ? "刷新" : "Refresh";
-    refreshButtonElement.disabled = true;
-    refreshButtonElement.textContent = runtime.config.isZH
-      ? "刷新中…"
-      : "Refreshing…";
-    try {
-      await calculateNetworth({ force: true });
-    } finally {
-      if (refreshButtonElement.isConnected) {
-        refreshButtonElement.disabled = false;
-        refreshButtonElement.textContent = idleText;
-      }
-    }
-  });
 }
 
 /* 公会信用兑换选择弹窗排序 */

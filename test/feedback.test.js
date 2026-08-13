@@ -405,6 +405,10 @@ test("announcement history preserves each release separately through 26.4.9", ()
   assert.match(current.body.zh.join("\n"), /切换到技能页再返回库存/);
   assert.match(
     current.body.zh.join("\n"),
+    /评分和总资产现在会在本次页面会话首次计算后保持不变/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
     /更换战斗技能后，目标等级和生产次数快捷输入不显示/,
   );
 });
