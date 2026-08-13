@@ -441,6 +441,52 @@ test("v1 shopping data migrates project claims in creation order", () => {
         "MWITools_procurement_v1:production:legacy-character",
       ),
     ).version,
-    2,
+    3,
+  );
+});
+
+test("v2 planning policies migrate to per-goal v3 strategies", () => {
+  localStorage.setItem(
+    "MWITools_procurement_v1:production:legacy-planning-character",
+    JSON.stringify({
+      version: 2,
+      cart: [],
+      plans: [],
+      planning: {
+        goals: [
+          {
+            id: "item:/items/board",
+            kind: "item",
+            targetHrid: "/items/board",
+            target: 7,
+          },
+        ],
+        policies: { "/items/board": "acquire", "/items/log": "produce" },
+      },
+    }),
+  );
+  procurement.loadCharacterData("legacy-planning-character");
+  assert.deepEqual(procurement.getPlanningData(), {
+    goals: [
+      {
+        id: "item:/items/board",
+        kind: "item",
+        targetHrid: "/items/board",
+        target: 7,
+        policy: "chain",
+      },
+    ],
+    overrides: {
+      "item:/items/board": { "/items/board": "buy" },
+    },
+    defaults: { item: "chain", house: "chain" },
+  });
+  assert.equal(
+    JSON.parse(
+      localStorage.getItem(
+        "MWITools_procurement_v1:production:legacy-planning-character",
+      ),
+    ).version,
+    3,
   );
 });

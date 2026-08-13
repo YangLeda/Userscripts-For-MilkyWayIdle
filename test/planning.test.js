@@ -193,10 +193,10 @@ test("planning recursively expands item and house goals with shared inventory", 
   const log = result.materials.find(
     (material) => material.itemHrid === "/items/log",
   );
-  // The house still demands exactly 8 boards. Its first 3-board tier creates
-  // one batch surplus, so only 9 of the combined 10-board demand remains to
-  // be produced while the buffed recipe takes 5 actions and 5 logs.
-  assert.equal(board.requiredOutput, 9);
+  // The house still demands exactly 8 boards. The item and both house tiers
+  // are pooled before rounding, so the combined 10-board demand takes five
+  // buffed batches and five logs.
+  assert.equal(board.requiredOutput, 10);
   assert.equal(board.actionCount, 5);
   assert.equal(log.required, 5);
 
@@ -249,9 +249,19 @@ test("released project and planning allocations become manual", () => {
     targetHrid: "/items/log",
     target: 1000,
   });
+  planning.calculate();
   planning.addShortagesToCart();
 
   procurement.updatePlan(project.id, { status: "completed" });
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
+    total: 1050,
+    manual: 50,
+    planning: 1000,
+    project: 0,
+    projects: {},
+  });
+
+  planning.recalculate();
   assert.deepEqual(procurement.getCartAllocationSummary("/items/log"), {
     total: 1050,
     manual: 100,
@@ -259,6 +269,151 @@ test("released project and planning allocations become manual", () => {
     project: 0,
     projects: {},
   });
+});
+
+test("planning only replaces its result snapshot after explicit calculation", () => {
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-snapshot");
+  planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/final",
+    target: 1,
+  });
+  const before = planning.getDiagnostics().calculationCount;
+  const snapshot = planning.calculate();
+  assert.equal(planning.getDiagnostics().calculationCount, before + 1);
+  assert.equal(planning.isDirty(), false);
+
+  const goal = planning.getGoals()[0];
+  planning.updateGoal(goal.id, { target: 3 });
+  assert.equal(planning.isDirty(), true);
+  assert.equal(planning.getResult(), snapshot);
+  assert.equal(planning.getDiagnostics().calculationCount, before + 1);
+
+  const updated = planning.calculate();
+  assert.notEqual(updated, snapshot);
+  assert.equal(planning.getDiagnostics().calculationCount, before + 2);
+  planning.calculate();
+  assert.equal(planning.getDiagnostics().calculationCount, before + 2);
+});
+
+test("chain, single-layer, and buy strategies stop at the intended depth", () => {
+  runtime.state.initData_itemDetailMap = {
+    ...runtime.state.initData_itemDetailMap,
+    "/items/cabinet": { name: "Cabinet", isTradable: true },
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+    "/actions/crafting/cabinet": {
+      hrid: "/actions/crafting/cabinet",
+      name: "Cabinet",
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      inputItems: [{ itemHrid: "/items/board", count: 2 }],
+      outputItems: [{ itemHrid: "/items/cabinet", count: 1 }],
+    },
+  };
+  runtime.state.initData_characterItems = [];
+  procurement.loadCharacterData("planning-strategies");
+  const goal = planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/cabinet",
+    target: 1,
+    policy: "chain",
+  });
+
+  let result = planning.calculate();
+  assert.ok(result.nodes.some((node) => node.itemHrid === "/items/board"));
+  assert.equal(
+    result.materials.find((row) => row.itemHrid === "/items/log").required,
+    4,
+  );
+
+  planning.setGoalPolicy(goal.id, "single");
+  result = planning.calculate();
+  assert.equal(
+    result.materials.find((row) => row.itemHrid === "/items/board").required,
+    2,
+  );
+  assert.equal(
+    result.steps.some((step) => step.itemHrid === "/items/board"),
+    false,
+  );
+
+  planning.setGoalPolicy(goal.id, "buy");
+  result = planning.calculate();
+  assert.equal(result.steps.length, 0);
+  assert.equal(result.nodes[0].policy, "buy");
+  assert.equal(result.materials[0].itemHrid, "/items/cabinet");
+});
+
+test("shared inventory is assigned to buy branches before crafting branches", () => {
+  runtime.state.initData_houseRoomDetailMap = {
+    ...runtime.state.initData_houseRoomDetailMap,
+    "/house_rooms/chain_room": {
+      name: "Chain room",
+      upgradeCostsMap: {
+        1: [{ itemHrid: "/items/board", count: 3 }],
+      },
+    },
+    "/house_rooms/buy_room": {
+      name: "Buy room",
+      upgradeCostsMap: {
+        1: [{ itemHrid: "/items/board", count: 3 }],
+      },
+    },
+  };
+  runtime.state.initData_characterHouseRoomMap = {
+    "/house_rooms/chain_room": {
+      houseRoomHrid: "/house_rooms/chain_room",
+      level: 0,
+    },
+    "/house_rooms/buy_room": {
+      houseRoomHrid: "/house_rooms/buy_room",
+      level: 0,
+    },
+  };
+  runtime.state.initData_characterItems = [
+    {
+      id: "three-boards",
+      itemHrid: "/items/board",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 3,
+    },
+  ];
+  procurement.loadCharacterData("planning-branch-allocation");
+  const chainGoal = planning.upsertGoal({
+    kind: "house",
+    targetHrid: "/house_rooms/chain_room",
+    target: 1,
+    policy: "chain",
+  });
+  const buyGoal = planning.upsertGoal({
+    kind: "house",
+    targetHrid: "/house_rooms/buy_room",
+    target: 1,
+    policy: "buy",
+  });
+  planning.setNodePolicy(chainGoal.id, "/items/board", "single");
+  planning.setGoalPolicy(chainGoal.id, "chain");
+  assert.equal(planning.getNodePolicy(chainGoal.id, "/items/board"), "chain");
+
+  const result = planning.calculate();
+  const board = result.nodes.find((node) => node.itemHrid === "/items/board");
+  const buyBranch = board.branches.find(
+    (branch) => branch.goalId === buyGoal.id,
+  );
+  const chainBranch = board.branches.find(
+    (branch) => branch.goalId === chainGoal.id,
+  );
+  assert.equal(board.policy, "mixed");
+  assert.equal(buyBranch.inventoryUsed, 3);
+  assert.equal(chainBranch.inventoryUsed, 0);
+  assert.equal(
+    result.materials.find((row) => row.itemHrid === "/items/log").required,
+    6,
+  );
 });
 
 test("planning expands shop exchanges and shares co-products", () => {

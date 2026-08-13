@@ -1,7 +1,7 @@
 import { runtime } from "./runtime.js";
 import { actionName, itemName } from "./localization.js";
 
-const DATA_VERSION = 2;
+const DATA_VERSION = 3;
 const SETTINGS_KEY = "MWITools_procurement_settings_v1";
 const DATA_PREFIX = "MWITools_procurement_v1";
 const MANUAL_OVERRIDE_MS = 5 * 60 * 1000;
@@ -42,7 +42,11 @@ const cart = new Map();
 const plans = new Map();
 const inventoryEntries = new Map();
 const purchaseSuppressions = new Map();
-let planningData = { goals: [], policies: {} };
+let planningData = {
+  goals: [],
+  overrides: {},
+  defaults: { item: "chain", house: "chain" },
+};
 let activeCharacterId = "";
 let activeStorageKey = "";
 let ready = false;
@@ -264,6 +268,43 @@ function persistData() {
   localStorage.setItem(activeStorageKey, JSON.stringify(serializeData()));
 }
 
+function normalizePlanningData(next) {
+  return {
+    goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
+    overrides:
+      next?.overrides && typeof next.overrides === "object"
+        ? clone(next.overrides)
+        : {},
+    defaults: {
+      item: String(next?.defaults?.item ?? "chain"),
+      house: String(next?.defaults?.house ?? "chain"),
+    },
+  };
+}
+
+function migratePlanningData(value) {
+  const migrated = normalizePlanningData(value);
+  const legacyPolicies =
+    value?.policies && typeof value.policies === "object" ? value.policies : {};
+  migrated.goals = migrated.goals.map((goal) => ({
+    ...goal,
+    policy: String(goal?.policy ?? "chain"),
+  }));
+  for (const goal of migrated.goals) {
+    const goalId = String(
+      goal?.id ??
+        `${goal?.kind === "house" ? "house" : "item"}:${goal?.targetHrid ?? goal?.hrid ?? ""}`,
+    );
+    if (!goalId) continue;
+    const overrides = { ...(migrated.overrides[goalId] ?? {}) };
+    for (const [itemHrid, policy] of Object.entries(legacyPolicies)) {
+      if (policy === "acquire") overrides[itemHrid] = "buy";
+    }
+    if (Object.keys(overrides).length) migrated.overrides[goalId] = overrides;
+  }
+  return migrated;
+}
+
 function loadCharacterData(characterId) {
   activeCharacterId = String(characterId ?? "");
   activeStorageKey = activeCharacterId
@@ -271,7 +312,7 @@ function loadCharacterData(characterId) {
     : "";
   cart.clear();
   plans.clear();
-  planningData = { goals: [], policies: {} };
+  planningData = normalizePlanningData(null);
   let storedVersion = 0;
   if (activeStorageKey) {
     try {
@@ -293,16 +334,10 @@ function loadCharacterData(characterId) {
       for (const plan of stored?.plans ?? []) {
         if (plan?.id) plans.set(plan.id, plan);
       }
-      planningData = {
-        goals: Array.isArray(stored?.planning?.goals)
-          ? stored.planning.goals
-          : [],
-        policies:
-          stored?.planning?.policies &&
-          typeof stored.planning.policies === "object"
-            ? stored.planning.policies
-            : {},
-      };
+      planningData =
+        storedVersion < 3
+          ? migratePlanningData(stored?.planning)
+          : normalizePlanningData(stored?.planning);
     } catch (error) {
       console.warn(
         runtime.config.isZH
@@ -313,8 +348,8 @@ function loadCharacterData(characterId) {
     }
   }
   rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
-  if (storedVersion < 2) {
-    migrateLegacyCartAllocations();
+  if (storedVersion < 3) {
+    if (storedVersion < 2) migrateLegacyCartAllocations();
     persistData();
   }
   refreshPlanProgress();
@@ -365,13 +400,7 @@ function getPlanningData() {
 }
 
 function setPlanningData(next, reason = "update") {
-  planningData = {
-    goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
-    policies:
-      next?.policies && typeof next.policies === "object"
-        ? clone(next.policies)
-        : {},
-  };
+  planningData = normalizePlanningData(next);
   persistData();
   emit("planning:change", { reason, planning: getPlanningData() });
   return getPlanningData();

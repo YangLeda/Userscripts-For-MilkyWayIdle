@@ -2,11 +2,27 @@ import { runtime } from "./runtime.js";
 import { itemName } from "./localization.js";
 
 const MAX_DEPTH = 40;
+const EPSILON = 1e-9;
+const POLICIES = new Set(["chain", "single", "buy"]);
 const procurement = runtime.api.procurement;
+
+let calculationRevision = 0;
+let calculationCount = 0;
+let cachedRevision = -1;
+let cachedResult = null;
+let lastResult = null;
+let lastCalculatedAt = null;
+let recipeCache = new Map();
 
 function positiveInteger(value, fallback = 1) {
   const number = Math.ceil(Number(value) || 0);
   return number > 0 ? number : fallback;
+}
+
+function normalizePolicy(value, fallback = "chain") {
+  if (value === "produce") return "chain";
+  if (value === "acquire") return "buy";
+  return POLICIES.has(value) ? value : fallback;
 }
 
 function maxHouseLevel(houseRoomHrid) {
@@ -30,21 +46,47 @@ function normalizeGoal(value) {
     kind,
     targetHrid,
     target: Math.min(positiveInteger(value?.target), maximum),
+    policy: normalizePolicy(value?.policy),
     enabled: value?.enabled !== false,
     createdAt: value?.createdAt ?? new Date().toISOString(),
     updatedAt: value?.updatedAt ?? new Date().toISOString(),
   };
 }
 
+function normalizeOverrides(value) {
+  const result = {};
+  for (const [goalId, entries] of Object.entries(value ?? {})) {
+    if (!entries || typeof entries !== "object") continue;
+    const normalized = {};
+    for (const [itemHrid, policy] of Object.entries(entries)) {
+      const item = procurement.normalizeItemHrid(itemHrid);
+      if (item) normalized[item] = normalizePolicy(policy);
+    }
+    if (Object.keys(normalized).length) result[goalId] = normalized;
+  }
+  return result;
+}
+
 function getState() {
   const value = procurement.getPlanningData();
   return {
     goals: (value.goals ?? []).map(normalizeGoal).filter(Boolean),
-    policies: { ...(value.policies ?? {}) },
+    overrides: normalizeOverrides(value.overrides),
+    defaults: {
+      item: normalizePolicy(value.defaults?.item),
+      house: normalizePolicy(value.defaults?.house),
+    },
   };
 }
 
+function invalidate() {
+  calculationRevision += 1;
+  cachedResult = null;
+  recipeCache = new Map();
+}
+
 function saveState(state, reason) {
+  invalidate();
   return procurement.setPlanningData(state, reason);
 }
 
@@ -53,9 +95,14 @@ function getGoals() {
 }
 
 function upsertGoal(value) {
-  const goal = normalizeGoal(value);
-  if (!goal) return null;
   const state = getState();
+  const goal = normalizeGoal({
+    ...value,
+    policy:
+      value?.policy ??
+      state.defaults[value?.kind === "house" ? "house" : "item"],
+  });
+  if (!goal) return null;
   const index = state.goals.findIndex(
     (entry) => entry.kind === goal.kind && entry.targetHrid === goal.targetHrid,
   );
@@ -63,11 +110,11 @@ function upsertGoal(value) {
     goal.id = state.goals[index].id;
     goal.createdAt = state.goals[index].createdAt;
     state.goals[index] = goal;
+    delete state.overrides[goal.id];
   } else {
     state.goals.push(goal);
   }
   saveState(state, "goal");
-  reconcilePlanningCart();
   return goal;
 }
 
@@ -75,16 +122,19 @@ function updateGoal(id, patch) {
   const state = getState();
   const index = state.goals.findIndex((goal) => goal.id === id);
   if (index < 0) return false;
+  const previous = state.goals[index];
   const next = normalizeGoal({
-    ...state.goals[index],
+    ...previous,
     ...patch,
     id,
     updatedAt: new Date().toISOString(),
   });
   if (!next) return false;
   state.goals[index] = next;
+  if (Object.hasOwn(patch ?? {}, "policy")) {
+    delete state.overrides[id];
+  }
   saveState(state, "goal");
-  reconcilePlanningCart();
   return true;
 }
 
@@ -93,25 +143,55 @@ function removeGoal(id) {
   const next = state.goals.filter((goal) => goal.id !== id);
   if (next.length === state.goals.length) return false;
   state.goals = next;
+  delete state.overrides[id];
   saveState(state, "goal");
-  reconcilePlanningCart();
   return true;
 }
 
-function getPolicy(itemHrid) {
+function getDefaultPolicy(kind) {
+  return getState().defaults[kind === "house" ? "house" : "item"];
+}
+
+function setDefaultPolicy(kind, policy) {
+  const normalizedKind = kind === "house" ? "house" : "item";
+  const state = getState();
+  state.defaults[normalizedKind] = normalizePolicy(policy);
+  saveState(state, "default-policy");
+  return true;
+}
+
+function getGoalPolicy(goalId) {
+  return getState().goals.find((goal) => goal.id === goalId)?.policy ?? "chain";
+}
+
+function setGoalPolicy(goalId, policy) {
+  return updateGoal(goalId, { policy: normalizePolicy(policy) });
+}
+
+function getNodePolicy(goalId, itemHrid) {
+  const state = getState();
+  const item = procurement.normalizeItemHrid(itemHrid);
   return (
-    getState().policies[procurement.normalizeItemHrid(itemHrid)] ?? "produce"
+    state.overrides[goalId]?.[item] ??
+    state.goals.find((goal) => goal.id === goalId)?.policy ??
+    "chain"
   );
 }
 
-function setPolicy(itemHrid, policy) {
-  const normalized = procurement.normalizeItemHrid(itemHrid);
-  if (!normalized) return false;
+function setNodePolicy(goalId, itemHrid, policy) {
+  const item = procurement.normalizeItemHrid(itemHrid);
   const state = getState();
-  if (policy === "acquire") state.policies[normalized] = "acquire";
-  else delete state.policies[normalized];
-  saveState(state, "policy");
-  reconcilePlanningCart();
+  if (!item || !state.goals.some((goal) => goal.id === goalId)) return false;
+  state.overrides[goalId] = { ...(state.overrides[goalId] ?? {}) };
+  if (policy == null || policy === "inherit") {
+    delete state.overrides[goalId][item];
+    if (!Object.keys(state.overrides[goalId]).length) {
+      delete state.overrides[goalId];
+    }
+  } else {
+    state.overrides[goalId][item] = normalizePolicy(policy);
+  }
+  saveState(state, "node-policy");
   return true;
 }
 
@@ -190,9 +270,28 @@ function findProductionRecipe(itemHrid) {
         : sum,
     0,
   );
-  return outputCount > 0
-    ? { kind: "production", id: actionHrid, outputCount, profile }
+  if (outputCount <= 0) return null;
+  const requirements = procurement.calculateRequirements(actionHrid, 1);
+  return requirements.materials?.length
+    ? {
+        kind: "production",
+        id: actionHrid,
+        outputCount,
+        profile,
+      }
     : null;
+}
+
+function recipeFor(itemHrid) {
+  const item = procurement.normalizeItemHrid(itemHrid);
+  if (!recipeCache.has(item)) {
+    recipeCache.set(item, findProductionRecipe(item) ?? findShopRecipe(item));
+  }
+  return recipeCache.get(item) ?? null;
+}
+
+function isCraftableItem(itemHrid) {
+  return Boolean(findProductionRecipe(procurement.normalizeItemHrid(itemHrid)));
 }
 
 function currentHouseLevel(houseRoomHrid) {
@@ -208,7 +307,38 @@ function currentHouseLevel(houseRoomHrid) {
   );
 }
 
-function calculate() {
+function allocateProportionally(entries, available, field) {
+  const total = entries.reduce((sum, entry) => sum + entry.remaining, 0);
+  const used = Math.min(Math.max(0, available), total);
+  if (used <= EPSILON || total <= EPSILON) return 0;
+  let distributed = 0;
+  entries.forEach((entry, index) => {
+    const share =
+      index === entries.length - 1
+        ? used - distributed
+        : Math.min(entry.remaining, (used * entry.remaining) / total);
+    const applied = Math.max(0, Math.min(entry.remaining, share));
+    entry[field] += applied;
+    entry.remaining -= applied;
+    distributed += applied;
+  });
+  return distributed;
+}
+
+function allocatePool(entries, available, field) {
+  const buy = entries.filter(
+    (entry) => entry.policy === "buy" && entry.remaining > EPSILON,
+  );
+  const other = entries.filter(
+    (entry) => entry.policy !== "buy" && entry.remaining > EPSILON,
+  );
+  const buyUsed = allocateProportionally(buy, available, field);
+  const otherUsed = allocateProportionally(other, available - buyUsed, field);
+  return buyUsed + otherUsed;
+}
+
+function calculateFresh() {
+  calculationCount += 1;
   const state = getState();
   const goals = state.goals
     .filter((goal) => goal.enabled)
@@ -219,9 +349,11 @@ function calculate() {
     );
   const inventoryPool = new Map();
   const virtualPool = new Map();
+  const decisions = new Map();
   const steps = new Map();
   const materials = new Map();
   const warnings = [];
+  let pending = [];
 
   const inventoryFor = (itemHrid) => {
     const key = procurement.itemKey(itemHrid, 0);
@@ -238,56 +370,88 @@ function calculate() {
     return inventoryPool.get(key) ?? 0;
   };
 
-  const consumeSupply = (itemHrid, amount) => {
-    const key = procurement.itemKey(itemHrid, 0);
-    const inventory = Math.min(amount, inventoryFor(itemHrid));
-    inventoryPool.set(key, inventoryFor(itemHrid) - inventory);
-    const afterInventory = amount - inventory;
-    const virtual = Math.min(
-      afterInventory,
-      Math.max(0, virtualPool.get(itemHrid) ?? 0),
-    );
-    virtualPool.set(
-      itemHrid,
-      Math.max(0, (virtualPool.get(itemHrid) ?? 0) - virtual),
-    );
-    return { remaining: afterInventory - virtual, inventory, virtual };
+  const addPending = ({
+    itemHrid,
+    amount,
+    goalId,
+    inheritedPolicy,
+    lineage,
+    depth,
+  }) => {
+    const item = procurement.normalizeItemHrid(itemHrid);
+    const count = Math.max(0, Number(amount) || 0);
+    if (!item || count <= EPSILON) return;
+    pending.push({
+      itemHrid: item,
+      amount: count,
+      goalId,
+      inheritedPolicy: normalizePolicy(inheritedPolicy),
+      lineage: [...(lineage ?? [])],
+      depth: Math.max(0, Number(depth) || 0),
+    });
   };
 
-  const recordLeaf = (itemHrid, amount, supply, sourceIds, lineage, reason) => {
-    const normalized = procurement.normalizeItemHrid(itemHrid);
-    const entry = materials.get(normalized) ?? {
-      itemHrid: normalized,
+  const recordDecision = (entry, recipe) => {
+    if (!recipe) return;
+    const decision = decisions.get(entry.itemHrid) ?? {
+      itemHrid: entry.itemHrid,
+      outputCount: recipe.outputCount,
+      policies: new Set(),
+      branches: new Map(),
+    };
+    const branch = decision.branches.get(entry.goalId) ?? {
+      goalId: entry.goalId,
+      requiredOutput: 0,
+      inventoryUsed: 0,
+      virtualUsed: 0,
+      remaining: 0,
+      policies: new Set(),
+    };
+    branch.requiredOutput += entry.amount;
+    branch.inventoryUsed += entry.inventoryUsed;
+    branch.virtualUsed += entry.virtualUsed;
+    branch.remaining += entry.remaining;
+    branch.policies.add(entry.policy);
+    decision.policies.add(entry.policy);
+    decision.branches.set(entry.goalId, branch);
+    decisions.set(entry.itemHrid, decision);
+  };
+
+  const recordLeaf = (entry, reason) => {
+    const material = materials.get(entry.itemHrid) ?? {
+      itemHrid: entry.itemHrid,
       required: 0,
       inventoryUsed: 0,
       virtualUsed: 0,
       sourceIds: new Set(),
       lineages: new Set(),
       reasons: new Set(),
+      branches: new Map(),
     };
-    entry.required += amount;
-    entry.inventoryUsed += supply.inventory;
-    entry.virtualUsed += supply.virtual;
-    for (const id of sourceIds) entry.sourceIds.add(id);
-    entry.lineages.add(lineage.join(" > "));
-    entry.reasons.add(reason);
-    materials.set(normalized, entry);
-    return supply.remaining;
+    material.required += entry.amount;
+    material.inventoryUsed += entry.inventoryUsed;
+    material.virtualUsed += entry.virtualUsed;
+    material.sourceIds.add(entry.goalId);
+    material.lineages.add([...entry.lineage, entry.itemHrid].join(" > "));
+    material.reasons.add(reason);
+    const branch = material.branches.get(entry.goalId) ?? {
+      goalId: entry.goalId,
+      required: 0,
+      inventoryUsed: 0,
+      virtualUsed: 0,
+      requiredAfterSupply: 0,
+      policies: new Set(),
+    };
+    branch.required += entry.amount;
+    branch.inventoryUsed += entry.inventoryUsed;
+    branch.virtualUsed += entry.virtualUsed;
+    branch.requiredAfterSupply += entry.remaining;
+    branch.policies.add(entry.policy);
+    material.branches.set(entry.goalId, branch);
+    materials.set(entry.itemHrid, material);
   };
 
-  const addLeaf = (itemHrid, amount, sourceIds, lineage, reason) => {
-    const normalized = procurement.normalizeItemHrid(itemHrid);
-    return recordLeaf(
-      normalized,
-      amount,
-      consumeSupply(normalized, amount),
-      sourceIds,
-      lineage,
-      reason,
-    );
-  };
-
-  const addStep = (recipe, itemHrid, amount, actionCount, sourceIds) => {
+  const addStep = (recipe, itemHrid, amount, actionCount, entries) => {
     const key = `${recipe.kind}:${recipe.id}`;
     const step = steps.get(key) ?? {
       key,
@@ -301,115 +465,188 @@ function calculate() {
     };
     step.requiredOutput += amount;
     step.actionCount += actionCount;
-    for (const id of sourceIds) step.sourceIds.add(id);
+    entries.forEach((entry) => step.sourceIds.add(entry.goalId));
     steps.set(key, step);
   };
 
-  const expand = (
-    rawItemHrid,
-    rawAmount,
-    sourceIds,
-    lineage = [],
-    depth = 0,
-  ) => {
-    const itemHrid = procurement.normalizeItemHrid(rawItemHrid);
-    const amount = Math.max(0, Number(rawAmount) || 0);
-    if (!itemHrid || amount <= 0) return;
-    if (depth >= MAX_DEPTH || lineage.includes(itemHrid)) {
-      warnings.push({
-        type: depth >= MAX_DEPTH ? "truncated" : "cycle",
-        itemHrid,
-        lineage: [...lineage, itemHrid],
-      });
-      addLeaf(itemHrid, amount, sourceIds, lineage, "cycle");
-      return;
-    }
-    const supply = consumeSupply(itemHrid, amount);
-    if (supply.remaining <= 1e-9) return;
-    const policy = state.policies[itemHrid] ?? "produce";
-    const recipe =
-      policy === "acquire"
-        ? null
-        : (findProductionRecipe(itemHrid) ?? findShopRecipe(itemHrid));
-    if (!recipe) {
-      recordLeaf(
-        itemHrid,
-        amount,
-        supply,
-        sourceIds,
-        [...lineage, itemHrid],
-        policy === "acquire" ? "acquire" : "leaf",
-      );
-      return;
-    }
-    const actionCount = Math.max(
-      1,
-      Math.ceil(supply.remaining / recipe.outputCount - 1e-9),
-    );
-    addStep(recipe, itemHrid, supply.remaining, actionCount, sourceIds);
-    const producedTarget = actionCount * recipe.outputCount;
-    virtualPool.set(
-      itemHrid,
-      (virtualPool.get(itemHrid) ?? 0) +
-        Math.max(0, producedTarget - supply.remaining),
-    );
-    const nextLineage = [...lineage, itemHrid];
-    if (recipe.kind === "exchange") {
-      for (const cost of recipe.costs) {
-        expand(
-          cost.itemHrid,
-          cost.count * actionCount,
-          sourceIds,
-          nextLineage,
-          depth + 1,
-        );
-      }
-      return;
-    }
-    const profile = recipe.profile;
-    for (const output of profile.outputs ?? []) {
-      const outputHrid = procurement.normalizeItemHrid(output.itemHrid);
-      if (!outputHrid || outputHrid === itemHrid) continue;
-      virtualPool.set(
-        outputHrid,
-        (virtualPool.get(outputHrid) ?? 0) +
-          Math.max(0, Number(output.count) || 0) * actionCount,
-      );
-    }
-    const requirements = procurement.calculateRequirements(
-      recipe.id,
-      actionCount,
-    );
-    if (!requirements.materials?.length) {
-      recordLeaf(itemHrid, amount, supply, sourceIds, lineage, "gathering");
-      return;
-    }
-    for (const material of requirements.materials) {
-      expand(
-        material.itemHrid,
-        material.suggested,
-        sourceIds,
-        nextLineage,
-        depth + 1,
-      );
-    }
-  };
-
   for (const goal of goals) {
-    const sources = new Set([goal.id]);
     if (goal.kind === "item") {
-      expand(goal.targetHrid, goal.target, sources);
+      addPending({
+        itemHrid: goal.targetHrid,
+        amount: goal.target,
+        goalId: goal.id,
+        inheritedPolicy: goal.policy,
+        lineage: [],
+        depth: 0,
+      });
       continue;
     }
     const detail = runtime.state.initData_houseRoomDetailMap?.[goal.targetHrid];
     const current = currentHouseLevel(goal.targetHrid);
     for (let level = current + 1; level <= goal.target; level += 1) {
       for (const cost of rows(detail?.upgradeCostsMap?.[level])) {
-        expand(cost.itemHrid, cost.count, sources, [goal.targetHrid]);
+        addPending({
+          itemHrid: cost.itemHrid,
+          amount: cost.count,
+          goalId: goal.id,
+          inheritedPolicy: goal.policy,
+          lineage: [goal.targetHrid],
+          depth: 0,
+        });
       }
     }
   }
 
+  while (pending.length) {
+    const grouped = new Map();
+    for (const entry of pending) {
+      const entries = grouped.get(entry.itemHrid) ?? [];
+      entries.push(entry);
+      grouped.set(entry.itemHrid, entries);
+    }
+    pending = [];
+    for (const itemHrid of [...grouped.keys()].sort()) {
+      const entries = grouped.get(itemHrid);
+      for (const entry of entries) {
+        entry.policy = normalizePolicy(
+          state.overrides[entry.goalId]?.[itemHrid] ?? entry.inheritedPolicy,
+        );
+        entry.remaining = entry.amount;
+        entry.inventoryUsed = 0;
+        entry.virtualUsed = 0;
+        entry.forcedLeaf =
+          entry.depth >= MAX_DEPTH || entry.lineage.includes(itemHrid);
+        if (entry.forcedLeaf) {
+          warnings.push({
+            type: entry.depth >= MAX_DEPTH ? "truncated" : "cycle",
+            itemHrid,
+            goalId: entry.goalId,
+            lineage: [...entry.lineage, itemHrid],
+          });
+        }
+      }
+      const key = procurement.itemKey(itemHrid, 0);
+      const inventoryUsed = allocatePool(
+        entries,
+        inventoryFor(itemHrid),
+        "inventoryUsed",
+      );
+      inventoryPool.set(
+        key,
+        Math.max(0, inventoryFor(itemHrid) - inventoryUsed),
+      );
+      const virtualUsed = allocatePool(
+        entries,
+        Math.max(0, virtualPool.get(itemHrid) ?? 0),
+        "virtualUsed",
+      );
+      virtualPool.set(
+        itemHrid,
+        Math.max(0, (virtualPool.get(itemHrid) ?? 0) - virtualUsed),
+      );
+
+      const recipe = recipeFor(itemHrid);
+      entries.forEach((entry) => recordDecision(entry, recipe));
+      const produced = entries.filter(
+        (entry) =>
+          !entry.forcedLeaf &&
+          entry.policy !== "buy" &&
+          recipe &&
+          entry.remaining > EPSILON,
+      );
+      for (const entry of entries) {
+        if (entry.forcedLeaf) recordLeaf(entry, "cycle");
+        else if (entry.policy === "buy") recordLeaf(entry, "buy");
+        else if (!recipe) recordLeaf(entry, "leaf");
+      }
+      if (!produced.length) continue;
+      const totalRemaining = produced.reduce(
+        (sum, entry) => sum + entry.remaining,
+        0,
+      );
+      const actionCount = Math.max(
+        1,
+        Math.ceil(totalRemaining / recipe.outputCount - EPSILON),
+      );
+      addStep(recipe, itemHrid, totalRemaining, actionCount, produced);
+      const producedTarget = actionCount * recipe.outputCount;
+      virtualPool.set(
+        itemHrid,
+        (virtualPool.get(itemHrid) ?? 0) +
+          Math.max(0, producedTarget - totalRemaining),
+      );
+      const requirements =
+        recipe.kind === "exchange"
+          ? recipe.costs.map((cost) => ({
+              itemHrid: cost.itemHrid,
+              suggested: cost.count * actionCount,
+            }))
+          : procurement.calculateRequirements(recipe.id, actionCount).materials;
+      if (recipe.kind === "production") {
+        for (const output of recipe.profile.outputs ?? []) {
+          const outputHrid = procurement.normalizeItemHrid(output.itemHrid);
+          if (!outputHrid || outputHrid === itemHrid) continue;
+          virtualPool.set(
+            outputHrid,
+            (virtualPool.get(outputHrid) ?? 0) +
+              Math.max(0, Number(output.count) || 0) * actionCount,
+          );
+        }
+      }
+      for (const material of requirements ?? []) {
+        for (const entry of produced) {
+          addPending({
+            itemHrid: material.itemHrid,
+            amount:
+              Math.max(0, Number(material.suggested) || 0) *
+              (entry.remaining / totalRemaining),
+            goalId: entry.goalId,
+            inheritedPolicy: entry.policy === "single" ? "buy" : "chain",
+            lineage: [...entry.lineage, itemHrid],
+            depth: entry.depth + 1,
+          });
+        }
+      }
+    }
+  }
+
+  const resultSteps = [...steps.values()]
+    .map((step) => ({ ...step, sourceIds: [...step.sourceIds] }))
+    .sort((left, right) => left.itemHrid.localeCompare(right.itemHrid));
+  const actionsByItem = new Map();
+  for (const step of resultSteps) {
+    actionsByItem.set(
+      step.itemHrid,
+      (actionsByItem.get(step.itemHrid) ?? 0) + step.actionCount,
+    );
+  }
+  const nodes = [...decisions.values()]
+    .map((decision) => {
+      const branches = [...decision.branches.values()]
+        .map((branch) => ({
+          ...branch,
+          policies: [...branch.policies],
+          policy:
+            branch.policies.size === 1 ? [...branch.policies][0] : "mixed",
+        }))
+        .sort((left, right) => left.goalId.localeCompare(right.goalId));
+      return {
+        itemHrid: decision.itemHrid,
+        name: itemName(decision.itemHrid),
+        requiredOutput: branches.reduce(
+          (sum, branch) => sum + branch.requiredOutput,
+          0,
+        ),
+        outputCount: decision.outputCount,
+        actionCount: actionsByItem.get(decision.itemHrid) ?? null,
+        sourceIds: branches.map((branch) => branch.goalId),
+        policies: [...decision.policies],
+        policy:
+          decision.policies.size === 1 ? [...decision.policies][0] : "mixed",
+        branches,
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
   const resultMaterials = [...materials.values()]
     .map((entry) => {
       const owned = procurement.getInventoryCount(entry.itemHrid, 0);
@@ -418,13 +655,21 @@ function calculate() {
         0,
       );
       const cart = procurement.getCartAllocationSummary(entry.itemHrid, 0);
-      const requiredAfterSupply = Math.max(
+      const branches = [...entry.branches.values()]
+        .map((branch) => ({
+          ...branch,
+          policies: [...branch.policies],
+          policy:
+            branch.policies.size === 1 ? [...branch.policies][0] : "mixed",
+        }))
+        .sort((left, right) => left.goalId.localeCompare(right.goalId));
+      const requiredAfterSupply = branches.reduce(
+        (sum, branch) => sum + branch.requiredAfterSupply,
         0,
-        entry.required - entry.inventoryUsed - entry.virtualUsed,
       );
       const addableShortage = Math.max(
         0,
-        Math.ceil(requiredAfterSupply - cart.planning - 1e-9),
+        Math.ceil(requiredAfterSupply - cart.planning - EPSILON),
       );
       const detail = runtime.state.initData_itemDetailMap?.[entry.itemHrid];
       return {
@@ -432,6 +677,7 @@ function calculate() {
         sourceIds: [...entry.sourceIds],
         lineages: [...entry.lineages].filter(Boolean),
         reasons: [...entry.reasons],
+        branches,
         name: itemName(entry.itemHrid),
         owned,
         projectInventory,
@@ -444,20 +690,53 @@ function calculate() {
       };
     })
     .sort((left, right) => left.name.localeCompare(right.name));
-  const resultSteps = [...steps.values()]
-    .map((step) => ({ ...step, sourceIds: [...step.sourceIds] }))
-    .sort((left, right) => left.itemHrid.localeCompare(right.itemHrid));
   return {
     status: goals.length ? "complete" : "empty",
     goals,
+    nodes,
     steps: resultSteps,
     materials: resultMaterials,
     warnings,
   };
 }
 
-function reconcilePlanningCart() {
-  const result = calculate();
+function calculate() {
+  if (cachedResult && cachedRevision === calculationRevision) {
+    return cachedResult;
+  }
+  cachedResult = calculateFresh();
+  cachedRevision = calculationRevision;
+  lastResult = cachedResult;
+  lastCalculatedAt = new Date().toISOString();
+  return cachedResult;
+}
+
+function getPolicy(itemHrid) {
+  const item = procurement.normalizeItemHrid(itemHrid);
+  const state = getState();
+  return state.goals.length > 0 &&
+    state.goals.every(
+      (goal) => (state.overrides[goal.id]?.[item] ?? goal.policy) === "buy",
+    )
+    ? "acquire"
+    : "produce";
+}
+
+function setPolicy(itemHrid, policy) {
+  const item = procurement.normalizeItemHrid(itemHrid);
+  const state = getState();
+  if (!item || !state.goals.length) return false;
+  const mapped = normalizePolicy(policy);
+  for (const goal of state.goals) {
+    state.overrides[goal.id] = { ...(state.overrides[goal.id] ?? {}) };
+    state.overrides[goal.id][item] = mapped;
+  }
+  saveState(state, "legacy-policy");
+  return true;
+}
+
+function reconcilePlanningCart(result = lastResult) {
+  if (!result) return null;
   const allowed = new Map(
     result.materials.map((material) => [
       procurement.itemKey(material.itemHrid, 0),
@@ -488,21 +767,90 @@ function reconcilePlanningCart() {
   return result;
 }
 
-function addShortagesToCart(materials = calculate().materials) {
+function refreshResultCartState(result) {
+  if (!result) return result;
+  for (const material of result.materials) {
+    const cart = procurement.getCartAllocationSummary(material.itemHrid, 0);
+    material.cart = cart;
+    material.addableShortage = Math.max(
+      0,
+      Math.ceil(material.requiredAfterSupply - cart.planning - EPSILON),
+    );
+  }
+  return result;
+}
+
+function recalculate() {
+  const result = calculate();
+  reconcilePlanningCart(result);
+  refreshResultCartState(result);
+  cachedResult = result;
+  lastResult = result;
+  cachedRevision = calculationRevision;
+  return result;
+}
+
+function getResult() {
+  return lastResult;
+}
+
+function isDirty() {
+  return !lastResult || cachedRevision !== calculationRevision;
+}
+
+function addShortagesToCart(materials = lastResult?.materials ?? []) {
   return procurement.addToCart(
     materials
+      .map((material) => {
+        const cart = procurement.getCartAllocationSummary(material.itemHrid, 0);
+        return {
+          ...material,
+          currentShortage: Math.max(
+            0,
+            Math.ceil(material.requiredAfterSupply - cart.planning - EPSILON),
+          ),
+        };
+      })
       .filter(
-        (material) => material.purchasable && material.addableShortage > 0,
+        (material) => material.purchasable && material.currentShortage > 0,
       )
       .map((material) => ({
         itemHrid: material.itemHrid,
         enhancementLevel: 0,
         name: material.name,
-        quantity: material.addableShortage,
+        quantity: material.currentShortage,
         source: "planning",
         allocation: { kind: "planning" },
       })),
   );
+}
+
+for (const eventName of [
+  "planning:change",
+  "cart:change",
+  "plan:change",
+  "inventory:change",
+  "settings:change",
+]) {
+  procurement.on(eventName, invalidate);
+}
+procurement.on("character:change", () => {
+  invalidate();
+  lastResult = null;
+  lastCalculatedAt = null;
+});
+for (const messageType of [
+  "items_updated",
+  "house_rooms_updated",
+  "community_buffs_updated",
+  "consumable_buffs_updated",
+  "equipment_buffs_updated",
+  "personal_buffs_updated",
+  "guild_buffs_updated",
+  "skills_updated",
+  "init_character_data",
+]) {
+  runtime.onMessage(messageType, invalidate);
 }
 
 runtime.api.planning = {
@@ -510,9 +858,26 @@ runtime.api.planning = {
   upsertGoal,
   updateGoal,
   removeGoal,
+  getDefaultPolicy,
+  setDefaultPolicy,
+  getGoalPolicy,
+  setGoalPolicy,
+  getNodePolicy,
+  setNodePolicy,
   getPolicy,
   setPolicy,
+  isCraftableItem,
   calculate,
+  recalculate,
+  getResult,
+  isDirty,
+  invalidate,
+  getDiagnostics: () => ({
+    revision: calculationRevision,
+    calculationCount,
+    dirty: isDirty(),
+    lastCalculatedAt,
+  }),
   reconcilePlanningCart,
   addShortagesToCart,
   on(listener) {

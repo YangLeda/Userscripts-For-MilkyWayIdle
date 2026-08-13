@@ -119,7 +119,20 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     "/items/nail": { name: "Nail", isTradable: true, sortIndex: 1 },
     "/items/board": { name: "Board", isTradable: true, sortIndex: 2 },
   };
-  runtime.state.initData_actionDetailMap = {};
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/nail": {
+      hrid: "/actions/crafting/nail",
+      name: "Nail",
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      inputItems: [{ itemHrid: "/items/board", count: 1 }],
+      outputItems: [{ itemHrid: "/items/nail", count: 1 }],
+    },
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {};
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
   runtime.state.initData_shopItemDetailMap = {};
   runtime.state.initData_characterItems = [];
   runtime.state.initData_houseRoomDetailMap = {
@@ -129,14 +142,16 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
       skillHrid: "/skills/carpentry",
       sortIndex: 1,
       upgradeCostsMap: {
-        1: [{ itemHrid: "/items/nail", count: 10 }],
+        6: [{ itemHrid: "/items/nail", count: 10 }],
+        7: [{ itemHrid: "/items/nail", count: 20 }],
+        8: [{ itemHrid: "/items/nail", count: 30 }],
       },
     },
   };
   runtime.state.initData_characterHouseRoomMap = {
     "/house_rooms/workshop": {
       houseRoomHrid: "/house_rooms/workshop",
-      level: 0,
+      level: 5,
     },
   };
   runtime.api.procurement.loadCharacterData("planning-ui");
@@ -170,6 +185,9 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     results.querySelector(".planning-option-icon").innerHTML,
     /items_sprite/,
   );
+  assert.equal(results.querySelectorAll(".planning-option").length, 1);
+  assert.match(results.textContent, /Nail/);
+  assert.doesNotMatch(results.textContent, /Board/);
 
   runtime.api.procurement.emit("inventory:change", {});
   await settleDom();
@@ -185,6 +203,45 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     houseResults.querySelector(".planning-option-icon").innerHTML,
     /skills_sprite/,
   );
+  houseResults.querySelector(".planning-option").click();
+  const level = panel.querySelector(".planning-level-select");
+  level.value = "8";
+  runtime.api.procurement.emit("inventory:change", {});
+  await settleDom();
+  assert.equal(level.value, "8");
+  panel
+    .querySelector(".planning-house-wrap")
+    .closest(".planning-add-card")
+    .querySelector(".planning-primary")
+    .click();
+  await settleDom();
+  assert.equal(
+    panel.querySelector(".planning-goal input[type=number]").value,
+    "8",
+  );
+
+  const targets = panel.querySelector('[data-page="targets"]');
+  const list = panel.querySelector('[data-page="list"]');
+  assert.equal(targets.hidden, false);
+  assert.equal(list.hidden, true);
+  const beforeCalculation =
+    runtime.api.planning.getDiagnostics().calculationCount;
+  const goalTarget = panel.querySelector(".planning-goal input[type=number]");
+  goalTarget.value = "7";
+  goalTarget.dispatchEvent(new window.Event("change", { bubbles: true }));
+  await settleDom();
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation,
+  );
+  targets.querySelector(".planning-calculate-bar .planning-primary").click();
+  assert.equal(targets.hidden, true);
+  assert.equal(list.hidden, false);
+  assert.equal(
+    runtime.api.planning.getDiagnostics().calculationCount,
+    beforeCalculation + 1,
+  );
+  assert.ok(list.querySelector(".planning-section"));
 
   planningUi.destroy();
   planningScope.cleanup();

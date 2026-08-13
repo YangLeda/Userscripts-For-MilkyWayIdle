@@ -20602,7 +20602,7 @@
   });
 
   // src/core/procurement.js
-  var DATA_VERSION = 2;
+  var DATA_VERSION = 3;
   var SETTINGS_KEY = "MWITools_procurement_settings_v1";
   var DATA_PREFIX = "MWITools_procurement_v1";
   var MANUAL_OVERRIDE_MS = 5 * 60 * 1e3;
@@ -20640,7 +20640,11 @@
   var plans = /* @__PURE__ */ new Map();
   var inventoryEntries = /* @__PURE__ */ new Map();
   var purchaseSuppressions = /* @__PURE__ */ new Map();
-  var planningData = { goals: [], policies: {} };
+  var planningData = {
+    goals: [],
+    overrides: {},
+    defaults: { item: "chain", house: "chain" }
+  };
   var activeCharacterId2 = "";
   var activeStorageKey = "";
   var ready = false;
@@ -20825,12 +20829,42 @@
     if (!activeStorageKey) return;
     localStorage.setItem(activeStorageKey, JSON.stringify(serializeData()));
   }
+  function normalizePlanningData(next) {
+    return {
+      goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
+      overrides: next?.overrides && typeof next.overrides === "object" ? clone(next.overrides) : {},
+      defaults: {
+        item: String(next?.defaults?.item ?? "chain"),
+        house: String(next?.defaults?.house ?? "chain")
+      }
+    };
+  }
+  function migratePlanningData(value) {
+    const migrated = normalizePlanningData(value);
+    const legacyPolicies = value?.policies && typeof value.policies === "object" ? value.policies : {};
+    migrated.goals = migrated.goals.map((goal) => ({
+      ...goal,
+      policy: String(goal?.policy ?? "chain")
+    }));
+    for (const goal of migrated.goals) {
+      const goalId = String(
+        goal?.id ?? `${goal?.kind === "house" ? "house" : "item"}:${goal?.targetHrid ?? goal?.hrid ?? ""}`
+      );
+      if (!goalId) continue;
+      const overrides = { ...migrated.overrides[goalId] ?? {} };
+      for (const [itemHrid, policy] of Object.entries(legacyPolicies)) {
+        if (policy === "acquire") overrides[itemHrid] = "buy";
+      }
+      if (Object.keys(overrides).length) migrated.overrides[goalId] = overrides;
+    }
+    return migrated;
+  }
   function loadCharacterData(characterId) {
     activeCharacterId2 = String(characterId ?? "");
     activeStorageKey = activeCharacterId2 ? getCharacterStorageKey(activeCharacterId2) : "";
     cart.clear();
     plans.clear();
-    planningData = { goals: [], policies: {} };
+    planningData = normalizePlanningData(null);
     let storedVersion = 0;
     if (activeStorageKey) {
       try {
@@ -20852,10 +20886,7 @@
         for (const plan of stored?.plans ?? []) {
           if (plan?.id) plans.set(plan.id, plan);
         }
-        planningData = {
-          goals: Array.isArray(stored?.planning?.goals) ? stored.planning.goals : [],
-          policies: stored?.planning?.policies && typeof stored.planning.policies === "object" ? stored.planning.policies : {}
-        };
+        planningData = storedVersion < 3 ? migratePlanningData(stored?.planning) : normalizePlanningData(stored?.planning);
       } catch (error) {
         console.warn(
           runtime.config.isZH ? "[MWITools] 无法加载采购数据" : "[MWITools] Could not load procurement data",
@@ -20864,8 +20895,8 @@
       }
     }
     rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
-    if (storedVersion < 2) {
-      migrateLegacyCartAllocations();
+    if (storedVersion < 3) {
+      if (storedVersion < 2) migrateLegacyCartAllocations();
       persistData();
     }
     refreshPlanProgress();
@@ -20910,10 +20941,7 @@
     return clone(planningData);
   }
   function setPlanningData(next, reason = "update") {
-    planningData = {
-      goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
-      policies: next?.policies && typeof next.policies === "object" ? clone(next.policies) : {}
-    };
+    planningData = normalizePlanningData(next);
     persistData();
     emit("planning:change", { reason, planning: getPlanningData() });
     return getPlanningData();
@@ -21972,10 +22000,24 @@
 
   // src/core/planning.js
   var MAX_DEPTH = 40;
+  var EPSILON = 1e-9;
+  var POLICIES = /* @__PURE__ */ new Set(["chain", "single", "buy"]);
   var procurement = runtime.api.procurement;
+  var calculationRevision = 0;
+  var calculationCount = 0;
+  var cachedRevision = -1;
+  var cachedResult = null;
+  var lastResult = null;
+  var lastCalculatedAt = null;
+  var recipeCache = /* @__PURE__ */ new Map();
   function positiveInteger(value, fallback = 1) {
     const number3 = Math.ceil(Number(value) || 0);
     return number3 > 0 ? number3 : fallback;
+  }
+  function normalizePolicy(value, fallback = "chain") {
+    if (value === "produce") return "chain";
+    if (value === "acquire") return "buy";
+    return POLICIES.has(value) ? value : fallback;
   }
   function maxHouseLevel(houseRoomHrid) {
     const levels = Object.keys(
@@ -21994,28 +22036,55 @@
       kind,
       targetHrid,
       target: Math.min(positiveInteger(value?.target), maximum),
+      policy: normalizePolicy(value?.policy),
       enabled: value?.enabled !== false,
       createdAt: value?.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
       updatedAt: value?.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString()
     };
   }
+  function normalizeOverrides(value) {
+    const result = {};
+    for (const [goalId, entries] of Object.entries(value ?? {})) {
+      if (!entries || typeof entries !== "object") continue;
+      const normalized = {};
+      for (const [itemHrid, policy] of Object.entries(entries)) {
+        const item = procurement.normalizeItemHrid(itemHrid);
+        if (item) normalized[item] = normalizePolicy(policy);
+      }
+      if (Object.keys(normalized).length) result[goalId] = normalized;
+    }
+    return result;
+  }
   function getState() {
     const value = procurement.getPlanningData();
     return {
       goals: (value.goals ?? []).map(normalizeGoal).filter(Boolean),
-      policies: { ...value.policies ?? {} }
+      overrides: normalizeOverrides(value.overrides),
+      defaults: {
+        item: normalizePolicy(value.defaults?.item),
+        house: normalizePolicy(value.defaults?.house)
+      }
     };
   }
+  function invalidate() {
+    calculationRevision += 1;
+    cachedResult = null;
+    recipeCache = /* @__PURE__ */ new Map();
+  }
   function saveState(state, reason) {
+    invalidate();
     return procurement.setPlanningData(state, reason);
   }
   function getGoals() {
     return getState().goals;
   }
   function upsertGoal(value) {
-    const goal = normalizeGoal(value);
-    if (!goal) return null;
     const state = getState();
+    const goal = normalizeGoal({
+      ...value,
+      policy: value?.policy ?? state.defaults[value?.kind === "house" ? "house" : "item"]
+    });
+    if (!goal) return null;
     const index = state.goals.findIndex(
       (entry) => entry.kind === goal.kind && entry.targetHrid === goal.targetHrid
     );
@@ -22023,27 +22092,30 @@
       goal.id = state.goals[index].id;
       goal.createdAt = state.goals[index].createdAt;
       state.goals[index] = goal;
+      delete state.overrides[goal.id];
     } else {
       state.goals.push(goal);
     }
     saveState(state, "goal");
-    reconcilePlanningCart();
     return goal;
   }
   function updateGoal(id, patch) {
     const state = getState();
     const index = state.goals.findIndex((goal) => goal.id === id);
     if (index < 0) return false;
+    const previous = state.goals[index];
     const next = normalizeGoal({
-      ...state.goals[index],
+      ...previous,
       ...patch,
       id,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     });
     if (!next) return false;
     state.goals[index] = next;
+    if (Object.hasOwn(patch ?? {}, "policy")) {
+      delete state.overrides[id];
+    }
     saveState(state, "goal");
-    reconcilePlanningCart();
     return true;
   }
   function removeGoal(id) {
@@ -22051,21 +22123,45 @@
     const next = state.goals.filter((goal) => goal.id !== id);
     if (next.length === state.goals.length) return false;
     state.goals = next;
+    delete state.overrides[id];
     saveState(state, "goal");
-    reconcilePlanningCart();
     return true;
   }
-  function getPolicy(itemHrid) {
-    return getState().policies[procurement.normalizeItemHrid(itemHrid)] ?? "produce";
+  function getDefaultPolicy(kind) {
+    return getState().defaults[kind === "house" ? "house" : "item"];
   }
-  function setPolicy(itemHrid, policy) {
-    const normalized = procurement.normalizeItemHrid(itemHrid);
-    if (!normalized) return false;
+  function setDefaultPolicy(kind, policy) {
+    const normalizedKind = kind === "house" ? "house" : "item";
     const state = getState();
-    if (policy === "acquire") state.policies[normalized] = "acquire";
-    else delete state.policies[normalized];
-    saveState(state, "policy");
-    reconcilePlanningCart();
+    state.defaults[normalizedKind] = normalizePolicy(policy);
+    saveState(state, "default-policy");
+    return true;
+  }
+  function getGoalPolicy(goalId) {
+    return getState().goals.find((goal) => goal.id === goalId)?.policy ?? "chain";
+  }
+  function setGoalPolicy(goalId, policy) {
+    return updateGoal(goalId, { policy: normalizePolicy(policy) });
+  }
+  function getNodePolicy(goalId, itemHrid) {
+    const state = getState();
+    const item = procurement.normalizeItemHrid(itemHrid);
+    return state.overrides[goalId]?.[item] ?? state.goals.find((goal) => goal.id === goalId)?.policy ?? "chain";
+  }
+  function setNodePolicy(goalId, itemHrid, policy) {
+    const item = procurement.normalizeItemHrid(itemHrid);
+    const state = getState();
+    if (!item || !state.goals.some((goal) => goal.id === goalId)) return false;
+    state.overrides[goalId] = { ...state.overrides[goalId] ?? {} };
+    if (policy == null || policy === "inherit") {
+      delete state.overrides[goalId][item];
+      if (!Object.keys(state.overrides[goalId]).length) {
+        delete state.overrides[goalId];
+      }
+    } else {
+      state.overrides[goalId][item] = normalizePolicy(policy);
+    }
+    saveState(state, "node-policy");
     return true;
   }
   function rows(value) {
@@ -22125,7 +22221,24 @@
       (sum, output) => procurement.normalizeItemHrid(output?.itemHrid) === target ? sum + Math.max(0, Number(output?.count) || 0) : sum,
       0
     );
-    return outputCount > 0 ? { kind: "production", id: actionHrid, outputCount, profile } : null;
+    if (outputCount <= 0) return null;
+    const requirements = procurement.calculateRequirements(actionHrid, 1);
+    return requirements.materials?.length ? {
+      kind: "production",
+      id: actionHrid,
+      outputCount,
+      profile
+    } : null;
+  }
+  function recipeFor(itemHrid) {
+    const item = procurement.normalizeItemHrid(itemHrid);
+    if (!recipeCache.has(item)) {
+      recipeCache.set(item, findProductionRecipe(item) ?? findShopRecipe(item));
+    }
+    return recipeCache.get(item) ?? null;
+  }
+  function isCraftableItem(itemHrid) {
+    return Boolean(findProductionRecipe(procurement.normalizeItemHrid(itemHrid)));
   }
   function currentHouseLevel(houseRoomHrid) {
     const map = runtime.state.initData_characterHouseRoomMap ?? {};
@@ -22138,16 +22251,44 @@
       ) || 0
     );
   }
-  function calculate() {
+  function allocateProportionally(entries, available, field) {
+    const total = entries.reduce((sum, entry) => sum + entry.remaining, 0);
+    const used = Math.min(Math.max(0, available), total);
+    if (used <= EPSILON || total <= EPSILON) return 0;
+    let distributed = 0;
+    entries.forEach((entry, index) => {
+      const share = index === entries.length - 1 ? used - distributed : Math.min(entry.remaining, used * entry.remaining / total);
+      const applied = Math.max(0, Math.min(entry.remaining, share));
+      entry[field] += applied;
+      entry.remaining -= applied;
+      distributed += applied;
+    });
+    return distributed;
+  }
+  function allocatePool(entries, available, field) {
+    const buy = entries.filter(
+      (entry) => entry.policy === "buy" && entry.remaining > EPSILON
+    );
+    const other = entries.filter(
+      (entry) => entry.policy !== "buy" && entry.remaining > EPSILON
+    );
+    const buyUsed = allocateProportionally(buy, available, field);
+    const otherUsed = allocateProportionally(other, available - buyUsed, field);
+    return buyUsed + otherUsed;
+  }
+  function calculateFresh() {
+    calculationCount += 1;
     const state = getState();
     const goals = state.goals.filter((goal) => goal.enabled).sort(
       (left, right) => left.kind.localeCompare(right.kind) || left.targetHrid.localeCompare(right.targetHrid)
     );
     const inventoryPool = /* @__PURE__ */ new Map();
     const virtualPool = /* @__PURE__ */ new Map();
+    const decisions = /* @__PURE__ */ new Map();
     const steps = /* @__PURE__ */ new Map();
     const materials = /* @__PURE__ */ new Map();
     const warnings = [];
+    let pending = [];
     const inventoryFor = (itemHrid) => {
       const key = procurement.itemKey(itemHrid, 0);
       if (!inventoryPool.has(key)) {
@@ -22161,53 +22302,85 @@
       }
       return inventoryPool.get(key) ?? 0;
     };
-    const consumeSupply = (itemHrid, amount) => {
-      const key = procurement.itemKey(itemHrid, 0);
-      const inventory = Math.min(amount, inventoryFor(itemHrid));
-      inventoryPool.set(key, inventoryFor(itemHrid) - inventory);
-      const afterInventory = amount - inventory;
-      const virtual = Math.min(
-        afterInventory,
-        Math.max(0, virtualPool.get(itemHrid) ?? 0)
-      );
-      virtualPool.set(
-        itemHrid,
-        Math.max(0, (virtualPool.get(itemHrid) ?? 0) - virtual)
-      );
-      return { remaining: afterInventory - virtual, inventory, virtual };
+    const addPending = ({
+      itemHrid,
+      amount,
+      goalId,
+      inheritedPolicy,
+      lineage,
+      depth
+    }) => {
+      const item = procurement.normalizeItemHrid(itemHrid);
+      const count = Math.max(0, Number(amount) || 0);
+      if (!item || count <= EPSILON) return;
+      pending.push({
+        itemHrid: item,
+        amount: count,
+        goalId,
+        inheritedPolicy: normalizePolicy(inheritedPolicy),
+        lineage: [...lineage ?? []],
+        depth: Math.max(0, Number(depth) || 0)
+      });
     };
-    const recordLeaf = (itemHrid, amount, supply, sourceIds, lineage, reason) => {
-      const normalized = procurement.normalizeItemHrid(itemHrid);
-      const entry = materials.get(normalized) ?? {
-        itemHrid: normalized,
+    const recordDecision = (entry, recipe) => {
+      if (!recipe) return;
+      const decision = decisions.get(entry.itemHrid) ?? {
+        itemHrid: entry.itemHrid,
+        outputCount: recipe.outputCount,
+        policies: /* @__PURE__ */ new Set(),
+        branches: /* @__PURE__ */ new Map()
+      };
+      const branch = decision.branches.get(entry.goalId) ?? {
+        goalId: entry.goalId,
+        requiredOutput: 0,
+        inventoryUsed: 0,
+        virtualUsed: 0,
+        remaining: 0,
+        policies: /* @__PURE__ */ new Set()
+      };
+      branch.requiredOutput += entry.amount;
+      branch.inventoryUsed += entry.inventoryUsed;
+      branch.virtualUsed += entry.virtualUsed;
+      branch.remaining += entry.remaining;
+      branch.policies.add(entry.policy);
+      decision.policies.add(entry.policy);
+      decision.branches.set(entry.goalId, branch);
+      decisions.set(entry.itemHrid, decision);
+    };
+    const recordLeaf = (entry, reason) => {
+      const material = materials.get(entry.itemHrid) ?? {
+        itemHrid: entry.itemHrid,
         required: 0,
         inventoryUsed: 0,
         virtualUsed: 0,
         sourceIds: /* @__PURE__ */ new Set(),
         lineages: /* @__PURE__ */ new Set(),
-        reasons: /* @__PURE__ */ new Set()
+        reasons: /* @__PURE__ */ new Set(),
+        branches: /* @__PURE__ */ new Map()
       };
-      entry.required += amount;
-      entry.inventoryUsed += supply.inventory;
-      entry.virtualUsed += supply.virtual;
-      for (const id of sourceIds) entry.sourceIds.add(id);
-      entry.lineages.add(lineage.join(" > "));
-      entry.reasons.add(reason);
-      materials.set(normalized, entry);
-      return supply.remaining;
+      material.required += entry.amount;
+      material.inventoryUsed += entry.inventoryUsed;
+      material.virtualUsed += entry.virtualUsed;
+      material.sourceIds.add(entry.goalId);
+      material.lineages.add([...entry.lineage, entry.itemHrid].join(" > "));
+      material.reasons.add(reason);
+      const branch = material.branches.get(entry.goalId) ?? {
+        goalId: entry.goalId,
+        required: 0,
+        inventoryUsed: 0,
+        virtualUsed: 0,
+        requiredAfterSupply: 0,
+        policies: /* @__PURE__ */ new Set()
+      };
+      branch.required += entry.amount;
+      branch.inventoryUsed += entry.inventoryUsed;
+      branch.virtualUsed += entry.virtualUsed;
+      branch.requiredAfterSupply += entry.remaining;
+      branch.policies.add(entry.policy);
+      material.branches.set(entry.goalId, branch);
+      materials.set(entry.itemHrid, material);
     };
-    const addLeaf = (itemHrid, amount, sourceIds, lineage, reason) => {
-      const normalized = procurement.normalizeItemHrid(itemHrid);
-      return recordLeaf(
-        normalized,
-        amount,
-        consumeSupply(normalized, amount),
-        sourceIds,
-        lineage,
-        reason
-      );
-    };
-    const addStep = (recipe, itemHrid, amount, actionCount, sourceIds) => {
+    const addStep = (recipe, itemHrid, amount, actionCount, entries) => {
       const key = `${recipe.kind}:${recipe.id}`;
       const step = steps.get(key) ?? {
         key,
@@ -22221,101 +22394,164 @@
       };
       step.requiredOutput += amount;
       step.actionCount += actionCount;
-      for (const id of sourceIds) step.sourceIds.add(id);
+      entries.forEach((entry) => step.sourceIds.add(entry.goalId));
       steps.set(key, step);
     };
-    const expand = (rawItemHrid, rawAmount, sourceIds, lineage = [], depth = 0) => {
-      const itemHrid = procurement.normalizeItemHrid(rawItemHrid);
-      const amount = Math.max(0, Number(rawAmount) || 0);
-      if (!itemHrid || amount <= 0) return;
-      if (depth >= MAX_DEPTH || lineage.includes(itemHrid)) {
-        warnings.push({
-          type: depth >= MAX_DEPTH ? "truncated" : "cycle",
-          itemHrid,
-          lineage: [...lineage, itemHrid]
-        });
-        addLeaf(itemHrid, amount, sourceIds, lineage, "cycle");
-        return;
-      }
-      const supply = consumeSupply(itemHrid, amount);
-      if (supply.remaining <= 1e-9) return;
-      const policy = state.policies[itemHrid] ?? "produce";
-      const recipe = policy === "acquire" ? null : findProductionRecipe(itemHrid) ?? findShopRecipe(itemHrid);
-      if (!recipe) {
-        recordLeaf(
-          itemHrid,
-          amount,
-          supply,
-          sourceIds,
-          [...lineage, itemHrid],
-          policy === "acquire" ? "acquire" : "leaf"
-        );
-        return;
-      }
-      const actionCount = Math.max(
-        1,
-        Math.ceil(supply.remaining / recipe.outputCount - 1e-9)
-      );
-      addStep(recipe, itemHrid, supply.remaining, actionCount, sourceIds);
-      const producedTarget = actionCount * recipe.outputCount;
-      virtualPool.set(
-        itemHrid,
-        (virtualPool.get(itemHrid) ?? 0) + Math.max(0, producedTarget - supply.remaining)
-      );
-      const nextLineage = [...lineage, itemHrid];
-      if (recipe.kind === "exchange") {
-        for (const cost of recipe.costs) {
-          expand(
-            cost.itemHrid,
-            cost.count * actionCount,
-            sourceIds,
-            nextLineage,
-            depth + 1
-          );
-        }
-        return;
-      }
-      const profile = recipe.profile;
-      for (const output of profile.outputs ?? []) {
-        const outputHrid = procurement.normalizeItemHrid(output.itemHrid);
-        if (!outputHrid || outputHrid === itemHrid) continue;
-        virtualPool.set(
-          outputHrid,
-          (virtualPool.get(outputHrid) ?? 0) + Math.max(0, Number(output.count) || 0) * actionCount
-        );
-      }
-      const requirements = procurement.calculateRequirements(
-        recipe.id,
-        actionCount
-      );
-      if (!requirements.materials?.length) {
-        recordLeaf(itemHrid, amount, supply, sourceIds, lineage, "gathering");
-        return;
-      }
-      for (const material of requirements.materials) {
-        expand(
-          material.itemHrid,
-          material.suggested,
-          sourceIds,
-          nextLineage,
-          depth + 1
-        );
-      }
-    };
     for (const goal of goals) {
-      const sources = /* @__PURE__ */ new Set([goal.id]);
       if (goal.kind === "item") {
-        expand(goal.targetHrid, goal.target, sources);
+        addPending({
+          itemHrid: goal.targetHrid,
+          amount: goal.target,
+          goalId: goal.id,
+          inheritedPolicy: goal.policy,
+          lineage: [],
+          depth: 0
+        });
         continue;
       }
       const detail = runtime.state.initData_houseRoomDetailMap?.[goal.targetHrid];
       const current = currentHouseLevel(goal.targetHrid);
       for (let level = current + 1; level <= goal.target; level += 1) {
         for (const cost of rows(detail?.upgradeCostsMap?.[level])) {
-          expand(cost.itemHrid, cost.count, sources, [goal.targetHrid]);
+          addPending({
+            itemHrid: cost.itemHrid,
+            amount: cost.count,
+            goalId: goal.id,
+            inheritedPolicy: goal.policy,
+            lineage: [goal.targetHrid],
+            depth: 0
+          });
         }
       }
     }
+    while (pending.length) {
+      const grouped = /* @__PURE__ */ new Map();
+      for (const entry of pending) {
+        const entries = grouped.get(entry.itemHrid) ?? [];
+        entries.push(entry);
+        grouped.set(entry.itemHrid, entries);
+      }
+      pending = [];
+      for (const itemHrid of [...grouped.keys()].sort()) {
+        const entries = grouped.get(itemHrid);
+        for (const entry of entries) {
+          entry.policy = normalizePolicy(
+            state.overrides[entry.goalId]?.[itemHrid] ?? entry.inheritedPolicy
+          );
+          entry.remaining = entry.amount;
+          entry.inventoryUsed = 0;
+          entry.virtualUsed = 0;
+          entry.forcedLeaf = entry.depth >= MAX_DEPTH || entry.lineage.includes(itemHrid);
+          if (entry.forcedLeaf) {
+            warnings.push({
+              type: entry.depth >= MAX_DEPTH ? "truncated" : "cycle",
+              itemHrid,
+              goalId: entry.goalId,
+              lineage: [...entry.lineage, itemHrid]
+            });
+          }
+        }
+        const key = procurement.itemKey(itemHrid, 0);
+        const inventoryUsed = allocatePool(
+          entries,
+          inventoryFor(itemHrid),
+          "inventoryUsed"
+        );
+        inventoryPool.set(
+          key,
+          Math.max(0, inventoryFor(itemHrid) - inventoryUsed)
+        );
+        const virtualUsed = allocatePool(
+          entries,
+          Math.max(0, virtualPool.get(itemHrid) ?? 0),
+          "virtualUsed"
+        );
+        virtualPool.set(
+          itemHrid,
+          Math.max(0, (virtualPool.get(itemHrid) ?? 0) - virtualUsed)
+        );
+        const recipe = recipeFor(itemHrid);
+        entries.forEach((entry) => recordDecision(entry, recipe));
+        const produced = entries.filter(
+          (entry) => !entry.forcedLeaf && entry.policy !== "buy" && recipe && entry.remaining > EPSILON
+        );
+        for (const entry of entries) {
+          if (entry.forcedLeaf) recordLeaf(entry, "cycle");
+          else if (entry.policy === "buy") recordLeaf(entry, "buy");
+          else if (!recipe) recordLeaf(entry, "leaf");
+        }
+        if (!produced.length) continue;
+        const totalRemaining = produced.reduce(
+          (sum, entry) => sum + entry.remaining,
+          0
+        );
+        const actionCount = Math.max(
+          1,
+          Math.ceil(totalRemaining / recipe.outputCount - EPSILON)
+        );
+        addStep(recipe, itemHrid, totalRemaining, actionCount, produced);
+        const producedTarget = actionCount * recipe.outputCount;
+        virtualPool.set(
+          itemHrid,
+          (virtualPool.get(itemHrid) ?? 0) + Math.max(0, producedTarget - totalRemaining)
+        );
+        const requirements = recipe.kind === "exchange" ? recipe.costs.map((cost) => ({
+          itemHrid: cost.itemHrid,
+          suggested: cost.count * actionCount
+        })) : procurement.calculateRequirements(recipe.id, actionCount).materials;
+        if (recipe.kind === "production") {
+          for (const output of recipe.profile.outputs ?? []) {
+            const outputHrid = procurement.normalizeItemHrid(output.itemHrid);
+            if (!outputHrid || outputHrid === itemHrid) continue;
+            virtualPool.set(
+              outputHrid,
+              (virtualPool.get(outputHrid) ?? 0) + Math.max(0, Number(output.count) || 0) * actionCount
+            );
+          }
+        }
+        for (const material of requirements ?? []) {
+          for (const entry of produced) {
+            addPending({
+              itemHrid: material.itemHrid,
+              amount: Math.max(0, Number(material.suggested) || 0) * (entry.remaining / totalRemaining),
+              goalId: entry.goalId,
+              inheritedPolicy: entry.policy === "single" ? "buy" : "chain",
+              lineage: [...entry.lineage, itemHrid],
+              depth: entry.depth + 1
+            });
+          }
+        }
+      }
+    }
+    const resultSteps = [...steps.values()].map((step) => ({ ...step, sourceIds: [...step.sourceIds] })).sort((left, right) => left.itemHrid.localeCompare(right.itemHrid));
+    const actionsByItem = /* @__PURE__ */ new Map();
+    for (const step of resultSteps) {
+      actionsByItem.set(
+        step.itemHrid,
+        (actionsByItem.get(step.itemHrid) ?? 0) + step.actionCount
+      );
+    }
+    const nodes = [...decisions.values()].map((decision) => {
+      const branches = [...decision.branches.values()].map((branch) => ({
+        ...branch,
+        policies: [...branch.policies],
+        policy: branch.policies.size === 1 ? [...branch.policies][0] : "mixed"
+      })).sort((left, right) => left.goalId.localeCompare(right.goalId));
+      return {
+        itemHrid: decision.itemHrid,
+        name: itemName(decision.itemHrid),
+        requiredOutput: branches.reduce(
+          (sum, branch) => sum + branch.requiredOutput,
+          0
+        ),
+        outputCount: decision.outputCount,
+        actionCount: actionsByItem.get(decision.itemHrid) ?? null,
+        sourceIds: branches.map((branch) => branch.goalId),
+        policies: [...decision.policies],
+        policy: decision.policies.size === 1 ? [...decision.policies][0] : "mixed",
+        branches
+      };
+    }).sort((left, right) => left.name.localeCompare(right.name));
     const resultMaterials = [...materials.values()].map((entry) => {
       const owned = procurement.getInventoryCount(entry.itemHrid, 0);
       const projectInventory = procurement.getProjectReservedInventory(
@@ -22323,13 +22559,18 @@
         0
       );
       const cart2 = procurement.getCartAllocationSummary(entry.itemHrid, 0);
-      const requiredAfterSupply = Math.max(
-        0,
-        entry.required - entry.inventoryUsed - entry.virtualUsed
+      const branches = [...entry.branches.values()].map((branch) => ({
+        ...branch,
+        policies: [...branch.policies],
+        policy: branch.policies.size === 1 ? [...branch.policies][0] : "mixed"
+      })).sort((left, right) => left.goalId.localeCompare(right.goalId));
+      const requiredAfterSupply = branches.reduce(
+        (sum, branch) => sum + branch.requiredAfterSupply,
+        0
       );
       const addableShortage = Math.max(
         0,
-        Math.ceil(requiredAfterSupply - cart2.planning - 1e-9)
+        Math.ceil(requiredAfterSupply - cart2.planning - EPSILON)
       );
       const detail = runtime.state.initData_itemDetailMap?.[entry.itemHrid];
       return {
@@ -22337,6 +22578,7 @@
         sourceIds: [...entry.sourceIds],
         lineages: [...entry.lineages].filter(Boolean),
         reasons: [...entry.reasons],
+        branches,
         name: itemName(entry.itemHrid),
         owned,
         projectInventory,
@@ -22347,17 +22589,46 @@
         purchasable: detail?.isTradable === true && entry.itemHrid !== "/items/coin"
       };
     }).sort((left, right) => left.name.localeCompare(right.name));
-    const resultSteps = [...steps.values()].map((step) => ({ ...step, sourceIds: [...step.sourceIds] })).sort((left, right) => left.itemHrid.localeCompare(right.itemHrid));
     return {
       status: goals.length ? "complete" : "empty",
       goals,
+      nodes,
       steps: resultSteps,
       materials: resultMaterials,
       warnings
     };
   }
-  function reconcilePlanningCart() {
-    const result = calculate();
+  function calculate() {
+    if (cachedResult && cachedRevision === calculationRevision) {
+      return cachedResult;
+    }
+    cachedResult = calculateFresh();
+    cachedRevision = calculationRevision;
+    lastResult = cachedResult;
+    lastCalculatedAt = (/* @__PURE__ */ new Date()).toISOString();
+    return cachedResult;
+  }
+  function getPolicy(itemHrid) {
+    const item = procurement.normalizeItemHrid(itemHrid);
+    const state = getState();
+    return state.goals.length > 0 && state.goals.every(
+      (goal) => (state.overrides[goal.id]?.[item] ?? goal.policy) === "buy"
+    ) ? "acquire" : "produce";
+  }
+  function setPolicy(itemHrid, policy) {
+    const item = procurement.normalizeItemHrid(itemHrid);
+    const state = getState();
+    if (!item || !state.goals.length) return false;
+    const mapped = normalizePolicy(policy);
+    for (const goal of state.goals) {
+      state.overrides[goal.id] = { ...state.overrides[goal.id] ?? {} };
+      state.overrides[goal.id][item] = mapped;
+    }
+    saveState(state, "legacy-policy");
+    return true;
+  }
+  function reconcilePlanningCart(result = lastResult) {
+    if (!result) return null;
     const allowed = new Map(
       result.materials.map((material) => [
         procurement.itemKey(material.itemHrid, 0),
@@ -22385,28 +22656,108 @@
     }
     return result;
   }
-  function addShortagesToCart(materials = calculate().materials) {
+  function refreshResultCartState(result) {
+    if (!result) return result;
+    for (const material of result.materials) {
+      const cart2 = procurement.getCartAllocationSummary(material.itemHrid, 0);
+      material.cart = cart2;
+      material.addableShortage = Math.max(
+        0,
+        Math.ceil(material.requiredAfterSupply - cart2.planning - EPSILON)
+      );
+    }
+    return result;
+  }
+  function recalculate() {
+    const result = calculate();
+    reconcilePlanningCart(result);
+    refreshResultCartState(result);
+    cachedResult = result;
+    lastResult = result;
+    cachedRevision = calculationRevision;
+    return result;
+  }
+  function getResult() {
+    return lastResult;
+  }
+  function isDirty() {
+    return !lastResult || cachedRevision !== calculationRevision;
+  }
+  function addShortagesToCart(materials = lastResult?.materials ?? []) {
     return procurement.addToCart(
-      materials.filter(
-        (material) => material.purchasable && material.addableShortage > 0
+      materials.map((material) => {
+        const cart2 = procurement.getCartAllocationSummary(material.itemHrid, 0);
+        return {
+          ...material,
+          currentShortage: Math.max(
+            0,
+            Math.ceil(material.requiredAfterSupply - cart2.planning - EPSILON)
+          )
+        };
+      }).filter(
+        (material) => material.purchasable && material.currentShortage > 0
       ).map((material) => ({
         itemHrid: material.itemHrid,
         enhancementLevel: 0,
         name: material.name,
-        quantity: material.addableShortage,
+        quantity: material.currentShortage,
         source: "planning",
         allocation: { kind: "planning" }
       }))
     );
+  }
+  for (const eventName of [
+    "planning:change",
+    "cart:change",
+    "plan:change",
+    "inventory:change",
+    "settings:change"
+  ]) {
+    procurement.on(eventName, invalidate);
+  }
+  procurement.on("character:change", () => {
+    invalidate();
+    lastResult = null;
+    lastCalculatedAt = null;
+  });
+  for (const messageType of [
+    "items_updated",
+    "house_rooms_updated",
+    "community_buffs_updated",
+    "consumable_buffs_updated",
+    "equipment_buffs_updated",
+    "personal_buffs_updated",
+    "guild_buffs_updated",
+    "skills_updated",
+    "init_character_data"
+  ]) {
+    runtime.onMessage(messageType, invalidate);
   }
   runtime.api.planning = {
     getGoals,
     upsertGoal,
     updateGoal,
     removeGoal,
+    getDefaultPolicy,
+    setDefaultPolicy,
+    getGoalPolicy,
+    setGoalPolicy,
+    getNodePolicy,
+    setNodePolicy,
     getPolicy,
     setPolicy,
+    isCraftableItem,
     calculate,
+    recalculate,
+    getResult,
+    isDirty,
+    invalidate,
+    getDiagnostics: () => ({
+      revision: calculationRevision,
+      calculationCount,
+      dirty: isDirty(),
+      lastCalculatedAt
+    }),
     reconcilePlanningCart,
     addShortagesToCart,
     on(listener) {
@@ -28601,7 +28952,9 @@ ${preview}`
     return goal.kind === "house" ? houseName(goal.targetHrid) : itemName(goal.targetHrid);
   }
   function itemCandidates() {
-    return Object.entries(runtime.state.initData_itemDetailMap ?? {}).filter(([hrid]) => hrid.startsWith("/items/")).map(([hrid, detail]) => ({
+    return Object.entries(runtime.state.initData_itemDetailMap ?? {}).filter(
+      ([hrid]) => hrid.startsWith("/items/") && planning.isCraftableItem(hrid)
+    ).map(([hrid, detail]) => ({
       hrid,
       name: itemName(hrid),
       english: String(detail?.name ?? ""),
@@ -28623,6 +28976,7 @@ ${preview}`
   function catalogSignature() {
     return JSON.stringify([
       Object.keys(runtime.state.initData_itemDetailMap ?? {}),
+      Object.keys(runtime.state.initData_actionDetailMap ?? {}),
       Object.entries(runtime.state.initData_houseRoomDetailMap ?? {}).map(
         ([hrid, detail]) => [hrid, detail?.skillHrid, detail?.upgradeCostsMap]
       )
@@ -28680,6 +29034,57 @@ ${preview}`
     const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
     return ids.map((id) => byId.get(id) ?? id).join(t3("、", ", "));
   }
+  var POLICY_OPTIONS = Object.freeze([
+    ["chain", "全链条制作", "Full chain"],
+    ["single", "制作一层", "One layer"],
+    ["buy", "购买", "Buy"]
+  ]);
+  function policyLabel(policy) {
+    if (policy === "mixed") return t3("混合", "Mixed");
+    const option = POLICY_OPTIONS.find(([value]) => value === policy);
+    return option ? t3(option[1], option[2]) : t3("全链条制作", "Full chain");
+  }
+  function createPolicyControl(value, onChange, { disabled = false } = {}) {
+    if (value === "mixed") {
+      const mixed = document.createElement("span");
+      mixed.className = "planning-policy-mixed";
+      mixed.textContent = policyLabel("mixed");
+      mixed.title = t3(
+        "来源目标策略不同，请展开后分别调整。",
+        "Source goals use different policies; expand to edit them separately."
+      );
+      return mixed;
+    }
+    const control = document.createElement("span");
+    control.className = "planning-policy-switch";
+    control.setAttribute("role", "group");
+    let current = value;
+    const sync = () => {
+      for (const button of control.querySelectorAll("button")) {
+        const active = button.dataset.policy === current;
+        button.dataset.active = String(active);
+        button.setAttribute("aria-pressed", String(active));
+      }
+    };
+    for (const [policy, zh, en] of POLICY_OPTIONS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.policy = policy;
+      button.textContent = t3(zh, en);
+      button.disabled = disabled;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (current === policy) return;
+        current = policy;
+        sync();
+        onChange?.(policy);
+      });
+      control.append(button);
+    }
+    sync();
+    return control;
+  }
   function addStyles4() {
     if (document.getElementById(STYLE_ID4)) return;
     const style = document.createElement("style");
@@ -28690,9 +29095,10 @@ ${preview}`
     #${PANEL_ID2}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
     #${PANEL_ID2} *{box-sizing:border-box}#${PANEL_ID2} button,#${PANEL_ID2} input,#${PANEL_ID2} select{font:inherit}
     .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
-    .planning-editor-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:10px;margin-bottom:12px}
+    .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden]{display:none!important}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
+    .planning-editor-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
     .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
-    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:10px}.planning-add-title>span:first-child{flex:1}
     .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
     .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
     .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
@@ -28702,12 +29108,12 @@ ${preview}`
     .planning-results{position:absolute;left:0;right:0;top:39px;z-index:20;display:none;max-height:min(390px,55vh);overflow:auto;padding:4px;border:1px solid rgba(125,211,252,.36);border-radius:6px;background:#182236;box-shadow:0 12px 28px rgba(0,0,0,.48)}.planning-results[data-open="true"]{display:block}
     .planning-option{display:flex;width:100%;min-width:0;align-items:center;gap:8px;border:0;border-bottom:1px solid rgba(152,167,233,.22);border-radius:4px;background:transparent;color:#eef2f7;padding:6px 7px;text-align:left;cursor:pointer}.planning-option:last-child{border-bottom:0}.planning-option:hover,.planning-option[data-active="true"]{background:#35425f}.planning-option-icon,.planning-picker-icon,.planning-goal-icon{display:grid;width:32px;height:32px;flex:0 0 32px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-option-icon svg,.planning-picker-icon svg,.planning-goal-icon svg{width:28px;height:28px}.planning-icon-fallback{color:#aebbd2;font-size:.75rem;font-weight:700}.planning-option-copy{min-width:0;flex:1}.planning-option-copy strong,.planning-option-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-option-copy strong{font-size:.76rem}.planning-option-copy small{margin-top:2px;color:#94a3b8;font-size:.61rem}
     .planning-picker-button{display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.planning-picker-icon{width:28px;height:28px;flex-basis:28px}.planning-picker-icon svg{width:25px;height:25px}.planning-picker-copy{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-picker-arrow{color:#94a3b8}
-    .planning-content-grid{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(0,1.22fr);gap:10px;align-items:start}.planning-results-column{display:grid;gap:10px;min-width:0}.planning-section{overflow:visible}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{margin:0;font-size:.82rem}.planning-empty{padding:18px 11px;color:#94a3b8;font-size:.72rem;text-align:center}
-    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(0,1fr) auto 78px 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-goal-current{color:#94a3b8;white-space:nowrap}.planning-goal input[type="number"]{width:78px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
-    .planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-policy,.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-source{padding:0 10px 9px 48px;color:#94a3b8;font-size:.64rem}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
+    .planning-content-grid,.planning-results-column{display:grid;grid-template-columns:1fr;gap:10px;min-width:0}.planning-section{overflow:visible}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{margin:0;font-size:.82rem}.planning-empty{padding:18px 11px;color:#94a3b8;font-size:.72rem;text-align:center}
+    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(140px,1fr) auto 78px minmax(260px,330px) 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem;content-visibility:auto;contain-intrinsic-size:48px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-goal-current{color:#94a3b8;white-space:nowrap}.planning-goal input[type="number"]{width:78px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
+    .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));min-width:252px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-height:26px;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 6px;font-size:.62rem;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;min-width:252px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(85px,.45fr) minmax(85px,.45fr) minmax(85px,.45fr) minmax(252px,1fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(120px,1fr) auto minmax(252px,1fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-row strong{color:#d8e0ec}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
     .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
-    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-    @media(max-width:760px){#${PANEL_ID2}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 68px 28px}.planning-goal-current{display:none}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}}
+    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 78px 28px}.planning-goal-current{display:none}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:3/5}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-step-yield{display:none}.planning-source-row{grid-template-columns:1fr}.planning-source-row>.planning-policy-switch{width:100%;min-width:0}}
+    @media(max-width:760px){#${PANEL_ID2}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title{align-items:flex-start;flex-direction:column}.planning-add-title .planning-policy-switch{width:100%;min-width:0}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -28890,9 +29296,23 @@ ${preview}`
   function createPlanningEditor(host, cleanup4) {
     const grid = document.createElement("div");
     grid.className = "planning-editor-grid";
+    const title = (zh, en, kind) => {
+      const heading = document.createElement("div");
+      heading.className = "planning-add-title";
+      const copy = document.createElement("span");
+      copy.textContent = t3(zh, en);
+      let defaultPolicy = planning.getDefaultPolicy(kind);
+      const policy = createPolicyControl(defaultPolicy, (next) => {
+        defaultPolicy = next;
+        planning.setDefaultPolicy(kind, next);
+      });
+      heading.append(copy, policy);
+      return { heading, getPolicy: () => defaultPolicy };
+    };
     const itemCard = document.createElement("section");
     itemCard.className = "planning-add-card";
-    itemCard.innerHTML = `<div class="planning-add-title">${t3("添加物品目标", "Add item target")}</div>`;
+    const itemTitle = title("添加物品目标", "Add item target", "item");
+    itemCard.append(itemTitle.heading);
     const itemBody = document.createElement("div");
     itemBody.className = "planning-add-body";
     const itemSearch = document.createElement("div");
@@ -28929,7 +29349,8 @@ ${preview}`
       planning.upsertGoal({
         kind: "item",
         targetHrid: candidate.hrid,
-        target: itemCount.value
+        target: itemCount.value,
+        policy: itemTitle.getPolicy()
       });
       chosenItem = null;
       itemPicker.clear();
@@ -28943,7 +29364,8 @@ ${preview}`
     itemCard.append(itemBody);
     const houseCard = document.createElement("section");
     houseCard.className = "planning-add-card";
-    houseCard.innerHTML = `<div class="planning-add-title">${t3("添加房屋目标", "Add house target")}</div>`;
+    const houseTitle = title("添加房屋目标", "Add house target", "house");
+    houseCard.append(houseTitle.heading);
     const houseBody = document.createElement("div");
     houseBody.className = "planning-add-body";
     const houseWrap = document.createElement("div");
@@ -28951,9 +29373,19 @@ ${preview}`
     const level = document.createElement("select");
     level.className = "planning-level-select";
     level.setAttribute("aria-label", t3("房屋目标等级", "House target level"));
+    let levelSignature = "";
+    let levelHouseHrid = "";
     const refreshLevels = (candidate) => {
+      const signature = candidate ? `${candidate.hrid}:${currentHouseLevel2(candidate.hrid)}:${maxHouseLevel2(candidate.hrid)}` : "none";
+      if (signature === levelSignature) return;
+      const previous = candidate?.hrid === levelHouseHrid ? String(level.value ?? "") : "";
+      levelSignature = signature;
+      levelHouseHrid = candidate?.hrid ?? "";
       level.replaceChildren();
-      if (!candidate) return;
+      if (!candidate) {
+        level.disabled = true;
+        return;
+      }
       const current = currentHouseLevel2(candidate.hrid);
       for (let targetLevel = current + 1; targetLevel <= maxHouseLevel2(candidate.hrid); targetLevel += 1) {
         const option = document.createElement("option");
@@ -28962,6 +29394,9 @@ ${preview}`
         level.append(option);
       }
       level.disabled = level.options.length === 0;
+      if ([...level.options].some((option) => option.value === previous)) {
+        level.value = previous;
+      }
     };
     const housePicker = createHousePicker(houseWrap, refreshLevels, cleanup4);
     refreshLevels(housePicker.getSelected());
@@ -28975,7 +29410,8 @@ ${preview}`
       planning.upsertGoal({
         kind: "house",
         targetHrid: candidate.hrid,
-        target: level.value
+        target: level.value,
+        policy: houseTitle.getPolicy()
       });
     });
     houseBody.append(houseWrap, level, houseAdd);
@@ -29037,13 +29473,16 @@ ${preview}`
       target.addEventListener("change", () => {
         planning.updateGoal(goal.id, { target: target.value });
       });
+      const policy = createPolicyControl(goal.policy, (next) => {
+        planning.setGoalPolicy(goal.id, next);
+      });
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "planning-remove";
       remove.textContent = "×";
       remove.title = t3("删除", "Remove");
       remove.addEventListener("click", () => planning.removeGoal(goal.id));
-      row.append(toggle, icon, name, current, target, remove);
+      row.append(toggle, icon, name, current, target, policy, remove);
       section.append(row);
     }
     host.append(section);
@@ -29063,45 +29502,58 @@ ${preview}`
     const section = document.createElement("section");
     section.className = "planning-section";
     const heading = document.createElement("h3");
-    heading.textContent = `${t3("需要制作", "Production needed")} · ${result.steps.length}`;
+    heading.textContent = `${t3("需要制作", "Production needed")} · ${result.nodes.length}`;
     section.append(heading);
-    if (!result.steps.length) {
+    if (!result.nodes.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
       empty.textContent = t3("当前没有需要制作的物品。", "Nothing to produce.");
       section.append(empty);
     }
-    for (const step of result.steps) {
+    for (const node of result.nodes) {
       const row = document.createElement("details");
       row.className = "planning-step";
       const summary = document.createElement("summary");
       const icon = document.createElement("span");
       icon.className = "planning-row-icon";
-      icon.innerHTML = itemIcon(step.itemHrid);
+      icon.innerHTML = itemIcon(node.itemHrid);
       const label = document.createElement("span");
       label.className = "planning-step-name";
-      label.textContent = itemName(step.itemHrid);
-      const counts = document.createElement("span");
-      counts.className = "planning-step-count";
-      counts.textContent = `${t3("需", "Need")} ${number(step.requiredOutput)} · ${t3("预计", "Est.")} ${number(step.actionCount)} ${t3("次", "actions")}`;
-      const policy = document.createElement("button");
-      policy.type = "button";
-      policy.className = "planning-policy";
-      const current = planning.getPolicy(step.itemHrid);
-      policy.textContent = current === "acquire" ? t3("直接获取", "Acquire") : t3("制作", "Produce");
-      policy.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        planning.setPolicy(
-          step.itemHrid,
-          current === "acquire" ? "produce" : "acquire"
+      label.textContent = node.name;
+      const required = document.createElement("span");
+      required.className = "planning-step-count";
+      required.textContent = `${t3("所需", "Required")} ${number(node.requiredOutput)}`;
+      const output = document.createElement("span");
+      output.className = "planning-step-count planning-step-yield";
+      output.textContent = `${t3("单次", "Yield")} ${exact(node.outputCount)}`;
+      const actions = document.createElement("span");
+      actions.className = "planning-step-count";
+      actions.textContent = `${t3("预计次数", "Est. actions")} ${node.actionCount == null ? "—" : number(node.actionCount)}`;
+      const policy = createPolicyControl(node.policy, (next) => {
+        node.branches.forEach(
+          (branch) => planning.setNodePolicy(branch.goalId, node.itemHrid, next)
         );
       });
-      summary.append(icon, label, counts, policy);
-      const source = document.createElement("div");
-      source.className = "planning-source";
-      source.textContent = `${t3("来源", "Sources")}: ${goalSources(step.sourceIds, result.goals)} · ${t3("单次有效产出", "Effective output")} ${exact(step.outputCount)}`;
-      row.append(summary, source);
+      summary.append(icon, label, required, output, actions, policy);
+      const sources = document.createElement("div");
+      sources.className = "planning-source-list";
+      const goals = new Map(
+        result.goals.map((goal) => [goal.id, goalLabel(goal)])
+      );
+      for (const branch of node.branches) {
+        const source = document.createElement("div");
+        source.className = "planning-source-row";
+        const name = document.createElement("strong");
+        name.textContent = goals.get(branch.goalId) ?? branch.goalId;
+        const count = document.createElement("span");
+        count.textContent = `${t3("所需", "Required")} ${number(branch.requiredOutput)} · ${t3("剩余", "Remaining")} ${number(branch.remaining)}`;
+        const branchPolicy = createPolicyControl(branch.policy, (next) => {
+          planning.setNodePolicy(branch.goalId, node.itemHrid, next);
+        });
+        source.append(name, count, branchPolicy);
+        sources.append(source);
+      }
+      row.append(summary, sources);
       section.append(row);
     }
     host.append(section);
@@ -29173,15 +29625,6 @@ ${preview}`
       );
       const actions = document.createElement("div");
       actions.className = "planning-material-actions";
-      const policy = document.createElement("button");
-      policy.type = "button";
-      policy.textContent = planning.getPolicy(material.itemHrid) === "acquire" ? t3("改为制作", "Produce") : t3("直接获取", "Acquire");
-      policy.addEventListener("click", () => {
-        planning.setPolicy(
-          material.itemHrid,
-          planning.getPolicy(material.itemHrid) === "acquire" ? "produce" : "acquire"
-        );
-      });
       const add = document.createElement("button");
       add.type = "button";
       add.textContent = material.purchasable ? t3("加入购物车", "Add to cart") : t3("不可购买", "Not tradable");
@@ -29192,7 +29635,7 @@ ${preview}`
       );
       const source = document.createElement("span");
       source.textContent = `${t3("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
-      actions.append(policy, add, source);
+      actions.append(add, source);
       row.append(summary, grid, actions);
       section.append(row);
     }
@@ -29203,6 +29646,10 @@ ${preview}`
       this.host = host;
       this.cleanup = [];
       this.signatures = {};
+      this.route = "targets";
+      this.result = planning.getResult();
+      this.catalogDirty = false;
+      this.houseDirty = false;
       this.build();
       this.catalogSignature = catalogSignature();
       this.unsubscribe = [
@@ -29216,67 +29663,167 @@ ${preview}`
     }
     build() {
       this.host.replaceChildren();
+      const tabs = document.createElement("nav");
+      tabs.className = "planning-subtabs";
+      const targetTab = document.createElement("button");
+      targetTab.type = "button";
+      targetTab.dataset.route = "targets";
+      targetTab.textContent = t3("目标", "Targets");
+      const listTab = document.createElement("button");
+      listTab.type = "button";
+      listTab.dataset.route = "list";
+      listTab.textContent = t3("清单", "List");
+      targetTab.addEventListener("click", () => this.setRoute("targets"));
+      listTab.addEventListener("click", () => this.setRoute("list"));
+      tabs.append(targetTab, listTab);
+      this.targetPage = document.createElement("div");
+      this.targetPage.className = "planning-page";
+      this.targetPage.dataset.page = "targets";
       const intro = document.createElement("p");
       intro.className = "planning-intro";
       intro.textContent = t3(
-        "设置最终希望持有的物品数量或房屋等级。房屋升级成本固定；制作链会使用当前茶饮、装备、社区 Buff、暴饮之囊和采购安全余量。",
-        "Set final item holdings or house levels. House costs stay fixed; production chains use current drinks, equipment, community buffs, Guzzling Pouch, and procurement safety margins."
+        "设置目标不会自动重算。房屋成本固定；点击开始计算后，制作链才会读取当前茶饮、装备、社区 Buff、暴饮之囊、库存和安全余量。",
+        "Editing targets does not recalculate automatically. House costs stay fixed; Start calculation reads current buffs, inventory, and safety margins."
       );
+      const calculateBar = document.createElement("div");
+      calculateBar.className = "planning-calculate-bar";
+      this.targetStatus = document.createElement("span");
+      this.targetCalculate = document.createElement("button");
+      this.targetCalculate.type = "button";
+      this.targetCalculate.className = "planning-primary";
+      this.targetCalculate.textContent = t3("开始计算", "Start calculation");
+      this.targetCalculate.addEventListener("click", () => this.recalculate());
+      calculateBar.append(this.targetStatus, this.targetCalculate);
       this.editorHost = document.createElement("div");
-      this.content = document.createElement("div");
-      this.content.className = "planning-content-grid";
       this.goalsHost = document.createElement("div");
-      const resultColumn = document.createElement("div");
-      resultColumn.className = "planning-results-column";
+      this.targetPage.append(
+        intro,
+        calculateBar,
+        this.editorHost,
+        this.goalsHost
+      );
+      this.listPage = document.createElement("div");
+      this.listPage.className = "planning-page planning-results-column";
+      this.listPage.dataset.page = "list";
+      const listBar = document.createElement("div");
+      listBar.className = "planning-calculate-bar";
+      this.listStatus = document.createElement("span");
+      this.listCalculate = document.createElement("button");
+      this.listCalculate.type = "button";
+      this.listCalculate.className = "planning-primary";
+      this.listCalculate.textContent = t3("重新计算", "Recalculate");
+      this.listCalculate.addEventListener("click", () => this.recalculate());
+      listBar.append(this.listStatus, this.listCalculate);
       this.stepsHost = document.createElement("div");
       this.materialsHost = document.createElement("div");
-      resultColumn.append(this.stepsHost, this.materialsHost);
-      this.content.append(this.goalsHost, resultColumn);
       this.warningHost = document.createElement("div");
       this.footer = document.createElement("div");
       this.footer.className = "planning-footer";
-      this.host.append(
-        intro,
-        this.editorHost,
-        this.content,
+      this.listPage.append(
+        listBar,
+        this.stepsHost,
+        this.materialsHost,
         this.warningHost,
         this.footer
       );
+      this.host.append(tabs, this.targetPage, this.listPage);
       this.editor = createPlanningEditor(this.editorHost, this.cleanup);
+      this.setRoute(this.route);
+      this.renderResult(true);
     }
-    scheduleUpdate() {
+    setRoute(route) {
+      this.route = route === "list" ? "list" : "targets";
+      for (const button of this.host.querySelectorAll(
+        ".planning-subtabs button"
+      )) {
+        button.dataset.active = String(button.dataset.route === this.route);
+      }
+      this.targetPage.hidden = this.route !== "targets";
+      this.listPage.hidden = this.route !== "list";
+    }
+    recalculate() {
+      this.result = planning.recalculate();
+      this.signatures.nodes = null;
+      this.signatures.materials = null;
+      this.renderResult(true);
+      this.updateStatus();
+      this.setRoute("list");
+    }
+    scheduleUpdate({ catalog = false, house = false } = {}) {
+      this.catalogDirty ||= catalog;
+      this.houseDirty ||= house;
       this.updateScheduler?.schedule();
     }
     update() {
       if (!this.host?.isConnected) return;
-      const nextCatalogSignature = catalogSignature();
-      if (this.catalogSignature !== nextCatalogSignature) {
-        this.cleanup.forEach((dispose) => dispose());
-        this.cleanup = [];
-        this.signatures = {};
-        this.build();
-        this.catalogSignature = nextCatalogSignature;
+      if (this.catalogDirty) {
+        const nextCatalogSignature = catalogSignature();
+        this.catalogDirty = false;
+        if (this.catalogSignature !== nextCatalogSignature) {
+          const route = this.route;
+          const result = this.result;
+          this.cleanup.forEach((dispose) => dispose());
+          this.cleanup = [];
+          this.signatures = {};
+          this.route = route;
+          this.result = result;
+          this.build();
+          this.catalogSignature = nextCatalogSignature;
+        }
+      }
+      if (this.houseDirty) {
+        this.houseDirty = false;
+        this.editor?.refresh();
       }
       const goals = planning.getGoals();
-      const result = planning.calculate();
       const goalsSignature = JSON.stringify(goals);
-      const stepsSignature = JSON.stringify(result.steps);
-      const materialsSignature = JSON.stringify(result.materials);
       if (this.signatures.goals !== goalsSignature) {
         renderGoals(this.goalsHost, goals);
         this.signatures.goals = goalsSignature;
       } else {
         updateGoalCurrentValues(this.goalsHost, goals);
       }
-      if (this.signatures.steps !== stepsSignature) {
-        renderSteps(this.stepsHost, result);
-        this.signatures.steps = stepsSignature;
+      this.updateStatus();
+    }
+    updateStatus() {
+      const dirty = planning.isDirty();
+      const diagnostics = planning.getDiagnostics();
+      const copy = dirty ? t3("目标已更改，等待计算", "Targets changed; calculation pending") : diagnostics.lastCalculatedAt ? t3("当前清单已计算", "List is up to date") : t3("尚未计算", "Not calculated yet");
+      for (const node of [this.targetStatus, this.listStatus]) {
+        node.className = dirty ? "planning-dirty" : "planning-clean";
+        node.textContent = copy;
       }
-      if (this.signatures.materials !== materialsSignature) {
+      this.targetCalculate.textContent = this.result ? t3("重新计算", "Recalculate") : t3("开始计算", "Start calculation");
+    }
+    renderResult(force = false) {
+      const result = this.result;
+      if (!result) {
+        if (!force && this.signatures.empty) return;
+        this.stepsHost.replaceChildren();
+        this.materialsHost.replaceChildren();
+        const empty = document.createElement("div");
+        empty.className = "planning-empty planning-section";
+        empty.textContent = t3(
+          "请在“目标”页点击开始计算。",
+          "Choose Start calculation on the Targets tab."
+        );
+        this.stepsHost.append(empty);
+        this.warningHost.replaceChildren();
+        this.footer.textContent = "";
+        this.signatures.empty = true;
+        return;
+      }
+      this.signatures.empty = false;
+      const nodesSignature = JSON.stringify(result.nodes);
+      const materialsSignature = JSON.stringify(result.materials);
+      if (force || this.signatures.nodes !== nodesSignature) {
+        renderSteps(this.stepsHost, result);
+        this.signatures.nodes = nodesSignature;
+      }
+      if (force || this.signatures.materials !== materialsSignature) {
         renderMaterials(this.materialsHost, result);
         this.signatures.materials = materialsSignature;
       }
-      this.editor?.refresh();
       this.warningHost.replaceChildren();
       if (result.warnings.length) {
         const warning = document.createElement("div");
@@ -29288,9 +29835,15 @@ ${preview}`
         this.warningHost.append(warning);
       }
       this.footer.textContent = t3(
-        `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
-        `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`
+        `规划 ${result.goals.length} 项 · 决策 ${result.nodes.length} 项 · 基础材料 ${result.materials.length} 种`,
+        `${result.goals.length} goals · ${result.nodes.length} decisions · ${result.materials.length} base materials`
       );
+    }
+    refreshCatalog() {
+      this.scheduleUpdate({ catalog: true, house: true });
+    }
+    refreshHouses() {
+      this.scheduleUpdate({ house: true });
     }
     destroy() {
       this.updateScheduler?.cancel();
@@ -29537,17 +30090,21 @@ ${preview}`
     });
     for (const messageType of [
       "items_updated",
-      "house_rooms_updated",
       "community_buffs_updated",
       "consumable_buffs_updated",
       "equipment_buffs_updated",
       "personal_buffs_updated",
       "guild_buffs_updated",
-      "skills_updated",
-      "init_character_data"
+      "skills_updated"
     ]) {
       scope.add(runtime.onMessage(messageType, () => panel?.scheduleUpdate()));
     }
+    scope.add(
+      runtime.onMessage("house_rooms_updated", () => panel?.refreshHouses())
+    );
+    scope.add(
+      runtime.onMessage("init_character_data", () => panel?.refreshCatalog())
+    );
     scope.add(() => mountScheduler.cancel());
     return {
       update() {
@@ -41846,6 +42403,7 @@ ${locks}` : ""}`;
           "修复角色页“规划”标签被误认成游戏原生“配装”标签，导致点击后立即重建并关闭；“盈亏”和“规划”现在会稳定共存，点击后保持打开。",
           "“规划”已从采购抽屉移到角色页“盈亏”旁，并改用带游戏原生物品与房屋技能图标的稳定搜索选择器，数据刷新时不再反复重建输入区或让已打开的选择菜单消失；项目对应的采购项全部买完或清除后，项目也会自动删除。",
           "新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；采购抽屉原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
+          "规划页现分为“目标 / 清单”：物品与房屋目标可分别选择全链条制作、制作一层或购买，房屋目标等级会稳定保留，物品搜索只显示具有完整材料配方的可制作物品；调整目标与策略时不会自动递归重算，点击“开始计算”后才生成并跳转到制作与基础材料清单，显著减少滚动和编辑卡顿。",
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；前五名彩色徽章默认启用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，也可在设置中关闭。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能被残留的隐藏状态遮住；摘要和排序栏现在始终跟随游戏原生库存面板显隐，即使复用旧节点或晚到回调再次写入隐藏状态也会保持可见。",
           "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
@@ -41856,6 +42414,7 @@ ${locks}` : ""}`;
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
           "Planning has moved from the procurement drawer to a character tab beside P/L, with stable item and house pickers that use native game item and skill icons and no longer rebuild the input area or close an open menu during data refreshes. Projects are also removed automatically once all of their shopping rows are purchased or cleared.",
           "MWITools now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. Procurement “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
+          "Planning now has separate Targets and List views. Item and house goals can independently use Full chain, One layer, or Buy; selected house levels stay stable, and item search only includes craftable items with complete material recipes. Editing targets or policies no longer triggers recursive work—the production and base-material list is generated and opened only after Start calculation, reducing editing and scrolling lag.",
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Top-five rainbow badges now enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause by default, with an option to turn the effect off.",
           "Fixed combat and skilling gear scores and total assets being obscured by a stale hidden state after switching to Abilities and returning to Inventory. The summary and sorting bar now always follow the native Inventory panel, remaining visible even when a reused node or delayed callback writes another hidden state.",
           "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
@@ -44684,7 +45243,7 @@ ${locks}` : ""}`;
     45.1,
     50
   ];
-  var EPSILON = 1e-9;
+  var EPSILON2 = 1e-9;
   function finitePositive(value) {
     const number3 = Number(value);
     return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
@@ -44939,11 +45498,11 @@ ${locks}` : ""}`;
       addTransition(matrix, level, failLevel, fail, targetLevel);
     }
     const actionsByLevel = solveLinearSystem(matrix, source);
-    if (!actionsByLevel || actionsByLevel.some((value) => value < -EPSILON || !Number.isFinite(value))) {
+    if (!actionsByLevel || actionsByLevel.some((value) => value < -EPSILON2 || !Number.isFinite(value))) {
       return null;
     }
     const normalizedActions = actionsByLevel.map(
-      (value) => Math.abs(value) < EPSILON ? 0 : value
+      (value) => Math.abs(value) < EPSILON2 ? 0 : value
     );
     const protectionCount = normalizedActions.reduce(
       (sum, actions, level) => sum + (level >= protectLevel ? actions * failRates[level] : 0),
@@ -45195,7 +45754,7 @@ ${locks}` : ""}`;
         blessedChance: stats.blessedChance
       });
       if (!flow) continue;
-      if (flow.protectionCount > EPSILON && !protectionPrice) continue;
+      if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
       const totalCost = basePrice + flow.totalActions * normalActionCost + flow.protectionCount * protectionPrice;
       if (!best || totalCost < best.totalCost) {
         best = {
@@ -45222,8 +45781,8 @@ ${locks}` : ""}`;
             successBonus: stats.successBonus,
             blessedChance: stats.blessedChance
           });
-          if (!flow || flow.baseItemCount < -EPSILON) continue;
-          if (flow.protectionCount > EPSILON && !protectionPrice) continue;
+          if (!flow || flow.baseItemCount < -EPSILON2) continue;
+          if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
           const totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
           if (!best || totalCost < best.totalCost) {
             best = {
@@ -45248,12 +45807,12 @@ ${locks}` : ""}`;
       baseCost: basePrice,
       refinementCost,
       totalSeconds: best.totalActions * stats.secondsPerAction,
-      normalProtectStart: best.protectionCount > EPSILON ? best.protectLevel : null,
+      normalProtectStart: best.protectionCount > EPSILON2 ? best.protectLevel : null,
       expectedProtectionCount: best.mode === "philosopher" ? best.mirrorCount : best.protectionCount,
       expectedNormalProtectionCount: best.protectionCount,
       expectedPhilosopherMirrorCount: best.mirrorCount,
-      protectionItemHrid: best.protectionCount > EPSILON ? protectionChoice?.hrid ?? null : null,
-      protectionUnitCost: best.protectionCount > EPSILON ? protectionPrice : 0,
+      protectionItemHrid: best.protectionCount > EPSILON2 ? protectionChoice?.hrid ?? null : null,
+      protectionUnitCost: best.protectionCount > EPSILON2 ? protectionPrice : 0,
       philosopherStart: best.philosopherStartLevel,
       aLevel: best.philosopherStartLevel,
       aCount: best.aCount,
@@ -51443,7 +52002,7 @@ ${locks}` : ""}`;
   })();
   var SegmentSelection = (() => {
     let selectedKey = "current";
-    let cachedRevision = -1, cachedLanguage = "", cachedOptions = [];
+    let cachedRevision2 = -1, cachedLanguage = "", cachedOptions = [];
     const bus = new EventTarget();
     const fightKey = (id) => "fight:" + encodeURIComponent(String(id));
     const fragmentKey = (id, index) => "fragment:" + encodeURIComponent(String(id)) + ":" + index;
@@ -51460,7 +52019,7 @@ ${locks}` : ""}`;
     }
     function options() {
       const revision = HistoryStore.getRevision(), language = Settings.getLanguage();
-      if (revision === cachedRevision && language === cachedLanguage)
+      if (revision === cachedRevision2 && language === cachedLanguage)
         return cachedOptions;
       const out = [
         {
@@ -51506,7 +52065,7 @@ ${locks}` : ""}`;
             })
           );
       });
-      cachedRevision = revision;
+      cachedRevision2 = revision;
       cachedLanguage = language;
       cachedOptions = out;
       return cachedOptions;
