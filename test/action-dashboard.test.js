@@ -449,7 +449,7 @@ test("nameless action panels are ignored without reading a missing element", () 
   }
 });
 
-test("the top action bar shows only current-action count and time left", () => {
+test("the top action bar keeps finish time on desktop and hides it on mobile", () => {
   runtime.state.currentActionsHridList = [
     {
       actionHrid: "/actions/crafting/lumber",
@@ -470,7 +470,9 @@ test("the top action bar shows only current-action count and time left", () => {
   assert.ok(dashboard);
   assert.match(dashboard.textContent, /剩余 6/);
   assert.match(dashboard.textContent, /还需 53s/);
-  assert.doesNotMatch(dashboard.textContent, /预计完成|利润|全部完成|999/);
+  assert.match(dashboard.textContent, /预计完成/);
+  assert.doesNotMatch(dashboard.textContent, /利润|全部完成|999/);
+  assert.equal(dashboard.querySelector(".mwi-action-eta")?.tagName, "STRONG");
   assert.equal(dashboard.children.length, 1);
   assert.equal(
     document
@@ -483,6 +485,10 @@ test("the top action bar shows only current-action count and time left", () => {
     "#mwitools-action-dashboard-style",
   ).textContent;
   assert.match(dashboardStyle, /flex-wrap:nowrap/);
+  assert.match(
+    dashboardStyle,
+    /@media\(max-width:520px\).*\.mwi-action-dashboard\{right:auto;width:max-content\}.*\.mwi-action-eta\{display:none\}/,
+  );
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
 });
 
@@ -653,7 +659,7 @@ test("enhancement actions use the finite amount shown in the native header", () 
   const dashboard = document.querySelector("#mwi-action-dashboard");
   assert.match(dashboard.textContent, /剩余 2\.94K/);
   assert.doesNotMatch(dashboard.textContent, /∞/);
-  assert.doesNotMatch(dashboard.textContent, /预计完成/);
+  assert.match(dashboard.textContent, /预计完成/);
   assert.match(dashboard.querySelector("span").title, /强化栏/);
 });
 

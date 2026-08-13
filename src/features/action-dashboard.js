@@ -30,6 +30,15 @@ function formatDuration(seconds) {
   return parts.join(runtime.config.isZH ? "" : " ");
 }
 
+function formatClock(timestamp) {
+  if (!Number.isFinite(timestamp)) return "—";
+  return new Intl.DateTimeFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 function number(value) {
   return runtime.api.createFormattedNumber(value);
 }
@@ -188,7 +197,7 @@ function addStyles() {
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-line{gap:2px 8px}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content}.mwi-action-line{gap:2px 8px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -392,7 +401,12 @@ function renderActionDashboard() {
   currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
     projection.totalSeconds,
   )}`;
-  primary.append(remaining, currentTime);
+  const eta = document.createElement("strong");
+  eta.className = "mwi-action-eta";
+  eta.textContent = projection.finishAt
+    ? `${t("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}`
+    : `${t("预计完成", "Finishes at")} —`;
+  primary.append(remaining, currentTime, eta);
   root.append(primary);
 }
 

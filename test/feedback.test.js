@@ -135,7 +135,7 @@ test("opinion center combines feedback and announcement unread states into one d
       },
       scope,
       announcements: announcementStore({
-        seen: item.announcementSeen ? ["26.4.7"] : [],
+        seen: item.announcementSeen ? ANNOUNCEMENTS.map(({ id }) => id) : [],
       }),
     });
     const button = panel.ensureButton();
@@ -205,7 +205,9 @@ test("opening feedback-only activity lands on My feedback", async () => {
       markRead: async () => {},
     },
     scope,
-    announcements: announcementStore({ seen: ["26.4.7"] }),
+    announcements: announcementStore({
+      seen: ANNOUNCEMENTS.map(({ id }) => id),
+    }),
   });
   panel.ensureButton();
   await panel.refresh();
@@ -357,10 +359,27 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("the current announcement covers every player-facing update bilingually", () => {
+test("announcement history preserves 26.4.6 separately from 26.4.7", () => {
   const current = ANNOUNCEMENTS[0];
+  const previous = ANNOUNCEMENTS[1];
+  assert.deepEqual(
+    ANNOUNCEMENTS.map(({ version }) => version),
+    ["26.4.7", "26.4.6"],
+  );
   assert.equal(current.version, "26.4.7");
+  assert.equal(previous.version, "26.4.6");
+  assert.equal(previous.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
+  assert.equal(previous.body.zh.length, 20);
+  assert.equal(previous.body.en.length, 20);
+  assert.match(previous.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.match(current.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+});
+
+test("the announcement history covers every player-facing update bilingually", () => {
+  const allZh = ANNOUNCEMENTS.flatMap(({ body }) => body.zh).join("\n");
+  const allEn = ANNOUNCEMENTS.flatMap(({ body }) => body.en).join("\n");
   for (const pattern of [
     /铁牛模式适配/,
     /点金、分解、转化和解精炼/,
@@ -372,12 +391,12 @@ test("the current announcement covers every player-facing update bilingually", (
     /数字解析和显示现在跟随游戏内语言/,
     /中文以外的游戏语言下火车点击加入队列后不续站/,
     /分项图表改为显示各日期的实际资产持有值/,
-    /实时资产刷新后保持隐藏状态/,
+    /实时资产刷新后继续保持隐藏或显示状态/,
     /精炼生活披风等背部装备提示没有新缺料/,
     /改善英文界面卡顿/,
     /九种官方语言下库存评分与总资产/,
   ]) {
-    assert.match(current.body.zh.join("\n"), pattern);
+    assert.match(allZh, pattern);
   }
   for (const pattern of [
     /Iron Cow adaptation/,
@@ -390,12 +409,12 @@ test("the current announcement covers every player-facing update bilingually", (
     /Number parsing and display now follow the in-game language/,
     /trains not advancing after queue submission/,
     /component charts now show actual holdings/,
-    /preserving visibility through live asset refreshes/,
+    /visibility now persists through live asset refreshes/,
     /refined skilling capes and other back equipment/,
     /improve English task-page performance/,
     /all nine official game languages/,
   ]) {
-    assert.match(current.body.en.join("\n"), pattern);
+    assert.match(allEn, pattern);
   }
 });
 
