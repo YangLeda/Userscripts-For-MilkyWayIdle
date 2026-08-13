@@ -647,11 +647,19 @@ function clamp(value, minimum, maximum) {
 
 function positionPanel() {
   const state = activePanel;
-  if (!state?.anchor?.isConnected || !state.panel?.isConnected) {
+  if (!state?.panel?.isConnected) {
     hideProductionProfitPanel();
     return;
   }
-  const anchorRect = state.anchor.getBoundingClientRect();
+  let anchorRect = state.anchorRect;
+  if (state.anchor?.isConnected) {
+    anchorRect = state.anchor.getBoundingClientRect();
+    if (state.sticky) state.anchorRect = anchorRect;
+  } else if (!state.sticky && !state.pinned) {
+    hideProductionProfitPanel();
+    return;
+  }
+  if (!anchorRect) return;
   const panelRect = state.panel.getBoundingClientRect();
   const viewportWidth =
     globalThis.innerWidth ?? document.documentElement.clientWidth;
@@ -700,12 +708,13 @@ function positionPanel() {
   state.panel.style.top = `${Math.round(top)}px`;
 }
 
-function hideProductionProfitPanel() {
+function hideProductionProfitPanel(kind = null) {
   const state = activePanel;
   if (!state) {
     document.getElementById(PANEL_ID)?.remove();
     return;
   }
+  if (kind && state.kind !== kind) return;
   state.mutationObserver?.disconnect();
   state.resizeObserver?.disconnect();
   globalThis.removeEventListener?.("resize", state.position);
@@ -729,18 +738,21 @@ function createPanelElement() {
 
 function mountPanel(anchor, panel, extraState = {}) {
   const pinned = Boolean(extraState.pinned);
+  const sticky = Boolean(extraState.sticky);
   anchor.insertAdjacentElement("afterend", panel);
   const position = () =>
     globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
   let mutationObserver = null;
   let resizeObserver = null;
   if (!pinned) {
-    mutationObserver = new MutationObserver(() => {
-      if (!anchor.isConnected) hideProductionProfitPanel();
-    });
-    mutationObserver.observe(anchor.parentNode ?? document.body, {
-      childList: true,
-    });
+    if (!sticky) {
+      mutationObserver = new MutationObserver(() => {
+        if (!anchor.isConnected) hideProductionProfitPanel();
+      });
+      mutationObserver.observe(anchor.parentNode ?? document.body, {
+        childList: true,
+      });
+    }
     resizeObserver = globalThis.ResizeObserver
       ? new globalThis.ResizeObserver(position)
       : null;
@@ -756,20 +768,27 @@ function mountPanel(anchor, panel, extraState = {}) {
     mutationObserver,
     resizeObserver,
     pinned,
+    anchorRect: sticky ? anchor.getBoundingClientRect() : null,
     ...extraState,
   };
-  position();
-  if (pinned && document.body && panel.parentElement !== document.body) {
+  if (
+    (pinned || sticky) &&
+    document.body &&
+    panel.parentElement !== document.body
+  ) {
     document.body.appendChild(panel);
   }
+  position();
   return panel;
 }
 
 function attachStickyOutsideHandler(panel, anchor) {
   const outsideHandler = (event) => {
     if (!activePanel?.sticky || activePanel.panel !== panel) return;
-    if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
-    runtime.api.clearTooltipProfitHoverContext?.(anchor);
+    if (panel.contains(event.target)) return;
+    runtime.api.clearTooltipProfitHoverContext?.(anchor, null, {
+      preserveTouchPress: true,
+    });
     hideProductionProfitPanel();
   };
   globalThis.setTimeout?.(() => {
@@ -809,6 +828,7 @@ function showProductionProfitPanel(anchor, itemHrid, options = {}) {
     itemHrid: primaryItemHrid,
     actionHrid,
     sticky,
+    kind: "profit",
   });
   if (sticky) attachStickyOutsideHandler(panel, anchor);
   return mounted;
@@ -894,8 +914,16 @@ function dismissHoverPanel() {
 
 runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
   if (runtime.api.shouldSuppressMarketFeatures?.()) {
-    hideProductionProfitPanel();
+    hideProductionProfitPanel("profit");
   }
+});
+
+runtime.settings.onChange?.("itemTooltip_profit", (enabled) => {
+  if (!enabled) hideProductionProfitPanel("profit");
+});
+
+runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
+  if (!enabled) hideProductionProfitPanel("loot");
 });
 
 runtime.onMessage("init_character_data", () => {

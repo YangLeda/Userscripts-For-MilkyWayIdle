@@ -341,6 +341,37 @@ test("missing character data shows a waiting state without defaults", () => {
   runtime.state.initData_characterSkills = skills;
 });
 
+test("sticky profit panels survive their native tooltip and close only outside", async () => {
+  const anchor = document.createElement("div");
+  anchor.id = "sticky-profit-anchor";
+  document.querySelector("#portal").append(anchor);
+  const panel = runtime.api.showProductionProfitPanel(
+    anchor,
+    "/items/panel-output",
+    { sticky: true },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(panel.parentElement, document.body);
+  anchor.remove();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+
+  panel.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  panel.dispatchEvent(new dom.window.Event("scroll", { bubbles: true }));
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  document.body.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+});
+
 test("panel is removed when its native tooltip disappears", async () => {
   const anchor = nativeTooltip();
   runtime.api.showProductionProfitPanel(anchor, "/items/panel-output");

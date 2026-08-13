@@ -17,6 +17,7 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
+    #${PANEL_ID}.mwi-enhancement-sticky { pointer-events:auto; }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
@@ -153,8 +154,19 @@ function renderPanel(panel, plan) {
 
 function positionPanel() {
   const state = activePanel;
-  if (!state?.anchor?.isConnected || !state.panel?.isConnected) return;
-  const anchorRect = state.anchor.getBoundingClientRect();
+  if (!state?.panel?.isConnected) {
+    hideEnhancementCostPanel();
+    return;
+  }
+  let anchorRect = state.anchorRect;
+  if (state.anchor?.isConnected) {
+    anchorRect = state.anchor.getBoundingClientRect();
+    if (state.sticky) state.anchorRect = anchorRect;
+  } else if (!state.sticky) {
+    hideEnhancementCostPanel();
+    return;
+  }
+  if (!anchorRect) return;
   const panelRect = state.panel.getBoundingClientRect();
   const viewportWidth =
     Number(globalThis.innerWidth) || document.documentElement.clientWidth;
@@ -211,16 +223,42 @@ export function hideEnhancementCostPanel() {
   state.resizeObserver?.disconnect();
   globalThis.removeEventListener?.("resize", state.position);
   globalThis.removeEventListener?.("scroll", state.position, true);
+  if (state.outsideHandler) {
+    document.removeEventListener("pointerdown", state.outsideHandler, true);
+  }
   state.panel?.remove();
   activePanel = null;
 }
 
-export function showEnhancementCostPanel(anchor, plan = null) {
+function attachStickyOutsideHandler(panel, anchor) {
+  const outsideHandler = (event) => {
+    if (!activePanel?.sticky || activePanel.panel !== panel) return;
+    if (panel.contains(event.target)) return;
+    runtime.api.clearTooltipProfitHoverContext?.(anchor, null, {
+      preserveTouchPress: true,
+    });
+    hideEnhancementCostPanel();
+  };
+  globalThis.setTimeout?.(() => {
+    if (activePanel?.panel !== panel) return;
+    document.addEventListener("pointerdown", outsideHandler, true);
+    activePanel.outsideHandler = outsideHandler;
+  }, 0);
+}
+
+export function showEnhancementCostPanel(anchor, plan = null, options = {}) {
   if (!anchor?.isConnected) {
     hideEnhancementCostPanel();
     return null;
   }
-  if (activePanel?.anchor === anchor && activePanel.panel?.isConnected) {
+  const sticky = Boolean(
+    options.sticky || (activePanel?.anchor === anchor && activePanel?.sticky),
+  );
+  if (
+    activePanel?.anchor === anchor &&
+    activePanel.panel?.isConnected &&
+    activePanel.sticky === sticky
+  ) {
     renderPanel(activePanel.panel, plan);
     activePanel.position();
     return activePanel.panel;
@@ -229,6 +267,7 @@ export function showEnhancementCostPanel(anchor, plan = null) {
   addStyles();
   const panel = document.createElement("aside");
   panel.id = PANEL_ID;
+  panel.classList.toggle("mwi-enhancement-sticky", sticky);
   panel.setAttribute("role", "status");
   panel.setAttribute("aria-live", "polite");
   renderPanel(panel, plan);
@@ -236,10 +275,12 @@ export function showEnhancementCostPanel(anchor, plan = null) {
 
   const position = () =>
     globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
-  const mutationObserver = new MutationObserver(() => {
-    if (!anchor.isConnected) hideEnhancementCostPanel();
-  });
-  mutationObserver.observe(anchor.parentNode ?? document.body, {
+  const mutationObserver = sticky
+    ? null
+    : new MutationObserver(() => {
+        if (!anchor.isConnected) hideEnhancementCostPanel();
+      });
+  mutationObserver?.observe(anchor.parentNode ?? document.body, {
     childList: true,
   });
   const resizeObserver = globalThis.ResizeObserver
@@ -253,14 +294,24 @@ export function showEnhancementCostPanel(anchor, plan = null) {
     panel,
     position,
     resizeObserver,
+    sticky,
+    anchorRect: sticky ? anchor.getBoundingClientRect() : null,
   };
+  if (sticky && document.body && panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
   globalThis.addEventListener?.("resize", position);
   globalThis.addEventListener?.("scroll", position, true);
   position();
+  if (sticky) attachStickyOutsideHandler(panel, anchor);
   return panel;
 }
 
 export const positionEnhancementCostPanel = positionPanel;
+
+runtime.settings.onChange?.("enhanceSim", (enabled) => {
+  if (!enabled) hideEnhancementCostPanel();
+});
 
 Object.assign(runtime.api, {
   hideEnhancementCostPanel,

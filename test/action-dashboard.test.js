@@ -498,9 +498,36 @@ test("the top action bar keeps finish time on desktop and hides it on mobile", (
   );
   assert.match(
     dashboardStyle,
-    /@media\(max-width:520px\).*\.mwi-action-dashboard\{right:auto;width:max-content\}.*\.mwi-action-eta\{display:none\}/,
+    /\.mwi-action-dashboard\[data-compact="true"\][^}]*width:max-content[^}]*padding-inline:4px/,
+  );
+  assert.match(
+    dashboardStyle,
+    /\.mwi-action-dashboard\[data-compact="true"\] \.mwi-action-eta \{ display:none; \}/,
   );
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
+});
+
+test("the top action bar drops finish time when its actual header space is narrow", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const nativeLabel = host.querySelector("span");
+  host.getBoundingClientRect = () => ({
+    left: 0,
+    right: 360,
+    width: 360,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 80 });
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.equal(dashboard.dataset.compact, "true");
+  assert.match(dashboard.textContent, /剩余/);
+  assert.match(dashboard.textContent, /还需/);
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+      .display,
+    "none",
+  );
 });
 
 test("the top action bar follows ordinal order and hides on header mismatch or combat", () => {

@@ -12,6 +12,37 @@ const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
 const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
 const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+const GUILD_CREDIT_RECOMMENDATION_COUNT_KEY =
+  "MWITools_guild_credit_recommendation_count_v1";
+
+function normalizeGuildCreditRecommendationCount(value) {
+  const count = Math.floor(Number(value));
+  return Number.isFinite(count) ? Math.min(8, Math.max(1, count)) : 3;
+}
+
+function loadGuildCreditRecommendationCount() {
+  const stored = localStorage.getItem(GUILD_CREDIT_RECOMMENDATION_COUNT_KEY);
+  return stored === null ? 3 : normalizeGuildCreditRecommendationCount(stored);
+}
+
+let guildCreditRecommendationCount = loadGuildCreditRecommendationCount();
+
+function getGuildCreditRecommendationCount() {
+  return guildCreditRecommendationCount;
+}
+
+function setGuildCreditRecommendationCount(value) {
+  guildCreditRecommendationCount =
+    normalizeGuildCreditRecommendationCount(value);
+  localStorage.setItem(
+    GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
+    String(guildCreditRecommendationCount),
+  );
+  if (runtime.settings.get("guildCreditConversionsSort")) {
+    void runtime.api.renderGuildCreditRecommendations?.();
+  }
+  return guildCreditRecommendationCount;
+}
 
 function normalizeTooltipProfitShortcut(value) {
   const code = String(value?.code ?? "").trim();
@@ -203,6 +234,8 @@ function addSettingsStyles() {
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
     .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
+    .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
+    .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
     @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
   styleHost.appendChild(style);
@@ -269,6 +302,7 @@ function createSettingCard(definition, options = {}) {
   const descendants = getSettingDescendants(definition.id);
   const card = document.createElement("article");
   let cancelShortcutCapture = null;
+  let auxiliaryControl = null;
   card.className = "mwi-setting-card";
   if (options.child) card.classList.add("mwi-setting-child");
   card.dataset.search = [
@@ -276,6 +310,9 @@ function createSettingCard(definition, options = {}) {
     definition.title?.en,
     definition.summary?.zh,
     definition.summary?.en,
+    ...(definition.id === "guildCreditConversionsSort"
+      ? ["推荐数量", "recommendation count"]
+      : []),
     ...descendants.flatMap((child) => [
       child.title?.zh,
       child.title?.en,
@@ -314,6 +351,7 @@ function createSettingCard(definition, options = {}) {
       );
       status.appendChild(retry);
     }
+    if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
   };
   setStatus();
   const titleLine = document.createElement("div");
@@ -387,6 +425,36 @@ function createSettingCard(definition, options = {}) {
     });
     shortcutRow.append(shortcutLabel, shortcutButton);
     card.append(shortcutRow);
+  }
+  if (definition.id === "guildCreditConversionsSort") {
+    const countRow = document.createElement("div");
+    countRow.className = "mwi-setting-shortcut-row";
+    const countLabel = document.createElement("span");
+    countLabel.textContent = runtime.config.isZH
+      ? "推荐数量"
+      : "Recommendations";
+    const countSelect = document.createElement("select");
+    countSelect.className = "mwi-setting-select";
+    countSelect.setAttribute(
+      "aria-label",
+      runtime.config.isZH ? "公会信用推荐数量" : "Guild credit recommendations",
+    );
+    for (let count = 1; count <= 8; count += 1) {
+      const option = document.createElement("option");
+      option.value = String(count);
+      option.textContent = String(count);
+      countSelect.appendChild(option);
+    }
+    countSelect.value = String(getGuildCreditRecommendationCount());
+    countSelect.disabled = !checkbox.checked;
+    countSelect.addEventListener("change", () => {
+      countSelect.value = String(
+        setGuildCreditRecommendationCount(countSelect.value),
+      );
+    });
+    countRow.append(countLabel, countSelect);
+    card.append(countRow);
+    auxiliaryControl = countSelect;
   }
   for (const child of children) {
     card.append(createSettingCard(child, { child: true }));
@@ -969,6 +1037,8 @@ Object.assign(runtime.api, {
   getTooltipProfitShortcut,
   setTooltipProfitShortcut,
   matchesTooltipProfitShortcut,
+  getGuildCreditRecommendationCount,
+  setGuildCreditRecommendationCount,
   getEquipmentWarning,
   checkEquipment,
   hasItemHridInInv,

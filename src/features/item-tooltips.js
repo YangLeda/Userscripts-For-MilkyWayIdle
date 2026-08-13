@@ -68,6 +68,7 @@ function showHoverPanelContext(context = hoverPanelContext, options = {}) {
     return runtime.api.showEnhancementCostPanel?.(
       context.anchor,
       context.plan ?? null,
+      { sticky: Boolean(options.sticky) },
     );
   }
   if (context.kind === "loot") {
@@ -115,12 +116,18 @@ function setHoverPanelContext(context) {
   dismissHoverPanelContext(context);
 }
 
-function clearHoverPanelContext(anchor = null, kind = null) {
+function clearHoverPanelContext(
+  anchor = null,
+  kind = null,
+  { preserveTouchPress = false } = {},
+) {
   if (anchor && hoverPanelContext?.anchor !== anchor) return;
   if (kind && hoverPanelContext?.kind !== kind) return;
-  clearTimeout(touchHoverPanelPress?.timer);
-  touchHoverPanelPress = null;
-  touchHoverPanelAuthorizedUntil = 0;
+  if (!preserveTouchPress) {
+    clearTimeout(touchHoverPanelPress?.timer);
+    touchHoverPanelPress = null;
+    touchHoverPanelAuthorizedUntil = 0;
+  }
   const previous = hoverPanelContext;
   hoverPanelContext = null;
   dismissHoverPanelContext(previous);
@@ -564,7 +571,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
-    clearHoverPanelContext();
+    clearHoverPanelContext(null, null, { preserveTouchPress: true });
     runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
@@ -892,19 +899,34 @@ runtime.features.register({
     const stopLootEstimate = runtime.settings.onChange(
       "lootChestEstimate",
       (enabled) => {
-        if (!enabled) clearHoverPanelContext(null, "loot");
+        if (!enabled) {
+          clearHoverPanelContext(null, "loot");
+          runtime.api.hideProductionProfitPanel?.("loot");
+        }
+      },
+    );
+    const stopEnhanceSim = runtime.settings.onChange(
+      "enhanceSim",
+      (enabled) => {
+        if (!enabled) {
+          clearHoverPanelContext(null, "enhancement");
+          runtime.api.hideEnhancementCostPanel?.();
+        }
       },
     );
     scope.add(() => {
       stopRequireKey?.();
       stopIronCow?.();
       stopLootEstimate?.();
+      stopEnhanceSim?.();
       tooltipObserver.disconnect();
       for (const style of styles) style?.remove?.();
       clearTimeout(touchHoverPanelPress?.timer);
       touchHoverPanelPress = null;
       hoverPanelShortcutHeld = false;
       clearHoverPanelContext();
+      runtime.api.hideProductionProfitPanel?.();
+      runtime.api.hideEnhancementCostPanel?.();
     });
   },
 });
@@ -926,12 +948,18 @@ runtime.features.register({
       if (!card || card.contains(event.relatedTarget)) return;
       clearHoverPanelContext(card, "profit");
     });
-    scope.add(() => clearHoverPanelContext(null, "profit"));
+    scope.add(() => {
+      clearHoverPanelContext(null, "profit");
+      runtime.api.hideProductionProfitPanel?.("profit");
+    });
   },
 });
 
 runtime.onMessage("init_character_data", () => {
-  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
-  clearHoverPanelContext(null, "profit");
-  removeSuppressedTooltipContent();
+  clearHoverPanelContext();
+  runtime.api.hideProductionProfitPanel?.();
+  runtime.api.hideEnhancementCostPanel?.();
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    removeSuppressedTooltipContent();
+  }
 });

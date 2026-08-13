@@ -132,6 +132,28 @@ test("profit tooltip shortcut uses separate single-key persistence", () => {
   runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
 });
 
+test("guild credit recommendation count defaults to three and clamps to one through eight", () => {
+  localStorage.removeItem("MWITools_guild_credit_recommendation_count_v1");
+  let renders = 0;
+  const previousRender = runtime.api.renderGuildCreditRecommendations;
+  runtime.api.renderGuildCreditRecommendations = () => {
+    renders += 1;
+  };
+  runtime.api.setGuildCreditRecommendationCount(3);
+  assert.equal(runtime.api.getGuildCreditRecommendationCount(), 3);
+  assert.equal(
+    localStorage.getItem("MWITools_guild_credit_recommendation_count_v1"),
+    "3",
+  );
+  assert.equal(runtime.api.setGuildCreditRecommendationCount(0), 1);
+  assert.equal(runtime.api.setGuildCreditRecommendationCount(9), 8);
+  assert.equal(runtime.api.setGuildCreditRecommendationCount("invalid"), 3);
+  assert.equal(renders, 4);
+  if (previousRender)
+    runtime.api.renderGuildCreditRecommendations = previousRender;
+  else delete runtime.api.renderGuildCreditRecommendations;
+});
+
 test("back mirror valuation resets to disabled once and then preserves user choice", () => {
   const correctionKey = "MWITools_back_mirror_default_disabled_v2";
   localStorage.removeItem(correctionKey);
@@ -237,6 +259,29 @@ test("card settings render every visible setting with nested children and search
   assert.match(root.textContent, /宝箱估值忽略牛铃/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
   assert.match(root.textContent, /购物车与采购/);
+  const guildCreditCount = root.querySelector(
+    'select[aria-label="公会信用推荐数量"]',
+  );
+  assert.ok(guildCreditCount);
+  assert.equal(guildCreditCount.value, "3");
+  assert.deepEqual(
+    [...guildCreditCount.options].map((option) => option.value),
+    ["1", "2", "3", "4", "5", "6", "7", "8"],
+  );
+  guildCreditCount.value = "7";
+  guildCreditCount.dispatchEvent(
+    new dom.window.Event("change", { bubbles: true }),
+  );
+  assert.equal(runtime.api.getGuildCreditRecommendationCount(), 7);
+  const guildCreditToggle = root.querySelector(
+    'input[data-setting-id="guildCreditConversionsSort"]',
+  );
+  await runtime.settings.set("guildCreditConversionsSort", false);
+  assert.equal(guildCreditCount.disabled, true);
+  await runtime.settings.set("guildCreditConversionsSort", true);
+  assert.equal(guildCreditToggle.checked, true);
+  assert.equal(guildCreditCount.disabled, false);
+  runtime.api.setGuildCreditRecommendationCount(3);
   const lootSellToggle = root.querySelector(
     'input[data-setting-id="lootSellAtAsk"]',
   );

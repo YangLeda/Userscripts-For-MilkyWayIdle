@@ -30076,8 +30076,18 @@ ${preview}`
     }
     return `<div class="summary"><strong>${escapeHtml2(conclusion)}</strong><br>${escapeHtml2(t4(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
   }
-  function advisorMarkup({ context, ranked, selected, replacement }) {
-    const top = ranked.slice(0, 3);
+  function advisorMarkup({
+    context,
+    ranked,
+    selected,
+    replacement,
+    recommendationCount
+  }) {
+    const count = Math.min(
+      8,
+      Math.max(1, Math.floor(Number(recommendationCount)) || 3)
+    );
+    const top = ranked.slice(0, count);
     const creditName = itemName2(context.creditItemHrid);
     const selectedInTop = top.some(
       ({ itemHrid }) => itemHrid === context.selectedItemHrid
@@ -30328,7 +30338,8 @@ ${preview}`
       context,
       ranked,
       selected,
-      replacement
+      replacement,
+      recommendationCount: runtime.api.getGuildCreditRecommendationCount?.() ?? 3
     });
     mountGuildCreditAdvisor(host, modal);
     return host;
@@ -30980,11 +30991,19 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function positionPanel() {
     const state = activePanel;
-    if (!state?.anchor?.isConnected || !state.panel?.isConnected) {
+    if (!state?.panel?.isConnected) {
       hideProductionProfitPanel();
       return;
     }
-    const anchorRect = state.anchor.getBoundingClientRect();
+    let anchorRect = state.anchorRect;
+    if (state.anchor?.isConnected) {
+      anchorRect = state.anchor.getBoundingClientRect();
+      if (state.sticky) state.anchorRect = anchorRect;
+    } else if (!state.sticky && !state.pinned) {
+      hideProductionProfitPanel();
+      return;
+    }
+    if (!anchorRect) return;
     const panelRect = state.panel.getBoundingClientRect();
     const viewportWidth = globalThis.innerWidth ?? document.documentElement.clientWidth;
     const viewportHeight = globalThis.innerHeight ?? document.documentElement.clientHeight;
@@ -31027,12 +31046,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     state.panel.style.left = `${Math.round(left)}px`;
     state.panel.style.top = `${Math.round(top)}px`;
   }
-  function hideProductionProfitPanel() {
+  function hideProductionProfitPanel(kind = null) {
     const state = activePanel;
     if (!state) {
       document.getElementById(PANEL_ID2)?.remove();
       return;
     }
+    if (kind && state.kind !== kind) return;
     state.mutationObserver?.disconnect();
     state.resizeObserver?.disconnect();
     globalThis.removeEventListener?.("resize", state.position);
@@ -31054,17 +31074,20 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function mountPanel(anchor, panel, extraState = {}) {
     const pinned = Boolean(extraState.pinned);
+    const sticky = Boolean(extraState.sticky);
     anchor.insertAdjacentElement("afterend", panel);
     const position = () => globalThis.requestAnimationFrame?.(positionPanel) ?? positionPanel();
     let mutationObserver = null;
     let resizeObserver = null;
     if (!pinned) {
-      mutationObserver = new MutationObserver(() => {
-        if (!anchor.isConnected) hideProductionProfitPanel();
-      });
-      mutationObserver.observe(anchor.parentNode ?? document.body, {
-        childList: true
-      });
+      if (!sticky) {
+        mutationObserver = new MutationObserver(() => {
+          if (!anchor.isConnected) hideProductionProfitPanel();
+        });
+        mutationObserver.observe(anchor.parentNode ?? document.body, {
+          childList: true
+        });
+      }
       resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
       resizeObserver?.observe(anchor);
       resizeObserver?.observe(panel);
@@ -31078,19 +31101,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       mutationObserver,
       resizeObserver,
       pinned,
+      anchorRect: sticky ? anchor.getBoundingClientRect() : null,
       ...extraState
     };
-    position();
-    if (pinned && document.body && panel.parentElement !== document.body) {
+    if ((pinned || sticky) && document.body && panel.parentElement !== document.body) {
       document.body.appendChild(panel);
     }
+    position();
     return panel;
   }
   function attachStickyOutsideHandler(panel, anchor) {
     const outsideHandler = (event) => {
       if (!activePanel?.sticky || activePanel.panel !== panel) return;
-      if (panel.contains(event.target) || anchor.contains?.(event.target)) return;
-      runtime.api.clearTooltipProfitHoverContext?.(anchor);
+      if (panel.contains(event.target)) return;
+      runtime.api.clearTooltipProfitHoverContext?.(anchor, null, {
+        preserveTouchPress: true
+      });
       hideProductionProfitPanel();
     };
     globalThis.setTimeout?.(() => {
@@ -31124,7 +31150,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const mounted = mountPanel(anchor, panel, {
       itemHrid: primaryItemHrid,
       actionHrid,
-      sticky
+      sticky,
+      kind: "profit"
     });
     if (sticky) attachStickyOutsideHandler(panel, anchor);
     return mounted;
@@ -31204,8 +31231,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   runtime.settings.onChange?.("adaptIronCowMarketFeatures", () => {
     if (runtime.api.shouldSuppressMarketFeatures?.()) {
-      hideProductionProfitPanel();
+      hideProductionProfitPanel("profit");
     }
+  });
+  runtime.settings.onChange?.("itemTooltip_profit", (enabled) => {
+    if (!enabled) hideProductionProfitPanel("profit");
+  });
+  runtime.settings.onChange?.("lootChestEstimate", (enabled) => {
+    if (!enabled) hideProductionProfitPanel("loot");
   });
   runtime.onMessage("init_character_data", () => {
     if (runtime.api.shouldSuppressMarketFeatures?.()) {
@@ -31272,7 +31305,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (context.kind === "enhancement") {
       return runtime.api.showEnhancementCostPanel?.(
         context.anchor,
-        context.plan ?? null
+        context.plan ?? null,
+        { sticky: Boolean(options.sticky) }
       );
     }
     if (context.kind === "loot") {
@@ -31314,12 +31348,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     dismissHoverPanelContext(context);
   }
-  function clearHoverPanelContext(anchor = null, kind = null) {
+  function clearHoverPanelContext(anchor = null, kind = null, { preserveTouchPress = false } = {}) {
     if (anchor && hoverPanelContext?.anchor !== anchor) return;
     if (kind && hoverPanelContext?.kind !== kind) return;
-    clearTimeout(touchHoverPanelPress?.timer);
-    touchHoverPanelPress = null;
-    touchHoverPanelAuthorizedUntil = 0;
+    if (!preserveTouchPress) {
+      clearTimeout(touchHoverPanelPress?.timer);
+      touchHoverPanelPress = null;
+      touchHoverPanelAuthorizedUntil = 0;
+    }
     const previous = hoverPanelContext;
     hoverPanelContext = null;
     dismissHoverPanelContext(previous);
@@ -31674,7 +31710,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       "div.ItemTooltipText_name__2JAHA span"
     );
     if (itemNameElems.length > 1) {
-      clearHoverPanelContext();
+      clearHoverPanelContext(null, null, { preserveTouchPress: true });
       runtime.api.dismissHoverPanel?.();
       runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
       return;
@@ -31956,19 +31992,34 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const stopLootEstimate = runtime.settings.onChange(
         "lootChestEstimate",
         (enabled) => {
-          if (!enabled) clearHoverPanelContext(null, "loot");
+          if (!enabled) {
+            clearHoverPanelContext(null, "loot");
+            runtime.api.hideProductionProfitPanel?.("loot");
+          }
+        }
+      );
+      const stopEnhanceSim = runtime.settings.onChange(
+        "enhanceSim",
+        (enabled) => {
+          if (!enabled) {
+            clearHoverPanelContext(null, "enhancement");
+            runtime.api.hideEnhancementCostPanel?.();
+          }
         }
       );
       scope.add(() => {
         stopRequireKey?.();
         stopIronCow?.();
         stopLootEstimate?.();
+        stopEnhanceSim?.();
         tooltipObserver.disconnect();
         for (const style of styles) style?.remove?.();
         clearTimeout(touchHoverPanelPress?.timer);
         touchHoverPanelPress = null;
         hoverPanelShortcutHeld = false;
         clearHoverPanelContext();
+        runtime.api.hideProductionProfitPanel?.();
+        runtime.api.hideEnhancementCostPanel?.();
       });
     }
   });
@@ -31989,13 +32040,19 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         if (!card || card.contains(event.relatedTarget)) return;
         clearHoverPanelContext(card, "profit");
       });
-      scope.add(() => clearHoverPanelContext(null, "profit"));
+      scope.add(() => {
+        clearHoverPanelContext(null, "profit");
+        runtime.api.hideProductionProfitPanel?.("profit");
+      });
     }
   });
   runtime.onMessage("init_character_data", () => {
-    if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
-    clearHoverPanelContext(null, "profit");
-    removeSuppressedTooltipContent();
+    clearHoverPanelContext();
+    runtime.api.hideProductionProfitPanel?.();
+    runtime.api.hideEnhancementCostPanel?.();
+    if (runtime.api.shouldSuppressMarketFeatures?.()) {
+      removeSuppressedTooltipContent();
+    }
   });
 
   // src/features/action-panel.js
@@ -32631,6 +32688,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
+    .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
+    .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
+    .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
     .mwi-production-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:4px; }
@@ -32655,7 +32715,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content}.mwi-action-line{gap:2px 8px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -32791,6 +32851,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
     root.style.left = `${left}px`;
     root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
+    const hostWidth = Math.max(
+      0,
+      Number(hostRect.width) || Number(hostRect.right) - Number(hostRect.left)
+    );
+    const viewportWidth = Number(host.ownerDocument?.defaultView?.innerWidth) || 0;
+    const availableWidth = Math.max(0, hostWidth - left);
+    root.dataset.compact = String(
+      availableWidth > 0 && availableWidth < 420 || availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520
+    );
     root.replaceChildren();
     root.removeAttribute("title");
     const primary = document.createElement("div");
@@ -39016,18 +39085,22 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号。",
+          "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号，并在可用空间不足时隐藏预计完成时间以保持紧凑。",
+          "手机端长按打开生产收益、宝箱估值或强化成本后，松手及原生物品提示消失时详情会继续显示；点击详情内部可滚动或操作，只有点击窗口外才会关闭。",
           "制造和指定次数强化的多材料余缺提示改为固定四列逐行对齐，不再横向撑宽；物品价格会下移避开强化等级，同时保留原有文字样式。",
           "技能书计算器新增“加入购物车”，会自动扣除当前库存和购物车已有数量，只加入达到目标等级所需的净缺口。",
+          "公会信用兑换推荐默认显示 3 个方案，并可在设置中通过下拉菜单自由选择显示 1–8 个；修改后已打开的推荐会立即更新。",
           "移动端意见中心压缩了表单和公告的空白，输入框会按内容与屏幕高度自适应；标题与三个页签保持可见，公告和表单改为弹窗正文内独立滚动。",
           "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
           "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
           "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。"
         ]),
         en: Object.freeze([
-          "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size.",
+          "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size and hides the finish time when space is tight to stay compact.",
+          "On mobile, production profit, loot valuation, and enhancement cost details opened by a long press now remain visible after release or after the native item tooltip disappears. Taps and scrolling inside remain interactive, and only a tap outside closes the detail window.",
           "Multi-material shortage indicators in production and fixed-count enhancing now stay aligned in four explicit columns without widening the panel. Item prices move below enhancement levels while keeping their existing text style.",
           "The ability-book calculator now includes Add to cart and subtracts both current inventory and quantities already in the cart, adding only the net shortage needed for the target level.",
+          "Guild Credit Exchange shows three recommendations by default, with a settings dropdown for choosing one through eight. Open recommendations update immediately when the value changes.",
           "The mobile Feedback Center now removes excess form and announcement spacing, and text boxes adapt to their content and screen height. The title and all three tabs stay visible while announcements and forms scroll independently inside the modal body.",
           "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
           "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
@@ -42337,6 +42410,7 @@ ${locks}` : ""}`;
     style.id = STYLE_ID16;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
+    #${PANEL_ID3}.mwi-enhancement-sticky { pointer-events:auto; }
     #${PANEL_ID3} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
@@ -42446,8 +42520,19 @@ ${locks}` : ""}`;
   }
   function positionPanel2() {
     const state = activePanel2;
-    if (!state?.anchor?.isConnected || !state.panel?.isConnected) return;
-    const anchorRect = state.anchor.getBoundingClientRect();
+    if (!state?.panel?.isConnected) {
+      hideEnhancementCostPanel();
+      return;
+    }
+    let anchorRect = state.anchorRect;
+    if (state.anchor?.isConnected) {
+      anchorRect = state.anchor.getBoundingClientRect();
+      if (state.sticky) state.anchorRect = anchorRect;
+    } else if (!state.sticky) {
+      hideEnhancementCostPanel();
+      return;
+    }
+    if (!anchorRect) return;
     const panelRect = state.panel.getBoundingClientRect();
     const viewportWidth = Number(globalThis.innerWidth) || document.documentElement.clientWidth;
     const viewportHeight = Number(globalThis.innerHeight) || document.documentElement.clientHeight;
@@ -42494,15 +42579,36 @@ ${locks}` : ""}`;
     state.resizeObserver?.disconnect();
     globalThis.removeEventListener?.("resize", state.position);
     globalThis.removeEventListener?.("scroll", state.position, true);
+    if (state.outsideHandler) {
+      document.removeEventListener("pointerdown", state.outsideHandler, true);
+    }
     state.panel?.remove();
     activePanel2 = null;
   }
-  function showEnhancementCostPanel(anchor, plan = null) {
+  function attachStickyOutsideHandler2(panel, anchor) {
+    const outsideHandler = (event) => {
+      if (!activePanel2?.sticky || activePanel2.panel !== panel) return;
+      if (panel.contains(event.target)) return;
+      runtime.api.clearTooltipProfitHoverContext?.(anchor, null, {
+        preserveTouchPress: true
+      });
+      hideEnhancementCostPanel();
+    };
+    globalThis.setTimeout?.(() => {
+      if (activePanel2?.panel !== panel) return;
+      document.addEventListener("pointerdown", outsideHandler, true);
+      activePanel2.outsideHandler = outsideHandler;
+    }, 0);
+  }
+  function showEnhancementCostPanel(anchor, plan = null, options = {}) {
     if (!anchor?.isConnected) {
       hideEnhancementCostPanel();
       return null;
     }
-    if (activePanel2?.anchor === anchor && activePanel2.panel?.isConnected) {
+    const sticky = Boolean(
+      options.sticky || activePanel2?.anchor === anchor && activePanel2?.sticky
+    );
+    if (activePanel2?.anchor === anchor && activePanel2.panel?.isConnected && activePanel2.sticky === sticky) {
       renderPanel2(activePanel2.panel, plan);
       activePanel2.position();
       return activePanel2.panel;
@@ -42511,15 +42617,16 @@ ${locks}` : ""}`;
     addStyles14();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
+    panel.classList.toggle("mwi-enhancement-sticky", sticky);
     panel.setAttribute("role", "status");
     panel.setAttribute("aria-live", "polite");
     renderPanel2(panel, plan);
     anchor.insertAdjacentElement("afterend", panel);
     const position = () => globalThis.requestAnimationFrame?.(positionPanel2) ?? positionPanel2();
-    const mutationObserver = new MutationObserver(() => {
+    const mutationObserver = sticky ? null : new MutationObserver(() => {
       if (!anchor.isConnected) hideEnhancementCostPanel();
     });
-    mutationObserver.observe(anchor.parentNode ?? document.body, {
+    mutationObserver?.observe(anchor.parentNode ?? document.body, {
       childList: true
     });
     const resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
@@ -42530,14 +42637,23 @@ ${locks}` : ""}`;
       mutationObserver,
       panel,
       position,
-      resizeObserver
+      resizeObserver,
+      sticky,
+      anchorRect: sticky ? anchor.getBoundingClientRect() : null
     };
+    if (sticky && document.body && panel.parentElement !== document.body) {
+      document.body.appendChild(panel);
+    }
     globalThis.addEventListener?.("resize", position);
     globalThis.addEventListener?.("scroll", position, true);
     position();
+    if (sticky) attachStickyOutsideHandler2(panel, anchor);
     return panel;
   }
   var positionEnhancementCostPanel = positionPanel2;
+  runtime.settings.onChange?.("enhanceSim", (enabled) => {
+    if (!enabled) hideEnhancementCostPanel();
+  });
   Object.assign(runtime.api, {
     hideEnhancementCostPanel,
     positionEnhancementCostPanel,
@@ -42663,6 +42779,30 @@ ${locks}` : ""}`;
   var SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
   var SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
   var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+  var GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
+  function normalizeGuildCreditRecommendationCount(value) {
+    const count = Math.floor(Number(value));
+    return Number.isFinite(count) ? Math.min(8, Math.max(1, count)) : 3;
+  }
+  function loadGuildCreditRecommendationCount() {
+    const stored = localStorage.getItem(GUILD_CREDIT_RECOMMENDATION_COUNT_KEY);
+    return stored === null ? 3 : normalizeGuildCreditRecommendationCount(stored);
+  }
+  var guildCreditRecommendationCount = loadGuildCreditRecommendationCount();
+  function getGuildCreditRecommendationCount() {
+    return guildCreditRecommendationCount;
+  }
+  function setGuildCreditRecommendationCount(value) {
+    guildCreditRecommendationCount = normalizeGuildCreditRecommendationCount(value);
+    localStorage.setItem(
+      GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
+      String(guildCreditRecommendationCount)
+    );
+    if (runtime.settings.get("guildCreditConversionsSort")) {
+      void runtime.api.renderGuildCreditRecommendations?.();
+    }
+    return guildCreditRecommendationCount;
+  }
   function normalizeTooltipProfitShortcut(value) {
     const code = String(value?.code ?? "").trim();
     if (!code) return { code: "Control", display: "Ctrl" };
@@ -42821,6 +42961,8 @@ ${locks}` : ""}`;
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
     .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
+    .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
+    .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
     @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
   `;
     styleHost.appendChild(style);
@@ -42879,6 +43021,7 @@ ${locks}` : ""}`;
     const descendants = getSettingDescendants(definition.id);
     const card = document.createElement("article");
     let cancelShortcutCapture = null;
+    let auxiliaryControl = null;
     card.className = "mwi-setting-card";
     if (options.child) card.classList.add("mwi-setting-child");
     card.dataset.search = [
@@ -42886,6 +43029,7 @@ ${locks}` : ""}`;
       definition.title?.en,
       definition.summary?.zh,
       definition.summary?.en,
+      ...definition.id === "guildCreditConversionsSort" ? ["推荐数量", "recommendation count"] : [],
       ...descendants.flatMap((child) => [
         child.title?.zh,
         child.title?.en,
@@ -42921,6 +43065,7 @@ ${locks}` : ""}`;
         );
         status.appendChild(retry);
       }
+      if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
     };
     setStatus();
     const titleLine = document.createElement("div");
@@ -42989,6 +43134,34 @@ ${locks}` : ""}`;
       });
       shortcutRow.append(shortcutLabel, shortcutButton);
       card.append(shortcutRow);
+    }
+    if (definition.id === "guildCreditConversionsSort") {
+      const countRow = document.createElement("div");
+      countRow.className = "mwi-setting-shortcut-row";
+      const countLabel = document.createElement("span");
+      countLabel.textContent = runtime.config.isZH ? "推荐数量" : "Recommendations";
+      const countSelect = document.createElement("select");
+      countSelect.className = "mwi-setting-select";
+      countSelect.setAttribute(
+        "aria-label",
+        runtime.config.isZH ? "公会信用推荐数量" : "Guild credit recommendations"
+      );
+      for (let count = 1; count <= 8; count += 1) {
+        const option = document.createElement("option");
+        option.value = String(count);
+        option.textContent = String(count);
+        countSelect.appendChild(option);
+      }
+      countSelect.value = String(getGuildCreditRecommendationCount());
+      countSelect.disabled = !checkbox.checked;
+      countSelect.addEventListener("change", () => {
+        countSelect.value = String(
+          setGuildCreditRecommendationCount(countSelect.value)
+        );
+      });
+      countRow.append(countLabel, countSelect);
+      card.append(countRow);
+      auxiliaryControl = countSelect;
     }
     for (const child of children) {
       card.append(createSettingCard(child, { child: true }));
@@ -43439,6 +43612,8 @@ ${locks}` : ""}`;
     getTooltipProfitShortcut,
     setTooltipProfitShortcut,
     matchesTooltipProfitShortcut,
+    getGuildCreditRecommendationCount,
+    setGuildCreditRecommendationCount,
     getEquipmentWarning,
     checkEquipment,
     hasItemHridInInv,

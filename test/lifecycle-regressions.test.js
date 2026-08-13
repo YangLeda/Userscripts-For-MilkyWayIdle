@@ -210,7 +210,7 @@ test("profit tooltips require the configured key in either hover order", async (
   );
   runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
 
-  const touchEvent = (type, x, y) => {
+  const touchEvent = (type, x, y, pointerId = 7) => {
     const event = new dom.window.MouseEvent(type, {
       bubbles: true,
       clientX: x,
@@ -218,7 +218,7 @@ test("profit tooltips require the configured key in either hover order", async (
     });
     Object.defineProperties(event, {
       pointerType: { value: "touch" },
-      pointerId: { value: 7 },
+      pointerId: { value: pointerId },
     });
     return event;
   };
@@ -242,6 +242,24 @@ test("profit tooltips require the configured key in either hover order", async (
     false,
   );
 
+  const secondCard = document.createElement("div");
+  secondCard.className = "SkillAction_skillAction__fixture";
+  secondCard.__reactFiber$keyTest = card.__reactFiber$keyTest;
+  document.body.append(secondCard);
+  calls.length = 0;
+  secondCard.dispatchEvent(touchEvent("pointerdown", 15, 15, 8));
+  runtime.api.clearTooltipProfitHoverContext(card, null, {
+    preserveTouchPress: true,
+  });
+  secondCard.dispatchEvent(
+    new dom.window.MouseEvent("mouseover", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  assert.equal(calls.find((call) => call.type === "show").anchor, secondCard);
+  assert.equal(calls.find((call) => call.type === "show").options.sticky, true);
+  secondCard.dispatchEvent(touchEvent("pointerup", 15, 15, 8));
+
   await runtime.features.disable("itemTooltip_profit");
   await runtime.features.disable("itemTooltip_prices");
   runtime.api.showProductionProfitPanel = originalShow;
@@ -252,8 +270,8 @@ test("enhancement costs share the tooltip key and touch long press", async () =>
   const originalShow = runtime.api.showEnhancementCostPanel;
   const originalHide = runtime.api.hideEnhancementCostPanel;
   const calls = [];
-  runtime.api.showEnhancementCostPanel = (anchor, plan) => {
-    calls.push({ type: "show", anchor, plan });
+  runtime.api.showEnhancementCostPanel = (anchor, plan, options) => {
+    calls.push({ type: "show", anchor, plan, options });
     return {};
   };
   runtime.api.hideEnhancementCostPanel = () => calls.push({ type: "hide" });
@@ -296,7 +314,25 @@ test("enhancement costs share the tooltip key and touch long press", async () =>
   anchor.dispatchEvent(touch);
   await new Promise((resolve) => setTimeout(resolve, 820));
   assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  assert.equal(calls.find((call) => call.type === "show").options.sticky, true);
+  const touchEnd = new dom.window.MouseEvent("pointerup", {
+    bubbles: true,
+    clientX: 10,
+    clientY: 10,
+  });
+  Object.defineProperties(touchEnd, {
+    pointerType: { value: "touch" },
+    pointerId: { value: 19 },
+  });
+  anchor.dispatchEvent(touchEnd);
+  assert.equal(
+    calls.some((call) => call.type === "hide"),
+    false,
+  );
 
+  await runtime.settings.set("enhanceSim", false, { persist: false });
+  assert.equal(calls.at(-1).type, "hide");
+  await runtime.settings.set("enhanceSim", true, { persist: false });
   clearEnhancementHoverPanelContext(anchor);
   await runtime.features.disable("itemTooltip_prices");
   runtime.api.showEnhancementCostPanel = originalShow;

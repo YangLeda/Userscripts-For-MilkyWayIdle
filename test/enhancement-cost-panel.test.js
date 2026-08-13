@@ -165,6 +165,33 @@ test("English labels are synchronized", () => {
   runtime.config.isZH = true;
 });
 
+test("sticky enhancement panels survive their tooltip and close only outside", async () => {
+  const tooltip = anchor();
+  const panel = showEnhancementCostPanel(tooltip, completePlan(), {
+    sticky: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(panel.parentElement, document.body);
+  assert.equal(panel.classList.contains("mwi-enhancement-sticky"), true);
+  tooltip.remove();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(document.querySelector("#mwitools-enhancement-cost-panel"));
+
+  panel.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.ok(document.querySelector("#mwitools-enhancement-cost-panel"));
+  document.body.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.equal(
+    document.querySelector("#mwitools-enhancement-cost-panel"),
+    null,
+  );
+  document.querySelector("#portal").append(tooltip);
+});
+
 test("panel is removed with its native tooltip", async () => {
   showEnhancementCostPanel(anchor(), completePlan());
   anchor().remove();

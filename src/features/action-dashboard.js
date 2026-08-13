@@ -173,6 +173,9 @@ function addStyles() {
     .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
+    .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
+    .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
+    .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
     .mwi-production-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:4px; }
@@ -197,7 +200,7 @@ function addStyles() {
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content}.mwi-action-line{gap:2px 8px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -373,6 +376,17 @@ function renderActionDashboard() {
   );
   root.style.left = `${left}px`;
   root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
+  const hostWidth = Math.max(
+    0,
+    Number(hostRect.width) || Number(hostRect.right) - Number(hostRect.left),
+  );
+  const viewportWidth =
+    Number(host.ownerDocument?.defaultView?.innerWidth) || 0;
+  const availableWidth = Math.max(0, hostWidth - left);
+  root.dataset.compact = String(
+    (availableWidth > 0 && availableWidth < 420) ||
+      (availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520),
+  );
   root.replaceChildren();
   root.removeAttribute("title");
 
