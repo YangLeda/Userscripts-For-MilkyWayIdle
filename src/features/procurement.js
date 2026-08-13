@@ -965,6 +965,52 @@ function calculateEnhancingRequirements(context) {
   };
 }
 
+function appendSunnyEnhancingCompatibility(root) {
+  root.classList.add("mwi-mm-summary-panel");
+  const input = document.createElement("input");
+  input.className = "mwi-mm-manual-input";
+  input.type = "number";
+  input.inputMode = "numeric";
+  input.hidden = true;
+  input.setAttribute("aria-hidden", "true");
+  const add = document.createElement("button");
+  add.type = "button";
+  add.dataset.act = "add";
+  add.hidden = true;
+  add.setAttribute("aria-hidden", "true");
+  add.addEventListener("click", () => {
+    if (!root.isConnected || document.getElementById(PRODUCTION_ID) !== root) {
+      return;
+    }
+    const count = parseCompactNumber(input.value);
+    const context = resolveActionPanel();
+    if (
+      !Number.isFinite(count) ||
+      count <= 0 ||
+      context?.actionFunction !== "/action_functions/enhancing"
+    ) {
+      return;
+    }
+    const requirements = calculateEnhancingRequirements({
+      ...context,
+      count: Math.ceil(count),
+    });
+    const result = procurement.addRequirementsToCart(
+      requirements?.materials ?? [],
+      "enhancing",
+    );
+    showToast(
+      result.added
+        ? t(
+            `已加入 ${result.added} 种材料`,
+            `Added ${result.added} ${materialNoun(result.added)}`,
+          )
+        : t("没有新的缺料", "No new shortages"),
+    );
+  });
+  root.append(input, add);
+}
+
 function findMaterialHost(panel, itemHrid) {
   const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
   for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
@@ -1117,6 +1163,7 @@ function renderProductionProcurement() {
   });
   summary.append(add);
   root.append(summary);
+  if (isEnhancing) appendSunnyEnhancingCompatibility(root);
   if (chain?.stages?.length > 1) {
     const details = document.createElement("details");
     details.className = "mwi-procurement-chain";

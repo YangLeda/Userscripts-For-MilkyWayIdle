@@ -11,6 +11,7 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "修复移动浏览器工具栏变化后页面底部偶尔出现白条并整体上移；Sunny 强化倍数按钮现在可再次把对应期望次数的净缺料加入购物车。",
         "资产中心图例在实时资产刷新后继续保持隐藏或显示状态。",
         "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
         "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
@@ -24,6 +25,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。",
       ]),
       en: Object.freeze([
+        "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
         "Asset Center legend visibility now persists through live asset refreshes.",
         "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
         "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",

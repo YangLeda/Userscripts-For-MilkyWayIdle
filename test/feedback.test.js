@@ -395,6 +395,8 @@ test("the announcement history covers every player-facing update bilingually", (
     /精炼生活披风等背部装备提示没有新缺料/,
     /改善英文界面卡顿/,
     /九种官方语言下库存评分与总资产/,
+    /移动浏览器工具栏变化后页面底部偶尔出现白条/,
+    /Sunny 强化倍数按钮/,
   ]) {
     assert.match(allZh, pattern);
   }
@@ -413,6 +415,8 @@ test("the announcement history covers every player-facing update bilingually", (
     /refined skilling capes and other back equipment/,
     /improve English task-page performance/,
     /all nine official game languages/,
+    /mobile browser toolbar changes/,
+    /Sunny's enhancement multiplier buttons/,
   ]) {
     assert.match(allEn, pattern);
   }

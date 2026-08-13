@@ -243,6 +243,7 @@ test("production procurement augments the existing summary instead of creating a
   runtime.api.renderProductionProcurement();
   const existingSummary = document.querySelector("#mwi-production-summary");
   assert.ok(existingSummary.querySelector("#mwitools-procurement-production"));
+  assert.equal(existingSummary.querySelector(".mwi-mm-summary-panel"), null);
   assert.equal(document.querySelectorAll("#mwi-production-summary").length, 1);
   const badge = document.querySelector(".mwi-procurement-badge");
   const material = document.querySelector('[class*="Item_itemContainer"]');
@@ -431,6 +432,50 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
     /已在清单中/,
   );
   runtime.config.isZH = false;
+
+  summary = panel.querySelector("#mwitools-procurement-production");
+  assert.equal(summary.classList.contains("mwi-mm-summary-panel"), true);
+  const sunnyInput = summary.querySelector(".mwi-mm-manual-input");
+  const sunnyAdd = summary.querySelector('[data-act="add"]');
+  assert.ok(sunnyInput?.hidden);
+  assert.ok(sunnyAdd?.hidden);
+  const inputSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  inputSetter.call(sunnyInput, "5");
+  sunnyInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  sunnyInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+  sunnyAdd.click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    11,
+    "Sunny's expected count uses the compatibility input and live net shortage",
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/astral_enhancer").quantity,
+    5,
+  );
+  assert.equal(runtime.api.procurement.getCartItem("/items/coin"), null);
+  const repeatedSummary = panel.querySelector(
+    "#mwitools-procurement-production",
+  );
+  const repeatedInput = repeatedSummary.querySelector(".mwi-mm-manual-input");
+  inputSetter.call(repeatedInput, "5");
+  repeatedInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  repeatedInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+  repeatedSummary.querySelector('[data-act="add"]').click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    11,
+    "repeating the same expected count must not duplicate cart quantities",
+  );
+
+  await runtime.settings.set("procurementAssistant", false);
+  assert.equal(document.querySelector(".mwi-mm-summary-panel"), null);
+  await runtime.settings.set("procurementAssistant", true);
+  runtime.api.renderProductionProcurement();
+  assert.ok(panel.querySelector(".mwi-mm-summary-panel .mwi-mm-manual-input"));
 
   panel.querySelector('[class*="SkillActionDetail_inputCount"]').remove();
   runtime.api.renderProductionProcurement();

@@ -23869,6 +23869,101 @@
     }
   });
 
+  // src/features/mobile-viewport-fix.js
+  var STYLE_ID = "mwitools-mobile-viewport-style";
+  var ACTIVE_ATTRIBUTE = "data-mwitools-mobile-viewport";
+  var HEIGHT_PROPERTY = "--mwitools-visual-viewport-height";
+  function resolveVisualViewportHeight(windowRef = globalThis.window ?? globalThis, documentRef = globalThis.document) {
+    const candidates = [
+      windowRef?.visualViewport?.height,
+      windowRef?.innerHeight,
+      documentRef?.documentElement?.clientHeight
+    ];
+    for (const candidate of candidates) {
+      const height = Number(candidate);
+      if (Number.isFinite(height) && height > 0) return height;
+    }
+    return 0;
+  }
+  function syncMobileViewportHeight(windowRef = globalThis.window ?? globalThis, documentRef = globalThis.document) {
+    const root = documentRef?.documentElement;
+    const height = resolveVisualViewportHeight(windowRef, documentRef);
+    if (!root || !height) return false;
+    root.setAttribute(ACTIVE_ATTRIBUTE, "true");
+    root.style.setProperty(
+      HEIGHT_PROPERTY,
+      `${Math.round(height * 100) / 100}px`
+    );
+    return true;
+  }
+  function addStyles(documentRef = document) {
+    if (documentRef.getElementById(STYLE_ID)) return;
+    const style = documentRef.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    @media (max-width:760px), (any-pointer:coarse) {
+      html[${ACTIVE_ATTRIBUTE}="true"],
+      html[${ACTIVE_ATTRIBUTE}="true"] body,
+      html[${ACTIVE_ATTRIBUTE}="true"] #root {
+        height:var(${HEIGHT_PROPERTY},100dvh)!important;
+      }
+      html[${ACTIVE_ATTRIBUTE}="true"] body {
+        background-color:var(--color-background-game,#131419)!important;
+      }
+    }
+  `;
+    (documentRef.head ?? documentRef.documentElement).append(style);
+  }
+  function createViewportScheduler(windowRef, documentRef) {
+    let frame = null;
+    const run = () => {
+      frame = null;
+      syncMobileViewportHeight(windowRef, documentRef);
+    };
+    const schedule = () => {
+      if (frame !== null) return;
+      if (typeof windowRef.requestAnimationFrame === "function") {
+        frame = windowRef.requestAnimationFrame(run);
+      } else {
+        frame = windowRef.setTimeout(run, 0);
+      }
+    };
+    const cancel = () => {
+      if (frame === null) return;
+      if (typeof windowRef.cancelAnimationFrame === "function") {
+        windowRef.cancelAnimationFrame(frame);
+      } else {
+        windowRef.clearTimeout(frame);
+      }
+      frame = null;
+    };
+    return { schedule, cancel };
+  }
+  runtime.features.register({
+    id: "mobileViewportFix",
+    scope: "global",
+    initialize({ scope }) {
+      addStyles();
+      const scheduler = createViewportScheduler(window, document);
+      const schedule = scheduler.schedule;
+      syncMobileViewportHeight(window, document);
+      scope.event(window, "resize", schedule, { passive: true });
+      scope.event(window, "orientationchange", schedule, { passive: true });
+      scope.event(window, "pageshow", schedule, { passive: true });
+      scope.event(window.visualViewport, "resize", schedule, { passive: true });
+      scope.event(document, "visibilitychange", () => {
+        if (document.visibilityState === "visible") schedule();
+      });
+      scope.add(() => {
+        scheduler.cancel();
+        const root = document.documentElement;
+        root.removeAttribute(ACTIVE_ATTRIBUTE);
+        root.style.removeProperty(HEIGHT_PROPERTY);
+        document.getElementById(STYLE_ID)?.remove();
+      });
+    }
+  });
+
   // src/features/asset-history/00-snapshot.js
   var ASSET_COMPONENT_KEYS = [
     "equipment",
@@ -25597,7 +25692,7 @@
    * SOFTWARE.
    */
   var ROOT_ID = "mwitools-asset-center-modal";
-  var STYLE_ID = "mwitools-asset-center-style";
+  var STYLE_ID2 = "mwitools-asset-center-style";
   var EP_MIT_LICENSE = `MIT License
 
 Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
@@ -25649,10 +25744,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     date.setUTCDate(date.getUTCDate() + amount);
     return date.toISOString().slice(0, 10);
   }
-  function addStyles() {
-    if (document.getElementById(STYLE_ID)) return;
+  function addStyles2() {
+    if (document.getElementById(STYLE_ID2)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID;
+    style.id = STYLE_ID2;
     style.textContent = `
     #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
     #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.55)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
@@ -25692,7 +25787,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       this.hiddenChartDatasets = /* @__PURE__ */ new Set();
       this.previousFocus = null;
       this.snapshot = null;
-      addStyles();
+      addStyles2();
       this.build();
     }
     isZH() {
@@ -26323,7 +26418,7 @@ ${values.map((item) => item.date).join("\n")}`
   // src/features/asset-history/30-panel.js
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
-  var STYLE_ID2 = "mwitools-asset-history-style";
+  var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
@@ -26478,10 +26573,10 @@ ${values.map((item) => item.date).join("\n")}`
     input.setSelectionRange?.(message.length, message.length);
     return input;
   }
-  function addStyles2() {
-    if (document.getElementById(STYLE_ID2)) return;
+  function addStyles3() {
+    if (document.getElementById(STYLE_ID3)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID2;
+    style.id = STYLE_ID3;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
     [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,rgba(255,255,255,.08))!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,var(--color-text-secondary,#aeb5c0))!important; filter:none!important; }
@@ -27139,7 +27234,7 @@ ${preview}`
       }
       if (mountMode !== null) teardownMount();
     };
-    addStyles2();
+    addStyles3();
     ensureMounted();
     scope.interval(ensureMounted, 500);
     const handleTabBranchClick = (event) => {
@@ -27162,7 +27257,7 @@ ${preview}`
       },
       destroy() {
         teardownMount();
-        document.getElementById(STYLE_ID2)?.remove();
+        document.getElementById(STYLE_ID3)?.remove();
       }
     };
   }
@@ -27404,7 +27499,7 @@ ${preview}`
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
-  var STYLE_ID3 = "mwi-leaderboard-overlay-style";
+  var STYLE_ID4 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
@@ -27479,7 +27574,7 @@ ${preview}`
     return rateDifference || leftRank - rightRank;
   }
   function ensureStyles(documentRef) {
-    if (documentRef.getElementById(STYLE_ID3)) return;
+    if (documentRef.getElementById(STYLE_ID4)) return;
     const mount = documentRef.head || documentRef.documentElement;
     if (!mount) {
       documentRef.addEventListener(
@@ -27490,7 +27585,7 @@ ${preview}`
       return;
     }
     const style = documentRef.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
@@ -27768,7 +27863,7 @@ ${preview}`
         removeBadges();
         removeRateColumn();
         activeInstances = Math.max(0, activeInstances - 1);
-        if (activeInstances === 0) documentRef.getElementById(STYLE_ID3)?.remove();
+        if (activeInstances === 0) documentRef.getElementById(STYLE_ID4)?.remove();
       }
     };
   }
@@ -28080,7 +28175,7 @@ ${preview}`
   });
 
   // src/features/battle-buffs.js
-  var STYLE_ID4 = "mwi-buff-style";
+  var STYLE_ID5 = "mwi-buff-style";
   var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
   var BUFFS = /* @__PURE__ */ new Map([
     ["/abilities/mana_spring", 10],
@@ -28133,9 +28228,9 @@ ${preview}`
     return parts[parts.length - 1] || hrid;
   }
   function ensureBuffStyles(scope) {
-    if (document.getElementById(STYLE_ID4)) return;
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 .mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
@@ -30332,7 +30427,7 @@ ${preview}`
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID5 = "mwitools-production-profit-panel-style";
+  var STYLE_ID6 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
@@ -30402,10 +30497,10 @@ ${preview}`
     const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
-  function addStyles3() {
-    if (document.getElementById(STYLE_ID5)) return;
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
     #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID2} * { box-sizing:border-box; }
@@ -30996,7 +31091,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles3();
+    addStyles4();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
@@ -31024,7 +31119,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles3();
+    addStyles4();
     const panel = createPanelElement();
     panel.classList.toggle("mwi-profit-pinned", sticky);
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
@@ -32372,7 +32467,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID6 = "mwitools-action-dashboard-style";
+  var STYLE_ID7 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   function t6(zh, en) {
@@ -32503,10 +32598,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     item.append(count);
     return item;
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
@@ -32633,7 +32728,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function renderActionDashboard() {
-    addStyles4();
+    addStyles5();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = [...runtime.state.currentActionsHridList ?? []].sort(
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
@@ -32830,7 +32925,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return row;
   }
   function renderProductionQuickInputs() {
-    addStyles4();
+    addStyles5();
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const actionHrid = resolvePanelAction(panel);
@@ -32974,7 +33069,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return box;
   }
   function renderProductionPanel() {
-    addStyles4();
+    addStyles5();
     if (!runtime.settings.get("productionSummary")) {
       document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
       document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
@@ -33097,7 +33192,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles4();
+      addStyles5();
       renderActionDashboard();
       scope.interval(renderActionDashboard, 500);
       scope.add(() => {
@@ -33163,7 +33258,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/procurement.js
-  var STYLE_ID7 = "mwitools-procurement-style";
+  var STYLE_ID8 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -33205,10 +33300,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function escapeHtml4(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -34036,6 +34131,45 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       materials
     };
   }
+  function appendSunnyEnhancingCompatibility(root) {
+    root.classList.add("mwi-mm-summary-panel");
+    const input = document.createElement("input");
+    input.className = "mwi-mm-manual-input";
+    input.type = "number";
+    input.inputMode = "numeric";
+    input.hidden = true;
+    input.setAttribute("aria-hidden", "true");
+    const add = document.createElement("button");
+    add.type = "button";
+    add.dataset.act = "add";
+    add.hidden = true;
+    add.setAttribute("aria-hidden", "true");
+    add.addEventListener("click", () => {
+      if (!root.isConnected || document.getElementById(PRODUCTION_ID) !== root) {
+        return;
+      }
+      const count = parseCompactNumber(input.value);
+      const context = resolveActionPanel();
+      if (!Number.isFinite(count) || count <= 0 || context?.actionFunction !== "/action_functions/enhancing") {
+        return;
+      }
+      const requirements = calculateEnhancingRequirements({
+        ...context,
+        count: Math.ceil(count)
+      });
+      const result = procurement.addRequirementsToCart(
+        requirements?.materials ?? [],
+        "enhancing"
+      );
+      showToast(
+        result.added ? t7(
+          `已加入 ${result.added} 种材料`,
+          `Added ${result.added} ${materialNoun(result.added)}`
+        ) : t7("没有新的缺料", "No new shortages")
+      );
+    });
+    root.append(input, add);
+  }
   function findMaterialHost(panel, itemHrid) {
     const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
     for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
@@ -34156,6 +34290,7 @@ ${locks}` : ""}`;
     });
     summary.append(add);
     root.append(summary);
+    if (isEnhancing) appendSunnyEnhancingCompatibility(root);
     if (chain?.stages?.length > 1) {
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
@@ -34778,7 +34913,7 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope, characterId }) {
       runtime.api.openProcurementMarketplace = openMarketplace;
-      addStyles5();
+      addStyles6();
       if (procurement.activeCharacterId !== characterId) {
         procurement.loadCharacterData(characterId);
       }
@@ -34799,7 +34934,7 @@ ${locks}` : ""}`;
         stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID7)?.remove();
+        document.getElementById(STYLE_ID8)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -34845,7 +34980,7 @@ ${locks}` : ""}`;
   }
 
   // src/features/semi-auto-train.js
-  var STYLE_ID8 = "mwitools-semi-auto-train-style";
+  var STYLE_ID9 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
   var DETAIL_CLASS = "mwi-train-detail-modal";
   var ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
@@ -34894,10 +35029,10 @@ ${locks}` : ""}`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2600);
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
@@ -35732,7 +35867,7 @@ ${locks}` : ""}`;
     document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((node) => node.classList.remove(WIDE_WINDOW_CLASS));
     clearTrainShopHighlight();
-    document.getElementById(STYLE_ID8)?.remove();
+    document.getElementById(STYLE_ID9)?.remove();
     closeDetail();
   }
   runtime.features.register({
@@ -35741,7 +35876,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["procurementAssistant"],
     initialize({ scope }) {
-      addStyles6();
+      addStyles7();
       scanScheduler?.cancel();
       const scheduler = createFrameScheduler(scan);
       scanScheduler = scheduler;
@@ -35953,7 +36088,7 @@ ${locks}` : ""}`;
   }
 
   // src/features/tasks.js
-  var STYLE_ID9 = "mwitools-task-style";
+  var STYLE_ID10 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   var originalCards = [];
@@ -36214,10 +36349,10 @@ ${locks}` : ""}`;
     const symbol = String(hrid ?? "").split("/").at(-1);
     return base && symbol ? `${base}#${symbol}` : "";
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
@@ -37388,7 +37523,7 @@ ${locks}` : ""}`;
       delete node.dataset.mwitoolsMergeWired;
       delete node.dataset.mwitoolsResetWired;
     });
-    document.getElementById(STYLE_ID9)?.remove();
+    document.getElementById(STYLE_ID10)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
@@ -37410,7 +37545,7 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles7();
+      addStyles8();
       renderTasks();
       let active = true;
       const renderScheduler = createFrameScheduler(renderTasks);
@@ -37461,7 +37596,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles7,
+    addTaskStyles: addStyles8,
     armTemporaryTaskReturn,
     cancelTemporaryTaskReturn,
     resumeTemporaryTaskReturn,
@@ -37474,7 +37609,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-train-planner.js
-  var STYLE_ID10 = "mwitools-task-train-planner-style";
+  var STYLE_ID11 = "mwitools-task-train-planner-style";
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var ACTION_SELECTOR = '[class*="RandomTask_action"]';
@@ -37482,10 +37617,10 @@ ${locks}` : ""}`;
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     .${CONTROL_CLASS2}{flex:0 0 auto;margin-right:4px;white-space:nowrap}
     button.${CONTROL_CLASS2}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
@@ -37650,7 +37785,7 @@ ${locks}` : ""}`;
   }
   function cleanup3() {
     document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
-    document.getElementById(STYLE_ID10)?.remove();
+    document.getElementById(STYLE_ID11)?.remove();
   }
   function shouldRenderTaskTrainMutations(records) {
     return records.some((record) => {
@@ -37677,7 +37812,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
-      addStyles8();
+      addStyles9();
       renderTaskTrainPlanner();
       const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
       const schedule = () => renderScheduler.schedule();
@@ -37702,7 +37837,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID11 = "mwitools-task-new-style";
+  var STYLE_ID12 = "mwitools-task-new-style";
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR3 = '.mwi-task-new-badge,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
@@ -37776,10 +37911,10 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     ${TASK_SELECTOR3}.mwi-task-is-new{position:relative}
     .mwi-task-new-badge{position:absolute;z-index:5;right:5px;top:5px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto!important;min-width:18px!important;max-width:max-content!important;height:18px!important;min-height:18px!important;margin:0!important;padding:0 4px!important;flex:0 0 auto!important;border:1px solid rgba(255,220,128,.72);border-radius:4px;background:#f0aa2e;color:#221704;font-size:9px;font-weight:800;line-height:16px;letter-spacing:0;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.32);pointer-events:none}
@@ -37792,7 +37927,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID11)?.remove();
+    document.getElementById(STYLE_ID12)?.remove();
   }
   function shouldRenderTaskNewMutations(records) {
     return records.some((record) => {
@@ -37819,7 +37954,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles9();
+      addStyles10();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       liveTaskNewStates.set(storageKey, state);
@@ -38139,7 +38274,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID12 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID13 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
   function t11(zh, en) {
@@ -38274,10 +38409,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -38427,7 +38562,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles10();
+      addStyles11();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid) => {
@@ -38480,7 +38615,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID12)?.remove();
+        document.getElementById(STYLE_ID13)?.remove();
       });
       refresh();
     }
@@ -38544,6 +38679,7 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "修复移动浏览器工具栏变化后页面底部偶尔出现白条并整体上移；Sunny 强化倍数按钮现在可再次把对应期望次数的净缺料加入购物车。",
           "资产中心图例在实时资产刷新后继续保持隐藏或显示状态。",
           "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
           "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
@@ -38557,6 +38693,7 @@ ${locks}` : ""}`;
           "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。"
         ]),
         en: Object.freeze([
+          "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
           "Asset Center legend visibility now persists through live asset refreshes.",
           "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
           "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
@@ -38990,7 +39127,7 @@ ${locks}` : ""}`;
   // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID13 = "mwitools-feedback-style";
+  var STYLE_ID14 = "mwitools-feedback-style";
   function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -39002,10 +39139,10 @@ ${locks}` : ""}`;
     };
     return labels[status] ? t13(...labels[status]) : status;
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID14;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
@@ -39052,7 +39189,7 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles11();
+      addStyles12();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
@@ -39581,10 +39718,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID13)?.remove();
+      document.getElementById(STYLE_ID14)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID13 };
+  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID14 };
   var FeedbackPanel = OpinionCenterPanel;
 
   // src/features/opinion-center/index.js
@@ -39638,7 +39775,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID14 = "mwitools-guild-xp-style";
+  var STYLE_ID15 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
@@ -39775,10 +39912,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles12() {
-    if (document.getElementById(STYLE_ID14)) return;
+  function addStyles13() {
+    if (document.getElementById(STYLE_ID15)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID14;
+    style.id = STYLE_ID15;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -40298,7 +40435,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles12();
+      addStyles13();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -40313,7 +40450,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles12();
+        addStyles13();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -41806,17 +41943,17 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID15 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID16 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
   function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles13() {
-    if (document.getElementById(STYLE_ID15)) return;
+  function addStyles14() {
+    if (document.getElementById(STYLE_ID16)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID15;
+    style.id = STYLE_ID16;
     style.textContent = `
     #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
     #${PANEL_ID3} * { box-sizing:border-box; }
@@ -41990,7 +42127,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles13();
+    addStyles14();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -42961,7 +43098,7 @@ ${locks}` : ""}`;
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
   var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
-  var STYLE_ID16 = "mwitools-important-update-style";
+  var STYLE_ID17 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t17(value) {
     if (typeof value === "string") return value;
@@ -43086,10 +43223,10 @@ ${locks}` : ""}`;
   function updateDownloadUrl() {
     return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
   }
-  function addStyles14() {
-    if (document.getElementById(STYLE_ID16)) return;
+  function addStyles15() {
+    if (document.getElementById(STYLE_ID17)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID16;
+    style.id = STYLE_ID17;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -43107,7 +43244,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles14();
+    addStyles15();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -43149,7 +43286,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID16)?.remove();
+        document.getElementById(STYLE_ID17)?.remove();
       });
     }
   });
