@@ -19271,8 +19271,8 @@
   }
   function formatExactNumber(value, fractionDigits = 20) {
     if (value === null || value === void 0 || value === "") return "—";
-    const number2 = Number(value);
-    if (!Number.isFinite(number2)) return "—";
+    const number3 = Number(value);
+    if (!Number.isFinite(number3)) return "—";
     const maximumFractionDigits = Math.min(
       20,
       Math.max(0, Math.floor(Number(fractionDigits) || 0))
@@ -19280,19 +19280,19 @@
     return new Intl.NumberFormat(getNumberLocale(), {
       maximumFractionDigits,
       useGrouping: true
-    }).format(number2);
+    }).format(number3);
   }
   function numberFormatter(value, digits = 2) {
     if (value === null || value === void 0 || value === "") return "—";
-    const number2 = Number(value);
-    if (!Number.isFinite(number2)) return "—";
-    const absolute = Math.abs(number2);
+    const number3 = Number(value);
+    if (!Number.isFinite(number3)) return "—";
+    const absolute = Math.abs(number3);
     const maximumFractionDigits = Math.min(2, Math.max(0, Number(digits) || 0));
     if (absolute < 1e3) {
       return new Intl.NumberFormat(getNumberLocale(), {
         maximumFractionDigits,
         useGrouping: true
-      }).format(number2);
+      }).format(number3);
     }
     const units = [
       { value: 1e3, symbol: "K" },
@@ -19302,12 +19302,12 @@
     ];
     const capAtMillions = absolute >= 1e6 && runtime.settings.get?.("displayCapMM");
     let unit = capAtMillions ? units[1] : [...units].reverse().find(({ value: size }) => absolute >= size);
-    let scaled = number2 / unit.value;
+    let scaled = number3 / unit.value;
     let rounded = Number(scaled.toFixed(maximumFractionDigits));
     const index = units.indexOf(unit);
     if (!capAtMillions && Math.abs(rounded) >= 1e3 && index < units.length - 1) {
       unit = units[index + 1];
-      scaled = number2 / unit.value;
+      scaled = number3 / unit.value;
       rounded = Number(scaled.toFixed(maximumFractionDigits));
     }
     return `${rounded.toLocaleString(getNumberLocale(), {
@@ -20270,8 +20270,8 @@
     );
     if (!matches.length) return null;
     const slug = target.split("/").at(-1);
-    const exact = matches.find(([actionHrid]) => actionHrid.endsWith(`/${slug}`));
-    if (exact) return exact[0];
+    const exact2 = matches.find(([actionHrid]) => actionHrid.endsWith(`/${slug}`));
+    if (exact2) return exact2[0];
     matches.sort(
       ([leftHrid, left], [rightHrid, right]) => (Number(left?.sortIndex) || 0) - (Number(right?.sortIndex) || 0) || leftHrid.localeCompare(rightHrid)
     );
@@ -20602,7 +20602,7 @@
   });
 
   // src/core/procurement.js
-  var DATA_VERSION = 1;
+  var DATA_VERSION = 2;
   var SETTINGS_KEY = "MWITools_procurement_settings_v1";
   var DATA_PREFIX = "MWITools_procurement_v1";
   var MANUAL_OVERRIDE_MS = 5 * 60 * 1e3;
@@ -20640,6 +20640,7 @@
   var plans = /* @__PURE__ */ new Map();
   var inventoryEntries = /* @__PURE__ */ new Map();
   var purchaseSuppressions = /* @__PURE__ */ new Map();
+  var planningData = { goals: [], policies: {} };
   var activeCharacterId2 = "";
   var activeStorageKey = "";
   var ready = false;
@@ -20695,6 +20696,69 @@
       itemHrid: index >= 0 ? key.slice(0, index) : normalizeItemHrid(key),
       enhancementLevel: index >= 0 ? normalizeEnhancementLevel(key.slice(index + 1)) : 0
     };
+  }
+  function emptyAllocations() {
+    return { manual: 0, planning: 0, projects: {} };
+  }
+  function normalizeAllocations(value, fallbackQuantity = 0) {
+    const projects = Object.fromEntries(
+      Object.entries(value?.projects ?? {}).map(([id, quantity]) => [
+        id,
+        Math.max(0, Math.ceil(Number(quantity) || 0))
+      ]).filter(([, quantity]) => quantity > 0)
+    );
+    const normalized = {
+      manual: Math.max(0, Math.ceil(Number(value?.manual) || 0)),
+      planning: Math.max(0, Math.ceil(Number(value?.planning) || 0)),
+      projects
+    };
+    const allocated = allocationTotal(normalized);
+    const fallback = Math.max(0, Math.ceil(Number(fallbackQuantity) || 0));
+    if (allocated < fallback) normalized.manual += fallback - allocated;
+    return normalized;
+  }
+  function allocationTotal(allocations) {
+    return Math.max(0, Number(allocations?.manual) || 0) + Math.max(0, Number(allocations?.planning) || 0) + Object.values(allocations?.projects ?? {}).reduce(
+      (sum, quantity) => sum + Math.max(0, Number(quantity) || 0),
+      0
+    );
+  }
+  function allocationOwner(value = {}) {
+    if (value?.allocation?.kind === "planning" || value?.source === "planning") {
+      return { kind: "planning", id: "planning" };
+    }
+    const projectId = value?.allocation?.projectId ?? value?.projectId;
+    if (value?.allocation?.kind === "project" && projectId) {
+      return { kind: "project", id: String(projectId) };
+    }
+    return { kind: "manual", id: "manual" };
+  }
+  function getAllocationQuantity(row, owner) {
+    const allocations = row?.allocations ?? emptyAllocations();
+    if (owner?.kind === "planning") return allocations.planning ?? 0;
+    if (owner?.kind === "project") {
+      return allocations.projects?.[owner.id] ?? 0;
+    }
+    return allocations.manual ?? 0;
+  }
+  function changeAllocation(row, owner, delta) {
+    row.allocations = normalizeAllocations(row.allocations);
+    if (owner.kind === "planning") {
+      row.allocations.planning = Math.max(
+        0,
+        (row.allocations.planning ?? 0) + delta
+      );
+    } else if (owner.kind === "project") {
+      const next = Math.max(
+        0,
+        (row.allocations.projects?.[owner.id] ?? 0) + delta
+      );
+      if (next) row.allocations.projects[owner.id] = next;
+      else delete row.allocations.projects[owner.id];
+    } else {
+      row.allocations.manual = Math.max(0, (row.allocations.manual ?? 0) + delta);
+    }
+    row.quantity = allocationTotal(row.allocations);
   }
   function getEnvironment() {
     return runtime.api.getMarketEnvironment?.() ?? "production";
@@ -20753,7 +20817,8 @@
     return {
       version: DATA_VERSION,
       cart: [...cart.values()],
-      plans: [...plans.values()]
+      plans: [...plans.values()],
+      planning: planningData
     };
   }
   function persistData() {
@@ -20765,11 +20830,14 @@
     activeStorageKey = activeCharacterId2 ? getCharacterStorageKey(activeCharacterId2) : "";
     cart.clear();
     plans.clear();
+    planningData = { goals: [], policies: {} };
+    let storedVersion = 0;
     if (activeStorageKey) {
       try {
         const stored = JSON.parse(
           localStorage.getItem(activeStorageKey) || "null"
         );
+        storedVersion = Math.max(0, Number(stored?.version) || 0);
         for (const row of stored?.cart ?? []) {
           const key = itemKey(row.itemHrid ?? row.itemId, row.enhancementLevel);
           if (!key) continue;
@@ -20777,12 +20845,17 @@
             ...row,
             itemHrid: parseItemKey(key).itemHrid,
             enhancementLevel: parseItemKey(key).enhancementLevel,
-            quantity: Math.max(0, Math.ceil(Number(row.quantity) || 0))
+            quantity: Math.max(0, Math.ceil(Number(row.quantity) || 0)),
+            allocations: normalizeAllocations(row.allocations, row.quantity)
           });
         }
         for (const plan of stored?.plans ?? []) {
           if (plan?.id) plans.set(plan.id, plan);
         }
+        planningData = {
+          goals: Array.isArray(stored?.planning?.goals) ? stored.planning.goals : [],
+          policies: stored?.planning?.policies && typeof stored.planning.policies === "object" ? stored.planning.policies : {}
+        };
       } catch (error) {
         console.warn(
           runtime.config.isZH ? "[MWITools] 无法加载采购数据" : "[MWITools] Could not load procurement data",
@@ -20791,12 +20864,59 @@
       }
     }
     rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
+    if (storedVersion < 2) {
+      migrateLegacyCartAllocations();
+      persistData();
+    }
     refreshPlanProgress();
     ready = Boolean(activeCharacterId2);
     emit("character:change", { characterId: activeCharacterId2 });
     emit("cart:change", { reason: "load", added: 0, items: getCartItems() });
     emit("plan:change", { plans: getPlans() });
+    emit("planning:change", { planning: getPlanningData() });
     if (ready) emit("ready", { characterId: activeCharacterId2 });
+  }
+  function migrateLegacyCartAllocations() {
+    const availableInventory = inventoryCounts();
+    const orderedPlans = [...plans.values()].filter((plan) => plan.status !== "completed").sort(
+      (left, right) => String(left.createdAt ?? "").localeCompare(
+        String(right.createdAt ?? "")
+      ) || String(left.id).localeCompare(String(right.id))
+    );
+    for (const plan of orderedPlans) {
+      for (const [key, rawQuantity] of Object.entries(plan.materials ?? {})) {
+        const demand = Math.max(0, Math.ceil(Number(rawQuantity) || 0));
+        const inventory = Math.min(
+          demand,
+          Math.max(0, availableInventory.get(key) ?? 0)
+        );
+        availableInventory.set(
+          key,
+          Math.max(0, (availableInventory.get(key) ?? 0) - inventory)
+        );
+        const row = cart.get(key);
+        if (!row) continue;
+        const claim = Math.min(
+          Math.max(0, demand - inventory),
+          Math.max(0, row.allocations?.manual ?? 0)
+        );
+        if (!claim) continue;
+        changeAllocation(row, { kind: "manual" }, -claim);
+        changeAllocation(row, { kind: "project", id: String(plan.id) }, claim);
+      }
+    }
+  }
+  function getPlanningData() {
+    return clone(planningData);
+  }
+  function setPlanningData(next, reason = "update") {
+    planningData = {
+      goals: Array.isArray(next?.goals) ? clone(next.goals) : [],
+      policies: next?.policies && typeof next.policies === "object" ? clone(next.policies) : {}
+    };
+    persistData();
+    emit("planning:change", { reason, planning: getPlanningData() });
+    return getPlanningData();
   }
   function resolveItemName(rawItemHrid) {
     const itemHrid = normalizeItemHrid(rawItemHrid);
@@ -20861,6 +20981,10 @@
       0,
       owned - getLockedDetails(itemHrid, enhancementLevel, excludePlanId).total
     );
+  }
+  function getProjectReservedInventory(itemHrid, enhancementLevel = 0) {
+    const owned = getInventoryCount2(itemHrid, enhancementLevel);
+    return Math.min(owned, getLockedDetails(itemHrid, enhancementLevel).total);
   }
   function isCoin(itemHrid) {
     return normalizeItemHrid(itemHrid) === "/items/coin";
@@ -20982,7 +21106,11 @@
       options.excludeActionHrids
     );
     const effectiveOwned = Math.max(0, owned - locked.total);
-    const cartQuantity = cart.get(itemKey(itemHrid, enhancementLevel))?.quantity ?? 0;
+    const cartRow = cart.get(itemKey(itemHrid, enhancementLevel));
+    const cartQuantity = getAllocationQuantity(
+      cartRow,
+      options.cartOwner ?? { kind: "manual" }
+    );
     return {
       itemHrid,
       enhancementLevel,
@@ -21009,8 +21137,7 @@
     }
     const inputs = runtime.api.getDirectInputs?.(detail) ?? [];
     const calculationOptions = {
-      ...options,
-      excludeActionHrids: options.excludeActionHrids ?? /* @__PURE__ */ new Set([actionHrid])
+      ...options
     };
     const excludedUpgradeHrid = isRefinedBackUpgrade(detail) ? normalizeItemHrid(detail.upgradeItemHrid) : "";
     const materials = inputs.map(
@@ -21104,8 +21231,7 @@
     let truncated = false;
     const unavailableOutputs = /* @__PURE__ */ new Set();
     const calculationOptions = {
-      ...options,
-      excludeActionHrids: options.excludeActionHrids ?? /* @__PURE__ */ new Set([actionHrid])
+      ...options
     };
     const visit = (currentHrid, currentCount, depth) => {
       if (depth >= MAX_CHAIN_DEPTH) {
@@ -21212,11 +21338,102 @@
     persistData();
     emit("cart:change", { reason, added, items: getCartItems() });
   }
+  function resizeCartAllocations(row, quantity) {
+    const target = Math.max(0, Math.ceil(Number(quantity) || 0));
+    row.allocations = normalizeAllocations(row.allocations, row.quantity);
+    let delta = target - allocationTotal(row.allocations);
+    if (delta > 0) {
+      changeAllocation(row, { kind: "manual" }, delta);
+      return;
+    }
+    let remove = -delta;
+    const take = (owner) => {
+      if (remove <= 0) return;
+      const amount = Math.min(remove, getAllocationQuantity(row, owner));
+      if (!amount) return;
+      changeAllocation(row, owner, -amount);
+      remove -= amount;
+    };
+    take({ kind: "manual" });
+    take({ kind: "planning" });
+    const newestProjects = [...plans.values()].sort(
+      (left, right) => String(right.createdAt ?? "").localeCompare(
+        String(left.createdAt ?? "")
+      ) || String(right.id).localeCompare(String(left.id))
+    ).map((plan) => String(plan.id));
+    for (const id of newestProjects) take({ kind: "project", id });
+    for (const id of Object.keys(row.allocations.projects ?? {})) {
+      take({ kind: "project", id });
+    }
+    row.quantity = allocationTotal(row.allocations);
+  }
+  function consumeCartAllocations(row, quantity) {
+    let remaining = Math.max(0, Math.floor(Number(quantity) || 0));
+    const take = (owner) => {
+      if (remaining <= 0) return;
+      const amount = Math.min(remaining, getAllocationQuantity(row, owner));
+      if (!amount) return;
+      changeAllocation(row, owner, -amount);
+      remaining -= amount;
+    };
+    const oldestProjects = [...plans.values()].sort(
+      (left, right) => String(left.createdAt ?? "").localeCompare(
+        String(right.createdAt ?? "")
+      ) || String(left.id).localeCompare(String(right.id))
+    ).map((plan) => String(plan.id));
+    for (const id of oldestProjects) take({ kind: "project", id });
+    take({ kind: "planning" });
+    take({ kind: "manual" });
+    for (const id of Object.keys(row.allocations.projects ?? {})) {
+      take({ kind: "project", id });
+    }
+    row.quantity = allocationTotal(row.allocations);
+  }
+  function getCartAllocationSummary(itemHrid, enhancementLevel = 0) {
+    const row = cart.get(itemKey(itemHrid, enhancementLevel));
+    const allocations = normalizeAllocations(row?.allocations, row?.quantity);
+    return clone({
+      total: allocationTotal(allocations),
+      manual: allocations.manual,
+      planning: allocations.planning,
+      project: Object.values(allocations.projects).reduce(
+        (sum, quantity) => sum + quantity,
+        0
+      ),
+      projects: allocations.projects
+    });
+  }
+  function releaseCartAllocation(owner, itemHrid = null, enhancementLevel = 0) {
+    let changed = false;
+    const rows2 = itemHrid ? [cart.get(itemKey(itemHrid, enhancementLevel))].filter(Boolean) : [...cart.values()];
+    for (const row of rows2) {
+      const quantity = getAllocationQuantity(row, owner);
+      if (!quantity) continue;
+      changeAllocation(row, owner, -quantity);
+      changeAllocation(row, { kind: "manual" }, quantity);
+      changed = true;
+    }
+    if (changed) saveCartAndEmit({ reason: "allocation" });
+    return changed;
+  }
+  function moveCartAllocationToManual(itemHrid, enhancementLevel, owner, quantity) {
+    const row = cart.get(itemKey(itemHrid, enhancementLevel));
+    if (!row) return 0;
+    const moved = Math.min(
+      Math.max(0, Math.ceil(Number(quantity) || 0)),
+      getAllocationQuantity(row, owner)
+    );
+    if (!moved) return 0;
+    changeAllocation(row, owner, -moved);
+    changeAllocation(row, { kind: "manual" }, moved);
+    saveCartAndEmit({ reason: "allocation" });
+    return moved;
+  }
   function addToCart(input) {
-    const rows = Array.isArray(input) ? input : [input];
+    const rows2 = Array.isArray(input) ? input : [input];
     let added = 0;
     let skipped = 0;
-    for (const value of rows) {
+    for (const value of rows2) {
       const itemHrid = normalizeItemHrid(value?.itemHrid ?? value?.itemId);
       const enhancementLevel = normalizeEnhancementLevel(value?.enhancementLevel);
       const quantity = Math.ceil(Number(value?.quantity) || 0);
@@ -21226,24 +21443,31 @@
       }
       const key = itemKey(itemHrid, enhancementLevel);
       const existing = cart.get(key);
-      cart.set(key, {
+      const owner = allocationOwner(value);
+      const row = {
         itemHrid,
         enhancementLevel,
         name: value.name || existing?.name || resolveItemName(itemHrid),
-        quantity: (existing?.quantity ?? 0) + quantity,
+        quantity: existing?.quantity ?? 0,
+        allocations: normalizeAllocations(
+          existing?.allocations,
+          existing?.quantity
+        ),
         starred: Boolean(existing?.starred ?? value.starred),
         threshold: existing?.threshold ?? value.threshold ?? null,
         baselineStock: getInventoryCount2(itemHrid, enhancementLevel),
         source: value.source ?? existing?.source ?? "manual",
         updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
         manualOverrideUntil: existing?.manualOverrideUntil ?? 0
-      });
+      };
+      changeAllocation(row, owner, quantity);
+      cart.set(key, row);
       added += 1;
     }
     if (added) saveCartAndEmit({ reason: "add", added });
     return { ok: added > 0, added, skipped };
   }
-  function addRequirementsToCart(materials, source = "material") {
+  function addRequirementsToCart(materials, source = "material", allocation = null) {
     return addToCart(
       (materials ?? []).filter(
         (material) => material.purchasable && material.addableShortage > 0
@@ -21252,7 +21476,8 @@
         enhancementLevel: material.enhancementLevel,
         name: material.name,
         quantity: material.addableShortage,
-        source
+        source,
+        allocation
       }))
     );
   }
@@ -21270,7 +21495,7 @@
     const normalized = Math.max(0, Math.ceil(Number(quantity) || 0));
     if (!normalized && !row.starred) cart.delete(key);
     else {
-      row.quantity = normalized;
+      resizeCartAllocations(row, normalized);
       row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel);
       row.manualOverrideUntil = Date.now() + MANUAL_OVERRIDE_MS;
       row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -21283,7 +21508,7 @@
     if (!row) return false;
     Object.assign(row, patch, { updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
     if (Object.hasOwn(patch, "quantity")) {
-      row.quantity = Math.max(0, Math.ceil(Number(patch.quantity) || 0));
+      resizeCartAllocations(row, patch.quantity);
       row.manualOverrideUntil = Date.now() + MANUAL_OVERRIDE_MS;
     }
     if (Object.hasOwn(patch, "threshold")) {
@@ -21310,7 +21535,7 @@
     const acquired = Math.max(0, Math.floor(Number(quantity) || 0));
     if (!row || !acquired || !settings.inventorySyncEnabled) return false;
     const before = row.quantity;
-    row.quantity = Math.max(0, row.quantity - acquired);
+    consumeCartAllocations(row, acquired);
     row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel);
     row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     let fulfilled = false;
@@ -21407,7 +21632,7 @@
       const required = Math.max(0, row.threshold - owned);
       if (required !== row.quantity) {
         if (required > row.quantity) added += 1;
-        row.quantity = required;
+        resizeCartAllocations(row, required);
         row.baselineStock = owned;
         changed = true;
       }
@@ -21443,6 +21668,10 @@
         material.suggested
       ])
     );
+    const matching = [...plans.values()].find(
+      (plan2) => plan2.status !== "completed" && plan2.actionHrid === actionHrid && plan2.targetCount === targetCount && JSON.stringify(plan2.materials ?? {}) === JSON.stringify(lockedMaterials)
+    );
+    if (matching) return clone({ ...matching, reused: true });
     const output = runtime.api.getExpectedOutputs?.(detail)?.[0] ?? null;
     const id = globalThis.crypto?.randomUUID?.() ?? `plan-${Date.now()}-${Math.random()}`;
     const plan = {
@@ -21463,6 +21692,64 @@
     plans.set(id, plan);
     savePlansAndEmit();
     return clone(plan);
+  }
+  function addProjectRequirementsToCart(planId) {
+    const plan = plans.get(planId);
+    if (!plan || plan.status === "completed") {
+      return { ok: false, added: 0, skipped: 0 };
+    }
+    const demandByKey = /* @__PURE__ */ new Map();
+    for (const candidate of plans.values()) {
+      if (candidate.status === "completed") continue;
+      for (const [key, quantity] of Object.entries(candidate.materials ?? {})) {
+        demandByKey.set(
+          key,
+          (demandByKey.get(key) ?? 0) + Math.max(0, Math.ceil(Number(quantity) || 0))
+        );
+      }
+    }
+    const rows2 = [];
+    for (const [key, demand] of demandByKey) {
+      const parsed = parseItemKey(key);
+      const desired = Math.max(
+        0,
+        demand - getInventoryCount2(parsed.itemHrid, parsed.enhancementLevel)
+      );
+      const summary = getCartAllocationSummary(
+        parsed.itemHrid,
+        parsed.enhancementLevel
+      );
+      const addable = Math.max(0, desired - summary.project);
+      if (!addable || isCoin(parsed.itemHrid)) continue;
+      rows2.push({
+        itemHrid: parsed.itemHrid,
+        enhancementLevel: parsed.enhancementLevel,
+        name: resolveItemName(parsed.itemHrid),
+        quantity: addable,
+        source: "project",
+        allocation: { kind: "project", projectId: String(planId) }
+      });
+    }
+    return addToCart(rows2);
+  }
+  function releaseExcessProjectAllocations(plan) {
+    let changed = false;
+    for (const row of cart.values()) {
+      const owner = { kind: "project", id: String(plan.id) };
+      const allocated = getAllocationQuantity(row, owner);
+      const allowed = Math.max(
+        0,
+        Math.ceil(
+          Number(plan.materials?.[itemKey(row.itemHrid, row.enhancementLevel)]) || 0
+        )
+      );
+      const excess = Math.max(0, allocated - allowed);
+      if (!excess) continue;
+      changeAllocation(row, owner, -excess);
+      changeAllocation(row, { kind: "manual" }, excess);
+      changed = true;
+    }
+    if (changed) saveCartAndEmit({ reason: "allocation" });
   }
   function refreshPlanProgress() {
     for (const plan of plans.values()) {
@@ -21510,17 +21797,26 @@
           material.suggested
         ])
       );
+      releaseExcessProjectAllocations(plan);
     }
     if (patch.status === "completed" || patch.status === "active") {
+      if (patch.status === "completed" && plan.status !== "completed") {
+        releaseCartAllocation({ kind: "project", id: String(plan.id) });
+      }
       plan.status = patch.status;
     }
     plan.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     savePlansAndEmit();
+    runtime.api.planning?.reconcilePlanningCart?.();
     return true;
   }
   function removePlan(id) {
+    releaseCartAllocation({ kind: "project", id: String(id) });
     const removed = plans.delete(id);
-    if (removed) savePlansAndEmit();
+    if (removed) {
+      savePlansAndEmit();
+      runtime.api.planning?.reconcilePlanningCart?.();
+    }
     return removed;
   }
   function parsePurchaseConfirmation(payload) {
@@ -21610,6 +21906,7 @@
       getInventoryCount: getInventoryCount2,
       getEffectiveInventory,
       getLockedDetails,
+      getProjectReservedInventory,
       suggestedMaterialCount,
       calculateRequirements,
       getProducerAction,
@@ -21618,16 +21915,22 @@
       aggregateRequirements,
       getCartItems,
       getCartItem,
+      getCartAllocationSummary,
       addToCart,
       addRequirementsToCart,
+      releaseCartAllocation,
+      moveCartAllocationToManual,
       setCartItemQuantity,
       updateCartItem,
       removeFromCart,
       clearCart,
       getPlans,
       createPlan,
+      addProjectRequirementsToCart,
       updatePlan,
       removePlan,
+      getPlanningData,
+      setPlanningData,
       confirmMarketPurchase,
       applyInventoryUpdates,
       applyRestockThresholds,
@@ -21637,11 +21940,455 @@
     }
   });
 
+  // src/core/planning.js
+  var MAX_DEPTH = 40;
+  var procurement = runtime.api.procurement;
+  function positiveInteger(value, fallback = 1) {
+    const number3 = Math.ceil(Number(value) || 0);
+    return number3 > 0 ? number3 : fallback;
+  }
+  function maxHouseLevel(houseRoomHrid) {
+    const levels = Object.keys(
+      runtime.state.initData_houseRoomDetailMap?.[houseRoomHrid]?.upgradeCostsMap ?? {}
+    ).map(Number).filter((level) => Number.isFinite(level));
+    return levels.length ? Math.max(...levels) : 0;
+  }
+  function normalizeGoal(value) {
+    const kind = value?.kind === "house" ? "house" : "item";
+    const targetHrid = String(value?.targetHrid ?? value?.hrid ?? "").trim();
+    if (!targetHrid) return null;
+    const maximum = kind === "house" ? maxHouseLevel(targetHrid) : Infinity;
+    if (kind === "house" && maximum <= 0) return null;
+    return {
+      id: value?.id ?? `${kind}:${targetHrid}`,
+      kind,
+      targetHrid,
+      target: Math.min(positiveInteger(value?.target), maximum),
+      enabled: value?.enabled !== false,
+      createdAt: value?.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: value?.updatedAt ?? (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  function getState() {
+    const value = procurement.getPlanningData();
+    return {
+      goals: (value.goals ?? []).map(normalizeGoal).filter(Boolean),
+      policies: { ...value.policies ?? {} }
+    };
+  }
+  function saveState(state, reason) {
+    return procurement.setPlanningData(state, reason);
+  }
+  function getGoals() {
+    return getState().goals;
+  }
+  function upsertGoal(value) {
+    const goal = normalizeGoal(value);
+    if (!goal) return null;
+    const state = getState();
+    const index = state.goals.findIndex(
+      (entry) => entry.kind === goal.kind && entry.targetHrid === goal.targetHrid
+    );
+    if (index >= 0) {
+      goal.id = state.goals[index].id;
+      goal.createdAt = state.goals[index].createdAt;
+      state.goals[index] = goal;
+    } else {
+      state.goals.push(goal);
+    }
+    saveState(state, "goal");
+    reconcilePlanningCart();
+    return goal;
+  }
+  function updateGoal(id, patch) {
+    const state = getState();
+    const index = state.goals.findIndex((goal) => goal.id === id);
+    if (index < 0) return false;
+    const next = normalizeGoal({
+      ...state.goals[index],
+      ...patch,
+      id,
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+    if (!next) return false;
+    state.goals[index] = next;
+    saveState(state, "goal");
+    reconcilePlanningCart();
+    return true;
+  }
+  function removeGoal(id) {
+    const state = getState();
+    const next = state.goals.filter((goal) => goal.id !== id);
+    if (next.length === state.goals.length) return false;
+    state.goals = next;
+    saveState(state, "goal");
+    reconcilePlanningCart();
+    return true;
+  }
+  function getPolicy(itemHrid) {
+    return getState().policies[procurement.normalizeItemHrid(itemHrid)] ?? "produce";
+  }
+  function setPolicy(itemHrid, policy) {
+    const normalized = procurement.normalizeItemHrid(itemHrid);
+    if (!normalized) return false;
+    const state = getState();
+    if (policy === "acquire") state.policies[normalized] = "acquire";
+    else delete state.policies[normalized];
+    saveState(state, "policy");
+    reconcilePlanningCart();
+    return true;
+  }
+  function rows(value) {
+    if (Array.isArray(value)) return value;
+    if (value?.itemHrid || value?.hrid) return [value];
+    return Object.entries(value ?? {}).map(([itemHrid, count]) => ({
+      itemHrid,
+      count: count?.count ?? count
+    }));
+  }
+  function shopRewards(detail) {
+    const explicit = detail?.itemRewards ?? detail?.rewards ?? detail?.rewardItems;
+    if (explicit) return rows(explicit);
+    const itemHrid = detail?.itemHrid ?? detail?.rewardItemHrid ?? detail?.item?.itemHrid;
+    return itemHrid ? [
+      {
+        itemHrid,
+        count: detail?.outputCount ?? detail?.itemCount ?? detail?.rewardCount ?? 1
+      }
+    ] : [];
+  }
+  function findShopRecipe(itemHrid) {
+    const target = procurement.normalizeItemHrid(itemHrid);
+    const matches = [];
+    for (const [fallbackHrid, detail] of Object.entries(
+      runtime.state.initData_shopItemDetailMap ?? {}
+    )) {
+      const outputCount = shopRewards(detail).reduce((sum, reward) => {
+        const hrid = procurement.normalizeItemHrid(
+          reward?.itemHrid ?? reward?.hrid
+        );
+        return hrid === target ? sum + Math.max(0, Number(reward?.count) || 0) : sum;
+      }, 0);
+      const costs = rows(detail?.costs ?? detail?.costItems ?? detail?.cost).map((cost) => ({
+        itemHrid: procurement.normalizeItemHrid(cost?.itemHrid ?? cost?.hrid),
+        count: Math.max(0, Number(cost?.count) || 0)
+      })).filter((cost) => cost.itemHrid && cost.count > 0);
+      if (outputCount > 0 && costs.length) {
+        matches.push({
+          kind: "exchange",
+          id: detail?.hrid ?? detail?.shopItemHrid ?? fallbackHrid,
+          outputCount,
+          costs
+        });
+      }
+    }
+    matches.sort((left, right) => left.id.localeCompare(right.id));
+    return matches[0] ?? null;
+  }
+  function findProductionRecipe(itemHrid) {
+    const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+    if (!actionHrid) return null;
+    const profile = runtime.api.getActionProductionProfile?.(actionHrid);
+    if (profile?.status !== "complete") return null;
+    const target = procurement.normalizeItemHrid(itemHrid);
+    const outputCount = (profile.outputs ?? []).reduce(
+      (sum, output) => procurement.normalizeItemHrid(output?.itemHrid) === target ? sum + Math.max(0, Number(output?.count) || 0) : sum,
+      0
+    );
+    return outputCount > 0 ? { kind: "production", id: actionHrid, outputCount, profile } : null;
+  }
+  function currentHouseLevel(houseRoomHrid) {
+    const map = runtime.state.initData_characterHouseRoomMap ?? {};
+    const direct = map[houseRoomHrid];
+    if (direct) return Math.max(0, Number(direct.level) || 0);
+    return Math.max(
+      0,
+      Number(
+        Object.values(map).find((house) => house?.houseRoomHrid === houseRoomHrid)?.level
+      ) || 0
+    );
+  }
+  function calculate() {
+    const state = getState();
+    const goals = state.goals.filter((goal) => goal.enabled).sort(
+      (left, right) => left.kind.localeCompare(right.kind) || left.targetHrid.localeCompare(right.targetHrid)
+    );
+    const inventoryPool = /* @__PURE__ */ new Map();
+    const virtualPool = /* @__PURE__ */ new Map();
+    const steps = /* @__PURE__ */ new Map();
+    const materials = /* @__PURE__ */ new Map();
+    const warnings = [];
+    const inventoryFor = (itemHrid) => {
+      const key = procurement.itemKey(itemHrid, 0);
+      if (!inventoryPool.has(key)) {
+        inventoryPool.set(
+          key,
+          Math.max(
+            0,
+            procurement.getInventoryCount(itemHrid, 0) - procurement.getProjectReservedInventory(itemHrid, 0)
+          )
+        );
+      }
+      return inventoryPool.get(key) ?? 0;
+    };
+    const consumeSupply = (itemHrid, amount) => {
+      const key = procurement.itemKey(itemHrid, 0);
+      const inventory = Math.min(amount, inventoryFor(itemHrid));
+      inventoryPool.set(key, inventoryFor(itemHrid) - inventory);
+      const afterInventory = amount - inventory;
+      const virtual = Math.min(
+        afterInventory,
+        Math.max(0, virtualPool.get(itemHrid) ?? 0)
+      );
+      virtualPool.set(
+        itemHrid,
+        Math.max(0, (virtualPool.get(itemHrid) ?? 0) - virtual)
+      );
+      return { remaining: afterInventory - virtual, inventory, virtual };
+    };
+    const recordLeaf = (itemHrid, amount, supply, sourceIds, lineage, reason) => {
+      const normalized = procurement.normalizeItemHrid(itemHrid);
+      const entry = materials.get(normalized) ?? {
+        itemHrid: normalized,
+        required: 0,
+        inventoryUsed: 0,
+        virtualUsed: 0,
+        sourceIds: /* @__PURE__ */ new Set(),
+        lineages: /* @__PURE__ */ new Set(),
+        reasons: /* @__PURE__ */ new Set()
+      };
+      entry.required += amount;
+      entry.inventoryUsed += supply.inventory;
+      entry.virtualUsed += supply.virtual;
+      for (const id of sourceIds) entry.sourceIds.add(id);
+      entry.lineages.add(lineage.join(" > "));
+      entry.reasons.add(reason);
+      materials.set(normalized, entry);
+      return supply.remaining;
+    };
+    const addLeaf = (itemHrid, amount, sourceIds, lineage, reason) => {
+      const normalized = procurement.normalizeItemHrid(itemHrid);
+      return recordLeaf(
+        normalized,
+        amount,
+        consumeSupply(normalized, amount),
+        sourceIds,
+        lineage,
+        reason
+      );
+    };
+    const addStep = (recipe, itemHrid, amount, actionCount, sourceIds) => {
+      const key = `${recipe.kind}:${recipe.id}`;
+      const step = steps.get(key) ?? {
+        key,
+        kind: recipe.kind,
+        id: recipe.id,
+        itemHrid,
+        requiredOutput: 0,
+        actionCount: 0,
+        outputCount: recipe.outputCount,
+        sourceIds: /* @__PURE__ */ new Set()
+      };
+      step.requiredOutput += amount;
+      step.actionCount += actionCount;
+      for (const id of sourceIds) step.sourceIds.add(id);
+      steps.set(key, step);
+    };
+    const expand = (rawItemHrid, rawAmount, sourceIds, lineage = [], depth = 0) => {
+      const itemHrid = procurement.normalizeItemHrid(rawItemHrid);
+      const amount = Math.max(0, Number(rawAmount) || 0);
+      if (!itemHrid || amount <= 0) return;
+      if (depth >= MAX_DEPTH || lineage.includes(itemHrid)) {
+        warnings.push({
+          type: depth >= MAX_DEPTH ? "truncated" : "cycle",
+          itemHrid,
+          lineage: [...lineage, itemHrid]
+        });
+        addLeaf(itemHrid, amount, sourceIds, lineage, "cycle");
+        return;
+      }
+      const supply = consumeSupply(itemHrid, amount);
+      if (supply.remaining <= 1e-9) return;
+      const policy = state.policies[itemHrid] ?? "produce";
+      const recipe = policy === "acquire" ? null : findProductionRecipe(itemHrid) ?? findShopRecipe(itemHrid);
+      if (!recipe) {
+        recordLeaf(
+          itemHrid,
+          amount,
+          supply,
+          sourceIds,
+          [...lineage, itemHrid],
+          policy === "acquire" ? "acquire" : "leaf"
+        );
+        return;
+      }
+      const actionCount = Math.max(
+        1,
+        Math.ceil(supply.remaining / recipe.outputCount - 1e-9)
+      );
+      addStep(recipe, itemHrid, supply.remaining, actionCount, sourceIds);
+      const producedTarget = actionCount * recipe.outputCount;
+      virtualPool.set(
+        itemHrid,
+        (virtualPool.get(itemHrid) ?? 0) + Math.max(0, producedTarget - supply.remaining)
+      );
+      const nextLineage = [...lineage, itemHrid];
+      if (recipe.kind === "exchange") {
+        for (const cost of recipe.costs) {
+          expand(
+            cost.itemHrid,
+            cost.count * actionCount,
+            sourceIds,
+            nextLineage,
+            depth + 1
+          );
+        }
+        return;
+      }
+      const profile = recipe.profile;
+      for (const output of profile.outputs ?? []) {
+        const outputHrid = procurement.normalizeItemHrid(output.itemHrid);
+        if (!outputHrid || outputHrid === itemHrid) continue;
+        virtualPool.set(
+          outputHrid,
+          (virtualPool.get(outputHrid) ?? 0) + Math.max(0, Number(output.count) || 0) * actionCount
+        );
+      }
+      const requirements = procurement.calculateRequirements(
+        recipe.id,
+        actionCount
+      );
+      if (!requirements.materials?.length) {
+        recordLeaf(itemHrid, amount, supply, sourceIds, lineage, "gathering");
+        return;
+      }
+      for (const material of requirements.materials) {
+        expand(
+          material.itemHrid,
+          material.suggested,
+          sourceIds,
+          nextLineage,
+          depth + 1
+        );
+      }
+    };
+    for (const goal of goals) {
+      const sources = /* @__PURE__ */ new Set([goal.id]);
+      if (goal.kind === "item") {
+        expand(goal.targetHrid, goal.target, sources);
+        continue;
+      }
+      const detail = runtime.state.initData_houseRoomDetailMap?.[goal.targetHrid];
+      const current = currentHouseLevel(goal.targetHrid);
+      for (let level = current + 1; level <= goal.target; level += 1) {
+        for (const cost of rows(detail?.upgradeCostsMap?.[level])) {
+          expand(cost.itemHrid, cost.count, sources, [goal.targetHrid]);
+        }
+      }
+    }
+    const resultMaterials = [...materials.values()].map((entry) => {
+      const owned = procurement.getInventoryCount(entry.itemHrid, 0);
+      const projectInventory = procurement.getProjectReservedInventory(
+        entry.itemHrid,
+        0
+      );
+      const cart2 = procurement.getCartAllocationSummary(entry.itemHrid, 0);
+      const requiredAfterSupply = Math.max(
+        0,
+        entry.required - entry.inventoryUsed - entry.virtualUsed
+      );
+      const addableShortage = Math.max(
+        0,
+        Math.ceil(requiredAfterSupply - cart2.planning - 1e-9)
+      );
+      const detail = runtime.state.initData_itemDetailMap?.[entry.itemHrid];
+      return {
+        ...entry,
+        sourceIds: [...entry.sourceIds],
+        lineages: [...entry.lineages].filter(Boolean),
+        reasons: [...entry.reasons],
+        name: itemName(entry.itemHrid),
+        owned,
+        projectInventory,
+        availableInventory: Math.max(0, owned - projectInventory),
+        requiredAfterSupply,
+        cart: cart2,
+        addableShortage,
+        purchasable: detail?.isTradable === true && entry.itemHrid !== "/items/coin"
+      };
+    }).sort((left, right) => left.name.localeCompare(right.name));
+    const resultSteps = [...steps.values()].map((step) => ({ ...step, sourceIds: [...step.sourceIds] })).sort((left, right) => left.itemHrid.localeCompare(right.itemHrid));
+    return {
+      status: goals.length ? "complete" : "empty",
+      goals,
+      steps: resultSteps,
+      materials: resultMaterials,
+      warnings
+    };
+  }
+  function reconcilePlanningCart() {
+    const result = calculate();
+    const allowed = new Map(
+      result.materials.map((material) => [
+        procurement.itemKey(material.itemHrid, 0),
+        Math.ceil(material.requiredAfterSupply)
+      ])
+    );
+    for (const row of procurement.getCartItems()) {
+      const summary = procurement.getCartAllocationSummary(
+        row.itemHrid,
+        row.enhancementLevel
+      );
+      if (!summary.planning) continue;
+      const excess = Math.max(
+        0,
+        summary.planning - (allowed.get(procurement.itemKey(row.itemHrid, row.enhancementLevel)) ?? 0)
+      );
+      if (excess > 0) {
+        procurement.moveCartAllocationToManual(
+          row.itemHrid,
+          row.enhancementLevel,
+          { kind: "planning" },
+          excess
+        );
+      }
+    }
+    return result;
+  }
+  function addShortagesToCart(materials = calculate().materials) {
+    return procurement.addToCart(
+      materials.filter(
+        (material) => material.purchasable && material.addableShortage > 0
+      ).map((material) => ({
+        itemHrid: material.itemHrid,
+        enhancementLevel: 0,
+        name: material.name,
+        quantity: material.addableShortage,
+        source: "planning",
+        allocation: { kind: "planning" }
+      }))
+    );
+  }
+  runtime.api.planning = {
+    getGoals,
+    upsertGoal,
+    updateGoal,
+    removeGoal,
+    getPolicy,
+    setPolicy,
+    calculate,
+    reconcilePlanningCart,
+    addShortagesToCart,
+    on(listener) {
+      return procurement.on("planning:change", listener);
+    }
+  };
+
   // src/core/train-planning.js
   var MAX_TRAIN_DEPTH = 50;
   function positiveNumber(value) {
-    const number2 = Number(value);
-    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
   }
   function normalizeItemHrid2(value) {
     return runtime.api.procurement?.normalizeItemHrid?.(value) ?? String(value ?? "");
@@ -21708,7 +22455,7 @@
       count: count?.count ?? count
     }));
   }
-  function shopRewards(detail) {
+  function shopRewards2(detail) {
     const explicit = detail?.itemRewards ?? detail?.rewards ?? detail?.rewardItems;
     if (explicit) return normalizeRows(explicit);
     const itemHrid = detail?.itemHrid ?? detail?.rewardItemHrid ?? detail?.item?.itemHrid;
@@ -21725,7 +22472,7 @@
     for (const [fallbackHrid, detail] of Object.entries(
       runtime.state.initData_shopItemDetailMap ?? {}
     )) {
-      const rewardCount = shopRewards(detail).reduce(
+      const rewardCount = shopRewards2(detail).reduce(
         (total, reward) => normalizeItemHrid2(reward?.itemHrid ?? reward?.hrid) === target ? total + positiveNumber(reward?.count ?? 1) : total,
         0
       );
@@ -21836,7 +22583,7 @@
     };
   }
   function planTrainCounts(chain, taskCounts = {}) {
-    const procurement2 = runtime.api.procurement;
+    const procurement4 = runtime.api.procurement;
     const planned = chain.steps.map((step) => ({ ...step, count: 0 }));
     const unavailableOutputs = /* @__PURE__ */ new Set();
     let requiredByAbove = 0;
@@ -21848,7 +22595,7 @@
       step.outputCount = outputCount;
       step.outputCountSource = effectiveOutput.known ? "player" : "recipe";
       const inventory = positiveNumber(
-        procurement2?.getInventoryCount?.(step.outputHrid, 0)
+        procurement4?.getInventoryCount?.(step.outputHrid, 0)
       );
       const shortageUnits = Math.max(0, requiredByAbove - inventory);
       const ownActions = Math.ceil(demandCount(taskCounts, step.outputHrid));
@@ -22130,8 +22877,8 @@
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
   function positiveNumber2(value) {
-    const number2 = Number(value);
-    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
   }
   function entriesOfMap(value) {
     if (Array.isArray(value)) {
@@ -22482,7 +23229,7 @@
     if (!normalizedDrops.length) return null;
     visited.add(itemHrid);
     const bestRedemptions = getBestLootRedemptions(normalizedDrops, config);
-    const rows = [];
+    const rows2 = [];
     let grossValue = 0;
     for (const drop of normalizedDrops) {
       const cowbellExcluded = config.ignoreCowbells && COWBELL_VALUE_HRIDS.has(drop.itemHrid);
@@ -22555,7 +23302,7 @@
       const redemptions = [...bestRedemptions.values()].filter(
         (route) => route.rewardItemHrid === drop.itemHrid && route.rewardEnhancementLevel === drop.enhancementLevel
       );
-      rows.push({
+      rows2.push({
         ...drop,
         unitValue,
         value,
@@ -22570,7 +23317,7 @@
     }
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
     const key = getLootKeyCost(keyItemHrid, config);
-    const selfRows = rows.filter((row) => row.pendingSelfReference);
+    const selfRows = rows2.filter((row) => row.pendingSelfReference);
     const selfExpectedCount = selfRows.reduce(
       (total, row) => total + row.expectedCount,
       0
@@ -22591,9 +23338,9 @@
       }
     }
     const missing = new Set(
-      rows.filter((row) => row.expectedCount > 0 && !row.priced).map((row) => row.itemHrid)
+      rows2.filter((row) => row.expectedCount > 0 && !row.priced).map((row) => row.itemHrid)
     );
-    for (const row of rows) {
+    for (const row of rows2) {
       for (const missingItemHrid of row.nestedMissing) {
         missing.add(missingItemHrid);
       }
@@ -22606,7 +23353,7 @@
       itemHrid,
       keyItemHrid,
       config,
-      drops: rows.sort((left, right) => right.value - left.value),
+      drops: rows2.sort((left, right) => right.value - left.value),
       redemptions: [...bestRedemptions.values()],
       grossValue,
       keyCost: key.value,
@@ -23487,14 +24234,14 @@
       payload.category ?? payload.leaderboardCategory ?? payload.typeHrid ?? ""
     ).toLowerCase();
     if (!category.includes("guild")) return;
-    const rows = findArray(payload, [
+    const rows2 = findArray(payload, [
       "leaderboard",
       "leaderboardEntries",
       "entries",
       "rankings",
       "guilds"
     ]);
-    if (rows.length) runtime.state.guildLeaderboard = rows;
+    if (rows2.length) runtime.state.guildLeaderboard = rows2;
   }
   function applyActionsUpdated(payload) {
     for (const action of payload.endCharacterActions) {
@@ -24292,8 +25039,8 @@
   var refreshTimer = null;
   function finiteOrNull(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number2 = Number(value);
-    return Number.isFinite(number2) ? number2 : null;
+    const number3 = Number(value);
+    return Number.isFinite(number3) ? number3 : null;
   }
   function sumKnown(values) {
     return values.reduce(
@@ -24588,8 +25335,8 @@
   }
   function finiteOrNull2(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number2 = Number(value);
-    return Number.isFinite(number2) ? number2 : null;
+    const number3 = Number(value);
+    return Number.isFinite(number3) ? number3 : null;
   }
   function sumIfComplete(values, keys) {
     const parts = keys.map((key) => finiteOrNull2(values[key]));
@@ -24851,8 +25598,8 @@
       const entries = this.list(scopeKey).filter(([date2]) => date2 < dayKey);
       if (!entries.length) return null;
       const yesterday = new Date(parseDayKey(dayKey) - 864e5).toISOString().slice(0, 10);
-      const exact = entries.find(([date2]) => date2 === yesterday);
-      const [date, record] = exact ?? entries.at(-1);
+      const exact2 = entries.find(([date2]) => date2 === yesterday);
+      const [date, record] = exact2 ?? entries.at(-1);
       return { date, record, gapDays: dayGap(date, dayKey) };
     }
     sevenDayAverage(dayKey = getUtc8DayKey(), scopeKey = this.scopeKey()) {
@@ -27784,8 +28531,8 @@ ${preview}`
   var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
-    const number2 = Number(value);
-    return Number.isFinite(number2) ? number2 : null;
+    const number3 = Number(value);
+    return Number.isFinite(number3) ? number3 : null;
   }
   function cloneForConsumer(value) {
     if (value === null || value === void 0) return value ?? null;
@@ -27964,14 +28711,14 @@ ${preview}`
   }
   function validExperienceRate(value) {
     if (value == null || value === "") return null;
-    const number2 = Number(value);
-    return Number.isFinite(number2) && number2 >= 0 ? number2 : null;
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 >= 0 ? number3 : null;
   }
   function formatExperienceRate(value) {
-    const number2 = validExperienceRate(value);
-    if (number2 == null) return "—";
-    if (number2 >= 1e6) return roundedCompact(number2, 1e6, "M");
-    return roundedCompact(number2, 1e3, "K");
+    const number3 = validExperienceRate(value);
+    if (number3 == null) return "—";
+    if (number3 >= 1e6) return roundedCompact(number3, 1e6, "M");
+    return roundedCompact(number3, 1e3, "K");
   }
   function compareRateRows(left, right, mode) {
     const leftRate = validExperienceRate(left?.xpPerHour);
@@ -28285,7 +29032,7 @@ ${preview}`
         rebuildNameIndex();
         scheduleRefresh();
       },
-      enhanceLeaderboard({ category, rows }) {
+      enhanceLeaderboard({ category, rows: rows2 }) {
         if (!categoryOrder.includes(category) || !RATE_CATEGORIES.has(category)) {
           removeRateColumn();
           state.currentLeaderboard = null;
@@ -28293,7 +29040,7 @@ ${preview}`
         }
         state.currentLeaderboard = {
           category,
-          rows: Array.isArray(rows) ? rows : []
+          rows: Array.isArray(rows2) ? rows2 : []
         };
         scheduleRefresh();
         return true;
@@ -28429,7 +29176,7 @@ ${preview}`
     if (leaderboard?.type !== "standard" || leaderboard?.category !== category || !DEFAULT_CATEGORIES.some(([key]) => key === category) || !Array.isArray(leaderboard?.rows)) {
       return null;
     }
-    const rows = leaderboard.rows.map((row) => {
+    const rows2 = leaderboard.rows.map((row) => {
       const scoreOnly = category === "fame_points" || category === "task_points";
       return {
         characterId: Number(row?.characterId ?? row?.id),
@@ -28444,17 +29191,17 @@ ${preview}`
     }).filter(
       (row) => row.characterName && Number.isInteger(row.rank) && row.rank >= 1 && row.rank <= 100
     );
-    return rows.length ? { category, rows } : null;
+    return rows2.length ? { category, rows: rows2 } : null;
   }
   function normalizeCategories(value) {
     const allowed = new Set(DEFAULT_CATEGORIES.map(([category]) => category));
     return Object.fromEntries(
       Object.entries(value ?? {}).flatMap(([category, snapshot]) => {
         if (!allowed.has(category) || !Array.isArray(snapshot?.rows)) return [];
-        const rows = snapshot.rows.filter(
+        const rows2 = snapshot.rows.filter(
           (row) => String(row?.characterName ?? row?.name ?? "").trim() && Number.isInteger(Number(row?.rank)) && Number(row.rank) >= 1 && Number(row.rank) <= 100
         );
-        return rows.length ? [[category, { ...snapshot, rows }]] : [];
+        return rows2.length ? [[category, { ...snapshot, rows: rows2 }]] : [];
       })
     );
   }
@@ -28779,7 +29526,7 @@ ${preview}`
       }
       return bar;
     }
-    function getState(unitEl) {
+    function getState2(unitEl) {
       let state = UNIT_STATE.get(unitEl);
       if (!state) {
         state = { effects: /* @__PURE__ */ new Map() };
@@ -28931,7 +29678,7 @@ ${preview}`
       }
     }
     function renderUnit(unitEl) {
-      const state = getState(unitEl);
+      const state = getState2(unitEl);
       const bar = ensureBuffBar(unitEl);
       const now = Date.now();
       const entries = Array.from(state.effects.values()).filter(
@@ -28982,7 +29729,7 @@ ${preview}`
       }
     }
     function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
-      const state = getState(unitEl);
+      const state = getState2(unitEl);
       const now = Date.now();
       state.effects.set(abilityHrid, {
         abilityHrid,
@@ -30134,8 +30881,8 @@ ${preview}`
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function positiveNumber3(value) {
-    const number2 = Number(value);
-    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
   }
   function formatNumber2(value, digits = 2) {
     if (!Number.isFinite(Number(value))) return "—";
@@ -32182,11 +32929,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return Number(buff * 100).toFixed(1);
   }
   function getHousesEffBuffByActionHrid(actionHrid) {
-    const houseName = actionHridToHouseNamesMap[runtime.state.initData_actionDetailMap[actionHrid].type];
-    if (!houseName) {
+    const houseName2 = actionHridToHouseNamesMap[runtime.state.initData_actionDetailMap[actionHrid].type];
+    if (!houseName2) {
       return 0;
     }
-    const house = runtime.state.initData_characterHouseRoomMap[houseName];
+    const house = runtime.state.initData_characterHouseRoomMap[houseName2];
     if (!house) {
       return 0;
     }
@@ -34154,6 +34901,410 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     removeActionUi
   });
 
+  // src/features/planning.js
+  var procurement2 = runtime.api.procurement;
+  var planning = runtime.api.planning;
+  function t7(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function number2(value) {
+    return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
+  }
+  function exact(value) {
+    return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
+  }
+  function tail(value) {
+    return String(value ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "—";
+  }
+  function houseName(hrid) {
+    return runtime.data?.ZHOthersDic?.[hrid] ?? runtime.state.initData_houseRoomDetailMap?.[hrid]?.name ?? tail(hrid);
+  }
+  function currentHouseLevel2(hrid) {
+    const map = runtime.state.initData_characterHouseRoomMap ?? {};
+    return Math.max(
+      0,
+      Number(
+        map[hrid]?.level ?? Object.values(map).find((house) => house?.houseRoomHrid === hrid)?.level
+      ) || 0
+    );
+  }
+  function maxHouseLevel2(hrid) {
+    const levels = Object.keys(
+      runtime.state.initData_houseRoomDetailMap?.[hrid]?.upgradeCostsMap ?? {}
+    ).map(Number).filter((level) => Number.isFinite(level));
+    return levels.length ? Math.max(...levels) : 0;
+  }
+  function goalLabel(goal) {
+    return goal.kind === "house" ? houseName(goal.targetHrid) : itemName(goal.targetHrid);
+  }
+  function itemCandidates() {
+    return Object.entries(runtime.state.initData_itemDetailMap ?? {}).filter(([hrid]) => hrid.startsWith("/items/")).map(([hrid, detail]) => ({
+      hrid,
+      name: itemName(hrid),
+      english: String(detail?.name ?? "")
+    })).sort((left, right) => left.name.localeCompare(right.name));
+  }
+  function resolveItemInput(value, candidates) {
+    const query = String(value ?? "").trim().toLowerCase();
+    if (!query) return null;
+    const normalized = procurement2.normalizeItemHrid(query);
+    return candidates.find(
+      (candidate) => candidate.hrid.toLowerCase() === query || candidate.hrid === normalized || candidate.name.toLowerCase() === query || candidate.english.toLowerCase() === query
+    ) ?? null;
+  }
+  function goalSources(ids, goals) {
+    const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
+    return ids.map((id) => byId.get(id) ?? id).join(t7("、", ", "));
+  }
+  function createGoalEditor(body, rerender) {
+    const editor = document.createElement("section");
+    editor.className = "planning-editor";
+    const mode = document.createElement("div");
+    mode.className = "planning-mode";
+    const itemButton = document.createElement("button");
+    const houseButton = document.createElement("button");
+    itemButton.type = houseButton.type = "button";
+    itemButton.textContent = t7("物品", "Item");
+    houseButton.textContent = t7("房屋", "House");
+    let activeMode = "item";
+    const form = document.createElement("div");
+    form.className = "planning-form";
+    const renderForm = () => {
+      itemButton.dataset.active = String(activeMode === "item");
+      houseButton.dataset.active = String(activeMode === "house");
+      form.replaceChildren();
+      const target = document.createElement(
+        activeMode === "item" ? "input" : "select"
+      );
+      target.className = "planning-target-input";
+      let candidates = [];
+      if (activeMode === "item") {
+        candidates = itemCandidates();
+        const listId = `mwi-planning-items-${Date.now()}`;
+        const list = document.createElement("datalist");
+        list.id = listId;
+        for (const candidate of candidates) {
+          const option = document.createElement("option");
+          option.value = candidate.name;
+          option.label = `${candidate.english || candidate.name} · ${candidate.hrid}`;
+          list.append(option);
+        }
+        target.setAttribute("list", listId);
+        target.placeholder = t7("搜索物品名称或 HRID", "Search item name or HRID");
+        form.append(list);
+      } else {
+        for (const hrid of Object.keys(
+          runtime.state.initData_houseRoomDetailMap ?? {}
+        ).sort(
+          (left, right) => houseName(left).localeCompare(houseName(right))
+        )) {
+          const max = maxHouseLevel2(hrid);
+          if (!max) continue;
+          const option = document.createElement("option");
+          option.value = hrid;
+          option.textContent = `${houseName(hrid)} · ${currentHouseLevel2(hrid)} / ${max}`;
+          target.append(option);
+        }
+      }
+      const count = document.createElement(
+        activeMode === "item" ? "input" : "select"
+      );
+      count.className = "planning-count-input";
+      if (activeMode === "item") {
+        count.type = "number";
+        count.min = "1";
+        count.step = "1";
+        count.value = "1";
+      }
+      const renderHouseLevels = () => {
+        if (activeMode !== "house") return;
+        count.replaceChildren();
+        const current = currentHouseLevel2(target.value);
+        const maximum = maxHouseLevel2(target.value);
+        for (let level = current + 1; level <= maximum; level += 1) {
+          const option = document.createElement("option");
+          option.value = String(level);
+          option.textContent = `${t7("等级", "Level")} ${level}`;
+          count.append(option);
+        }
+        count.disabled = count.options.length === 0;
+      };
+      count.setAttribute(
+        "aria-label",
+        activeMode === "item" ? t7("最终持有量", "Final quantity") : t7("目标等级", "Target level")
+      );
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "planning-primary";
+      add.textContent = t7("加入规划", "Add");
+      const submit = () => {
+        const selected = activeMode === "item" ? resolveItemInput(target.value, candidates)?.hrid : target.value;
+        const goal = selected ? planning.upsertGoal({
+          kind: activeMode,
+          targetHrid: selected,
+          target: count.value
+        }) : null;
+        if (!goal) {
+          target.setCustomValidity?.(
+            t7("请选择有效目标", "Choose a valid target")
+          );
+          target.reportValidity?.();
+          return;
+        }
+        rerender();
+      };
+      add.addEventListener("click", submit);
+      target.addEventListener("change", renderHouseLevels);
+      target.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") submit();
+      });
+      count.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") submit();
+      });
+      form.append(target, count, add);
+      renderHouseLevels();
+    };
+    itemButton.addEventListener("click", () => {
+      activeMode = "item";
+      renderForm();
+    });
+    houseButton.addEventListener("click", () => {
+      activeMode = "house";
+      renderForm();
+    });
+    mode.append(itemButton, houseButton);
+    editor.append(mode, form);
+    body.append(editor);
+    renderForm();
+  }
+  function renderGoals(body, goals, rerender) {
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("h3");
+    heading.textContent = `${t7("规划目标", "Planning goals")} · ${goals.length}`;
+    section.append(heading);
+    if (!goals.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t7(
+        "添加物品最终持有量或房屋目标等级开始计算。",
+        "Add an item holding target or house level to begin."
+      );
+      section.append(empty);
+    }
+    for (const goal of goals) {
+      const row = document.createElement("article");
+      row.className = "planning-goal";
+      row.dataset.enabled = String(goal.enabled);
+      const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.checked = goal.enabled;
+      toggle.title = t7("启用目标", "Enable goal");
+      toggle.addEventListener("change", () => {
+        planning.updateGoal(goal.id, { enabled: toggle.checked });
+        rerender();
+      });
+      const name = document.createElement("div");
+      name.className = "planning-goal-name";
+      name.textContent = goalLabel(goal);
+      name.title = goal.targetHrid;
+      const meta = document.createElement("span");
+      meta.textContent = `${t7("当前", "Current")} ${number2(current)}`;
+      const target = document.createElement("input");
+      target.type = "number";
+      target.min = "1";
+      target.step = "1";
+      target.value = String(goal.target);
+      target.title = goal.kind === "house" ? t7("目标等级", "Target level") : t7("最终持有量", "Final quantity");
+      target.addEventListener("change", () => {
+        planning.updateGoal(goal.id, { target: target.value });
+        rerender();
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "planning-remove";
+      remove.textContent = "×";
+      remove.title = t7("删除", "Remove");
+      remove.addEventListener("click", () => {
+        planning.removeGoal(goal.id);
+        rerender();
+      });
+      row.append(toggle, name, meta, target, remove);
+      section.append(row);
+    }
+    body.append(section);
+  }
+  function renderSteps(body, result, rerender) {
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("h3");
+    heading.textContent = `${t7("需要制作", "Production needed")} · ${result.steps.length}`;
+    section.append(heading);
+    if (!result.steps.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t7("当前没有需要制作的物品。", "Nothing to produce.");
+      section.append(empty);
+    }
+    for (const step of result.steps) {
+      const row = document.createElement("details");
+      row.className = "planning-step";
+      const summary = document.createElement("summary");
+      const label = document.createElement("span");
+      label.textContent = itemName(step.itemHrid);
+      const counts = document.createElement("span");
+      counts.textContent = `${t7("需", "Need")} ${number2(step.requiredOutput)} · ${t7("预计", "Est.")} ${number2(step.actionCount)} ${t7("次", "actions")}`;
+      const policy = document.createElement("button");
+      policy.type = "button";
+      policy.className = "planning-policy";
+      const current = planning.getPolicy(step.itemHrid);
+      policy.textContent = current === "acquire" ? t7("直接获取", "Acquire") : t7("制作", "Produce");
+      policy.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        planning.setPolicy(
+          step.itemHrid,
+          current === "acquire" ? "produce" : "acquire"
+        );
+        rerender();
+      });
+      summary.append(label, counts, policy);
+      const source = document.createElement("div");
+      source.className = "planning-source";
+      source.textContent = `${t7("来源", "Sources")}: ${goalSources(step.sourceIds, result.goals)} · ${t7("单次有效产出", "Effective output")} ${exact(step.outputCount)}`;
+      row.append(summary, source);
+      section.append(row);
+    }
+    body.append(section);
+  }
+  function renderMaterials(body, result, rerender) {
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("div");
+    heading.className = "planning-section-heading";
+    const title = document.createElement("h3");
+    title.textContent = `${t7("基础材料", "Base materials")} · ${result.materials.length}`;
+    const addAll = document.createElement("button");
+    addAll.type = "button";
+    addAll.className = "planning-primary";
+    const allAddable = result.materials.filter(
+      (material) => material.purchasable && material.addableShortage > 0
+    );
+    addAll.textContent = t7("一键补齐", "Add all");
+    addAll.disabled = !allAddable.length;
+    addAll.addEventListener("click", () => {
+      planning.addShortagesToCart(result.materials);
+      rerender();
+    });
+    heading.append(title, addAll);
+    section.append(heading);
+    if (!result.materials.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t7(
+        "当前没有基础材料需求。",
+        "No base materials needed."
+      );
+      section.append(empty);
+    }
+    for (const material of result.materials) {
+      const row = document.createElement("details");
+      row.className = "planning-material";
+      row.dataset.missing = String(material.addableShortage > 0);
+      const summary = document.createElement("summary");
+      const name = document.createElement("span");
+      name.className = "planning-material-name";
+      name.textContent = material.name;
+      name.title = material.itemHrid;
+      const missing = document.createElement("strong");
+      missing.textContent = material.addableShortage ? `${t7("还需", "Need")} ${number2(material.addableShortage)}` : t7("已覆盖", "Covered");
+      summary.append(name, missing);
+      const grid = document.createElement("div");
+      grid.className = "planning-material-grid";
+      const metric4 = (label, value, sub = "") => {
+        const cell = document.createElement("div");
+        cell.innerHTML = `<span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}`;
+        return cell;
+      };
+      grid.append(
+        metric4(t7("规划需求", "Required"), number2(material.required)),
+        metric4(
+          t7("库存", "Inventory"),
+          number2(material.owned),
+          `${t7("项目占用", "Project")} ${number2(material.projectInventory)} · ${t7("规划使用", "Planning")} ${number2(material.inventoryUsed)}`
+        ),
+        metric4(
+          t7("购物车", "Cart"),
+          number2(material.cart.total),
+          `${t7("项目", "Project")} ${number2(material.cart.project)} · ${t7("规划", "Planning")} ${number2(material.cart.planning)} · ${t7("手工", "Manual")} ${number2(material.cart.manual)}`
+        ),
+        metric4(t7("仍需购买", "To buy"), number2(material.addableShortage))
+      );
+      const actions = document.createElement("div");
+      actions.className = "planning-material-actions";
+      const policy = document.createElement("button");
+      policy.type = "button";
+      policy.textContent = planning.getPolicy(material.itemHrid) === "acquire" ? t7("改为制作", "Produce") : t7("直接获取", "Acquire");
+      policy.addEventListener("click", () => {
+        planning.setPolicy(
+          material.itemHrid,
+          planning.getPolicy(material.itemHrid) === "acquire" ? "produce" : "acquire"
+        );
+        rerender();
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.textContent = material.purchasable ? t7("加入购物车", "Add to cart") : t7("不可购买", "Not tradable");
+      add.disabled = !material.purchasable || !material.addableShortage;
+      add.addEventListener("click", () => {
+        planning.addShortagesToCart([material]);
+        rerender();
+      });
+      const source = document.createElement("span");
+      source.textContent = `${t7("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
+      actions.append(policy, add, source);
+      row.append(summary, grid, actions);
+      section.append(row);
+    }
+    body.append(section);
+  }
+  function renderPlanning(body, footer) {
+    const rerender = () => renderPlanning(body, footer);
+    body.replaceChildren();
+    footer.replaceChildren();
+    const result = planning.calculate();
+    createGoalEditor(body, rerender);
+    renderGoals(body, planning.getGoals(), rerender);
+    renderSteps(body, result, rerender);
+    renderMaterials(body, result, rerender);
+    if (result.warnings.length) {
+      const warning = document.createElement("div");
+      warning.className = "planning-warning";
+      warning.textContent = t7(
+        `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
+        `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`
+      );
+      body.append(warning);
+    }
+    footer.textContent = t7(
+      `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
+      `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`
+    );
+  }
+  function planningStyles() {
+    return `
+    .planning-editor,.planning-section{margin-bottom:10px;border:1px solid color-mix(in srgb,var(--line) 42%,transparent);border-radius:8px;background:color-mix(in srgb,var(--card) 72%,transparent)}
+    .planning-mode{display:flex;padding:4px;gap:3px}.planning-mode button{flex:1;padding:6px;border-radius:5px;color:var(--muted);font-size:11px;font-weight:700}.planning-mode button[data-active="true"]{background:var(--accent);color:#fff}
+    .planning-form{display:flex;gap:5px;padding:4px 8px 8px}.planning-form input,.planning-form select,.planning-goal input[type="number"]{min-width:0;height:30px;border:1px solid color-mix(in srgb,var(--line) 55%,transparent);border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text);outline:0;padding:4px 7px}.planning-target-input{flex:1}.planning-count-input{width:72px}.planning-primary{padding:6px 9px;border-radius:6px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;white-space:nowrap}.planning-primary:disabled{opacity:.45;cursor:default}
+    .planning-section>h3,.planning-section-heading{min-height:34px;padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 35%,transparent);color:var(--text);font-size:11.5px;font-weight:700}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{font-size:11.5px}.planning-empty{padding:14px 10px;color:var(--muted);font-size:11px;text-align:center}
+    .planning-goal{display:grid;grid-template-columns:18px minmax(0,1fr) auto 68px 25px;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 24%,transparent);font-size:11px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.52}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:600}.planning-goal>span{color:var(--muted);white-space:nowrap}.planning-goal input[type="number"]{width:68px;text-align:center}.planning-remove{width:25px;height:25px;border-radius:5px;color:#ff8d96;font-size:17px}.planning-remove:hover{background:rgba(224,90,100,.14)}
+    .planning-step,.planning-material{border-bottom:1px solid color-mix(in srgb,var(--line) 25%,transparent)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px;color:var(--text);font-size:11px;cursor:pointer}.planning-step summary>span:first-child,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.planning-step summary>span:nth-child(2){color:var(--muted);white-space:nowrap}.planning-policy,.planning-material-actions button{padding:5px 7px;border-radius:5px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:10px;font-weight:600}.planning-source{padding:0 9px 8px;color:var(--muted);font-size:10px}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:10px;white-space:nowrap}
+    .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 8px 7px}.planning-material-grid>div{min-width:0;padding:5px;border-radius:5px;background:color-mix(in srgb,var(--text) 5%,transparent)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:var(--muted);font-size:8.5px;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:var(--gold);font-size:11.5px;font-variant-numeric:tabular-nums}.planning-material-actions{display:flex;align-items:center;gap:5px;padding:0 8px 8px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:var(--muted);font-size:9px;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:10px}
+    @media(max-width:420px){.planning-form{flex-wrap:wrap}.planning-target-input{flex:1 1 calc(100% - 80px)}.planning-form .planning-primary{flex:1 1 100%}.planning-goal{grid-template-columns:18px minmax(0,1fr) 62px 25px}.planning-goal>span{display:none}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  `;
+  }
+
   // src/features/procurement.js
   var STYLE_ID8 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
@@ -34161,7 +35312,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var PRODUCTION_ID = "mwitools-procurement-production";
   var PROCUREMENT_SURFACE_SELECTOR = 'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
   var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
-  var procurement = runtime.api.procurement;
+  var procurement3 = runtime.api.procurement;
   var shell = null;
   var shadow = null;
   var drawerOpen = false;
@@ -34180,7 +35331,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t7(zh, en) {
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function marketFeaturesSuppressed() {
@@ -34285,7 +35436,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       .header::before{content:"";position:absolute;top:7px;left:50%;width:44px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--muted) 45%,transparent);transform:translateX(-50%)}.header{position:relative;padding-top:18px}
     }
     @media(prefers-reduced-motion:reduce){.drawer{transition:none}.handle-badge::after{animation:none}}
-  `;
+  ${planningStyles()}`;
   }
   function showToast(message) {
     document.querySelectorAll(".mwi-procurement-toast").forEach((node) => node.remove());
@@ -34296,7 +35447,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setTimeout(() => toast.remove(), 2800);
   }
   function pendingItems() {
-    return procurement.getCartItems().filter((item) => item.quantity > 0).sort((a, b) => {
+    return procurement3.getCartItems().filter((item) => item.quantity > 0).sort((a, b) => {
       if (a.starred !== b.starred) return a.starred ? -1 : 1;
       return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
@@ -34318,7 +35469,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return href.includes("#") ? href.split("#")[0] : "";
   }
   function renderItemIcon2(item) {
-    const bare = procurement.normalizeItemHrid(item.itemHrid).split("/").at(-1);
+    const bare = procurement3.normalizeItemHrid(item.itemHrid).split("/").at(-1);
     const sprite = findItemsSpriteBase4();
     if (!bare || !sprite) {
       return `<span class="item-icon-fallback">${escapeHtml4((item.name || "?").trim().charAt(0) || "?")}</span>`;
@@ -34328,8 +35479,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function renderShell() {
     if (!shadow) return;
-    const settings2 = procurement.getSettings();
-    const items = procurement.getCartItems();
+    const settings2 = procurement3.getSettings();
+    const items = procurement3.getCartItems();
     const activeCount = items.filter((item) => item.quantity > 0).length;
     const handle = shadow.querySelector(".handle");
     const drawer = shadow.querySelector(".drawer");
@@ -34340,30 +35491,32 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t7(`缺 ${activeCount} 项`, `${activeCount} missing`) : t7("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t8(`缺 ${activeCount} 项`, `${activeCount} missing`) : t8("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
-    shadow.querySelector(".panel-footer").replaceChildren();
+    const footer = shadow.querySelector(".panel-footer");
+    footer.replaceChildren();
     if (activeTab === "plans") renderPlans(body);
+    else if (activeTab === "planning") renderPlanning(body, footer);
     else if (activeTab === "settings") renderProcurementSettings(body);
     else renderCart(body);
   }
   function renderCart(body) {
-    const items = procurement.getCartItems();
+    const items = procurement3.getCartItems();
     body.replaceChildren();
     if (!items.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t7(
+      empty.textContent = t8(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
       body.append(empty);
       return;
     }
-    const settings2 = procurement.getSettings();
+    const settings2 = procurement3.getSettings();
     const marketEnabled = !marketFeaturesSuppressed();
     const pricesEnabled = marketEnabled && settings2.pricesEnabled;
     let total = 0;
@@ -34377,29 +35530,29 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         else unpriced += 1;
       }
       row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t7("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" ${marketEnabled ? `title="${t7("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
+      <button class="star" data-active="${Boolean(item.starred)}" title="${t8("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
+      <button class="item-icon" ${marketEnabled ? `title="${t8("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
       <button class="item-name" title="${escapeHtml4(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t7("待购数量", "Quantity")}">
+        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t8("待购数量", "Quantity")}">
         <button class="step" data-step="1">＋</button>
       </div>
-      <button class="delete" title="${t7("删除", "Remove")}">×</button>
+      <button class="delete" title="${t8("删除", "Remove")}">×</button>
       <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t7("库存", "Stock")} ${formatNumber4(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t7("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t7("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
+        <span class="owned" title="${exactNumber(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t8("库存", "Stock")} ${formatNumber4(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
+        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
+        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
       </div>`;
       const setQuantity = (quantity) => {
-        procurement.setCartItemQuantity(
+        procurement3.setCartItemQuantity(
           item.itemHrid,
           quantity,
           item.enhancementLevel
         );
       };
       row.querySelector(".star").addEventListener("click", () => {
-        procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
           starred: !item.starred
         });
       });
@@ -34412,7 +35565,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       }
       row.querySelector(".delete").addEventListener("click", () => {
         stopActiveHoldRepeat();
-        procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
+        procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
       });
       const quantityInput = row.querySelector(".qty");
       quantityInput.addEventListener("change", () => {
@@ -34423,7 +35576,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           setQuantity(item.quantity + Number(step.dataset.step));
         });
         installHoldRepeat(step, () => {
-          const latest = procurement.getCartItem(
+          const latest = procurement3.getCartItem(
             item.itemHrid,
             item.enhancementLevel
           );
@@ -34435,7 +35588,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         });
       }
       row.querySelector(".threshold").addEventListener("change", (event) => {
-        procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
           threshold: event.target.value ? runtime.api.parseCompactNumber?.(event.target.value) : null
         });
       });
@@ -34443,11 +35596,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `
-    ${marketEnabled ? `<span class="footer-total">${t7("补齐合计", "Total")}<strong title="${unpriced ? t7("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t7("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
-    <button class="clear">${t7("清空未收藏", "Clear")}</button>`;
+    ${marketEnabled ? `<span class="footer-total">${t8("补齐合计", "Total")}<strong title="${unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t8("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
+    <button class="clear">${t8("清空未收藏", "Clear")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       stopActiveHoldRepeat();
-      procurement.clearCart();
+      procurement3.clearCart();
     });
   }
   function stopActiveHoldRepeat() {
@@ -34486,14 +35639,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     button.addEventListener("pointercancel", stopForPointer);
   }
   function renderPlans(body) {
-    const plans2 = procurement.getPlans();
+    const plans2 = procurement3.getPlans();
     body.replaceChildren();
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t7(
-        "还没有制作计划。把生产缺料加入购物车时可以同时创建。",
-        "No crafting plans yet. Create one when adding production materials."
+      empty.textContent = t8(
+        "还没有生产项目。把生产缺料加入购物车时可以同时创建。",
+        "No production projects yet. Create one when adding production materials."
       );
       body.append(empty);
       return;
@@ -34503,32 +35656,32 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml4(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t7("已完成", "Completed") : t7("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml4(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t8("已完成", "Completed") : t8("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber4(plan.progress)} / ${formatNumber4(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t7("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t7("重新打开", "Reopen") : t7("完成", "Complete")}</button><button data-action="remove">${t7("删除", "Delete")}</button></div>`;
+      <div class="plan-actions"><button data-action="count">${t8("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t8("重新打开", "Reopen") : t8("完成", "Complete")}</button><button data-action="remove">${t8("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t7("输入新的目标次数", "Enter a new target count"),
+          t8("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
-          procurement.updatePlan(plan.id, { targetCount: value });
+          procurement3.updatePlan(plan.id, { targetCount: value });
       });
       row.querySelector('[data-action="toggle"]').addEventListener("click", () => {
-        procurement.updatePlan(plan.id, {
+        procurement3.updatePlan(plan.id, {
           status: plan.status === "completed" ? "active" : "completed"
         });
       });
       row.querySelector('[data-action="remove"]').addEventListener("click", () => {
-        procurement.removePlan(plan.id);
+        procurement3.removePlan(plan.id);
       });
       body.append(row);
     }
     const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `<span>${t7("制作计划", "Plans")} ${plans2.length}</span><button class="clear">${t7("清空计划", "Clear plans")}</button>`;
+    footer.innerHTML = `<span>${t8("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t8("清空项目", "Clear projects")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
-      for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
+      for (const plan of procurement3.getPlans()) procurement3.removePlan(plan.id);
     });
   }
   var SETTING_SECTIONS = [
@@ -34539,8 +35692,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         ["upgradeChainEnabled", "升级链材料", "Upgrade-chain materials", "bool"],
         [
           "createPlansByDefault",
-          "默认建立制作计划",
-          "Create plans by default",
+          "默认建立生产项目",
+          "Create projects by default",
           "bool"
         ],
         ["inventorySyncEnabled", "精确库存同步", "Exact inventory sync", "bool"],
@@ -34676,13 +35829,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   };
   function renderProcurementSettings(body) {
     body.replaceChildren();
-    const settings2 = procurement.getSettings();
+    const settings2 = procurement3.getSettings();
     for (const sectionDefinition of SETTING_SECTIONS) {
       const section = document.createElement("section");
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t7(...sectionDefinition.title);
+      heading.textContent = t8(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -34690,14 +35843,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml4(t7(zh, en))}${description ? `<small>${escapeHtml4(t7(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml4(t8(zh, en))}${description ? `<small>${escapeHtml4(t8(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t7("开", "On") : t7("关", "Off");
+          state.textContent = settings2[id] ? t8("开", "On") : t8("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -34705,18 +35858,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t7(zh, en));
+          control.setAttribute("aria-label", t8(zh, en));
           control.addEventListener(
             "click",
-            () => procurement.setSetting(id, !settings2[id])
+            () => procurement3.setSetting(id, !settings2[id])
           );
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t7("关闭", "Off")],
-            ["95", t7("标准 95%", "Standard 95%")],
-            ["99", t7("充足 99%", "Ample 99%")],
-            ["99.9", t7("极高 99.9%", "Full 99.9%")]
+            ["off", t8("关闭", "Off")],
+            ["95", t8("标准 95%", "Standard 95%")],
+            ["99", t8("充足 99%", "Ample 99%")],
+            ["99.9", t8("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -34726,25 +35879,25 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           }
           control.addEventListener(
             "change",
-            () => procurement.setSetting(id, control.value)
+            () => procurement3.setSetting(id, control.value)
           );
         } else if (type === "shortcut") {
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t7("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t8("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
-            procurement.setSetting("nextItemShortcut", null);
+            procurement3.setSetting("nextItemShortcut", null);
           });
         } else if (type === "button") {
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t7("重置", "Reset");
+          control.textContent = t8("重置", "Reset");
           control.addEventListener("click", () => {
-            procurement.setSetting(
+            procurement3.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
               id === "resetHandle" ? 180 : 360
             );
@@ -34757,7 +35910,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
           control.value = String(settings2[id]);
           control.addEventListener(
             "change",
-            () => procurement.setSetting(id, Number(control.value))
+            () => procurement3.setSetting(id, Number(control.value))
           );
         }
         row.append(control);
@@ -34777,7 +35930,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t7("请按快捷键…", "Press shortcut…");
+    button.textContent = t8("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -34788,7 +35941,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       event.preventDefault();
       event.stopPropagation();
       const display = event.code === "Space" ? "Space" : event.code.startsWith("Arrow") ? event.code.slice(5) : event.key?.length === 1 ? event.key.toUpperCase() : event.key || event.code;
-      procurement.setSetting("nextItemShortcut", {
+      procurement3.setSetting("nextItemShortcut", {
         code: event.code,
         display,
         ctrl: event.ctrlKey,
@@ -34813,11 +35966,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t7("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t7("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t8("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t8("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t7("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t7("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t7("清单", "Cart")}</button><button class="tab" data-tab="plans">${t7("计划", "Plans")}</button><button class="tab" data-tab="settings">${t7("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t8("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t8("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t8("清单", "Cart")}</button><button class="tab" data-tab="plans">${t8("项目", "Projects")}</button><button class="tab" data-tab="planning">${t8("规划", "Planning")}</button><button class="tab" data-tab="settings">${t8("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -34839,7 +35992,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       if (!dragStart) return;
       const moved = Math.abs(event.clientY - dragStart.y) > 5;
       dragStart = null;
-      procurement.setSetting("handleY", parseFloat(handle.style.top));
+      procurement3.setSetting("handleY", parseFloat(handle.style.top));
       if (!moved) {
         drawerOpen = !drawerOpen;
         if (!drawerOpen) stopActiveHoldRepeat();
@@ -34874,7 +36027,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     resize.addEventListener("pointerup", () => {
       if (!resizing) return;
       resizing = false;
-      procurement.setSetting(
+      procurement3.setSetting(
         "drawerWidth",
         parseFloat(drawer.style.getPropertyValue("--drawer-width"))
       );
@@ -34991,7 +36144,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const use = element?.querySelector("svg use");
     const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
     const fragment = href.includes("#") ? href.split("#").at(-1) : href;
-    return procurement.normalizeItemHrid(fragment);
+    return procurement3.normalizeItemHrid(fragment);
   }
   function calculateEnhancingRequirements(context) {
     const requirementsRoot = context.panel.querySelector(
@@ -35017,17 +36170,17 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       if (!itemHrid || perAction === null || perAction <= 0) return null;
       const enhancementLevel = 0;
       const suggested = Math.ceil(perAction * context.count - 1e-9);
-      const owned = procurement.getInventoryCount(itemHrid, enhancementLevel);
-      const lockedDetails = procurement.getLockedDetails(
+      const owned = procurement3.getInventoryCount(itemHrid, enhancementLevel);
+      const lockedDetails = procurement3.getLockedDetails(
         itemHrid,
         enhancementLevel
       );
       const effectiveOwned = Math.max(0, owned - lockedDetails.total);
-      const cartQuantity = procurement.getCartItem(itemHrid, enhancementLevel)?.quantity ?? 0;
+      const cartQuantity = procurement3.getCartItem(itemHrid, enhancementLevel)?.quantity ?? 0;
       return {
         itemHrid,
         enhancementLevel,
-        name: procurement.resolveItemName(itemHrid),
+        name: procurement3.resolveItemName(itemHrid),
         perAction,
         suggested,
         owned,
@@ -35074,21 +36227,21 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         ...context,
         count: Math.ceil(count)
       });
-      const result = procurement.addRequirementsToCart(
+      const result = procurement3.addRequirementsToCart(
         requirements?.materials ?? [],
         "enhancing"
       );
       showToast(
-        result.added ? t7(
+        result.added ? t8(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t7("没有新的缺料", "No new shortages")
+        ) : t8("没有新的缺料", "No new shortages")
       );
     });
     root.append(input, add);
   }
   function findMaterialHost(panel, itemHrid) {
-    const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
+    const bare = procurement3.normalizeItemHrid(itemHrid).split("/").at(-1);
     for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
       const href = node.querySelector("svg use")?.getAttribute("href") ?? node.querySelector("svg use")?.getAttribute("xlink:href") ?? "";
       if (href.includes(bare)) return node;
@@ -35162,7 +36315,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       summary2.className = "mwi-procurement-summary-line";
       const state = document.createElement("span");
       state.className = "mwi-procurement-summary-state";
-      state.textContent = t7("请选择生产数量", "Enter a production quantity");
+      state.textContent = t8("请选择生产数量", "Enter a production quantity");
       summary2.append(state);
       root2.append(summary2);
       if (runtime.api.mountProductionModule) {
@@ -35175,14 +36328,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       }
       return;
     }
-    const settings2 = procurement.getSettings();
+    const settings2 = procurement3.getSettings();
     const isEnhancing = context.actionFunction === "/action_functions/enhancing";
-    const direct = isEnhancing ? calculateEnhancingRequirements(context) : procurement.calculateRequirements(context.actionHrid, context.count);
+    const direct = isEnhancing ? calculateEnhancingRequirements(context) : procurement3.calculateRequirements(context.actionHrid, context.count);
     if (!direct?.materials?.length) {
       clearProductionUi();
       return;
     }
-    const chain = !isEnhancing && settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement.calculateUpgradeChain(context.actionHrid, context.count) : null;
+    const chain = !isEnhancing && settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement3.calculateUpgradeChain(context.actionHrid, context.count) : null;
     const materials = chain?.leaves?.length ? chain.leaves : direct.materials;
     const signature = JSON.stringify([
       isEnhancing ? "enhancing" : "production",
@@ -35211,11 +36364,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t7("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t7("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t8("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t8("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t7("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t7("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t7("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t8("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t8("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t8("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
         layoutMaterialBadge(context.panel, host, badge);
@@ -35225,7 +36378,7 @@ ${locks}` : ""}`;
     root.id = PRODUCTION_ID;
     root.dataset.mwitoolsProductionExtension = "true";
     const hasSelectableChain = (chain?.stages?.length ?? 0) > 1;
-    const previousStepMaterials = hasSelectableChain ? procurement.selectUpgradeChainMaterials(chain, [
+    const previousStepMaterials = hasSelectableChain ? procurement3.selectUpgradeChainMaterials(chain, [
       chain.stages[0].actionHrid
     ]) : materials;
     let stageInputs = [];
@@ -35240,9 +36393,9 @@ ${locks}` : ""}`;
       chainModeInput = document.createElement("input");
       chainModeInput.type = "checkbox";
       chainModeInput.setAttribute("role", "switch");
-      chainModeInput.setAttribute("aria-label", t7("所选链条", "Selected chain"));
+      chainModeInput.setAttribute("aria-label", t8("所选链条", "Selected chain"));
       const chainModeLabel = document.createElement("span");
-      chainModeLabel.textContent = t7("所选链条", "Selected chain");
+      chainModeLabel.textContent = t8("所选链条", "Selected chain");
       chainMode.append(chainModeInput, chainModeLabel);
       summary.append(summaryState, chainMode);
     } else {
@@ -35255,7 +36408,7 @@ ${locks}` : ""}`;
       if (!hasSelectableChain || !chainModeInput?.checked) {
         return previousStepMaterials;
       }
-      return procurement.selectUpgradeChainMaterials(
+      return procurement3.selectUpgradeChainMaterials(
         chain,
         stageInputs.filter((input) => input.checked).map((input) => input.dataset.action)
       );
@@ -35268,32 +36421,30 @@ ${locks}` : ""}`;
       const addable = scopedMaterials.filter(
         (material) => material.purchasable && material.addableShortage > 0
       );
-      summaryState.innerHTML = missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready");
+      summaryState.innerHTML = missing.length ? `${t8("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t8("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t8("材料充足", "Materials ready");
       root.hidden = Boolean(
         !missing.length && runtime.settings.get("hideReadyProductionShortage")
       );
       add.disabled = addable.length === 0;
-      add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
+      add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
     };
     chainModeInput?.addEventListener("change", updateSummary);
     add.addEventListener("click", () => {
       const scopedMaterials = selectedMaterials();
-      const result = procurement.addRequirementsToCart(
+      const project = !isEnhancing && settings2.createPlansByDefault ? procurement3.createPlan(
+        context.actionHrid,
+        context.count,
+        scopedMaterials
+      ) : null;
+      const result = project ? procurement3.addProjectRequirementsToCart(project.id) : procurement3.addRequirementsToCart(
         scopedMaterials,
         isEnhancing ? "enhancing" : "production"
       );
-      if (!isEnhancing && settings2.createPlansByDefault && result.added > 0) {
-        procurement.createPlan(
-          context.actionHrid,
-          context.count,
-          scopedMaterials
-        );
-      }
       showToast(
-        result.added ? t7(
+        result.added ? t8(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t7("没有新的缺料", "No new shortages")
+        ) : t8("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -35303,7 +36454,7 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t7("升级链", "Upgrade chain")} · ${chain.stages.length} ${t7("阶段", "stages")}${chain.cycle ? ` · ${t7("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t7("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t8("升级链", "Upgrade chain")} · ${chain.stages.length} ${t8("阶段", "stages")}${chain.cycle ? ` · ${t8("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t8("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
@@ -35317,7 +36468,7 @@ ${locks}` : ""}`;
       const allButton = document.createElement("button");
       allButton.type = "button";
       allButton.className = "mwi-procurement-chain-preset";
-      allButton.textContent = t7("全链条", "Full chain");
+      allButton.textContent = t8("全链条", "Full chain");
       stageInputs = [...list.querySelectorAll("input[type=checkbox]")];
       const updatePresetState = () => {
         const checked = stageInputs.map((input) => input.checked);
@@ -35387,14 +36538,14 @@ ${locks}` : ""}`;
     const compact = parseRequirementNumber(normalized);
     if (Number.isFinite(compact) && compact >= 0) return compact;
     const match = normalized.match(/-?\d+(?:\.\d+)?/);
-    const number2 = Number(match?.[0]);
-    return Number.isFinite(number2) && number2 >= 0 ? number2 : null;
+    const number3 = Number(match?.[0]);
+    return Number.isFinite(number3) && number3 >= 0 ? number3 : null;
   }
   function houseItemHrid(element) {
     const use = element?.querySelector("svg use");
     const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
     const fragment = href.includes("#") ? href.split("#").at(-1) : href;
-    return procurement.normalizeItemHrid(fragment);
+    return procurement3.normalizeItemHrid(fragment);
   }
   function extractHouseRequirementsFromDom(modal) {
     const requirementsRoot = modal.querySelector(
@@ -35441,7 +36592,7 @@ ${locks}` : ""}`;
       fiber = fiber.return;
     }
     return requirements?.length && requirements.every(
-      (requirement) => procurement.normalizeItemHrid(requirement?.itemHrid) && Number(requirement?.count) > 0
+      (requirement) => procurement3.normalizeItemHrid(requirement?.itemHrid) && Number(requirement?.count) > 0
     ) ? requirements : null;
   }
   function renderHouseProcurement(modal = findActiveHouseModal()) {
@@ -35453,21 +36604,21 @@ ${locks}` : ""}`;
       return;
     }
     const materials = requirements.map((input) => {
-      const owned = procurement.getEffectiveInventory(
+      const owned = procurement3.getEffectiveInventory(
         input.itemHrid,
         input.enhancementLevel
       );
       const suggested = Math.ceil(Number(input.count) || 0);
-      const cartQuantity = procurement.getCartItem(input.itemHrid, input.enhancementLevel)?.quantity ?? 0;
+      const cartQuantity = procurement3.getCartItem(input.itemHrid, input.enhancementLevel)?.quantity ?? 0;
       return {
-        itemHrid: procurement.normalizeItemHrid(input.itemHrid),
+        itemHrid: procurement3.normalizeItemHrid(input.itemHrid),
         enhancementLevel: Number(input.enhancementLevel) || 0,
-        name: procurement.resolveItemName(input.itemHrid),
+        name: procurement3.resolveItemName(input.itemHrid),
         suggested,
         owned,
         shortage: Math.max(0, suggested - owned),
         addableShortage: Math.max(0, suggested - owned - cartQuantity),
-        purchasable: procurement.normalizeItemHrid(input.itemHrid) !== "/items/coin"
+        purchasable: procurement3.normalizeItemHrid(input.itemHrid) !== "/items/coin"
       };
     });
     const signature = JSON.stringify([
@@ -35492,22 +36643,22 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t7("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t8("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     const addable = materials.filter(
       (material) => material.purchasable && material.addableShortage > 0
     );
-    add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
+    add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
     add.disabled = addable.length === 0;
     add.addEventListener("click", () => {
-      const result = procurement.addRequirementsToCart(materials, "housing");
+      const result = procurement3.addRequirementsToCart(materials, "housing");
       showToast(
-        result.added ? t7(
+        result.added ? t8(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t7("没有新的缺料", "No new shortages")
+        ) : t8("没有新的缺料", "No new shortages")
       );
       lastProductionSignature = "";
       globalThis.queueMicrotask(() => renderHouseProcurement(modal));
@@ -35556,14 +36707,14 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t7(
+        t8(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
       );
       return false;
     }
-    currentMarketTarget = procurement.normalizeItemHrid(itemHrid);
+    currentMarketTarget = procurement3.normalizeItemHrid(itemHrid);
     const bareItemId = currentMarketTarget.replace(/^\/items\//, "");
     const level = Number(enhancementLevel) || 0;
     const argumentSets = [
@@ -35591,7 +36742,7 @@ ${locks}` : ""}`;
             showFloatingModal
           );
           setTimeout(() => {
-            if (marketSessionActive && currentMarketTarget === procurement.normalizeItemHrid(itemHrid) && resolved.host.state?.navTarget !== "marketplace") {
+            if (marketSessionActive && currentMarketTarget === procurement3.normalizeItemHrid(itemHrid) && resolved.host.state?.navTarget !== "marketplace") {
               resolved.fn.call(resolved.host, currentMarketTarget, level);
             }
           }, 240);
@@ -35643,7 +36794,7 @@ ${locks}` : ""}`;
       runtime.config.isZH ? "[MWITools] 无法在市场中打开购物清单物品。" : "[MWITools] Failed to open the shopping-list item in the marketplace.",
       lastError
     );
-    showToast(t7("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t8("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -35663,7 +36814,7 @@ ${locks}` : ""}`;
     );
     const href = current?.getAttribute("href") ?? current?.getAttribute("xlink:href") ?? "";
     const fragment = href.split("#").at(-1);
-    return fragment ? procurement.normalizeItemHrid(fragment) : "";
+    return fragment ? procurement3.normalizeItemHrid(fragment) : "";
   }
   function clearMarketUi({ preserveSession = false } = {}) {
     document.getElementById(MARKET_NAV_ID)?.remove();
@@ -35687,7 +36838,7 @@ ${locks}` : ""}`;
   }
   function highlightMarketItems(panel, scroll = false) {
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
-    if (marketFeaturesSuppressed() || !procurement.getSettings().locateEnabled) {
+    if (marketFeaturesSuppressed() || !procurement3.getSettings().locateEnabled) {
       return;
     }
     const pending = new Set(
@@ -35709,7 +36860,7 @@ ${locks}` : ""}`;
     }
   }
   function prefillPurchaseModal() {
-    if (marketFeaturesSuppressed() || !procurement.getSettings().autoPrefillEnabled) {
+    if (marketFeaturesSuppressed() || !procurement3.getSettings().autoPrefillEnabled) {
       return;
     }
     for (const modal of document.querySelectorAll(
@@ -35720,8 +36871,8 @@ ${locks}` : ""}`;
       if (!/立即购买|购买挂牌|购买订单|buy|purchase/i.test(header)) continue;
       const use = modal.querySelector("svg use");
       const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-      const itemHrid = procurement.normalizeItemHrid(href.split("#").at(-1));
-      const item = procurement.getCartItems().find((candidate) => candidate.itemHrid === itemHrid);
+      const itemHrid = procurement3.normalizeItemHrid(href.split("#").at(-1));
+      const item = procurement3.getCartItems().find((candidate) => candidate.itemHrid === itemHrid);
       const input = modal.querySelector(
         '[class*="MarketplacePanel_quantityInputs"] input'
       );
@@ -35738,7 +36889,7 @@ ${locks}` : ""}`;
     }
   }
   function renderMarketNav(panel) {
-    if (marketFeaturesSuppressed() || !marketSessionActive || !procurement.getSettings().purchaseNavEnabled) {
+    if (marketFeaturesSuppressed() || !marketSessionActive || !procurement3.getSettings().purchaseNavEnabled) {
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
@@ -35748,7 +36899,7 @@ ${locks}` : ""}`;
       return;
     }
     const current = detectMarketItem(panel);
-    const rows = [
+    const rows2 = [
       ...items.map((item) => ({ ...item, done: false })),
       ...[...marketSessionDone.values()].filter(
         (done) => !items.some((item) => item.itemHrid === done.itemHrid)
@@ -35763,16 +36914,16 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t7(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t8(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
-    for (const item of rows) {
+    for (const item of rows2) {
       const chip = document.createElement("button");
       chip.className = "mwi-procurement-nav-chip";
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
-      const itemName4 = procurement.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t7("已完成", "Completed") : exactNumber(item.quantity);
+      const itemName4 = procurement3.resolveItemName(item.itemHrid) || item.name;
+      const quantity = item.done ? t8("已完成", "Completed") : exactNumber(item.quantity);
       chip.title = `${itemName4} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
       chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName4 })}</span><b>${item.done ? "✓" : formatNumber4(item.quantity)}</b>`;
@@ -35787,7 +36938,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t7("下一项 ›", "Next ›");
+    nextButton.textContent = t8("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -35827,13 +36978,13 @@ ${locks}` : ""}`;
   }
   function handleShortcut(event) {
     if (marketFeaturesSuppressed()) return;
-    const shortcut = procurement.getSettings().nextItemShortcut;
+    const shortcut = procurement3.getSettings().nextItemShortcut;
     if (!armedNextItem || !shortcut || !shortcutMatches(event, shortcut)) return;
     const active = document.activeElement;
     if (active?.matches?.("input,textarea,select") || active?.isContentEditable) {
       return;
     }
-    const item = procurement.getCartItems().find(
+    const item = procurement3.getCartItems().find(
       (candidate) => candidate.itemHrid === armedNextItem && candidate.quantity > 0
     );
     const fallback = item ?? pendingItems().at(0);
@@ -35845,7 +36996,7 @@ ${locks}` : ""}`;
   }
   function subscribeProcurement(scope) {
     const rerender = ({ reason, added } = {}) => {
-      if (reason === "add" && Number(added) > 0 && procurement.getSettings().autoExpandOnAddEnabled) {
+      if (reason === "add" && Number(added) > 0 && procurement3.getSettings().autoExpandOnAddEnabled) {
         drawerOpen = true;
         activeTab = "cart";
       }
@@ -35854,10 +37005,12 @@ ${locks}` : ""}`;
       renderProductionProcurement();
       updateMarketUi();
     };
-    scope.add(procurement.on("cart:change", rerender));
-    scope.add(procurement.on("plan:change", rerender));
+    scope.add(procurement3.on("cart:change", rerender));
+    scope.add(procurement3.on("plan:change", rerender));
+    scope.add(procurement3.on("planning:change", rerender));
+    scope.add(procurement3.on("inventory:change", rerender));
     scope.add(
-      procurement.on("settings:change", ({ id, value }) => {
+      procurement3.on("settings:change", ({ id, value }) => {
         if (id === "badgesEnabled" && !value) clearProductionUi();
         if (id === "locateEnabled" && !value) {
           document.querySelectorAll(".mwi-procurement-market-target").forEach(
@@ -35872,9 +37025,9 @@ ${locks}` : ""}`;
       })
     );
     scope.add(
-      procurement.on("item:fulfilled", ({ item }) => {
+      procurement3.on("item:fulfilled", ({ item }) => {
         marketSessionDone.set(
-          procurement.itemKey(item.itemHrid, item.enhancementLevel),
+          procurement3.itemKey(item.itemHrid, item.enhancementLevel),
           {
             ...item,
             done: true
@@ -35883,18 +37036,18 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t7(
-            `${procurement.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
-            `${procurement.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t7("购物清单已全部补齐", "Shopping list fulfilled")
+          next ? t8(
+            `${procurement3.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
+            `${procurement3.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
+          ) : t8("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
     );
     scope.add(
-      procurement.on("all:fulfilled", () => {
+      procurement3.on("all:fulfilled", () => {
         clearMarketUi();
-        if (procurement.getSettings().autoCollapseEnabled) {
+        if (procurement3.getSettings().autoCollapseEnabled) {
           drawerOpen = false;
           renderShell();
         }
@@ -35908,8 +37061,8 @@ ${locks}` : ""}`;
     initialize({ scope, characterId }) {
       runtime.api.openProcurementMarketplace = openMarketplace;
       addStyles6();
-      if (procurement.activeCharacterId !== characterId) {
-        procurement.loadCharacterData(characterId);
+      if (procurement3.activeCharacterId !== characterId) {
+        procurement3.loadCharacterData(characterId);
       }
       createShell(scope);
       subscribeProcurement(scope);
@@ -35928,6 +37081,7 @@ ${locks}` : ""}`;
       renderProductionProcurement();
       updateMarketUi();
       const renderScheduler = createFrameScheduler(() => {
+        renderShell();
         renderProductionProcurement();
         updateMarketUi();
       });
@@ -36031,7 +37185,7 @@ ${locks}` : ""}`;
       );
     });
   }
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function visible(element) {
@@ -36101,12 +37255,12 @@ ${locks}` : ""}`;
   function localizeStep(step, index) {
     const output = localizedItem(step.outputHrid);
     if (step.kind === "shop") {
-      return `${index + 1}. ${t8("商店购买", "Buy from shop")}「${output}」`;
+      return `${index + 1}. ${t9("商店购买", "Buy from shop")}「${output}」`;
     }
     if (step.kind === "craft") {
-      return `${index + 1}. ${t8("制造", "Craft")}「${output}」`;
+      return `${index + 1}. ${t9("制造", "Craft")}「${output}」`;
     }
-    return `${index + 1}. ${t8("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
+    return `${index + 1}. ${t9("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
   }
   function createButton(text, kind, handler) {
     const button = document.createElement("button");
@@ -36147,13 +37301,13 @@ ${locks}` : ""}`;
       indicator.type = "button";
       indicator.addEventListener(
         "click",
-        () => cancelTrain(t8("用户取消", "Cancelled by user"))
+        () => cancelTrain(t9("用户取消", "Cancelled by user"))
       );
       document.body.appendChild(indicator);
     }
     const copy = runtime.config.isZH ? `🚂 正在进行火车 (${activeTrain.index + 1}/${activeTrain.steps.length}) · 点击退出` : `🚂 Train in progress (${activeTrain.index + 1}/${activeTrain.steps.length}) · Click to cancel`;
     if (indicator.textContent !== copy) indicator.textContent = copy;
-    indicator.title = t8("点击退出当前火车", "Click to cancel the current train");
+    indicator.title = t9("点击退出当前火车", "Click to cancel the current train");
   }
   function showTrainDetail(plan, currentIndex = null) {
     closeDetail();
@@ -36164,7 +37318,7 @@ ${locks}` : ""}`;
     box.setAttribute("aria-modal", "true");
     const title = document.createElement("div");
     title.className = "mwi-train-detail-title";
-    title.textContent = t8("🚂 火车详情", "🚂 Train details");
+    title.textContent = t9("🚂 火车详情", "🚂 Train details");
     box.appendChild(title);
     plan.steps.forEach((step, index) => {
       const row = document.createElement("div");
@@ -36174,17 +37328,17 @@ ${locks}` : ""}`;
       label.textContent = `${index === currentIndex ? "▶ " : "　"}${localizeStep(step, index)}`;
       const count = document.createElement("span");
       count.className = "mwi-train-detail-count";
-      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t8("保持当前次数", "Keep current count");
+      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t9("保持当前次数", "Keep current count");
       row.append(label, count);
       if (index === plan.steps.length - 1) {
         const terminal = document.createElement("span");
         terminal.className = "mwi-train-detail-terminal";
-        terminal.textContent = t8("终点", "Final");
+        terminal.textContent = t9("终点", "Final");
         row.appendChild(terminal);
       }
       box.appendChild(row);
     });
-    const close = createButton(t8("关闭", "Close"), "detail", closeDetail);
+    const close = createButton(t9("关闭", "Close"), "detail", closeDetail);
     close.classList.add("mwi-train-detail-close");
     box.appendChild(close);
     modal.appendChild(box);
@@ -36465,7 +37619,7 @@ ${locks}` : ""}`;
       return;
     }
     activeTrain.timeout = setTimeout(
-      () => cancelTrain(t8("等待下一站超时", "Timed out waiting for the next stop")),
+      () => cancelTrain(t9("等待下一站超时", "Timed out waiting for the next stop")),
       TRAIN_TIMEOUT_MS
     );
   }
@@ -36508,13 +37662,13 @@ ${locks}` : ""}`;
     const current = activeTrain.steps[currentIndex];
     if (current.kind === "shop") {
       showToast2(
-        t8("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
+        t9("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
       );
       return { ok: false, added: 0, skipped: 0 };
     }
     const count = usePlannedCount ? plannedStepCount() ?? activeStepCount(context) : activeStepCount(context);
     if (!count) {
-      showToast2(t8("请先填写本步次数", "Enter the action count first"));
+      showToast2(t9("请先填写本步次数", "Enter the action count first"));
       return { ok: false, added: 0, skipped: 0 };
     }
     current.count = count;
@@ -36536,10 +37690,10 @@ ${locks}` : ""}`;
       "train"
     );
     showToast2(
-      result.added ? t8(
+      result.added ? t9(
         `本步缺料已加入购物车（${result.added} 种）`,
         `Added this stop's shortages (${result.added})`
-      ) : t8("本步没有新的缺料", "No new shortages for this stop")
+      ) : t9("本步没有新的缺料", "No new shortages for this stop")
     );
     scheduleScan();
     return result;
@@ -36610,7 +37764,7 @@ ${locks}` : ""}`;
       if (activeTrain.index === activeTrain.steps.length - 1 && !activeTrain.arrivalShown) {
         activeTrain.arrivalShown = true;
         showToast2(
-          t8(
+          t9(
             "火车已到终点，请手动加入队列",
             "Final stop reached; add it to the queue manually"
           )
@@ -36650,7 +37804,7 @@ ${locks}` : ""}`;
       }
     );
     showToast2(
-      t8(
+      t9(
         `购买 ${step.count} 个「${localizedItem(step.outputHrid)}」后自动续站`,
         `Buy ${step.count} ${localizedItem(step.outputHrid)} to continue automatically`
       )
@@ -36662,7 +37816,7 @@ ${locks}` : ""}`;
     const step = activeTrain.steps[activeTrain.index];
     const navigated = step.kind === "shop" ? (activeTrain.navigateShop ?? navigateToTrainShop)(step) : (activeTrain.navigateAction ?? navigateToTrainAction)(step.actionHrid);
     if (!navigated) {
-      cancelTrain(t8("无法打开下一站", "Could not open the next stop"));
+      cancelTrain(t9("无法打开下一站", "Could not open the next stop"));
       return;
     }
     if (step.kind === "shop") watchShopStep(step);
@@ -36673,7 +37827,7 @@ ${locks}` : ""}`;
     cancelTrain("");
     if (plan?.unavailableOutputs?.length) {
       showToast2(
-        t8(
+        t9(
           "当前茶饮使火车所需产物无法产出，请调整茶饮后重新规划",
           "Current drinks prevent a required train output; change drinks and replan"
         )
@@ -36682,10 +37836,10 @@ ${locks}` : ""}`;
     }
     if (plan?.cycle || plan?.truncated) {
       showToast2(
-        plan.cycle ? t8(
+        plan.cycle ? t9(
           "升级链存在循环，无法启动火车",
           "The upgrade chain contains a cycle"
-        ) : t8(
+        ) : t9(
           "升级链过长，无法安全启动火车",
           "The upgrade chain is too long to start safely"
         )
@@ -36696,7 +37850,7 @@ ${locks}` : ""}`;
     const finalCount = Number(allSteps.at(-1)?.count);
     if (!Number.isFinite(finalCount) || finalCount <= 0) {
       showToast2(
-        t8(
+        t9(
           "请先填写生产数量，再开始火车",
           "Enter a production count before starting the train"
         )
@@ -36710,7 +37864,7 @@ ${locks}` : ""}`;
     const steps = hasPlannedCounts ? allSteps.slice(firstNeeded < 0 ? allSteps.length : firstNeeded) : allSteps;
     if (!steps.length) {
       showToast2(
-        t8("库存已经足够，无需开火车", "Inventory already covers this train")
+        t9("库存已经足够，无需开火车", "Inventory already covers this train")
       );
       return false;
     }
@@ -36744,7 +37898,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    if (reason) showToast2(`${t8("火车已停止：", "Train stopped: ")}${reason}`);
+    if (reason) showToast2(`${t9("火车已停止：", "Train stopped: ")}${reason}`);
     return true;
   }
   function finishTrain() {
@@ -36756,7 +37910,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    showToast2(t8("火车已完成", "Train completed"));
+    showToast2(t9("火车已完成", "Train completed"));
     return true;
   }
   function getTrainState() {
@@ -36820,7 +37974,7 @@ ${locks}` : ""}`;
     controls.dataset.signature = signature;
     controls.appendChild(
       createButton(
-        t8("📋 详情", "📋 Details"),
+        t9("📋 详情", "📋 Details"),
         "detail",
         () => showTrainDetail(plan, activeTrain?.index ?? null)
       )
@@ -36830,8 +37984,8 @@ ${locks}` : ""}`;
       mode.type = "button";
       mode.className = "mwi-train-cart-mode";
       mode.setAttribute("aria-pressed", String(activeTrain.autoCartEnabled));
-      mode.textContent = activeTrain.autoCartEnabled ? t8("自动加购", "Auto cart") : t8("手动加购", "Manual cart");
-      mode.title = t8(
+      mode.textContent = activeTrain.autoCartEnabled ? t9("自动加购", "Auto cart") : t9("手动加购", "Manual cart");
+      mode.title = t9(
         "切换本步材料的自动或手动加购",
         "Toggle automatic or manual step shopping"
       );
@@ -36842,7 +37996,7 @@ ${locks}` : ""}`;
       });
       controls.appendChild(mode);
       const cart2 = createButton(
-        runningStep.kind === "shop" ? t8("本步无需加购", "No cart items") : t8("🛒 本步加购", "🛒 Add step shortages"),
+        runningStep.kind === "shop" ? t9("本步无需加购", "No cart items") : t9("🛒 本步加购", "🛒 Add step shortages"),
         "cart",
         () => addCurrentTrainStepToCart(context)
       );
@@ -36850,20 +38004,20 @@ ${locks}` : ""}`;
       controls.appendChild(cart2);
       controls.appendChild(
         createButton(
-          `🛑 ${t8("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
+          `🛑 ${t9("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
           "cancel",
-          () => cancelTrain(t8("用户取消", "Cancelled by user"))
+          () => cancelTrain(t9("用户取消", "Cancelled by user"))
         )
       );
     } else {
       const start2 = createButton(
-        `🚂 ${t8("开始火车", "Start train")} (${plan.steps.length}${t8("步", " stops")})`,
+        `🚂 ${t9("开始火车", "Start train")} (${plan.steps.length}${t9("步", " stops")})`,
         "start",
         () => startTrain(idlePlan(context))
       );
       start2.disabled = plan.hasExplicitCount === false;
       if (start2.disabled) {
-        start2.title = t8("请先填写生产数量", "Enter a production count first");
+        start2.title = t9("请先填写生产数量", "Enter a production count first");
       }
       controls.appendChild(start2);
     }
@@ -37062,7 +38216,7 @@ ${locks}` : ""}`;
       }
     }
     const used = /* @__PURE__ */ new Set();
-    const rows = [...cards].map((card, originalIndex) => {
+    const rows2 = [...cards].map((card, originalIndex) => {
       let resolved = null;
       let matchSource = null;
       const label = cardActionLabel(card);
@@ -37104,7 +38258,7 @@ ${locks}` : ""}`;
       candidateCursors.set(candidates, index + 1);
       return candidates[index] ?? null;
     };
-    for (const row of rows) {
+    for (const row of rows2) {
       if (row.resolved) continue;
       const entry = semanticIndex.get(row.label);
       if (!entry) continue;
@@ -37116,18 +38270,18 @@ ${locks}` : ""}`;
       row.matchSource = "semantic";
       used.add(row.resolved.taskIndex);
     }
-    for (const row of rows) {
+    for (const row of rows2) {
       if (row.resolved || !row.allowPositional && !allowReusedPositional) {
         continue;
       }
-      const positional = questList.length === rows.length && !used.has(row.originalIndex) ? questMetadata[row.originalIndex] : null;
+      const positional = questList.length === rows2.length && !used.has(row.originalIndex) ? questMetadata[row.originalIndex] : null;
       const onlyUnused = questList.length - used.size === 1 ? questMetadata.find(({ taskIndex }) => !used.has(taskIndex)) : null;
       row.resolved = positional ?? onlyUnused;
       if (!row.resolved) continue;
       row.matchSource = "positional";
       used.add(row.resolved.taskIndex);
     }
-    return rows.map(({ card, originalIndex, resolved, matchSource }) => {
+    return rows2.map(({ card, originalIndex, resolved, matchSource }) => {
       const task = resolved?.task ?? {};
       const taskIndex = Number.isInteger(resolved?.taskIndex) ? resolved.taskIndex : -1;
       return {
@@ -37305,7 +38459,7 @@ ${locks}` : ""}`;
     ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
     ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"]
   ].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
-  function t9(zh, en) {
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function taskId(task) {
@@ -37743,7 +38897,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t9("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t10("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -37807,7 +38961,7 @@ ${locks}` : ""}`;
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
       return {
         key: `dungeon-${detail.hrid}`,
-        label: name ? `${t9("地牢", "Dungeon")} · ${name}` : t9("地牢", "Dungeon"),
+        label: name ? `${t10("地牢", "Dungeon")} · ${name}` : t10("地牢", "Dungeon"),
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -37820,7 +38974,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t9("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t10("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -37828,13 +38982,13 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t9("地图", "Zone")} ${mapIndex}`,
+        label: `${t10("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "non-dungeon-monsters",
-      label: t9("非地牢怪物", "Non-dungeon monsters"),
+      label: t10("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
@@ -37844,7 +38998,7 @@ ${locks}` : ""}`;
       key: `dungeon-${detail?.hrid}`,
       actionHrid: detail?.hrid ?? "",
       isDungeon: true,
-      label: name || t9("地牢", "Dungeon"),
+      label: name || t10("地牢", "Dungeon"),
       order: Number(detail?.sortIndex ?? 9999)
     };
   }
@@ -37853,7 +39007,7 @@ ${locks}` : ""}`;
       key: "non-dungeon-monsters",
       actionHrid: "",
       isDungeon: false,
-      label: t9("非地牢怪物", "Non-dungeon monsters"),
+      label: t10("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
@@ -37907,14 +39061,14 @@ ${locks}` : ""}`;
   }
   function productionChains(tasks) {
     if (!runtime.settings.get("taskTrainPlanner")) return null;
-    const planning = runtime.api.trainPlanning;
-    if (!planning) return null;
-    const rows = tasks.map((task, index) => {
+    const planning2 = runtime.api.trainPlanning;
+    if (!planning2) return null;
+    const rows2 = tasks.map((task, index) => {
       const actionHrid = taskActionHrid(task);
       const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
       const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
-      const root = outputHrid ? planning.trainChainRoot(outputHrid) : "";
-      const depth = outputHrid ? planning.trainChainDepth(outputHrid) : -1;
+      const root = outputHrid ? planning2.trainChainRoot(outputHrid) : "";
+      const depth = outputHrid ? planning2.trainChainDepth(outputHrid) : -1;
       return {
         actionHrid,
         root: root && depth >= 0 ? root : `task:${index}`,
@@ -37923,11 +39077,11 @@ ${locks}` : ""}`;
       };
     });
     const groupOrder = /* @__PURE__ */ new Map();
-    for (const row of rows) {
+    for (const row of rows2) {
       if (!groupOrder.has(row.root)) groupOrder.set(row.root, row.index);
     }
     return new Map(
-      rows.map((row) => [
+      rows2.map((row) => [
         row.actionHrid,
         { depth: row.depth, group: groupOrder.get(row.root) ?? row.index }
       ])
@@ -38059,7 +39213,7 @@ ${locks}` : ""}`;
   }
   function orderedRows(cards, tasks, snapshots = null) {
     const chains = productionChains(tasks);
-    const rows = cards.map((card, index) => {
+    const rows2 = cards.map((card, index) => {
       const task = tasks[index];
       const snapshot = snapshots?.[index] ?? taskCardSnapshot(card, task);
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
@@ -38123,7 +39277,7 @@ ${locks}` : ""}`;
     });
     const stateOrder = { new: 0, completed: 1, normal: 2 };
     const firstSlotByMonster = /* @__PURE__ */ new Map();
-    for (const row of rows) {
+    for (const row of rows2) {
       if (row.profession.key !== "combat") continue;
       const key = row.monsterGroupKey || `combat-slot-${row.info.originalIndex}`;
       const current = firstSlotByMonster.get(key);
@@ -38131,7 +39285,7 @@ ${locks}` : ""}`;
         firstSlotByMonster.set(key, row.info.originalIndex);
       }
     }
-    rows.sort((left, right) => {
+    rows2.sort((left, right) => {
       const taskStateOrder = stateOrder[left.state] - stateOrder[right.state];
       if (taskStateOrder) return taskStateOrder;
       const professionOrder = left.profession.order - right.profession.order;
@@ -38155,7 +39309,7 @@ ${locks}` : ""}`;
       if (right.info.unknown) return -1;
       return left.info.category - right.info.category || left.chain - right.chain || left.depth - right.depth || left.info.level - right.info.level || left.info.action - right.info.action || left.info.name.localeCompare(right.info.name) || left.info.originalIndex - right.info.originalIndex;
     });
-    return rows;
+    return rows2;
   }
   function updatePressedState(button, pressed) {
     const value = String(Boolean(pressed));
@@ -38229,10 +39383,10 @@ ${locks}` : ""}`;
     }
     updateTaskFilterIcon(button);
   }
-  function applyTaskFilters(rows) {
+  function applyTaskFilters(rows2) {
     const statisticsEnabled = runtime.settings.get("taskStatistics");
     const noFiltersSelected = activeProfessionFilters.size === 0 && !combatFilterEnabled && activeDungeonFilters.size === 0;
-    for (const row of rows) {
+    for (const row of rows2) {
       let visible2 = true;
       if (statisticsEnabled) {
         if (noFiltersSelected) {
@@ -38252,7 +39406,7 @@ ${locks}` : ""}`;
       }
     }
   }
-  function ensureTaskToolbar(rows) {
+  function ensureTaskToolbar(rows2) {
     if (!taskListParent?.isConnected) return;
     const statisticsEnabled = runtime.settings.get("taskStatistics");
     const signature = [runtime.config.isZH, statisticsEnabled].join(":");
@@ -38267,7 +39421,7 @@ ${locks}` : ""}`;
       toolbar.setAttribute("role", "toolbar");
       toolbar.setAttribute(
         "aria-label",
-        t9("任务排序与筛选", "Task sorting and filters")
+        t10("任务排序与筛选", "Task sorting and filters")
       );
       if (statisticsEnabled) {
         const controls2 = document.createElement("div");
@@ -38276,7 +39430,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "all",
             value: "all",
-            label: t9("全部任务", "All tasks"),
+            label: t10("全部任务", "All tasks"),
             fallback: "☰",
             showLabel: true,
             onClick: () => {
@@ -38320,7 +39474,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "combat",
             value: "combat",
-            label: t9("战斗", "Combat"),
+            label: t10("战斗", "Combat"),
             iconKind: "misc",
             iconHrid: "combat",
             fallback: "⚔",
@@ -38361,14 +39515,14 @@ ${locks}` : ""}`;
       const sortButton = document.createElement("button");
       sortButton.type = "button";
       sortButton.className = "mwi-task-sort-button";
-      sortButton.title = t9("重新排序任务", "Sort tasks again");
+      sortButton.title = t10("重新排序任务", "Sort tasks again");
       sortButton.setAttribute("aria-label", sortButton.title);
       const sortIcon = document.createElement("span");
       sortIcon.className = "mwi-task-filter-icon";
       sortIcon.textContent = "↕";
       const sortLabel = document.createElement("span");
       sortLabel.className = "mwi-task-filter-label";
-      sortLabel.textContent = t9("任务排序", "Sort tasks");
+      sortLabel.textContent = t10("任务排序", "Sort tasks");
       sortButton.append(sortIcon, sortLabel);
       sortButton.addEventListener("click", () => sortTasks());
       const controls = toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
@@ -38381,7 +39535,7 @@ ${locks}` : ""}`;
       DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0])
     );
     let combatCount = 0;
-    for (const row of rows) {
+    for (const row of rows2) {
       if (professionCounts.has(row.profession.key)) {
         professionCounts.set(
           row.profession.key,
@@ -38399,8 +39553,8 @@ ${locks}` : ""}`;
     const allSelected = allTaskFiltersSelected();
     const allButton = toolbar.querySelector('[data-filter-kind="all"]');
     updateTaskFilterButton(allButton, {
-      label: t9("全部任务", "All tasks"),
-      count: rows.length,
+      label: t10("全部任务", "All tasks"),
+      count: rows2.length,
       pressed: allSelected
     });
     for (const profession of LIFE_PROFESSIONS) {
@@ -38414,7 +39568,7 @@ ${locks}` : ""}`;
       });
     }
     updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
-      label: t9("战斗", "Combat"),
+      label: t10("战斗", "Combat"),
       count: combatCount,
       pressed: combatFilterEnabled
     });
@@ -38433,17 +39587,17 @@ ${locks}` : ""}`;
       });
     }
   }
-  function applyExplicitSort(rows) {
-    rows.forEach((row, index) => {
+  function applyExplicitSort(rows2) {
+    rows2.forEach((row, index) => {
       const order = index + 1;
       const value = String(order);
       if (row.card.style.order !== value) row.card.style.order = value;
       pageOrderBySlot.set(row.slot, order);
     });
   }
-  function restoreStableOrders(rows) {
+  function restoreStableOrders(rows2) {
     let nextOrder = Math.max(0, ...pageOrderBySlot.values()) + 1;
-    for (const row of rows) {
+    for (const row of rows2) {
       let order = pageOrderBySlot.get(row.slot);
       if (!Number.isFinite(order)) {
         const current = Number(row.card.style.order);
@@ -38454,14 +39608,14 @@ ${locks}` : ""}`;
       if (row.card.style.order !== value) row.card.style.order = value;
     }
   }
-  function renderFlatTaskList(rows, { sort = false } = {}) {
+  function renderFlatTaskList(rows2, { sort = false } = {}) {
     if (!taskListParent) return;
     cleanupListDecorations({ restoreOrder: false });
-    if (sort) applyExplicitSort(rows);
-    else restoreStableOrders(rows);
-    ensureTaskToolbar(rows);
-    applyTaskFilters(rows);
-    return rows;
+    if (sort) applyExplicitSort(rows2);
+    else restoreStableOrders(rows2);
+    ensureTaskToolbar(rows2);
+    applyTaskFilters(rows2);
+    return rows2;
   }
   function isMergeNavigationButton(candidate) {
     return matchesGameTranslations(
@@ -38560,7 +39714,7 @@ ${locks}` : ""}`;
     const toast = document.createElement("div");
     toast.className = "mwi-task-merge-toast";
     toast.setAttribute("role", "status");
-    toast.textContent = t9(
+    toast.textContent = t10(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -38612,7 +39766,7 @@ ${locks}` : ""}`;
       combatFilterEnabled,
       [...activeDungeonFilters].sort().join(",")
     ];
-    const rows = snapshots.map((snapshot) => {
+    const rows2 = snapshots.map((snapshot) => {
       return [
         snapshot.actionHrid,
         snapshot.title,
@@ -38621,7 +39775,7 @@ ${locks}` : ""}`;
         snapshot.taskId
       ].join("");
     });
-    return [...settings2, ...rows].join("");
+    return [...settings2, ...rows2].join("");
   }
   function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
@@ -38715,11 +39869,11 @@ ${locks}` : ""}`;
       }
     });
     if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
-    const rows = orderedRows(cards, cardTasks, snapshots);
-    rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
+    const rows2 = orderedRows(cards, cardTasks, snapshots);
+    rows2.forEach((row) => decorateCard(row.card, row.task, row.artwork));
     wireMergeButtons(cards);
     wireResetButtons(cards);
-    renderFlatTaskList(rows, {
+    renderFlatTaskList(rows2, {
       sort: forceSort || sortOnEntry || newTaskSetChanged
     });
     applyPendingMerge();
@@ -38850,7 +40004,7 @@ ${locks}` : ""}`;
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
-  function t10(zh, en) {
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles9() {
@@ -38950,8 +40104,8 @@ ${locks}` : ""}`;
     button.type = "button";
     button.className = CONTROL_CLASS2;
     button.dataset.signature = signature;
-    button.textContent = t10("🚂 规划火车", "🚂 Plan train");
-    button.title = t10(
+    button.textContent = t11("🚂 规划火车", "🚂 Plan train");
+    button.title = t11(
       "合并同一升级链全部未完成任务并按最新库存重新规划",
       "Combine all unfinished tasks in this upgrade chain and recalculate from current inventory"
     );
@@ -39009,8 +40163,8 @@ ${locks}` : ""}`;
         insertBeforeTaskNavigation(
           card,
           plannerLabel(
-            t10("已被规划", "Included in plan"),
-            t10(
+            t11("已被规划", "Included in plan"),
+            t11(
               "已由同一升级链的最高级任务统一规划",
               "Included by the highest-level task in this upgrade chain"
             ),
@@ -39583,13 +40737,13 @@ ${locks}` : ""}`;
   var STYLE_ID13 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function finite(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number2 = Number(value);
-    return Number.isFinite(number2) ? number2 : null;
+    const number3 = Number(value);
+    return Number.isFinite(number3) ? number3 : null;
   }
   function maxAbilityLevel(levelExperienceTable) {
     if (!Array.isArray(levelExperienceTable)) return 0;
@@ -39771,35 +40925,35 @@ ${locks}` : ""}`;
   }
   function updateCartButton(panel, itemHrid, requirement) {
     const button = panel.querySelector(".mwi-book-cart");
-    const procurement2 = runtime.api.procurement;
+    const procurement4 = runtime.api.procurement;
     const cartEnabled = Boolean(
-      procurement2 && runtime.settings.settingsMap.procurementAssistant?.isTrue === true
+      procurement4 && runtime.settings.settingsMap.procurementAssistant?.isTrue === true
     );
     button.hidden = !cartEnabled;
     button.disabled = true;
     button.dataset.quantity = "0";
     if (!cartEnabled) return;
     if (!requirement || requirement.status === "invalid") {
-      button.textContent = t11("加入购物车", "Add to cart");
+      button.textContent = t12("加入购物车", "Add to cart");
       return;
     }
     const totalBooks = Math.max(0, Math.ceil(requirement.totalBooks || 0));
     const owned = Math.max(
       0,
-      Number(procurement2.getInventoryCount?.(itemHrid, 0)) || 0
+      Number(procurement4.getInventoryCount?.(itemHrid, 0)) || 0
     );
     const listed = Math.max(
       0,
-      Number(procurement2.getCartItem?.(itemHrid, 0)?.quantity) || 0
+      Number(procurement4.getCartItem?.(itemHrid, 0)?.quantity) || 0
     );
     const shortage = Math.max(0, Math.ceil(totalBooks - owned - listed));
     if (shortage <= 0) {
-      button.textContent = t11("已备齐", "Covered");
+      button.textContent = t12("已备齐", "Covered");
       return;
     }
     button.dataset.quantity = String(shortage);
     button.disabled = false;
-    button.textContent = t11(
+    button.textContent = t12(
       `加入购物车（${shortage}）`,
       `Add to cart (${shortage})`
     );
@@ -39809,12 +40963,12 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-title",
-      t11("技能书计算器", "Ability book calculator")
+      t12("技能书计算器", "Ability book calculator")
     );
     const data = calculatorData(itemHrid);
     const input = panel.querySelector("input");
     const targetLabel = panel.querySelector(".mwi-book-target span");
-    targetLabel.textContent = t11("目标等级", "Target level");
+    targetLabel.textContent = t12("目标等级", "Target level");
     input.setAttribute("aria-label", targetLabel.textContent);
     if (!data.ready || !data.experienceGain || !data.maximumLevel) {
       panel.dataset.status = "waiting";
@@ -39822,7 +40976,7 @@ ${locks}` : ""}`;
       setPanelText(
         panel,
         ".mwi-book-state",
-        t11("等待角色与技能书数据", "Waiting for character and ability-book data")
+        t12("等待角色与技能书数据", "Waiting for character and ability-book data")
       );
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
@@ -39841,21 +40995,21 @@ ${locks}` : ""}`;
     if (!Number.isInteger(target)) target = defaultTarget;
     if (String(input.value) !== String(target)) input.value = String(target);
     targetValues.set(itemHrid, target);
-    const exact = runtime.api.formatExactNumber ?? ((value) => String(value));
+    const exact2 = runtime.api.formatExactNumber ?? ((value) => String(value));
     setPanelText(
       panel,
       ".mwi-book-state",
-      data.isLearned ? t11(
-        `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
-        `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`
-      ) : t11("当前：未学习", "Current: not learned")
+      data.isLearned ? t12(
+        `当前 Lv.${data.level} · 总经验 ${exact2(data.experience, 0)}`,
+        `Current Lv.${data.level} · total XP ${exact2(data.experience, 0)}`
+      ) : t12("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
-      t11(
-        `每本增加 ${exact(data.experienceGain, 0)} 经验`,
-        `${exact(data.experienceGain, 0)} XP per book`
+      t12(
+        `每本增加 ${exact2(data.experienceGain, 0)} 经验`,
+        `${exact2(data.experienceGain, 0)} XP per book`
       )
     );
     const requirement = calculateAbilityBookRequirement({
@@ -39869,19 +41023,19 @@ ${locks}` : ""}`;
     panel.dataset.status = requirement.status;
     let resultText;
     if (requirement.status === "invalid") {
-      resultText = t11(
+      resultText = t12(
         `目标等级必须为 1–${data.maximumLevel} 的整数`,
         `Target level must be an integer from 1 to ${data.maximumLevel}`
       );
     } else if (requirement.status === "reached") {
-      resultText = t11("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+      resultText = t12("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
     } else if (requirement.unlockBooks) {
-      resultText = t11(
+      resultText = t12(
         `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
         `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
       );
     } else {
-      resultText = t11(
+      resultText = t12(
         `升级还需 ${requirement.totalBooks} 本`,
         `${requirement.totalBooks} books needed to level`
       );
@@ -39891,10 +41045,10 @@ ${locks}` : ""}`;
     const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
     let costText = "";
     if (requirement.status !== "invalid") {
-      costText = books === 0 ? t11("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t11(
+      costText = books === 0 ? t12("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t12(
         `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低出售价 ${runtime.api.numberFormatter(ask)}/本）`,
         `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
-      ) : t11(
+      ) : t12(
         "参考购买成本：暂无出售价",
         "Reference purchase cost: no ask price"
       );
@@ -40051,12 +41205,14 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "采购抽屉新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；前五名彩色徽章默认启用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，也可在设置中关闭。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能被残留的隐藏状态遮住；摘要和排序栏现在始终跟随游戏原生库存面板显隐，即使复用旧节点或晚到回调再次写入隐藏状态也会保持可见。",
           "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
           "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。"
         ]),
         en: Object.freeze([
+          "The procurement drawer now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Top-five rainbow badges now enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause by default, with an option to turn the effect off.",
           "Fixed combat and skilling gear scores and total assets being obscured by a stale hidden state after switching to Abilities and returning to Inventory. The summary and sorting bar now always follow the native Inventory panel, remaining visible even when a reused node or delayed callback writes another hidden state.",
           "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
@@ -40282,7 +41438,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t12(zh, en) {
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -40339,10 +41495,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t12(...labels);
+    if (labels) return t13(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t12(
+      return t13(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -40406,7 +41562,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t12("意见反馈服务请求超时", "Feedback service request timed out")
+            t13("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -40423,7 +41579,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t12(
+            localizeErrorDetail(payload?.detail) || t13(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -40441,7 +41597,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t12("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -40455,9 +41611,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t12("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t13("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t12("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -40470,21 +41626,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t12("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t13("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t12("图片链接过长", "The image link is too long"));
+        throw new Error(t13("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t12("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t13("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t12("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t13("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -40588,7 +41744,7 @@ ${locks}` : ""}`;
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID14 = "mwitools-feedback-style";
-  function t13(zh, en) {
+  function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -40597,7 +41753,7 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t13(...labels[status]) : status;
+    return labels[status] ? t14(...labels[status]) : status;
   }
   function addStyles12() {
     if (document.getElementById(STYLE_ID14)) return;
@@ -40654,19 +41810,19 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t13("MWITools 意见中心", "MWITools Feedback Center")}">
-        <header class="mwi-feedback-head"><h2>${t13("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t13("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t13("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t13("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t13("我的反馈", "My feedback")}</button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t14("MWITools 意见中心", "MWITools Feedback Center")}">
+        <header class="mwi-feedback-head"><h2>${t14("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t14("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t14("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t14("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t14("我的反馈", "My feedback")}</button></nav>
         <div class="mwi-feedback-body">
           <section class="mwi-feedback-view" data-view="announcements" hidden><div class="mwi-announcement-list"></div></section>
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t13("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t14("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t13("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t13("功能建议", "Feature request")}</option><option value="other">${t13("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t13("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t13("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t13("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t13("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t13("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t13("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t13("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t13("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t13("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t14("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t14("功能建议", "Feature request")}</option><option value="other">${t14("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t14("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t14("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t14("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t14("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t14("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t14("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t14("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t14("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t14("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -40750,10 +41906,10 @@ ${locks}` : ""}`;
       if (dot) dot.hidden = !hasUnread;
       button.setAttribute(
         "aria-label",
-        hasUnread ? t13(
+        hasUnread ? t14(
           "MWITools 意见中心，有新内容",
           "MWITools Feedback Center, new activity"
-        ) : t13("MWITools 意见中心", "MWITools Feedback Center")
+        ) : t14("MWITools 意见中心", "MWITools Feedback Center")
       );
     }
     async open() {
@@ -40818,12 +41974,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t13("正在提交…", "Submitting…");
+      error.textContent = t14("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t13("请填写标题和详细说明。", "Enter a title and details.")
+            t14("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -40843,7 +41999,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t13("已保存反馈。", "Feedback saved.");
+        error.textContent = t14("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -40856,7 +42012,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t13(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
         "提交",
         "Submit"
       );
@@ -40933,7 +42089,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t13("目前还没有公告。", "There are no announcements yet.")
+            t14("目前还没有公告。", "There are no announcements yet.")
           )
         );
         return;
@@ -40974,13 +42130,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t13(
+      node.textContent = errorMessage ? t14(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t13(
+      ) : this.quota ? t14(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t13("额度暂时不可用", "Quota unavailable");
+      ) : t14("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -40995,7 +42151,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t13("还没有提交过反馈。", "No feedback yet.")
+            t14("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -41029,7 +42185,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t13("返回列表", "Back")}`
+          `← ${t14("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -41043,29 +42199,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t13("详细说明", "Details"), item.detail)
+          this.textSection(t14("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t13("复现步骤", "Steps to reproduce"),
+              t14("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t13("预期结果", "Expected result"),
+              t14("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t13("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t14("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t13("图片", "Image")} ${index + 1}：${url}`
+              `${t14("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -41076,7 +42232,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t13("留言", "Messages")));
+        messages.append(makeElement("h4", "", t14("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -41084,7 +42240,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t13("管理员", "Admin") : t13("我", "Me")
+              message.actor === "admin" ? t14("管理员", "Admin") : t14("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -41096,7 +42252,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t13("暂无留言", "No messages")
+              t14("暂无留言", "No messages")
             )
           );
         }
@@ -41104,7 +42260,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t13("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t14("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -41113,9 +42269,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t13("补充留言…", "Add a message…");
+          input.placeholder = t14("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t13("发送", "Send"));
+          const send = makeElement("button", "", t14("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -41136,7 +42292,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t13(
+              t14(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -41173,7 +42329,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t13(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
         "保存修改",
         "Save changes"
       );
@@ -41294,7 +42450,7 @@ ${locks}` : ""}`;
     scope.observer(observer, document.body, { childList: true, subtree: true });
     scope.add(() => scheduler.cancel());
   }
-  function t14(zh, en) {
+  function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -41473,7 +42629,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t14("待再次采样", "Awaiting another sample") : t14("样本不足", "Not enough data");
+      return waiting ? t15("待再次采样", "Awaiting another sample") : t15("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -41539,7 +42695,7 @@ ${locks}` : ""}`;
     svg.classList.add("mwi-guild-trend");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    const label = t14(
+    const label = t15(
       "公会经验获取速度（6 小时滚动平均，XP/小时）",
       "Guild XP gain rate (6-hour rolling average, XP/hour)"
     );
@@ -41553,7 +42709,7 @@ ${locks}` : ""}`;
       const empty = svgElement("text", "mwi-guild-trend-empty");
       empty.setAttribute("x", String(width / 2));
       empty.setAttribute("y", String(height / 2));
-      empty.textContent = t14("样本不足", "Not enough data");
+      empty.textContent = t15("样本不足", "Not enough data");
       svg.append(empty);
       return svg;
     }
@@ -41669,10 +42825,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t14("公会经验进度", "Guild XP progress");
+    title.textContent = t15("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t14("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t14("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t15("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t15("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -41686,14 +42842,14 @@ ${locks}` : ""}`;
     const etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
     grid.append(
       metric2(
-        t14("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t14("样本不足", "Not enough data")
+        t15("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t15("样本不足", "Not enough data")
       ),
-      metric2(t14("24 小时平均", "24-hour average"), rateText(rates?.day))
+      metric2(t15("24 小时平均", "24-hour average"), rateText(rates?.day))
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t14(
+    trendLabel.textContent = t15(
       "最近 7 天经验获取速度（6 小时滚动平均）",
       "XP gain rate over the last 7 days (6-hour rolling average)"
     );
@@ -41705,7 +42861,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t14("当前闲置", "Idle now")} (${idle.length}) · ${t14(
+      label.textContent = `${t15("当前闲置", "Idle now")} (${idle.length}) · ${t15(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -41718,8 +42874,8 @@ ${locks}` : ""}`;
       card.append(idleRow);
     }
   }
-  function appendRateColumns(table, rows, kind, parentId = "") {
-    if (!table?.tHead?.rows?.[0] || !rows.length) return;
+  function appendRateColumns(table, rows2, kind, parentId = "") {
+    if (!table?.tHead?.rows?.[0] || !rows2.length) return;
     table.classList.add(`mwi-guild-${kind}-table`);
     if (kind === "member") {
       table.closest('[class*="GuildPanel_membersTab__"]')?.classList.add("mwi-guild-members-wide");
@@ -41728,9 +42884,9 @@ ${locks}` : ""}`;
     if (!header.querySelector(".mwi-guild-recent-head")) {
       const sortable = kind === "member";
       const columns = [
-        ["mwi-guild-recent-head", t14("近 6 小时 XP/h", "6h XP/h")],
-        ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")],
-        ...kind === "member" ? [["mwi-guild-week-head", t14("本周平均 XP/h", "This-week avg XP/h")]] : []
+        ["mwi-guild-recent-head", t15("近 6 小时 XP/h", "6h XP/h")],
+        ["mwi-guild-day-head", t15("24 小时 XP/h", "24h XP/h")],
+        ...kind === "member" ? [["mwi-guild-week-head", t15("本周平均 XP/h", "This-week avg XP/h")]] : []
       ];
       for (const [rateIndex, [className, label]] of columns.entries()) {
         const cell = document.createElement("th");
@@ -41748,7 +42904,7 @@ ${locks}` : ""}`;
         cell.append(sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t14("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t15("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -41792,13 +42948,13 @@ ${locks}` : ""}`;
       }
     }
     const sourceByKey = new Map(
-      rows.map((source) => [objectKey(kind, source, parentId), source])
+      rows2.map((source) => [objectKey(kind, source, parentId), source])
     );
     const rowEntries = [...table.tBodies[0]?.rows ?? []].map((row, index) => {
       let key = row.dataset.mwiGuildEntityKey ?? "";
       let source = sourceByKey.get(key);
       if (!source) {
-        source = rows[index];
+        source = rows2[index];
         key = objectKey(kind, source, parentId);
         if (key) row.dataset.mwiGuildEntityKey = key;
       }
@@ -41854,11 +43010,11 @@ ${locks}` : ""}`;
       }
     });
   }
-  function appendLeaderboardDivRates(rows) {
+  function appendLeaderboardDivRates(rows2) {
     const leaderboard = document.querySelector(
       'div[class*="LeaderboardPanel_leaderboardTable"]'
     );
-    if (!leaderboard || !rows.length) return;
+    if (!leaderboard || !rows2.length) return;
     let head = leaderboard.parentElement.querySelector(
       ":scope > .mwi-guild-div-rate-head"
     );
@@ -41867,10 +43023,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t14("近 6 小时 XP/h", "6h XP/h")
+          textContent: t15("近 6 小时 XP/h", "6h XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t14("24 小时 XP/h", "24h XP/h")
+          textContent: t15("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -41884,7 +43040,7 @@ ${locks}` : ""}`;
         row = row.parentElement;
       }
       row.querySelector(":scope > .mwi-guild-div-rates")?.remove();
-      const rates = rateCache.get(objectKey("leaderboard", rows[index]));
+      const rates = rateCache.get(objectKey("leaderboard", rows2[index]));
       const cells = document.createElement("div");
       cells.className = "mwi-guild-div-rates";
       for (const value of [rates?.recent, rates?.day]) {
@@ -42002,7 +43158,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t15(zh, en) {
+  function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var lastBattleSummaryMessage = null;
@@ -42314,7 +43470,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t15("全部", "All")}</option>
+            <option value="1">${t16("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -42335,7 +43491,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t15("全部", "All")}</option>
+            <option value="1000">${t16("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -42356,33 +43512,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t15("全部", "All")}</option>
-                <option value="attack">${t15("攻击", "Attack")}</option>
-                <option value="melee">${t15("近战", "Melee")}</option>
-                <option value="defense">${t15("防御", "Defense")}</option>
-                <option value="ranged">${t15("远程", "Ranged")}</option>
-                <option value="magic">${t15("魔法", "Magic")}</option>
-                <option value="others">${t15("其他", "Others")}</option>
+                <option value="all">${t16("全部", "All")}</option>
+                <option value="attack">${t16("攻击", "Attack")}</option>
+                <option value="melee">${t16("近战", "Melee")}</option>
+                <option value="defense">${t16("防御", "Defense")}</option>
+                <option value="ranged">${t16("远程", "Ranged")}</option>
+                <option value="magic">${t16("魔法", "Magic")}</option>
+                <option value="others">${t16("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t15("全部", "All")}</option>
-                <option value="main_hand">${t15("主手", "Main Hand")}</option>
-                <option value="off_hand">${t15("副手", "Off Hand")}</option>
-                <option value="two_hand">${t15("双手", "Two Hand")}</option>
-                <option value="head">${t15("头部", "Head")}</option>
-                <option value="body">${t15("身体", "Body")}</option>
-                <option value="hands">${t15("手部", "Hands")}</option>
-                <option value="legs">${t15("腿部", "Legs")}</option>
-                <option value="feet">${t15("脚部", "Feet")}</option>
-                <option value="neck">${t15("项链", "Neck")}</option>
-                <option value="earrings">${t15("耳饰", "Earrings")}</option>
-                <option value="ring">${t15("戒指", "Ring")}</option>
-                <option value="pouch">${t15("袋子", "Pouch")}</option>
-                <option value="back">${t15("背部", "Back")}</option>
+                <option value="all">${t16("全部", "All")}</option>
+                <option value="main_hand">${t16("主手", "Main Hand")}</option>
+                <option value="off_hand">${t16("副手", "Off Hand")}</option>
+                <option value="two_hand">${t16("双手", "Two Hand")}</option>
+                <option value="head">${t16("头部", "Head")}</option>
+                <option value="body">${t16("身体", "Body")}</option>
+                <option value="hands">${t16("手部", "Hands")}</option>
+                <option value="legs">${t16("腿部", "Legs")}</option>
+                <option value="feet">${t16("脚部", "Feet")}</option>
+                <option value="neck">${t16("项链", "Neck")}</option>
+                <option value="earrings">${t16("耳饰", "Earrings")}</option>
+                <option value="ring">${t16("戒指", "Ring")}</option>
+                <option value="pouch">${t16("袋子", "Pouch")}</option>
+                <option value="back">${t16("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -42886,8 +44042,8 @@ ${locks}` : ""}`;
   ];
   var EPSILON = 1e-9;
   function finitePositive(value) {
-    const number2 = Number(value);
-    return Number.isFinite(number2) && number2 > 0 ? number2 : 0;
+    const number3 = Number(value);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
   }
   function normalizedTable(source, fallback) {
     if (!source) return fallback;
@@ -43475,7 +44631,7 @@ ${locks}` : ""}`;
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
-  function t16(zh, en) {
+  function t17(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles14() {
@@ -43512,11 +44668,11 @@ ${locks}` : ""}`;
     }).format(Number(value));
   }
   function countWithUnit(value) {
-    const number2 = Number(value);
-    if (!Number.isFinite(number2)) return "—";
-    const rounded = Math.round(number2);
-    const digits = Math.abs(number2 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number2, digits)} ${t16("个", "pcs")}`;
+    const number3 = Number(value);
+    if (!Number.isFinite(number3)) return "—";
+    const rounded = Math.round(number3);
+    const digits = Math.abs(number3 - rounded) < 1e-8 ? 0 : 1;
+    return `${compactNumber(number3, digits)} ${t17("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -43539,11 +44695,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t16(
+      text: t17(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t16(
+      title: t17(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -43552,40 +44708,40 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t16("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t16("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t16(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t16("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t16(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t16("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t17("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t17("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t17(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t17("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t17(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t17("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t16("总成本", "Total cost"),
+        t17("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t16("底子成本", "Base cost"),
+        t17("底子成本", "Base cost"),
         complete ? compactNumber(plan.baseCost, 1) : "—",
         plan?.baseCost
       ),
       ...complete && Number(plan.refinementCost) > 0 ? [
         metric3(
-          t16("其中精炼", "Includes refining"),
+          t17("其中精炼", "Includes refining"),
           compactNumber(plan.refinementCost, 1),
           plan.refinementCost
         )
       ] : [],
       metric3(
-        t16("耗时", "Time"),
+        t17("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t16("开始保护", "Protect from"), normalStart),
+      metric3(t17("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t16("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t17("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -44850,7 +46006,7 @@ ${locks}` : ""}`;
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID17 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t17(value) {
+  function t18(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -44886,7 +46042,7 @@ ${locks}` : ""}`;
       return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
-            t17({
+            t18({
               zh: `更新清单请求失败（HTTP ${response.status}）`,
               en: `Update manifest request failed (HTTP ${response.status})`
             })
@@ -44901,7 +46057,7 @@ ${locks}` : ""}`;
           if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
             reject(
               new Error(
-                t17({
+                t18({
                   zh: `更新清单请求失败（HTTP ${response?.status}）`,
                   en: `Update manifest request failed (HTTP ${response?.status})`
                 })
@@ -44922,7 +46078,7 @@ ${locks}` : ""}`;
           onload: finish,
           onerror: () => reject(
             new Error(
-              t17({
+              t18({
                 zh: "更新清单请求失败。",
                 en: "Update manifest request failed."
               })
@@ -44930,7 +46086,7 @@ ${locks}` : ""}`;
           ),
           ontimeout: () => reject(
             new Error(
-              t17({
+              t18({
                 zh: "更新清单请求超时。",
                 en: "Update manifest request timed out."
               })
@@ -44946,7 +46102,7 @@ ${locks}` : ""}`;
   function validateManifest(manifest) {
     if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
-        t17({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
+        t18({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
     return manifest;
@@ -44963,7 +46119,7 @@ ${locks}` : ""}`;
         lastError = error;
       }
     }
-    throw lastError ?? new Error(t17({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+    throw lastError ?? new Error(t18({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
   }
   var manifestCheck = null;
   function getImportantUpdateManifest() {
@@ -45006,8 +46162,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t17(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    const message = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t18(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    const message = t18(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
     banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
@@ -45320,7 +46476,7 @@ ${locks}` : ""}`;
     function dayStamp(value = /* @__PURE__ */ new Date()) {
       const date = value instanceof Date ? value : new Date(value);
       if (Number.isNaN(date.getTime())) return "";
-      const pad = (number2) => String(number2).padStart(2, "0");
+      const pad = (number3) => String(number3).padStart(2, "0");
       return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
     }
     function resolve(detail, type, characterId, now = /* @__PURE__ */ new Date()) {
@@ -45502,18 +46658,18 @@ ${locks}` : ""}`;
       sundering_crossbow: "crossbow",
       griffin_bulwark: "shield"
     };
-    function tail(v) {
+    function tail2(v) {
       return String(v || "").split("/").pop().toLowerCase();
     }
     function normalizeWeapon(v) {
-      return tail(v).replace(/_refined$/, "");
+      return tail2(v).replace(/_refined$/, "");
     }
     function identifyStats(stats, fallbackInterval = 0) {
       stats = stats && typeof stats === "object" ? stats : {};
-      const styles = (Array.isArray(stats.combatStyleHrids) ? stats.combatStyleHrids : stats.combatStyleHrid ? [stats.combatStyleHrid] : []).map(tail);
+      const styles = (Array.isArray(stats.combatStyleHrids) ? stats.combatStyleHrids : stats.combatStyleHrid ? [stats.combatStyleHrid] : []).map(tail2);
       const style = styles[0] || "";
-      const damageType = tail(stats.damageType);
-      const primary = tail(stats.primaryTraining);
+      const damageType = tail2(stats.damageType);
+      const primary = tail2(stats.primaryTraining);
       const interval = Number(stats.attackInterval || fallbackInterval || 0);
       if (style === "magic") {
         if (damageType === "fire") return "fire";
@@ -45531,8 +46687,8 @@ ${locks}` : ""}`;
       return UNKNOWN;
     }
     function itemDetailFor(weaponHrid) {
-      const exact = String(weaponHrid || ""), short = tail(exact), base = normalizeWeapon(exact);
-      const keys = [exact, short, "/items/" + short, base, "/items/" + base];
+      const exact2 = String(weaponHrid || ""), short = tail2(exact2), base = normalizeWeapon(exact2);
+      const keys = [exact2, short, "/items/" + short, base, "/items/" + base];
       for (const key of keys) {
         const value = itemDetailMap instanceof Map ? itemDetailMap.get(key) : itemDetailMap && itemDetailMap[key];
         if (value && typeof value === "object") return value;
@@ -45788,7 +46944,7 @@ ${locks}` : ""}`;
       if (Array.isArray(saved)) events = saved.slice(0, MAX_EVENTS);
     } catch (e) {
     }
-    function tail(v) {
+    function tail2(v) {
       return String(v || "").split("/").pop().toLowerCase();
     }
     function candidateStats(player) {
@@ -45829,11 +46985,11 @@ ${locks}` : ""}`;
         topLevelKeys: player && typeof player === "object" ? Object.keys(player).sort() : [],
         candidates,
         normalized: {
-          style: tail(
+          style: tail2(
             Array.isArray(primary.combatStyleHrids) ? primary.combatStyleHrids[0] : primary.combatStyleHrid
           ),
-          damageType: tail(primary.damageType),
-          primaryTraining: tail(primary.primaryTraining),
+          damageType: tail2(primary.damageType),
+          primaryTraining: tail2(primary.primaryTraining),
           attackInterval: Number(
             primary.attackInterval || player && player.attackInterval || 0
           )
@@ -46647,8 +47803,8 @@ ${locks}` : ""}`;
         const chineseName = runtime.data.ZHItemNames?.[value] || itemLabels[value]?.[0] || englishName;
         return english ? englishName + " Effect" : "武器特效：" + chineseName;
       }
-      const tail = value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-      return tail || labels.unknown[english ? 1 : 0];
+      const tail2 = value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+      return tail2 || labels.unknown[english ? 1 : 0];
     }
     function icon(source, playerName = "") {
       const value = normalize2(source);
@@ -46699,8 +47855,8 @@ ${locks}` : ""}`;
         if (officialName) return officialName;
       }
       if (detail.monsterName) return detail.monsterName;
-      const tail = String(detail.monsterHrid || "").split("/").pop().replace(/_/g, " ");
-      return tail ? tail.replace(/\b\w/g, (char) => char.toUpperCase()) : Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物";
+      const tail2 = String(detail.monsterHrid || "").split("/").pop().replace(/_/g, " ");
+      return tail2 ? tail2.replace(/\b\w/g, (char) => char.toUpperCase()) : Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物";
     }
     function label(source) {
       const detail = decode(source);
@@ -47128,9 +48284,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t18 = 0;
-        playerKills.forEach((v) => t18 += v);
-        return t18;
+        let t19 = 0;
+        playerKills.forEach((v) => t19 += v);
+        return t19;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -47395,12 +48551,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t18) {
-      const low = t18.toLowerCase();
+    function looksLikeNoise(t19) {
+      const low = t19.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t18)) return true;
-      if (/^\d+%?$/.test(t18)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t18)) return true;
+      if (/^lv\.?\d+$/i.test(t19)) return true;
+      if (/^\d+%?$/.test(t19)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t19)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -47422,14 +48578,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t18) => t18 && !looksLikeNoise(t18) && !/^trial\s/i.test(t18));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t19) => t19 && !looksLikeNoise(t19) && !/^trial\s/i.test(t19));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t18, i) => {
-        resolved.set(String(i + offset), t18);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t19, i) => {
+        resolved.set(String(i + offset), t19);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -47497,7 +48653,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t18) => t18.length > 0)) {
+          if (texts.some((t19) => t19.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -47533,10 +48689,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t18 = c.textContent.trim();
-            if (t18.length >= 2 && t18.length <= 20 && !looksLikeNoise(t18)) {
+            const t19 = c.textContent.trim();
+            if (t19.length >= 2 && t19.length <= 20 && !looksLikeNoise(t19)) {
               nameLikeCount++;
-              texts.push(t18.slice(0, 20));
+              texts.push(t19.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -47597,8 +48753,8 @@ ${locks}` : ""}`;
       };
     }
     function finiteCounter(value) {
-      const number2 = Number(value);
-      return value !== void 0 && value !== null && Number.isFinite(number2) ? number2 : void 0;
+      const number3 = Number(value);
+      return value !== void 0 && value !== null && Number.isFinite(number3) ? number3 : void 0;
     }
     function playerAttackCounter(unit = {}) {
       return finiteCounter(
@@ -47650,11 +48806,11 @@ ${locks}` : ""}`;
       );
     }
     function durationToMs(value) {
-      const number2 = Number(value);
-      if (!Number.isFinite(number2) || number2 <= 0) return 0;
-      if (number2 > 864e5) return number2 / 1e6;
-      if (number2 < 1e3) return number2 * 1e3;
-      return number2;
+      const number3 = Number(value);
+      if (!Number.isFinite(number3) || number3 <= 0) return 0;
+      if (number3 > 864e5) return number3 / 1e6;
+      if (number3 < 1e3) return number3 * 1e3;
+      return number3;
     }
     function reflectionDuration(detail) {
       const candidates = [];
@@ -48107,8 +49263,8 @@ ${locks}` : ""}`;
           duration === 0 ? Infinity : expires - nowWall
         );
         const unique = String(buff && buff.uniqueHrid || ""), byUnique = reflectionBuffSources.get(unique), byType = [...reflectionTypeSources.get(type) || []], known = [...playerKnownReflectionAbilities[slot] || []], evidence = unique.toLowerCase();
-        const exact = byUnique || (byType.length === 1 ? byType[0] : "") || (known.length === 1 ? known[0] : "") || (evidence.includes("spike_shell") ? "/abilities/spike_shell" : evidence.includes("retribution") ? "/abilities/retribution" : "");
-        if (exact) playerReflectSource[slot] = exact;
+        const exact2 = byUnique || (byType.length === 1 ? byType[0] : "") || (known.length === 1 ? known[0] : "") || (evidence.includes("spike_shell") ? "/abilities/spike_shell" : evidence.includes("retribution") ? "/abilities/retribution" : "");
+        if (exact2) playerReflectSource[slot] = exact2;
       });
       const stats = unit.combatDetails && unit.combatDetails.combatStats || {};
       const permanent = !foundBuff && (Number(stats.physicalThorns) || Number(stats.elementalThorns) || Number(stats.retaliation));
@@ -48164,8 +49320,8 @@ ${locks}` : ""}`;
         const evidence = unique.toLowerCase();
         slots.forEach((slot) => {
           const known = [...guildKnownReflectionAbilities[slot] || []];
-          const exact = byUnique || (byType.length === 1 ? byType[0] : "") || (known.length === 1 ? known[0] : "") || (evidence.includes("spike_shell") ? "/abilities/spike_shell" : evidence.includes("retribution") ? "/abilities/retribution" : "");
-          if (exact) guildReflectSource[slot] = exact;
+          const exact2 = byUnique || (byType.length === 1 ? byType[0] : "") || (known.length === 1 ? known[0] : "") || (evidence.includes("spike_shell") ? "/abilities/spike_shell" : evidence.includes("retribution") ? "/abilities/retribution" : "");
+          if (exact2) guildReflectSource[slot] = exact2;
         });
       });
       const stats = unit.combatDetails && unit.combatDetails.combatStats || {};
@@ -48842,8 +49998,8 @@ ${locks}` : ""}`;
       );
       playersAtkCounter = (p.players || []).map((pl) => {
         const value = pl.attackAttemptCounter !== void 0 ? pl.attackAttemptCounter : pl.atkCounter;
-        const number2 = Number(value);
-        return value !== void 0 && Number.isFinite(number2) ? number2 : void 0;
+        const number3 = Number(value);
+        return value !== void 0 && Number.isFinite(number3) ? number3 : void 0;
       });
       playersDmgCounter = (p.players || []).map((pl) => monsterDamageCounter(pl));
       playersHP = (p.players || []).map(
@@ -49332,11 +50488,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t18 = el2.textContent.trim();
-        if (!t18 || t18.length < 2 || t18.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t18);
+        const t19 = el2.textContent.trim();
+        if (!t19 || t19.length < 2 || t19.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t19);
         let cssEllipsis = false;
-        if (!literalEllipsis && t18.length <= 20 && !t18.includes(" ") && !looksLikeNoise(t18)) {
+        if (!literalEllipsis && t19.length <= 20 && !t19.includes(" ") && !looksLikeNoise(t19)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -50785,9 +51941,9 @@ ${locks}` : ""}`;
       }
       render(row);
     }
-    function update(rows) {
+    function update(rows2) {
       if (!popup) return false;
-      const row = (rows || []).find((item) => item.name === playerName);
+      const row = (rows2 || []).find((item) => item.name === playerName);
       if (row && Array.isArray(row.breakdown)) render(row);
       else close();
       return !!popup;
@@ -50797,12 +51953,12 @@ ${locks}` : ""}`;
     }
     return { show, update, isOpenFor, scheduleClose, cancelClose, close };
   })();
-  function renderDetailsRows(container, rows, rerender) {
-    if (DamageBreakdownTooltip.isOpenFor(container) && DamageBreakdownTooltip.update(rows))
+  function renderDetailsRows(container, rows2, rerender) {
+    if (DamageBreakdownTooltip.isOpenFor(container) && DamageBreakdownTooltip.update(rows2))
       return;
     container.innerHTML = "";
-    const max = rows.length ? Math.max(...rows.map((r) => r.value), 1) : 1;
-    rows.forEach((r, i) => {
+    const max = rows2.length ? Math.max(...rows2.map((r) => r.value), 1) : 1;
+    rows2.forEach((r, i) => {
       const synthetic = r.synthetic === "unattributed-damage", cls = synthetic ? ClassSystem.definitions.unknown : ClassSystem.get(r.name), line = el("div", {
         position: "relative",
         height: "24px",
@@ -50887,7 +52043,7 @@ ${locks}` : ""}`;
       line.append(bar, content);
       container.appendChild(line);
     });
-    if (!rows.length) {
+    if (!rows2.length) {
       const empty = el("div", {
         padding: "14px",
         textAlign: "center",
@@ -51841,10 +52997,10 @@ ${locks}` : ""}`;
         getGameTranslation("labyrinthPanel.automation")
       ];
       for (const c of containers) {
-        const t18 = c.textContent;
-        if (combatZones && t18.includes(combatZones) || t18.includes("Combat Zones") || t18.includes("战斗区域") || t18.includes("戰鬥區域"))
+        const t19 = c.textContent;
+        if (combatZones && t19.includes(combatZones) || t19.includes("Combat Zones") || t19.includes("战斗区域") || t19.includes("戰鬥區域"))
           return c;
-        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t18.includes(label)) || t18.includes("Labyrinth") && t18.includes("Room") && t18.includes("Automation") || t18.includes("迷宫") && (t18.includes("房间") || t18.includes("自动化")) || t18.includes("迷宮") && (t18.includes("房間") || t18.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t19.includes(label)) || t19.includes("Labyrinth") && t19.includes("Room") && t19.includes("Automation") || t19.includes("迷宫") && (t19.includes("房间") || t19.includes("自动化")) || t19.includes("迷宮") && (t19.includes("房間") || t19.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -51924,7 +53080,7 @@ ${locks}` : ""}`;
     }
     function renderPlayers(names, getDps, getDmg, getHps, getKills, getSharePct, getColor) {
       if (!playersListEl) return;
-      const rows = names.map((name) => ({
+      const rows2 = names.map((name) => ({
         name,
         value: getDmg(name),
         ps: getDps(name),
@@ -51933,7 +53089,7 @@ ${locks}` : ""}`;
       })).sort((a, b) => b.value - a.value);
       renderDetailsRows(
         playersListEl,
-        rows,
+        rows2,
         () => renderPlayers(
           names,
           getDps,
@@ -52087,7 +53243,7 @@ ${locks}` : ""}`;
         (sum, p) => sum + (Number(p.taken) || 0),
         0
       ) : view.teamDamage;
-      const rows = (view.players || []).map((p) => ({
+      const rows2 = (view.players || []).map((p) => ({
         name: p.name,
         synthetic: p.synthetic,
         value: mainMode === "hps" ? Number(p.healing) || 0 : mainMode === "taken" ? Number(p.taken) || 0 : Number(p.damage) || 0,
@@ -52100,7 +53256,7 @@ ${locks}` : ""}`;
         breakdownHover: mainMode === "taken" ? Settings.getLanguage() === "en" ? "Hover to view monster and skill sources" : "悬停查看怪物与技能来源" : void 0,
         breakdownEmpty: mainMode === "taken" ? Settings.getLanguage() === "en" ? "No damage-taken sources" : "暂无承伤来源" : void 0
       })).filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
-      renderDetailsRows(playersListEl, rows, () => renderView(ViewData.get()));
+      renderDetailsRows(playersListEl, rows2, () => renderView(ViewData.get()));
     }
     function entryToText(entry) {
       const d = new Date(entry.date);
@@ -52151,10 +53307,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t18) => {
+      TYPES.forEach((t19) => {
         const btn = document.createElement("button");
-        btn.textContent = t18.label;
-        const active = historyFilter === t18.id;
+        btn.textContent = t19.label;
+        const active = historyFilter === t19.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -52168,7 +53324,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t18.id;
+          historyFilter = t19.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -52292,8 +53448,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t18) => t18.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t18) => t18.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t19) => t19.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t19) => t19.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -52564,18 +53720,18 @@ ${locks}` : ""}`;
         graphObj.render(view.graphPoints || []);
       const mode = MODES[modeIdx];
       titleEl.textContent = langText4(mode.zh, mode.en);
-      const rows = (view.players || []).map((p) => ({
+      const rows2 = (view.players || []).map((p) => ({
         n: p.name,
         synthetic: p.synthetic,
         v: Number(p[mode.value]) || 0,
         ps: Number(p[mode.perSecond]) || 0,
         breakdown: mode.id === "dmg" ? p.breakdown : mode.id === "taken" ? p.takenBreakdown : null
       })).filter((r) => r.v > 0).sort((a, b) => b.v - a.v);
-      const total = rows.reduce((s, r) => s + r.v, 0) || 1;
-      const max = rows.length ? rows[0].v : 1;
+      const total = rows2.reduce((s, r) => s + r.v, 0) || 1;
+      const max = rows2.length ? rows2[0].v : 1;
       renderDetailsRows(
         listEl,
-        rows.map((r) => ({
+        rows2.map((r) => ({
           name: r.n,
           synthetic: r.synthetic,
           value: r.v,

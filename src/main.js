@@ -6,6 +6,7 @@ import "./core/localization.js";
 import "./core/market.js";
 import "./core/action-projection.js";
 import "./core/procurement.js";
+import "./core/planning.js";
 import "./core/train-planning.js";
 import "./core/xp-history.js";
 import "./core/asset-values.js";

@@ -24,6 +24,7 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
+await import("../src/core/planning.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/procurement.js");
 
@@ -55,13 +56,13 @@ after(async () => {
   await runtime.features.disable("procurementAssistant");
 });
 
-test("procurement owns a standalone three-tab shell outside global settings", async () => {
+test("procurement owns a standalone four-tab shell outside global settings", async () => {
   await runtime.features.handleCharacterData({ characterID: "ui-character" });
   const host = document.querySelector("#mwitools-procurement-host");
   assert.ok(host?.shadowRoot);
   assert.deepEqual(
     [...host.shadowRoot.querySelectorAll(".tab")].map((tab) => tab.dataset.tab),
-    ["cart", "plans", "settings"],
+    ["cart", "plans", "planning", "settings"],
   );
   assert.ok(host.shadowRoot.querySelector(".handle svg"));
   assert.equal(host.shadowRoot.querySelector(".handle").textContent.trim(), "");
@@ -79,6 +80,27 @@ test("procurement owns a standalone three-tab shell outside global settings", as
     ),
     true,
   );
+});
+
+test("planning is an independent drawer calculator", () => {
+  const host = document.querySelector("#mwitools-procurement-host");
+  runtime.api.planning.getGoals().forEach((goal) => {
+    runtime.api.planning.removeGoal(goal.id);
+  });
+  runtime.api.planning.upsertGoal({
+    kind: "item",
+    targetHrid: "/items/board",
+    target: 3,
+  });
+  host.shadowRoot.querySelector('.tab[data-tab="planning"]').click();
+  assert.match(host.shadowRoot.textContent, /Planning goals/);
+  assert.match(host.shadowRoot.textContent, /Production needed/);
+  assert.match(host.shadowRoot.textContent, /Base materials/);
+  assert.match(host.shadowRoot.textContent, /Board/);
+  runtime.api.planning.getGoals().forEach((goal) => {
+    runtime.api.planning.removeGoal(goal.id);
+  });
+  host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
 });
 
 test("the global shopping-cart switch removes and restores every procurement entry", async () => {
@@ -940,11 +962,14 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     runtime.api.procurement.getSettings().createPlansByDefault;
   const previousCreatePlan = runtime.api.procurement.createPlan;
   const plannedMaterials = [];
+  const previousPlanIds = new Set(
+    runtime.api.procurement.getPlans().map((plan) => plan.id),
+  );
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.procurement.setSetting("createPlansByDefault", true);
-  runtime.api.procurement.createPlan = (_actionHrid, _count, materials) => {
+  runtime.api.procurement.createPlan = (actionHrid, count, materials) => {
     plannedMaterials.push(materials.map((material) => material.itemHrid));
-    return { id: `test-plan-${plannedMaterials.length}` };
+    return previousCreatePlan(actionHrid, count, materials);
   };
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/shadow_pants": { name: "Shadow Pants" },
@@ -1005,6 +1030,10 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
     "/items/shadow_leather",
   ]);
 
+  runtime.api.procurement
+    .getPlans()
+    .filter((plan) => !previousPlanIds.has(plan.id))
+    .forEach((plan) => runtime.api.procurement.removePlan(plan.id));
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.renderProductionProcurement();
   root = document.querySelector("#mwitools-procurement-production");
@@ -1045,6 +1074,10 @@ test("upgrade-chain shopping defaults to the direct predecessor and can use sele
 
   runtime.api.resolveProductionAction = previousResolver;
   runtime.api.procurement.createPlan = previousCreatePlan;
+  runtime.api.procurement
+    .getPlans()
+    .filter((plan) => !previousPlanIds.has(plan.id))
+    .forEach((plan) => runtime.api.procurement.removePlan(plan.id));
   runtime.api.procurement.setSetting(
     "createPlansByDefault",
     previousCreatePlans,
