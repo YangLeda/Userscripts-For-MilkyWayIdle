@@ -371,11 +371,11 @@ function createOverlay(options = {}) {
           const badge = documentRef.createElement("span");
           badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
-          badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
+          badge.append(icon, documentRef.createTextNode(String(item.rank)));
           const label = categoryLabel(item.label, item.category);
           badge.title = runtime.config.isZH
             ? `${label}排行榜第 ${item.rank} 名`
-            : `${label} leaderboard rank #${item.rank}`;
+            : `${label} leaderboard rank ${item.rank}`;
           return badge;
         }),
       );

@@ -121,7 +121,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
     [...aliceBadges.querySelectorAll(".mwi-lb-badge")].map(
       (badge) => badge.textContent,
     ),
-    ["#4", "#25"],
+    ["4", "25"],
   );
   assert.equal(
     aliceBadges.querySelector("img").src,
@@ -139,7 +139,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
   const settingsBadges = document.querySelector(
     ".SettingsPanel_nameColor__test [data-mwi-leaderboard-badges]",
   );
-  assert.equal(settingsBadges.textContent, "#14");
+  assert.equal(settingsBadges.textContent, "14");
   assert.equal(settingsBadges.dataset.mwiLeaderboardPlacement, "settings");
   assert.equal(
     document
@@ -229,7 +229,7 @@ test("places guild badges below names and friend badges beside names", async () 
       [...badges.querySelectorAll(".mwi-lb-badge")].map(
         (badge) => badge.textContent,
       ),
-      ["#6", "#7", "#14"],
+      ["6", "7", "14"],
     );
   }
   assert.match(
@@ -261,7 +261,7 @@ test("renders fame with the game XP-buff icon and reads value1", async () => {
   overlay.setRankings({ fame_points: { rows: normalized.rows } });
   await settle();
   const badge = document.querySelector(".mwi-lb-badge--rainbow");
-  assert.equal(badge.textContent, "#8");
+  assert.equal(badge.textContent, "8");
   assert.equal(
     badge.querySelector("use").getAttribute("href"),
     "/static/media/misc_sprite.current.svg#experience",
@@ -338,13 +338,13 @@ test("all non-profile names show only the three best-ranked badges", async () =>
     [...containers[0].querySelectorAll(".mwi-lb-badge")].map(
       (badge) => badge.textContent,
     ),
-    ["#1", "#2", "#4"],
+    ["1", "2", "4"],
   );
   assert.deepEqual(
     [...containers[1].querySelectorAll(".mwi-lb-badge")].map(
       (badge) => badge.textContent,
     ),
-    ["#1", "#2", "#4"],
+    ["1", "2", "4"],
   );
   overlay.destroy();
 });
@@ -382,7 +382,7 @@ test("profile names show every badge on an independent second row", async () => 
     [...badges.querySelectorAll(".mwi-lb-badge")].map(
       (badge) => badge.textContent,
     ),
-    ["#1", "#2", "#3", "#4", "#5"],
+    ["1", "2", "3", "4", "5"],
   );
   overlay.destroy();
 });
@@ -565,7 +565,7 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
   await settle();
   assert.equal(requestOptions.url.endsWith("/api/v1/leaderboards"), true);
   assert.equal(requestOptions.headers, undefined);
-  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
+  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "7");
   assert.ok(localStorage.getItem("MWITools_leaderboard_overlay_cache_v2"));
 
   runtime.dispatchMessage({
@@ -630,7 +630,7 @@ test("the feature anonymously loads, caches, and applies leaderboard data", asyn
   };
   await runtime.settings.set("leaderboardOverlay", true, { persist: false });
   await settle();
-  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "#7");
+  assert.equal(document.querySelector(".mwi-lb-badge").textContent, "7");
   await runtime.settings.set("leaderboardXpRate", true, { persist: false });
 });
 
@@ -651,7 +651,7 @@ test("leaderboard copy follows the MWITools language", async () => {
   });
   await settle();
   assert.match(document.querySelector(".mwi-lb-badge").title, /Milking/);
-  assert.match(document.querySelector(".mwi-lb-badge").title, /rank #3/);
+  assert.match(document.querySelector(".mwi-lb-badge").title, /rank 3/);
   assert.doesNotMatch(
     document.querySelector(".mwi-lb-badge").title,
     /\d{4}-\d{2}-\d{2}/,
