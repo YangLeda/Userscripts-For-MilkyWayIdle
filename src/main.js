@@ -16,6 +16,7 @@ import "./features/build-score.js";
 import "./features/duplicate-script-warning.js";
 import "./features/mobile-viewport-fix.js";
 import "./features/asset-history/index.js";
+import "./features/planning.js";
 import "./features/public-api.js";
 import "./features/leaderboard-overlay.js";
 import "./features/battle-buffs.js";

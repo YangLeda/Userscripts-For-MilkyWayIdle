@@ -947,6 +947,22 @@ function getCartAllocationSummary(itemHrid, enhancementLevel = 0) {
   });
 }
 
+function projectIdsFromCartRow(row) {
+  return Object.keys(row?.allocations?.projects ?? {});
+}
+
+function deleteProjectsWithoutCartAllocations(candidateIds) {
+  let changed = false;
+  for (const id of new Set(candidateIds ?? [])) {
+    const stillListed = [...cart.values()].some(
+      (row) => Number(row.allocations?.projects?.[id]) > 0,
+    );
+    if (!stillListed && plans.delete(id)) changed = true;
+  }
+  if (changed) savePlansAndEmit();
+  return changed;
+}
+
 function releaseCartAllocation(owner, itemHrid = null, enhancementLevel = 0) {
   let changed = false;
   const rows = itemHrid
@@ -1054,6 +1070,7 @@ function setCartItemQuantity(itemHrid, quantity, enhancementLevel = 0) {
   const key = itemKey(itemHrid, enhancementLevel);
   const row = cart.get(key);
   if (!row) return { ok: false };
+  const affectedProjects = projectIdsFromCartRow(row);
   const normalized = Math.max(0, Math.ceil(Number(quantity) || 0));
   if (!normalized && !row.starred) cart.delete(key);
   else {
@@ -1063,12 +1080,14 @@ function setCartItemQuantity(itemHrid, quantity, enhancementLevel = 0) {
     row.updatedAt = new Date().toISOString();
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return { ok: true };
 }
 
 function updateCartItem(itemHrid, enhancementLevel, patch) {
   const row = cart.get(itemKey(itemHrid, enhancementLevel));
   if (!row) return false;
+  const affectedProjects = projectIdsFromCartRow(row);
   Object.assign(row, patch, { updatedAt: new Date().toISOString() });
   if (Object.hasOwn(patch, "quantity")) {
     resizeCartAllocations(row, patch.quantity);
@@ -1081,20 +1100,31 @@ function updateCartItem(itemHrid, enhancementLevel, patch) {
         : Math.max(0, Math.ceil(Number(patch.threshold) || 0));
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return true;
 }
 
 function removeFromCart(itemHrid, enhancementLevel = 0) {
-  const removed = cart.delete(itemKey(itemHrid, enhancementLevel));
-  if (removed) saveCartAndEmit();
+  const key = itemKey(itemHrid, enhancementLevel);
+  const affectedProjects = projectIdsFromCartRow(cart.get(key));
+  const removed = cart.delete(key);
+  if (removed) {
+    saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
+  }
   return { ok: removed };
 }
 
 function clearCart({ includeStarred = false } = {}) {
+  const affectedProjects = new Set();
   for (const [key, row] of cart) {
-    if (includeStarred || !row.starred) cart.delete(key);
+    if (includeStarred || !row.starred) {
+      projectIdsFromCartRow(row).forEach((id) => affectedProjects.add(id));
+      cart.delete(key);
+    }
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   return { ok: true };
 }
 
@@ -1104,6 +1134,7 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
   const acquired = Math.max(0, Math.floor(Number(quantity) || 0));
   if (!row || !acquired || !settings.inventorySyncEnabled) return false;
   const before = row.quantity;
+  const affectedProjects = projectIdsFromCartRow(row);
   consumeCartAllocations(row, acquired);
   row.baselineStock = getInventoryCount(row.itemHrid, row.enhancementLevel);
   row.updatedAt = new Date().toISOString();
@@ -1114,6 +1145,7 @@ function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
     else cart.delete(key);
   }
   saveCartAndEmit();
+  deleteProjectsWithoutCartAllocations(affectedProjects);
   if (fulfilled) {
     emit("item:fulfilled", { item: clone(row), source: options.source });
     if (![...cart.values()].some((candidate) => candidate.quantity > 0)) {

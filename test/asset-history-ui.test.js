@@ -22,6 +22,13 @@ globalThis.clearInterval = (id) => intervals.delete(id);
 const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
+await import("../src/core/config.js");
+await import("../src/data/translations.js");
+await import("../src/core/state.js");
+await import("../src/core/market.js");
+await import("../src/core/action-projection.js");
+await import("../src/core/procurement.js");
+await import("../src/core/planning.js");
 runtime.config.isZH = true;
 runtime.api.numberFormatter = (value) => {
   const number = Number(value);
@@ -34,6 +41,10 @@ runtime.api.numberFormatter = (value) => {
 runtime.api.formatExactNumber = (value) =>
   new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 20 }).format(value);
 runtime.api.getLatestAssetSnapshot = () => null;
+runtime.api.getSelfBuildScores = async () => ({
+  assets: { allHouses: 0, allAbilities: 0 },
+});
+runtime.api.getGuildShrineValue = () => 0;
 const { AssetHistoryStore } =
   await import("../src/features/asset-history/10-store.js");
 const { AssetCenter } =
@@ -44,6 +55,7 @@ const {
   createAssetHistoryUi,
   pasteAssetShareToChat,
 } = await import("../src/features/asset-history/30-panel.js");
+const { createPlanningUi } = await import("../src/features/planning.js");
 
 function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) {
   const shell = document.createElement("main");
@@ -91,6 +103,91 @@ test("P/L mounts beside character tabs in non-English game languages", () => {
 
   ui.destroy();
   scope.cleanup();
+});
+
+test("规划 mounts beside P/L and keeps icon pickers stable during updates", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  shell
+    .querySelector("section")
+    .insertAdjacentHTML(
+      "beforeend",
+      '<svg><use href="/static/media/items_sprite.test.svg#nail"></use></svg><svg><use href="/static/media/skills_sprite.test.svg#carpentry"></use></svg>',
+    );
+  runtime.state.initData_itemDetailMap = {
+    "/items/nail": { name: "Nail", isTradable: true, sortIndex: 1 },
+    "/items/board": { name: "Board", isTradable: true, sortIndex: 2 },
+  };
+  runtime.state.initData_actionDetailMap = {};
+  runtime.state.initData_shopItemDetailMap = {};
+  runtime.state.initData_characterItems = [];
+  runtime.state.initData_houseRoomDetailMap = {
+    "/house_rooms/workshop": {
+      hrid: "/house_rooms/workshop",
+      name: "Workshop",
+      skillHrid: "/skills/carpentry",
+      sortIndex: 1,
+      upgradeCostsMap: {
+        1: [{ itemHrid: "/items/nail", count: 10 }],
+      },
+    },
+  };
+  runtime.state.initData_characterHouseRoomMap = {
+    "/house_rooms/workshop": {
+      houseRoomHrid: "/house_rooms/workshop",
+      level: 0,
+    },
+  };
+  runtime.api.procurement.loadCharacterData("planning-ui");
+  const assetScope = runtime.createCleanupScope();
+  const assetUi = createAssetHistoryUi({
+    scope: assetScope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:planning-ui",
+  });
+  const planningScope = runtime.createCleanupScope();
+  const planningUi = createPlanningUi({ scope: planningScope });
+
+  const assetTab = document.querySelector("#mwitools-asset-history-tab");
+  const planningTab = document.querySelector("#mwitools-planning-tab");
+  assert.ok(assetTab);
+  assert.ok(planningTab);
+  assert.equal(planningTab.previousElementSibling, assetTab);
+  planningTab.click();
+  const panel = document.querySelector("#mwitools-planning-panel");
+  assert.equal(panel.hidden, false);
+  const search = panel.querySelector(".planning-search-input");
+  search.focus();
+  search.dispatchEvent(new window.Event("input", { bubbles: true }));
+  const results = panel.querySelector(
+    ".planning-search-wrap .planning-results",
+  );
+  assert.equal(results.dataset.open, "true");
+  assert.match(
+    results.querySelector(".planning-option-icon").innerHTML,
+    /items_sprite/,
+  );
+
+  runtime.api.procurement.emit("inventory:change", {});
+  await settleDom();
+  assert.equal(panel.querySelector(".planning-search-input"), search);
+  assert.equal(results.dataset.open, "true");
+
+  panel.querySelector(".planning-picker-button").click();
+  const houseResults = panel.querySelector(
+    ".planning-house-wrap .planning-results",
+  );
+  assert.equal(houseResults.dataset.open, "true");
+  assert.match(
+    houseResults.querySelector(".planning-option-icon").innerHTML,
+    /skills_sprite/,
+  );
+
+  planningUi.destroy();
+  planningScope.cleanup();
+  assetUi.destroy();
+  assetScope.cleanup();
 });
 
 test("asset sharing provides separate Chinese and English profit/loss phrases", () => {

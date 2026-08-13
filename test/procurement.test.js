@@ -319,6 +319,50 @@ test("projects lock inventory and only duplicate their own cart shortages", () =
   );
 });
 
+test("projects disappear after their shopping rows are fulfilled or cleared", () => {
+  for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
+  procurement.clearCart({ includeStarred: true });
+  const purchased = procurement.createPlan("/actions/crafting/board", 10, [
+    {
+      itemHrid: "/items/log",
+      enhancementLevel: 0,
+      suggested: 10,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(purchased.id);
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === purchased.id),
+    true,
+  );
+  procurement.confirmMarketPurchase("/items/log", 5);
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === purchased.id),
+    false,
+  );
+
+  const cleared = procurement.createPlan("/actions/crafting/final", 3, [
+    {
+      itemHrid: "/items/nail",
+      enhancementLevel: 0,
+      suggested: 6,
+      purchasable: true,
+    },
+    {
+      itemHrid: "/items/log",
+      enhancementLevel: 0,
+      suggested: 6,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(cleared.id);
+  procurement.clearCart({ includeStarred: true });
+  assert.equal(
+    procurement.getPlans().some((plan) => plan.id === cleared.id),
+    false,
+  );
+});
+
 test("confirmed purchases suppress the matching inventory delta only once", () => {
   procurement.clearCart({ includeStarred: true });
   procurement.addToCart({ itemHrid: "/items/board", quantity: 10 });

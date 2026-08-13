@@ -1,6 +1,15 @@
-import { runtime } from "../core/runtime.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 import { itemName } from "../core/localization.js";
+import { runtime } from "../core/runtime.js";
+import {
+  findCharacterManagementLoadoutTab,
+  findPanelShell,
+} from "./asset-history/30-panel.js";
 
+const TAB_ID = "mwitools-planning-tab";
+const PANEL_ID = "mwitools-planning-panel";
+const STYLE_ID = "mwitools-planning-style";
+const ASSET_TAB_ID = "mwitools-asset-history-tab";
 const procurement = runtime.api.procurement;
 const planning = runtime.api.planning;
 
@@ -14,6 +23,15 @@ function number(value) {
 
 function exact(value) {
   return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function tail(value) {
@@ -67,8 +85,36 @@ function itemCandidates() {
       hrid,
       name: itemName(hrid),
       english: String(detail?.name ?? ""),
+      sortIndex: Number(detail?.sortIndex) || Number.MAX_SAFE_INTEGER,
     }))
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort(
+      (left, right) =>
+        left.sortIndex - right.sortIndex || left.name.localeCompare(right.name),
+    );
+}
+
+function houseCandidates() {
+  return Object.entries(runtime.state.initData_houseRoomDetailMap ?? {})
+    .filter(([hrid]) => maxHouseLevel(hrid) > 0)
+    .map(([hrid, detail]) => ({
+      hrid,
+      name: houseName(hrid),
+      skillHrid: detail?.skillHrid,
+      sortIndex: Number(detail?.sortIndex) || Number.MAX_SAFE_INTEGER,
+    }))
+    .sort(
+      (left, right) =>
+        left.sortIndex - right.sortIndex || left.name.localeCompare(right.name),
+    );
+}
+
+function catalogSignature() {
+  return JSON.stringify([
+    Object.keys(runtime.state.initData_itemDetailMap ?? {}),
+    Object.entries(runtime.state.initData_houseRoomDetailMap ?? {}).map(
+      ([hrid, detail]) => [hrid, detail?.skillHrid, detail?.upgradeCostsMap],
+    ),
+  ]);
 }
 
 function resolveItemInput(value, candidates) {
@@ -88,141 +134,400 @@ function resolveItemInput(value, candidates) {
   );
 }
 
+function findSpriteBase(kind) {
+  const needle = `${kind}_sprite`;
+  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
+    []) {
+    if (!entry.name?.includes(needle) || !entry.name.endsWith(".svg")) continue;
+    try {
+      return new URL(entry.name).pathname;
+    } catch {
+      return entry.name;
+    }
+  }
+  const use = document.querySelector(
+    `svg use[href*="${needle}"],svg use[xlink\\:href*="${needle}"]`,
+  );
+  const href =
+    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+  return href.includes("#") ? href.split("#")[0] : "";
+}
+
+function iconMarkup(kind, hrid, label) {
+  const bare = String(hrid ?? "")
+    .split("/")
+    .at(-1);
+  const sprite = findSpriteBase(kind);
+  if (!bare || !sprite) {
+    return `<span class="planning-icon-fallback">${escapeHtml(
+      String(label || "?")
+        .trim()
+        .charAt(0) || "?",
+    )}</span>`;
+  }
+  const href = `${sprite}#${bare}`;
+  return `<svg viewBox="0 0 32 32" aria-hidden="true"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
+}
+
+function itemIcon(itemHrid, label = itemName(itemHrid)) {
+  return iconMarkup("items", itemHrid, label);
+}
+
+function houseIcon(candidate) {
+  return iconMarkup("skills", candidate?.skillHrid, candidate?.name);
+}
+
+function goalIcon(goal) {
+  if (goal.kind === "item") return itemIcon(goal.targetHrid, goalLabel(goal));
+  const candidate = houseCandidates().find(
+    (house) => house.hrid === goal.targetHrid,
+  );
+  return houseIcon(candidate);
+}
+
 function goalSources(ids, goals) {
   const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
   return ids.map((id) => byId.get(id) ?? id).join(t("、", ", "));
 }
 
-function createGoalEditor(body, rerender) {
-  const editor = document.createElement("section");
-  editor.className = "planning-editor";
-  const mode = document.createElement("div");
-  mode.className = "planning-mode";
-  const itemButton = document.createElement("button");
-  const houseButton = document.createElement("button");
-  itemButton.type = houseButton.type = "button";
-  itemButton.textContent = t("物品", "Item");
-  houseButton.textContent = t("房屋", "House");
-  let activeMode = "item";
-  const form = document.createElement("div");
-  form.className = "planning-form";
-  const renderForm = () => {
-    itemButton.dataset.active = String(activeMode === "item");
-    houseButton.dataset.active = String(activeMode === "house");
-    form.replaceChildren();
-    const target = document.createElement(
-      activeMode === "item" ? "input" : "select",
-    );
-    target.className = "planning-target-input";
-    let candidates = [];
-    if (activeMode === "item") {
-      candidates = itemCandidates();
-      const listId = `mwi-planning-items-${Date.now()}`;
-      const list = document.createElement("datalist");
-      list.id = listId;
-      for (const candidate of candidates) {
-        const option = document.createElement("option");
-        option.value = candidate.name;
-        option.label = `${candidate.english || candidate.name} · ${candidate.hrid}`;
-        list.append(option);
-      }
-      target.setAttribute("list", listId);
-      target.placeholder = t("搜索物品名称或 HRID", "Search item name or HRID");
-      form.append(list);
-    } else {
-      for (const hrid of Object.keys(
-        runtime.state.initData_houseRoomDetailMap ?? {},
-      ).sort((left, right) =>
-        houseName(left).localeCompare(houseName(right)),
-      )) {
-        const max = maxHouseLevel(hrid);
-        if (!max) continue;
-        const option = document.createElement("option");
-        option.value = hrid;
-        option.textContent = `${houseName(hrid)} · ${currentHouseLevel(hrid)} / ${max}`;
-        target.append(option);
-      }
-    }
-    const count = document.createElement(
-      activeMode === "item" ? "input" : "select",
-    );
-    count.className = "planning-count-input";
-    if (activeMode === "item") {
-      count.type = "number";
-      count.min = "1";
-      count.step = "1";
-      count.value = "1";
-    }
-    const renderHouseLevels = () => {
-      if (activeMode !== "house") return;
-      count.replaceChildren();
-      const current = currentHouseLevel(target.value);
-      const maximum = maxHouseLevel(target.value);
-      for (let level = current + 1; level <= maximum; level += 1) {
-        const option = document.createElement("option");
-        option.value = String(level);
-        option.textContent = `${t("等级", "Level")} ${level}`;
-        count.append(option);
-      }
-      count.disabled = count.options.length === 0;
-    };
-    count.setAttribute(
-      "aria-label",
-      activeMode === "item"
-        ? t("最终持有量", "Final quantity")
-        : t("目标等级", "Target level"),
-    );
-    const add = document.createElement("button");
-    add.type = "button";
-    add.className = "planning-primary";
-    add.textContent = t("加入规划", "Add");
-    const submit = () => {
-      const selected =
-        activeMode === "item"
-          ? resolveItemInput(target.value, candidates)?.hrid
-          : target.value;
-      const goal = selected
-        ? planning.upsertGoal({
-            kind: activeMode,
-            targetHrid: selected,
-            target: count.value,
-          })
-        : null;
-      if (!goal) {
-        target.setCustomValidity?.(
-          t("请选择有效目标", "Choose a valid target"),
-        );
-        target.reportValidity?.();
-        return;
-      }
-      rerender();
-    };
-    add.addEventListener("click", submit);
-    target.addEventListener("change", renderHouseLevels);
-    target.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") submit();
-    });
-    count.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") submit();
-    });
-    form.append(target, count, add);
-    renderHouseLevels();
-  };
-  itemButton.addEventListener("click", () => {
-    activeMode = "item";
-    renderForm();
-  });
-  houseButton.addEventListener("click", () => {
-    activeMode = "house";
-    renderForm();
-  });
-  mode.append(itemButton, houseButton);
-  editor.append(mode, form);
-  body.append(editor);
-  renderForm();
+function addStyles() {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = `
+    #${TAB_ID}[data-active="true"]{color:#7dd3fc!important;font-weight:700}
+    [data-mwitools-planning-active="true"] button:not(#${TAB_ID}){border-color:var(--mwi-planning-idle-border,rgba(255,255,255,.16))!important;background:var(--mwi-planning-idle-background,rgba(255,255,255,.08))!important;box-shadow:var(--mwi-planning-idle-shadow,none)!important;color:var(--mwi-planning-idle-color,var(--color-text-secondary,#aeb5c0))!important;filter:none!important}
+    #${PANEL_ID}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} input,#${PANEL_ID} select{font:inherit}
+    .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
+    .planning-editor-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:10px;margin-bottom:12px}
+    .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}
+    .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
+    .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
+    .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
+    .planning-search-input:focus,.planning-count-input:focus,.planning-level-select:focus,.planning-picker-button:focus{border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.16)}
+    .planning-count-input{width:82px;flex:0 0 82px;text-align:center}.planning-level-select{width:92px;flex:0 0 92px}
+    .planning-primary{min-height:34px;border:0;border-radius:5px;background:#287fb4;color:#fff;padding:6px 12px;font-weight:700;white-space:nowrap;cursor:pointer}.planning-primary:hover{background:#3299d1}.planning-primary:disabled{opacity:.45;cursor:default}
+    .planning-results{position:absolute;left:0;right:0;top:39px;z-index:20;display:none;max-height:min(390px,55vh);overflow:auto;padding:4px;border:1px solid rgba(125,211,252,.36);border-radius:6px;background:#182236;box-shadow:0 12px 28px rgba(0,0,0,.48)}.planning-results[data-open="true"]{display:block}
+    .planning-option{display:flex;width:100%;min-width:0;align-items:center;gap:8px;border:0;border-bottom:1px solid rgba(152,167,233,.22);border-radius:4px;background:transparent;color:#eef2f7;padding:6px 7px;text-align:left;cursor:pointer}.planning-option:last-child{border-bottom:0}.planning-option:hover,.planning-option[data-active="true"]{background:#35425f}.planning-option-icon,.planning-picker-icon,.planning-goal-icon{display:grid;width:32px;height:32px;flex:0 0 32px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-option-icon svg,.planning-picker-icon svg,.planning-goal-icon svg{width:28px;height:28px}.planning-icon-fallback{color:#aebbd2;font-size:.75rem;font-weight:700}.planning-option-copy{min-width:0;flex:1}.planning-option-copy strong,.planning-option-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-option-copy strong{font-size:.76rem}.planning-option-copy small{margin-top:2px;color:#94a3b8;font-size:.61rem}
+    .planning-picker-button{display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.planning-picker-icon{width:28px;height:28px;flex-basis:28px}.planning-picker-icon svg{width:25px;height:25px}.planning-picker-copy{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-picker-arrow{color:#94a3b8}
+    .planning-content-grid{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(0,1.22fr);gap:10px;align-items:start}.planning-results-column{display:grid;gap:10px;min-width:0}.planning-section{overflow:visible}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{margin:0;font-size:.82rem}.planning-empty{padding:18px 11px;color:#94a3b8;font-size:.72rem;text-align:center}
+    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(0,1fr) auto 78px 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-goal-current{color:#94a3b8;white-space:nowrap}.planning-goal input[type="number"]{width:78px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
+    .planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-policy,.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-source{padding:0 10px 9px 48px;color:#94a3b8;font-size:.64rem}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
+    .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
+    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 68px 28px}.planning-goal-current{display:none}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}}
+  `;
+  (document.head ?? document.documentElement).appendChild(style);
 }
 
-function renderGoals(body, goals, rerender) {
+function createOption(candidate, kind, onSelect) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "planning-option";
+  const icon =
+    kind === "item"
+      ? itemIcon(candidate.hrid, candidate.name)
+      : houseIcon(candidate);
+  const meta =
+    kind === "item"
+      ? candidate.hrid
+      : `${t("当前", "Current")} ${currentHouseLevel(candidate.hrid)} · ${t("最高", "Max")} ${maxHouseLevel(candidate.hrid)}`;
+  const iconHost = document.createElement("span");
+  iconHost.className = "planning-option-icon";
+  iconHost.innerHTML = icon;
+  const copy = document.createElement("span");
+  copy.className = "planning-option-copy";
+  const name = document.createElement("strong");
+  name.textContent = candidate.name;
+  const detail = document.createElement("small");
+  detail.textContent = meta;
+  copy.append(name, detail);
+  button.append(iconHost, copy);
+  button.addEventListener("pointerdown", (event) => event.preventDefault());
+  button.addEventListener("click", () => onSelect(candidate));
+  return button;
+}
+
+function createItemPicker(host, onSelect, cleanup) {
+  const candidates = itemCandidates();
+  const input = document.createElement("input");
+  input.type = "search";
+  input.className = "planning-search-input";
+  input.placeholder = t("搜索物品名称、英文名或 HRID", "Search name or HRID");
+  input.setAttribute("aria-label", t("选择规划物品", "Choose planning item"));
+  const results = document.createElement("div");
+  results.className = "planning-results";
+  let selected = null;
+  let shown = [];
+  let activeIndex = 0;
+
+  const close = () => {
+    results.dataset.open = "false";
+  };
+  const choose = (candidate) => {
+    if (!candidate) return;
+    selected = candidate;
+    input.value = candidate.name;
+    close();
+    onSelect(candidate);
+  };
+  const render = () => {
+    const query = input.value.trim().toLowerCase();
+    shown = candidates
+      .filter(
+        (candidate) =>
+          !query ||
+          candidate.name.toLowerCase().includes(query) ||
+          candidate.english.toLowerCase().includes(query) ||
+          candidate.hrid.toLowerCase().includes(query),
+      )
+      .slice(0, 80);
+    activeIndex = Math.min(activeIndex, Math.max(0, shown.length - 1));
+    results.replaceChildren(
+      ...shown.map((candidate, index) => {
+        const option = createOption(candidate, "item", choose);
+        option.dataset.active = String(index === activeIndex);
+        return option;
+      }),
+    );
+    results.dataset.open = String(shown.length > 0);
+  };
+  const syncActive = () => {
+    [...results.children].forEach((option, index) => {
+      option.dataset.active = String(index === activeIndex);
+    });
+    results.children[activeIndex]?.scrollIntoView?.({ block: "nearest" });
+  };
+  input.addEventListener("focus", render);
+  input.addEventListener("input", () => {
+    selected = null;
+    activeIndex = 0;
+    render();
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (results.dataset.open !== "true") render();
+      activeIndex = Math.max(
+        0,
+        Math.min(
+          shown.length - 1,
+          activeIndex + (event.key === "ArrowDown" ? 1 : -1),
+        ),
+      );
+      syncActive();
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      choose(shown[activeIndex] ?? resolveItemInput(input.value, candidates));
+    } else if (event.key === "Escape") {
+      close();
+    }
+  });
+  const outside = (event) => {
+    if (!host.contains(event.target)) close();
+  };
+  document.addEventListener("pointerdown", outside, true);
+  cleanup.push(() =>
+    document.removeEventListener("pointerdown", outside, true),
+  );
+  host.append(input, results);
+  return {
+    input,
+    getSelected: () => selected ?? resolveItemInput(input.value, candidates),
+    clear() {
+      selected = null;
+      input.value = "";
+      close();
+    },
+  };
+}
+
+function createHousePicker(host, onSelect, cleanup) {
+  const candidates = houseCandidates();
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "planning-picker-button";
+  button.setAttribute("aria-label", t("选择房屋", "Choose house"));
+  const results = document.createElement("div");
+  results.className = "planning-results";
+  let selected = candidates[0] ?? null;
+
+  const paintButton = () => {
+    button.replaceChildren();
+    const copy = document.createElement("span");
+    copy.className = "planning-picker-copy";
+    if (!selected) {
+      copy.textContent = t("暂无房屋", "No houses");
+      button.append(copy);
+      return;
+    }
+    const icon = document.createElement("span");
+    icon.className = "planning-picker-icon";
+    icon.innerHTML = houseIcon(selected);
+    copy.textContent = selected.name;
+    const arrow = document.createElement("span");
+    arrow.className = "planning-picker-arrow";
+    arrow.textContent = "▾";
+    button.append(icon, copy, arrow);
+  };
+  const close = () => {
+    results.dataset.open = "false";
+  };
+  const choose = (candidate) => {
+    selected = candidate;
+    paintButton();
+    close();
+    onSelect(candidate);
+  };
+  const renderOptions = () => {
+    results.replaceChildren(
+      ...candidates.map((candidate) =>
+        createOption(candidate, "house", choose),
+      ),
+    );
+  };
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const opening = results.dataset.open !== "true";
+    if (opening) renderOptions();
+    results.dataset.open = String(opening);
+  });
+  const outside = (event) => {
+    if (!host.contains(event.target)) close();
+  };
+  document.addEventListener("pointerdown", outside, true);
+  cleanup.push(() =>
+    document.removeEventListener("pointerdown", outside, true),
+  );
+  paintButton();
+  host.append(button, results);
+  return {
+    getSelected: () => selected,
+    refresh() {
+      paintButton();
+      results
+        .querySelectorAll(".planning-option-copy small")
+        .forEach((meta, index) => {
+          const candidate = candidates[index];
+          meta.textContent = `${t("当前", "Current")} ${currentHouseLevel(candidate.hrid)} · ${t("最高", "Max")} ${maxHouseLevel(candidate.hrid)}`;
+        });
+    },
+  };
+}
+
+function createPlanningEditor(host, cleanup) {
+  const grid = document.createElement("div");
+  grid.className = "planning-editor-grid";
+
+  const itemCard = document.createElement("section");
+  itemCard.className = "planning-add-card";
+  itemCard.innerHTML = `<div class="planning-add-title">${t("添加物品目标", "Add item target")}</div>`;
+  const itemBody = document.createElement("div");
+  itemBody.className = "planning-add-body";
+  const itemSearch = document.createElement("div");
+  itemSearch.className = "planning-search-wrap";
+  let chosenItem = null;
+  const itemPicker = createItemPicker(
+    itemSearch,
+    (candidate) => {
+      chosenItem = candidate;
+    },
+    cleanup,
+  );
+  const itemCount = document.createElement("input");
+  itemCount.type = "number";
+  itemCount.min = "1";
+  itemCount.step = "1";
+  itemCount.value = "1";
+  itemCount.className = "planning-count-input";
+  itemCount.setAttribute("aria-label", t("最终持有量", "Final quantity"));
+  const itemAdd = document.createElement("button");
+  itemAdd.type = "button";
+  itemAdd.className = "planning-primary";
+  itemAdd.textContent = t("添加", "Add");
+  const submitItem = () => {
+    const candidate = chosenItem ?? itemPicker.getSelected();
+    if (!candidate) {
+      itemPicker.input.setCustomValidity?.(
+        t("请先选择有效物品", "Choose a valid item"),
+      );
+      itemPicker.input.reportValidity?.();
+      return;
+    }
+    itemPicker.input.setCustomValidity?.("");
+    planning.upsertGoal({
+      kind: "item",
+      targetHrid: candidate.hrid,
+      target: itemCount.value,
+    });
+    chosenItem = null;
+    itemPicker.clear();
+    itemCount.value = "1";
+  };
+  itemAdd.addEventListener("click", submitItem);
+  itemCount.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") submitItem();
+  });
+  itemBody.append(itemSearch, itemCount, itemAdd);
+  itemCard.append(itemBody);
+
+  const houseCard = document.createElement("section");
+  houseCard.className = "planning-add-card";
+  houseCard.innerHTML = `<div class="planning-add-title">${t("添加房屋目标", "Add house target")}</div>`;
+  const houseBody = document.createElement("div");
+  houseBody.className = "planning-add-body";
+  const houseWrap = document.createElement("div");
+  houseWrap.className = "planning-house-wrap";
+  const level = document.createElement("select");
+  level.className = "planning-level-select";
+  level.setAttribute("aria-label", t("房屋目标等级", "House target level"));
+  const refreshLevels = (candidate) => {
+    level.replaceChildren();
+    if (!candidate) return;
+    const current = currentHouseLevel(candidate.hrid);
+    for (
+      let targetLevel = current + 1;
+      targetLevel <= maxHouseLevel(candidate.hrid);
+      targetLevel += 1
+    ) {
+      const option = document.createElement("option");
+      option.value = String(targetLevel);
+      option.textContent = `${t("等级", "Level")} ${targetLevel}`;
+      level.append(option);
+    }
+    level.disabled = level.options.length === 0;
+  };
+  const housePicker = createHousePicker(houseWrap, refreshLevels, cleanup);
+  refreshLevels(housePicker.getSelected());
+  const houseAdd = document.createElement("button");
+  houseAdd.type = "button";
+  houseAdd.className = "planning-primary";
+  houseAdd.textContent = t("添加", "Add");
+  houseAdd.addEventListener("click", () => {
+    const candidate = housePicker.getSelected();
+    if (!candidate || !level.value) return;
+    planning.upsertGoal({
+      kind: "house",
+      targetHrid: candidate.hrid,
+      target: level.value,
+    });
+  });
+  houseBody.append(houseWrap, level, houseAdd);
+  houseCard.append(houseBody);
+  grid.append(itemCard, houseCard);
+  host.append(grid);
+  return {
+    refresh() {
+      housePicker.refresh();
+      refreshLevels(housePicker.getSelected());
+    },
+  };
+}
+
+function renderGoals(host, goals) {
+  host.replaceChildren();
   const section = document.createElement("section");
   section.className = "planning-section";
   const heading = document.createElement("h3");
@@ -232,8 +537,8 @@ function renderGoals(body, goals, rerender) {
     const empty = document.createElement("div");
     empty.className = "planning-empty";
     empty.textContent = t(
-      "添加物品最终持有量或房屋目标等级开始计算。",
-      "Add an item holding target or house level to begin.",
+      "从上方选择物品或房屋开始规划。",
+      "Choose an item or house above to begin.",
     );
     section.append(empty);
   }
@@ -241,27 +546,29 @@ function renderGoals(body, goals, rerender) {
     const row = document.createElement("article");
     row.className = "planning-goal";
     row.dataset.enabled = String(goal.enabled);
-    const current =
-      goal.kind === "house"
-        ? currentHouseLevel(goal.targetHrid)
-        : procurement.getInventoryCount(goal.targetHrid, 0);
     const toggle = document.createElement("input");
     toggle.type = "checkbox";
     toggle.checked = goal.enabled;
     toggle.title = t("启用目标", "Enable goal");
     toggle.addEventListener("change", () => {
       planning.updateGoal(goal.id, { enabled: toggle.checked });
-      rerender();
     });
+    const icon = document.createElement("span");
+    icon.className = "planning-goal-icon";
+    icon.innerHTML = goalIcon(goal);
     const name = document.createElement("div");
     name.className = "planning-goal-name";
     name.textContent = goalLabel(goal);
     name.title = goal.targetHrid;
-    const meta = document.createElement("span");
-    meta.textContent = `${t("当前", "Current")} ${number(current)}`;
+    const current = document.createElement("span");
+    current.className = "planning-goal-current";
+    current.dataset.goalId = goal.id;
+    current.textContent = `${t("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel(goal.targetHrid) : procurement.getInventoryCount(goal.targetHrid, 0))}`;
     const target = document.createElement("input");
     target.type = "number";
     target.min = "1";
+    target.max =
+      goal.kind === "house" ? String(maxHouseLevel(goal.targetHrid)) : "";
     target.step = "1";
     target.value = String(goal.target);
     target.title =
@@ -270,24 +577,35 @@ function renderGoals(body, goals, rerender) {
         : t("最终持有量", "Final quantity");
     target.addEventListener("change", () => {
       planning.updateGoal(goal.id, { target: target.value });
-      rerender();
     });
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "planning-remove";
     remove.textContent = "×";
     remove.title = t("删除", "Remove");
-    remove.addEventListener("click", () => {
-      planning.removeGoal(goal.id);
-      rerender();
-    });
-    row.append(toggle, name, meta, target, remove);
+    remove.addEventListener("click", () => planning.removeGoal(goal.id));
+    row.append(toggle, icon, name, current, target, remove);
     section.append(row);
   }
-  body.append(section);
+  host.append(section);
 }
 
-function renderSteps(body, result, rerender) {
+function updateGoalCurrentValues(host, goals) {
+  for (const goal of goals) {
+    const node = [...host.querySelectorAll(".planning-goal-current")].find(
+      (candidate) => candidate.dataset.goalId === goal.id,
+    );
+    if (!node) continue;
+    const current =
+      goal.kind === "house"
+        ? currentHouseLevel(goal.targetHrid)
+        : procurement.getInventoryCount(goal.targetHrid, 0);
+    node.textContent = `${t("当前", "Current")} ${number(current)}`;
+  }
+}
+
+function renderSteps(host, result) {
+  host.replaceChildren();
   const section = document.createElement("section");
   section.className = "planning-section";
   const heading = document.createElement("h3");
@@ -303,9 +621,14 @@ function renderSteps(body, result, rerender) {
     const row = document.createElement("details");
     row.className = "planning-step";
     const summary = document.createElement("summary");
+    const icon = document.createElement("span");
+    icon.className = "planning-row-icon";
+    icon.innerHTML = itemIcon(step.itemHrid);
     const label = document.createElement("span");
+    label.className = "planning-step-name";
     label.textContent = itemName(step.itemHrid);
     const counts = document.createElement("span");
+    counts.className = "planning-step-count";
     counts.textContent = `${t("需", "Need")} ${number(step.requiredOutput)} · ${t("预计", "Est.")} ${number(step.actionCount)} ${t("次", "actions")}`;
     const policy = document.createElement("button");
     policy.type = "button";
@@ -320,19 +643,19 @@ function renderSteps(body, result, rerender) {
         step.itemHrid,
         current === "acquire" ? "produce" : "acquire",
       );
-      rerender();
     });
-    summary.append(label, counts, policy);
+    summary.append(icon, label, counts, policy);
     const source = document.createElement("div");
     source.className = "planning-source";
     source.textContent = `${t("来源", "Sources")}: ${goalSources(step.sourceIds, result.goals)} · ${t("单次有效产出", "Effective output")} ${exact(step.outputCount)}`;
     row.append(summary, source);
     section.append(row);
   }
-  body.append(section);
+  host.append(section);
 }
 
-function renderMaterials(body, result, rerender) {
+function renderMaterials(host, result) {
+  host.replaceChildren();
   const section = document.createElement("section");
   section.className = "planning-section";
   const heading = document.createElement("div");
@@ -342,14 +665,12 @@ function renderMaterials(body, result, rerender) {
   const addAll = document.createElement("button");
   addAll.type = "button";
   addAll.className = "planning-primary";
-  const allAddable = result.materials.filter(
+  addAll.textContent = t("一键补齐", "Add all");
+  addAll.disabled = !result.materials.some(
     (material) => material.purchasable && material.addableShortage > 0,
   );
-  addAll.textContent = t("一键补齐", "Add all");
-  addAll.disabled = !allAddable.length;
   addAll.addEventListener("click", () => {
     planning.addShortagesToCart(result.materials);
-    rerender();
   });
   heading.append(title, addAll);
   section.append(heading);
@@ -367,6 +688,9 @@ function renderMaterials(body, result, rerender) {
     row.className = "planning-material";
     row.dataset.missing = String(material.addableShortage > 0);
     const summary = document.createElement("summary");
+    const icon = document.createElement("span");
+    icon.className = "planning-row-icon";
+    icon.innerHTML = itemIcon(material.itemHrid, material.name);
     const name = document.createElement("span");
     name.className = "planning-material-name";
     name.textContent = material.name;
@@ -375,7 +699,7 @@ function renderMaterials(body, result, rerender) {
     missing.textContent = material.addableShortage
       ? `${t("还需", "Need")} ${number(material.addableShortage)}`
       : t("已覆盖", "Covered");
-    summary.append(name, missing);
+    summary.append(icon, name, missing);
     const grid = document.createElement("div");
     grid.className = "planning-material-grid";
     const metric = (label, value, sub = "") => {
@@ -412,7 +736,6 @@ function renderMaterials(body, result, rerender) {
           ? "produce"
           : "acquire",
       );
-      rerender();
     });
     const add = document.createElement("button");
     add.type = "button";
@@ -420,52 +743,423 @@ function renderMaterials(body, result, rerender) {
       ? t("加入购物车", "Add to cart")
       : t("不可购买", "Not tradable");
     add.disabled = !material.purchasable || !material.addableShortage;
-    add.addEventListener("click", () => {
-      planning.addShortagesToCart([material]);
-      rerender();
-    });
+    add.addEventListener("click", () =>
+      planning.addShortagesToCart([material]),
+    );
     const source = document.createElement("span");
     source.textContent = `${t("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
     actions.append(policy, add, source);
     row.append(summary, grid, actions);
     section.append(row);
   }
-  body.append(section);
+  host.append(section);
 }
 
-export function renderPlanning(body, footer) {
-  const rerender = () => renderPlanning(body, footer);
-  body.replaceChildren();
-  footer.replaceChildren();
-  const result = planning.calculate();
-  createGoalEditor(body, rerender);
-  renderGoals(body, planning.getGoals(), rerender);
-  renderSteps(body, result, rerender);
-  renderMaterials(body, result, rerender);
-  if (result.warnings.length) {
-    const warning = document.createElement("div");
-    warning.className = "planning-warning";
-    warning.textContent = t(
-      `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
-      `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`,
-    );
-    body.append(warning);
+export class PlanningPanel {
+  constructor(host) {
+    this.host = host;
+    this.cleanup = [];
+    this.signatures = {};
+    this.build();
+    this.catalogSignature = catalogSignature();
+    this.unsubscribe = [
+      procurement.on("planning:change", () => this.scheduleUpdate()),
+      procurement.on("cart:change", () => this.scheduleUpdate()),
+      procurement.on("plan:change", () => this.scheduleUpdate()),
+      procurement.on("inventory:change", () => this.scheduleUpdate()),
+    ];
+    this.updateScheduler = createFrameScheduler(() => this.update());
+    this.update();
   }
-  footer.textContent = t(
-    `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
-    `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`,
+
+  build() {
+    this.host.replaceChildren();
+    const intro = document.createElement("p");
+    intro.className = "planning-intro";
+    intro.textContent = t(
+      "设置最终希望持有的物品数量或房屋等级。房屋升级成本固定；制作链会使用当前茶饮、装备、社区 Buff、暴饮之囊和采购安全余量。",
+      "Set final item holdings or house levels. House costs stay fixed; production chains use current drinks, equipment, community buffs, Guzzling Pouch, and procurement safety margins.",
+    );
+    this.editorHost = document.createElement("div");
+    this.content = document.createElement("div");
+    this.content.className = "planning-content-grid";
+    this.goalsHost = document.createElement("div");
+    const resultColumn = document.createElement("div");
+    resultColumn.className = "planning-results-column";
+    this.stepsHost = document.createElement("div");
+    this.materialsHost = document.createElement("div");
+    resultColumn.append(this.stepsHost, this.materialsHost);
+    this.content.append(this.goalsHost, resultColumn);
+    this.warningHost = document.createElement("div");
+    this.footer = document.createElement("div");
+    this.footer.className = "planning-footer";
+    this.host.append(
+      intro,
+      this.editorHost,
+      this.content,
+      this.warningHost,
+      this.footer,
+    );
+    this.editor = createPlanningEditor(this.editorHost, this.cleanup);
+  }
+
+  scheduleUpdate() {
+    this.updateScheduler?.schedule();
+  }
+
+  update() {
+    if (!this.host?.isConnected) return;
+    const nextCatalogSignature = catalogSignature();
+    if (this.catalogSignature !== nextCatalogSignature) {
+      this.cleanup.forEach((dispose) => dispose());
+      this.cleanup = [];
+      this.signatures = {};
+      this.build();
+      this.catalogSignature = nextCatalogSignature;
+    }
+    const goals = planning.getGoals();
+    const result = planning.calculate();
+    const goalsSignature = JSON.stringify(goals);
+    const stepsSignature = JSON.stringify(result.steps);
+    const materialsSignature = JSON.stringify(result.materials);
+    if (this.signatures.goals !== goalsSignature) {
+      renderGoals(this.goalsHost, goals);
+      this.signatures.goals = goalsSignature;
+    } else {
+      updateGoalCurrentValues(this.goalsHost, goals);
+    }
+    if (this.signatures.steps !== stepsSignature) {
+      renderSteps(this.stepsHost, result);
+      this.signatures.steps = stepsSignature;
+    }
+    if (this.signatures.materials !== materialsSignature) {
+      renderMaterials(this.materialsHost, result);
+      this.signatures.materials = materialsSignature;
+    }
+    this.editor?.refresh();
+    this.warningHost.replaceChildren();
+    if (result.warnings.length) {
+      const warning = document.createElement("div");
+      warning.className = "planning-warning";
+      warning.textContent = t(
+        `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
+        `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`,
+      );
+      this.warningHost.append(warning);
+    }
+    this.footer.textContent = t(
+      `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
+      `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`,
+    );
+  }
+
+  destroy() {
+    this.updateScheduler?.cancel();
+    this.unsubscribe?.forEach((unsubscribe) => unsubscribe?.());
+    this.cleanup.forEach((dispose) => dispose());
+    this.cleanup = [];
+  }
+}
+
+function isCompactViewport() {
+  return (
+    window.matchMedia?.("(max-width:760px)")?.matches ??
+    Number(window.innerWidth) <= 760
   );
 }
 
-export function planningStyles() {
-  return `
-    .planning-editor,.planning-section{margin-bottom:10px;border:1px solid color-mix(in srgb,var(--line) 42%,transparent);border-radius:8px;background:color-mix(in srgb,var(--card) 72%,transparent)}
-    .planning-mode{display:flex;padding:4px;gap:3px}.planning-mode button{flex:1;padding:6px;border-radius:5px;color:var(--muted);font-size:11px;font-weight:700}.planning-mode button[data-active="true"]{background:var(--accent);color:#fff}
-    .planning-form{display:flex;gap:5px;padding:4px 8px 8px}.planning-form input,.planning-form select,.planning-goal input[type="number"]{min-width:0;height:30px;border:1px solid color-mix(in srgb,var(--line) 55%,transparent);border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text);outline:0;padding:4px 7px}.planning-target-input{flex:1}.planning-count-input{width:72px}.planning-primary{padding:6px 9px;border-radius:6px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;white-space:nowrap}.planning-primary:disabled{opacity:.45;cursor:default}
-    .planning-section>h3,.planning-section-heading{min-height:34px;padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 35%,transparent);color:var(--text);font-size:11.5px;font-weight:700}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{font-size:11.5px}.planning-empty{padding:14px 10px;color:var(--muted);font-size:11px;text-align:center}
-    .planning-goal{display:grid;grid-template-columns:18px minmax(0,1fr) auto 68px 25px;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 24%,transparent);font-size:11px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.52}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:600}.planning-goal>span{color:var(--muted);white-space:nowrap}.planning-goal input[type="number"]{width:68px;text-align:center}.planning-remove{width:25px;height:25px;border-radius:5px;color:#ff8d96;font-size:17px}.planning-remove:hover{background:rgba(224,90,100,.14)}
-    .planning-step,.planning-material{border-bottom:1px solid color-mix(in srgb,var(--line) 25%,transparent)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px;color:var(--text);font-size:11px;cursor:pointer}.planning-step summary>span:first-child,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.planning-step summary>span:nth-child(2){color:var(--muted);white-space:nowrap}.planning-policy,.planning-material-actions button{padding:5px 7px;border-radius:5px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:10px;font-weight:600}.planning-source{padding:0 9px 8px;color:var(--muted);font-size:10px}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:10px;white-space:nowrap}
-    .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 8px 7px}.planning-material-grid>div{min-width:0;padding:5px;border-radius:5px;background:color-mix(in srgb,var(--text) 5%,transparent)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:var(--muted);font-size:8.5px;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:var(--gold);font-size:11.5px;font-variant-numeric:tabular-nums}.planning-material-actions{display:flex;align-items:center;gap:5px;padding:0 8px 8px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:var(--muted);font-size:9px;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:10px}
-    @media(max-width:420px){.planning-form{flex-wrap:wrap}.planning-target-input{flex:1 1 calc(100% - 80px)}.planning-form .planning-primary{flex:1 1 100%}.planning-goal{grid-template-columns:18px minmax(0,1fr) 62px 25px}.planning-goal>span{display:none}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  `;
+export function createPlanningUi({ scope }) {
+  let active = false;
+  let tab = null;
+  let host = null;
+  let panel = null;
+  let shell = null;
+  let navigationBranch = null;
+  let lastActiveNativeTab = null;
+  const hiddenNodes = new Map();
+
+  const restoreNative = () => {
+    for (const [node, state] of hiddenNodes) {
+      node.hidden = state.hidden;
+      if (state.styleDisplay === null) node.style.removeProperty("display");
+      else node.style.display = state.styleDisplay;
+    }
+    hiddenNodes.clear();
+  };
+  const clearTabOverride = () => {
+    if (!navigationBranch) return;
+    delete navigationBranch.dataset.mwitoolsPlanningActive;
+    for (const property of [
+      "--mwi-planning-idle-background",
+      "--mwi-planning-idle-border",
+      "--mwi-planning-idle-color",
+      "--mwi-planning-idle-shadow",
+    ]) {
+      navigationBranch.style.removeProperty(property);
+    }
+  };
+  const captureIdleStyle = () => {
+    if (!navigationBranch || typeof getComputedStyle !== "function") return;
+    const idle = navigationBranch.querySelector(
+      `button:not(#${TAB_ID}):not([aria-selected="true"]):not(.Mui-selected)`,
+    );
+    if (!idle) return;
+    const style = getComputedStyle(idle);
+    const background = style.background || style.backgroundColor;
+    if (background && background !== "transparent") {
+      navigationBranch.style.setProperty(
+        "--mwi-planning-idle-background",
+        background,
+      );
+    }
+    if (style.borderColor) {
+      navigationBranch.style.setProperty(
+        "--mwi-planning-idle-border",
+        style.borderColor,
+      );
+    }
+    if (style.color) {
+      navigationBranch.style.setProperty(
+        "--mwi-planning-idle-color",
+        style.color,
+      );
+    }
+    if (style.boxShadow && style.boxShadow !== "none") {
+      navigationBranch.style.setProperty(
+        "--mwi-planning-idle-shadow",
+        style.boxShadow,
+      );
+    }
+  };
+  const syncViewport = () => {
+    if (!host) return;
+    if (!isCompactViewport() || !active) {
+      host.style.removeProperty("height");
+      host.style.removeProperty("max-height");
+      return;
+    }
+    const top = Math.max(0, Math.round(host.getBoundingClientRect().top));
+    const available = `calc(100dvh - ${top}px - env(safe-area-inset-bottom,0px))`;
+    host.style.height = available;
+    host.style.maxHeight = available;
+  };
+  const setActive = (next) => {
+    const nextActive = Boolean(next);
+    if (nextActive && !active) captureIdleStyle();
+    active = nextActive;
+    if (tab) {
+      tab.dataset.active = String(active);
+      tab.setAttribute("aria-selected", String(active));
+      tab.classList.toggle("Mui-selected", active);
+      if (tab.hasAttribute("data-selected")) {
+        tab.dataset.selected = String(active);
+      }
+      if (tab.hasAttribute("data-state")) {
+        tab.dataset.state = active ? "active" : "inactive";
+      }
+      if (!active) tab.blur();
+    }
+    if (navigationBranch && active) {
+      const selected = navigationBranch.querySelector(
+        `button[aria-selected="true"]:not(#${TAB_ID}):not(#${ASSET_TAB_ID}),button.Mui-selected:not(#${TAB_ID}):not(#${ASSET_TAB_ID})`,
+      );
+      if (selected) lastActiveNativeTab = selected;
+    }
+    if (host) host.hidden = !active;
+    if (!active) {
+      restoreNative();
+      clearTabOverride();
+      syncViewport();
+      return;
+    }
+    navigationBranch.dataset.mwitoolsPlanningActive = "true";
+    for (const node of [...(shell?.children ?? [])]) {
+      if (
+        node === navigationBranch ||
+        node === host ||
+        node.tagName === "STYLE"
+      ) {
+        continue;
+      }
+      if (!hiddenNodes.has(node)) {
+        hiddenNodes.set(node, {
+          hidden: node.hidden,
+          styleDisplay: node.style.display || null,
+        });
+      }
+      node.hidden = true;
+      node.style.display = "none";
+    }
+    syncViewport();
+    panel?.update();
+  };
+  const teardown = () => {
+    setActive(false);
+    panel?.destroy();
+    panel = null;
+    tab?.remove();
+    host?.remove();
+    tab = null;
+    host = null;
+    shell = null;
+    navigationBranch = null;
+    lastActiveNativeTab = null;
+  };
+  const mount = (anchor, found) => {
+    ({ shell, navigationBranch } = found);
+    tab = anchor.cloneNode(true);
+    tab.id = TAB_ID;
+    tab.type = "button";
+    const badge = tab.querySelector(
+      ".TabsComponent_badge__1Du26,.MuiBadge-root",
+    );
+    if (badge) badge.textContent = t("规划", "Planning");
+    else tab.textContent = t("规划", "Planning");
+    for (const className of [...tab.classList]) {
+      if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
+        tab.classList.remove(className);
+      }
+    }
+    tab.dataset.active = "false";
+    tab.setAttribute("aria-selected", "false");
+    tab.setAttribute("tabindex", "-1");
+    if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
+    if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
+    tab.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setActive(!active);
+    });
+    anchor.insertAdjacentElement("afterend", tab);
+    host = document.createElement("section");
+    host.id = PANEL_ID;
+    host.hidden = true;
+    shell.appendChild(host);
+    panel = new PlanningPanel(host);
+  };
+  const ensureMounted = () => {
+    const loadout = findCharacterManagementLoadoutTab();
+    const assetTab = document.getElementById(ASSET_TAB_ID);
+    const anchor =
+      assetTab?.parentElement === loadout?.parentElement ? assetTab : loadout;
+    const found = anchor && findPanelShell(anchor);
+    if (!anchor || !found) {
+      if (tab || host) teardown();
+      return;
+    }
+    const correctlyMounted =
+      tab?.previousElementSibling === anchor &&
+      tab?.parentElement === anchor.parentElement &&
+      host?.parentElement === found.shell;
+    if (tab?.isConnected && host?.isConnected && correctlyMounted) {
+      const otherSelected = navigationBranch?.querySelector(
+        `button[aria-selected="true"]:not(#${TAB_ID}):not(#${ASSET_TAB_ID}),button.Mui-selected:not(#${TAB_ID}):not(#${ASSET_TAB_ID})`,
+      );
+      if (
+        (otherSelected && otherSelected !== lastActiveNativeTab) ||
+        tab.getAttribute("aria-selected") !== "true"
+      ) {
+        if (active) setActive(false);
+      } else if (active) {
+        setActive(true);
+      }
+      return;
+    }
+    teardown();
+    mount(anchor, found);
+  };
+
+  addStyles();
+  ensureMounted();
+  const mountScheduler = createFrameScheduler(ensureMounted);
+  const MutationObserverRef =
+    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+  const observer = new MutationObserverRef((records) => {
+    const relevant = records.some((record) => {
+      const target =
+        record.target?.nodeType === 1
+          ? record.target
+          : record.target?.parentElement;
+      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID}`)) return false;
+      if (record.type === "attributes") {
+        return Boolean(
+          target?.closest?.(
+            '[class*="CharacterManagement_characterManagement"]',
+          ),
+        );
+      }
+      return [...record.addedNodes, ...record.removedNodes].some(
+        (node) =>
+          node?.nodeType === 1 &&
+          !(
+            node.matches?.(`#${TAB_ID},#${PANEL_ID}`) ||
+            node.closest?.(`#${TAB_ID},#${PANEL_ID}`)
+          ) &&
+          (node.matches?.(
+            '[class*="CharacterManagement_characterManagement"]',
+          ) ||
+            node.querySelector?.(
+              '[class*="CharacterManagement_characterManagement"]',
+            )),
+      );
+    });
+    if (relevant) mountScheduler.schedule();
+  });
+  scope.observer(observer, document.body, {
+    attributes: true,
+    attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+    childList: true,
+    subtree: true,
+  });
+  const closeFromOtherTab = (event) => {
+    if (
+      active &&
+      !event.target.closest(`#${TAB_ID}`) &&
+      !event.target.closest(`#${PANEL_ID}`) &&
+      navigationBranch?.contains(event.target)
+    ) {
+      setActive(false);
+    }
+  };
+  scope.event(document, "pointerdown", closeFromOtherTab, true);
+  scope.event(document, "click", closeFromOtherTab, true);
+  scope.event(window, "resize", syncViewport);
+  scope.event(document, "keydown", (event) => {
+    if (active && isCompactViewport() && event.key === "Escape") {
+      setActive(false);
+    }
+  });
+  for (const messageType of [
+    "items_updated",
+    "house_rooms_updated",
+    "community_buffs_updated",
+    "consumable_buffs_updated",
+    "equipment_buffs_updated",
+    "personal_buffs_updated",
+    "guild_buffs_updated",
+    "skills_updated",
+    "init_character_data",
+  ]) {
+    scope.add(runtime.onMessage(messageType, () => panel?.scheduleUpdate()));
+  }
+  scope.add(() => mountScheduler.cancel());
+  return {
+    update() {
+      panel?.scheduleUpdate();
+    },
+    destroy() {
+      teardown();
+      document.getElementById(STYLE_ID)?.remove();
+    },
+  };
 }
+
+runtime.features.register({
+  id: "planningPage",
+  setting: "procurementAssistant",
+  scope: "character",
+  initialize({ scope }) {
+    const ui = createPlanningUi({ scope });
+    return () => ui.destroy();
+  },
+});

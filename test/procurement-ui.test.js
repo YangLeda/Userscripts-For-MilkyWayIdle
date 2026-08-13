@@ -56,13 +56,13 @@ after(async () => {
   await runtime.features.disable("procurementAssistant");
 });
 
-test("procurement owns a standalone four-tab shell outside global settings", async () => {
+test("procurement owns a standalone three-tab shell outside global settings", async () => {
   await runtime.features.handleCharacterData({ characterID: "ui-character" });
   const host = document.querySelector("#mwitools-procurement-host");
   assert.ok(host?.shadowRoot);
   assert.deepEqual(
     [...host.shadowRoot.querySelectorAll(".tab")].map((tab) => tab.dataset.tab),
-    ["cart", "plans", "planning", "settings"],
+    ["cart", "plans", "settings"],
   );
   assert.ok(host.shadowRoot.querySelector(".handle svg"));
   assert.equal(host.shadowRoot.querySelector(".handle").textContent.trim(), "");
@@ -80,27 +80,6 @@ test("procurement owns a standalone four-tab shell outside global settings", asy
     ),
     true,
   );
-});
-
-test("planning is an independent drawer calculator", () => {
-  const host = document.querySelector("#mwitools-procurement-host");
-  runtime.api.planning.getGoals().forEach((goal) => {
-    runtime.api.planning.removeGoal(goal.id);
-  });
-  runtime.api.planning.upsertGoal({
-    kind: "item",
-    targetHrid: "/items/board",
-    target: 3,
-  });
-  host.shadowRoot.querySelector('.tab[data-tab="planning"]').click();
-  assert.match(host.shadowRoot.textContent, /Planning goals/);
-  assert.match(host.shadowRoot.textContent, /Production needed/);
-  assert.match(host.shadowRoot.textContent, /Base materials/);
-  assert.match(host.shadowRoot.textContent, /Board/);
-  runtime.api.planning.getGoals().forEach((goal) => {
-    runtime.api.planning.removeGoal(goal.id);
-  });
-  host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
 });
 
 test("the global shopping-cart switch removes and restores every procurement entry", async () => {

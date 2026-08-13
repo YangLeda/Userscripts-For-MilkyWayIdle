@@ -21403,6 +21403,20 @@
       projects: allocations.projects
     });
   }
+  function projectIdsFromCartRow(row) {
+    return Object.keys(row?.allocations?.projects ?? {});
+  }
+  function deleteProjectsWithoutCartAllocations(candidateIds) {
+    let changed = false;
+    for (const id of new Set(candidateIds ?? [])) {
+      const stillListed = [...cart.values()].some(
+        (row) => Number(row.allocations?.projects?.[id]) > 0
+      );
+      if (!stillListed && plans.delete(id)) changed = true;
+    }
+    if (changed) savePlansAndEmit();
+    return changed;
+  }
   function releaseCartAllocation(owner, itemHrid = null, enhancementLevel = 0) {
     let changed = false;
     const rows2 = itemHrid ? [cart.get(itemKey(itemHrid, enhancementLevel))].filter(Boolean) : [...cart.values()];
@@ -21492,6 +21506,7 @@
     const key = itemKey(itemHrid, enhancementLevel);
     const row = cart.get(key);
     if (!row) return { ok: false };
+    const affectedProjects = projectIdsFromCartRow(row);
     const normalized = Math.max(0, Math.ceil(Number(quantity) || 0));
     if (!normalized && !row.starred) cart.delete(key);
     else {
@@ -21501,11 +21516,13 @@
       row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
     }
     saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
     return { ok: true };
   }
   function updateCartItem(itemHrid, enhancementLevel, patch) {
     const row = cart.get(itemKey(itemHrid, enhancementLevel));
     if (!row) return false;
+    const affectedProjects = projectIdsFromCartRow(row);
     Object.assign(row, patch, { updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
     if (Object.hasOwn(patch, "quantity")) {
       resizeCartAllocations(row, patch.quantity);
@@ -21515,18 +21532,29 @@
       row.threshold = patch.threshold == null ? null : Math.max(0, Math.ceil(Number(patch.threshold) || 0));
     }
     saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
     return true;
   }
   function removeFromCart(itemHrid, enhancementLevel = 0) {
-    const removed = cart.delete(itemKey(itemHrid, enhancementLevel));
-    if (removed) saveCartAndEmit();
+    const key = itemKey(itemHrid, enhancementLevel);
+    const affectedProjects = projectIdsFromCartRow(cart.get(key));
+    const removed = cart.delete(key);
+    if (removed) {
+      saveCartAndEmit();
+      deleteProjectsWithoutCartAllocations(affectedProjects);
+    }
     return { ok: removed };
   }
   function clearCart({ includeStarred = false } = {}) {
+    const affectedProjects = /* @__PURE__ */ new Set();
     for (const [key, row] of cart) {
-      if (includeStarred || !row.starred) cart.delete(key);
+      if (includeStarred || !row.starred) {
+        projectIdsFromCartRow(row).forEach((id) => affectedProjects.add(id));
+        cart.delete(key);
+      }
     }
     saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
     return { ok: true };
   }
   function applyAcquisition(itemHrid, enhancementLevel, quantity, options = {}) {
@@ -21535,6 +21563,7 @@
     const acquired = Math.max(0, Math.floor(Number(quantity) || 0));
     if (!row || !acquired || !settings.inventorySyncEnabled) return false;
     const before = row.quantity;
+    const affectedProjects = projectIdsFromCartRow(row);
     consumeCartAllocations(row, acquired);
     row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel);
     row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
@@ -21545,6 +21574,7 @@
       else cart.delete(key);
     }
     saveCartAndEmit();
+    deleteProjectsWithoutCartAllocations(affectedProjects);
     if (fulfilled) {
       emit("item:fulfilled", { item: clone(row), source: options.source });
       if (![...cart.values()].some((candidate) => candidate.quantity > 0)) {
@@ -28524,6 +28554,1017 @@ ${preview}`
     }
   });
 
+  // src/features/planning.js
+  var TAB_ID2 = "mwitools-planning-tab";
+  var PANEL_ID2 = "mwitools-planning-panel";
+  var STYLE_ID4 = "mwitools-planning-style";
+  var ASSET_TAB_ID = "mwitools-asset-history-tab";
+  var procurement2 = runtime.api.procurement;
+  var planning = runtime.api.planning;
+  function t3(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function number(value) {
+    return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
+  }
+  function exact(value) {
+    return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
+  }
+  function escapeHtml2(value) {
+    return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+  function tail(value) {
+    return String(value ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "—";
+  }
+  function houseName(hrid) {
+    return runtime.data?.ZHOthersDic?.[hrid] ?? runtime.state.initData_houseRoomDetailMap?.[hrid]?.name ?? tail(hrid);
+  }
+  function currentHouseLevel2(hrid) {
+    const map = runtime.state.initData_characterHouseRoomMap ?? {};
+    return Math.max(
+      0,
+      Number(
+        map[hrid]?.level ?? Object.values(map).find((house) => house?.houseRoomHrid === hrid)?.level
+      ) || 0
+    );
+  }
+  function maxHouseLevel2(hrid) {
+    const levels = Object.keys(
+      runtime.state.initData_houseRoomDetailMap?.[hrid]?.upgradeCostsMap ?? {}
+    ).map(Number).filter((level) => Number.isFinite(level));
+    return levels.length ? Math.max(...levels) : 0;
+  }
+  function goalLabel(goal) {
+    return goal.kind === "house" ? houseName(goal.targetHrid) : itemName(goal.targetHrid);
+  }
+  function itemCandidates() {
+    return Object.entries(runtime.state.initData_itemDetailMap ?? {}).filter(([hrid]) => hrid.startsWith("/items/")).map(([hrid, detail]) => ({
+      hrid,
+      name: itemName(hrid),
+      english: String(detail?.name ?? ""),
+      sortIndex: Number(detail?.sortIndex) || Number.MAX_SAFE_INTEGER
+    })).sort(
+      (left, right) => left.sortIndex - right.sortIndex || left.name.localeCompare(right.name)
+    );
+  }
+  function houseCandidates() {
+    return Object.entries(runtime.state.initData_houseRoomDetailMap ?? {}).filter(([hrid]) => maxHouseLevel2(hrid) > 0).map(([hrid, detail]) => ({
+      hrid,
+      name: houseName(hrid),
+      skillHrid: detail?.skillHrid,
+      sortIndex: Number(detail?.sortIndex) || Number.MAX_SAFE_INTEGER
+    })).sort(
+      (left, right) => left.sortIndex - right.sortIndex || left.name.localeCompare(right.name)
+    );
+  }
+  function catalogSignature() {
+    return JSON.stringify([
+      Object.keys(runtime.state.initData_itemDetailMap ?? {}),
+      Object.entries(runtime.state.initData_houseRoomDetailMap ?? {}).map(
+        ([hrid, detail]) => [hrid, detail?.skillHrid, detail?.upgradeCostsMap]
+      )
+    ]);
+  }
+  function resolveItemInput(value, candidates) {
+    const query = String(value ?? "").trim().toLowerCase();
+    if (!query) return null;
+    const normalized = procurement2.normalizeItemHrid(query);
+    return candidates.find(
+      (candidate) => candidate.hrid.toLowerCase() === query || candidate.hrid === normalized || candidate.name.toLowerCase() === query || candidate.english.toLowerCase() === query
+    ) ?? null;
+  }
+  function findSpriteBase(kind) {
+    const needle = `${kind}_sprite`;
+    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
+      if (!entry.name?.includes(needle) || !entry.name.endsWith(".svg")) continue;
+      try {
+        return new URL(entry.name).pathname;
+      } catch {
+        return entry.name;
+      }
+    }
+    const use = document.querySelector(
+      `svg use[href*="${needle}"],svg use[xlink\\:href*="${needle}"]`
+    );
+    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
+    return href.includes("#") ? href.split("#")[0] : "";
+  }
+  function iconMarkup(kind, hrid, label) {
+    const bare = String(hrid ?? "").split("/").at(-1);
+    const sprite = findSpriteBase(kind);
+    if (!bare || !sprite) {
+      return `<span class="planning-icon-fallback">${escapeHtml2(
+        String(label || "?").trim().charAt(0) || "?"
+      )}</span>`;
+    }
+    const href = `${sprite}#${bare}`;
+    return `<svg viewBox="0 0 32 32" aria-hidden="true"><use href="${escapeHtml2(href)}" xlink:href="${escapeHtml2(href)}"></use></svg>`;
+  }
+  function itemIcon(itemHrid, label = itemName(itemHrid)) {
+    return iconMarkup("items", itemHrid, label);
+  }
+  function houseIcon(candidate) {
+    return iconMarkup("skills", candidate?.skillHrid, candidate?.name);
+  }
+  function goalIcon(goal) {
+    if (goal.kind === "item") return itemIcon(goal.targetHrid, goalLabel(goal));
+    const candidate = houseCandidates().find(
+      (house) => house.hrid === goal.targetHrid
+    );
+    return houseIcon(candidate);
+  }
+  function goalSources(ids, goals) {
+    const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
+    return ids.map((id) => byId.get(id) ?? id).join(t3("、", ", "));
+  }
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID4)) return;
+    const style = document.createElement("style");
+    style.id = STYLE_ID4;
+    style.textContent = `
+    #${TAB_ID2}[data-active="true"]{color:#7dd3fc!important;font-weight:700}
+    [data-mwitools-planning-active="true"] button:not(#${TAB_ID2}){border-color:var(--mwi-planning-idle-border,rgba(255,255,255,.16))!important;background:var(--mwi-planning-idle-background,rgba(255,255,255,.08))!important;box-shadow:var(--mwi-planning-idle-shadow,none)!important;color:var(--mwi-planning-idle-color,var(--color-text-secondary,#aeb5c0))!important;filter:none!important}
+    #${PANEL_ID2}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    #${PANEL_ID2} *{box-sizing:border-box}#${PANEL_ID2} button,#${PANEL_ID2} input,#${PANEL_ID2} select{font:inherit}
+    .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
+    .planning-editor-grid{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:10px;margin-bottom:12px}
+    .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}
+    .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
+    .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
+    .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
+    .planning-search-input:focus,.planning-count-input:focus,.planning-level-select:focus,.planning-picker-button:focus{border-color:#38bdf8;box-shadow:0 0 0 2px rgba(56,189,248,.16)}
+    .planning-count-input{width:82px;flex:0 0 82px;text-align:center}.planning-level-select{width:92px;flex:0 0 92px}
+    .planning-primary{min-height:34px;border:0;border-radius:5px;background:#287fb4;color:#fff;padding:6px 12px;font-weight:700;white-space:nowrap;cursor:pointer}.planning-primary:hover{background:#3299d1}.planning-primary:disabled{opacity:.45;cursor:default}
+    .planning-results{position:absolute;left:0;right:0;top:39px;z-index:20;display:none;max-height:min(390px,55vh);overflow:auto;padding:4px;border:1px solid rgba(125,211,252,.36);border-radius:6px;background:#182236;box-shadow:0 12px 28px rgba(0,0,0,.48)}.planning-results[data-open="true"]{display:block}
+    .planning-option{display:flex;width:100%;min-width:0;align-items:center;gap:8px;border:0;border-bottom:1px solid rgba(152,167,233,.22);border-radius:4px;background:transparent;color:#eef2f7;padding:6px 7px;text-align:left;cursor:pointer}.planning-option:last-child{border-bottom:0}.planning-option:hover,.planning-option[data-active="true"]{background:#35425f}.planning-option-icon,.planning-picker-icon,.planning-goal-icon{display:grid;width:32px;height:32px;flex:0 0 32px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-option-icon svg,.planning-picker-icon svg,.planning-goal-icon svg{width:28px;height:28px}.planning-icon-fallback{color:#aebbd2;font-size:.75rem;font-weight:700}.planning-option-copy{min-width:0;flex:1}.planning-option-copy strong,.planning-option-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-option-copy strong{font-size:.76rem}.planning-option-copy small{margin-top:2px;color:#94a3b8;font-size:.61rem}
+    .planning-picker-button{display:flex;align-items:center;gap:7px;text-align:left;cursor:pointer}.planning-picker-icon{width:28px;height:28px;flex-basis:28px}.planning-picker-icon svg{width:25px;height:25px}.planning-picker-copy{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.planning-picker-arrow{color:#94a3b8}
+    .planning-content-grid{display:grid;grid-template-columns:minmax(280px,.78fr) minmax(0,1.22fr);gap:10px;align-items:start}.planning-results-column{display:grid;gap:10px;min-width:0}.planning-section{overflow:visible}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{margin:0;font-size:.82rem}.planning-empty{padding:18px 11px;color:#94a3b8;font-size:.72rem;text-align:center}
+    .planning-goal{display:grid;grid-template-columns:18px 34px minmax(0,1fr) auto 78px 28px;align-items:center;gap:7px;padding:8px 9px;border-bottom:1px solid rgba(255,255,255,.065);font-size:.72rem}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.5}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-goal-current{color:#94a3b8;white-space:nowrap}.planning-goal input[type="number"]{width:78px;height:30px;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:#18243a;color:#eef2f7;padding:4px 6px;text-align:center}.planning-remove{width:28px;height:28px;border:0;border-radius:5px;background:transparent;color:#ff8d96;font-size:1.05rem;cursor:pointer}.planning-remove:hover{background:rgba(224,90,100,.16)}
+    .planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-policy,.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-source{padding:0 10px 9px 48px;color:#94a3b8;font-size:.64rem}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
+    .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
+    @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:760px){#${PANEL_ID2}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 68px 28px}.planning-goal-current{display:none}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}}
+  `;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+  function createOption(candidate, kind, onSelect) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "planning-option";
+    const icon = kind === "item" ? itemIcon(candidate.hrid, candidate.name) : houseIcon(candidate);
+    const meta = kind === "item" ? candidate.hrid : `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+    const iconHost = document.createElement("span");
+    iconHost.className = "planning-option-icon";
+    iconHost.innerHTML = icon;
+    const copy = document.createElement("span");
+    copy.className = "planning-option-copy";
+    const name = document.createElement("strong");
+    name.textContent = candidate.name;
+    const detail = document.createElement("small");
+    detail.textContent = meta;
+    copy.append(name, detail);
+    button.append(iconHost, copy);
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+    button.addEventListener("click", () => onSelect(candidate));
+    return button;
+  }
+  function createItemPicker(host, onSelect, cleanup4) {
+    const candidates = itemCandidates();
+    const input = document.createElement("input");
+    input.type = "search";
+    input.className = "planning-search-input";
+    input.placeholder = t3("搜索物品名称、英文名或 HRID", "Search name or HRID");
+    input.setAttribute("aria-label", t3("选择规划物品", "Choose planning item"));
+    const results = document.createElement("div");
+    results.className = "planning-results";
+    let selected = null;
+    let shown = [];
+    let activeIndex = 0;
+    const close = () => {
+      results.dataset.open = "false";
+    };
+    const choose = (candidate) => {
+      if (!candidate) return;
+      selected = candidate;
+      input.value = candidate.name;
+      close();
+      onSelect(candidate);
+    };
+    const render = () => {
+      const query = input.value.trim().toLowerCase();
+      shown = candidates.filter(
+        (candidate) => !query || candidate.name.toLowerCase().includes(query) || candidate.english.toLowerCase().includes(query) || candidate.hrid.toLowerCase().includes(query)
+      ).slice(0, 80);
+      activeIndex = Math.min(activeIndex, Math.max(0, shown.length - 1));
+      results.replaceChildren(
+        ...shown.map((candidate, index) => {
+          const option = createOption(candidate, "item", choose);
+          option.dataset.active = String(index === activeIndex);
+          return option;
+        })
+      );
+      results.dataset.open = String(shown.length > 0);
+    };
+    const syncActive = () => {
+      [...results.children].forEach((option, index) => {
+        option.dataset.active = String(index === activeIndex);
+      });
+      results.children[activeIndex]?.scrollIntoView?.({ block: "nearest" });
+    };
+    input.addEventListener("focus", render);
+    input.addEventListener("input", () => {
+      selected = null;
+      activeIndex = 0;
+      render();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (results.dataset.open !== "true") render();
+        activeIndex = Math.max(
+          0,
+          Math.min(
+            shown.length - 1,
+            activeIndex + (event.key === "ArrowDown" ? 1 : -1)
+          )
+        );
+        syncActive();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        choose(shown[activeIndex] ?? resolveItemInput(input.value, candidates));
+      } else if (event.key === "Escape") {
+        close();
+      }
+    });
+    const outside = (event) => {
+      if (!host.contains(event.target)) close();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    cleanup4.push(
+      () => document.removeEventListener("pointerdown", outside, true)
+    );
+    host.append(input, results);
+    return {
+      input,
+      getSelected: () => selected ?? resolveItemInput(input.value, candidates),
+      clear() {
+        selected = null;
+        input.value = "";
+        close();
+      }
+    };
+  }
+  function createHousePicker(host, onSelect, cleanup4) {
+    const candidates = houseCandidates();
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "planning-picker-button";
+    button.setAttribute("aria-label", t3("选择房屋", "Choose house"));
+    const results = document.createElement("div");
+    results.className = "planning-results";
+    let selected = candidates[0] ?? null;
+    const paintButton = () => {
+      button.replaceChildren();
+      const copy = document.createElement("span");
+      copy.className = "planning-picker-copy";
+      if (!selected) {
+        copy.textContent = t3("暂无房屋", "No houses");
+        button.append(copy);
+        return;
+      }
+      const icon = document.createElement("span");
+      icon.className = "planning-picker-icon";
+      icon.innerHTML = houseIcon(selected);
+      copy.textContent = selected.name;
+      const arrow = document.createElement("span");
+      arrow.className = "planning-picker-arrow";
+      arrow.textContent = "▾";
+      button.append(icon, copy, arrow);
+    };
+    const close = () => {
+      results.dataset.open = "false";
+    };
+    const choose = (candidate) => {
+      selected = candidate;
+      paintButton();
+      close();
+      onSelect(candidate);
+    };
+    const renderOptions = () => {
+      results.replaceChildren(
+        ...candidates.map(
+          (candidate) => createOption(candidate, "house", choose)
+        )
+      );
+    };
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const opening = results.dataset.open !== "true";
+      if (opening) renderOptions();
+      results.dataset.open = String(opening);
+    });
+    const outside = (event) => {
+      if (!host.contains(event.target)) close();
+    };
+    document.addEventListener("pointerdown", outside, true);
+    cleanup4.push(
+      () => document.removeEventListener("pointerdown", outside, true)
+    );
+    paintButton();
+    host.append(button, results);
+    return {
+      getSelected: () => selected,
+      refresh() {
+        paintButton();
+        results.querySelectorAll(".planning-option-copy small").forEach((meta, index) => {
+          const candidate = candidates[index];
+          meta.textContent = `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+        });
+      }
+    };
+  }
+  function createPlanningEditor(host, cleanup4) {
+    const grid = document.createElement("div");
+    grid.className = "planning-editor-grid";
+    const itemCard = document.createElement("section");
+    itemCard.className = "planning-add-card";
+    itemCard.innerHTML = `<div class="planning-add-title">${t3("添加物品目标", "Add item target")}</div>`;
+    const itemBody = document.createElement("div");
+    itemBody.className = "planning-add-body";
+    const itemSearch = document.createElement("div");
+    itemSearch.className = "planning-search-wrap";
+    let chosenItem = null;
+    const itemPicker = createItemPicker(
+      itemSearch,
+      (candidate) => {
+        chosenItem = candidate;
+      },
+      cleanup4
+    );
+    const itemCount = document.createElement("input");
+    itemCount.type = "number";
+    itemCount.min = "1";
+    itemCount.step = "1";
+    itemCount.value = "1";
+    itemCount.className = "planning-count-input";
+    itemCount.setAttribute("aria-label", t3("最终持有量", "Final quantity"));
+    const itemAdd = document.createElement("button");
+    itemAdd.type = "button";
+    itemAdd.className = "planning-primary";
+    itemAdd.textContent = t3("添加", "Add");
+    const submitItem = () => {
+      const candidate = chosenItem ?? itemPicker.getSelected();
+      if (!candidate) {
+        itemPicker.input.setCustomValidity?.(
+          t3("请先选择有效物品", "Choose a valid item")
+        );
+        itemPicker.input.reportValidity?.();
+        return;
+      }
+      itemPicker.input.setCustomValidity?.("");
+      planning.upsertGoal({
+        kind: "item",
+        targetHrid: candidate.hrid,
+        target: itemCount.value
+      });
+      chosenItem = null;
+      itemPicker.clear();
+      itemCount.value = "1";
+    };
+    itemAdd.addEventListener("click", submitItem);
+    itemCount.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submitItem();
+    });
+    itemBody.append(itemSearch, itemCount, itemAdd);
+    itemCard.append(itemBody);
+    const houseCard = document.createElement("section");
+    houseCard.className = "planning-add-card";
+    houseCard.innerHTML = `<div class="planning-add-title">${t3("添加房屋目标", "Add house target")}</div>`;
+    const houseBody = document.createElement("div");
+    houseBody.className = "planning-add-body";
+    const houseWrap = document.createElement("div");
+    houseWrap.className = "planning-house-wrap";
+    const level = document.createElement("select");
+    level.className = "planning-level-select";
+    level.setAttribute("aria-label", t3("房屋目标等级", "House target level"));
+    const refreshLevels = (candidate) => {
+      level.replaceChildren();
+      if (!candidate) return;
+      const current = currentHouseLevel2(candidate.hrid);
+      for (let targetLevel = current + 1; targetLevel <= maxHouseLevel2(candidate.hrid); targetLevel += 1) {
+        const option = document.createElement("option");
+        option.value = String(targetLevel);
+        option.textContent = `${t3("等级", "Level")} ${targetLevel}`;
+        level.append(option);
+      }
+      level.disabled = level.options.length === 0;
+    };
+    const housePicker = createHousePicker(houseWrap, refreshLevels, cleanup4);
+    refreshLevels(housePicker.getSelected());
+    const houseAdd = document.createElement("button");
+    houseAdd.type = "button";
+    houseAdd.className = "planning-primary";
+    houseAdd.textContent = t3("添加", "Add");
+    houseAdd.addEventListener("click", () => {
+      const candidate = housePicker.getSelected();
+      if (!candidate || !level.value) return;
+      planning.upsertGoal({
+        kind: "house",
+        targetHrid: candidate.hrid,
+        target: level.value
+      });
+    });
+    houseBody.append(houseWrap, level, houseAdd);
+    houseCard.append(houseBody);
+    grid.append(itemCard, houseCard);
+    host.append(grid);
+    return {
+      refresh() {
+        housePicker.refresh();
+        refreshLevels(housePicker.getSelected());
+      }
+    };
+  }
+  function renderGoals(host, goals) {
+    host.replaceChildren();
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("h3");
+    heading.textContent = `${t3("规划目标", "Planning goals")} · ${goals.length}`;
+    section.append(heading);
+    if (!goals.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t3(
+        "从上方选择物品或房屋开始规划。",
+        "Choose an item or house above to begin."
+      );
+      section.append(empty);
+    }
+    for (const goal of goals) {
+      const row = document.createElement("article");
+      row.className = "planning-goal";
+      row.dataset.enabled = String(goal.enabled);
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.checked = goal.enabled;
+      toggle.title = t3("启用目标", "Enable goal");
+      toggle.addEventListener("change", () => {
+        planning.updateGoal(goal.id, { enabled: toggle.checked });
+      });
+      const icon = document.createElement("span");
+      icon.className = "planning-goal-icon";
+      icon.innerHTML = goalIcon(goal);
+      const name = document.createElement("div");
+      name.className = "planning-goal-name";
+      name.textContent = goalLabel(goal);
+      name.title = goal.targetHrid;
+      const current = document.createElement("span");
+      current.className = "planning-goal-current";
+      current.dataset.goalId = goal.id;
+      current.textContent = `${t3("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0))}`;
+      const target = document.createElement("input");
+      target.type = "number";
+      target.min = "1";
+      target.max = goal.kind === "house" ? String(maxHouseLevel2(goal.targetHrid)) : "";
+      target.step = "1";
+      target.value = String(goal.target);
+      target.title = goal.kind === "house" ? t3("目标等级", "Target level") : t3("最终持有量", "Final quantity");
+      target.addEventListener("change", () => {
+        planning.updateGoal(goal.id, { target: target.value });
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "planning-remove";
+      remove.textContent = "×";
+      remove.title = t3("删除", "Remove");
+      remove.addEventListener("click", () => planning.removeGoal(goal.id));
+      row.append(toggle, icon, name, current, target, remove);
+      section.append(row);
+    }
+    host.append(section);
+  }
+  function updateGoalCurrentValues(host, goals) {
+    for (const goal of goals) {
+      const node = [...host.querySelectorAll(".planning-goal-current")].find(
+        (candidate) => candidate.dataset.goalId === goal.id
+      );
+      if (!node) continue;
+      const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
+      node.textContent = `${t3("当前", "Current")} ${number(current)}`;
+    }
+  }
+  function renderSteps(host, result) {
+    host.replaceChildren();
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("h3");
+    heading.textContent = `${t3("需要制作", "Production needed")} · ${result.steps.length}`;
+    section.append(heading);
+    if (!result.steps.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t3("当前没有需要制作的物品。", "Nothing to produce.");
+      section.append(empty);
+    }
+    for (const step of result.steps) {
+      const row = document.createElement("details");
+      row.className = "planning-step";
+      const summary = document.createElement("summary");
+      const icon = document.createElement("span");
+      icon.className = "planning-row-icon";
+      icon.innerHTML = itemIcon(step.itemHrid);
+      const label = document.createElement("span");
+      label.className = "planning-step-name";
+      label.textContent = itemName(step.itemHrid);
+      const counts = document.createElement("span");
+      counts.className = "planning-step-count";
+      counts.textContent = `${t3("需", "Need")} ${number(step.requiredOutput)} · ${t3("预计", "Est.")} ${number(step.actionCount)} ${t3("次", "actions")}`;
+      const policy = document.createElement("button");
+      policy.type = "button";
+      policy.className = "planning-policy";
+      const current = planning.getPolicy(step.itemHrid);
+      policy.textContent = current === "acquire" ? t3("直接获取", "Acquire") : t3("制作", "Produce");
+      policy.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        planning.setPolicy(
+          step.itemHrid,
+          current === "acquire" ? "produce" : "acquire"
+        );
+      });
+      summary.append(icon, label, counts, policy);
+      const source = document.createElement("div");
+      source.className = "planning-source";
+      source.textContent = `${t3("来源", "Sources")}: ${goalSources(step.sourceIds, result.goals)} · ${t3("单次有效产出", "Effective output")} ${exact(step.outputCount)}`;
+      row.append(summary, source);
+      section.append(row);
+    }
+    host.append(section);
+  }
+  function renderMaterials(host, result) {
+    host.replaceChildren();
+    const section = document.createElement("section");
+    section.className = "planning-section";
+    const heading = document.createElement("div");
+    heading.className = "planning-section-heading";
+    const title = document.createElement("h3");
+    title.textContent = `${t3("基础材料", "Base materials")} · ${result.materials.length}`;
+    const addAll = document.createElement("button");
+    addAll.type = "button";
+    addAll.className = "planning-primary";
+    addAll.textContent = t3("一键补齐", "Add all");
+    addAll.disabled = !result.materials.some(
+      (material) => material.purchasable && material.addableShortage > 0
+    );
+    addAll.addEventListener("click", () => {
+      planning.addShortagesToCart(result.materials);
+    });
+    heading.append(title, addAll);
+    section.append(heading);
+    if (!result.materials.length) {
+      const empty = document.createElement("div");
+      empty.className = "planning-empty";
+      empty.textContent = t3(
+        "当前没有基础材料需求。",
+        "No base materials needed."
+      );
+      section.append(empty);
+    }
+    for (const material of result.materials) {
+      const row = document.createElement("details");
+      row.className = "planning-material";
+      row.dataset.missing = String(material.addableShortage > 0);
+      const summary = document.createElement("summary");
+      const icon = document.createElement("span");
+      icon.className = "planning-row-icon";
+      icon.innerHTML = itemIcon(material.itemHrid, material.name);
+      const name = document.createElement("span");
+      name.className = "planning-material-name";
+      name.textContent = material.name;
+      name.title = material.itemHrid;
+      const missing = document.createElement("strong");
+      missing.textContent = material.addableShortage ? `${t3("还需", "Need")} ${number(material.addableShortage)}` : t3("已覆盖", "Covered");
+      summary.append(icon, name, missing);
+      const grid = document.createElement("div");
+      grid.className = "planning-material-grid";
+      const metric4 = (label, value, sub = "") => {
+        const cell = document.createElement("div");
+        cell.innerHTML = `<span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}`;
+        return cell;
+      };
+      grid.append(
+        metric4(t3("规划需求", "Required"), number(material.required)),
+        metric4(
+          t3("库存", "Inventory"),
+          number(material.owned),
+          `${t3("项目占用", "Project")} ${number(material.projectInventory)} · ${t3("规划使用", "Planning")} ${number(material.inventoryUsed)}`
+        ),
+        metric4(
+          t3("购物车", "Cart"),
+          number(material.cart.total),
+          `${t3("项目", "Project")} ${number(material.cart.project)} · ${t3("规划", "Planning")} ${number(material.cart.planning)} · ${t3("手工", "Manual")} ${number(material.cart.manual)}`
+        ),
+        metric4(t3("仍需购买", "To buy"), number(material.addableShortage))
+      );
+      const actions = document.createElement("div");
+      actions.className = "planning-material-actions";
+      const policy = document.createElement("button");
+      policy.type = "button";
+      policy.textContent = planning.getPolicy(material.itemHrid) === "acquire" ? t3("改为制作", "Produce") : t3("直接获取", "Acquire");
+      policy.addEventListener("click", () => {
+        planning.setPolicy(
+          material.itemHrid,
+          planning.getPolicy(material.itemHrid) === "acquire" ? "produce" : "acquire"
+        );
+      });
+      const add = document.createElement("button");
+      add.type = "button";
+      add.textContent = material.purchasable ? t3("加入购物车", "Add to cart") : t3("不可购买", "Not tradable");
+      add.disabled = !material.purchasable || !material.addableShortage;
+      add.addEventListener(
+        "click",
+        () => planning.addShortagesToCart([material])
+      );
+      const source = document.createElement("span");
+      source.textContent = `${t3("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
+      actions.append(policy, add, source);
+      row.append(summary, grid, actions);
+      section.append(row);
+    }
+    host.append(section);
+  }
+  var PlanningPanel = class {
+    constructor(host) {
+      this.host = host;
+      this.cleanup = [];
+      this.signatures = {};
+      this.build();
+      this.catalogSignature = catalogSignature();
+      this.unsubscribe = [
+        procurement2.on("planning:change", () => this.scheduleUpdate()),
+        procurement2.on("cart:change", () => this.scheduleUpdate()),
+        procurement2.on("plan:change", () => this.scheduleUpdate()),
+        procurement2.on("inventory:change", () => this.scheduleUpdate())
+      ];
+      this.updateScheduler = createFrameScheduler(() => this.update());
+      this.update();
+    }
+    build() {
+      this.host.replaceChildren();
+      const intro = document.createElement("p");
+      intro.className = "planning-intro";
+      intro.textContent = t3(
+        "设置最终希望持有的物品数量或房屋等级。房屋升级成本固定；制作链会使用当前茶饮、装备、社区 Buff、暴饮之囊和采购安全余量。",
+        "Set final item holdings or house levels. House costs stay fixed; production chains use current drinks, equipment, community buffs, Guzzling Pouch, and procurement safety margins."
+      );
+      this.editorHost = document.createElement("div");
+      this.content = document.createElement("div");
+      this.content.className = "planning-content-grid";
+      this.goalsHost = document.createElement("div");
+      const resultColumn = document.createElement("div");
+      resultColumn.className = "planning-results-column";
+      this.stepsHost = document.createElement("div");
+      this.materialsHost = document.createElement("div");
+      resultColumn.append(this.stepsHost, this.materialsHost);
+      this.content.append(this.goalsHost, resultColumn);
+      this.warningHost = document.createElement("div");
+      this.footer = document.createElement("div");
+      this.footer.className = "planning-footer";
+      this.host.append(
+        intro,
+        this.editorHost,
+        this.content,
+        this.warningHost,
+        this.footer
+      );
+      this.editor = createPlanningEditor(this.editorHost, this.cleanup);
+    }
+    scheduleUpdate() {
+      this.updateScheduler?.schedule();
+    }
+    update() {
+      if (!this.host?.isConnected) return;
+      const nextCatalogSignature = catalogSignature();
+      if (this.catalogSignature !== nextCatalogSignature) {
+        this.cleanup.forEach((dispose) => dispose());
+        this.cleanup = [];
+        this.signatures = {};
+        this.build();
+        this.catalogSignature = nextCatalogSignature;
+      }
+      const goals = planning.getGoals();
+      const result = planning.calculate();
+      const goalsSignature = JSON.stringify(goals);
+      const stepsSignature = JSON.stringify(result.steps);
+      const materialsSignature = JSON.stringify(result.materials);
+      if (this.signatures.goals !== goalsSignature) {
+        renderGoals(this.goalsHost, goals);
+        this.signatures.goals = goalsSignature;
+      } else {
+        updateGoalCurrentValues(this.goalsHost, goals);
+      }
+      if (this.signatures.steps !== stepsSignature) {
+        renderSteps(this.stepsHost, result);
+        this.signatures.steps = stepsSignature;
+      }
+      if (this.signatures.materials !== materialsSignature) {
+        renderMaterials(this.materialsHost, result);
+        this.signatures.materials = materialsSignature;
+      }
+      this.editor?.refresh();
+      this.warningHost.replaceChildren();
+      if (result.warnings.length) {
+        const warning = document.createElement("div");
+        warning.className = "planning-warning";
+        warning.textContent = t3(
+          `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
+          `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`
+        );
+        this.warningHost.append(warning);
+      }
+      this.footer.textContent = t3(
+        `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
+        `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`
+      );
+    }
+    destroy() {
+      this.updateScheduler?.cancel();
+      this.unsubscribe?.forEach((unsubscribe) => unsubscribe?.());
+      this.cleanup.forEach((dispose) => dispose());
+      this.cleanup = [];
+    }
+  };
+  function isCompactViewport2() {
+    return window.matchMedia?.("(max-width:760px)")?.matches ?? Number(window.innerWidth) <= 760;
+  }
+  function createPlanningUi({ scope }) {
+    let active = false;
+    let tab = null;
+    let host = null;
+    let panel = null;
+    let shell2 = null;
+    let navigationBranch = null;
+    let lastActiveNativeTab = null;
+    const hiddenNodes = /* @__PURE__ */ new Map();
+    const restoreNative = () => {
+      for (const [node, state] of hiddenNodes) {
+        node.hidden = state.hidden;
+        if (state.styleDisplay === null) node.style.removeProperty("display");
+        else node.style.display = state.styleDisplay;
+      }
+      hiddenNodes.clear();
+    };
+    const clearTabOverride = () => {
+      if (!navigationBranch) return;
+      delete navigationBranch.dataset.mwitoolsPlanningActive;
+      for (const property of [
+        "--mwi-planning-idle-background",
+        "--mwi-planning-idle-border",
+        "--mwi-planning-idle-color",
+        "--mwi-planning-idle-shadow"
+      ]) {
+        navigationBranch.style.removeProperty(property);
+      }
+    };
+    const captureIdleStyle = () => {
+      if (!navigationBranch || typeof getComputedStyle !== "function") return;
+      const idle = navigationBranch.querySelector(
+        `button:not(#${TAB_ID2}):not([aria-selected="true"]):not(.Mui-selected)`
+      );
+      if (!idle) return;
+      const style = getComputedStyle(idle);
+      const background = style.background || style.backgroundColor;
+      if (background && background !== "transparent") {
+        navigationBranch.style.setProperty(
+          "--mwi-planning-idle-background",
+          background
+        );
+      }
+      if (style.borderColor) {
+        navigationBranch.style.setProperty(
+          "--mwi-planning-idle-border",
+          style.borderColor
+        );
+      }
+      if (style.color) {
+        navigationBranch.style.setProperty(
+          "--mwi-planning-idle-color",
+          style.color
+        );
+      }
+      if (style.boxShadow && style.boxShadow !== "none") {
+        navigationBranch.style.setProperty(
+          "--mwi-planning-idle-shadow",
+          style.boxShadow
+        );
+      }
+    };
+    const syncViewport = () => {
+      if (!host) return;
+      if (!isCompactViewport2() || !active) {
+        host.style.removeProperty("height");
+        host.style.removeProperty("max-height");
+        return;
+      }
+      const top = Math.max(0, Math.round(host.getBoundingClientRect().top));
+      const available = `calc(100dvh - ${top}px - env(safe-area-inset-bottom,0px))`;
+      host.style.height = available;
+      host.style.maxHeight = available;
+    };
+    const setActive = (next) => {
+      const nextActive = Boolean(next);
+      if (nextActive && !active) captureIdleStyle();
+      active = nextActive;
+      if (tab) {
+        tab.dataset.active = String(active);
+        tab.setAttribute("aria-selected", String(active));
+        tab.classList.toggle("Mui-selected", active);
+        if (tab.hasAttribute("data-selected")) {
+          tab.dataset.selected = String(active);
+        }
+        if (tab.hasAttribute("data-state")) {
+          tab.dataset.state = active ? "active" : "inactive";
+        }
+        if (!active) tab.blur();
+      }
+      if (navigationBranch && active) {
+        const selected = navigationBranch.querySelector(
+          `button[aria-selected="true"]:not(#${TAB_ID2}):not(#${ASSET_TAB_ID}),button.Mui-selected:not(#${TAB_ID2}):not(#${ASSET_TAB_ID})`
+        );
+        if (selected) lastActiveNativeTab = selected;
+      }
+      if (host) host.hidden = !active;
+      if (!active) {
+        restoreNative();
+        clearTabOverride();
+        syncViewport();
+        return;
+      }
+      navigationBranch.dataset.mwitoolsPlanningActive = "true";
+      for (const node of [...shell2?.children ?? []]) {
+        if (node === navigationBranch || node === host || node.tagName === "STYLE") {
+          continue;
+        }
+        if (!hiddenNodes.has(node)) {
+          hiddenNodes.set(node, {
+            hidden: node.hidden,
+            styleDisplay: node.style.display || null
+          });
+        }
+        node.hidden = true;
+        node.style.display = "none";
+      }
+      syncViewport();
+      panel?.update();
+    };
+    const teardown = () => {
+      setActive(false);
+      panel?.destroy();
+      panel = null;
+      tab?.remove();
+      host?.remove();
+      tab = null;
+      host = null;
+      shell2 = null;
+      navigationBranch = null;
+      lastActiveNativeTab = null;
+    };
+    const mount = (anchor, found) => {
+      ({ shell: shell2, navigationBranch } = found);
+      tab = anchor.cloneNode(true);
+      tab.id = TAB_ID2;
+      tab.type = "button";
+      const badge = tab.querySelector(
+        ".TabsComponent_badge__1Du26,.MuiBadge-root"
+      );
+      if (badge) badge.textContent = t3("规划", "Planning");
+      else tab.textContent = t3("规划", "Planning");
+      for (const className of [...tab.classList]) {
+        if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
+          tab.classList.remove(className);
+        }
+      }
+      tab.dataset.active = "false";
+      tab.setAttribute("aria-selected", "false");
+      tab.setAttribute("tabindex", "-1");
+      if (tab.hasAttribute("data-selected")) tab.dataset.selected = "false";
+      if (tab.hasAttribute("data-state")) tab.dataset.state = "inactive";
+      tab.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setActive(!active);
+      });
+      anchor.insertAdjacentElement("afterend", tab);
+      host = document.createElement("section");
+      host.id = PANEL_ID2;
+      host.hidden = true;
+      shell2.appendChild(host);
+      panel = new PlanningPanel(host);
+    };
+    const ensureMounted = () => {
+      const loadout = findCharacterManagementLoadoutTab();
+      const assetTab = document.getElementById(ASSET_TAB_ID);
+      const anchor = assetTab?.parentElement === loadout?.parentElement ? assetTab : loadout;
+      const found = anchor && findPanelShell(anchor);
+      if (!anchor || !found) {
+        if (tab || host) teardown();
+        return;
+      }
+      const correctlyMounted = tab?.previousElementSibling === anchor && tab?.parentElement === anchor.parentElement && host?.parentElement === found.shell;
+      if (tab?.isConnected && host?.isConnected && correctlyMounted) {
+        const otherSelected = navigationBranch?.querySelector(
+          `button[aria-selected="true"]:not(#${TAB_ID2}):not(#${ASSET_TAB_ID}),button.Mui-selected:not(#${TAB_ID2}):not(#${ASSET_TAB_ID})`
+        );
+        if (otherSelected && otherSelected !== lastActiveNativeTab || tab.getAttribute("aria-selected") !== "true") {
+          if (active) setActive(false);
+        } else if (active) {
+          setActive(true);
+        }
+        return;
+      }
+      teardown();
+      mount(anchor, found);
+    };
+    addStyles4();
+    ensureMounted();
+    const mountScheduler = createFrameScheduler(ensureMounted);
+    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+        if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
+        if (record.type === "attributes") {
+          return Boolean(
+            target?.closest?.(
+              '[class*="CharacterManagement_characterManagement"]'
+            )
+          );
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID2},#${PANEL_ID2}`) || node.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) && (node.matches?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          ) || node.querySelector?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          ))
+        );
+      });
+      if (relevant) mountScheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      attributes: true,
+      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+      childList: true,
+      subtree: true
+    });
+    const closeFromOtherTab = (event) => {
+      if (active && !event.target.closest(`#${TAB_ID2}`) && !event.target.closest(`#${PANEL_ID2}`) && navigationBranch?.contains(event.target)) {
+        setActive(false);
+      }
+    };
+    scope.event(document, "pointerdown", closeFromOtherTab, true);
+    scope.event(document, "click", closeFromOtherTab, true);
+    scope.event(window, "resize", syncViewport);
+    scope.event(document, "keydown", (event) => {
+      if (active && isCompactViewport2() && event.key === "Escape") {
+        setActive(false);
+      }
+    });
+    for (const messageType of [
+      "items_updated",
+      "house_rooms_updated",
+      "community_buffs_updated",
+      "consumable_buffs_updated",
+      "equipment_buffs_updated",
+      "personal_buffs_updated",
+      "guild_buffs_updated",
+      "skills_updated",
+      "init_character_data"
+    ]) {
+      scope.add(runtime.onMessage(messageType, () => panel?.scheduleUpdate()));
+    }
+    scope.add(() => mountScheduler.cancel());
+    return {
+      update() {
+        panel?.scheduleUpdate();
+      },
+      destroy() {
+        teardown();
+        document.getElementById(STYLE_ID4)?.remove();
+      }
+    };
+  }
+  runtime.features.register({
+    id: "planningPage",
+    setting: "procurementAssistant",
+    scope: "character",
+    initialize({ scope }) {
+      const ui = createPlanningUi({ scope });
+      return () => ui.destroy();
+    }
+  });
+
   // src/features/public-api.js
   var PUBLIC_API_VERSION = 1;
   var SCORE_SCHEMA_VERSION = 1;
@@ -28624,7 +29665,7 @@ ${preview}`
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
-  var STYLE_ID4 = "mwi-leaderboard-overlay-style";
+  var STYLE_ID5 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
@@ -28685,7 +29726,7 @@ ${preview}`
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
-  function t3(zh, en) {
+  function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function categoryLabel(value, fallback) {
@@ -28734,7 +29775,7 @@ ${preview}`
     return rateDifference || leftRank - rightRank;
   }
   function ensureStyles(documentRef) {
-    if (documentRef.getElementById(STYLE_ID4)) return;
+    if (documentRef.getElementById(STYLE_ID5)) return;
     const mount = documentRef.head || documentRef.documentElement;
     if (!mount) {
       documentRef.addEventListener(
@@ -28745,7 +29786,7 @@ ${preview}`
       return;
     }
     const style = documentRef.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
@@ -28963,7 +30004,7 @@ ${preview}`
         header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
         headingRow.append(header);
       }
-      const headerCopy = t3("经验/小时", "XP/hour");
+      const headerCopy = t4("经验/小时", "XP/hour");
       if (header.textContent !== headerCopy) header.textContent = headerCopy;
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
@@ -28977,7 +30018,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t3("经验/小时", "XP/hour")}` : t3("缺少可比较的历史快照", "No comparable historical snapshot");
+        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t4("经验/小时", "XP/hour")}` : t4("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -29072,7 +30113,7 @@ ${preview}`
         removeBadges();
         removeRateColumn();
         activeInstances = Math.max(0, activeInstances - 1);
-        if (activeInstances === 0) documentRef.getElementById(STYLE_ID4)?.remove();
+        if (activeInstances === 0) documentRef.getElementById(STYLE_ID5)?.remove();
       }
     };
   }
@@ -29404,7 +30445,7 @@ ${preview}`
   });
 
   // src/features/battle-buffs.js
-  var STYLE_ID5 = "mwi-buff-style";
+  var STYLE_ID6 = "mwi-buff-style";
   var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
   var BUFFS = /* @__PURE__ */ new Map([
     ["/abilities/mana_spring", 10],
@@ -29457,9 +30498,9 @@ ${preview}`
     return parts[parts.length - 1] || hrid;
   }
   function ensureBuffStyles(scope) {
-    if (document.getElementById(STYLE_ID5)) return;
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 .mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
@@ -30874,10 +31915,10 @@ ${preview}`
   };
   var advisorPositionState = null;
   var advisorPositionFrame = null;
-  function t4(zh, en) {
+  function t5(zh, en) {
     return localize(zh, en);
   }
-  function escapeHtml2(value) {
+  function escapeHtml3(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function positiveNumber3(value) {
@@ -31164,10 +32205,10 @@ ${preview}`
     const sprite = findItemsSpriteBase();
     const bare = String(itemHrid ?? "").split("/").at(-1);
     if (!sprite || !bare) {
-      return `<span class="icon-fallback" aria-label="${escapeHtml2(name)}">?</span>`;
+      return `<span class="icon-fallback" aria-label="${escapeHtml3(name)}">?</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml2(name)}"><use href="${escapeHtml2(href)}" xlink:href="${escapeHtml2(href)}"></use></svg>`;
+    return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
   function creditColor(creditItemHrid) {
     const key = String(creditItemHrid ?? "").split("/").at(-1)?.split("_")[0];
@@ -31248,43 +32289,43 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml2(name)}">${escapeHtml2(name)}</span>${current ? `<span class="tag">${escapeHtml2(t4("当前", "Current"))}</span>` : ""}</span></span>
-    <span class="price" title="${escapeHtml2(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml2(formatNumber2(option.costPerCredit))}<small>${escapeHtml2(t4("每信用点", "per credit"))}</small></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t5("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t5("每信用点", "per credit"))}</small></span>
   </div>`;
   }
   function replacementSummaryMarkup(result, best) {
     if (!result) {
-      return `<div class="summary">${escapeHtml2(t4("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
+      return `<div class="summary">${escapeHtml3(t5("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
     }
     if (result.status === "already_optimal") {
-      return `<div class="summary"><strong>${escapeHtml2(t4("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
+      return `<div class="summary"><strong>${escapeHtml3(t5("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
     }
     if (result.status === "no_sell_quote") {
-      return `<div class="summary warning"><strong>${escapeHtml2(t4("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml2(t4("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t5("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml3(t5("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
     }
     if (result.status === "unaffordable") {
-      return `<div class="summary warning"><strong>${escapeHtml2(t4("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t5("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
     }
     const name = itemName2(best.itemHrid);
     const difference = Number(result.difference) || 0;
     let conclusion;
     if (difference > 0) {
-      conclusion = t4(
+      conclusion = t5(
         `卖出当前物品并改买${name}，可多兑换 ${formatExact(difference)} 点信用。`,
         `Sell the selected items and buy ${name} to gain ${formatExact(difference)} more credits.`
       );
     } else if (difference < 0) {
-      conclusion = t4(
+      conclusion = t5(
         `直接兑换更划算；改买${name}会少 ${formatExact(-difference)} 点信用。`,
         `Direct exchange is better; switching to ${name} yields ${formatExact(-difference)} fewer credits.`
       );
     } else {
-      conclusion = t4(
+      conclusion = t5(
         `直接兑换与改买${name}获得的信用点相同。`,
         `Direct exchange and switching to ${name} yield the same credits.`
       );
     }
-    return `<div class="summary"><strong>${escapeHtml2(conclusion)}</strong><br>${escapeHtml2(t4(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
+    return `<div class="summary"><strong>${escapeHtml3(conclusion)}</strong><br>${escapeHtml3(t5(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
   }
   function advisorMarkup({
     context,
@@ -31307,10 +32348,10 @@ ${preview}`
         current: option.itemHrid === context.selectedItemHrid
       })
     ).join("");
-    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml2(t4("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
+    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml3(t5("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
     const estimated = ranked.some(({ estimated: value }) => value) || replacement?.estimated;
-    return `<header class="head"><span class="title">${escapeHtml2(t4("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml2(creditName)}</span></span><span class="basis">${escapeHtml2(t4("按订单深度", "Order-book depth"))}</span></header>
-    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml2(t4("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml2(t4("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
+    return `<header class="head"><span class="title">${escapeHtml3(t5("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml3(creditName)}</span></span><span class="basis">${escapeHtml3(t5("按订单深度", "Order-book depth"))}</span></header>
+    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml3(t5("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml3(t5("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
   }
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -31542,7 +32583,7 @@ ${preview}`
     const advisor = host.shadowRoot.querySelector(".advisor");
     advisor.setAttribute(
       "aria-label",
-      t4("公会信用兑换推荐", "Guild Credit Exchange")
+      t5("公会信用兑换推荐", "Guild Credit Exchange")
     );
     advisor.innerHTML = advisorMarkup({
       context,
@@ -31667,15 +32708,15 @@ ${preview}`
   });
 
   // src/features/production-profit-panel.js
-  var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID6 = "mwitools-production-profit-panel-style";
+  var PANEL_ID3 = "mwitools-production-profit-panel";
+  var STYLE_ID7 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
-  function t5(zh, en) {
+  function t6(zh, en) {
     return localize(zh, en);
   }
-  function escapeHtml3(value) {
+  function escapeHtml4(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
   function formatNumber3(value, digits = 1) {
@@ -31694,7 +32735,7 @@ ${preview}`
   function exactNumberTitle(value) {
     if (value === null || value === void 0 || value === "") return "";
     if (!Number.isFinite(Number(value))) return "";
-    return escapeHtml3(
+    return escapeHtml4(
       runtime.api.formatExactNumber?.(Number(value)) ?? String(value)
     );
   }
@@ -31731,20 +32772,20 @@ ${preview}`
     const bare = String(itemHrid ?? "").split("/").at(-1);
     const sprite = findItemsSpriteBase2();
     if (!bare || !sprite) {
-      return `<span class="mwi-profit-icon-fallback">${escapeHtml3(
+      return `<span class="mwi-profit-icon-fallback">${escapeHtml4(
         String(name || "?").trim().charAt(0) || "?"
       )}</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
+    return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml4(name)}"><use href="${escapeHtml4(href)}" xlink:href="${escapeHtml4(href)}"></use></svg>`;
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
-    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
-    #${PANEL_ID2} * { box-sizing:border-box; }
+    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
+    #${PANEL_ID3} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
     .mwi-profit-header-main { min-width:0; }
@@ -31798,7 +32839,7 @@ ${preview}`
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
     .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
     .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
-    #${PANEL_ID2}.mwi-profit-pinned { pointer-events:auto; }
+    #${PANEL_ID3}.mwi-profit-pinned { pointer-events:auto; }
     .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
     .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
     .mwi-loot-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
@@ -31830,7 +32871,7 @@ ${preview}`
     .mwi-profit-icon-fallback { display:grid; place-items:center; border-radius:5px; background:rgba(255,255,255,.09); color:#fff; font-weight:700; }
     .mwi-profit-header-icon .mwi-profit-icon,.mwi-profit-header-icon .mwi-profit-icon-fallback { width:32px; height:32px; }
     .mwi-profit-tea .mwi-profit-icon,.mwi-profit-tea .mwi-profit-icon-fallback { width:23px; height:23px; }
-    @media(max-width:760px){#${PANEL_ID2}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
+    @media(max-width:760px){#${PANEL_ID3}{max-height:72vh}.mwi-profit-body{grid-template-columns:1fr}.mwi-profit-player{order:-1;flex-direction:row;flex-wrap:wrap}.mwi-profit-flow{transform:rotate(90deg)}.mwi-profit-stat-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}.mwi-profit-valuation-row{grid-template-columns:repeat(2,minmax(0,1fr))}.mwi-profit-valuation-name{grid-column:1 / 3;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}.mwi-profit-valuation-metric{border-top:1px solid rgba(255,255,255,.055)}.mwi-profit-valuation-name + .mwi-profit-valuation-metric{border-left:0}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -31844,25 +32885,25 @@ ${preview}`
       quantity = `${formatNumber3(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t5("前置", "Base");
-    if (item.kind === "essence") kind = t5("精华", "Essence");
-    if (item.kind === "rare") kind = t5("稀有", "Rare");
-    const priceLabel = isInput ? t5("市价", "Market value") : item.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : t5("税后市价", "Net market value");
+    if (item.isUpgradeItem) kind = t6("前置", "Base");
+    if (item.kind === "essence") kind = t6("精华", "Essence");
+    if (item.kind === "rare") kind = t6("稀有", "Rare");
+    const priceLabel = isInput ? t6("市价", "Market value") : item.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : t6("税后市价", "Net market value");
     return `
-    <div class="mwi-profit-item" data-item-hrid="${escapeHtml3(item.itemHrid)}">
+    <div class="mwi-profit-item" data-item-hrid="${escapeHtml4(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
       <div>
-        <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml3(kind)}</span>` : ""}${escapeHtml3(name)}</div>
-        <div class="mwi-profit-item-meta">${escapeHtml3(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
+        <div class="mwi-profit-item-name">${kind ? `<span class="mwi-profit-kind">${escapeHtml4(kind)}</span>` : ""}${escapeHtml4(name)}</div>
+        <div class="mwi-profit-item-meta">${escapeHtml4(quantity)} · ${priceLabel} <span${numberTitleAttribute(item.unitPrice)}>${formatMoney(item.unitPrice)}</span></div>
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t5("每动作", "per action")}</span>
+        <span>${t6("每动作", "per action")}</span>
       </div>
     </div>`;
   }
   function renderValuationMetric(label, value, profit = false) {
-    return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml3(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
+    return `<div class="mwi-profit-valuation-metric${profit ? " profit" : ""}"><div class="mwi-profit-valuation-label">${escapeHtml4(label)}</div><div class="mwi-profit-valuation-value"${numberTitleAttribute(value)}>${formatMoney(value)}</div></div>`;
   }
   var VALUATION_ROWS = [
     {
@@ -31899,22 +32940,22 @@ ${preview}`
     const profitPerDay = complete ? valuation.profitPerHour * 24 : null;
     return `<section class="mwi-profit-valuation-row${complete ? "" : " incomplete"}" data-mode="${definition.mode}">
     <div class="mwi-profit-valuation-name">
-      <div class="mwi-profit-valuation-title">${escapeHtml3(valuationText(definition.title))}</div>
-      <div class="mwi-profit-valuation-state">${escapeHtml3(valuationText(definition.explanation))}</div>
+      <div class="mwi-profit-valuation-title">${escapeHtml4(valuationText(definition.title))}</div>
+      <div class="mwi-profit-valuation-state">${escapeHtml4(valuationText(definition.explanation))}</div>
     </div>
-    ${renderValuationMetric(t5("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
-    ${renderValuationMetric(t5("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t5("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
-    ${renderValuationMetric(t5("总成本/动作", "Total cost/action"), totalCost)}
-    ${renderValuationMetric(t5("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
-    ${renderValuationMetric(t5("净利润/天", "Net profit/day"), profitPerDay, true)}
+    ${renderValuationMetric(t6("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t6("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t6("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t6("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t6("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t6("净利润/天", "Net profit/day"), profitPerDay, true)}
   </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t5("玩家数据未就绪", "Player data pending")
+        label: t6("玩家数据未就绪", "Player data pending")
       };
     }
     const valuations = VALUATION_ROWS.map(
@@ -31924,20 +32965,20 @@ ${preview}`
       (valuation) => valuation?.complete
     ).length;
     if (completeCount === 0) {
-      return { className: "incomplete", label: t5("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t6("无法计算", "Unavailable") };
     }
     if (completeCount < valuations.length) {
       return {
         className: "partial",
-        label: t5("部分口径缺价", "Some prices missing")
+        label: t6("部分口径缺价", "Some prices missing")
       };
     }
     if (valuations.some(
       (valuation) => valuation?.fallbackItemHrids?.length > 0 || valuation?.unpricedByproducts?.length > 0 || valuation?.derivedMissingPrices?.length > 0
     )) {
-      return { className: "partial", label: t5("部分计价", "Partial pricing") };
+      return { className: "partial", label: t6("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t5("完整计价", "Fully priced") };
+    return { className: "complete", label: t6("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection, options = {}) {
     const productName = itemName3(itemHrid);
@@ -31945,21 +32986,21 @@ ${preview}`
     const detail = projection.detail;
     const directAction = Boolean(options.directAction);
     const title = directAction ? actionName2(projection.actionHrid, detail) : productName;
-    const subtitle = directAction ? `${t5("全部期望产物", "All expected outputs")} · ${t5("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t5("当前玩家实时配置", "Current player configuration")}`;
+    const subtitle = directAction ? `${t6("全部期望产物", "All expected outputs")} · ${t6("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t6("当前玩家实时配置", "Current player configuration")}`;
     panel.dataset.status = status.className;
     panel.innerHTML = `
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml3(title)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml3(subtitle)}</div>
+        <div class="mwi-profit-title">${escapeHtml4(title)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(subtitle)}</div>
       </div>
-      <div class="mwi-profit-status ${status.className}">${escapeHtml3(status.label)}</div>
+      <div class="mwi-profit-status ${status.className}">${escapeHtml4(status.label)}</div>
     </header>`;
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t5("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t6("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -31972,41 +33013,41 @@ ${preview}`
     const teaIcons = teas.length ? teas.map((tea) => {
       const name = itemName3(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t5("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t6("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t5("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t6("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t5("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t6("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t5("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t5("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t5("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t6("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t6("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t6("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t5("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t6("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t5("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t5("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t5("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t5("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t5("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t6("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t6("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t6("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t6("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t6("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t5("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t5("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t5("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t6("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t6("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
@@ -32026,7 +33067,7 @@ ${preview}`
         return `${valuationText(definition.title)}：${names || "—"}`;
       }).join(runtime.config.isZH ? "；" : "; ");
       warningParts.push(
-        `${t5("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
+        `${t6("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
       );
     }
     const unpricedByproducts = [
@@ -32038,7 +33079,7 @@ ${preview}`
     ];
     if (unpricedByproducts.length) {
       warningParts.push(
-        `${t5("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t6("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const derivedMissingPrices = [
@@ -32050,7 +33091,7 @@ ${preview}`
     ];
     if (derivedMissingPrices.length) {
       warningParts.push(
-        `${t5("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t6("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const fallbackItemHrids = [
@@ -32062,51 +33103,51 @@ ${preview}`
     ];
     if (fallbackItemHrids.length) {
       warningParts.push(
-        `${t5("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t6("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     if (!warningParts.length) return;
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-warning">${escapeHtml3(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
+      `<div class="mwi-profit-warning">${escapeHtml4(warningParts.join(runtime.config.isZH ? "；" : "; "))}</div>`
     );
   }
   function renderLootChestDropCell(drop) {
     const name = itemName3(drop.itemHrid);
-    const chance = drop.dropRate >= 1 ? t5("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+    const chance = drop.dropRate >= 1 ? t6("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
     const countRange = drop.minCount === drop.maxCount ? formatNumber3(drop.minCount, 0) : `${formatNumber3(drop.minCount, 0)}–${formatNumber3(drop.maxCount, 0)}`;
     const redemptions = drop.redemptions ?? [];
     const redemptionLines = redemptions.map((route) => {
       const tokenName = itemName3(route.tokenItemHrid);
-      return `${t5("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t5("代币", "token")}`;
+      return `${t6("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t6("代币", "token")}`;
     });
-    const sourceLabel = drop.valueSource === "redemption" ? t5("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t5("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t5("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t5("封印计为 0", "Seal valued at 0") : drop.nested ? t5("开箱期望", "Opening EV") : t5("单价", "Unit");
+    const sourceLabel = drop.valueSource === "redemption" ? t6("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t6("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t6("封印计为 0", "Seal valued at 0") : drop.nested ? t6("开箱期望", "Opening EV") : t6("单价", "Unit");
     const title = [
       `${name}
-${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} · ${t5("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
-      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t5("无价", "No price")} · ${t5("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t5("无价", "No price")}`,
+${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} · ${t6("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
+      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t6("无价", "No price")} · ${t6("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t6("无价", "No price")}`,
       ...redemptionLines
     ].join("\n");
-    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t5("无价", "No price");
+    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t6("无价", "No price");
     return `
-    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml3(drop.itemHrid)}" title="${escapeHtml3(title)}">
-      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t5("最佳兑换", "Best Exchange")}</span>` : ""}
+    <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml4(drop.itemHrid)}" title="${escapeHtml4(title)}">
+      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t6("最佳兑换", "Best Exchange")}</span>` : ""}
       <div class="mwi-loot-cell-icon">
         ${renderItemIcon(drop.itemHrid, name)}
-        <span class="mwi-loot-cell-chance">${escapeHtml3(chance)}</span>
+        <span class="mwi-loot-cell-chance">${escapeHtml4(chance)}</span>
       </div>
       <div class="mwi-loot-cell-main">
-        <div class="mwi-loot-cell-name">${escapeHtml3(name)}</div>
-        <div class="mwi-loot-cell-value">${escapeHtml3(valueText)}</div>
+        <div class="mwi-loot-cell-name">${escapeHtml4(name)}</div>
+        <div class="mwi-loot-cell-value">${escapeHtml4(valueText)}</div>
       </div>
     </div>`;
   }
   function renderLootSwitch(setting, label, state, checked) {
     return `<div class="mwi-loot-control">
-    <span class="mwi-loot-control-label">${escapeHtml3(label)}</span>
-    <span class="mwi-loot-control-state">${escapeHtml3(state)}</span>
+    <span class="mwi-loot-control-label">${escapeHtml4(label)}</span>
+    <span class="mwi-loot-control-state">${escapeHtml4(state)}</span>
     <label class="mwi-loot-switch">
-      <input type="checkbox" data-mwi-loot-setting="${setting}" aria-label="${escapeHtml3(label)}"${checked ? " checked" : ""}>
+      <input type="checkbox" data-mwi-loot-setting="${setting}" aria-label="${escapeHtml4(label)}"${checked ? " checked" : ""}>
       <span aria-hidden="true"></span>
     </label>
   </div>`;
@@ -32115,14 +33156,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const controls = [
       renderLootSwitch(
         "lootSellAtAsk",
-        t5("产物卖出", "Sell drops"),
-        config.sellAtAsk ? t5("挂卖单", "List at ask") : t5("立即卖出", "Sell now"),
+        t6("产物卖出", "Sell drops"),
+        config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now"),
         config.sellAtAsk
       ),
       renderLootSwitch(
         "lootIgnoreCowbells",
-        t5("牛铃价值", "Cowbell value"),
-        config.ignoreCowbells ? t5("忽略", "Ignored") : t5("计入", "Included"),
+        t6("牛铃价值", "Cowbell value"),
+        config.ignoreCowbells ? t6("忽略", "Ignored") : t6("计入", "Included"),
         config.ignoreCowbells
       )
     ];
@@ -32130,14 +33171,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       controls.push(
         renderLootSwitch(
           "lootBuyAtAsk",
-          t5("钥匙或碎片", "Key or fragments"),
-          config.buyAtAsk ? t5("立即买入", "Buy now") : t5("挂买单", "Place bid"),
+          t6("钥匙或碎片", "Key or fragments"),
+          config.buyAtAsk ? t6("立即买入", "Buy now") : t6("挂买单", "Place bid"),
           config.buyAtAsk
         ),
         renderLootSwitch(
           "lootKeyFromFragments",
-          t5("钥匙来源", "Key source"),
-          config.fromFragments ? t5("碎片自制", "Craft fragments") : t5("购买成品", "Buy finished"),
+          t6("钥匙来源", "Key source"),
+          config.fromFragments ? t6("碎片自制", "Craft fragments") : t6("购买成品", "Buy finished"),
           config.fromFragments
         )
       );
@@ -32149,18 +33190,18 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const productName = itemName3(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
     const statusClass = chest.complete ? "complete" : "partial";
-    const statusLabel3 = chest.complete ? t5("完整计价", "Fully priced") : t5("部分计价", "Partial pricing");
+    const statusLabel3 = chest.complete ? t6("完整计价", "Fully priced") : t6("部分计价", "Partial pricing");
     panel.dataset.status = statusClass;
     panel.classList.toggle("mwi-profit-pinned", pinned);
     panel.innerHTML = `
     <header class="mwi-profit-header">
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
-        <div class="mwi-profit-title">${escapeHtml3(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml3(hasKey ? t5("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t5("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-title">${escapeHtml4(productName)}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t6("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t6("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
-      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t5("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
+      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t6("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
     </header>`;
     if (pinned) {
       panel.insertAdjacentHTML(
@@ -32172,29 +33213,29 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     panel.insertAdjacentHTML(
       "beforeend",
       `<section class="mwi-profit-card income" style="margin:12px;">
-      <div class="mwi-profit-card-title"><span>${t5("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
-      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t5("无可计价产出", "No priced drops")}</div>`}
+      <div class="mwi-profit-card-title"><span>${t6("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced drops")}</div>`}
     </section>`
     );
-    const sellLabel = chest.config.sellAtAsk ? t5("挂卖单", "List at ask") : t5("立即卖出", "Sell now");
-    const keyLabel = !hasKey ? t5("无需钥匙", "No key") : chest.config.fromFragments ? t5("碎片自制", "Crafted from fragments") : t5("购买成品", "Buy finished");
+    const sellLabel = chest.config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now");
+    const keyLabel = !hasKey ? t6("无需钥匙", "No key") : chest.config.fromFragments ? t6("碎片自制", "Crafted from fragments") : t6("购买成品", "Buy finished");
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-valuations">
       <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
-          <div class="mwi-profit-valuation-title">${t5("期望价值", "Expected value")}</div>
-          <div class="mwi-profit-valuation-state">${escapeHtml3(`${sellLabel} · ${keyLabel}`)}</div>
+          <div class="mwi-profit-valuation-title">${t6("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-state">${escapeHtml4(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
-        ${renderValuationMetric(t5("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t5("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
-        ${renderValuationMetric(t5("净期望价值", "Net value"), chest.netValue, true)}
+        ${renderValuationMetric(t6("毛期望价值", "Gross value"), chest.grossValue)}
+        ${renderValuationMetric(t6("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${renderValuationMetric(t6("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`
     );
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-hint">${t5(
+      `<div class="mwi-profit-hint">${t6(
         pinned ? "开关会立即重算并保存；高亮卡片是每枚代币回报最高的兑换物品。" : "双击固定面板后可调整买卖方向和钥匙来源；高亮卡片是每枚代币回报最高的兑换物品。",
         pinned ? "Switches recalculate and save immediately; highlighted cards are the best return per token." : "Double-click to pin and adjust pricing; highlighted cards are the best return per token."
       )}</div>`
@@ -32202,8 +33243,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (chest.missing.length) {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-warning">${escapeHtml3(
-          `${t5("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `<div class="mwi-profit-warning">${escapeHtml4(
+          `${t6("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
         )}</div>`
       );
     }
@@ -32271,7 +33312,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function hideProductionProfitPanel(kind = null) {
     const state = activePanel;
     if (!state) {
-      document.getElementById(PANEL_ID2)?.remove();
+      document.getElementById(PANEL_ID3)?.remove();
       return;
     }
     if (kind && state.kind !== kind) return;
@@ -32289,7 +33330,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function createPanelElement() {
     const panel = document.createElement("aside");
-    panel.id = PANEL_ID2;
+    panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
     panel.setAttribute("aria-live", "polite");
     return panel;
@@ -32359,7 +33400,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles4();
+    addStyles5();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
@@ -32398,7 +33439,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles4();
+    addStyles5();
     const panel = createPanelElement();
     panel.classList.toggle("mwi-profit-pinned", sticky);
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
@@ -33867,7 +34908,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     "abilities_updated",
     "character_abilities_updated"
   ]);
-  var STYLE_ID7 = "mwitools-action-dashboard-style";
+  var STYLE_ID8 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
@@ -33879,7 +34920,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     targetLevel: 40
   });
   var productionDataRevision = 0;
-  function t6(zh, en) {
+  function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -33892,9 +34933,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const days = Math.floor(normalized / 86400);
     const hours = Math.floor(normalized % 86400 / 3600);
     const minutes = Math.floor(normalized % 3600 / 60);
-    const parts = [t6(`${days}天`, `${days}d`)];
-    if (hours > 0) parts.push(t6(`${hours}小时`, `${hours}h`));
-    if (minutes > 0) parts.push(t6(`${minutes}分`, `${minutes}m`));
+    const parts = [t7(`${days}天`, `${days}d`)];
+    if (hours > 0) parts.push(t7(`${hours}小时`, `${hours}h`));
+    if (minutes > 0) parts.push(t7(`${minutes}分`, `${minutes}m`));
     return parts.join(runtime.config.isZH ? "" : " ");
   }
   function formatClock(timestamp) {
@@ -33905,7 +34946,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       second: "2-digit"
     }).format(new Date(timestamp));
   }
-  function number(value) {
+  function number2(value) {
     return runtime.api.createFormattedNumber(value);
   }
   function findItemsSpriteBase3() {
@@ -34003,14 +35044,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
     const count = document.createElement("span");
     count.className = "mwi-production-output-count";
-    count.append("×", number(output.expectedCount));
+    count.append("×", number2(output.expectedCount));
     item.append(count);
     return item;
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:var(--mwi-action-dashboard-max-width,calc(100% - var(--mwi-action-dashboard-left,0px))); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:hidden; pointer-events:none; }
@@ -34177,7 +35218,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     };
   }
   function renderActionDashboard() {
-    addStyles5();
+    addStyles6();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = [...runtime.state.currentActionsHridList ?? []].sort(
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
@@ -34233,28 +35274,28 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const effectivelyInfinite = projection.effectivelyInfinite ?? projection.infinite;
     const effectiveCount = projection.effectiveCount ?? projection.count;
     remaining.append(
-      `${t6("剩余", "Remaining")} `,
-      effectivelyInfinite ? "∞" : number(effectiveCount)
+      `${t7("剩余", "Remaining")} `,
+      effectivelyInfinite ? "∞" : number2(effectiveCount)
     );
     if (projection.materialLimited) {
-      remaining.title = t6(
+      remaining.title = t7(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     } else if (enhancementCount !== null) {
-      remaining.title = t6(
+      remaining.title = t7(
         "已按强化栏当前可处理数量计算",
         "Based on the amount currently available for enhancement"
       );
     }
     const currentTime = document.createElement("span");
     currentTime.className = "mwi-action-time";
-    currentTime.textContent = `${t6("还需", "Time left")} ${formatDuration(
+    currentTime.textContent = `${t7("还需", "Time left")} ${formatDuration(
       projection.totalSeconds
     )}`;
     const eta = document.createElement("strong");
     eta.className = "mwi-action-eta";
-    eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
+    eta.textContent = projection.finishAt ? `${t7("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t7("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
     return root;
@@ -34486,7 +35527,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return row;
   }
   function renderProductionQuickInputs() {
-    addStyles5();
+    addStyles6();
     const context = resolveActiveProductionPanelContext();
     const panel = context?.panel ?? null;
     const input = context?.input ?? null;
@@ -34511,7 +35552,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputHourButtons",
-        label: t6("时长", "Hours"),
+        label: t7("时长", "Hours"),
         values: QUICK_HOURS,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
@@ -34526,7 +35567,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputCountButtons",
-        label: t6("次数", "Count"),
+        label: t7("次数", "Count"),
         values: QUICK_COUNTS,
         resolveCount: (count) => count
       });
@@ -34539,7 +35580,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const normalizedEfficiency = Number.isFinite(efficiencyPercent) && efficiencyPercent > -100 ? efficiencyPercent : 0;
     host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
       button.disabled = !Number.isFinite(duration) || duration <= 0;
-      button.title = button.disabled ? t6("无法读取当前单次耗时", "Current action duration unavailable") : t6(
+      button.title = button.disabled ? t7("无法读取当前单次耗时", "Current action duration unavailable") : t7(
         `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
         `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`
       );
@@ -34557,7 +35598,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       button = infinityButton.cloneNode(false);
       button.type = "button";
       button.classList.add("mwi-max-action-button");
-      button.textContent = t6("最大", "Max");
+      button.textContent = t7("最大", "Max");
       button.addEventListener("click", () => {
         const count = Number(button.dataset.maxCraftable);
         if (!Number.isSafeInteger(count) || count <= 0) return;
@@ -34578,10 +35619,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const enabled = Number.isSafeInteger(maxCraftable) && maxCraftable > 0;
     button.disabled = !enabled;
     button.dataset.maxCraftable = enabled ? String(maxCraftable) : "";
-    button.title = enabled ? t6(
+    button.title = enabled ? t7(
       `填入库存最多可做 ${maxCraftable} 次`,
       `Use inventory maximum: ${maxCraftable}`
-    ) : t6("当前没有有限的可生产次数", "No finite production maximum");
+    ) : t7("当前没有有限的可生产次数", "No finite production maximum");
   }
   function resolvePanelAction(panel) {
     const nameElement = panel?.querySelector(
@@ -34628,7 +35669,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return box;
   }
   function renderProductionPanel() {
-    addStyles5();
+    addStyles6();
     const summaryMode = runtime.settings.getPreference?.("productionSummaryMode") ?? (runtime.settings.get("productionSummary") ? "collapsed" : "off");
     if (!runtime.settings.get("productionSummary") || summaryMode === "off") {
       document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
@@ -34705,7 +35746,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const title = document.createElement("button");
     title.type = "button";
     title.className = "mwi-production-card-title";
-    title.textContent = t6("本次生产摘要", "Production summary");
+    title.textContent = t7("本次生产摘要", "Production summary");
     title.setAttribute("aria-expanded", String(expanded));
     const body = document.createElement("div");
     body.className = "mwi-production-card-body";
@@ -34727,41 +35768,41 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       (output) => outputs.append(createProductionOutput(output, panel))
     );
     const outputMetric = metric(
-      projection.effectivelyInfinite ? t6("预期单次产出", "Output per action") : t6("预期总产出", "Total output"),
+      projection.effectivelyInfinite ? t7("预期单次产出", "Output per action") : t7("预期总产出", "Total output"),
       outputs
     );
     outputMetric.classList.add("mwi-production-output-metric");
     grid.append(
       outputMetric,
       metric(
-        t6("当前拥有", "Owned"),
+        t7("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t6("库存最多可做", "Max craftable"),
-        projection.maxCraftable === Infinity ? "∞" : number(projection.maxCraftable)
+        t7("库存最多可做", "Max craftable"),
+        projection.maxCraftable === Infinity ? "∞" : number2(projection.maxCraftable)
       ),
       metric(
-        t6("本次总耗时", "Duration"),
+        t7("本次总耗时", "Duration"),
         formatDuration(projection.totalSeconds)
       )
     );
     if (showProfit) {
       grid.append(
         metric(
-          t6("每次净利润", "Per action"),
-          number(projection.netProfitPerAction)
+          t7("每次净利润", "Per action"),
+          number2(projection.netProfitPerAction)
         ),
-        metric(t6("每小时净利润", "Per hour"), number(projection.profitPerHour)),
+        metric(t7("每小时净利润", "Per hour"), number2(projection.profitPerHour)),
         metric(
-          t6("每天净利润", "Per day"),
-          number(
+          t7("每天净利润", "Per day"),
+          number2(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
         metric(
-          t6("本次总净利润", "Total profit"),
-          projection.netProfitPerAction === null ? number(null) : projection.effectivelyInfinite ? "∞" : number(projection.totalProfit)
+          t7("本次总净利润", "Total profit"),
+          projection.netProfitPerAction === null ? number2(null) : projection.effectivelyInfinite ? "∞" : number2(projection.totalProfit)
         )
       );
     }
@@ -34769,7 +35810,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (showProfit && projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t6(
+      warning.textContent = t7(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -34792,7 +35833,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles5();
+      addStyles6();
       let refreshTimer2 = null;
       const render = () => {
         const mounted = renderActionDashboard();
@@ -34901,412 +35942,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     removeActionUi
   });
 
-  // src/features/planning.js
-  var procurement2 = runtime.api.procurement;
-  var planning = runtime.api.planning;
-  function t7(zh, en) {
-    return runtime.config.isZH ? zh : en;
-  }
-  function number2(value) {
-    return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
-  }
-  function exact(value) {
-    return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
-  }
-  function tail(value) {
-    return String(value ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "—";
-  }
-  function houseName(hrid) {
-    return runtime.data?.ZHOthersDic?.[hrid] ?? runtime.state.initData_houseRoomDetailMap?.[hrid]?.name ?? tail(hrid);
-  }
-  function currentHouseLevel2(hrid) {
-    const map = runtime.state.initData_characterHouseRoomMap ?? {};
-    return Math.max(
-      0,
-      Number(
-        map[hrid]?.level ?? Object.values(map).find((house) => house?.houseRoomHrid === hrid)?.level
-      ) || 0
-    );
-  }
-  function maxHouseLevel2(hrid) {
-    const levels = Object.keys(
-      runtime.state.initData_houseRoomDetailMap?.[hrid]?.upgradeCostsMap ?? {}
-    ).map(Number).filter((level) => Number.isFinite(level));
-    return levels.length ? Math.max(...levels) : 0;
-  }
-  function goalLabel(goal) {
-    return goal.kind === "house" ? houseName(goal.targetHrid) : itemName(goal.targetHrid);
-  }
-  function itemCandidates() {
-    return Object.entries(runtime.state.initData_itemDetailMap ?? {}).filter(([hrid]) => hrid.startsWith("/items/")).map(([hrid, detail]) => ({
-      hrid,
-      name: itemName(hrid),
-      english: String(detail?.name ?? "")
-    })).sort((left, right) => left.name.localeCompare(right.name));
-  }
-  function resolveItemInput(value, candidates) {
-    const query = String(value ?? "").trim().toLowerCase();
-    if (!query) return null;
-    const normalized = procurement2.normalizeItemHrid(query);
-    return candidates.find(
-      (candidate) => candidate.hrid.toLowerCase() === query || candidate.hrid === normalized || candidate.name.toLowerCase() === query || candidate.english.toLowerCase() === query
-    ) ?? null;
-  }
-  function goalSources(ids, goals) {
-    const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
-    return ids.map((id) => byId.get(id) ?? id).join(t7("、", ", "));
-  }
-  function createGoalEditor(body, rerender) {
-    const editor = document.createElement("section");
-    editor.className = "planning-editor";
-    const mode = document.createElement("div");
-    mode.className = "planning-mode";
-    const itemButton = document.createElement("button");
-    const houseButton = document.createElement("button");
-    itemButton.type = houseButton.type = "button";
-    itemButton.textContent = t7("物品", "Item");
-    houseButton.textContent = t7("房屋", "House");
-    let activeMode = "item";
-    const form = document.createElement("div");
-    form.className = "planning-form";
-    const renderForm = () => {
-      itemButton.dataset.active = String(activeMode === "item");
-      houseButton.dataset.active = String(activeMode === "house");
-      form.replaceChildren();
-      const target = document.createElement(
-        activeMode === "item" ? "input" : "select"
-      );
-      target.className = "planning-target-input";
-      let candidates = [];
-      if (activeMode === "item") {
-        candidates = itemCandidates();
-        const listId = `mwi-planning-items-${Date.now()}`;
-        const list = document.createElement("datalist");
-        list.id = listId;
-        for (const candidate of candidates) {
-          const option = document.createElement("option");
-          option.value = candidate.name;
-          option.label = `${candidate.english || candidate.name} · ${candidate.hrid}`;
-          list.append(option);
-        }
-        target.setAttribute("list", listId);
-        target.placeholder = t7("搜索物品名称或 HRID", "Search item name or HRID");
-        form.append(list);
-      } else {
-        for (const hrid of Object.keys(
-          runtime.state.initData_houseRoomDetailMap ?? {}
-        ).sort(
-          (left, right) => houseName(left).localeCompare(houseName(right))
-        )) {
-          const max = maxHouseLevel2(hrid);
-          if (!max) continue;
-          const option = document.createElement("option");
-          option.value = hrid;
-          option.textContent = `${houseName(hrid)} · ${currentHouseLevel2(hrid)} / ${max}`;
-          target.append(option);
-        }
-      }
-      const count = document.createElement(
-        activeMode === "item" ? "input" : "select"
-      );
-      count.className = "planning-count-input";
-      if (activeMode === "item") {
-        count.type = "number";
-        count.min = "1";
-        count.step = "1";
-        count.value = "1";
-      }
-      const renderHouseLevels = () => {
-        if (activeMode !== "house") return;
-        count.replaceChildren();
-        const current = currentHouseLevel2(target.value);
-        const maximum = maxHouseLevel2(target.value);
-        for (let level = current + 1; level <= maximum; level += 1) {
-          const option = document.createElement("option");
-          option.value = String(level);
-          option.textContent = `${t7("等级", "Level")} ${level}`;
-          count.append(option);
-        }
-        count.disabled = count.options.length === 0;
-      };
-      count.setAttribute(
-        "aria-label",
-        activeMode === "item" ? t7("最终持有量", "Final quantity") : t7("目标等级", "Target level")
-      );
-      const add = document.createElement("button");
-      add.type = "button";
-      add.className = "planning-primary";
-      add.textContent = t7("加入规划", "Add");
-      const submit = () => {
-        const selected = activeMode === "item" ? resolveItemInput(target.value, candidates)?.hrid : target.value;
-        const goal = selected ? planning.upsertGoal({
-          kind: activeMode,
-          targetHrid: selected,
-          target: count.value
-        }) : null;
-        if (!goal) {
-          target.setCustomValidity?.(
-            t7("请选择有效目标", "Choose a valid target")
-          );
-          target.reportValidity?.();
-          return;
-        }
-        rerender();
-      };
-      add.addEventListener("click", submit);
-      target.addEventListener("change", renderHouseLevels);
-      target.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") submit();
-      });
-      count.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") submit();
-      });
-      form.append(target, count, add);
-      renderHouseLevels();
-    };
-    itemButton.addEventListener("click", () => {
-      activeMode = "item";
-      renderForm();
-    });
-    houseButton.addEventListener("click", () => {
-      activeMode = "house";
-      renderForm();
-    });
-    mode.append(itemButton, houseButton);
-    editor.append(mode, form);
-    body.append(editor);
-    renderForm();
-  }
-  function renderGoals(body, goals, rerender) {
-    const section = document.createElement("section");
-    section.className = "planning-section";
-    const heading = document.createElement("h3");
-    heading.textContent = `${t7("规划目标", "Planning goals")} · ${goals.length}`;
-    section.append(heading);
-    if (!goals.length) {
-      const empty = document.createElement("div");
-      empty.className = "planning-empty";
-      empty.textContent = t7(
-        "添加物品最终持有量或房屋目标等级开始计算。",
-        "Add an item holding target or house level to begin."
-      );
-      section.append(empty);
-    }
-    for (const goal of goals) {
-      const row = document.createElement("article");
-      row.className = "planning-goal";
-      row.dataset.enabled = String(goal.enabled);
-      const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
-      const toggle = document.createElement("input");
-      toggle.type = "checkbox";
-      toggle.checked = goal.enabled;
-      toggle.title = t7("启用目标", "Enable goal");
-      toggle.addEventListener("change", () => {
-        planning.updateGoal(goal.id, { enabled: toggle.checked });
-        rerender();
-      });
-      const name = document.createElement("div");
-      name.className = "planning-goal-name";
-      name.textContent = goalLabel(goal);
-      name.title = goal.targetHrid;
-      const meta = document.createElement("span");
-      meta.textContent = `${t7("当前", "Current")} ${number2(current)}`;
-      const target = document.createElement("input");
-      target.type = "number";
-      target.min = "1";
-      target.step = "1";
-      target.value = String(goal.target);
-      target.title = goal.kind === "house" ? t7("目标等级", "Target level") : t7("最终持有量", "Final quantity");
-      target.addEventListener("change", () => {
-        planning.updateGoal(goal.id, { target: target.value });
-        rerender();
-      });
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "planning-remove";
-      remove.textContent = "×";
-      remove.title = t7("删除", "Remove");
-      remove.addEventListener("click", () => {
-        planning.removeGoal(goal.id);
-        rerender();
-      });
-      row.append(toggle, name, meta, target, remove);
-      section.append(row);
-    }
-    body.append(section);
-  }
-  function renderSteps(body, result, rerender) {
-    const section = document.createElement("section");
-    section.className = "planning-section";
-    const heading = document.createElement("h3");
-    heading.textContent = `${t7("需要制作", "Production needed")} · ${result.steps.length}`;
-    section.append(heading);
-    if (!result.steps.length) {
-      const empty = document.createElement("div");
-      empty.className = "planning-empty";
-      empty.textContent = t7("当前没有需要制作的物品。", "Nothing to produce.");
-      section.append(empty);
-    }
-    for (const step of result.steps) {
-      const row = document.createElement("details");
-      row.className = "planning-step";
-      const summary = document.createElement("summary");
-      const label = document.createElement("span");
-      label.textContent = itemName(step.itemHrid);
-      const counts = document.createElement("span");
-      counts.textContent = `${t7("需", "Need")} ${number2(step.requiredOutput)} · ${t7("预计", "Est.")} ${number2(step.actionCount)} ${t7("次", "actions")}`;
-      const policy = document.createElement("button");
-      policy.type = "button";
-      policy.className = "planning-policy";
-      const current = planning.getPolicy(step.itemHrid);
-      policy.textContent = current === "acquire" ? t7("直接获取", "Acquire") : t7("制作", "Produce");
-      policy.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        planning.setPolicy(
-          step.itemHrid,
-          current === "acquire" ? "produce" : "acquire"
-        );
-        rerender();
-      });
-      summary.append(label, counts, policy);
-      const source = document.createElement("div");
-      source.className = "planning-source";
-      source.textContent = `${t7("来源", "Sources")}: ${goalSources(step.sourceIds, result.goals)} · ${t7("单次有效产出", "Effective output")} ${exact(step.outputCount)}`;
-      row.append(summary, source);
-      section.append(row);
-    }
-    body.append(section);
-  }
-  function renderMaterials(body, result, rerender) {
-    const section = document.createElement("section");
-    section.className = "planning-section";
-    const heading = document.createElement("div");
-    heading.className = "planning-section-heading";
-    const title = document.createElement("h3");
-    title.textContent = `${t7("基础材料", "Base materials")} · ${result.materials.length}`;
-    const addAll = document.createElement("button");
-    addAll.type = "button";
-    addAll.className = "planning-primary";
-    const allAddable = result.materials.filter(
-      (material) => material.purchasable && material.addableShortage > 0
-    );
-    addAll.textContent = t7("一键补齐", "Add all");
-    addAll.disabled = !allAddable.length;
-    addAll.addEventListener("click", () => {
-      planning.addShortagesToCart(result.materials);
-      rerender();
-    });
-    heading.append(title, addAll);
-    section.append(heading);
-    if (!result.materials.length) {
-      const empty = document.createElement("div");
-      empty.className = "planning-empty";
-      empty.textContent = t7(
-        "当前没有基础材料需求。",
-        "No base materials needed."
-      );
-      section.append(empty);
-    }
-    for (const material of result.materials) {
-      const row = document.createElement("details");
-      row.className = "planning-material";
-      row.dataset.missing = String(material.addableShortage > 0);
-      const summary = document.createElement("summary");
-      const name = document.createElement("span");
-      name.className = "planning-material-name";
-      name.textContent = material.name;
-      name.title = material.itemHrid;
-      const missing = document.createElement("strong");
-      missing.textContent = material.addableShortage ? `${t7("还需", "Need")} ${number2(material.addableShortage)}` : t7("已覆盖", "Covered");
-      summary.append(name, missing);
-      const grid = document.createElement("div");
-      grid.className = "planning-material-grid";
-      const metric4 = (label, value, sub = "") => {
-        const cell = document.createElement("div");
-        cell.innerHTML = `<span>${label}</span><b>${value}</b>${sub ? `<small>${sub}</small>` : ""}`;
-        return cell;
-      };
-      grid.append(
-        metric4(t7("规划需求", "Required"), number2(material.required)),
-        metric4(
-          t7("库存", "Inventory"),
-          number2(material.owned),
-          `${t7("项目占用", "Project")} ${number2(material.projectInventory)} · ${t7("规划使用", "Planning")} ${number2(material.inventoryUsed)}`
-        ),
-        metric4(
-          t7("购物车", "Cart"),
-          number2(material.cart.total),
-          `${t7("项目", "Project")} ${number2(material.cart.project)} · ${t7("规划", "Planning")} ${number2(material.cart.planning)} · ${t7("手工", "Manual")} ${number2(material.cart.manual)}`
-        ),
-        metric4(t7("仍需购买", "To buy"), number2(material.addableShortage))
-      );
-      const actions = document.createElement("div");
-      actions.className = "planning-material-actions";
-      const policy = document.createElement("button");
-      policy.type = "button";
-      policy.textContent = planning.getPolicy(material.itemHrid) === "acquire" ? t7("改为制作", "Produce") : t7("直接获取", "Acquire");
-      policy.addEventListener("click", () => {
-        planning.setPolicy(
-          material.itemHrid,
-          planning.getPolicy(material.itemHrid) === "acquire" ? "produce" : "acquire"
-        );
-        rerender();
-      });
-      const add = document.createElement("button");
-      add.type = "button";
-      add.textContent = material.purchasable ? t7("加入购物车", "Add to cart") : t7("不可购买", "Not tradable");
-      add.disabled = !material.purchasable || !material.addableShortage;
-      add.addEventListener("click", () => {
-        planning.addShortagesToCart([material]);
-        rerender();
-      });
-      const source = document.createElement("span");
-      source.textContent = `${t7("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
-      actions.append(policy, add, source);
-      row.append(summary, grid, actions);
-      section.append(row);
-    }
-    body.append(section);
-  }
-  function renderPlanning(body, footer) {
-    const rerender = () => renderPlanning(body, footer);
-    body.replaceChildren();
-    footer.replaceChildren();
-    const result = planning.calculate();
-    createGoalEditor(body, rerender);
-    renderGoals(body, planning.getGoals(), rerender);
-    renderSteps(body, result, rerender);
-    renderMaterials(body, result, rerender);
-    if (result.warnings.length) {
-      const warning = document.createElement("div");
-      warning.className = "planning-warning";
-      warning.textContent = t7(
-        `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
-        `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`
-      );
-      body.append(warning);
-    }
-    footer.textContent = t7(
-      `规划 ${result.goals.length} 项 · 制作 ${result.steps.length} 项 · 基础材料 ${result.materials.length} 种`,
-      `${result.goals.length} goals · ${result.steps.length} production steps · ${result.materials.length} base materials`
-    );
-  }
-  function planningStyles() {
-    return `
-    .planning-editor,.planning-section{margin-bottom:10px;border:1px solid color-mix(in srgb,var(--line) 42%,transparent);border-radius:8px;background:color-mix(in srgb,var(--card) 72%,transparent)}
-    .planning-mode{display:flex;padding:4px;gap:3px}.planning-mode button{flex:1;padding:6px;border-radius:5px;color:var(--muted);font-size:11px;font-weight:700}.planning-mode button[data-active="true"]{background:var(--accent);color:#fff}
-    .planning-form{display:flex;gap:5px;padding:4px 8px 8px}.planning-form input,.planning-form select,.planning-goal input[type="number"]{min-width:0;height:30px;border:1px solid color-mix(in srgb,var(--line) 55%,transparent);border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent);color:var(--text);outline:0;padding:4px 7px}.planning-target-input{flex:1}.planning-count-input{width:72px}.planning-primary{padding:6px 9px;border-radius:6px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;white-space:nowrap}.planning-primary:disabled{opacity:.45;cursor:default}
-    .planning-section>h3,.planning-section-heading{min-height:34px;padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 35%,transparent);color:var(--text);font-size:11.5px;font-weight:700}.planning-section-heading{display:flex;align-items:center;justify-content:space-between}.planning-section-heading h3{font-size:11.5px}.planning-empty{padding:14px 10px;color:var(--muted);font-size:11px;text-align:center}
-    .planning-goal{display:grid;grid-template-columns:18px minmax(0,1fr) auto 68px 25px;align-items:center;gap:6px;padding:7px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 24%,transparent);font-size:11px}.planning-goal:last-child{border-bottom:0}.planning-goal[data-enabled="false"]{opacity:.52}.planning-goal-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:600}.planning-goal>span{color:var(--muted);white-space:nowrap}.planning-goal input[type="number"]{width:68px;text-align:center}.planning-remove{width:25px;height:25px;border-radius:5px;color:#ff8d96;font-size:17px}.planning-remove:hover{background:rgba(224,90,100,.14)}
-    .planning-step,.planning-material{border-bottom:1px solid color-mix(in srgb,var(--line) 25%,transparent)}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary,.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px;color:var(--text);font-size:11px;cursor:pointer}.planning-step summary>span:first-child,.planning-material-name{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}.planning-step summary>span:nth-child(2){color:var(--muted);white-space:nowrap}.planning-policy,.planning-material-actions button{padding:5px 7px;border-radius:5px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:10px;font-weight:600}.planning-source{padding:0 9px 8px;color:var(--muted);font-size:10px}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:10px;white-space:nowrap}
-    .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:0 8px 7px}.planning-material-grid>div{min-width:0;padding:5px;border-radius:5px;background:color-mix(in srgb,var(--text) 5%,transparent)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:var(--muted);font-size:8.5px;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:var(--gold);font-size:11.5px;font-variant-numeric:tabular-nums}.planning-material-actions{display:flex;align-items:center;gap:5px;padding:0 8px 8px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:var(--muted);font-size:9px;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:10px}
-    @media(max-width:420px){.planning-form{flex-wrap:wrap}.planning-target-input{flex:1 1 calc(100% - 80px)}.planning-form .planning-primary{flex:1 1 100%}.planning-goal{grid-template-columns:18px minmax(0,1fr) 62px 25px}.planning-goal>span{display:none}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  `;
-  }
-
   // src/features/procurement.js
-  var STYLE_ID8 = "mwitools-procurement-style";
+  var STYLE_ID9 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -35347,13 +35984,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function exactNumber(value) {
     return runtime.api.formatExactNumber?.(value) ?? String(value ?? "—");
   }
-  function escapeHtml4(value) {
+  function escapeHtml5(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -35436,7 +36073,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       .header::before{content:"";position:absolute;top:7px;left:50%;width:44px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--muted) 45%,transparent);transform:translateX(-50%)}.header{position:relative;padding-top:18px}
     }
     @media(prefers-reduced-motion:reduce){.drawer{transition:none}.handle-badge::after{animation:none}}
-  ${planningStyles()}`;
+  `;
   }
   function showToast(message) {
     document.querySelectorAll(".mwi-procurement-toast").forEach((node) => node.remove());
@@ -35472,10 +36109,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const bare = procurement3.normalizeItemHrid(item.itemHrid).split("/").at(-1);
     const sprite = findItemsSpriteBase4();
     if (!bare || !sprite) {
-      return `<span class="item-icon-fallback">${escapeHtml4((item.name || "?").trim().charAt(0) || "?")}</span>`;
+      return `<span class="item-icon-fallback">${escapeHtml5((item.name || "?").trim().charAt(0) || "?")}</span>`;
     }
     const href = `${sprite}#${bare}`;
-    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml4(item.name)}"><use href="${escapeHtml4(href)}" xlink:href="${escapeHtml4(href)}"></use></svg>`;
+    return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml5(item.name)}"><use href="${escapeHtml5(href)}" xlink:href="${escapeHtml5(href)}"></use></svg>`;
   }
   function renderShell() {
     if (!shadow) return;
@@ -35496,10 +36133,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
-    const footer = shadow.querySelector(".panel-footer");
-    footer.replaceChildren();
+    shadow.querySelector(".panel-footer").replaceChildren();
     if (activeTab === "plans") renderPlans(body);
-    else if (activeTab === "planning") renderPlanning(body, footer);
     else if (activeTab === "settings") renderProcurementSettings(body);
     else renderCart(body);
   }
@@ -35532,7 +36167,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       row.innerHTML = `
       <button class="star" data-active="${Boolean(item.starred)}" title="${t8("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
       <button class="item-icon" ${marketEnabled ? `title="${t8("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml4(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml4(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
+      <button class="item-name" title="${escapeHtml5(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml5(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
       <div class="row-controls">
         <button class="step" data-step="-1">−</button>
         <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t8("待购数量", "Quantity")}">
@@ -35656,7 +36291,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml4(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t8("已完成", "Completed") : t8("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml5(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t8("已完成", "Completed") : t8("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber4(plan.progress)} / ${formatNumber4(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
       <div class="plan-actions"><button data-action="count">${t8("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t8("重新打开", "Reopen") : t8("完成", "Complete")}</button><button data-action="remove">${t8("删除", "Delete")}</button></div>`;
@@ -35843,7 +36478,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml4(t8(zh, en))}${description ? `<small>${escapeHtml4(t8(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml5(t8(zh, en))}${description ? `<small>${escapeHtml5(t8(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
@@ -35970,7 +36605,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     <aside class="drawer" data-open="false" aria-label="${t8("购物车", "Shopping cart")}">
       <div class="resize"></div>
       <header class="header"><div class="title">${t8("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t8("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t8("清单", "Cart")}</button><button class="tab" data-tab="plans">${t8("项目", "Projects")}</button><button class="tab" data-tab="planning">${t8("规划", "Planning")}</button><button class="tab" data-tab="settings">${t8("设置", "Settings")}</button></nav>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t8("清单", "Cart")}</button><button class="tab" data-tab="plans">${t8("项目", "Projects")}</button><button class="tab" data-tab="settings">${t8("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -36460,7 +37095,7 @@ ${locks}` : ""}`;
       for (const stage of chain.stages) {
         const row = document.createElement("label");
         row.className = "mwi-procurement-chain-stage";
-        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml4(stage.actionHrid)}"><span>${escapeHtml4(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
+        row.innerHTML = `<input type="checkbox" checked data-action="${escapeHtml5(stage.actionHrid)}"><span>${escapeHtml5(stage.name)}</span><span>×${formatNumber4(stage.count)}</span>`;
         list.append(row);
       }
       const presets = document.createElement("div");
@@ -37007,7 +37642,6 @@ ${locks}` : ""}`;
     };
     scope.add(procurement3.on("cart:change", rerender));
     scope.add(procurement3.on("plan:change", rerender));
-    scope.add(procurement3.on("planning:change", rerender));
     scope.add(procurement3.on("inventory:change", rerender));
     scope.add(
       procurement3.on("settings:change", ({ id, value }) => {
@@ -37060,7 +37694,7 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope, characterId }) {
       runtime.api.openProcurementMarketplace = openMarketplace;
-      addStyles6();
+      addStyles7();
       if (procurement3.activeCharacterId !== characterId) {
         procurement3.loadCharacterData(characterId);
       }
@@ -37139,7 +37773,7 @@ ${locks}` : ""}`;
         stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID8)?.remove();
+        document.getElementById(STYLE_ID9)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -37152,7 +37786,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/semi-auto-train.js
-  var STYLE_ID9 = "mwitools-semi-auto-train-style";
+  var STYLE_ID10 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
   var DETAIL_CLASS = "mwi-train-detail-modal";
   var ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
@@ -37201,10 +37835,10 @@ ${locks}` : ""}`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2600);
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
@@ -38048,7 +38682,7 @@ ${locks}` : ""}`;
     document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((node) => node.classList.remove(WIDE_WINDOW_CLASS));
     clearTrainShopHighlight();
-    document.getElementById(STYLE_ID9)?.remove();
+    document.getElementById(STYLE_ID10)?.remove();
     closeDetail();
   }
   runtime.features.register({
@@ -38057,7 +38691,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["procurementAssistant"],
     initialize({ scope }) {
-      addStyles7();
+      addStyles8();
       scanScheduler?.cancel();
       const scheduler = createFrameScheduler(scan);
       scanScheduler = scheduler;
@@ -38298,7 +38932,7 @@ ${locks}` : ""}`;
   }
 
   // src/features/tasks.js
-  var STYLE_ID10 = "mwitools-task-style";
+  var STYLE_ID11 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
@@ -38570,10 +39204,10 @@ ${locks}` : ""}`;
     const symbol = String(hrid ?? "").split("/").at(-1);
     return base && symbol ? `${base}#${symbol}` : "";
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
     [class*="TasksPanel_taskList"] > * { min-width:0 !important; max-width:100% !important; box-sizing:border-box !important; }
@@ -39901,7 +40535,7 @@ ${locks}` : ""}`;
     document.querySelectorAll("[data-mwitools-reset-wired]").forEach((node) => {
       delete node.dataset.mwitoolsResetWired;
     });
-    document.getElementById(STYLE_ID10)?.remove();
+    document.getElementById(STYLE_ID11)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
@@ -39923,7 +40557,7 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles8();
+      addStyles9();
       let active = true;
       let settleRetries = 0;
       let renderScheduler = null;
@@ -39987,7 +40621,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles8,
+    addTaskStyles: addStyles9,
     armTemporaryTaskReturn,
     cancelTemporaryTaskReturn,
     resumeTemporaryTaskReturn,
@@ -40000,17 +40634,17 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-train-planner.js
-  var STYLE_ID11 = "mwitools-task-train-planner-style";
+  var STYLE_ID12 = "mwitools-task-train-planner-style";
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     .${CONTROL_CLASS2}{flex:0 1 auto;min-width:0;max-width:100%;box-sizing:border-box;margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     button.${CONTROL_CLASS2}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
@@ -40177,7 +40811,7 @@ ${locks}` : ""}`;
   }
   function cleanup3() {
     document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
-    document.getElementById(STYLE_ID11)?.remove();
+    document.getElementById(STYLE_ID12)?.remove();
   }
   function shouldRenderTaskTrainMutations(records) {
     const removedControl = records.some((record) => {
@@ -40216,7 +40850,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
-      addStyles9();
+      addStyles10();
       let settleRetries = 0;
       let renderScheduler = null;
       const render = () => {
@@ -40253,7 +40887,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID12 = "mwitools-task-new-style";
+  var STYLE_ID13 = "mwitools-task-new-style";
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR3 = '.mwi-task-new-badge,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
@@ -40327,10 +40961,10 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     ${TASK_SELECTOR3}.mwi-task-is-new{position:relative}
     .mwi-task-new-badge{position:absolute;z-index:5;right:5px;top:5px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto!important;min-width:18px!important;max-width:max-content!important;height:18px!important;min-height:18px!important;margin:0!important;padding:0 4px!important;flex:0 0 auto!important;border:1px solid rgba(255,220,128,.72);border-radius:4px;background:#f0aa2e;color:#221704;font-size:9px;font-weight:800;line-height:16px;letter-spacing:0;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.32);pointer-events:none}
@@ -40343,7 +40977,7 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID12)?.remove();
+    document.getElementById(STYLE_ID13)?.remove();
   }
   function shouldRenderTaskNewMutations(records) {
     return records.some((record) => {
@@ -40370,7 +41004,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles10();
+      addStyles11();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       liveTaskNewStates.set(storageKey, state);
@@ -40734,7 +41368,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID13 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID14 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
   function t12(zh, en) {
@@ -40869,10 +41503,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID14;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -41066,7 +41700,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles11();
+      addStyles12();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid) => {
@@ -41141,7 +41775,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID13)?.remove();
+        document.getElementById(STYLE_ID14)?.remove();
       });
       refresh();
     }
@@ -41205,18 +41839,22 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "采购抽屉新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
+          "“规划”已从采购抽屉移到角色页“盈亏”旁，并改用带游戏原生物品与房屋技能图标的稳定搜索选择器，数据刷新时不再反复重建输入区或让已打开的选择菜单消失；项目对应的采购项全部买完或清除后，项目也会自动删除。",
+          "新增独立“规划”计算器，可按物品最终持有量与房屋目标等级递归汇总制作步骤和基础材料；采购抽屉原“计划”更名为“项目”，购物车会分别记录手工、项目与规划来源，多项目统一分配库存，项目完成或规划需求降低时释放数量会转为手工来源而不会静默删除。",
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；前五名彩色徽章默认启用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，也可在设置中关闭。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能被残留的隐藏状态遮住；摘要和排序栏现在始终跟随游戏原生库存面板显隐，即使复用旧节点或晚到回调再次写入隐藏状态也会保持可见。",
           "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
-          "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。"
+          "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。",
+          "生活装备提醒现在使用当前游戏的红色厨师帽标识；红色厨师帽、掌上监工、收藏家靴和附魔手套穿戴后都会计入生活着装评分。"
         ]),
         en: Object.freeze([
-          "The procurement drawer now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
+          "Planning has moved from the procurement drawer to a character tab beside P/L, with stable item and house pickers that use native game item and skill icons and no longer rebuild the input area or close an open menu during data refreshes. Projects are also removed automatically once all of their shopping rows are purchased or cleared.",
+          "MWITools now includes an independent Planning calculator that recursively summarizes production steps and base materials from final item holdings and house-level targets. Procurement “Plans” are now “Projects”; manual, project, and planning cart sources are tracked separately, multiple projects share inventory allocation correctly, and quantities released by completed projects or reduced planning demand become manual instead of being silently removed.",
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Top-five rainbow badges now enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause by default, with an option to turn the effect off.",
           "Fixed combat and skilling gear scores and total assets being obscured by a stale hidden state after switching to Abilities and returning to Inventory. The summary and sorting bar now always follow the native Inventory panel, remaining visible even when a reused node or delayed callback writes another hidden state.",
           "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
-          "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times."
+          "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times.",
+          "Skilling equipment reminders now use the current Red Culinary Hat identifier. Red Culinary Hat, Eye Watch, Collector's Boots, and Enchanted Gloves all contribute to skilling gear score while equipped."
         ])
       })
     }),
@@ -41743,7 +42381,7 @@ ${locks}` : ""}`;
   // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID14 = "mwitools-feedback-style";
+  var STYLE_ID15 = "mwitools-feedback-style";
   function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -41755,10 +42393,10 @@ ${locks}` : ""}`;
     };
     return labels[status] ? t14(...labels[status]) : status;
   }
-  function addStyles12() {
-    if (document.getElementById(STYLE_ID14)) return;
+  function addStyles13() {
+    if (document.getElementById(STYLE_ID15)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID14;
+    style.id = STYLE_ID15;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
@@ -41805,7 +42443,7 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles12();
+      addStyles13();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
@@ -42341,10 +42979,10 @@ ${locks}` : ""}`;
       if (!this.root?.hidden) this.close();
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID14)?.remove();
+      document.getElementById(STYLE_ID15)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID14 };
+  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID15 };
   var FeedbackPanel = OpinionCenterPanel;
 
   // src/features/opinion-center/index.js
@@ -42418,7 +43056,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID15 = "mwitools-guild-xp-style";
+  var STYLE_ID16 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
@@ -42581,10 +43219,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles13() {
-    if (document.getElementById(STYLE_ID15)) return;
+  function addStyles14() {
+    if (document.getElementById(STYLE_ID16)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID15;
+    style.id = STYLE_ID16;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -43104,7 +43742,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles13();
+      addStyles14();
       renderGuildOverview();
       observeGuildSurface(scope, renderGuildOverview);
       scope.add(
@@ -43119,7 +43757,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles13();
+        addStyles14();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") {
@@ -44626,22 +45264,22 @@ ${locks}` : ""}`;
   });
 
   // src/features/enhancement-cost-panel.js
-  var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID16 = "mwitools-enhancement-cost-panel-style";
+  var PANEL_ID4 = "mwitools-enhancement-cost-panel";
+  var STYLE_ID17 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
   function t17(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles14() {
-    if (document.getElementById(STYLE_ID16)) return;
+  function addStyles15() {
+    if (document.getElementById(STYLE_ID17)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID16;
+    style.id = STYLE_ID17;
     style.textContent = `
-    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
-    #${PANEL_ID3}.mwi-enhancement-sticky { pointer-events:auto; }
-    #${PANEL_ID3} * { box-sizing:border-box; }
+    #${PANEL_ID4} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
+    #${PANEL_ID4}.mwi-enhancement-sticky { pointer-events:auto; }
+    #${PANEL_ID4} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
     .mwi-enhancement-label,.mwi-enhancement-value { min-height:27px; display:flex; align-items:center; padding:5px 9px; border-bottom:1px solid rgba(255,255,255,.075); }
@@ -44802,7 +45440,7 @@ ${locks}` : ""}`;
   function hideEnhancementCostPanel() {
     const state = activePanel2;
     if (!state) {
-      document.getElementById(PANEL_ID3)?.remove();
+      document.getElementById(PANEL_ID4)?.remove();
       return;
     }
     state.mutationObserver?.disconnect();
@@ -44844,9 +45482,9 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles14();
+    addStyles15();
     const panel = document.createElement("aside");
-    panel.id = PANEL_ID3;
+    panel.id = PANEL_ID4;
     panel.classList.toggle("mwi-enhancement-sticky", sticky);
     panel.setAttribute("role", "status");
     panel.setAttribute("aria-live", "polite");
@@ -46004,7 +46642,7 @@ ${locks}` : ""}`;
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
   var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
-  var STYLE_ID17 = "mwitools-important-update-style";
+  var STYLE_ID18 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t18(value) {
     if (typeof value === "string") return value;
@@ -46129,10 +46767,10 @@ ${locks}` : ""}`;
   function updateDownloadUrl() {
     return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
   }
-  function addStyles15() {
-    if (document.getElementById(STYLE_ID17)) return;
+  function addStyles16() {
+    if (document.getElementById(STYLE_ID18)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID17;
+    style.id = STYLE_ID18;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -46150,7 +46788,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles15();
+    addStyles16();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -46192,7 +46830,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID17)?.remove();
+        document.getElementById(STYLE_ID18)?.remove();
       });
     }
   });

@@ -1,7 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
-import { planningStyles, renderPlanning } from "./planning.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -150,7 +149,7 @@ function shellStyles() {
       .header::before{content:"";position:absolute;top:7px;left:50%;width:44px;height:4px;border-radius:2px;background:color-mix(in srgb,var(--muted) 45%,transparent);transform:translateX(-50%)}.header{position:relative;padding-top:18px}
     }
     @media(prefers-reduced-motion:reduce){.drawer{transition:none}.handle-badge::after{animation:none}}
-  ${planningStyles()}`;
+  `;
 }
 
 function showToast(message) {
@@ -224,10 +223,8 @@ function renderShell() {
     button.dataset.active = String(button.dataset.tab === activeTab);
   }
   const body = shadow.querySelector(".body");
-  const footer = shadow.querySelector(".panel-footer");
-  footer.replaceChildren();
+  shadow.querySelector(".panel-footer").replaceChildren();
   if (activeTab === "plans") renderPlans(body);
-  else if (activeTab === "planning") renderPlanning(body, footer);
   else if (activeTab === "settings") renderProcurementSettings(body);
   else renderCart(body);
 }
@@ -728,7 +725,7 @@ function createShell(scope) {
     <aside class="drawer" data-open="false" aria-label="${t("购物车", "Shopping cart")}">
       <div class="resize"></div>
       <header class="header"><div class="title">${t("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t("清单", "Cart")}</button><button class="tab" data-tab="plans">${t("项目", "Projects")}</button><button class="tab" data-tab="planning">${t("规划", "Planning")}</button><button class="tab" data-tab="settings">${t("设置", "Settings")}</button></nav>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t("清单", "Cart")}</button><button class="tab" data-tab="plans">${t("项目", "Projects")}</button><button class="tab" data-tab="settings">${t("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -1977,7 +1974,6 @@ function subscribeProcurement(scope) {
   };
   scope.add(procurement.on("cart:change", rerender));
   scope.add(procurement.on("plan:change", rerender));
-  scope.add(procurement.on("planning:change", rerender));
   scope.add(procurement.on("inventory:change", rerender));
   scope.add(
     procurement.on("settings:change", ({ id, value }) => {

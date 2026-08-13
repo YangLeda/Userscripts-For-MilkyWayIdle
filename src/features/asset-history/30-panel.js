@@ -296,7 +296,7 @@ const CHARACTER_TAB_PATTERNS = {
   loadout: /^(配装|loadouts?)(?:\s*\d+)?$/i,
 };
 
-function findCharacterManagementLoadoutTab() {
+export function findCharacterManagementLoadoutTab() {
   const groups = new Map();
   for (const button of document.querySelectorAll('button[role="tab"],button')) {
     if (button.id === TAB_ID) continue;
@@ -362,7 +362,7 @@ function looksLikeContent(node) {
   );
 }
 
-function findPanelShell(tab) {
+export function findPanelShell(tab) {
   let navigationBranch = tab.parentElement;
   for (
     let depth = 0;
