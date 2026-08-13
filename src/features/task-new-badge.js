@@ -171,6 +171,10 @@ runtime.features.register({
     initializeQuestState(state, initial);
     writeTaskNewState(storageKey, state);
 
+    let lastRenderedCards = [];
+    let lastRenderedQuests = null;
+    let lastFreshSignature = "";
+    let lastLanguage = null;
     const render = () => {
       const quests = runtime.state.characterQuests ?? [];
       const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -184,6 +188,20 @@ runtime.features.register({
       }
       if (changed) writeTaskNewState(storageKey, state);
       const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+      const freshSignature = [...(runtime.state.mwitoolsPageNewTaskIds ?? [])]
+        .sort()
+        .join(",");
+      const sameCards =
+        cards.length === lastRenderedCards.length &&
+        cards.every((card, index) => card === lastRenderedCards[index]);
+      if (
+        sameCards &&
+        quests === lastRenderedQuests &&
+        freshSignature === lastFreshSignature &&
+        runtime.config.isZH === lastLanguage
+      ) {
+        return;
+      }
       const resolvedCards = resolveTaskCards(cards, quests, {
         taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
         taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
@@ -204,6 +222,10 @@ runtime.features.register({
           badge?.remove();
         }
       });
+      lastRenderedCards = cards;
+      lastRenderedQuests = quests;
+      lastFreshSignature = freshSignature;
+      lastLanguage = runtime.config.isZH;
     };
 
     const renderScheduler = createFrameScheduler(render);
@@ -224,16 +246,15 @@ runtime.features.register({
         schedule();
       }),
     );
-    let trailingTimers = [];
-    const onInteraction = () => {
-      schedule();
-      trailingTimers.forEach(clearTimeout);
-      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
-    };
-    scope.event(document, "click", onInteraction, true);
+    const observer = new MutationObserver((records) => {
+      if (shouldRenderTaskNewMutations(records)) schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     render();
     scope.add(() => {
-      trailingTimers.forEach(clearTimeout);
       renderScheduler.cancel();
       if (liveTaskNewStates.get(storageKey) === state) {
         liveTaskNewStates.delete(storageKey);

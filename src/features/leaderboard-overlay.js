@@ -6,8 +6,6 @@ const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
 const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
-const DEFAULT_ICON_BASE_URL =
-  "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
 const STYLE_ID = "mwi-leaderboard-overlay-style";
 const BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
 const RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
@@ -32,6 +30,11 @@ const DEFAULT_CATEGORIES = [
   ["magic", { zh: "魔法", en: "Magic" }],
   ["fame_points", { zh: "名望", en: "Fame" }],
 ];
+const NATIVE_SPRITE_FALLBACKS = Object.freeze({
+  misc: "/static/media/misc_sprite.6560b17a.svg",
+  skills: "/static/media/skills_sprite.3bb4d936.svg",
+});
+const nativeSpriteBasesByDocument = new WeakMap();
 
 let activeInstances = 0;
 let featureEnabled = false;
@@ -125,27 +128,43 @@ function ensureStyles(documentRef) {
   mount.append(style);
 }
 
-function createBadgeIcon(documentRef, category, iconBaseUrl) {
-  if (category !== "fame_points") {
+function nativeSpriteBase(documentRef, kind) {
+  let bases = nativeSpriteBasesByDocument.get(documentRef);
+  if (!bases) {
+    bases = new Map();
+    nativeSpriteBasesByDocument.set(documentRef, bases);
+  }
+  if (bases.has(kind)) return bases.get(kind);
+  const base =
+    [...documentRef.querySelectorAll("use")]
+      .map((element) => element.getAttribute("href") || "")
+      .find((href) => href.includes(`${kind}_sprite`))
+      ?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
+  bases.set(kind, base);
+  return base;
+}
+
+function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
+  if (customIconBaseUrl && category !== "fame_points") {
     const icon = documentRef.createElement("img");
     icon.className = "mwi-lb-badge-icon";
-    icon.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
+    icon.src = `${customIconBaseUrl}/${encodeURIComponent(category)}.png`;
     icon.alt = "";
     icon.setAttribute("aria-hidden", "true");
     return icon;
   }
 
+  const spriteKind = category === "fame_points" ? "misc" : "skills";
+  const symbol = category === "fame_points" ? "experience" : category;
   const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.classList.add("mwi-lb-badge-icon");
   icon.setAttribute("viewBox", "0 0 40 40");
   icon.setAttribute("aria-hidden", "true");
   const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-  const miscSprite =
-    [...documentRef.querySelectorAll("use")]
-      .map((element) => element.getAttribute("href") || "")
-      .find((href) => href.includes("misc_sprite"))
-      ?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
-  use.setAttribute("href", `${miscSprite}#experience`);
+  use.setAttribute(
+    "href",
+    `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`,
+  );
   icon.append(use);
   return icon;
 }
@@ -167,9 +186,7 @@ function createOverlay(options = {}) {
       : DEFAULT_CATEGORIES;
   const categoryOrder = categoryEntries.map(([category]) => category);
   const categoryLabels = Object.fromEntries(categoryEntries);
-  const iconBaseUrl = String(
-    options.iconBaseUrl || DEFAULT_ICON_BASE_URL,
-  ).replace(/\/+$/, "");
+  const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
   const state = {
     categories: {},
     nameIndex: new Map(),

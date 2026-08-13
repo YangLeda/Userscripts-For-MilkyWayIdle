@@ -2,6 +2,25 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.8",
+    version: "26.4.8",
+    publishedAt: "2026-08-13",
+    title: Object.freeze({
+      zh: "26.4.8 更新公告",
+      en: "Version 26.4.8 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
+        "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
+      ]),
+      en: Object.freeze([
+        "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
+        "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.7",
     version: "26.4.7",
     publishedAt: "2026-08-13",

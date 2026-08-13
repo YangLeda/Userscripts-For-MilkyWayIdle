@@ -148,10 +148,11 @@ function plannerLabel(text, title, signature) {
   return label;
 }
 
-export function renderTaskTrainPlanner() {
-  const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+export function renderTaskTrainPlanner(
+  cards = [...document.querySelectorAll(TASK_SELECTOR)],
+  quests = runtime.state.characterQuests ?? [],
+) {
   if (!cards.length) return;
-  const quests = runtime.state.characterQuests ?? [];
   const { entries } = collectTaskTrainGroups(quests);
   const resolvedCards = resolveTaskCards(cards, quests, {
     taskActionHrid,
@@ -247,19 +248,39 @@ runtime.features.register({
   dependsOn: ["semiAutoTrain"],
   initialize({ scope }) {
     addStyles();
-    renderTaskTrainPlanner();
-    const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
-    const schedule = () => renderScheduler.schedule();
-    let trailingTimers = [];
-    const onInteraction = () => {
-      schedule();
-      trailingTimers.forEach(clearTimeout);
-      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
+    let lastRenderedCards = [];
+    let lastRenderedQuests = null;
+    let lastLanguage = null;
+    const render = () => {
+      const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+      const quests = runtime.state.characterQuests ?? [];
+      const sameCards =
+        cards.length === lastRenderedCards.length &&
+        cards.every((card, index) => card === lastRenderedCards[index]);
+      if (
+        sameCards &&
+        quests === lastRenderedQuests &&
+        runtime.config.isZH === lastLanguage
+      ) {
+        return;
+      }
+      renderTaskTrainPlanner(cards, quests);
+      lastRenderedCards = cards;
+      lastRenderedQuests = quests;
+      lastLanguage = runtime.config.isZH;
     };
-    scope.event(document, "click", onInteraction, true);
+    render();
+    const renderScheduler = createFrameScheduler(render);
+    const schedule = () => renderScheduler.schedule();
+    const observer = new MutationObserver((records) => {
+      if (shouldRenderTaskTrainMutations(records)) schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     scope.add(runtime.onMessage("quests_updated", schedule));
     scope.add(() => {
-      trailingTimers.forEach(clearTimeout);
       renderScheduler.cancel();
       cleanup();
     });

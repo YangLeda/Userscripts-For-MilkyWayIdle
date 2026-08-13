@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.7
+// @version      26.4.8
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -27498,7 +27498,6 @@ ${preview}`
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
-  var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
   var STYLE_ID4 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
@@ -27522,6 +27521,11 @@ ${preview}`
     ["magic", { zh: "魔法", en: "Magic" }],
     ["fame_points", { zh: "名望", en: "Fame" }]
   ];
+  var NATIVE_SPRITE_FALLBACKS = Object.freeze({
+    misc: "/static/media/misc_sprite.6560b17a.svg",
+    skills: "/static/media/skills_sprite.3bb4d936.svg"
+  });
+  var nativeSpriteBasesByDocument = /* @__PURE__ */ new WeakMap();
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
@@ -27600,22 +27604,37 @@ ${preview}`
   `;
     mount.append(style);
   }
-  function createBadgeIcon(documentRef, category, iconBaseUrl) {
-    if (category !== "fame_points") {
+  function nativeSpriteBase(documentRef, kind) {
+    let bases = nativeSpriteBasesByDocument.get(documentRef);
+    if (!bases) {
+      bases = /* @__PURE__ */ new Map();
+      nativeSpriteBasesByDocument.set(documentRef, bases);
+    }
+    if (bases.has(kind)) return bases.get(kind);
+    const base = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes(`${kind}_sprite`))?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
+    bases.set(kind, base);
+    return base;
+  }
+  function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
+    if (customIconBaseUrl && category !== "fame_points") {
       const icon2 = documentRef.createElement("img");
       icon2.className = "mwi-lb-badge-icon";
-      icon2.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
+      icon2.src = `${customIconBaseUrl}/${encodeURIComponent(category)}.png`;
       icon2.alt = "";
       icon2.setAttribute("aria-hidden", "true");
       return icon2;
     }
+    const spriteKind = category === "fame_points" ? "misc" : "skills";
+    const symbol = category === "fame_points" ? "experience" : category;
     const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
     icon.classList.add("mwi-lb-badge-icon");
     icon.setAttribute("viewBox", "0 0 40 40");
     icon.setAttribute("aria-hidden", "true");
     const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-    const miscSprite = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes("misc_sprite"))?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
-    use.setAttribute("href", `${miscSprite}#experience`);
+    use.setAttribute(
+      "href",
+      `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`
+    );
     icon.append(use);
     return icon;
   }
@@ -27632,9 +27651,7 @@ ${preview}`
     const categoryEntries = Array.isArray(options.categories) && options.categories.length ? options.categories : DEFAULT_CATEGORIES;
     const categoryOrder = categoryEntries.map(([category]) => category);
     const categoryLabels = Object.fromEntries(categoryEntries);
-    const iconBaseUrl = String(
-      options.iconBaseUrl || DEFAULT_ICON_BASE_URL
-    ).replace(/\/+$/, "");
+    const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
     const state = {
       categories: {},
       nameIndex: /* @__PURE__ */ new Map(),
@@ -36125,6 +36142,13 @@ ${locks}` : ""}`;
   var lastActionCategories = null;
   var taskSpriteManifestPromise = null;
   var taskSpriteBases = /* @__PURE__ */ new Map();
+  var spriteScanDocument = null;
+  var spriteSourcesScanned = false;
+  var cachedTaskActionIndex = null;
+  var cachedTaskActionIndexMap = null;
+  var cachedTaskActionIndexLocale = "";
+  var taskActionCache = /* @__PURE__ */ new WeakMap();
+  var taskRemainingCache = /* @__PURE__ */ new WeakMap();
   var pageOrderBySlot = /* @__PURE__ */ new Map();
   var activeProfessionFilters = /* @__PURE__ */ new Set();
   var combatFilterEnabled = true;
@@ -36252,8 +36276,6 @@ ${locks}` : ""}`;
     ["tailoring", "缝纫", "Tailoring"],
     ["cooking", "烹饪", "Cooking"],
     ["brewing", "冲泡", "Brewing"],
-    ["alchemy", "炼金", "Alchemy"],
-    ["enhancing", "强化", "Enhancing"],
     ["combat", "战斗", "Combat"]
   ].map(([key, zh, en], order) => ({ key, zh, en, order }));
   var LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
@@ -36319,7 +36341,13 @@ ${locks}` : ""}`;
       taskSpriteBases.set(kind, base);
     }
   }
-  function scanTaskSpriteBases() {
+  function scanTaskSpriteBases({ force = false } = {}) {
+    if (spriteScanDocument !== document) {
+      spriteScanDocument = document;
+      spriteSourcesScanned = false;
+    }
+    if (spriteSourcesScanned && !force) return;
+    spriteSourcesScanned = true;
     try {
       document.querySelectorAll("svg use").forEach(
         (use) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
@@ -36340,7 +36368,7 @@ ${locks}` : ""}`;
   async function loadTaskSpriteManifest() {
     if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
     taskSpriteManifestPromise = (async () => {
-      scanTaskSpriteBases();
+      scanTaskSpriteBases({ force: true });
       try {
         const response = await globalThis.fetch(
           new URL("/asset-manifest.json", globalThis.location?.origin).href
@@ -36364,7 +36392,6 @@ ${locks}` : ""}`;
     return taskSpriteManifestPromise;
   }
   function taskSpriteHref(kind, hrid) {
-    scanTaskSpriteBases();
     const base = taskSpriteBases.get(kind);
     const symbol = String(hrid ?? "").split("/").at(-1);
     return base && symbol ? `${base}#${symbol}` : "";
@@ -36382,8 +36409,10 @@ ${locks}` : ""}`;
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
     .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
     .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
+    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:wrap; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
@@ -36404,7 +36433,7 @@ ${locks}` : ""}`;
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
-      .mwi-task-filter-group--life { flex-wrap:wrap; }
+      .mwi-task-filter-group--life { min-width:0; flex:1 1 auto; flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
     }
   `;
@@ -36430,32 +36459,83 @@ ${locks}` : ""}`;
     }
     return null;
   }
-  function taskActionHrid(task) {
-    const direct = nestedValue(task, [
-      "actionHrid",
-      "taskActionHrid",
-      "skillActionHrid"
-    ]);
-    if (direct) return direct;
-    const monsterHrid = nestedValue(task, ["monsterHrid"]);
-    if (!monsterHrid) return null;
-    for (const detail of Object.values(
-      runtime.state.initData_actionDetailMap ?? {}
-    )) {
-      if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-      const fightInfo = JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {});
-      if (fightInfo.includes(`"${monsterHrid}"`)) return detail.hrid;
+  function normalizeTaskLookupName(value) {
+    return String(value ?? "").trim().toLocaleLowerCase();
+  }
+  function getTaskActionIndex() {
+    const actionMap = runtime.state.initData_actionDetailMap ?? {};
+    const locale = getGameLocale();
+    if (cachedTaskActionIndex && cachedTaskActionIndexMap === actionMap && cachedTaskActionIndexLocale === locale) {
+      return cachedTaskActionIndex;
     }
-    return null;
+    const combatByName = /* @__PURE__ */ new Map();
+    const combatByMonster = /* @__PURE__ */ new Map();
+    const dungeonsByMonster = /* @__PURE__ */ new Map();
+    const zoneActionByCategory = /* @__PURE__ */ new Map();
+    for (const detail of Object.values(actionMap)) {
+      if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
+      for (const name of [
+        detail.name,
+        runtime.data.ZHActionNames?.[detail.hrid],
+        getLocalizedEntityName("action", detail.hrid, { locale })
+      ]) {
+        const normalized = normalizeTaskLookupName(name);
+        if (normalized && !combatByName.has(normalized)) {
+          combatByName.set(normalized, detail);
+        }
+      }
+      if (detail?.category && detail?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10 && !zoneActionByCategory.has(detail.category)) {
+        zoneActionByCategory.set(detail.category, detail);
+      }
+      const monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+      for (const monsterHrid of monsters) {
+        if (!combatByMonster.has(monsterHrid)) {
+          combatByMonster.set(monsterHrid, detail);
+        }
+        if (!detail?.combatZoneInfo?.isDungeon) continue;
+        if (!dungeonsByMonster.has(monsterHrid)) {
+          dungeonsByMonster.set(monsterHrid, []);
+        }
+        dungeonsByMonster.get(monsterHrid).push(detail);
+      }
+    }
+    cachedTaskActionIndexMap = actionMap;
+    cachedTaskActionIndexLocale = locale;
+    cachedTaskActionIndex = {
+      combatByName,
+      combatByMonster,
+      dungeonsByMonster,
+      zoneActionByCategory
+    };
+    return cachedTaskActionIndex;
+  }
+  function taskActionHrid(task) {
+    if (!task || typeof task !== "object") return null;
+    const direct = task.actionHrid ?? task.taskActionHrid ?? task.skillActionHrid ?? nestedValue(task, ["actionHrid", "taskActionHrid", "skillActionHrid"]);
+    if (direct) return direct;
+    const actionMap = runtime.state.initData_actionDetailMap ?? {};
+    const monsterHrid = task.monsterHrid ?? nestedValue(task, ["monsterHrid"]);
+    const cached = taskActionCache.get(task);
+    if (cached?.actionMap === actionMap && cached.monsterHrid === monsterHrid) {
+      return cached.value;
+    }
+    const value = getTaskActionIndex().combatByMonster.get(monsterHrid)?.hrid ?? null;
+    taskActionCache.set(task, { actionMap, monsterHrid, value });
+    return value;
   }
   function taskRemaining(task) {
-    const target = Number(
-      nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"])
-    );
-    const current = Number(
-      nestedValue(task, ["currentCount", "completedCount", "progressCount"])
-    );
-    return Number.isFinite(target) ? Math.max(0, target - (Number.isFinite(current) ? current : 0)) : 0;
+    if (!task || typeof task !== "object") return 0;
+    const targetSource = task.targetCount ?? task.requiredCount ?? task.goalCount ?? task.count ?? nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]);
+    const currentSource = task.currentCount ?? task.completedCount ?? task.progressCount ?? nestedValue(task, ["currentCount", "completedCount", "progressCount"]);
+    const cached = taskRemainingCache.get(task);
+    if (cached?.targetSource === targetSource && cached.currentSource === currentSource) {
+      return cached.value;
+    }
+    const target = Number(targetSource);
+    const current = Number(currentSource);
+    const value = Number.isFinite(target) ? Math.max(0, target - (Number.isFinite(current) ? current : 0)) : 0;
+    taskRemainingCache.set(task, { currentSource, targetSource, value });
+    return value;
   }
   function rewardValue(task) {
     let rewards = nestedValue(task, ["rewardItems", "rewards", "items"]);
@@ -36489,26 +36569,25 @@ ${locks}` : ""}`;
       taskProfitPerHour: projection.totalProfit === null || !Number.isFinite(projection.totalSeconds) || projection.totalSeconds <= 0 ? null : (projection.totalProfit + reward) / projection.totalSeconds * 3600
     };
   }
-  function targetNameFromCard(card) {
-    return visibleTaskTitle(card).split(/\s[-–]\s/).slice(1).join(" - ").trim();
+  function targetNameFromTitle(title) {
+    return String(title ?? "").split(/\s[-–]\s/).slice(1).join(" - ").trim();
   }
   function itemHridFromDisplayName(name) {
     if (!name) return "";
     const normalized = name.replace(/\s+\+\d+\s*$/, "").trim();
     return resolveLocalizedEntity("item", normalized);
   }
-  function namedMonsterHridForCard(card) {
-    const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
+  function namedMonsterHridForCard(card, title = visibleTaskTitle(card)) {
+    const monsterName2 = targetNameFromTitle(title).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
     const translated = resolveLocalizedEntity("monster", monsterName2);
     if (String(translated).startsWith("/monsters/")) return translated;
     if (String(translated).startsWith("/actions/combat/")) {
       return String(translated).replace("/actions/combat/", "/monsters/");
     }
-    const matchingAction = Object.values(
-      runtime.state.initData_actionDetailMap ?? {}
-    ).find(
-      (candidate) => String(candidate?.hrid).startsWith("/actions/combat/") && !candidate?.combatZoneInfo?.isDungeon && (candidate?.name === monsterName2 || getLocalizedEntityName("action", candidate.hrid) === monsterName2)
+    const matchingAction = getTaskActionIndex().combatByName.get(
+      normalizeTaskLookupName(monsterName2)
     );
+    if (matchingAction?.combatZoneInfo?.isDungeon) return null;
     return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
   }
   function normalizeMonsterHrid(value) {
@@ -36532,8 +36611,8 @@ ${locks}` : ""}`;
     }
     return result;
   }
-  function monsterHridForCard(card, task) {
-    const named = namedMonsterHridForCard(card);
+  function monsterHridForCard(card, task, title = visibleTaskTitle(card)) {
+    const named = namedMonsterHridForCard(card, title);
     if (named) return named;
     const direct = normalizeMonsterHrid(
       nestedValue(task, [
@@ -36551,13 +36630,14 @@ ${locks}` : ""}`;
     if (fightCandidates.length === 1) return fightCandidates[0];
     return normalizeMonsterHrid(actionHrid) || null;
   }
-  function taskArtworkForCard(card, task) {
-    const profession = professionForCard(card, task);
+  function taskArtworkForCard(card, task, context = {}) {
+    const title = context.title ?? visibleTaskTitle(card);
+    const profession = context.profession ?? professionForCard(card, task, title);
     if (profession.key === "combat") {
-      const monsterHrid = monsterHridForCard(card, task);
+      const monsterHrid = context.monsterHrid ?? monsterHridForCard(card, task, title);
       if (monsterHrid) return { kind: "combat_monsters", hrid: monsterHrid };
     }
-    const namedItemHrid = itemHridFromDisplayName(targetNameFromCard(card));
+    const namedItemHrid = itemHridFromDisplayName(targetNameFromTitle(title));
     if (namedItemHrid) return { kind: "items", hrid: namedItemHrid };
     const actionHrid = taskActionHrid(task);
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
@@ -36569,13 +36649,12 @@ ${locks}` : ""}`;
     if (outputItemHrid) return { kind: "items", hrid: outputItemHrid };
     return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
   }
-  function decorateCard(card, task) {
+  function decorateCard(card, task, artwork = null) {
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
       card.querySelector(":scope > .mwi-task-bg")?.remove();
       return;
     }
-    const artwork = taskArtworkForCard(card, task);
     const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!href) {
@@ -36605,8 +36684,7 @@ ${locks}` : ""}`;
     );
     return text.trim().split("\n")[0].trim();
   }
-  function professionForCard(card, task) {
-    const title = visibleTaskTitle(card);
+  function professionForCard(card, task, title = visibleTaskTitle(card)) {
     for (const profession of PROFESSIONS) {
       const labels = [profession.zh, profession.en];
       if (labels.some(
@@ -36615,7 +36693,7 @@ ${locks}` : ""}`;
         return profession;
       }
     }
-    if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
+    if (resolveLocalizedEntity("monster", targetNameFromTitle(title))) {
       return PROFESSIONS.find(({ key: key2 }) => key2 === "combat");
     }
     const actionHrid = taskActionHrid(task);
@@ -36631,7 +36709,7 @@ ${locks}` : ""}`;
       order: PROFESSIONS.length - 1.5
     };
   }
-  function isCompletedCard(card, task) {
+  function isCompletedCard(card, task, cardText = null) {
     const target = Number(
       nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"])
     );
@@ -36646,7 +36724,7 @@ ${locks}` : ""}`;
       return true;
     }
     const text = String(
-      runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? ""
+      cardText ?? runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? ""
     );
     const progress = text.match(
       /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i
@@ -36660,34 +36738,28 @@ ${locks}` : ""}`;
     }
     return false;
   }
-  function combatDetailForCard(card, task) {
+  function combatDetailForCard(card, task, { title = visibleTaskTitle(card), monsterHrid = "" } = {}) {
     const taskDetail = runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-    const monsterName2 = targetNameFromCard(card).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
+    const monsterName2 = targetNameFromTitle(title).replace(/\s+(?:图|Z)\s*\d+\s*$/i, "").trim();
     const translatedHrid = resolveLocalizedEntity("monster", monsterName2) || resolveLocalizedEntity("action", monsterName2);
-    const monsterHrid = String(translatedHrid ?? "").replace(
-      "/actions/combat/",
-      "/monsters/"
+    const resolvedMonsterHrid = monsterHrid || String(translatedHrid ?? "").replace("/actions/combat/", "/monsters/");
+    const index = getTaskActionIndex();
+    const translatedActionHrid = String(translatedHrid ?? "").replace(
+      "/monsters/",
+      "/actions/combat/"
     );
-    for (const detail of Object.values(
-      runtime.state.initData_actionDetailMap ?? {}
-    )) {
-      if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-      const localizedName = getLocalizedEntityName("action", detail.hrid);
-      if (detail.name?.toLowerCase() === monsterName2.toLowerCase() || localizedName === monsterName2 || detail.hrid === String(translatedHrid).replace("/monsters/", "/actions/combat/")) {
-        return detail;
-      }
-      if (monsterHrid && JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
-        `"${monsterHrid}"`
-      )) {
-        return detail;
-      }
-    }
+    const translatedDetail = runtime.state.initData_actionDetailMap?.[translatedActionHrid];
+    const indexedDetail = index.combatByName.get(normalizeTaskLookupName(monsterName2)) ?? index.combatByMonster.get(resolvedMonsterHrid);
+    if (translatedDetail ?? indexedDetail)
+      return translatedDetail ?? indexedDetail;
     return String(taskDetail?.hrid ?? taskActionHrid(task)).startsWith(
       "/actions/combat/"
     ) ? taskDetail : null;
   }
-  function combatLocationForCard(card, task) {
-    const detail = combatDetailForCard(card, task);
+  function combatLocationForCard(card, task, {
+    detail = combatDetailForCard(card, task),
+    title = visibleTaskTitle(card)
+  } = {}) {
     const categories = runtime.state.initData_actionCategoryDetailMap ?? {};
     if (detail?.combatZoneInfo?.isDungeon) {
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
@@ -36699,10 +36771,8 @@ ${locks}` : ""}`;
     }
     if (detail?.category) {
       const category = categories[detail.category];
-      const zoneAction = Object.values(
-        runtime.state.initData_actionDetailMap ?? {}
-      ).find(
-        (candidate) => candidate?.category === detail.category && candidate?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10
+      const zoneAction = getTaskActionIndex().zoneActionByCategory.get(
+        detail.category
       );
       const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[zoneAction?.hrid] : zoneAction?.name) ?? category?.name;
       const sortIndex = Number(category?.sortIndex ?? 9999);
@@ -36712,7 +36782,7 @@ ${locks}` : ""}`;
         order: sortIndex
       };
     }
-    const mapIndex = visibleTaskTitle(card).match(/(?:图|Z)\s*(\d+)\s*$/i)?.[1];
+    const mapIndex = title.match(/(?:图|Z)\s*(\d+)\s*$/i)?.[1];
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
@@ -36745,21 +36815,19 @@ ${locks}` : ""}`;
       order: 99999
     };
   }
-  function dungeonLocationsForCard(card, task) {
+  function dungeonLocationsForCard(card, task, context = {}) {
     const actionHrid = taskActionHrid(task);
     const taskDetail = runtime.state.initData_actionDetailMap?.[actionHrid];
     if (taskDetail?.combatZoneInfo?.isDungeon) {
       return [dungeonLocation(taskDetail)];
     }
-    const monsterHrid = monsterHridForCard(card, task);
+    const monsterHrid = context.monsterHrid ?? monsterHridForCard(card, task, context.title ?? visibleTaskTitle(card));
     if (!monsterHrid) return [nonDungeonLocation()];
     const actionDetails = runtime.state.initData_actionDetailMap ?? {};
     const matchingDungeonHrids = new Set(
-      Object.values(actionDetails).filter(
-        (detail) => detail?.combatZoneInfo?.isDungeon && JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
-          `"${monsterHrid}"`
-        )
-      ).map((detail) => detail.hrid)
+      (getTaskActionIndex().dungeonsByMonster.get(monsterHrid) ?? []).map(
+        (detail) => detail.hrid
+      )
     );
     for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
       if (dungeon.monsters.has(monsterHrid)) {
@@ -36930,25 +36998,60 @@ ${locks}` : ""}`;
       delete card.dataset.mwitoolsDungeonSource;
     });
   }
-  function orderedRows(cards, tasks) {
+  function taskCardSnapshot(card, task) {
+    const title = visibleTaskTitle(card);
+    const cardText = String(
+      runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? ""
+    );
+    return {
+      actionHrid: taskActionHrid(task) ?? "",
+      card,
+      completed: isCompletedCard(card, task, cardText),
+      progress: cardText.match(
+        /(?:进度|progress)\s*[:：]\s*[\d,.\s\u00a0\u202f]+\s*\/\s*[\d,.\s\u00a0\u202f]+/i
+      )?.[0] ?? "",
+      task,
+      taskId: taskId(task),
+      title
+    };
+  }
+  function orderedRows(cards, tasks, snapshots = null) {
     const chains = productionChains(tasks);
     const rows = cards.map((card, index) => {
       const task = tasks[index];
+      const snapshot = snapshots?.[index] ?? taskCardSnapshot(card, task);
       const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
-      const completed = isCompletedCard(card, task);
+      const completed = snapshot.completed;
       const isNew = pageNewTaskIds.has(taskId(task));
       const state = isNew ? "new" : completed ? "completed" : "normal";
-      const profession = professionForCard(card, task);
-      const location2 = profession.key === "combat" ? combatLocationForCard(card, task) : null;
-      const dungeonLocations = profession.key === "combat" ? dungeonLocationsForCard(card, task) : [];
-      const monsterGroupKey = profession.key === "combat" ? monsterHridForCard(card, task) || taskActionHrid(task) || `combat-slot-${slot}` : "";
+      const profession = professionForCard(card, task, snapshot.title);
+      const monsterHrid = profession.key === "combat" ? monsterHridForCard(card, task, snapshot.title) : "";
+      const combatDetail = profession.key === "combat" ? combatDetailForCard(card, task, {
+        title: snapshot.title,
+        monsterHrid
+      }) : null;
+      const location2 = profession.key === "combat" ? combatLocationForCard(card, task, {
+        detail: combatDetail,
+        title: snapshot.title
+      }) : null;
+      const dungeonLocations = profession.key === "combat" ? dungeonLocationsForCard(card, task, {
+        title: snapshot.title,
+        monsterHrid
+      }) : [];
+      const monsterGroupKey = profession.key === "combat" ? monsterHrid || snapshot.actionHrid || `combat-slot-${slot}` : "";
+      const artwork = runtime.settings.get("taskIcons") ? taskArtworkForCard(card, task, {
+        title: snapshot.title,
+        profession,
+        monsterHrid
+      }) : null;
       pageClassifications.set(slot, {
         completed,
         state,
         profession,
         location: location2,
         dungeonLocations,
-        monsterGroupKey
+        monsterGroupKey,
+        artwork
       });
       const taskState = state;
       if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -36970,6 +37073,7 @@ ${locks}` : ""}`;
         location: location2,
         dungeonLocations,
         monsterGroupKey,
+        artwork,
         info: actionSortInfo(task, slot),
         depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
         chain: chains?.get(taskActionHrid(task))?.group ?? index
@@ -37142,6 +37246,8 @@ ${locks}` : ""}`;
           })
         );
         toolbar.append(controls2);
+        const filterGroups = document.createElement("div");
+        filterGroups.className = "mwi-task-filter-groups";
         const lifeFilters = document.createElement("div");
         lifeFilters.className = "mwi-task-filter-group mwi-task-filter-group--life";
         for (const profession of LIFE_PROFESSIONS) {
@@ -37165,7 +37271,7 @@ ${locks}` : ""}`;
             })
           );
         }
-        toolbar.append(lifeFilters);
+        filterGroups.append(lifeFilters);
         const combatFilters = document.createElement("div");
         combatFilters.className = "mwi-task-filter-group mwi-task-filter-group--combat";
         combatFilters.append(
@@ -37207,7 +37313,8 @@ ${locks}` : ""}`;
           );
         }
         combatFilters.append(dungeons);
-        toolbar.append(combatFilters);
+        filterGroups.append(combatFilters);
+        toolbar.append(filterGroups);
       }
       const sortButton = document.createElement("button");
       sortButton.type = "button";
@@ -37305,10 +37412,9 @@ ${locks}` : ""}`;
       if (row.card.style.order !== value) row.card.style.order = value;
     }
   }
-  function renderFlatTaskList(cards, tasks, { sort = false } = {}) {
+  function renderFlatTaskList(rows, { sort = false } = {}) {
     if (!taskListParent) return;
     cleanupListDecorations({ restoreOrder: false });
-    const rows = orderedRows(cards, tasks);
     if (sort) applyExplicitSort(rows);
     else restoreStableOrders(rows);
     ensureTaskToolbar(rows);
@@ -37419,7 +37525,7 @@ ${locks}` : ""}`;
       );
     });
   }
-  function taskRenderSignature(cards, tasks) {
+  function taskRenderSignature(snapshots) {
     const settings2 = [
       runtime.config.isZH,
       runtime.settings.get("taskAutoSort"),
@@ -37430,16 +37536,13 @@ ${locks}` : ""}`;
       combatFilterEnabled,
       [...activeDungeonFilters].sort().join(",")
     ];
-    const rows = cards.map((card, index) => {
-      const task = tasks[index] ?? {};
+    const rows = snapshots.map((snapshot) => {
       return [
-        taskActionHrid(task) ?? "",
-        visibleTaskTitle(card),
-        String(card.textContent ?? "").match(
-          /(?:进度|progress)\s*[:：]\s*[\d,.]+\s*\/\s*[\d,.]+/i
-        )?.[0] ?? "",
-        isCompletedCard(card, task) ? "1" : "0",
-        taskId(task)
+        snapshot.actionHrid,
+        snapshot.title,
+        snapshot.progress,
+        snapshot.completed ? "1" : "0",
+        snapshot.taskId
       ].join("");
     });
     return [...settings2, ...rows].join("");
@@ -37501,7 +37604,10 @@ ${locks}` : ""}`;
       cardTasks,
       enteredNewTaskPage && !resumedTaskPage && !resumedResetPage
     );
-    const signature = taskRenderSignature(cards, cardTasks);
+    const snapshots = cards.map(
+      (card, index) => taskCardSnapshot(card, cardTasks[index])
+    );
+    const signature = taskRenderSignature(snapshots);
     const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
     const actionDetails = runtime.state.initData_actionDetailMap;
     const actionCategories = runtime.state.initData_actionCategoryDetailMap;
@@ -37521,17 +37627,19 @@ ${locks}` : ""}`;
         delete card.dataset.mwitoolsLocation;
       }
     });
-    cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
+    if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
+    const rows = orderedRows(cards, cardTasks, snapshots);
+    rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
     wireMergeButtons(cards, cardTasks);
     wireResetButtons(cards);
-    renderFlatTaskList(cards, cardTasks, {
+    renderFlatTaskList(rows, {
       sort: forceSort || sortOnEntry || newTaskSetChanged
     });
     applyPendingMerge();
     lastRenderedCards = [...cards];
     lastActionDetails = actionDetails;
     lastActionCategories = actionCategories;
-    lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
+    lastTaskRenderSignature = signature;
   }
   function sortTasks() {
     lastTaskRenderSignature = "";
@@ -37756,10 +37864,8 @@ ${locks}` : ""}`;
     label.title = title;
     return label;
   }
-  function renderTaskTrainPlanner() {
-    const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
+  function renderTaskTrainPlanner(cards = [...document.querySelectorAll(TASK_SELECTOR2)], quests = runtime.state.characterQuests ?? []) {
     if (!cards.length) return;
-    const quests = runtime.state.characterQuests ?? [];
     const { entries } = collectTaskTrainGroups(quests);
     const resolvedCards = resolveTaskCards(cards, quests, {
       taskActionHrid: taskActionHrid2,
@@ -37836,19 +37942,33 @@ ${locks}` : ""}`;
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
       addStyles9();
-      renderTaskTrainPlanner();
-      const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
-      const schedule = () => renderScheduler.schedule();
-      let trailingTimers = [];
-      const onInteraction = () => {
-        schedule();
-        trailingTimers.forEach(clearTimeout);
-        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
+      let lastRenderedCards2 = [];
+      let lastRenderedQuests = null;
+      let lastLanguage = null;
+      const render = () => {
+        const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
+        const quests = runtime.state.characterQuests ?? [];
+        const sameCards = cards.length === lastRenderedCards2.length && cards.every((card, index) => card === lastRenderedCards2[index]);
+        if (sameCards && quests === lastRenderedQuests && runtime.config.isZH === lastLanguage) {
+          return;
+        }
+        renderTaskTrainPlanner(cards, quests);
+        lastRenderedCards2 = cards;
+        lastRenderedQuests = quests;
+        lastLanguage = runtime.config.isZH;
       };
-      scope.event(document, "click", onInteraction, true);
+      render();
+      const renderScheduler = createFrameScheduler(render);
+      const schedule = () => renderScheduler.schedule();
+      const observer = new MutationObserver((records) => {
+        if (shouldRenderTaskTrainMutations(records)) schedule();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
       scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(() => {
-        trailingTimers.forEach(clearTimeout);
         renderScheduler.cancel();
         cleanup3();
       });
@@ -37984,6 +38104,10 @@ ${locks}` : ""}`;
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
+      let lastRenderedCards2 = [];
+      let lastRenderedQuests = null;
+      let lastFreshSignature = "";
+      let lastLanguage = null;
       const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -37997,6 +38121,11 @@ ${locks}` : ""}`;
         }
         if (changed) writeTaskNewState(storageKey, state);
         const cards = [...document.querySelectorAll(TASK_SELECTOR3)];
+        const freshSignature = [...runtime.state.mwitoolsPageNewTaskIds ?? []].sort().join(",");
+        const sameCards = cards.length === lastRenderedCards2.length && cards.every((card, index) => card === lastRenderedCards2[index]);
+        if (sameCards && quests === lastRenderedQuests && freshSignature === lastFreshSignature && runtime.config.isZH === lastLanguage) {
+          return;
+        }
         const resolvedCards = resolveTaskCards(cards, quests, {
           taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
           taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0
@@ -38017,6 +38146,10 @@ ${locks}` : ""}`;
             badge?.remove();
           }
         });
+        lastRenderedCards2 = cards;
+        lastRenderedQuests = quests;
+        lastFreshSignature = freshSignature;
+        lastLanguage = runtime.config.isZH;
       };
       const renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
@@ -38034,16 +38167,15 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      let trailingTimers = [];
-      const onInteraction = () => {
-        schedule();
-        trailingTimers.forEach(clearTimeout);
-        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
-      };
-      scope.event(document, "click", onInteraction, true);
+      const observer = new MutationObserver((records) => {
+        if (shouldRenderTaskNewMutations(records)) schedule();
+      });
+      scope.observer(observer, document.body, {
+        childList: true,
+        subtree: true
+      });
       render();
       scope.add(() => {
-        trailingTimers.forEach(clearTimeout);
         renderScheduler.cancel();
         if (liveTaskNewStates.get(storageKey) === state) {
           liveTaskNewStates.delete(storageKey);
@@ -38692,6 +38824,25 @@ ${locks}` : ""}`;
   // src/features/opinion-center/announcements.js
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
+    Object.freeze({
+      id: "26.4.8",
+      version: "26.4.8",
+      publishedAt: "2026-08-13",
+      title: Object.freeze({
+        zh: "26.4.8 更新公告",
+        en: "Version 26.4.8 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
+          "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。"
+        ]),
+        en: Object.freeze([
+          "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
+          "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server."
+        ])
+      })
+    }),
     Object.freeze({
       id: "26.4.7",
       version: "26.4.7",
@@ -43136,7 +43287,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.7");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.8");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

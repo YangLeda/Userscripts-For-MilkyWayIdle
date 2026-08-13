@@ -359,22 +359,25 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves 26.4.6 separately from 26.4.7", () => {
+test("announcement history preserves each release separately through 26.4.8", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
+  const older = ANNOUNCEMENTS[2];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.7", "26.4.6"],
+    ["26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.7");
-  assert.equal(previous.version, "26.4.6");
-  assert.equal(previous.publishedAt, "2026-08-12");
+  assert.equal(current.version, "26.4.8");
+  assert.equal(previous.version, "26.4.7");
+  assert.equal(older.version, "26.4.6");
+  assert.equal(older.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(previous.body.zh.length, 20);
-  assert.equal(previous.body.en.length, 20);
-  assert.match(previous.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.equal(older.body.zh.length, 20);
+  assert.equal(older.body.en.length, 20);
+  assert.match(older.body.zh.join("\n"), /任务页改为平铺布局/);
   assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
-  assert.match(current.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(previous.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(current.body.zh.join("\n"), /炼金与强化/);
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

@@ -149,9 +149,14 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /\.mwi-task-filter-group--life,\.mwi-task-filter-group--combat\s*\{[^}]*flex-wrap:nowrap/,
   );
+  assert.match(styles, /\.mwi-task-filter-groups\s*\{[^}]*flex-wrap:wrap/);
   assert.match(
     styles,
-    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{\s*flex-wrap:wrap/,
+    /\.mwi-task-filter-group--combat\s*\{[^}]*flex:0 0 auto/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{[^}]*flex-wrap:wrap/,
   );
   assert.match(
     styles,
@@ -201,7 +206,7 @@ test("tasks use a flat sorted list with statistics filters", () => {
 
   const toolbar = document.querySelector(".mwi-task-toolbar");
   assert.ok(toolbar);
-  assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 16);
+  assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 14);
   const allFilter = toolbar.querySelector('[data-filter-kind="all"]');
   const sortButton = toolbar.querySelector(".mwi-task-sort-button");
   assert.equal(allFilter.parentElement.className, "mwi-task-toolbar-controls");
@@ -236,15 +241,27 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.equal(
     toolbar.querySelectorAll(
-      ":scope > .mwi-task-filter-group--life > .mwi-task-filter",
+      ":scope > .mwi-task-filter-groups > .mwi-task-filter-group--life > .mwi-task-filter",
     ).length,
-    10,
+    8,
   );
   assert.equal(
     toolbar.querySelectorAll(
-      ":scope > .mwi-task-filter-group--combat .mwi-task-filter",
+      ":scope > .mwi-task-filter-groups > .mwi-task-filter-group--combat .mwi-task-filter",
     ).length,
     5,
+  );
+  assert.equal(
+    toolbar.querySelector(
+      '[data-filter-kind="profession"][data-filter-value="alchemy"]',
+    ),
+    null,
+  );
+  assert.equal(
+    toolbar.querySelector(
+      '[data-filter-kind="profession"][data-filter-value="enhancing"]',
+    ),
+    null,
   );
   assert.equal(
     toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-count')
@@ -338,8 +355,15 @@ test("task artwork resolves target items and monsters as translucent sprite art"
     `<svg style="display:none"><use href="/static/media/items_sprite.test.svg#coin"></use></svg>
      <svg style="display:none"><use href="/static/media/combat_monsters_sprite.test.svg#fly"></use></svg>`,
   );
+  const originalQuerySelectorAll = document.querySelectorAll.bind(document);
+  let spriteSourceScans = 0;
+  document.querySelectorAll = function querySelectorAll(selector) {
+    if (selector === "svg use") spriteSourceScans += 1;
+    return originalQuerySelectorAll(selector);
+  };
   runtime.settings.settingsMap.taskIcons.isTrue = true;
   runtime.api.renderTasks();
+  assert.equal(spriteSourceScans, 1);
   assert.match(
     cards[1].querySelector(".mwi-task-bg use").getAttribute("href"),
     /items_sprite\.test\.svg#lumber$/,
@@ -350,6 +374,47 @@ test("task artwork resolves target items and monsters as translucent sprite art"
   );
   runtime.settings.settingsMap.taskIcons.isTrue = false;
   runtime.api.renderTasks();
+  document.querySelectorAll = originalQuerySelectorAll;
+});
+
+test("combat action indexes are reused for repeated dungeon classification", () => {
+  const originalMap = runtime.state.initData_actionDetailMap;
+  let fightInfoReads = 0;
+  const fightInfo = { monsterHrid: "/monsters/cached_beast" };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/cached_beast": {
+      hrid: "/actions/combat/cached_beast",
+      name: "Cached Beast",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: { isDungeon: false, fightInfo },
+    },
+    "/actions/combat/cached_dungeon": {
+      hrid: "/actions/combat/cached_dungeon",
+      name: "Cached Dungeon",
+      type: "/action_types/combat",
+      combatZoneInfo: {
+        isDungeon: true,
+        get fightInfo() {
+          fightInfoReads += 1;
+          return fightInfo;
+        },
+      },
+    },
+  };
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = card("击败 - Cached Beast", "0 / 10");
+  const taskCard = wrapper.firstElementChild;
+  const context = { monsterHrid: "/monsters/cached_beast" };
+  assert.equal(
+    dungeonLocationsForCard(taskCard, {}, context)[0].isDungeon,
+    true,
+  );
+  const readsAfterBuild = fightInfoReads;
+  dungeonLocationsForCard(taskCard, {}, context);
+  dungeonLocationsForCard(taskCard, {}, context);
+  assert.equal(fightInfoReads, readsAfterBuild);
+  runtime.state.initData_actionDetailMap = originalMap;
 });
 
 test("task monsters resolve through a non-Chinese official dictionary", () => {
@@ -587,7 +652,7 @@ test("disabling task statistics keeps the manual sort control only", () => {
   runtime.api.renderTasks();
   assert.equal(
     document.querySelectorAll(".mwi-task-toolbar .mwi-task-filter").length,
-    16,
+    14,
   );
 });
 
@@ -738,6 +803,9 @@ test("new tasks received on the current page move ahead of every category", () =
 });
 
 test("dungeon counts overlap and filters keep native combat cards", () => {
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+  };
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",

@@ -176,6 +176,24 @@ test("renders fame with the game XP-buff icon and reads value1", async () => {
   overlay.destroy();
 });
 
+test("default ranking badges use the game's native skill sprite", async () => {
+  document.body.innerHTML = `
+    <svg><use href="/static/media/skills_sprite.current.svg#foraging"></use></svg>
+    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    milking: { rows: [{ characterName: "Alice", rank: 12 }] },
+  });
+  await settle();
+  const badge = document.querySelector(".mwi-lb-badge--rainbow");
+  assert.equal(badge.querySelector("img"), null);
+  assert.equal(
+    badge.querySelector("use").getAttribute("href"),
+    "/static/media/skills_sprite.current.svg#milking",
+  );
+  overlay.destroy();
+});
+
 test("chat names show only the three best-ranked badges", async () => {
   document.body.innerHTML = `
     <span class="ChatMessage_name__test">
