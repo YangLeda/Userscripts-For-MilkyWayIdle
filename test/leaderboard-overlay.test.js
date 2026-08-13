@@ -387,7 +387,7 @@ test("profile names show every badge on an independent second row", async () => 
   overlay.destroy();
 });
 
-test("top-five rainbow badges shimmer and respect reduced motion", async () => {
+test("top-five rainbow badges sweep slowly then glint and respect reduced motion", async () => {
   document.body.innerHTML = `
     <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
   const overlay = create({ document });
@@ -403,7 +403,10 @@ test("top-five rainbow badges shimmer and respect reduced motion", async () => {
   const styles = document.getElementById(
     "mwi-leaderboard-overlay-style",
   ).textContent;
-  assert.match(styles, /@keyframes mwi-lb-badge-shimmer/);
+  assert.match(styles, /::before[^}]*mwi-lb-badge-light-sweep 7\.8s/);
+  assert.match(styles, /::after[^}]*mwi-lb-badge-corner-glint 7\.8s/);
+  assert.match(styles, /32%\{left:128%;opacity:\.96\}/);
+  assert.match(styles, /37%\{opacity:1;transform:scale\(1\.15\)\}/);
   assert.match(styles, /prefers-reduced-motion:reduce/);
   overlay.destroy();
 });
