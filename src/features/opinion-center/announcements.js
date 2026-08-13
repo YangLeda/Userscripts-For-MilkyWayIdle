@@ -11,11 +11,19 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号。",
+        "制造和指定次数强化的多材料余缺提示改为固定四列逐行对齐，不再横向撑宽；物品价格会下移避开强化等级，同时保留原有文字样式。",
+        "技能书计算器新增“加入购物车”，会自动扣除当前库存和购物车已有数量，只加入达到目标等级所需的净缺口。",
+        "移动端意见中心压缩了表单和公告的空白，输入框会按内容与屏幕高度自适应；标题与三个页签保持可见，公告和表单改为弹窗正文内独立滚动。",
         "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
         "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
         "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
       ]),
       en: Object.freeze([
+        "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size.",
+        "Multi-material shortage indicators in production and fixed-count enhancing now stay aligned in four explicit columns without widening the panel. Item prices move below enhancement levels while keeping their existing text style.",
+        "The ability-book calculator now includes Add to cart and subtracts both current inventory and quantities already in the cart, adding only the net shortage needed for the target level.",
+        "The mobile Feedback Center now removes excess form and announcement spacing, and text boxes adapt to their content and screen height. The title and all three tabs stay visible while announcements and forms scroll independently inside the modal body.",
         "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
         "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
         "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",

@@ -28660,6 +28660,9 @@ ${preview}`
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
+    [class*="Item_enhancementLevel"] ~ #script_stack_price {
+      margin-top: 15px;
+    }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -32624,7 +32627,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     style.id = STYLE_ID7;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
-    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
+    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
     .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
@@ -33327,7 +33330,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
-    .mwi-procurement-requirement-row{width:max-content!important;max-width:none!important;grid-template-columns:repeat(4,max-content)!important;align-items:center!important;white-space:nowrap!important}
+    .mwi-procurement-requirement-grid{width:100%!important;max-width:100%!important;grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;align-items:center!important;white-space:nowrap!important}
+    .mwi-procurement-requirement-cell{grid-row:var(--mwi-procurement-row)!important;min-width:0!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="owned"]{grid-column:1!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="required"]{grid-column:2!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="item"]{grid-column:3!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="badge"]{grid-column:4!important}
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
@@ -34200,12 +34208,49 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     return null;
   }
+  function markRequirementCell(element, row, column) {
+    if (!element) return;
+    element.classList.add("mwi-procurement-requirement-cell");
+    element.style.setProperty("--mwi-procurement-row", String(row));
+    element.dataset.mwitoolsProcurementColumn = column;
+  }
+  function layoutMaterialBadge(panel, host, badge) {
+    const root = host.closest('[class*="SkillActionDetail_itemRequirements"]') ?? host.parentElement;
+    if (!root) return;
+    const items = [
+      ...root.querySelectorAll(':scope > [class*="Item_itemContainer"]')
+    ];
+    const rowIndex = items.indexOf(host);
+    if (rowIndex < 0) return;
+    const row = rowIndex + 1;
+    const owned = [
+      ...root.querySelectorAll(
+        ':scope > [class*="SkillActionDetail_inventoryCount"]'
+      )
+    ];
+    const required = [
+      ...root.querySelectorAll(
+        ':scope > [class*="SkillActionDetail_inputCount"]'
+      )
+    ];
+    root.classList.add("mwi-procurement-requirement-grid");
+    markRequirementCell(owned[rowIndex], row, "owned");
+    markRequirementCell(required[rowIndex], row, "required");
+    markRequirementCell(host, row, "item");
+    markRequirementCell(badge, row, "badge");
+    panel.classList.add("mwi-procurement-panel");
+  }
   function clearProductionUi() {
     document.getElementById(PRODUCTION_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-badge").forEach((node) => node.remove());
-    document.querySelectorAll(".mwi-procurement-requirement-row").forEach(
-      (node) => node.classList.remove("mwi-procurement-requirement-row")
+    document.querySelectorAll(".mwi-procurement-requirement-grid").forEach(
+      (node) => node.classList.remove("mwi-procurement-requirement-grid")
     );
+    document.querySelectorAll(".mwi-procurement-requirement-cell").forEach((node) => {
+      node.classList.remove("mwi-procurement-requirement-cell");
+      node.style.removeProperty("--mwi-procurement-row");
+      delete node.dataset.mwitoolsProcurementColumn;
+    });
     document.querySelectorAll(".mwi-procurement-panel").forEach((node) => node.classList.remove("mwi-procurement-panel"));
     lastProductionSignature = "";
   }
@@ -34250,11 +34295,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     clearProductionUi();
     lastProductionSignature = signature;
     if (settings2.badgesEnabled) {
-      context.panel.classList.add("mwi-procurement-panel");
       for (const material of direct.materials) {
         const host = findMaterialHost(context.panel, material.itemHrid);
         if (!host) continue;
-        host.parentElement?.classList.add("mwi-procurement-requirement-row");
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
@@ -34265,6 +34308,7 @@ ${t7("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked 
 ${t7("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
+        layoutMaterialBadge(context.panel, host, badge);
       }
     }
     const root = document.createElement("section");
@@ -38236,14 +38280,39 @@ ${locks}` : ""}`;
   function taskIdentity(task) {
     return taskCardTaskId(task);
   }
-  function scrollContainerFor(element) {
+  function scrollContainerFor(element, { fallbackToDocument = true } = {}) {
     for (let current = element; current; current = current.parentElement) {
       const style = globalThis.getComputedStyle?.(current);
       if (current.scrollHeight > current.clientHeight && /auto|scroll/.test(`${style?.overflowY ?? ""} ${style?.overflow ?? ""}`)) {
         return current;
       }
     }
-    return document.scrollingElement ?? document.documentElement;
+    return fallbackToDocument ? document.scrollingElement ?? document.documentElement : null;
+  }
+  function clampScrollTop(scroller, value) {
+    const maximum = Math.max(
+      0,
+      Number(scroller?.scrollHeight || 0) - Number(scroller?.clientHeight || 0)
+    );
+    return Math.min(maximum, Math.max(0, Number(value) || 0));
+  }
+  function centerCardInScroller(card, scroller) {
+    const cardRect = card.getBoundingClientRect?.();
+    const scrollerRect = scroller.getBoundingClientRect?.();
+    if (!cardRect || !scrollerRect) return;
+    const target = Number(scroller.scrollTop || 0) + cardRect.top - scrollerRect.top - (Number(scroller.clientHeight || 0) - cardRect.height) / 2;
+    scroller.scrollTop = clampScrollTop(scroller, target);
+  }
+  function taskLayoutSignature(card, list, scroller) {
+    const cardRect = card?.getBoundingClientRect?.();
+    return [
+      card?.dataset.mwitoolsTaskId ?? "",
+      list?.children.length ?? 0,
+      Math.round(cardRect?.top ?? 0),
+      Math.round(cardRect?.height ?? 0),
+      Math.round(scroller?.scrollTop ?? 0),
+      Math.round(scroller?.scrollHeight ?? 0)
+    ].join(":");
   }
   function captureTaskReturnContext(card, quests, now = Date.now()) {
     if (!card) return null;
@@ -38356,16 +38425,24 @@ ${locks}` : ""}`;
   function restoreTaskPosition(context) {
     const card = findTaskCard(context);
     if (card) {
-      card.scrollIntoView?.({ block: "center", inline: "nearest" });
-      return true;
+      const list2 = card.closest(TASK_LIST_SELECTOR);
+      const scroller2 = scrollContainerFor(card, { fallbackToDocument: false });
+      if (scroller2) centerCardInScroller(card, scroller2);
+      return {
+        restored: true,
+        signature: taskLayoutSignature(card, list2, scroller2)
+      };
     }
     const list = document.querySelector(TASK_LIST_SELECTOR);
-    const scroller = scrollContainerFor(list);
+    const scroller = scrollContainerFor(list, { fallbackToDocument: false });
     if (list && scroller) {
-      scroller.scrollTop = context.scrollTop;
-      return true;
+      scroller.scrollTop = clampScrollTop(scroller, context.scrollTop);
+      return {
+        restored: true,
+        signature: taskLayoutSignature(null, list, scroller)
+      };
     }
-    return false;
+    return { restored: false, signature: "" };
   }
   runtime.features.register({
     id: "taskAutoReturn",
@@ -38404,9 +38481,20 @@ ${locks}` : ""}`;
           return;
         }
         let attempts = 0;
+        let previousSignature = "";
+        let stableSamples = 0;
         const restore = () => {
           restoreTimer = null;
-          if (restoreTaskPosition(context) || attempts >= 40) return;
+          const result = restoreTaskPosition(context);
+          if (result.restored) {
+            stableSamples = result.signature === previousSignature ? stableSamples + 1 : 1;
+            previousSignature = result.signature;
+            if (stableSamples >= 2) return;
+          } else {
+            stableSamples = 0;
+            previousSignature = "";
+          }
+          if (attempts >= 40) return;
           attempts += 1;
           restoreTimer = setTimeout(restore, 50);
         };
@@ -38605,11 +38693,14 @@ ${locks}` : ""}`;
     .${PANEL_CLASS} .mwi-book-result{font-weight:650;color:#9fd7ab}
     .${PANEL_CLASS}[data-status="invalid"] .mwi-book-result{color:#ff9c8f}
     .${PANEL_CLASS} .mwi-book-muted{color:var(--color-text-secondary,#aaa)}
+    .${PANEL_CLASS} .mwi-book-cart{grid-column:1/-1;justify-self:start;min-height:25px;padding:3px 9px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;font-weight:650;cursor:pointer}
+    .${PANEL_CLASS} .mwi-book-cart:hover:not(:disabled){background:var(--color-space-700,#46547e)}
+    .${PANEL_CLASS} .mwi-book-cart:disabled{opacity:.55;cursor:default}
     @media(max-width:700px){.${PANEL_CLASS}{grid-template-columns:1fr;gap:4px}.${PANEL_CLASS}>*{grid-column:1!important}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
-  function createPanel(onTargetChange) {
+  function createPanel(onTargetChange, onAddToCart) {
     const panel = document.createElement("section");
     panel.className = PANEL_CLASS;
     panel.dataset.surface = "dictionary";
@@ -38632,12 +38723,51 @@ ${locks}` : ""}`;
     result.setAttribute("aria-live", "polite");
     const cost = document.createElement("div");
     cost.className = "mwi-book-cost mwi-book-muted";
-    panel.append(title, state, perBook, target, result, cost);
+    const cart2 = document.createElement("button");
+    cart2.type = "button";
+    cart2.className = "mwi-book-cart";
+    cart2.addEventListener("click", () => onAddToCart(panel));
+    panel.append(title, state, perBook, target, result, cost, cart2);
     return panel;
   }
   function setPanelText(panel, selector, value) {
     const element = panel.querySelector(selector);
     if (element && element.textContent !== value) element.textContent = value;
+  }
+  function updateCartButton(panel, itemHrid, requirement) {
+    const button = panel.querySelector(".mwi-book-cart");
+    const procurement2 = runtime.api.procurement;
+    const cartEnabled = Boolean(
+      procurement2 && runtime.settings.settingsMap.procurementAssistant?.isTrue === true
+    );
+    button.hidden = !cartEnabled;
+    button.disabled = true;
+    button.dataset.quantity = "0";
+    if (!cartEnabled) return;
+    if (!requirement || requirement.status === "invalid") {
+      button.textContent = t11("加入购物车", "Add to cart");
+      return;
+    }
+    const totalBooks = Math.max(0, Math.ceil(requirement.totalBooks || 0));
+    const owned = Math.max(
+      0,
+      Number(procurement2.getInventoryCount?.(itemHrid, 0)) || 0
+    );
+    const listed = Math.max(
+      0,
+      Number(procurement2.getCartItem?.(itemHrid, 0)?.quantity) || 0
+    );
+    const shortage = Math.max(0, Math.ceil(totalBooks - owned - listed));
+    if (shortage <= 0) {
+      button.textContent = t11("已备齐", "Covered");
+      return;
+    }
+    button.dataset.quantity = String(shortage);
+    button.disabled = false;
+    button.textContent = t11(
+      `加入购物车（${shortage}）`,
+      `Add to cart (${shortage})`
+    );
   }
   function updatePanel(panel, itemHrid, targetValues) {
     panel.dataset.itemHrid = itemHrid;
@@ -38662,6 +38792,7 @@ ${locks}` : ""}`;
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
       setPanelText(panel, ".mwi-book-cost", "");
+      updateCartButton(panel, itemHrid, null);
       return;
     }
     input.disabled = false;
@@ -38734,6 +38865,7 @@ ${locks}` : ""}`;
       );
     }
     setPanelText(panel, ".mwi-book-cost", costText);
+    updateCartButton(panel, itemHrid, requirement);
   }
   function visiblePanels(selector) {
     const panels = [...document.querySelectorAll(selector)];
@@ -38753,14 +38885,32 @@ ${locks}` : ""}`;
           `.${PANEL_CLASS}[data-surface="dictionary"]`
         );
         if (!panel) {
-          panel = createPanel((changedPanel, value) => {
-            targetValues.set(changedPanel.dataset.itemHrid, Number(value));
-            updatePanel(
-              changedPanel,
-              changedPanel.dataset.itemHrid,
-              targetValues
-            );
-          });
+          panel = createPanel(
+            (changedPanel, value) => {
+              targetValues.set(changedPanel.dataset.itemHrid, Number(value));
+              updatePanel(
+                changedPanel,
+                changedPanel.dataset.itemHrid,
+                targetValues
+              );
+            },
+            (changedPanel) => {
+              const itemHrid2 = changedPanel.dataset.itemHrid;
+              const quantity = Number(
+                changedPanel.querySelector(".mwi-book-cart")?.dataset.quantity
+              );
+              if (!itemHrid2 || !Number.isSafeInteger(quantity) || quantity <= 0)
+                return;
+              runtime.api.procurement?.addToCart?.({
+                itemHrid: itemHrid2,
+                enhancementLevel: 0,
+                name: runtime.state.initData_itemDetailMap?.[itemHrid2]?.name,
+                quantity,
+                source: "ability-book"
+              });
+              updatePanel(changedPanel, itemHrid2, targetValues);
+            }
+          );
           container.appendChild(panel);
         }
         updatePanel(panel, itemHrid, targetValues);
@@ -38794,6 +38944,10 @@ ${locks}` : ""}`;
         "market_item_order_books_updated"
       ]) {
         scope.add(runtime.onMessage(type, schedule));
+      }
+      for (const type of ["cart:change", "inventory:change"]) {
+        const unsubscribe = runtime.api.procurement?.on?.(type, schedule);
+        if (typeof unsubscribe === "function") scope.add(unsubscribe);
       }
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
@@ -38862,11 +39016,19 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号。",
+          "制造和指定次数强化的多材料余缺提示改为固定四列逐行对齐，不再横向撑宽；物品价格会下移避开强化等级，同时保留原有文字样式。",
+          "技能书计算器新增“加入购物车”，会自动扣除当前库存和购物车已有数量，只加入达到目标等级所需的净缺口。",
+          "移动端意见中心压缩了表单和公告的空白，输入框会按内容与屏幕高度自适应；标题与三个页签保持可见，公告和表单改为弹窗正文内独立滚动。",
           "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
           "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
           "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。"
         ]),
         en: Object.freeze([
+          "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size.",
+          "Multi-material shortage indicators in production and fixed-count enhancing now stay aligned in four explicit columns without widening the panel. Item prices move below enhancement levels while keeping their existing text style.",
+          "The ability-book calculator now includes Add to cart and subtracts both current inventory and quantities already in the cart, adding only the net shortage needed for the target level.",
+          "The mobile Feedback Center now removes excess form and announcement spacing, and text boxes adapt to their content and screen height. The title and all three tabs stay visible while announcements and forms scroll independently inside the modal body.",
           "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
           "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
           "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data."
@@ -39358,17 +39520,17 @@ ${locks}` : ""}`;
     style.textContent = `
     #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
-    #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
-    .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
+    #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;overflow:hidden;overscroll-behavior:contain;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
+    .mwi-feedback-modal{display:flex;min-height:0;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
     .mwi-feedback-head{display:flex;align-items:center;padding:12px 15px;border-bottom:1px solid #343c55;background:#1d2336}.mwi-feedback-head h2{margin:0;font-size:16px}.mwi-feedback-close{margin-left:auto;width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:#aab1c4;font-size:20px;cursor:pointer}.mwi-feedback-close:hover{background:#303950;color:white}
     .mwi-feedback-tabs{display:flex;border-bottom:1px solid #343c55}.mwi-feedback-tab{position:relative;flex:1;padding:10px;border:0;background:#191e2e;color:#aeb6ca;cursor:pointer}.mwi-feedback-tab[data-active="true"]{background:#252d45;color:#ffc65b;font-weight:700}
-    .mwi-feedback-body{min-height:360px;overflow:auto;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
+    .mwi-feedback-body{min-height:0;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;padding:16px}.mwi-feedback-view[hidden]{display:none}.mwi-feedback-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mwi-feedback-field{display:flex;min-width:0;flex-direction:column;gap:5px}.mwi-feedback-field.is-wide{grid-column:1/-1}.mwi-feedback-field span{font-size:12px;color:#c5cada}.mwi-feedback-field input,.mwi-feedback-field select,.mwi-feedback-field textarea,.mwi-feedback-reply textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid #434e6c;border-radius:5px;background:#101522;color:#eef0f6;font:inherit}.mwi-feedback-field textarea{min-height:105px;max-height:38vh;max-height:38dvh;field-sizing:content;overflow-y:auto;resize:vertical}.mwi-feedback-bug-fields{display:contents}.mwi-feedback-bug-fields[hidden]{display:none}
     .mwi-feedback-label-row{display:flex;align-items:center;gap:6px}.mwi-feedback-image-help{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border:1px solid #6f7c9d;border-radius:50%;color:#a9cfff;text-decoration:none;font:700 11px/1 sans-serif}.mwi-feedback-image-help:hover{border-color:#ffc45b;color:#ffc45b}.mwi-feedback-image-links textarea{min-height:76px}.mwi-feedback-field small{color:#8691aa;font-size:11px}.mwi-feedback-link-list{display:grid;gap:6px}.mwi-feedback-link-list a{overflow:hidden;color:#82b8ff;text-overflow:ellipsis;white-space:nowrap}
-    .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-success{color:#7ddc96}
+    .mwi-feedback-footer{display:flex;align-items:center;gap:10px;margin-top:13px}.mwi-feedback-quota{font-size:12px;color:#aeb5c7}.mwi-feedback-submit{margin-left:auto;padding:8px 17px;border:0;border-radius:5px;background:#d58b27;color:#17130c;font-weight:700;cursor:pointer}.mwi-feedback-submit:disabled{opacity:.48;cursor:not-allowed}.mwi-feedback-error{min-height:18px;margin-top:8px;color:#ff8f8f;font-size:12px}.mwi-feedback-error:empty{display:none}.mwi-feedback-success{color:#7ddc96}
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
     .mwi-announcement-card li strong{color:#ff5f66}
     @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
-    @media(max-width:620px){#${BUTTON_ID}{font-size:9px}#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+    @media(max-width:620px){#${BUTTON_ID}{font-size:9px}#${ROOT_ID2}{align-items:flex-start;padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px);max-height:calc(100dvh - 12px)}.mwi-feedback-head{flex:0 0 auto;padding:8px 10px}.mwi-feedback-head h2{font-size:14px}.mwi-feedback-tabs{flex:0 0 auto}.mwi-feedback-tab{min-width:0;padding:8px 4px;font-size:12px}.mwi-feedback-body{min-height:0;padding:9px}.mwi-feedback-notice{margin-bottom:8px;padding:7px}.mwi-feedback-grid{grid-template-columns:1fr;gap:8px}.mwi-feedback-field{gap:3px}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-field textarea{min-height:64px;max-height:28vh;max-height:28dvh}.mwi-feedback-field textarea[name="detail"]{min-height:82px}.mwi-feedback-image-links textarea{min-height:52px}.mwi-feedback-footer{margin-top:9px}.mwi-feedback-reply{flex-direction:column}.mwi-announcement-card{padding:10px}.mwi-announcement-card ul{margin-top:8px;padding-left:18px}.mwi-announcement-card li{margin:5px 0;line-height:1.4}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -39511,6 +39673,10 @@ ${locks}` : ""}`;
     async open() {
       const hadAnnouncementUnread = this.announcementUnread > 0;
       const hadFeedbackUnread = this.feedbackUnread > 0;
+      if (this.root.hidden) {
+        this.previousBodyOverflow = document.body.style.overflow;
+      }
+      document.body.style.overflow = "hidden";
       this.root.hidden = false;
       this.showTab(
         hadAnnouncementUnread ? "announcements" : hadFeedbackUnread ? "mine" : "submit"
@@ -39533,6 +39699,8 @@ ${locks}` : ""}`;
     }
     close() {
       this.root.hidden = true;
+      document.body.style.overflow = this.previousBodyOverflow ?? "";
+      this.previousBodyOverflow = null;
     }
     showTab(name) {
       this.root.querySelectorAll("[data-tab]").forEach((button) => {
@@ -39928,6 +40096,7 @@ ${locks}` : ""}`;
       this.showTab("submit");
     }
     destroy() {
+      if (!this.root?.hidden) this.close();
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
       document.getElementById(STYLE_ID14)?.remove();

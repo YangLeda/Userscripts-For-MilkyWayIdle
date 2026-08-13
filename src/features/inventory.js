@@ -24,6 +24,9 @@ function addInventorySummaryStyles() {
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
+    [class*="Item_enhancementLevel"] ~ #script_stack_price {
+      margin-top: 15px;
+    }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);

@@ -19,6 +19,7 @@ await import("../src/core/config.js");
 await import("../src/data/translations.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
+await import("../src/core/procurement.js");
 const {
   calculateAbilityBookRequirement,
   maxAbilityLevel,
@@ -41,6 +42,15 @@ runtime.state.marketApiJson = {
   marketData: { "/items/fireball_book": [{ a: 125, b: 100 }] },
 };
 runtime.state.initData_characterAbilities = [];
+runtime.state.initData_characterItems = [
+  {
+    itemHrid: "/items/fireball_book",
+    itemLocationHrid: "/item_locations/inventory",
+    enhancementLevel: 0,
+    count: 2,
+  },
+];
+runtime.api.procurement.loadCharacterData("books");
 await runtime.features.handleCharacterData({ character: { id: "books" } });
 
 after(async () => {
@@ -111,6 +121,11 @@ test("reached and invalid targets are reported explicitly", () => {
 });
 
 test("only the dictionary keeps one live bilingual calculator", async () => {
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/fireball_book",
+    quantity: 1,
+  });
   document.body.innerHTML = `
     <div class="MarketplacePanel_marketplacePanel__test">
       <div class="MarketplacePanel_currentItem__test">
@@ -143,6 +158,19 @@ test("only the dictionary keeps one live bilingual calculator", async () => {
   target.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   assert.match(dictionary.textContent, /解锁 1 \+ 升级 4 = 合计 5 本/);
   assert.match(dictionary.textContent, /参考购买成本：625/);
+  const cartButton = dictionary.querySelector(".mwi-book-cart");
+  assert.equal(cartButton.textContent, "加入购物车（2）");
+  cartButton.click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/fireball_book").quantity,
+    3,
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/fireball_book").source,
+    "ability-book",
+  );
+  assert.equal(cartButton.textContent, "已备齐");
+  assert.equal(cartButton.disabled, true);
 
   runtime.state.marketApiJson = {
     marketData: { "/items/fireball_book": [{ a: 200, b: 180 }] },
@@ -179,6 +207,38 @@ test("only the dictionary keeps one live bilingual calculator", async () => {
     document.getElementById("mwitools-ability-book-calculator-style"),
     null,
   );
+});
+
+test("ability-book cart action follows the global shopping-cart switch", async () => {
+  runtime.config.isZH = false;
+  runtime.state.initData_characterAbilities = [];
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  document.body.innerHTML = `
+    <div class="ItemDictionary_modalContent__test">
+      <h1 class="ItemDictionary_title__test">Fireball Book</h1>
+    </div>`;
+  await runtime.features.enable("skillbook");
+  await settle();
+  let button = document.querySelector(".mwi-book-cart");
+  const target = document.querySelector(".mwi-book-target input");
+  target.value = "2";
+  target.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.equal(button.hidden, false);
+  assert.match(button.textContent, /Add to cart/);
+
+  await runtime.settings.set("procurementAssistant", false, {
+    persist: false,
+  });
+  runtime.dispatchMessage({ type: "action_completed" });
+  await settle();
+  button = document.querySelector(".mwi-book-cart");
+  assert.equal(button.hidden, true);
+
+  await runtime.settings.set("procurementAssistant", true, {
+    persist: false,
+  });
+  await runtime.features.disable("skillbook");
+  runtime.config.isZH = true;
 });
 
 test("missing character data waits and missing prices do not hide book counts", async () => {

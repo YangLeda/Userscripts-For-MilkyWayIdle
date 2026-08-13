@@ -49,7 +49,7 @@ test("feedback image links only accept up to three HTTP(S) URLs", () => {
   assert.throws(() => normalizeImageLinks("not a url"), /格式/);
 });
 
-test("feedback button sits below total level and UI remains a singleton", () => {
+test("feedback button sits below total level and UI remains a singleton", async () => {
   const client = {
     list: async () => ({
       items: [],
@@ -88,6 +88,28 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     launcherStyle,
     /@media\(max-width:620px\)\{#mwitools-feedback-button\{font-size:9px\}/,
   );
+  assert.match(
+    launcherStyle,
+    /\.mwi-feedback-body\{min-height:0;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain/,
+  );
+  assert.match(
+    launcherStyle,
+    /\.mwi-feedback-field textarea\{min-height:105px;max-height:38vh;max-height:38dvh;field-sizing:content/,
+  );
+  assert.match(
+    launcherStyle,
+    /@media\(max-width:620px\).*\.mwi-feedback-modal\{max-height:calc\(100vh - 12px\);max-height:calc\(100dvh - 12px\)\}.*\.mwi-feedback-tabs\{flex:0 0 auto\}/,
+  );
+  document.body.style.overflow = "auto";
+  await panel.open();
+  assert.equal(document.body.style.overflow, "hidden");
+  panel.showTab("announcements");
+  const body = panel.root.querySelector(".mwi-feedback-body");
+  body.scrollTop = 120;
+  panel.renderAnnouncements();
+  assert.equal(body.scrollTop, 120);
+  panel.close();
+  assert.equal(document.body.style.overflow, "auto");
   runtime.config.isZH = false;
   panel.ensureButton();
   assert.equal(

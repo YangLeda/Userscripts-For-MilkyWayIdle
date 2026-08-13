@@ -494,6 +494,10 @@ test("the top action bar keeps finish time on desktop and hides it on mobile", (
   assert.match(dashboardStyle, /flex-wrap:nowrap/);
   assert.match(
     dashboardStyle,
+    /\.mwi-action-dashboard \{[^}]*font-size:inherit/,
+  );
+  assert.match(
+    dashboardStyle,
     /@media\(max-width:520px\).*\.mwi-action-dashboard\{right:auto;width:max-content\}.*\.mwi-action-eta\{display:none\}/,
   );
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);

@@ -125,11 +125,18 @@ test("task return context uses the stable quest ID, profession and scroll", () =
 test("queue submission returns to the stable task in the flat list", async () => {
   await runtime.features.restart("taskAutoReturn");
   const first = taskPage();
-  let restored = 0;
+  let returnedList;
   const host = attachGameHost(() => {
     const returned = taskPage();
+    returnedList = returned.list;
+    returnedList.scrollTop = 0;
+    returnedList.getBoundingClientRect = () => ({ top: 0, height: 100 });
+    returned.card.getBoundingClientRect = () => ({
+      top: 300 - returnedList.scrollTop,
+      height: 20,
+    });
     returned.card.scrollIntoView = () => {
-      restored += 1;
+      throw new Error("automatic return must not scroll the page root");
     };
   });
   first.go.click();
@@ -138,19 +145,23 @@ test("queue submission returns to the stable task in the flat list", async () =>
   commit.click();
   await settle(620);
   assert.deepEqual(host.targets, ["tasks"]);
-  assert.equal(restored, 1);
+  assert.equal(returnedList.scrollTop, 260);
 });
 
 test("localized task and queue buttons preserve automatic return", async () => {
   localStorage.setItem("i18nextLng", "es");
   await runtime.features.restart("taskAutoReturn");
   const first = taskPage({ goLabel: "Ir" });
-  let restored = 0;
+  let returnedList;
   const host = attachGameHost(() => {
     const returned = taskPage({ goLabel: "Ir" });
-    returned.card.scrollIntoView = () => {
-      restored += 1;
-    };
+    returnedList = returned.list;
+    returnedList.scrollTop = 0;
+    returnedList.getBoundingClientRect = () => ({ top: 0, height: 100 });
+    returned.card.getBoundingClientRect = () => ({
+      top: 300 - returnedList.scrollTop,
+      height: 20,
+    });
   });
   first.go.click();
   const commit = actionPage("Añadir a la cola #1");
@@ -158,8 +169,42 @@ test("localized task and queue buttons preserve automatic return", async () => {
   commit.click();
   await settle(620);
   assert.deepEqual(host.targets, ["tasks"]);
-  assert.equal(restored, 1);
+  assert.equal(returnedList.scrollTop, 260);
   localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("late task insertion recenters only the task list without page overscroll", async () => {
+  await runtime.features.restart("taskAutoReturn");
+  const first = taskPage();
+  let returnedList;
+  let cardOffset = 300;
+  document.documentElement.scrollTop = 77;
+  const host = attachGameHost(() => {
+    const returned = taskPage({ scrollTop: 0 });
+    returnedList = returned.list;
+    returned.card.dataset.mwitoolsTaskId = "71";
+    returnedList.getBoundingClientRect = () => ({ top: 0, height: 100 });
+    returned.card.getBoundingClientRect = () => ({
+      top: cardOffset - returnedList.scrollTop,
+      height: 20,
+    });
+    setTimeout(() => {
+      const fresh = document.createElement("div");
+      fresh.className = "RandomTask_randomTask__late";
+      fresh.dataset.mwitoolsTaskId = "72";
+      returnedList.prepend(fresh);
+      cardOffset += 60;
+    }, 20);
+  });
+  first.go.click();
+  const commit = actionPage();
+  await settle(20);
+  commit.click();
+  await settle(700);
+  assert.deepEqual(host.targets, ["tasks"]);
+  assert.equal(returnedList.scrollTop, 320);
+  assert.ok(returnedList.scrollTop <= 400);
+  assert.equal(document.documentElement.scrollTop, 77);
 });
 
 test("manual close returns, while a non-task action never does", async () => {

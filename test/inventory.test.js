@@ -184,6 +184,11 @@ test("inventory asset summaries rerender without restoring the removed header UI
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
   ).textContent;
+  assert.match(
+    summaryStyles,
+    /\[class\*="Item_enhancementLevel"\] ~ #script_stack_price \{\s*margin-top: 15px;/,
+  );
+  assert.doesNotMatch(summaryStyles, /#script_stack_price[^}]*text-shadow/);
   assert.doesNotMatch(summaryStyles, /width:\s*calc\(100% \+ \.5rem\)/);
   assert.doesNotMatch(summaryStyles, /margin-inline:\s*-\.25rem/);
   assert.match(

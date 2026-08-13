@@ -545,7 +545,7 @@ test("asset center keeps hidden component lines through live refreshes until clo
   }
 });
 
-test("asset center preserves tag form drafts during live snapshot updates", () => {
+test("asset center preserves management controls during live snapshot updates", () => {
   document.body.replaceChildren();
   localStorage.clear();
   const store = new AssetHistoryStore(localStorage);
@@ -566,6 +566,27 @@ test("asset center preserves tag form drafts during live snapshot updates", () =
     assert.equal(date.value, "2026-08-01");
     assert.equal(text.value, "尚未提交的标签");
     assert.equal(center.root.hidden, false);
+
+    center.root.querySelector('[data-route="settings"]').click();
+    const theme = center.root.querySelector('[data-setting="themeMode"]');
+    theme.value = "light";
+    theme.focus();
+    center.update({ values: { total: 23456 } });
+    assert.equal(
+      center.root.querySelector('[data-setting="themeMode"]'),
+      theme,
+    );
+    assert.equal(theme.value, "light");
+    assert.equal(document.activeElement, theme);
+
+    center.root.querySelector('[data-route="data"]').click();
+    const importMode = center.root.querySelector("[data-import-mode]");
+    importMode.value = "replace";
+    importMode.focus();
+    center.update({ values: { total: 34567 } });
+    assert.equal(center.root.querySelector("[data-import-mode]"), importMode);
+    assert.equal(importMode.value, "replace");
+    assert.equal(document.activeElement, importMode);
   } finally {
     center.destroy();
   }
