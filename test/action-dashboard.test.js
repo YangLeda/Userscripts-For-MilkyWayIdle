@@ -437,11 +437,30 @@ test("gathering dialogs without a count input still render expected outputs", ()
     hrid: "/items/milk",
     name: "Milk",
   };
+  runtime.state.initData_itemDetailMap["/items/cheese"] = {
+    hrid: "/items/cheese",
+    name: "Cheese",
+  };
+  runtime.state.initData_itemDetailMap["/items/processing_tea"] = {
+    hrid: "/items/processing_tea",
+    name: "Processing Tea",
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/processing", flatBoost: 0.15 }],
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/cheesesmithing/cheese"] = {
+    hrid: "/actions/cheesesmithing/cheese",
+    type: "/action_types/cheesesmithing",
+    inputItems: [{ itemHrid: "/items/milk", count: 2 }],
+    outputItems: [{ itemHrid: "/items/cheese", count: 1 }],
+  };
   runtime.data.ZHActionNames["/actions/milking/cow"] = "奶牛";
   runtime.data.ZHItemNames["/items/milk"] = "牛奶";
+  runtime.data.ZHItemNames["/items/cheese"] = "奶酪";
   const previousNetSell = runtime.api.getNetSellPrice;
   runtime.api.getNetSellPrice = (itemHrid) =>
-    itemHrid === "/items/milk" ? 50 : previousNetSell(itemHrid);
+    ({ "/items/milk": 50, "/items/cheese": 120 })[itemHrid] ??
+    previousNetSell(itemHrid);
 
   runtime.api.renderProductionPanel();
 
@@ -458,7 +477,32 @@ test("gathering dialogs without a count input still render expected outputs", ()
   assert.equal(hiddenOldPanel.querySelector("#mwi-production-summary"), null);
   assert.equal(document.querySelector(".mwi-max-action-button"), null);
 
+  runtime.api.applyGameMessage({
+    type: "action_type_consumable_slots_updated",
+    actionTypeDrinkSlotsMap: {
+      "/action_types/milking": [{ itemHrid: "/items/processing_tea" }],
+    },
+  });
+  runtime.api.renderProductionPanel();
+
+  assert.deepEqual(
+    [...card.querySelectorAll(".mwi-production-output-item")].map(
+      (item) => item.title,
+    ),
+    ["牛奶 ×1.7", "奶酪 ×0.15"],
+  );
+  assert.match(card.textContent, /预期单次产出.*牛奶.*奶酪/s);
+
   runtime.api.getNetSellPrice = previousNetSell;
+  runtime.api.applyGameMessage({
+    type: "action_type_consumable_slots_updated",
+    actionTypeDrinkSlotsMap: {},
+  });
+  delete runtime.state.initData_itemDetailMap["/items/cheese"];
+  delete runtime.state.initData_itemDetailMap["/items/processing_tea"];
+  delete runtime.state.initData_actionDetailMap[
+    "/actions/cheesesmithing/cheese"
+  ];
   panel.remove();
   modal.append(originalPanel);
   hiddenOldPanel.remove();

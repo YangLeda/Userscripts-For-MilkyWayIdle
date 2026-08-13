@@ -142,8 +142,8 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
       skillHrid: "/skills/carpentry",
       sortIndex: 1,
       upgradeCostsMap: {
-        6: [{ itemHrid: "/items/nail", count: 10 }],
-        7: [{ itemHrid: "/items/nail", count: 20 }],
+        6: [{ itemHrid: "/items/nail", count: 10_000 }],
+        7: [{ itemHrid: "/items/nail", count: 2_345 }],
         8: [{ itemHrid: "/items/nail", count: 30 }],
       },
     },
@@ -260,6 +260,14 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   );
   assert.ok(list.querySelector(".planning-section"));
   assert.equal(list.querySelector(".planning-step"), null);
+  assert.match(
+    list.querySelector(".planning-material summary strong").textContent,
+    /12,345/,
+  );
+  assert.doesNotMatch(
+    list.querySelector(".planning-material summary strong").textContent,
+    /[KMB]/,
+  );
 
   panel.querySelector('[data-route="targets"]').click();
   assert.equal(decisionStage.hidden, false);
@@ -302,7 +310,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     [...englishPanel.querySelectorAll(".planning-policy-switch button")]
       .slice(0, 3)
       .map((button) => button.textContent),
-    ["Full chain", "One step", "Buy directly"],
+    ["Full chain", "One step", "Buy"],
   );
   assert.match(
     document.querySelector("#mwitools-planning-style").textContent,

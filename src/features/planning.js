@@ -22,6 +22,14 @@ function number(value) {
   return runtime.api.numberFormatter?.(value) ?? String(value ?? "—");
 }
 
+function wholeNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "—";
+  return new Intl.NumberFormat(runtime.config.isZH ? "zh-CN" : "en-US", {
+    maximumFractionDigits: 0,
+  }).format(Math.max(0, Math.ceil(numeric - 1e-9)));
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -200,7 +208,7 @@ function goalSources(ids, goals) {
 const POLICY_OPTIONS = Object.freeze([
   ["chain", "全链条制作", "Full chain"],
   ["single", "单步制作", "One step"],
-  ["buy", "直接购买", "Buy directly"],
+  ["buy", "直接购买", "Buy"],
 ]);
 
 function policyLabel(policy) {
@@ -264,7 +272,7 @@ function addStyles() {
     .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
     .planning-editor-grid{display:grid;grid-template-columns:1fr;gap:10px;margin-bottom:12px}
     .planning-add-card,.planning-section{position:relative;min-width:0;border:1px solid rgba(255,255,255,.09);border-radius:8px;background:#0c141f}
-    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:8px}.planning-add-title>span:first-child{min-width:max-content;flex:1}.planning-add-title .planning-policy-switch{width:min(100%,204px);min-width:192px}
+    .planning-add-title,.planning-section>h3,.planning-section-heading{min-height:38px;padding:9px 11px;border-bottom:1px solid rgba(255,255,255,.08);font-size:.82rem;font-weight:700}.planning-add-title{display:flex;align-items:center;gap:8px}.planning-add-title>span:first-child{min-width:max-content;flex:1}.planning-add-title .planning-policy-switch{width:min(100%,246px);min-width:232px}.planning-add-title .planning-policy-switch button{padding-inline:3px;font-size:clamp(.56rem,.76vw,.64rem);text-overflow:clip}
     .planning-add-body{display:flex;align-items:stretch;gap:7px;padding:9px;position:relative}
     .planning-search-wrap,.planning-house-wrap{position:relative;min-width:0;flex:1}
     .planning-search-input,.planning-count-input,.planning-level-select,.planning-picker-button{width:100%;height:34px;border:1px solid rgba(255,255,255,.16);border-radius:5px;outline:0;background:#18243a;color:#eef2f7;padding:5px 8px}
@@ -279,7 +287,7 @@ function addStyles() {
     .planning-policy-switch{display:inline-grid;grid-template-columns:repeat(3,minmax(0,1fr));width:100%;min-width:216px;padding:2px;border:1px solid rgba(255,255,255,.12);border-radius:6px;background:#111b2b}.planning-policy-switch button{min-width:0;min-height:26px;overflow:hidden;border:0;border-radius:4px;background:transparent;color:#94a3b8;padding:3px 4px;font-size:clamp(.52rem,.72vw,.61rem);line-height:1.15;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}.planning-policy-switch button[data-active="true"]{background:#287fb4;color:#fff}.planning-policy-mixed{display:inline-flex;width:100%;min-width:216px;min-height:30px;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.18);border-radius:6px;color:#ffad62;font-size:.65rem}.planning-step,.planning-material{border-bottom:1px solid rgba(255,255,255,.065);content-visibility:auto;contain-intrinsic-size:54px}.planning-step:last-child,.planning-material:last-child{border-bottom:0}.planning-step summary{display:grid;grid-template-columns:30px minmax(130px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-material summary{display:flex;align-items:center;gap:8px;padding:8px 9px;cursor:pointer;font-size:.72rem}.planning-row-icon{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:5px;background:rgba(255,255,255,.05)}.planning-row-icon svg{width:27px;height:27px}.planning-step-name,.planning-material-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.planning-step-count{color:#94a3b8;white-space:nowrap}.planning-source-list{display:grid;gap:5px;padding:0 9px 9px 47px}.planning-source-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(92px,.4fr) minmax(216px,.85fr);align-items:center;gap:8px;padding:6px;border-radius:5px;background:rgba(255,255,255,.035);color:#94a3b8;font-size:.64rem}.planning-source-copy{display:flex;min-width:0;align-items:center;gap:7px}.planning-source-copy strong{overflow:hidden;color:#d8e0ec;text-overflow:ellipsis;white-space:nowrap}.planning-source-icon{display:grid;width:26px;height:26px;flex:0 0 26px;place-items:center}.planning-source-icon svg{width:24px;height:24px}.planning-material-actions button{border:0;border-radius:5px;background:rgba(255,255,255,.08);color:#b8c2d3;padding:5px 8px;font-size:.66rem;font-weight:700;cursor:pointer}.planning-material[data-missing="true"] summary strong{color:#ffad62}.planning-material[data-missing="false"] summary strong{color:#43d17f}.planning-material summary strong{font-size:.67rem;white-space:nowrap}
     .planning-material-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;padding:0 9px 8px}.planning-material-grid>div{min-width:0;padding:6px;border-radius:5px;background:rgba(255,255,255,.045)}.planning-material-grid span,.planning-material-grid small{display:block;overflow:hidden;color:#94a3b8;font-size:.58rem;text-overflow:ellipsis;white-space:nowrap}.planning-material-grid b{display:block;margin:2px 0;color:#e8c87f;font-size:.78rem}.planning-material-actions{display:flex;align-items:center;gap:6px;padding:0 9px 9px}.planning-material-actions span{min-width:0;flex:1;overflow:hidden;color:#94a3b8;font-size:.61rem;text-align:right;text-overflow:ellipsis;white-space:nowrap}.planning-material-actions button:disabled{opacity:.45;cursor:default}.planning-warning{margin:8px;padding:8px;border:1px solid rgba(255,173,98,.35);border-radius:6px;color:#ffad62;font-size:.67rem}.planning-footer{margin-top:10px;color:#94a3b8;font-size:.67rem;text-align:right}
     @media(max-width:900px){.planning-editor-grid,.planning-content-grid{grid-template-columns:1fr}.planning-editor-grid{gap:8px}.planning-add-body{flex-wrap:wrap}.planning-search-wrap,.planning-house-wrap{flex:1 1 calc(100% - 180px)}.planning-material-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.planning-goal{grid-template-columns:18px 34px minmax(130px,1fr) minmax(210px,260px) 28px}.planning-step summary{grid-template-columns:30px minmax(0,1fr) auto}.planning-step summary>.planning-policy-switch,.planning-step summary>.planning-policy-mixed{grid-column:2/4}.planning-source-row{grid-template-columns:minmax(0,1fr) auto}.planning-source-row>.planning-policy-switch{grid-column:1/3;min-width:0}}
-    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title .planning-policy-switch{width:min(100%,192px);min-width:180px}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}}
+    @media(max-width:760px){#${PANEL_ID}{min-height:0;padding:10px 8px calc(22px + env(safe-area-inset-bottom,0px));overflow-y:auto;-webkit-overflow-scrolling:touch}.planning-add-title .planning-policy-switch{width:min(100%,238px);min-width:224px}.planning-count-input{width:70px;flex-basis:70px}.planning-level-select{width:84px;flex-basis:84px}.planning-goal{grid-template-columns:18px 34px minmax(0,1fr) 28px}.planning-goal>.planning-policy-switch,.planning-goal>.planning-policy-mixed{grid-column:2/5;min-width:0}.planning-goal-values{justify-content:flex-start}.planning-policy-switch button{font-size:.54rem}.planning-add-title .planning-policy-switch button{font-size:.58rem}}
     @media(max-width:420px){.planning-add-title{display:grid;grid-template-columns:1fr}.planning-add-title .planning-policy-switch{width:100%;min-width:0}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -820,7 +828,7 @@ function renderMaterials(host, result) {
     name.title = material.itemHrid;
     const missing = document.createElement("strong");
     missing.textContent = material.addableShortage
-      ? `${t("还需", "Need")} ${number(material.addableShortage)}`
+      ? `${t("还需", "Need")} ${wholeNumber(material.addableShortage)}`
       : t("已覆盖", "Covered");
     summary.append(icon, name, missing);
     const grid = document.createElement("div");
@@ -831,18 +839,18 @@ function renderMaterials(host, result) {
       return cell;
     };
     grid.append(
-      metric(t("规划需求", "Required"), number(material.required)),
+      metric(t("规划需求", "Required"), wholeNumber(material.required)),
       metric(
         t("库存", "Inventory"),
-        number(material.owned),
-        `${t("项目占用", "Project")} ${number(material.projectInventory)} · ${t("规划使用", "Planning")} ${number(material.inventoryUsed)}`,
+        wholeNumber(material.owned),
+        `${t("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`,
       ),
       metric(
         t("购物车", "Cart"),
-        number(material.cart.total),
-        `${t("项目", "Project")} ${number(material.cart.project)} · ${t("规划", "Planning")} ${number(material.cart.planning)} · ${t("手工", "Manual")} ${number(material.cart.manual)}`,
+        wholeNumber(material.cart.total),
+        `${t("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t("手工", "Manual")} ${wholeNumber(material.cart.manual)}`,
       ),
-      metric(t("仍需购买", "To buy"), number(material.addableShortage)),
+      metric(t("仍需购买", "To buy"), wholeNumber(material.addableShortage)),
     );
     const actions = document.createElement("div");
     actions.className = "planning-material-actions";
@@ -1438,6 +1446,7 @@ export function createPlanningUi({ scope }) {
   for (const messageType of [
     "community_buffs_updated",
     "consumable_buffs_updated",
+    "action_type_consumable_slots_updated",
     "equipment_buffs_updated",
     "personal_buffs_updated",
     "guild_buffs_updated",

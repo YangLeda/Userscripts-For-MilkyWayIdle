@@ -421,6 +421,7 @@ function applyGameMessage(payload) {
     case "moo_pass_buffs_updated":
     case "community_buffs_updated":
     case "consumable_buffs_updated":
+    case "action_type_consumable_slots_updated":
     case "equipment_buffs_updated":
     case "personal_buffs_updated":
     case "guild_buffs_updated":

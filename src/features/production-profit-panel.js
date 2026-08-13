@@ -966,6 +966,7 @@ for (const messageType of [
   "moo_pass_buffs_updated",
   "community_buffs_updated",
   "consumable_buffs_updated",
+  "action_type_consumable_slots_updated",
   "equipment_buffs_updated",
   "personal_buffs_updated",
   "guild_buffs_updated",

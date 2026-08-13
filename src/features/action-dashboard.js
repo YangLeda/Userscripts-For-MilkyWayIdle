@@ -17,6 +17,7 @@ const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "moo_pass_buffs_updated",
   "community_buffs_updated",
   "consumable_buffs_updated",
+  "action_type_consumable_slots_updated",
   "equipment_buffs_updated",
   "personal_buffs_updated",
   "guild_buffs_updated",
@@ -977,6 +978,15 @@ function renderProductionPanel() {
   const showProfit =
     runtime.settings.get("productionProfit") &&
     !runtime.api.shouldSuppressMarketFeatures?.();
+  const actionType =
+    runtime.state.initData_actionDetailMap?.[actionHrid]?.type ?? null;
+  const selectedDrinkHrids = Array.isArray(
+    runtime.state.initData_actionTypeDrinkSlotsMap?.[actionType],
+  )
+    ? runtime.state.initData_actionTypeDrinkSlotsMap[actionType].map(
+        (drink) => drink?.itemHrid ?? null,
+      )
+    : [];
   const signature = JSON.stringify([
     actionHrid,
     Number.isFinite(count) ? count : "infinite",
@@ -985,6 +995,7 @@ function renderProductionPanel() {
     summaryMode,
     runtime.config.isZH,
     productionDataRevision,
+    selectedDrinkHrids,
     (runtime.state.initData_characterItems ?? []).map((item) => [
       item.itemHrid,
       item.itemLocationHrid,
