@@ -296,6 +296,30 @@ test("removed production extension mounts are restored automatically", async () 
   await runtime.features.disable("actionPanel_totalTime_quickInputs");
 });
 
+test("ability switches restore production controls after a delayed portal rebuild", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.settings.settingsMap.actionPanel_totalTime.isTrue = true;
+  runtime.settings.settingsMap.actionPanel_totalTime_quickInputs.isTrue = true;
+  await runtime.features.restart("actionPanel_totalTime");
+  await runtime.features.restart("actionPanel_totalTime_quickInputs");
+  await runtime.api.handleActionPanel(panel);
+  runtime.api.renderProductionQuickInputs();
+
+  runtime.dispatchMessage({ type: "abilities_updated" });
+  setTimeout(() => {
+    panel.querySelector(".mwi-production-extensions")?.remove();
+    delete panel.dataset.mwitoolsActionPanel;
+  }, 20);
+  await new Promise((resolve) => setTimeout(resolve, 380));
+
+  assert.ok(panel.querySelector("#mwi-level-progress"));
+  assert.ok(panel.querySelector("#quickInputCountButtons"));
+  await runtime.features.disable("actionPanel_totalTime_quickInputs");
+  await runtime.features.disable("actionPanel_totalTime");
+});
+
 test("legacy gathering profit renders the shared conservative projection", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',

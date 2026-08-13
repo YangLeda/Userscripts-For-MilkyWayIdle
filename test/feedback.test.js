@@ -403,7 +403,10 @@ test("announcement history preserves each release separately through 26.4.9", ()
   assert.match(older.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
   assert.match(previous.body.zh.join("\n"), /炼金与强化/);
   assert.match(current.body.zh.join("\n"), /切换到技能页再返回库存/);
-  assert.match(current.body.zh.join("\n"), /目标等级和生产次数快捷输入不显示/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /更换战斗技能后，目标等级和生产次数快捷输入不显示/,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

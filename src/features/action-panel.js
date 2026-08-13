@@ -583,60 +583,40 @@ runtime.features.register({
   setting: "actionPanel_totalTime",
   scope: "character",
   initialize({ scope }) {
-    let observed = null;
-    let panelObserver = null;
-    const attach = () => {
-      const target = document.querySelector(MAIN_PANEL_SELECTOR);
-      if (!target || observed === target) return;
-      panelObserver?.disconnect();
-      observed = target;
-      const observer = new MutationObserver((mutations) => {
-        const panels = new Set();
-        for (const mutation of mutations) {
-          const mutationTarget =
-            mutation.target?.nodeType === 1
-              ? mutation.target
-              : mutation.target?.parentElement;
-          const containingPanel = mutationTarget?.closest?.(
-            ACTION_PANEL_SELECTOR,
-          );
-          if (containingPanel) panels.add(containingPanel);
-          for (const added of mutation.addedNodes) {
-            if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
-            added
-              ?.querySelectorAll?.(ACTION_PANEL_SELECTOR)
-              .forEach((panel) => panels.add(panel));
-          }
+    const observer = new MutationObserver((mutations) => {
+      const panels = new Set();
+      for (const mutation of mutations) {
+        const mutationTarget =
+          mutation.target?.nodeType === 1
+            ? mutation.target
+            : mutation.target?.parentElement;
+        const containingPanel = mutationTarget?.closest?.(
+          ACTION_PANEL_SELECTOR,
+        );
+        if (containingPanel) panels.add(containingPanel);
+        for (const added of mutation.addedNodes) {
+          if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
+          added
+            ?.querySelectorAll?.(ACTION_PANEL_SELECTOR)
+            .forEach((panel) => panels.add(panel));
         }
-        panels.forEach(scheduleActionPanel);
-      });
-      observer.observe(target, {
-        childList: true,
-        characterData: true,
-        subtree: true,
-      });
-      panelObserver = observer;
-      target
-        .querySelectorAll(ACTION_PANEL_SELECTOR)
-        .forEach(scheduleActionPanel);
-    };
-    attach();
-    const attachScheduler = createFrameScheduler(attach);
-    const mountObserver = new MutationObserver((records) => {
-      const relevant = records.some((record) =>
-        [...record.addedNodes, ...record.removedNodes].some(
-          (node) =>
-            node?.nodeType === 1 &&
-            (node.matches?.(MAIN_PANEL_SELECTOR) ||
-              node.querySelector?.(MAIN_PANEL_SELECTOR)),
-        ),
-      );
-      if (relevant) attachScheduler.schedule();
+      }
+      panels.forEach(scheduleActionPanel);
     });
-    scope.observer(mountObserver, document.body, {
+    scope.observer(observer, document.body, {
       childList: true,
+      characterData: true,
       subtree: true,
     });
+    document
+      .querySelectorAll(ACTION_PANEL_SELECTOR)
+      .forEach(scheduleActionPanel);
+    const refreshPanels = () => {
+      document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
+        delete panel.dataset.mwitoolsActionPanel;
+        scheduleActionPanel(panel);
+      });
+    };
     for (const messageType of [
       "items_updated",
       "skills_updated",
@@ -648,20 +628,23 @@ runtime.features.register({
       "equipment_buffs_updated",
       "personal_buffs_updated",
       "guild_buffs_updated",
+      "abilities_updated",
+      "character_abilities_updated",
     ]) {
       scope.add(
         runtime.onMessage(messageType, () => {
-          document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
-            delete panel.dataset.mwitoolsActionPanel;
-            scheduleActionPanel(panel);
-          });
+          refreshPanels();
+          if (
+            messageType === "abilities_updated" ||
+            messageType === "character_abilities_updated"
+          ) {
+            scope.timeout(refreshPanels, 100);
+            scope.timeout(refreshPanels, 300);
+          }
         }),
       );
     }
     scope.add(() => {
-      attachScheduler.cancel();
-      panelObserver?.disconnect();
-      panelObserver = null;
       clearActionPanelRetries();
       document
         .querySelectorAll(

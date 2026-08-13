@@ -19,6 +19,12 @@ const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "equipment_buffs_updated",
   "personal_buffs_updated",
   "guild_buffs_updated",
+  "abilities_updated",
+  "character_abilities_updated",
+]);
+const PRODUCTION_PANEL_REBUILD_MESSAGES = new Set([
+  "abilities_updated",
+  "character_abilities_updated",
 ]);
 
 const STYLE_ID = "mwitools-action-dashboard-style";
@@ -559,6 +565,10 @@ function bindActionUiRenderer(scope, render, messages = []) {
       runtime.onMessage(message, () => {
         productionDataRevision += 1;
         schedule();
+        if (PRODUCTION_PANEL_REBUILD_MESSAGES.has(message)) {
+          scope.timeout(schedule, 100);
+          scope.timeout(schedule, 300);
+        }
       }),
     );
   }

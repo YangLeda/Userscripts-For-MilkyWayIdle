@@ -77,9 +77,9 @@
     mod
   ));
 
-  // node_modules/lz-string/libs/lz-string.js
+  // ../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -32988,50 +32988,33 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "actionPanel_totalTime",
     scope: "character",
     initialize({ scope }) {
-      let observed = null;
-      let panelObserver = null;
-      const attach = () => {
-        const target = document.querySelector(MAIN_PANEL_SELECTOR);
-        if (!target || observed === target) return;
-        panelObserver?.disconnect();
-        observed = target;
-        const observer = new MutationObserver((mutations) => {
-          const panels = /* @__PURE__ */ new Set();
-          for (const mutation of mutations) {
-            const mutationTarget = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
-            const containingPanel = mutationTarget?.closest?.(
-              ACTION_PANEL_SELECTOR
-            );
-            if (containingPanel) panels.add(containingPanel);
-            for (const added of mutation.addedNodes) {
-              if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
-              added?.querySelectorAll?.(ACTION_PANEL_SELECTOR).forEach((panel) => panels.add(panel));
-            }
+      const observer = new MutationObserver((mutations) => {
+        const panels = /* @__PURE__ */ new Set();
+        for (const mutation of mutations) {
+          const mutationTarget = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+          const containingPanel = mutationTarget?.closest?.(
+            ACTION_PANEL_SELECTOR
+          );
+          if (containingPanel) panels.add(containingPanel);
+          for (const added of mutation.addedNodes) {
+            if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
+            added?.querySelectorAll?.(ACTION_PANEL_SELECTOR).forEach((panel) => panels.add(panel));
           }
-          panels.forEach(scheduleActionPanel);
-        });
-        observer.observe(target, {
-          childList: true,
-          characterData: true,
-          subtree: true
-        });
-        panelObserver = observer;
-        target.querySelectorAll(ACTION_PANEL_SELECTOR).forEach(scheduleActionPanel);
-      };
-      attach();
-      const attachScheduler = createFrameScheduler(attach);
-      const mountObserver = new MutationObserver((records) => {
-        const relevant = records.some(
-          (record) => [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && (node.matches?.(MAIN_PANEL_SELECTOR) || node.querySelector?.(MAIN_PANEL_SELECTOR))
-          )
-        );
-        if (relevant) attachScheduler.schedule();
+        }
+        panels.forEach(scheduleActionPanel);
       });
-      scope.observer(mountObserver, document.body, {
+      scope.observer(observer, document.body, {
         childList: true,
+        characterData: true,
         subtree: true
       });
+      document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach(scheduleActionPanel);
+      const refreshPanels = () => {
+        document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
+          delete panel.dataset.mwitoolsActionPanel;
+          scheduleActionPanel(panel);
+        });
+      };
       for (const messageType of [
         "items_updated",
         "skills_updated",
@@ -33042,21 +33025,21 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         "consumable_buffs_updated",
         "equipment_buffs_updated",
         "personal_buffs_updated",
-        "guild_buffs_updated"
+        "guild_buffs_updated",
+        "abilities_updated",
+        "character_abilities_updated"
       ]) {
         scope.add(
           runtime.onMessage(messageType, () => {
-            document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
-              delete panel.dataset.mwitoolsActionPanel;
-              scheduleActionPanel(panel);
-            });
+            refreshPanels();
+            if (messageType === "abilities_updated" || messageType === "character_abilities_updated") {
+              scope.timeout(refreshPanels, 100);
+              scope.timeout(refreshPanels, 300);
+            }
           })
         );
       }
       scope.add(() => {
-        attachScheduler.cancel();
-        panelObserver?.disconnect();
-        panelObserver = null;
         clearActionPanelRetries();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
@@ -33078,7 +33061,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     "consumable_buffs_updated",
     "equipment_buffs_updated",
     "personal_buffs_updated",
-    "guild_buffs_updated"
+    "guild_buffs_updated",
+    "abilities_updated",
+    "character_abilities_updated"
+  ]);
+  var PRODUCTION_PANEL_REBUILD_MESSAGES = /* @__PURE__ */ new Set([
+    "abilities_updated",
+    "character_abilities_updated"
   ]);
   var STYLE_ID7 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
@@ -33521,6 +33510,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         runtime.onMessage(message, () => {
           productionDataRevision += 1;
           schedule();
+          if (PRODUCTION_PANEL_REBUILD_MESSAGES.has(message)) {
+            scope.timeout(schedule, 100);
+            scope.timeout(schedule, 300);
+          }
         })
       );
     }
@@ -40007,12 +40000,14 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，所有榜单前五名的彩色徽章边框还会显示流光效果。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
-          "修复生产面板重建或存在嵌套容器时，目标等级和生产次数快捷输入不显示；插件现在会识别实际表单并自动恢复整组生产扩展。"
+          "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。"
         ]),
         en: Object.freeze([
+          "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Profiles show every badge on a second row below the name, other locations keep only the three best ranks, and all top-five rainbow borders gain a flowing highlight.",
           "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
-          "Fixed target-level controls and production count shortcuts not appearing when the production panel was rebuilt or used nested containers. MWITools now identifies the actual form and restores the full production extension group automatically."
+          "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times."
         ])
       })
     }),
