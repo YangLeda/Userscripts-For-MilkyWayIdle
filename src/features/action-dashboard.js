@@ -19,7 +19,7 @@ function formatDuration(seconds) {
   if (!Number.isFinite(seconds)) return "—";
   const normalized = Math.max(0, Math.round(seconds));
   if (normalized < 86_400) {
-    return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+    return runtime.api.timeReadable?.(normalized) || `${normalized}s`;
   }
   const days = Math.floor(normalized / 86_400);
   const hours = Math.floor((normalized % 86_400) / 3_600);
@@ -768,7 +768,7 @@ function renderProductionPanel() {
     : Number.POSITIVE_INFINITY;
   const projection = runtime.api.projectAction(actionHrid, count, {
     durationPerAction: getProductionPanelDuration(panel),
-    respectInventoryLimit: true,
+    respectInventoryLimit: !Number.isFinite(count),
   });
   syncMaxButton(panel, input, projection.maxCraftable);
   let card = panel.querySelector("#mwi-production-summary");

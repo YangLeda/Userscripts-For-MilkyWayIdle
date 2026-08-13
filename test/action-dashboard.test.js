@@ -169,6 +169,12 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   ).value = "15000";
   runtime.api.renderProductionPanel();
+  assert.match(
+    card.querySelector(".mwi-production-output-item").title,
+    /木板 ×15,000/,
+  );
+  assert.match(card.textContent, /库存最多可做10/);
+  assert.match(card.textContent, /本次总耗时1天1小时/);
   assert.equal(
     card.querySelector('[data-mwitools-production-extension="true"]'),
     extension,
@@ -237,8 +243,9 @@ test("infinite production summaries use inventory capacity and expose a native-s
   logItem.count = 0;
   input.value = "∞";
   runtime.api.renderProductionPanel();
-  assert.match(card.textContent, /本次总耗时∞/);
-  assert.match(card.textContent, /本次总净利润∞/);
+  assert.match(card.textContent, /预期总产出.*木板.*×0/s);
+  assert.match(card.textContent, /本次总耗时0s/);
+  assert.match(card.textContent, /本次总净利润0/);
   assert.equal(maxButton.disabled, true);
   logItem.count = 20;
   input.value = "5";

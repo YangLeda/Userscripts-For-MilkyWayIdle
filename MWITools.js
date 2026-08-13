@@ -20125,7 +20125,7 @@
       }
       if (!inputs.length) maxCraftable = Infinity;
     }
-    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
+    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0 && context.respectInventoryLimit !== true));
     const executableCount = canApplyInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
     const materialLimited = respectInventoryLimit && (inputs.length > 0 || Boolean(alchemyCapacity)) && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
@@ -32478,7 +32478,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (!Number.isFinite(seconds)) return "—";
     const normalized = Math.max(0, Math.round(seconds));
     if (normalized < 86400) {
-      return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+      return runtime.api.timeReadable?.(normalized) || `${normalized}s`;
     }
     const days = Math.floor(normalized / 86400);
     const hours = Math.floor(normalized % 86400 / 3600);
@@ -33099,7 +33099,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const count = input ? runtime.api.parseCompactNumber(input.value) : Number.POSITIVE_INFINITY;
     const projection = runtime.api.projectAction(actionHrid, count, {
       durationPerAction: getProductionPanelDuration(panel),
-      respectInventoryLimit: true
+      respectInventoryLimit: !Number.isFinite(count)
     });
     syncMaxButton(panel, input, projection.maxCraftable);
     let card = panel.querySelector("#mwi-production-summary");
@@ -33315,6 +33315,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
+    .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:.62rem;white-space:nowrap;cursor:pointer}
+    .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
     .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;font-size:.65rem;cursor:pointer}
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
@@ -34248,37 +34250,66 @@ ${locks}` : ""}`;
     const root = document.createElement("section");
     root.id = PRODUCTION_ID;
     root.dataset.mwitoolsProductionExtension = "true";
-    const missing = materials.filter(
-      (material) => material.purchasable && material.shortage > 0
-    );
-    const addable = materials.filter(
-      (material) => material.purchasable && material.addableShortage > 0
-    );
+    const hasSelectableChain = (chain?.stages?.length ?? 0) > 1;
+    const previousStepMaterials = hasSelectableChain ? procurement.selectUpgradeChainMaterials(chain, [
+      chain.stages[0].actionHrid
+    ]) : materials;
+    let stageInputs = [];
     const summary = document.createElement("div");
     summary.className = "mwi-procurement-summary-line";
-    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready")}</span>`;
+    const summaryState = document.createElement("span");
+    summaryState.className = "mwi-procurement-summary-state";
+    let chainModeInput = null;
+    if (hasSelectableChain) {
+      const chainMode = document.createElement("label");
+      chainMode.className = "mwi-procurement-chain-mode";
+      chainModeInput = document.createElement("input");
+      chainModeInput.type = "checkbox";
+      chainModeInput.setAttribute("role", "switch");
+      chainModeInput.setAttribute("aria-label", t7("所选链条", "Selected chain"));
+      const chainModeLabel = document.createElement("span");
+      chainModeLabel.textContent = t7("所选链条", "Selected chain");
+      chainMode.append(chainModeInput, chainModeLabel);
+      summary.append(summaryState, chainMode);
+    } else {
+      summary.append(summaryState);
+    }
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
-    add.disabled = addable.length === 0 && !chain?.stages?.length;
-    add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
-    add.addEventListener("click", () => {
-      const stageInputs = [
-        ...root.querySelectorAll(".mwi-procurement-chain-stage input")
-      ];
-      const selectedActions = new Set(
-        stageInputs.length ? stageInputs.filter((input) => input.checked).map((input) => input.dataset.action) : (chain?.stages ?? []).map((stage) => stage.actionHrid)
+    const selectedMaterials = () => {
+      if (!hasSelectableChain || !chainModeInput?.checked) {
+        return previousStepMaterials;
+      }
+      return procurement.selectUpgradeChainMaterials(
+        chain,
+        stageInputs.filter((input) => input.checked).map((input) => input.dataset.action)
       );
-      const selectedMaterials = chain?.stages?.length ? procurement.selectUpgradeChainMaterials(chain, selectedActions) : materials;
+    };
+    const updateSummary = () => {
+      const scopedMaterials = selectedMaterials();
+      const missing = scopedMaterials.filter(
+        (material) => material.purchasable && material.shortage > 0
+      );
+      const addable = scopedMaterials.filter(
+        (material) => material.purchasable && material.addableShortage > 0
+      );
+      summaryState.innerHTML = missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready");
+      add.disabled = addable.length === 0;
+      add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
+    };
+    chainModeInput?.addEventListener("change", updateSummary);
+    add.addEventListener("click", () => {
+      const scopedMaterials = selectedMaterials();
       const result = procurement.addRequirementsToCart(
-        selectedMaterials,
+        scopedMaterials,
         isEnhancing ? "enhancing" : "production"
       );
       if (!isEnhancing && settings2.createPlansByDefault && result.added > 0) {
         procurement.createPlan(
           context.actionHrid,
           context.count,
-          selectedMaterials
+          scopedMaterials
         );
       }
       showToast(
@@ -34291,7 +34322,7 @@ ${locks}` : ""}`;
     summary.append(add);
     root.append(summary);
     if (isEnhancing) appendSunnyEnhancingCompatibility(root);
-    if (chain?.stages?.length > 1) {
+    if (hasSelectableChain) {
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
@@ -34310,41 +34341,27 @@ ${locks}` : ""}`;
       allButton.type = "button";
       allButton.className = "mwi-procurement-chain-preset";
       allButton.textContent = t7("全链条", "Full chain");
-      const previousButton = document.createElement("button");
-      previousButton.type = "button";
-      previousButton.className = "mwi-procurement-chain-preset";
-      previousButton.textContent = t7("从上一步开始", "Start from previous");
-      const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+      stageInputs = [...list.querySelectorAll("input[type=checkbox]")];
       const updatePresetState = () => {
-        const checked = checkboxes.map((input) => input.checked);
+        const checked = stageInputs.map((input) => input.checked);
         allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
-        previousButton.setAttribute(
-          "aria-pressed",
-          String(
-            Boolean(checked[0]) && checked.slice(1).every((value) => !value)
-          )
-        );
+        updateSummary();
       };
       allButton.addEventListener("click", () => {
-        checkboxes.forEach((input) => {
+        stageInputs.forEach((input) => {
           input.checked = true;
         });
         updatePresetState();
       });
-      previousButton.addEventListener("click", () => {
-        checkboxes.forEach((input, index) => {
-          input.checked = index === 0;
-        });
-        updatePresetState();
-      });
-      checkboxes.forEach(
+      stageInputs.forEach(
         (input) => input.addEventListener("change", updatePresetState)
       );
-      presets.append(allButton, previousButton);
+      presets.append(allButton);
       updatePresetState();
       details.append(heading, presets, list);
       root.append(details);
     }
+    updateSummary();
     const enhancingInfo = isEnhancing ? context.panel.querySelector('[class*="SkillActionDetail_info"]') : null;
     const existingSummary = context.panel.querySelector(
       "#mwi-production-summary"
@@ -38690,7 +38707,8 @@ ${locks}` : ""}`;
           "任务卡的语义匹配与火车升级链改用索引，任务附属控件按需刷新，并取消功能关闭后尚未执行的帧回调，降低乱序任务和战斗期间的后台开销。",
           "物品等级、市场筛选和地图编号改为按交互与数据消息刷新；DPS 启动器及收益、强化浮窗缩小观察范围，并移除高 GPU 占用的背景模糊。",
           "强化成本现在与生产收益和宝箱估算共用同一个自定义快捷键；桌面端按住触发，移动端长按触发。",
-          "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。"
+          "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。",
+          "生产购物清单现在默认补齐上一层成品与当前步骤材料，也可通过“所选链条”开关按勾选阶段补齐；有限次数的总产出、耗时和利润不再被当前库存截断，无限次数且无库存时会明确显示为 0。"
         ]),
         en: Object.freeze([
           "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
@@ -38704,7 +38722,8 @@ ${locks}` : ""}`;
           "Task semantic matching and train upgrade lookups now use indexes, task decorations refresh on demand, and queued frames are cancelled on feature cleanup to reduce shuffled-task and combat overhead.",
           "Item levels, market filters, and map indexes now refresh on interactions and data messages. DPS launcher and estimate-panel observers are narrower, and expensive backdrop blur was removed.",
           "Enhancement costs now share the same custom shortcut as production profit and loot chest estimates: hold the key on desktop or long-press on touch devices.",
-          "Release announcements are stored separately by version again, so the 26.4.6 history is no longer mixed into this release."
+          "Release announcements are stored separately by version again, so the 26.4.6 history is no longer mixed into this release.",
+          "Production shopping lists now default to the direct predecessor and current-step materials, with a “Selected chain” switch for the checked stages. Finite totals are no longer capped by current inventory, while infinite production with no stock now clearly shows zero."
         ])
       })
     }),

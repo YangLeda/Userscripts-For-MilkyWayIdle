@@ -808,7 +808,7 @@ test("iron-cow adaptation keeps shortages while suppressing market shopping UI",
   runtime.api.procurement.clearCart({ includeStarred: true });
 });
 
-test("upgrade chains can start from the direct predecessor without expanding it", () => {
+test("upgrade-chain shopping defaults to the direct predecessor and can use selected stages", () => {
   const panel = document.createElement("div");
   panel.className = "SkillActionDetail_regularComponent__chain-fixture";
   panel.innerHTML = `
@@ -819,8 +819,14 @@ test("upgrade chains can start from the direct predecessor without expanding it"
   const previousResolver = runtime.api.resolveProductionAction;
   const previousCreatePlans =
     runtime.api.procurement.getSettings().createPlansByDefault;
+  const previousCreatePlan = runtime.api.procurement.createPlan;
+  const plannedMaterials = [];
   runtime.api.procurement.clearCart({ includeStarred: true });
-  runtime.api.procurement.setSetting("createPlansByDefault", false);
+  runtime.api.procurement.setSetting("createPlansByDefault", true);
+  runtime.api.procurement.createPlan = (_actionHrid, _count, materials) => {
+    plannedMaterials.push(materials.map((material) => material.itemHrid));
+    return { id: `test-plan-${plannedMaterials.length}` };
+  };
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/shadow_pants": { name: "Shadow Pants" },
     "/items/beast_pants": { name: "Beast Pants" },
@@ -851,32 +857,75 @@ test("upgrade chains can start from the direct predecessor without expanding it"
   panel.querySelector('input[type="text"],input').value = "2";
 
   runtime.api.renderProductionProcurement();
-  const root = document.querySelector("#mwitools-procurement-production");
-  const previousButton = root.querySelectorAll(
-    ".mwi-procurement-chain-preset",
-  )[1];
-  const allButton = root.querySelector(".mwi-procurement-chain-preset");
+  let root = document.querySelector("#mwitools-procurement-production");
+  let chainMode = root.querySelector(".mwi-procurement-chain-mode input");
+  let allButton = root.querySelector(".mwi-procurement-chain-preset");
   const checkedState = () =>
     [...root.querySelectorAll(".mwi-procurement-chain-stage input")].map(
       (input) => input.checked,
     );
+  assert.equal(chainMode.checked, false);
+  assert.equal(chainMode.getAttribute("role"), "switch");
+  assert.equal(chainMode.getAttribute("aria-label"), "Selected chain");
+  assert.equal(
+    root.querySelectorAll(".mwi-procurement-chain-preset").length,
+    1,
+  );
+  assert.doesNotMatch(root.textContent, /Start from previous/);
   assert.deepEqual(checkedState(), [true, true]);
-  previousButton.click();
-  assert.deepEqual(checkedState(), [true, false]);
-  assert.equal(previousButton.getAttribute("aria-pressed"), "true");
-  allButton.click();
-  assert.deepEqual(checkedState(), [true, true]);
-  previousButton.click();
   root.querySelector(".mwi-procurement-inline-button").click();
 
-  const itemHrids = runtime.api.procurement
+  let itemHrids = runtime.api.procurement
     .getCartItems()
     .map((item) => item.itemHrid);
   assert.equal(itemHrids.includes("/items/beast_pants"), true);
   assert.equal(itemHrids.includes("/items/shadow_leather"), true);
   assert.equal(itemHrids.includes("/items/beast_leather"), false);
+  assert.deepEqual(plannedMaterials[0], [
+    "/items/beast_pants",
+    "/items/shadow_leather",
+  ]);
+
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.renderProductionProcurement();
+  root = document.querySelector("#mwitools-procurement-production");
+  chainMode = root.querySelector(".mwi-procurement-chain-mode input");
+  allButton = root.querySelector(".mwi-procurement-chain-preset");
+  chainMode.checked = true;
+  chainMode.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  const stageInputs = [
+    ...root.querySelectorAll(".mwi-procurement-chain-stage input"),
+  ];
+  stageInputs.forEach((input) => {
+    input.checked = false;
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  assert.equal(
+    root.querySelector(".mwi-procurement-inline-button").disabled,
+    true,
+  );
+  assert.match(root.textContent, /Materials ready/);
+  allButton.click();
+  assert.deepEqual(checkedState(), [true, true]);
+  assert.equal(
+    root.querySelector(".mwi-procurement-inline-button").disabled,
+    false,
+  );
+  root.querySelector(".mwi-procurement-inline-button").click();
+
+  itemHrids = runtime.api.procurement
+    .getCartItems()
+    .map((item) => item.itemHrid);
+  assert.equal(itemHrids.includes("/items/beast_pants"), false);
+  assert.equal(itemHrids.includes("/items/shadow_leather"), true);
+  assert.equal(itemHrids.includes("/items/beast_leather"), true);
+  assert.deepEqual(plannedMaterials[1], [
+    "/items/shadow_leather",
+    "/items/beast_leather",
+  ]);
 
   runtime.api.resolveProductionAction = previousResolver;
+  runtime.api.procurement.createPlan = previousCreatePlan;
   runtime.api.procurement.setSetting(
     "createPlansByDefault",
     previousCreatePlans,

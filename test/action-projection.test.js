@@ -279,6 +279,19 @@ test("empty inventory keeps an infinite production request infinite", () => {
   assert.equal(result.effectivelyInfinite, true);
   assert.equal(result.materialLimited, false);
   assert.equal(result.totalSeconds, Infinity);
+
+  const explicitlyLimited = runtime.api.projectAction(
+    "/actions/crafting/test",
+    Infinity,
+    { respectInventoryLimit: true },
+  );
+  assert.equal(explicitlyLimited.respectsInventoryLimit, true);
+  assert.equal(explicitlyLimited.maxCraftable, 0);
+  assert.equal(explicitlyLimited.effectiveCount, 0);
+  assert.equal(explicitlyLimited.effectivelyInfinite, false);
+  assert.equal(explicitlyLimited.totalSeconds, 0);
+  assert.equal(explicitlyLimited.outputs[0].expectedCount, 0);
+  assert.equal(explicitlyLimited.totalProfit, 0);
   input.count = previousCount;
 });
 
