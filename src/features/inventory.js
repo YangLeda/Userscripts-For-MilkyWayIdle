@@ -646,7 +646,13 @@ async function calculateNetworth(options = {}) {
       if (showWorth) {
         node.classList.add("script_buildScore_added");
         const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
-        if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
+        const summary = node.parentElement?.querySelector(
+          "#script_inventory_summary",
+        );
+        if (
+          node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion ||
+          !summary
+        ) {
           addInventorySummary(node);
           addInventoryCategoryValues(node, display.categoryValues);
           node.dataset.mwitoolsInventoryDisplayVersion = renderVersion;

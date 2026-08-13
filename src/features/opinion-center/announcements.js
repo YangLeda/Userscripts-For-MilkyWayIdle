@@ -2,6 +2,23 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.9",
+    version: "26.4.9",
+    publishedAt: "2026-08-13",
+    title: Object.freeze({
+      zh: "26.4.9 更新公告",
+      en: "Version 26.4.9 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
+      ]),
+      en: Object.freeze([
+        "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.8",
     version: "26.4.8",
     publishedAt: "2026-08-13",

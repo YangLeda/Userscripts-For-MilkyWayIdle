@@ -381,25 +381,28 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.8", () => {
+test("announcement history preserves each release separately through 26.4.9", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
   const older = ANNOUNCEMENTS[2];
+  const oldest = ANNOUNCEMENTS[3];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.8");
-  assert.equal(previous.version, "26.4.7");
-  assert.equal(older.version, "26.4.6");
-  assert.equal(older.publishedAt, "2026-08-12");
+  assert.equal(current.version, "26.4.9");
+  assert.equal(previous.version, "26.4.8");
+  assert.equal(older.version, "26.4.7");
+  assert.equal(oldest.version, "26.4.6");
+  assert.equal(oldest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(older.body.zh.length, 20);
-  assert.equal(older.body.en.length, 20);
-  assert.match(older.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.equal(oldest.body.zh.length, 20);
+  assert.equal(oldest.body.en.length, 20);
+  assert.match(oldest.body.zh.join("\n"), /任务页改为平铺布局/);
   assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
-  assert.match(previous.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
-  assert.match(current.body.zh.join("\n"), /炼金与强化/);
+  assert.match(older.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(previous.body.zh.join("\n"), /炼金与强化/);
+  assert.match(current.body.zh.join("\n"), /切换到技能页再返回库存/);
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

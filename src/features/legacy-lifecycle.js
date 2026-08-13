@@ -29,10 +29,14 @@ function observeRelevantDom(scope, selector, callback) {
   return scheduler;
 }
 
-function refreshInventoryIfNeeded(className) {
+function refreshInventoryIfNeeded(className, outputSelector) {
   const needsRender = [
     ...document.querySelectorAll('div[class*="Inventory_items"]'),
-  ].some((node) => !node.classList.contains(className));
+  ].some(
+    (node) =>
+      !node.classList.contains(className) ||
+      (outputSelector && !node.parentElement?.querySelector(outputSelector)),
+  );
   if (needsRender) runtime.api.scheduleNetworthRefresh?.();
 }
 
@@ -42,7 +46,10 @@ const adapters = {
     initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
       observeRelevantDom(scope, 'div[class*="Inventory_items"]', () =>
-        refreshInventoryIfNeeded("script_buildScore_added"),
+        refreshInventoryIfNeeded(
+          "script_buildScore_added",
+          "#script_inventory_summary",
+        ),
       );
     },
     cleanup() {
@@ -64,7 +71,10 @@ const adapters = {
     initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
       observeRelevantDom(scope, 'div[class*="Inventory_items"]', () =>
-        refreshInventoryIfNeeded("script_invSort_added"),
+        refreshInventoryIfNeeded(
+          "script_invSort_added",
+          "#script_inv_sort_controls",
+        ),
       );
     },
     cleanup() {

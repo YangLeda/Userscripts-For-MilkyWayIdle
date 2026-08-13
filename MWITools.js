@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.8
+// @version      26.4.9
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -29620,7 +29620,10 @@ ${preview}`
         if (showWorth) {
           node.classList.add("script_buildScore_added");
           const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
-          if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion) {
+          const summary2 = node.parentElement?.querySelector(
+            "#script_inventory_summary"
+          );
+          if (node.dataset.mwitoolsInventoryDisplayVersion !== renderVersion || !summary2) {
             addInventorySummary(node);
             addInventoryCategoryValues(node, display.categoryValues);
             node.dataset.mwitoolsInventoryDisplayVersion = renderVersion;
@@ -39985,6 +39988,23 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.9",
+      version: "26.4.9",
+      publishedAt: "2026-08-13",
+      title: Object.freeze({
+        zh: "26.4.9 更新公告",
+        en: "Version 26.4.9 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。"
+        ]),
+        en: Object.freeze([
+          "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.8",
       version: "26.4.8",
       publishedAt: "2026-08-13",
@@ -44775,7 +44795,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.8");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.9");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -53897,10 +53917,12 @@ ${locks}` : ""}`;
     scope.add(() => scheduler.cancel());
     return scheduler;
   }
-  function refreshInventoryIfNeeded(className) {
+  function refreshInventoryIfNeeded(className, outputSelector) {
     const needsRender = [
       ...document.querySelectorAll('div[class*="Inventory_items"]')
-    ].some((node) => !node.classList.contains(className));
+    ].some(
+      (node) => !node.classList.contains(className) || outputSelector && !node.parentElement?.querySelector(outputSelector)
+    );
     if (needsRender) runtime.api.scheduleNetworthRefresh?.();
   }
   var adapters = {
@@ -53911,7 +53933,10 @@ ${locks}` : ""}`;
         observeRelevantDom(
           scope,
           'div[class*="Inventory_items"]',
-          () => refreshInventoryIfNeeded("script_buildScore_added")
+          () => refreshInventoryIfNeeded(
+            "script_buildScore_added",
+            "#script_inventory_summary"
+          )
         );
       },
       cleanup() {
@@ -53933,7 +53958,10 @@ ${locks}` : ""}`;
         observeRelevantDom(
           scope,
           'div[class*="Inventory_items"]',
-          () => refreshInventoryIfNeeded("script_invSort_added")
+          () => refreshInventoryIfNeeded(
+            "script_invSort_added",
+            "#script_inv_sort_controls"
+          )
         );
       },
       cleanup() {

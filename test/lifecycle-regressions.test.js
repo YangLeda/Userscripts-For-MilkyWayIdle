@@ -42,6 +42,33 @@ after(async () => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 runtime.state.initData_characterItems = [];
 
+test("inventory lifecycle restores output removed from a reused inventory node", async () => {
+  const originalSchedule = runtime.api.scheduleNetworthRefresh;
+  let refreshes = 0;
+  runtime.api.scheduleNetworthRefresh = () => {
+    refreshes += 1;
+  };
+  runtime.settings.settingsMap.invWorth.isTrue = true;
+  await runtime.features.handleCharacterData({ character: { id: 1 } });
+  await runtime.features.restart("invWorth");
+
+  document.body.innerHTML = `
+    <section>
+      <div class="Inventory_items__fixture script_buildScore_added">
+        <div class="Inventory_itemGrid__fixture"></div>
+      </div>
+    </section>`;
+  refreshes = 0;
+  document
+    .querySelector(".Inventory_itemGrid__fixture")
+    .append(document.createElement("span"));
+  await settle();
+
+  assert.ok(refreshes >= 1);
+  await runtime.features.disable("invWorth");
+  runtime.api.scheduleNetworthRefresh = originalSchedule;
+});
+
 test("disabling queue timing disconnects observers that could recreate output", async () => {
   runtime.state.initData_actionDetailMap = {
     "/actions/crafting/current": { baseTimeCost: 10_000_000_000 },

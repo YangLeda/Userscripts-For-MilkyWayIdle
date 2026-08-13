@@ -411,6 +411,23 @@ test("inventory display stays frozen until a forced refresh", async () => {
   await runtime.api.calculateNetworth({ force: true });
 });
 
+test("inventory summary returns when the game reuses a processed inventory node", async () => {
+  await runtime.api.calculateNetworth({ force: true });
+  const inventory = document.querySelector('div[class*="Inventory_items"]');
+  const originalSummary = document.querySelector("#script_inventory_summary");
+  assert.ok(originalSummary);
+  assert.ok(inventory.classList.contains("script_buildScore_added"));
+  assert.ok(inventory.dataset.mwitoolsInventoryDisplayVersion);
+
+  originalSummary.remove();
+  await runtime.api.calculateNetworth();
+
+  const restoredSummary = document.querySelector("#script_inventory_summary");
+  assert.ok(restoredSummary);
+  assert.match(restoredSummary.textContent, /战斗着装评分/);
+  assert.match(restoredSummary.textContent, /总资产/);
+});
+
 test("listing values use explicit balances and never infer buy reserves", () => {
   const totals = runtime.api.calculateMarketListingValues([
     {
