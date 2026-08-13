@@ -636,6 +636,31 @@ test("enhancement actions use the finite amount shown in the native header", () 
   assert.match(dashboard.querySelector("span").title, /强化栏/);
 });
 
+test("unenhanced items and trailing warnings keep enhancement estimates visible", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren();
+  const nativeName = document.createElement("span");
+  nativeName.textContent = "骑士盾（2937）";
+  const warning = document.createElement("span");
+  warning.id = "script_item_warning";
+  warning.textContent = "缺少强化手套";
+  host.append(nativeName, warning);
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/enhancing",
+      hasMaxCount: false,
+      maxCount: 0,
+    },
+  ];
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.ok(dashboard);
+  assert.match(dashboard.textContent, /剩余 2\.94K/);
+  assert.doesNotMatch(dashboard.textContent, /∞|预计完成 —/);
+});
+
 test("equipment warnings float below community buffs without moving action content", () => {
   const host = document.querySelector('div[class*="Header_actionName"]');
   document.querySelector("#mwi-action-dashboard")?.remove();

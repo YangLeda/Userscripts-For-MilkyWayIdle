@@ -147,7 +147,7 @@ function plannerLabel(text, title, signature) {
   return label;
 }
 
-function render() {
+export function renderTaskTrainPlanner() {
   const cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) return;
   const quests = runtime.state.characterQuests ?? [];
@@ -165,11 +165,14 @@ function render() {
           ":",
         )
       : "none";
-    const existing = action.querySelector(`.${CONTROL_CLASS}`);
-    if (existing?.dataset.signature === signature) continue;
-    action
-      .querySelectorAll(`.${CONTROL_CLASS}`)
-      .forEach((node) => node.remove());
+    const existingControls = [...card.querySelectorAll(`.${CONTROL_CLASS}`)];
+    if (
+      existingControls.length === 1 &&
+      existingControls[0].dataset.signature === signature
+    ) {
+      continue;
+    }
+    existingControls.forEach((node) => node.remove());
     if (!entry || entry.state === "done") continue;
     if (entry.state === "top") {
       insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
@@ -243,14 +246,14 @@ runtime.features.register({
   dependsOn: ["semiAutoTrain"],
   initialize({ scope }) {
     addStyles();
-    render();
+    renderTaskTrainPlanner();
     let pending = false;
     const schedule = () => {
       if (pending) return;
       pending = true;
       (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
         pending = false;
-        render();
+        renderTaskTrainPlanner();
       });
     };
     const observer = new MutationObserver((records) => {

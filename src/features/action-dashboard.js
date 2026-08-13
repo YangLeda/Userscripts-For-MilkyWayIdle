@@ -237,14 +237,12 @@ function getLiveActionTiming(host) {
 
 function getNativeEnhancementCount(host, action) {
   if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
-  const nativeText = [...(host?.childNodes ?? [])]
-    .filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard")
-    .map((node) => node.textContent ?? "")
-    .join(" ")
-    .trim();
-  const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+  const matches = [
+    ...nativeActionText(host).matchAll(/[（(]\s*([\d\s.,]+)\s*[)）]/g),
+  ];
+  const match = matches.at(-1);
   if (!match) return null;
-  const count = Number(match[1].replace(/\D/g, ""));
+  const count = parseCompactNumber(match[1]);
   return Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
@@ -320,6 +318,7 @@ function actionMatchesHeader(action, host) {
   if (resolveLocalizedEntity("action", header) === actionHrid) return true;
   if (String(actionHrid).includes("/enhancing")) {
     return (
+      getNativeEnhancementCount(host, action) !== null ||
       /\+\s*\d+/.test(header) ||
       actionHeaderNames(actionHrid, detail).some((name) =>
         header.includes(name),

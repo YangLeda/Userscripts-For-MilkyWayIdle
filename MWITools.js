@@ -23791,7 +23791,7 @@
   function createDuplicateWarningMonitor(options = {}) {
     const documentRef = options.documentRef ?? globalThis.document;
     const detect = options.detect ?? (() => detectDuplicateScripts(options));
-    const render2 = options.render ?? showDuplicateWarning;
+    const render = options.render ?? showDuplicateWarning;
     const scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask;
     const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
     const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
@@ -23811,7 +23811,7 @@
       const signature = duplicateSignature(duplicates);
       if (signature === lastSignature) return;
       lastSignature = signature;
-      render2(duplicates, {
+      render(duplicates, {
         documentRef,
         isZH: options.isZH ?? runtime.config.isZH,
         onDismiss() {
@@ -25800,7 +25800,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
-      if (!this.root.hidden) this.render();
+      if (!this.root.hidden && ["chart", "analysis", "stats", "achievements"].includes(this.route)) {
+        this.render();
+      }
     }
     applyTheme() {
       const prefs = this.store.getPreferences();
@@ -31843,6 +31845,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
   var EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
   var ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
+  var MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
+  var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"]';
+  var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
+  var actionPanelRetryStates = /* @__PURE__ */ new Map();
   function addActionPanelStyles() {
     if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -31860,7 +31866,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     (document.head ?? document.documentElement).appendChild(style);
   }
   var waitForActionPanelParent = () => {
-    const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
+    const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
     if (targetNode) {
       console.log(
         runtime.config.isZH ? "[MWITools] 开始监听行动面板。" : "[MWITools] Started observing the action panel."
@@ -31868,13 +31874,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const actionPanelObserver = new MutationObserver(async function(mutations) {
         for (const mutation of mutations) {
           for (const added of mutation.addedNodes) {
-            if (added?.classList?.contains("Modal_modalContainer__3B80m") && added.querySelector("div.SkillActionDetail_regularComponent__3oCgr")) {
-              handleActionPanel(
-                added.querySelector(
-                  "div.SkillActionDetail_regularComponent__3oCgr"
-                )
-              );
-            }
+            const panel = added?.matches?.(ACTION_PANEL_SELECTOR) ? added : added?.querySelector?.(ACTION_PANEL_SELECTOR);
+            if (panel) scheduleActionPanel(panel);
           }
         }
       });
@@ -31888,28 +31889,24 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
   };
   async function handleActionPanel(panel) {
-    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return;
+    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
     if (panel.dataset.mwitoolsActionPanel === "true" && panel.querySelector("#mwi-level-progress") && panel.querySelectorAll(".mwi-native-level-stat").length === 4)
-      return;
-    panel.querySelector("#mwi-level-progress")?.remove();
-    panel.querySelectorAll(".mwi-native-level-stat").forEach((element) => element.remove());
-    panel.dataset.mwitoolsActionPanel = "true";
-    addActionPanelStyles();
+      return true;
     const expElement = panel.querySelector(
       'div[class*="SkillActionDetail_expGain"]'
     );
     const inputElem = panel.querySelector(
       'div[class*="SkillActionDetail_maxActionCountInput"] input'
     );
-    if (!expElement || !inputElem) return;
+    if (!expElement || !inputElem) return false;
     const actionHrid = runtime.api.resolveProductionAction?.(panel);
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     const duration = runtime.api.getProductionPanelDuration?.(panel);
-    if (!detail || !Number.isFinite(duration) || duration <= 0) return;
+    if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
     const exp = Number(
       String(runtime.api.getOriTextFromElement(expElement) ?? "").replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replaceAll(runtime.config.DECIMAL_SEPERATOR, ".")
     );
-    if (!Number.isFinite(exp) || exp <= 0) return;
+    if (!Number.isFinite(exp) || exp <= 0) return false;
     const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
     const effBuff = 1 + efficiencyDetails.total / 100;
     const skillHrid = detail.experienceGain?.skillHrid;
@@ -31922,6 +31919,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         break;
       }
     }
+    const infoContainer = panel.querySelector(
+      'div[class*="SkillActionDetail_info"]'
+    );
+    const nativeLabel = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_label"]'
+    );
+    const nativeValue = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_value"]'
+    );
+    if (currentExp === null || currentLevel === null || !infoContainer || !nativeLabel || !nativeValue) {
+      return false;
+    }
+    panel.querySelector("#mwi-level-progress")?.remove();
+    panel.querySelectorAll(".mwi-native-level-stat").forEach((element) => element.remove());
+    delete panel.dataset.mwitoolsActionPanel;
+    addActionPanelStyles();
     if (currentExp !== null && currentLevel !== null) {
       const calculateNeedToLevel = (currentLevel2, targetLevel, effBuff2, duration2, exp2) => {
         let needTotalTimeSec = 0;
@@ -31969,39 +31982,28 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       tillLevelNumber.className = "mwi-level-progress-result";
       row.append(label, tillLevelInput, tillLevelNumber);
       levelCard.append(row);
-      const infoContainer = panel.querySelector(
-        'div[class*="SkillActionDetail_info"]'
+      const addNativeStat = (id, labelText, valueText) => {
+        const statLabel = document.createElement("div");
+        statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
+        statLabel.textContent = labelText;
+        const statValue = document.createElement("div");
+        statValue.id = id;
+        statValue.className = `${nativeValue.className} mwi-native-level-stat`;
+        statValue.textContent = valueText;
+        infoContainer.append(statLabel, statValue);
+      };
+      addNativeStat(
+        "expPerHour",
+        runtime.config.isZH ? "经验/小时" : "XP/hour",
+        runtime.api.numberFormatter(
+          Math.round(3600 / duration * exp * effBuff)
+        )
       );
-      const nativeLabel = infoContainer?.querySelector(
-        'div[class*="SkillActionDetail_label"]'
+      addNativeStat(
+        "currentEfficiency",
+        runtime.config.isZH ? "当前效率" : "Efficiency",
+        `+${Number((effBuff - 1) * 100).toFixed(1)}%`
       );
-      const nativeValue = infoContainer?.querySelector(
-        'div[class*="SkillActionDetail_value"]'
-      );
-      if (infoContainer && nativeLabel && nativeValue) {
-        const addNativeStat = (id, labelText, valueText) => {
-          const statLabel = document.createElement("div");
-          statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
-          statLabel.textContent = labelText;
-          const statValue = document.createElement("div");
-          statValue.id = id;
-          statValue.className = `${nativeValue.className} mwi-native-level-stat`;
-          statValue.textContent = valueText;
-          infoContainer.append(statLabel, statValue);
-        };
-        addNativeStat(
-          "expPerHour",
-          runtime.config.isZH ? "经验/小时" : "XP/hour",
-          runtime.api.numberFormatter(
-            Math.round(3600 / duration * exp * effBuff)
-          )
-        );
-        addNativeStat(
-          "currentEfficiency",
-          runtime.config.isZH ? "当前效率" : "Efficiency",
-          `+${Number((effBuff - 1) * 100).toFixed(1)}%`
-        );
-      }
       const anchor = panel.querySelector("#mwi-production-summary") ?? panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ?? inputElem.parentElement;
       anchor.insertAdjacentElement("afterend", levelCard);
       let targetLevelEdited = false;
@@ -32031,6 +32033,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       });
       updateTargetLevel();
     }
+    panel.dataset.mwitoolsActionPanel = "true";
     if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()) {
       const marketJson = await runtime.api.fetchMarketJSON();
       const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
@@ -32067,6 +32070,38 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}<span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerHour)}">${runtime.api.numberFormatter(profitPerHour)}</span>${runtime.config.isZH ? "/小时" : "/hour"}, <span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerDay)}">${runtime.api.numberFormatter(profitPerDay)}</span>${runtime.config.isZH ? "/天" : "/day"}</div>`;
       panel.querySelector("#mwi-level-progress")?.insertAdjacentHTML("beforeend", htmlStr);
     }
+    return true;
+  }
+  function scheduleActionPanel(panel) {
+    if (!panel?.isConnected || actionPanelRetryStates.has(panel)) return;
+    const state = { attempt: 0, timer: null };
+    actionPanelRetryStates.set(panel, state);
+    const run = async () => {
+      state.timer = null;
+      if (!panel.isConnected) {
+        actionPanelRetryStates.delete(panel);
+        return;
+      }
+      let ready2 = false;
+      try {
+        ready2 = await handleActionPanel(panel);
+      } catch (error) {
+        console.info("[MWITools] Action panel enhancement unavailable", error);
+      }
+      if (ready2 || state.attempt >= ACTION_PANEL_RETRY_DELAYS.length - 1) {
+        actionPanelRetryStates.delete(panel);
+        return;
+      }
+      state.attempt += 1;
+      state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[state.attempt]);
+    };
+    state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
+  }
+  function clearActionPanelRetries() {
+    for (const state of actionPanelRetryStates.values()) {
+      if (state.timer !== null) clearTimeout(state.timer);
+    }
+    actionPanelRetryStates.clear();
   }
   function sumBuffValue(buffs, typeHrid) {
     return (buffs ?? []).reduce(
@@ -32260,32 +32295,35 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     initialize({ scope }) {
       let observed = null;
       const attach = () => {
-        const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+        const target = document.querySelector(MAIN_PANEL_SELECTOR);
         if (!target || observed === target) return;
         observed = target;
         const observer = new MutationObserver((mutations) => {
+          const panels = /* @__PURE__ */ new Set();
           for (const mutation of mutations) {
+            const mutationTarget = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+            const containingPanel = mutationTarget?.closest?.(
+              ACTION_PANEL_SELECTOR
+            );
+            if (containingPanel) panels.add(containingPanel);
             for (const added of mutation.addedNodes) {
-              const panel = added?.querySelector?.(
-                "div.SkillActionDetail_regularComponent__3oCgr"
-              );
-              if (panel && (!panel.querySelector("#mwi-level-progress") || panel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
-                handleActionPanel(panel);
-              }
+              if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
+              added?.querySelectorAll?.(ACTION_PANEL_SELECTOR).forEach((panel) => panels.add(panel));
             }
           }
+          panels.forEach(scheduleActionPanel);
         });
-        scope.observer(observer, target, { childList: true, subtree: true });
-        const openPanel = target.querySelector(
-          "div.SkillActionDetail_regularComponent__3oCgr"
-        );
-        if (openPanel && (!openPanel.querySelector("#mwi-level-progress") || openPanel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
-          handleActionPanel(openPanel);
-        }
+        scope.observer(observer, target, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+        target.querySelectorAll(ACTION_PANEL_SELECTOR).forEach(scheduleActionPanel);
       };
       attach();
       scope.interval(attach, 500);
       scope.add(() => {
+        clearActionPanelRetries();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
         ).forEach((node) => node.remove());
@@ -32490,10 +32528,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function getNativeEnhancementCount(host, action) {
     if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
-    const nativeText = [...host?.childNodes ?? []].filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard").map((node) => node.textContent ?? "").join(" ").trim();
-    const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+    const matches = [
+      ...nativeActionText(host).matchAll(/[（(]\s*([\d\s.,]+)\s*[)）]/g)
+    ];
+    const match = matches.at(-1);
     if (!match) return null;
-    const count = Number(match[1].replace(/\D/g, ""));
+    const count = parseCompactNumber(match[1]);
     return Number.isSafeInteger(count) && count >= 0 ? count : null;
   }
   function getProductionPanelDuration(panel) {
@@ -32545,7 +32585,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
     if (resolveLocalizedEntity("action", header) === actionHrid) return true;
     if (String(actionHrid).includes("/enhancing")) {
-      return /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
+      return getNativeEnhancementCount(host, action) !== null || /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
         (name) => header.includes(name)
       );
     }
@@ -37455,7 +37495,7 @@ ${locks}` : ""}`;
     label.title = title;
     return label;
   }
-  function render() {
+  function renderTaskTrainPlanner() {
     const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
     if (!cards.length) return;
     const quests = runtime.state.characterQuests ?? [];
@@ -37471,9 +37511,11 @@ ${locks}` : ""}`;
       const signature = entry ? [entry.state, entry.root, entry.remaining, runtime.config.isZH].join(
         ":"
       ) : "none";
-      const existing = action.querySelector(`.${CONTROL_CLASS2}`);
-      if (existing?.dataset.signature === signature) continue;
-      action.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
+      const existingControls = [...card.querySelectorAll(`.${CONTROL_CLASS2}`)];
+      if (existingControls.length === 1 && existingControls[0].dataset.signature === signature) {
+        continue;
+      }
+      existingControls.forEach((node) => node.remove());
       if (!entry || entry.state === "done") continue;
       if (entry.state === "top") {
         insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
@@ -37533,14 +37575,14 @@ ${locks}` : ""}`;
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
       addStyles8();
-      render();
+      renderTaskTrainPlanner();
       let pending = false;
       const schedule = () => {
         if (pending) return;
         pending = true;
         (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
           pending = false;
-          render();
+          renderTaskTrainPlanner();
         });
       };
       const observer = new MutationObserver((records) => {
@@ -37664,7 +37706,7 @@ ${locks}` : ""}`;
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
-      const render2 = () => {
+      const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
         let changed = false;
@@ -37704,7 +37746,7 @@ ${locks}` : ""}`;
         pending = true;
         (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
           pending = false;
-          render2();
+          render();
         });
       };
       scope.add(
@@ -37736,7 +37778,7 @@ ${locks}` : ""}`;
         childList: true,
         subtree: true
       });
-      render2();
+      render();
       scope.add(() => {
         pending = false;
         if (liveTaskNewStates.get(storageKey) === state) {
@@ -38418,7 +38460,9 @@ ${locks}` : ""}`;
           "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
           "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。",
           "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
-          "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。"
+          "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
+          "修复任务页重复出现多个规划火车、资产中心日期选择器被实时刷新关闭，以及强化当前行动条的剩余次数与预计完成时间偶尔不显示。",
+          "意见审理台现在显示反馈者使用的 MWITools 版本；重大更新清单支持 GitHub 失败后从反馈服务器读取，并明确显示最新版本且每个版本最多提醒一次。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38442,7 +38486,9 @@ ${locks}` : ""}`;
           "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
           "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance.",
           "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
-          "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration."
+          "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
+          "Fixed duplicate train-planning controls on tasks, live asset refreshes closing date pickers, and remaining counts and completion estimates intermittently missing from the current-action bar while enhancing.",
+          "The feedback review console now shows each reporter's MWITools version. Important-update manifests fall back to the feedback server when GitHub fails, show the latest version explicitly, and appear at most once per version."
         ])
       })
     })
@@ -42740,9 +42786,8 @@ ${locks}` : ""}`;
 
   // src/features/update-banner.js
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
-  var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
-  var CACHE_KEY = "MWITools_important_update_manifest_v1";
-  var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
+  var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
+  var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID16 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t17(value) {
@@ -42770,32 +42815,15 @@ ${locks}` : ""}`;
   }
   function shouldShowImportantUpdate(manifest, installedVersion = currentVersion()) {
     return Boolean(
-      manifest?.importantVersion && compareVersions(installedVersion, manifest.importantVersion) < 0 && localStorage.getItem(
-        `MWITools_update_banner_dismissed_${manifest.importantVersion}`
+      manifest?.latestVersion && manifest?.importantVersion && compareVersions(installedVersion, manifest.importantVersion) < 0 && localStorage.getItem(
+        `MWITools_update_banner_seen_${manifest.latestVersion}`
       ) !== "true"
     );
   }
-  function readCachedManifest() {
-    try {
-      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      if (!cached?.manifest || Date.now() - cached.savedAt > CACHE_MAX_AGE) {
-        return null;
-      }
-      return cached.manifest;
-    } catch {
-      return null;
-    }
-  }
-  function saveCachedManifest(manifest) {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({ savedAt: Date.now(), manifest })
-    );
-  }
-  function requestManifest() {
+  function requestManifest(url) {
     const request2 = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!request2) {
-      return globalThis.fetch(MANIFEST_URL, { cache: "no-store" }).then((response) => {
+      return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
             t17({
@@ -42829,7 +42857,7 @@ ${locks}` : ""}`;
       try {
         const result = request2({
           method: "GET",
-          url: MANIFEST_URL,
+          url,
           timeout: 5e3,
           onload: finish,
           onerror: () => reject(
@@ -42855,17 +42883,35 @@ ${locks}` : ""}`;
       }
     });
   }
-  async function getImportantUpdateManifest() {
-    const cached = readCachedManifest();
-    if (cached) return cached;
-    const manifest = await requestManifest();
-    if (!manifest?.importantVersion) {
+  function validateManifest(manifest) {
+    if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
         t17({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
-    saveCachedManifest(manifest);
     return manifest;
+  }
+  async function fetchImportantUpdateManifest({
+    urls = [MANIFEST_URL, FALLBACK_MANIFEST_URL],
+    request: request2 = requestManifest
+  } = {}) {
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        return validateManifest(await request2(url));
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error(t17({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+  }
+  var manifestCheck = null;
+  function getImportantUpdateManifest() {
+    manifestCheck ??= fetchImportantUpdateManifest();
+    return manifestCheck;
+  }
+  function updateDownloadUrl() {
+    return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
   }
   function addStyles14() {
     if (document.getElementById(STYLE_ID16)) return;
@@ -42901,17 +42947,16 @@ ${locks}` : ""}`;
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
     banner.querySelector(".mwi-update-banner-title").textContent = t17(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    const message = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
-    action.href = manifest.url || GREASY_FORK_URL;
-    banner.querySelector(".mwi-update-banner-close").addEventListener("click", () => {
-      localStorage.setItem(
-        `MWITools_update_banner_dismissed_${manifest.importantVersion}`,
-        "true"
-      );
-      banner.remove();
-    });
+    action.href = updateDownloadUrl();
+    localStorage.setItem(
+      `MWITools_update_banner_seen_${manifest.latestVersion}`,
+      "true"
+    );
+    banner.querySelector(".mwi-update-banner-close").addEventListener("click", () => banner.remove());
     document.body.appendChild(banner);
     return true;
   }
@@ -42939,7 +42984,9 @@ ${locks}` : ""}`;
     compareVersions,
     shouldShowImportantUpdate,
     renderImportantUpdateBanner,
-    getImportantUpdateManifest
+    fetchImportantUpdateManifest,
+    getImportantUpdateManifest,
+    updateDownloadUrl
   });
 
   // src/features/dps/assets/close.png
@@ -48145,7 +48192,7 @@ ${locks}` : ""}`;
       else nice = 10;
       return nice * mag;
     }
-    function render2(points) {
+    function render(points) {
       canvas.style.display = "block";
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, CW, CH);
@@ -48266,7 +48313,7 @@ ${locks}` : ""}`;
       ctx.lineTo(PAD.left + DW, PAD.top + DH);
       ctx.stroke();
     }
-    return { canvas, render: render2 };
+    return { canvas, render };
   }
   function buildDetailsGraph() {
     const GRAPH_BUCKET_MS = 2e3, CSS_HEIGHT = 112, canvas = document.createElement("canvas");
@@ -48297,7 +48344,7 @@ ${locks}` : ""}`;
         return "-" + Math.round(seconds / 60) + (english ? "m" : "分");
       return "-" + Math.round(seconds) + (english ? "s" : "秒");
     }
-    function render2(rawPoints) {
+    function render(rawPoints) {
       const points = Array.isArray(rawPoints) ? rawPoints : [], english = Settings.getLanguage() === "en";
       const width = Math.max(
         240,
@@ -48453,7 +48500,7 @@ ${locks}` : ""}`;
       ctx.fillStyle = latest.isBoss ? "#ff817a" : "#f5d568";
       ctx.fillText(formatRate(smoothed[count - 1].dps) + " DPS", width - 9, 13);
     }
-    return { canvas, render: render2 };
+    return { canvas, render };
   }
   function openClassPicker(name, anchor, rerender) {
     const old = document.getElementById("kikimeter-class-picker");
@@ -48516,7 +48563,7 @@ ${locks}` : ""}`;
         top: top + "px"
       });
     }
-    function render2(row) {
+    function render(row) {
       if (!popup || !row) return;
       const scrollTop = popup.scrollTop;
       popup.innerHTML = "";
@@ -48645,12 +48692,12 @@ ${locks}` : ""}`;
         popup.addEventListener("mouseleave", scheduleClose);
         document.body.appendChild(popup);
       }
-      render2(row);
+      render(row);
     }
     function update(rows) {
       if (!popup) return false;
       const row = (rows || []).find((item) => item.name === playerName);
-      if (row && Array.isArray(row.breakdown)) render2(row);
+      if (row && Array.isArray(row.breakdown)) render(row);
       else close();
       return !!popup;
     }
@@ -50310,7 +50357,7 @@ ${locks}` : ""}`;
       root.appendChild(header);
       segmentSelect = buildSegmentPicker(() => {
         KikiMeter.refreshSegments();
-        render2();
+        render();
       });
       Object.assign(segmentSelect.style, {
         display: "block",
@@ -50409,17 +50456,17 @@ ${locks}` : ""}`;
     function setMode(i) {
       modeIdx = i;
       Settings.setRecountMode(MODES[i].id);
-      render2();
+      render();
     }
     function toggle(v) {
       build();
       open = v === void 0 ? !open : v;
       if (open) KikiMeter.close();
       root.style.display = open ? "block" : "none";
-      if (open) render2();
+      if (open) render();
       return open;
     }
-    function render2(view = ViewData.get()) {
+    function render(view = ViewData.get()) {
       if (!open || !root) return;
       refreshSegmentSelect(segmentSelect);
       if (graphObj && Settings.getRecountShowGraph())
@@ -50448,10 +50495,10 @@ ${locks}` : ""}`;
           breakdownTitle: mode.id === "taken" ? Settings.getLanguage() === "en" ? "Damage Taken Sources" : "承伤来源" : void 0,
           breakdownRateLabel: mode.id === "taken" ? "DTPS" : "DPS"
         })),
-        render2
+        render
       );
     }
-    return { toggle, render: render2, isOpen: () => open };
+    return { toggle, render, isOpen: () => open };
   })();
 
   // src/features/dps/90-application.js

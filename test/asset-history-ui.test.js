@@ -545,6 +545,32 @@ test("asset center keeps hidden component lines through live refreshes until clo
   }
 });
 
+test("asset center preserves tag form drafts during live snapshot updates", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const store = new AssetHistoryStore(localStorage);
+  const center = new AssetCenter({ store, scopeKey: "production:7" });
+
+  try {
+    center.open();
+    center.root.querySelector('[data-route="tags"]').click();
+    const date = center.root.querySelector("[data-tag-date]");
+    const text = center.root.querySelector("[data-tag-text]");
+    date.value = "2026-08-01";
+    text.value = "尚未提交的标签";
+
+    center.update({ values: { total: 12345 } });
+
+    assert.equal(center.root.querySelector("[data-tag-date]"), date);
+    assert.equal(center.root.querySelector("[data-tag-text]"), text);
+    assert.equal(date.value, "2026-08-01");
+    assert.equal(text.value, "尚未提交的标签");
+    assert.equal(center.root.hidden, false);
+  } finally {
+    center.destroy();
+  }
+});
+
 test("asset center inserts one editable record into a historical date gap", () => {
   document.body.replaceChildren();
   localStorage.clear();

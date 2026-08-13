@@ -173,3 +173,20 @@ test("localized train controls are inserted immediately before the native go but
   assert.equal(control.nextElementSibling, go);
   localStorage.setItem("i18nextLng", "en");
 });
+
+test("repeated task renders keep exactly one train control per card", () => {
+  document.body.innerHTML = `<div class="RandomTask_randomTask__test">
+    <div class="RandomTask_action__test"></div>
+    <div class="RandomTask_buttons__test"><button>Go</button></div>
+  </div>`;
+  runtime.state.characterQuests = [quests[1]];
+
+  planner.renderTaskTrainPlanner();
+  planner.renderTaskTrainPlanner();
+  planner.renderTaskTrainPlanner();
+
+  const card = document.querySelector('div[class*="RandomTask_randomTask"]');
+  const controls = card.querySelectorAll(".mwi-task-train-planner");
+  assert.equal(controls.length, 1);
+  assert.equal(controls[0].nextElementSibling.textContent, "Go");
+});

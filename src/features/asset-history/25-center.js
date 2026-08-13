@@ -263,7 +263,12 @@ export class AssetCenter {
 
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
-    if (!this.root.hidden) this.render();
+    if (
+      !this.root.hidden &&
+      ["chart", "analysis", "stats", "achievements"].includes(this.route)
+    ) {
+      this.render();
+    }
   }
 
   applyTheme() {
