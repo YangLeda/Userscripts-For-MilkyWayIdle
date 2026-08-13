@@ -27693,7 +27693,7 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.2.1";
+  var OVERLAY_VERSION = "1.2.2";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
@@ -27792,6 +27792,7 @@ ${preview}`
     style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
+    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="list"]{display:flex;width:100%;justify-content:center;margin-block-start:2px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
@@ -27909,7 +27910,13 @@ ${preview}`
           '[class*="CharacterProfile_"],[class*="PlayerProfile_"],[class*="ProfilePage_"],[class*="ProfilePanel_"],[data-mwi-leaderboard-profile]'
         );
         const profileNameBlock = profileRoot ? nameElement.closest('[class*="Header_name"]') : null;
-        const badgeMount = profileNameBlock || host;
+        const listNameBlock = nameElement.closest(
+          '[class*="GuildPanel_characterName"],[class*="SocialPanel_characterName"]'
+        );
+        const settingsNameColor = nameElement.closest(
+          '[class*="SettingsPanel_nameColor"]'
+        );
+        const badgeMount = profileNameBlock || listNameBlock || host;
         let container = badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) || (badgeMount === host ? null : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`));
         if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
           container?.remove();
@@ -27924,7 +27931,8 @@ ${preview}`
           continue;
         }
         const profilePlacement = Boolean(profileRoot);
-        const placement = profilePlacement ? "profile" : "inline";
+        const listPlacement = Boolean(listNameBlock);
+        const placement = profilePlacement ? "profile" : listPlacement ? "list" : settingsNameColor ? "settings" : "inline";
         const signature = badgeSignature(visibleBadges);
         const previousPlacement = container?.dataset.mwiLeaderboardPlacement || "";
         if (!container) {
@@ -27939,6 +27947,9 @@ ${preview}`
           if (container.parentElement !== badgeMount || container.previousElementSibling !== profileName) {
             profileName.insertAdjacentElement("afterend", container);
           }
+        } else if (listPlacement) {
+          if (container.parentElement !== badgeMount)
+            badgeMount.append(container);
         } else if (!container.isConnected || previousPlacement === "profile") {
           host.append(container);
         }
@@ -39636,6 +39647,7 @@ ${locks}` : ""}`;
           "移动端意见中心压缩了表单和公告的空白，输入框会按内容与屏幕高度自适应；标题与三个页签保持可见，公告和表单改为弹窗正文内独立滚动。",
           "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
           "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
+          "公会成员与好友列表的排行榜徽章改为在名字下方紧凑排列，不再挤压或截断角色名；名字颜色设置中的角色预览也会显示对应徽章。",
           "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
           "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。",
           "修复中英文下顶部当前动作时间在窄窗口中与动作名称或排队按钮重叠；可用空间不足时会自动精简显示。",
@@ -39653,6 +39665,7 @@ ${locks}` : ""}`;
           "The mobile Feedback Center now removes excess form and announcement spacing, and text boxes adapt to their content and screen height. The title and all three tabs stay visible while announcements and forms scroll independently inside the modal body.",
           "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
           "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
+          "Leaderboard badges in guild member and friend lists now use a compact row below the name instead of squeezing or truncating it, and character previews in the name-color setting now show their badges too.",
           "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",
           "Combat simulators once again read teammates' actual food and coffee from the latest battle. Group imports also no longer stop when matching battle data has not been captured yet.",
           "Fixed the top current-action timing overlapping the action name or queued-actions button in narrow windows in both Chinese and English. The summary now simplifies itself when space is limited.",
