@@ -36128,6 +36128,7 @@ ${locks}` : ""}`;
   var STYLE_ID10 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
+  var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -37421,30 +37422,52 @@ ${locks}` : ""}`;
     applyTaskFilters(rows);
     return rows;
   }
-  function wireMergeButtons(cards, tasks) {
-    cards.forEach((card, index) => {
-      if (card.dataset.mwitoolsMergeWired) return;
-      const button = [...card.querySelectorAll("button")].find(
-        (candidate) => matchesGameTranslations(
-          ["randomTask.go", "questModal.go"],
-          candidate.textContent,
-          { fallbackPatterns: [/^(?:go|前往|开始)$/i] }
-        )
-      );
-      if (!button) return;
-      card.dataset.mwitoolsMergeWired = "true";
-      button.addEventListener("click", () => {
-        if (!runtime.settings.get("taskMergeActions")) return;
-        const actionHrid = taskActionHrid(tasks[index]);
+  function isMergeNavigationButton(candidate) {
+    return matchesGameTranslations(
+      ["randomTask.go", "questModal.go"],
+      candidate?.textContent,
+      { fallbackPatterns: [/^(?:go|前往|开始)$/i] }
+    );
+  }
+  function liveTaskForCard(card, tasks) {
+    const parent = card?.parentElement;
+    if (!parent) return null;
+    const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+      (candidate) => candidate.parentElement === parent
+    );
+    return resolveTaskCards(cards, tasks, {
+      taskActionHrid,
+      taskRemaining
+    }).find((entry) => entry.card === card)?.task ?? null;
+  }
+  function wireMergeButtons(cards) {
+    cards.forEach((card) => {
+      if (card[MERGE_HANDLER]) return;
+      if (![...card.querySelectorAll("button")].some(isMergeNavigationButton)) {
+        return;
+      }
+      const handler = (event) => {
+        const button = event.target?.closest?.("button");
+        if (!button || !card.contains(button) || !isMergeNavigationButton(button) || !runtime.settings.get("taskMergeActions")) {
+          return;
+        }
+        const tasks = runtime.state.characterQuests ?? [];
+        const currentTask = liveTaskForCard(card, tasks);
+        const actionHrid = taskActionHrid(currentTask);
+        if (!actionHrid) return;
         const matching = tasks.filter(
           (task) => taskActionHrid(task) === actionHrid
         );
+        if (!matching.length) return;
         runtime.state.pendingMergedTask = {
           actionHrid,
           count: matching.reduce((sum, task) => sum + taskRemaining(task), 0),
           taskCount: matching.length
         };
-      });
+      };
+      card[MERGE_HANDLER] = handler;
+      card.dataset.mwitoolsMergeWired = "true";
+      card.addEventListener("click", handler, true);
     });
   }
   function wireResetButtons(cards) {
@@ -37630,7 +37653,7 @@ ${locks}` : ""}`;
     if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
     const rows = orderedRows(cards, cardTasks, snapshots);
     rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
-    wireMergeButtons(cards, cardTasks);
+    wireMergeButtons(cards);
     wireResetButtons(cards);
     renderFlatTaskList(rows, {
       sort: forceSort || sortOnEntry || newTaskSetChanged
@@ -37650,8 +37673,13 @@ ${locks}` : ""}`;
     document.querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast"
     ).forEach((node) => node.remove());
-    document.querySelectorAll("[data-mwitools-merge-wired],[data-mwitools-reset-wired]").forEach((node) => {
+    document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => {
+      const handler = node[MERGE_HANDLER];
+      if (handler) node.removeEventListener("click", handler, true);
+      delete node[MERGE_HANDLER];
       delete node.dataset.mwitoolsMergeWired;
+    });
+    document.querySelectorAll("[data-mwitools-reset-wired]").forEach((node) => {
       delete node.dataset.mwitoolsResetWired;
     });
     document.getElementById(STYLE_ID10)?.remove();
@@ -38835,11 +38863,13 @@ ${locks}` : ""}`;
       body: Object.freeze({
         zh: Object.freeze([
           "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
-          "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。"
+          "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
+          "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。"
         ]),
         en: Object.freeze([
           "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
-          "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server."
+          "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
+          "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data."
         ])
       })
     }),

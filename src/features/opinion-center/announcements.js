@@ -13,10 +13,12 @@ export const ANNOUNCEMENTS = Object.freeze([
       zh: Object.freeze([
         "任务筛选移除不会出现的炼金与强化类型；桌面端会尽量将生活技能和战斗筛选排在同一行，空间不足时五个战斗按钮会整组换行，同时通过缓存任务解析与战斗索引降低大量任务时的卡顿。",
         "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
+        "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
       ]),
       en: Object.freeze([
         "Task filters no longer include the unavailable Alchemy and Enhancing types. Desktop layouts keep profession and combat filters on one row when possible, move all five combat buttons together when space is tight, and reduce large-task-list lag through cached task parsing and combat indexes.",
         "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
+        "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",
       ]),
     }),
   }),

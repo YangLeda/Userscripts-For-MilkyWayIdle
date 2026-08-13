@@ -1440,6 +1440,85 @@ test("producer lookups build the action output index only once per action map", 
   runtime.state.initData_actionDetailMap = originalMap;
 });
 
+test("rerolled reused cards merge the latest matching task totals", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__rerolled-merge";
+  list.innerHTML = [
+    card("制作 - 木板", "1 / 5"),
+    card("挤奶 - 奶牛", "2 / 8"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "existing-lumber",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 1,
+    },
+    {
+      id: "reroll-old",
+      actionHrid: "/actions/milking/cow",
+      goalCount: 8,
+      currentCount: 2,
+    },
+  ];
+  runtime.api.renderTasks();
+
+  const reusedCard = list.querySelectorAll(TASK_SELECTOR)[1];
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "reroll-old");
+  assert.equal(reusedCard.dataset.mwitoolsMergeWired, "true");
+  reusedCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 木板";
+  [...reusedCard.querySelectorAll("div")].find((node) =>
+    node.textContent.startsWith("进度:"),
+  ).textContent = "进度: 1 / 6";
+  const replacementButton = document.createElement("button");
+  replacementButton.textContent = "前往";
+  reusedCard.querySelectorAll("button")[1].replaceWith(replacementButton);
+  runtime.state.characterQuests = [
+    {
+      id: "existing-lumber",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 1,
+    },
+    {
+      id: "reroll-new",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 6,
+      currentCount: 1,
+    },
+  ];
+  runtime.api.renderTasks();
+
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "reroll-new");
+  replacementButton.click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 9,
+    taskCount: 2,
+  });
+
+  runtime.state.pendingMergedTask = null;
+  runtime.state.characterQuests = runtime.state.characterQuests.map(
+    ({ id: _id, ...task }) => task,
+  );
+  runtime.api.renderTasks();
+  replacementButton.click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 9,
+    taskCount: 2,
+  });
+
+  runtime.state.pendingMergedTask = null;
+  runtime.state.characterQuests = [];
+  replacementButton.click();
+  assert.equal(runtime.state.pendingMergedTask, null);
+});
+
 test("localized task controls wire merge and reset behavior", () => {
   registerGameLocaleResources("es", {
     randomTask: {

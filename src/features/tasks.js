@@ -18,6 +18,7 @@ const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const OWNED_TASK_SELECTOR =
   '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
+const MERGE_HANDLER = Symbol("mwitoolsTaskMergeHandler");
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
@@ -1577,30 +1578,61 @@ function renderFlatTaskList(rows, { sort = false } = {}) {
   return rows;
 }
 
-function wireMergeButtons(cards, tasks) {
-  cards.forEach((card, index) => {
-    if (card.dataset.mwitoolsMergeWired) return;
-    const button = [...card.querySelectorAll("button")].find((candidate) =>
-      matchesGameTranslations(
-        ["randomTask.go", "questModal.go"],
-        candidate.textContent,
-        { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
-      ),
-    );
-    if (!button) return;
-    card.dataset.mwitoolsMergeWired = "true";
-    button.addEventListener("click", () => {
-      if (!runtime.settings.get("taskMergeActions")) return;
-      const actionHrid = taskActionHrid(tasks[index]);
+function isMergeNavigationButton(candidate) {
+  return matchesGameTranslations(
+    ["randomTask.go", "questModal.go"],
+    candidate?.textContent,
+    { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
+  );
+}
+
+function liveTaskForCard(card, tasks) {
+  const parent = card?.parentElement;
+  if (!parent) return null;
+  const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+    (candidate) => candidate.parentElement === parent,
+  );
+  return (
+    resolveTaskCards(cards, tasks, {
+      taskActionHrid,
+      taskRemaining,
+    }).find((entry) => entry.card === card)?.task ?? null
+  );
+}
+
+function wireMergeButtons(cards) {
+  cards.forEach((card) => {
+    if (card[MERGE_HANDLER]) return;
+    if (![...card.querySelectorAll("button")].some(isMergeNavigationButton)) {
+      return;
+    }
+    const handler = (event) => {
+      const button = event.target?.closest?.("button");
+      if (
+        !button ||
+        !card.contains(button) ||
+        !isMergeNavigationButton(button) ||
+        !runtime.settings.get("taskMergeActions")
+      ) {
+        return;
+      }
+      const tasks = runtime.state.characterQuests ?? [];
+      const currentTask = liveTaskForCard(card, tasks);
+      const actionHrid = taskActionHrid(currentTask);
+      if (!actionHrid) return;
       const matching = tasks.filter(
         (task) => taskActionHrid(task) === actionHrid,
       );
+      if (!matching.length) return;
       runtime.state.pendingMergedTask = {
         actionHrid,
         count: matching.reduce((sum, task) => sum + taskRemaining(task), 0),
         taskCount: matching.length,
       };
-    });
+    };
+    card[MERGE_HANDLER] = handler;
+    card.dataset.mwitoolsMergeWired = "true";
+    card.addEventListener("click", handler, true);
   });
 }
 
@@ -1827,7 +1859,7 @@ function renderTasks({ forceSort = false } = {}) {
   if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
   const rows = orderedRows(cards, cardTasks, snapshots);
   rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
-  wireMergeButtons(cards, cardTasks);
+  wireMergeButtons(cards);
   wireResetButtons(cards);
   renderFlatTaskList(rows, {
     sort: forceSort || sortOnEntry || newTaskSetChanged,
@@ -1851,12 +1883,15 @@ function cleanupTasks() {
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast",
     )
     .forEach((node) => node.remove());
-  document
-    .querySelectorAll("[data-mwitools-merge-wired],[data-mwitools-reset-wired]")
-    .forEach((node) => {
-      delete node.dataset.mwitoolsMergeWired;
-      delete node.dataset.mwitoolsResetWired;
-    });
+  document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => {
+    const handler = node[MERGE_HANDLER];
+    if (handler) node.removeEventListener("click", handler, true);
+    delete node[MERGE_HANDLER];
+    delete node.dataset.mwitoolsMergeWired;
+  });
+  document.querySelectorAll("[data-mwitools-reset-wired]").forEach((node) => {
+    delete node.dataset.mwitoolsResetWired;
+  });
   document.getElementById(STYLE_ID)?.remove();
   originalCards = [];
   taskListParent = null;
