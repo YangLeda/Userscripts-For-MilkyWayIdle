@@ -15,12 +15,12 @@ function addActionPanelStyles() {
   const style = document.createElement("style");
   style.id = ACTION_PANEL_STYLE_ID;
   style.textContent = `
-    .mwi-level-progress { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; line-height:1.35; }
+    .mwi-level-progress { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
     .mwi-level-progress-row { display:flex; align-items:center; gap:6px; min-width:0; }
     .mwi-level-progress-label { flex:0 0 auto; color:var(--color-text-secondary,#aaa); }
     .mwi-target-level-input { width:48px!important; min-width:48px!important; height:23px!important; padding:1px 4px!important; border-radius:3px!important; font:inherit!important; text-align:center; }
     .mwi-level-progress-result { min-width:0; margin-left:auto; text-align:right; font-weight:600; overflow-wrap:anywhere; }
-    .mwi-level-meta { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-level-meta { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-native-level-stat { font:inherit; }
     @media(max-width:520px){.mwi-level-progress-row{align-items:flex-start;flex-wrap:wrap}.mwi-level-progress-result{width:100%;text-align:left}}
   `;
@@ -75,7 +75,12 @@ async function handleActionPanel(panel) {
   );
   if (!expElement || !inputElem) return false; // 不处理战斗 ActionPanel
 
-  const actionHrid = runtime.api.resolveProductionAction?.(panel);
+  const activeContext = runtime.api.resolveActiveProductionPanelContext?.();
+  if (activeContext?.panel && activeContext.panel !== panel) return false;
+  const actionHrid =
+    activeContext?.panel === panel
+      ? activeContext.actionHrid
+      : runtime.api.resolveProductionAction?.(panel);
   const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
   const duration = runtime.api.getProductionPanelDuration?.(panel);
   if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
@@ -213,11 +218,15 @@ async function handleActionPanel(panel) {
       `+${Number((effBuff - 1) * 100).toFixed(1)}%`,
     );
 
-    const anchor =
-      panel.querySelector("#mwi-production-summary") ??
-      panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
-      inputElem.parentElement;
-    anchor.insertAdjacentElement("afterend", levelCard);
+    if (runtime.api.mountProductionModule) {
+      runtime.api.mountProductionModule(panel, levelCard, "targetLevel");
+    } else {
+      const anchor =
+        panel.querySelector(
+          'div[class*="SkillActionDetail_actionContainer"]',
+        ) ?? inputElem.parentElement;
+      anchor.insertAdjacentElement("afterend", levelCard);
+    }
 
     let targetLevelEdited = false;
     const updateTargetLevel = () => {

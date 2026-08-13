@@ -281,6 +281,72 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
   assert.equal(result.complete, true);
 });
 
+test("guild and dungeon token switch changes current and historical asset categories together", async () => {
+  const optionalTokens = [
+    "/items/guild_token",
+    "/items/chimerical_token",
+    "/items/sinister_token",
+    "/items/enchanted_token",
+    "/items/pirate_token",
+  ];
+  const originals = {
+    asset: runtime.api.getAssetValue,
+    ask: runtime.api.getAskPrice,
+    bid: runtime.api.getBidPrice,
+    nonTradable: runtime.api.isNonTradableTokenAsset,
+    optional: runtime.api.isOptionalTokenAsset,
+    include: runtime.api.shouldIncludeGuildDungeonTokensInAssets,
+  };
+  let includeOptional = true;
+  runtime.state.initData_characterItems = [
+    ...optionalTokens.map((itemHrid) => ({
+      itemHrid,
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    })),
+    {
+      itemHrid: "/items/task_token",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
+  runtime.state.initData_myMarketListings = [];
+  runtime.api.getAssetValue = () => 10;
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.isOptionalTokenAsset = (itemHrid) =>
+    optionalTokens.includes(itemHrid);
+  runtime.api.shouldIncludeGuildDungeonTokensInAssets = () => includeOptional;
+  runtime.api.isNonTradableTokenAsset = (itemHrid) =>
+    includeOptional && optionalTokens.includes(itemHrid);
+  runtime.api.getSelfBuildScores = async () => ({
+    assets: { allHouses: 0, allAbilities: 0 },
+  });
+  runtime.api.getGuildShrineValue = () => 0;
+
+  let result = await getAssetSnapshot();
+  assert.equal(result.values.nonTradableTokens, 50);
+  assert.equal(result.values.inventory, 10);
+  assert.equal(result.values.total, 60);
+
+  includeOptional = false;
+  result = await getAssetSnapshot();
+  assert.equal(result.values.nonTradableTokens, 0);
+  assert.equal(result.values.inventory, 10);
+  assert.equal(result.values.total, 10);
+
+  Object.assign(runtime.api, {
+    getAssetValue: originals.asset,
+    getAskPrice: originals.ask,
+    getBidPrice: originals.bid,
+    isNonTradableTokenAsset: originals.nonTradable,
+    isOptionalTokenAsset: originals.optional,
+    shouldIncludeGuildDungeonTokensInAssets: originals.include,
+  });
+});
+
 test("market listings prefer direct market value over protected equipment value", () => {
   const originals = {
     fair: runtime.api.getFairValue,

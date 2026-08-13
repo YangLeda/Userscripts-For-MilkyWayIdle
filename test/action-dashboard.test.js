@@ -117,7 +117,14 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     'div[class*="SkillActionDetail_actionContainer"]',
   );
   assert.ok(card);
-  assert.equal(controls.nextElementSibling, card);
+  assert.equal(
+    controls.nextElementSibling.classList.contains("mwi-production-extensions"),
+    true,
+  );
+  assert.equal(
+    card.closest(".mwi-production-extensions"),
+    controls.nextElementSibling,
+  );
   assert.match(card.textContent, /本次生产摘要/);
   assert.match(
     document.querySelector("#mwitools-action-dashboard-style").textContent,
@@ -164,7 +171,11 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   const extension = document.createElement("section");
   extension.dataset.mwitoolsProductionExtension = "true";
   extension.textContent = "shopping materials";
-  card.append(extension);
+  runtime.api.mountProductionModule(
+    card.closest("[class*=SkillActionDetail]") ?? card.parentElement,
+    extension,
+    "shortage",
+  );
   document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   ).value = "15000";
@@ -176,7 +187,9 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   assert.match(card.textContent, /库存最多可做10/);
   assert.match(card.textContent, /本次总耗时1天1小时/);
   assert.equal(
-    card.querySelector('[data-mwitools-production-extension="true"]'),
+    card.parentElement.querySelector(
+      '[data-mwitools-production-extension="true"]:not(.mwi-production-extensions)',
+    ),
     extension,
     "production refreshes must preserve extension DOM without collapsing it",
   );
@@ -191,6 +204,7 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
     .querySelector('use[href*="items_sprite"]')
     .closest("svg");
   spriteHost.remove();
+  document.querySelector("#mwi-production-summary").remove();
   runtime.api.renderProductionPanel();
   const output = document.querySelector(".mwi-production-output-item");
   assert.equal(
@@ -276,6 +290,85 @@ test("disabled production summaries cannot be recreated by direct or quick-count
   runtime.settings.settingsMap.productionSummary.isTrue = true;
   runtime.api.renderProductionPanel();
   assert.ok(document.querySelector("#mwi-production-summary"));
+});
+
+test("production summary modes collapse, preserve expansion, expand, and turn off", async () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "5";
+  await runtime.settings.setPreference("productionSummaryMode", "collapsed", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  let card = document.querySelector("#mwi-production-summary");
+  assert.equal(card.dataset.expanded, "false");
+  assert.equal(card.querySelector(".mwi-production-card-body").hidden, true);
+  card.querySelector(".mwi-production-card-title").click();
+  assert.equal(card.dataset.expanded, "true");
+  input.value = "10";
+  runtime.api.renderProductionPanel();
+  assert.equal(card.dataset.expanded, "true");
+
+  await runtime.settings.setPreference("productionSummaryMode", "expanded", {
+    persist: false,
+  });
+  runtime.api.renderProductionPanel();
+  card = document.querySelector("#mwi-production-summary");
+  assert.equal(card.dataset.expanded, "true");
+  assert.equal(card.querySelector(".mwi-production-card-body").hidden, false);
+
+  await runtime.settings.setPreference("productionSummaryMode", "off", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = false;
+  runtime.api.renderProductionPanel();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+
+  await runtime.settings.setPreference("productionSummaryMode", "collapsed", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  input.value = "5";
+  runtime.api.renderProductionPanel();
+});
+
+test("replacing a loadout panel restores one stable set of production modules", () => {
+  const oldPanel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  oldPanel.hidden = true;
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__replacement";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__test">木板</div>
+    <div class="SkillActionDetail_actionContainer__test">
+      <div class="SkillActionDetail_maxActionCountInput__test"><input value=""></div>
+      <button class="SkillActionDetail_infiniteButton__test">∞</button>
+    </div>`;
+  oldPanel.parentElement.append(panel);
+
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  const context = runtime.api.resolveActiveProductionPanelContext();
+  assert.equal(context.panel, panel);
+  assert.equal(context.count, null);
+  assert.equal(panel.querySelectorAll(".mwi-production-extensions").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-quick-inputs").length,
+    1,
+  );
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  assert.equal(oldPanel.querySelector("#mwi-production-summary"), null);
+  assert.equal(oldPanel.querySelector(".mwi-production-quick-inputs"), null);
+
+  panel.remove();
+  oldPanel.hidden = false;
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
 });
 
 test("production durations over one day use whole days, hours, and minutes", () => {

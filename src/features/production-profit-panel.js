@@ -107,14 +107,14 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; }
+    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
     .mwi-profit-header-main { min-width:0; }
     .mwi-profit-title { color:#fff; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-profit-subtitle { margin-top:2px; color:var(--color-text-secondary,#aeb4bf); font-size:11px; }
-    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:10px; font-weight:650; white-space:nowrap; }
+    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:max(.6875rem,10px); font-weight:650; white-space:nowrap; }
     .mwi-profit-status.complete { color:#7bd69a; background:rgba(66,185,108,.1); }
     .mwi-profit-status.partial { color:#e7bd68; background:rgba(221,164,51,.1); }
     .mwi-profit-status.incomplete { color:#ef8c86; background:rgba(218,73,65,.1); }
@@ -153,10 +153,10 @@ function addStyles() {
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:10.5px; font-weight:750; line-height:1.2; }
-    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:8px; line-height:1.15; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:.6875rem; line-height:1.15; }
     .mwi-profit-valuation-metric { min-width:0; padding:5px 4px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
     .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
-    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:8px; line-height:1.1; }
+    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:.6875rem; line-height:1.1; }
     .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:10.5px; font-weight:700; overflow-wrap:anywhere; }
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
@@ -311,6 +311,7 @@ function statusInfo(projection) {
   if (
     valuations.some(
       (valuation) =>
+        valuation?.fallbackItemHrids?.length > 0 ||
         valuation?.unpricedByproducts?.length > 0 ||
         valuation?.derivedMissingPrices?.length > 0,
     )
@@ -454,6 +455,18 @@ function renderPanel(panel, itemHrid, projection, options = {}) {
   if (derivedMissingPrices.length) {
     warningParts.push(
       `${t("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`,
+    );
+  }
+  const fallbackItemHrids = [
+    ...new Set(
+      VALUATION_ROWS.flatMap(
+        ({ mode }) => projection.valuations?.[mode]?.fallbackItemHrids ?? [],
+      ),
+    ),
+  ];
+  if (fallbackItemHrids.length) {
+    warningParts.push(
+      `${t("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName).join(runtime.config.isZH ? "、" : ", ")}`,
     );
   }
   if (!warningParts.length) return;

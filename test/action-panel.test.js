@@ -90,8 +90,21 @@ test("production details add target-level and working quick-input controls", asy
   const actionContainer = document.querySelector(
     'div[class*="SkillActionDetail_actionContainer"]',
   );
-  assert.equal(quickInputs.parentElement, panel);
-  assert.equal(quickInputs.previousElementSibling, actionContainer);
+  assert.equal(
+    quickInputs.parentElement.classList.contains("mwi-production-extensions"),
+    true,
+  );
+  assert.equal(quickInputs.parentElement.parentElement, panel);
+  assert.equal(
+    quickInputs.parentElement.previousElementSibling,
+    actionContainer,
+  );
+  assert.equal(quickInputs.dataset.mwitoolsProductionSlot, "quickInputs");
+  assert.equal(
+    document.querySelector("#mwi-level-progress").dataset
+      .mwitoolsProductionSlot,
+    "targetLevel",
+  );
 
   const levelInput = document.querySelector("#tillLevelInput");
   assert.ok(levelInput.classList.contains("Input_input__native"));

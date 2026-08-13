@@ -147,6 +147,42 @@ function removeSuppressedTooltipContent() {
     .forEach((row) => row.remove());
 }
 
+function productionCostTooltipRows(itemHrid) {
+  if (!runtime.settings.settingsMap.itemTooltip_profit?.isTrue) return "";
+  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+  const label = runtime.config.isZH
+    ? "生产总成本/动作（效率 / 贪心）："
+    : "Production cost/action (Efficiency / Greedy): ";
+  let costText = runtime.config.isZH ? "无配方" : "No recipe";
+  if (actionHrid) {
+    const projection = runtime.api.projectAction?.(actionHrid, 1);
+    const costs = ["conservative", "aggressive"].map((mode) => {
+      const valuation = projection?.valuations?.[mode];
+      return valuation?.costComplete
+        ? (Number(valuation.materialCostPerAction) || 0) +
+            (Number(valuation.teaCostPerAction) || 0)
+        : null;
+    });
+    costText = costs
+      .map((cost) =>
+        cost === null
+          ? runtime.config.isZH
+            ? "缺价"
+            : "Missing price"
+          : numberFormatter(cost),
+      )
+      .join(" / ");
+  }
+  const shortcut = runtime.api.getTooltipProfitShortcut?.().display ?? "Ctrl";
+  const hint = runtime.config.isZH
+    ? `按住 ${shortcut} 显示详情；移动端长按显示详情`
+    : `Hold ${shortcut} for details; long-press on mobile`;
+  return `
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${costText}</div>
+    <div data-mwitools-tooltip-market="true" style="color: var(--color-text-secondary,#777); font-size: calc(.6875rem * var(--mwi-ui-font-scale,1));">${hint}</div>
+  `;
+}
+
 /* 显示当前动作总时间 */
 const showTotalActionTime = () => {
   const targetNode = document.querySelector("div.Header_actionName__31-L2");
@@ -638,6 +674,7 @@ async function handleTooltipItem(tooltip) {
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
   }
+  if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
 
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
 
@@ -715,6 +752,7 @@ Object.assign(runtime.api, {
   getHousesEffBuffByActionHrid,
   getTeaBuffsByActionHrid,
   handleTooltipItem,
+  getProductionCostTooltipRows: productionCostTooltipRows,
   getActionHridFromItemName,
   clearTooltipProfitHoverContext: clearHoverPanelContext,
   setEnhancementHoverPanelContext,

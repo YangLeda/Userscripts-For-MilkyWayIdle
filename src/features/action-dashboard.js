@@ -27,7 +27,13 @@ const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
 const ACTION_SURFACE_SELECTOR =
   'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const OWNED_ACTION_UI_SELECTOR =
-  "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button";
+  "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-extensions";
+const PRODUCTION_MODULE_ORDER = Object.freeze({
+  quickInputs: 10,
+  summary: 20,
+  shortage: 30,
+  targetLevel: 40,
+});
 let productionDataRevision = 0;
 
 function t(zh, en) {
@@ -197,12 +203,18 @@ function addStyles() {
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
     .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
-    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
-    .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
+    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-production-extensions { display:flex; width:100%; max-width:100%; min-width:0; box-sizing:border-box; flex-direction:column; }
+    .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
+    .mwi-production-card-title::before { content:"▸"; color:var(--color-text-secondary,#aaa); transition:transform .12s ease; }
+    .mwi-production-card[data-expanded="true"] .mwi-production-card-title::before { transform:rotate(90deg); }
+    .mwi-production-card[data-mode="expanded"] .mwi-production-card-title { cursor:default; }
+    .mwi-production-card[data-mode="expanded"] .mwi-production-card-title::before { content:""; }
+    .mwi-production-card-body[hidden] { display:none; }
     .mwi-production-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:4px; }
     .mwi-production-metric { min-width:0; overflow:hidden; padding:4px 3px; border-radius:3px; background:rgba(0,0,0,.14); text-align:center; }
-    .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:.6rem; line-height:1.2; }
-    .mwi-production-value { margin-top:1px; font-size:.7rem; line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
+    .mwi-production-label { min-height:1.45em; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.2; }
+    .mwi-production-value { margin-top:1px; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); line-height:1.25; font-weight:600; overflow-wrap:anywhere; }
     .mwi-production-output-metric { grid-column:1/-1; }
     .mwi-production-output-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,120px),1fr)); gap:4px 8px; width:100%; }
     .mwi-production-output-grid[data-count="1"] .mwi-production-output-item { grid-column:1/-1; }
@@ -212,16 +224,16 @@ function addStyles() {
     .mwi-production-native-item [class*="Item_iconContainer"] { width:14px!important; height:14px!important; flex:0 0 14px!important; }
     .mwi-production-native-item [class*="Item_name"],.mwi-production-output-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-production-output-icon,.mwi-production-output-fallback { display:grid; width:14px; height:14px; flex:0 0 14px; place-items:center; }
-    .mwi-production-output-fallback { border-radius:4px; background:rgba(255,255,255,.08); color:var(--color-text-secondary,#aaa); font-size:.72rem; }
-    .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:.72rem; font-weight:700; line-height:1; white-space:nowrap; }
-    .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:.6rem; line-height:1.25; }
+    .mwi-production-output-fallback { border-radius:4px; background:rgba(255,255,255,.08); color:var(--color-text-secondary,#aaa); font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); font-weight:700; line-height:1; white-space:nowrap; }
+    .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
-    .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-quick-row { display:flex; min-width:0; align-items:flex-start; gap:3px; }
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
-    .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
+    .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))!important; line-height:1!important; }
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content;padding-inline:4px}.mwi-action-line{gap:2px 6px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px}.mwi-production-card-title{padding-bottom:3px}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -544,32 +556,89 @@ function bindActionUiRenderer(scope, render, messages = []) {
   return { schedule };
 }
 
-function findActionPanel() {
-  const candidates = [
+function isHiddenActionElement(element) {
+  for (let current = element; current; current = current.parentElement) {
+    const className = String(current.className ?? "");
+    if (
+      current.hidden ||
+      current.getAttribute?.("aria-hidden") === "true" ||
+      current.style?.display === "none" ||
+      current.style?.visibility === "hidden" ||
+      (/MainPanel_/.test(className) && /hidden/i.test(className))
+    ) {
+      return true;
+    }
+    const style = current.ownerDocument?.defaultView?.getComputedStyle(current);
+    if (style?.display === "none" || style?.visibility === "hidden") {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveActiveProductionPanelContext() {
+  const panels = [
     ...document.querySelectorAll(
       'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
     ),
-  ];
-  const visible = candidates.filter((candidate) => {
-    for (let current = candidate; current; current = current.parentElement) {
-      if (current.hidden || current.getAttribute("aria-hidden") === "true") {
-        return false;
-      }
-      const style =
-        current.ownerDocument?.defaultView?.getComputedStyle(current);
-      if (style?.display === "none" || style?.visibility === "hidden") {
-        return false;
-      }
-    }
-    return true;
-  });
-  return (
-    visible.find((candidate) =>
-      String(candidate.className).includes("regularComponent"),
-    ) ??
-    visible.at(-1) ??
-    null
+  ]
+    .filter((panel) => !isHiddenActionElement(panel))
+    .sort(
+      (left, right) =>
+        Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) -
+        Number(Boolean(left.closest('[class*="Modal_modalContainer"]'))),
+    );
+  for (const panel of panels) {
+    const actionHrid = resolvePanelAction(panel);
+    if (!actionHrid || !isProductionAction(actionHrid)) continue;
+    const input = getCountInput(panel);
+    const parsedCount = input
+      ? runtime.api.parseCompactNumber?.(input.value)
+      : Number.NaN;
+    return {
+      panel,
+      input,
+      actionHrid,
+      count:
+        Number.isFinite(parsedCount) && parsedCount > 0
+          ? Math.ceil(parsedCount)
+          : null,
+    };
+  }
+  return null;
+}
+
+function getProductionPanelMount(panel, { create = true } = {}) {
+  if (!panel) return null;
+  let mount = panel.querySelector(":scope > .mwi-production-extensions");
+  if (mount || !create) return mount;
+  mount = document.createElement("div");
+  mount.className = "mwi-production-extensions";
+  mount.dataset.mwitoolsProductionExtension = "true";
+  const anchor =
+    panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
+    panel.querySelector('div[class*="SkillActionDetail_name"]');
+  if (anchor) anchor.insertAdjacentElement("afterend", mount);
+  else panel.append(mount);
+  return mount;
+}
+
+function mountProductionModule(panel, element, slot) {
+  const mount = getProductionPanelMount(panel);
+  if (!mount || !element) return null;
+  element.dataset.mwitoolsProductionSlot = slot;
+  const order = PRODUCTION_MODULE_ORDER[slot] ?? Number.MAX_SAFE_INTEGER;
+  const next = [...mount.children].find(
+    (child) =>
+      (PRODUCTION_MODULE_ORDER[child.dataset.mwitoolsProductionSlot] ??
+        Number.MAX_SAFE_INTEGER) > order,
   );
+  mount.insertBefore(element, next ?? null);
+  return element;
+}
+
+function findActionPanel() {
+  return resolveActiveProductionPanelContext()?.panel ?? null;
 }
 
 function getCountInput(panel) {
@@ -699,9 +768,10 @@ function createProductionQuickRow({
 
 function renderProductionQuickInputs() {
   addStyles();
-  const panel = findActionPanel();
-  const input = getCountInput(panel);
-  const actionHrid = resolvePanelAction(panel);
+  const context = resolveActiveProductionPanelContext();
+  const panel = context?.panel ?? null;
+  const input = context?.input ?? null;
+  const actionHrid = context?.actionHrid ?? null;
   document.querySelectorAll(".mwi-production-quick-inputs").forEach((host) => {
     if (!panel?.contains(host)) host.remove();
   });
@@ -743,10 +813,7 @@ function renderProductionQuickInputs() {
       resolveCount: (count) => count,
     });
     host.append(hours, counts);
-    const actionContainer = countGroup.closest(
-      'div[class*="SkillActionDetail_actionContainer"]',
-    );
-    (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
+    mountProductionModule(panel, host, "quickInputs");
   }
   const efficiencyPercent = Number(
     runtime.api.getTotalEffiPercentage?.(actionHrid),
@@ -863,7 +930,10 @@ function metric(label, value) {
 
 function renderProductionPanel() {
   addStyles();
-  if (!runtime.settings.get("productionSummary")) {
+  const summaryMode =
+    runtime.settings.getPreference?.("productionSummaryMode") ??
+    (runtime.settings.get("productionSummary") ? "collapsed" : "off");
+  if (!runtime.settings.get("productionSummary") || summaryMode === "off") {
     document
       .querySelectorAll("#mwi-production-summary")
       .forEach((card) => card.remove());
@@ -872,8 +942,9 @@ function renderProductionPanel() {
       .forEach((button) => button.remove());
     return;
   }
-  const panel = findActionPanel();
-  const input = getCountInput(panel);
+  const context = resolveActiveProductionPanelContext();
+  const panel = context?.panel ?? null;
+  const input = context?.input ?? null;
   const existingCards = [
     ...document.querySelectorAll("#mwi-production-summary"),
   ];
@@ -891,15 +962,13 @@ function renderProductionPanel() {
     if (!panel.contains(button)) button.remove();
   });
   const existingCard = panel.querySelector("#mwi-production-summary");
-  const actionHrid = resolvePanelAction(panel);
+  const actionHrid = context?.actionHrid ?? null;
   if (!actionHrid || !isProductionAction(actionHrid)) {
     existingCard?.remove();
     panel.querySelector(".mwi-max-action-button")?.remove();
     return;
   }
-  const count = input
-    ? runtime.api.parseCompactNumber(input.value)
-    : Number.POSITIVE_INFINITY;
+  const count = context?.count ?? Number.POSITIVE_INFINITY;
   const durationPerAction = getProductionPanelDuration(panel);
   const showProfit =
     runtime.settings.get("productionProfit") &&
@@ -909,6 +978,7 @@ function renderProductionPanel() {
     Number.isFinite(count) ? count : "infinite",
     durationPerAction,
     showProfit,
+    summaryMode,
     runtime.config.isZH,
     productionDataRevision,
     (runtime.state.initData_characterItems ?? []).map((item) => [
@@ -929,21 +999,38 @@ function renderProductionPanel() {
     card = document.createElement("section");
     card.id = "mwi-production-summary";
     card.className = "mwi-production-card";
-    const anchor =
-      panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
-      input?.parentElement ??
-      panel.querySelector('div[class*="SkillActionDetail_name"]');
-    if (anchor) anchor.insertAdjacentElement("afterend", card);
-    else panel.appendChild(card);
+    mountProductionModule(panel, card, "summary");
   }
+  const sameAction = card.dataset.actionHrid === actionHrid;
+  const wasExpanded = sameAction && card.dataset.expanded === "true";
   card.dataset.renderSignature = signature;
+  card.dataset.actionHrid = actionHrid;
+  card.dataset.mode = summaryMode;
+  const expanded = summaryMode === "expanded" || wasExpanded;
+  card.dataset.expanded = String(expanded);
   const extensions = [
     ...card.querySelectorAll('[data-mwitools-production-extension="true"]'),
   ];
+  for (const extension of extensions) {
+    card.insertAdjacentElement("afterend", extension);
+  }
   card.replaceChildren();
-  const title = document.createElement("div");
+  const title = document.createElement("button");
+  title.type = "button";
   title.className = "mwi-production-card-title";
   title.textContent = t("本次生产摘要", "Production summary");
+  title.setAttribute("aria-expanded", String(expanded));
+  const body = document.createElement("div");
+  body.className = "mwi-production-card-body";
+  body.hidden = !expanded;
+  if (summaryMode === "collapsed") {
+    title.addEventListener("click", () => {
+      const next = card.dataset.expanded !== "true";
+      card.dataset.expanded = String(next);
+      title.setAttribute("aria-expanded", String(next));
+      body.hidden = !next;
+    });
+  }
   const grid = document.createElement("div");
   grid.className = "mwi-production-metrics";
 
@@ -1006,7 +1093,7 @@ function renderProductionPanel() {
       ),
     );
   }
-  card.append(title, grid);
+  body.append(grid);
   if (showProfit && projection.status === "incomplete") {
     const warning = document.createElement("div");
     warning.className = "mwi-production-warning";
@@ -1014,9 +1101,9 @@ function renderProductionPanel() {
       "部分市场价格缺失，利润暂不显示为 0。",
       "Some market prices are missing; profit is not treated as zero.",
     );
-    card.append(warning);
+    body.append(warning);
   }
-  card.append(...extensions);
+  card.append(title, body);
 }
 
 function removeActionUi() {
@@ -1029,6 +1116,9 @@ function removeActionUi() {
   document.querySelector("#mwi-production-summary")?.remove();
   document.querySelector(".mwi-max-action-button")?.remove();
   removeProductionQuickInputs();
+  document
+    .querySelectorAll(".mwi-production-extensions:empty")
+    .forEach((mount) => mount.remove());
 }
 
 runtime.features.register({
@@ -1114,8 +1204,19 @@ runtime.features.register({
         renderProductionPanel();
       }),
     );
+    scope.add(
+      runtime.settings.onPreferenceChange?.("productionSummaryMode", () => {
+        productionDataRevision += 1;
+        renderProductionPanel();
+      }),
+    );
     scope.add(() =>
       document.querySelector("#mwi-production-summary")?.remove(),
+    );
+    scope.add(() =>
+      document
+        .querySelectorAll(".mwi-production-extensions:empty")
+        .forEach((mount) => mount.remove()),
     );
   },
 });
@@ -1137,6 +1238,9 @@ Object.assign(runtime.api, {
   getProductionPanelDuration,
   getLiveActionTiming,
   resolveProductionAction: resolvePanelAction,
+  resolveActiveProductionPanelContext,
+  getProductionPanelMount,
+  mountProductionModule,
   renderProductionQuickInputs,
   removeProductionQuickInputs,
   removeActionUi,

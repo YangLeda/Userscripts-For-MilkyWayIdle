@@ -11,6 +11,11 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "生产面板改用稳定挂载区：切换配装或游戏重建面板后，次数快捷输入、本次生产摘要、缺料提示和目标等级会自动恢复且不再重复；未填写数量与材料充足时也保持稳定占位，可在设置中隐藏仅材料充足的提示。",
+        "本次生产摘要默认折叠，并可改为始终展开或关闭；新增三档 MWITools 字号，仅调整插件界面，改善生产、采购、库存价值、设置与利润详情中的小字阅读。",
+        "总资产默认计入公会代币与奇幻、阴森、秘法、海盗地下城代币，并统一归入不可交易代币；设置中可关闭，当前资产、库存分类和后续历史快照会使用相同口径。",
+        "普通物品悬浮窗新增效率与贪心两档生产总成本（含材料与茶饮），订单簿缺价时使用市场价值兜底，并提示自定义按键与移动端长按查看完整详情。",
+        "装备分类恢复市场价值、出售价和收购价排序，并按强化等级与整堆数量显示价值角标；效率茶继续读取游戏 Buff 数据，回归验证基础效果为 +10%，数字 5 仅代表持续 5 分钟。",
         "降低手机端空闲、生产、市场和战斗统计的后台轮询与重复计算，修复反复打开行动队列后的内存占用增长，减少长时间挂机时的发热、耗电和卡顿。",
         "任务自动返回现在只恢复任务列表内部的滚动位置，并会等待列表布局稳定；新任务同时进入队列时不再把整个页面滚到空白区域。顶部当前动作时间也改为跟随游戏原生字号，并在可用空间不足时隐藏预计完成时间以保持紧凑。",
         "手机端长按打开生产收益、宝箱估值或强化成本后，松手及原生物品提示消失时详情会继续显示；点击详情内部可滚动或操作，只有点击窗口外才会关闭。",
@@ -29,6 +34,11 @@ export const ANNOUNCEMENTS = Object.freeze([
         "生产、全链条与火车现在统一读取当前茶饮、社区等行动增益和暴饮之囊；换茶后会即时重算，链条按实际产量规划，采集利润与队列耗时不再漏算社区速度。",
       ]),
       en: Object.freeze([
+        "Production panels now use a stable mount area. Quick counts, production summary, shortage hints, and target level automatically return once a loadout switch or game render replaces the panel, without duplicates. Waiting and ready states keep their space stable, with an option to hide only the ready hint.",
+        "Production summary is collapsed by default and can be set to always expanded or off. Three MWITools font-size levels improve small text in production, procurement, inventory values, settings, and profit details without changing the game's native UI.",
+        "Total assets now include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens by default under non-tradable tokens. The setting applies the same inclusion rule to current assets, inventory categories, and future history snapshots.",
+        "Regular item tooltips now show Efficiency and Greedy total production costs including materials and drinks, fall back to market value when an order-book side is missing, and explain the custom-key or mobile long-press gesture for full details.",
+        "Equipment categories once again support market-value, ask, and bid sorting with value badges based on enhancement and full stack count. Efficiency Tea remains driven by game Buff data, with regression coverage confirming +10% base effect while 5 only means five minutes of duration.",
         "Reduced background polling and repeated work across idle, production, market, and combat-stat views on mobile, and fixed memory growth after repeatedly opening the action queue to reduce heat, battery drain, and long-session stutter.",
         "Task auto-return now restores only the task list's internal scroll position and waits for its layout to settle, so a newly queued task no longer scrolls the whole page into a blank area. The top current-action time also follows the game's native font size and hides the finish time when space is tight to stay compact.",
         "On mobile, production profit, loot valuation, and enhancement cost details opened by a long press now remain visible after release or after the native item tooltip disappears. Taps and scrolling inside remain interactive, and only a tap outside closes the detail window.",

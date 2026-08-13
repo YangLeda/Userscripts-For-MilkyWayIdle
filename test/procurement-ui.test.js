@@ -24,6 +24,7 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
+await import("../src/features/action-dashboard.js");
 await import("../src/features/procurement.js");
 
 // The shopping module follows the MWITools-wide language flag.
@@ -228,7 +229,7 @@ test("cart quantity hold-repeat stops after redraw, release, and clear", async (
   );
 });
 
-test("production procurement augments the existing summary instead of creating another card", () => {
+test("production procurement uses its stable sibling slot beside the summary", () => {
   document.body.insertAdjacentHTML(
     "beforeend",
     `<div class="SkillActionDetail_regularComponent__fixture">
@@ -237,12 +238,19 @@ test("production procurement augments the existing summary instead of creating a
       </div>
       <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
       <div class="SkillActionDetail_actionContainer__fixture"></div>
-      <section id="mwi-production-summary"></section>
+      <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
     </div>`,
   );
   runtime.api.renderProductionProcurement();
   const existingSummary = document.querySelector("#mwi-production-summary");
-  assert.ok(existingSummary.querySelector("#mwitools-procurement-production"));
+  const productionShortage = document.querySelector(
+    "#mwitools-procurement-production",
+  );
+  assert.equal(existingSummary.contains(productionShortage), false);
+  assert.equal(
+    productionShortage.closest(".mwi-production-extensions"),
+    existingSummary.closest(".mwi-production-extensions"),
+  );
   assert.equal(existingSummary.querySelector(".mwi-mm-summary-panel"), null);
   assert.equal(document.querySelectorAll("#mwi-production-summary").length, 1);
   const badge = document.querySelector(".mwi-procurement-badge");
@@ -270,22 +278,57 @@ test("production procurement augments the existing summary instead of creating a
   );
   assert.match(badge.textContent, /^(缺|Need) /);
 
-  existingSummary.remove();
+  document.querySelector(".mwi-production-extensions").remove();
   runtime.api.renderProductionProcurement();
   const standalone = document.querySelector("#mwitools-procurement-production");
   assert.equal(
-    standalone.parentElement.classList.contains(
-      "SkillActionDetail_regularComponent__fixture",
-    ),
+    standalone.parentElement.classList.contains("mwi-production-extensions"),
     true,
   );
   assert.equal(
-    standalone.previousElementSibling.classList.contains(
-      "SkillActionDetail_actionContainer__fixture",
-    ),
-    true,
+    standalone.dataset.mwitoolsProductionSlot,
+    "shortage",
     "procurement must remain available without the optional production summary",
   );
+});
+
+test("production shortage keeps waiting and ready states stable and optionally hides ready", async () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "";
+  runtime.api.renderProductionProcurement();
+  let shortage = document.querySelector("#mwitools-procurement-production");
+  assert.equal(shortage.dataset.state, "waiting");
+  assert.match(shortage.textContent, /Enter a production quantity/);
+  assert.equal(shortage.hidden, false);
+
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 100,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  input.value = "3";
+  runtime.api.renderProductionProcurement();
+  shortage = document.querySelector("#mwitools-procurement-production");
+  assert.match(shortage.textContent, /Materials ready/);
+  assert.equal(shortage.hidden, false);
+
+  await runtime.settings.set("hideReadyProductionShortage", true);
+  shortage = document.querySelector("#mwitools-procurement-production");
+  assert.equal(shortage.hidden, true);
+  input.value = "";
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-production").hidden,
+    false,
+  );
+  await runtime.settings.set("hideReadyProductionShortage", false);
+  input.value = "3";
 });
 
 test("sufficient materials keep their remaining quantity", () => {

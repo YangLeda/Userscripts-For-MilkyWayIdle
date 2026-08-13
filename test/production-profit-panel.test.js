@@ -170,6 +170,30 @@ test("profit UI displays three valuation rows with revenue, costs, and profit", 
   );
 });
 
+test("compact tooltip rows show dual production costs, missing prices, recipe state, and shortcut hint", () => {
+  runtime.settings.settingsMap.itemTooltip_profit.isTrue = true;
+  runtime.api.getTooltipProfitShortcut = () => ({ code: "KeyK", display: "K" });
+  let html = runtime.api.getProductionCostTooltipRows("/items/panel-output");
+  assert.match(html, /生产总成本\/动作（效率 \/ 贪心）/);
+  assert.match(html, /20 \/ 16/);
+  assert.match(html, /按住 K 显示详情；移动端长按显示详情/);
+
+  html = runtime.api.getProductionCostTooltipRows("/items/no-recipe");
+  assert.match(html, /无配方/);
+
+  const originalAsk = runtime.api.getAskPrice;
+  const originalBid = runtime.api.getBidPrice;
+  const originalFair = runtime.api.getFairValue;
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.getFairValue = () => 0;
+  html = runtime.api.getProductionCostTooltipRows("/items/panel-output");
+  assert.match(html, /缺价 \/ 缺价/);
+  runtime.api.getAskPrice = originalAsk;
+  runtime.api.getBidPrice = originalBid;
+  runtime.api.getFairValue = originalFair;
+});
+
 test("open profit UI refreshes when equipped drinks change", () => {
   const panel = runtime.api.showProductionProfitPanel(
     nativeTooltip(),
@@ -287,7 +311,7 @@ test("English valuation labels use Tea cost", () => {
   runtime.config.isZH = true;
 });
 
-test("missing price details appear only in the bottom warning", () => {
+test("missing order-book prices use market-value fallback and appear in the bottom warning", () => {
   const getBidPrice = runtime.api.getBidPrice;
   runtime.api.getBidPrice = () => 0;
 
@@ -298,11 +322,11 @@ test("missing price details appear only in the bottom warning", () => {
   const aggressiveRow = panel.querySelector('[data-mode="aggressive"]');
   const warning = panel.querySelector(".mwi-profit-warning");
 
-  assert.ok(aggressiveRow.classList.contains("incomplete"));
+  assert.equal(aggressiveRow.classList.contains("incomplete"), false);
   assert.doesNotMatch(aggressiveRow.textContent, /缺价|Input/);
   assert.match(aggressiveRow.textContent, /买单买入 · 卖单卖出/);
   assert.ok(warning);
-  assert.match(warning.textContent, /贪心（低买高卖）：Input/);
+  assert.match(warning.textContent, /市场价值兜底.*Input/);
 
   runtime.api.getBidPrice = getBidPrice;
   runtime.api.showProductionProfitPanel(nativeTooltip(), "/items/panel-output");

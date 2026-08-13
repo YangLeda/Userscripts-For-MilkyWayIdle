@@ -12,6 +12,13 @@ const COWBELL_VALUE_HRIDS = new Set([
   "/items/cowbell",
   "/items/bag_of_10_cowbells",
 ]);
+const OPTIONAL_TOKEN_ASSET_HRIDS = new Set([
+  "/items/guild_token",
+  "/items/chimerical_token",
+  "/items/sinister_token",
+  "/items/enchanted_token",
+  "/items/pirate_token",
+]);
 const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
 const MAX_ACQUISITION_DEPTH = 12;
 
@@ -58,6 +65,14 @@ function shouldIncludeCowbellsInAssets() {
   return settingEnabled("includeCowbellsInAssets");
 }
 
+function shouldIncludeGuildDungeonTokensInAssets() {
+  return settingEnabled("includeGuildDungeonTokensInAssets");
+}
+
+function isOptionalTokenAsset(itemHrid) {
+  return OPTIONAL_TOKEN_ASSET_HRIDS.has(itemHrid);
+}
+
 function isBackEquipment(itemHrid, itemLocationHrid = "") {
   if (itemLocationHrid === "/item_locations/back") return true;
   if (/(?:^|_)cape(?:_refined)?$/.test(String(itemHrid).split("/").at(-1))) {
@@ -97,7 +112,8 @@ function getGuildCreditHrids() {
 function isNonTradableTokenAsset(itemHrid) {
   return (
     itemHrid === "/items/cowbell" ||
-    itemHrid === "/items/guild_token" ||
+    (isOptionalTokenAsset(itemHrid) &&
+      shouldIncludeGuildDungeonTokensInAssets()) ||
     getGuildCreditHrids().has(itemHrid)
   );
 }
@@ -1345,8 +1361,10 @@ Object.assign(runtime.api, {
   projectLootChest,
   isBackEquipment,
   isNonTradableTokenAsset,
+  isOptionalTokenAsset,
   invalidateAssetValueCache,
   shouldIncludeCowbellsInAssets,
+  shouldIncludeGuildDungeonTokensInAssets,
 });
 
 function refreshConfiguredAssetValues() {
@@ -1359,6 +1377,10 @@ function refreshConfiguredAssetValues() {
 
 runtime.settings.onChange?.(
   "includeCowbellsInAssets",
+  refreshConfiguredAssetValues,
+);
+runtime.settings.onChange?.(
+  "includeGuildDungeonTokensInAssets",
   refreshConfiguredAssetValues,
 );
 runtime.settings.onChange?.(

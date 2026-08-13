@@ -116,6 +116,13 @@ let settingsMap = {
     desc: isZH ? "总资产计入牛铃" : "Include cowbells in total assets.",
     isTrue: false,
   },
+  includeGuildDungeonTokensInAssets: {
+    id: "includeGuildDungeonTokensInAssets",
+    desc: isZH
+      ? "总资产计入公会与地下城代币"
+      : "Include guild and dungeon tokens in total assets.",
+    isTrue: true,
+  },
   valueBackEquipmentWithProtectionMirror: {
     id: "valueBackEquipmentWithProtectionMirror",
     desc: isZH
@@ -333,6 +340,13 @@ let settingsMap = {
       ? "启用购物车、采购计划和生产缺料加购"
       : "Enable the shopping cart, procurement plans, and production shortage actions.",
     isTrue: true,
+  },
+  hideReadyProductionShortage: {
+    id: "hideReadyProductionShortage",
+    desc: isZH
+      ? "材料充足时隐藏生产缺料提示"
+      : "Hide the production shortage hint when materials are ready.",
+    isTrue: false,
   },
   taskInsights: {
     id: "taskInsights",
@@ -561,6 +575,14 @@ const catalogRows = [
     "Display MWITools in Chinese regardless of the game language.",
   ],
   [
+    "uiFontScale",
+    "general",
+    "插件字号",
+    "MWITools font size",
+    "调整 MWITools 面板、提示和角标的字号，不影响游戏原生界面。",
+    "Adjust text in MWITools panels, hints, and badges without changing the game UI.",
+  ],
+  [
     "useOrangeAsMainColor",
     "general",
     "使用橙色强调色",
@@ -643,10 +665,10 @@ const catalogRows = [
   [
     "productionSummary",
     "production",
-    "产出与库存摘要",
-    "Output & inventory summary",
-    "实时显示总产出、当前拥有数量和按直接材料计算的最大可做次数。",
-    "Show total output, owned quantity, and the maximum craftable count from direct materials.",
+    "本次生产摘要",
+    "Production summary",
+    "选择默认折叠、始终展开或完全关闭，并实时显示产出、库存与最大可做次数。",
+    "Choose collapsed, always expanded, or off while showing output, inventory, and maximum craftable count.",
   ],
   [
     "productionProfit",
@@ -663,6 +685,14 @@ const catalogRows = [
     "Shopping cart & procurement",
     "控制购物车入口、采购计划、生产缺料提示和市场采购导航；关闭后相关界面会立即移除，已有清单数据仍保留。",
     "Control the shopping cart, procurement plans, production shortage hints, and marketplace navigation. Turning it off removes the related UI while preserving saved cart data.",
+  ],
+  [
+    "hideReadyProductionShortage",
+    "production",
+    "材料充足时隐藏提示",
+    "Hide ready-material hint",
+    "开启后仅在材料充足时隐藏生产缺料提示；未填写数量和存在缺料时仍显示。",
+    "Hide the production shortage hint only when materials are ready; keep it visible while waiting for a quantity or when materials are missing.",
   ],
   [
     "actionPanel_foragingTotal",
@@ -703,6 +733,14 @@ const catalogRows = [
     "Include cowbells in assets",
     "开启后，牛铃按市场折算价值计入不可交易代币和总资产；默认关闭。",
     "Include cowbells at their market-derived value under non-tradable tokens and total assets. Off by default.",
+  ],
+  [
+    "includeGuildDungeonTokensInAssets",
+    "inventory",
+    "公会与地下城代币计入总资产",
+    "Include guild & dungeon tokens",
+    "开启后，公会代币以及奇幻、阴森、秘法、海盗代币计入不可交易代币和总资产；默认开启。",
+    "Include Guild, Chimerical, Sinister, Enchanted, and Pirate Tokens under non-tradable tokens and total assets. On by default.",
   ],
   [
     "valueBackEquipmentWithProtectionMirror",
@@ -1071,12 +1109,32 @@ const settingsCatalog = Object.fromEntries(
   ]),
 );
 
+settingsCatalog.productionSummary.control = {
+  type: "select",
+  preference: "productionSummaryMode",
+  options: [
+    ["collapsed", { zh: "默认折叠", en: "Collapsed" }],
+    ["expanded", { zh: "始终展开", en: "Always expanded" }],
+    ["off", { zh: "关闭", en: "Off" }],
+  ],
+};
+settingsCatalog.uiFontScale.control = {
+  type: "select",
+  preference: "uiFontScale",
+  options: [
+    ["standard", { zh: "标准", en: "Standard" }],
+    ["large", { zh: "较大", en: "Large" }],
+    ["largest", { zh: "最大", en: "Largest" }],
+  ],
+};
+
 const settingParents = {
   actionBarProfit: "totalActionTime",
   actionQueue: "totalActionTime",
   actionPanel_foragingTotal: "actionPanel_totalTime",
   productionSummary: "actionPanel_totalTime",
   productionProfit: "actionPanel_totalTime",
+  hideReadyProductionShortage: "procurementAssistant",
   showsKeyInfoInIcon: "itemIconLevel",
   itemTooltip_profit: "itemTooltip_prices",
   itemTooltip_profitRequireKey: "itemTooltip_prices",
@@ -1105,9 +1163,65 @@ for (const [id, parent] of Object.entries(settingParents)) {
 }
 
 const settingListeners = new Map();
+const preferenceListeners = new Map();
+const preferenceDefinitions = Object.freeze({
+  productionSummaryMode: Object.freeze({
+    defaultValue: "collapsed",
+    values: Object.freeze(["collapsed", "expanded", "off"]),
+  }),
+  uiFontScale: Object.freeze({
+    defaultValue: "standard",
+    values: Object.freeze(["standard", "large", "largest"]),
+  }),
+});
+const preferenceValues = Object.fromEntries(
+  Object.entries(preferenceDefinitions).map(([id, definition]) => [
+    id,
+    definition.defaultValue,
+  ]),
+);
 
 function getSetting(id) {
   return settingsMap[id]?.isTrue;
+}
+
+function normalizePreference(id, value) {
+  const definition = preferenceDefinitions[id];
+  if (!definition) return undefined;
+  return definition.values.includes(value) ? value : definition.defaultValue;
+}
+
+function getPreference(id) {
+  return preferenceValues[id];
+}
+
+async function setPreference(id, value, options = {}) {
+  const normalized = normalizePreference(id, value);
+  if (normalized === undefined) return false;
+  const previous = preferenceValues[id];
+  preferenceValues[id] = normalized;
+  if (previous === normalized && !options.force) return true;
+  if (options.persist !== false) runtime.api.persistSettings?.();
+  for (const listener of preferenceListeners.get(id) ?? []) {
+    try {
+      listener(normalized, previous);
+    } catch (error) {
+      console.error(
+        isZH
+          ? `[MWITools] 偏好设置 ${id} 的监听器执行失败`
+          : `[MWITools] Preference listener failed for ${id}`,
+        error,
+      );
+    }
+  }
+  return true;
+}
+
+function onPreferenceChange(id, listener) {
+  const listeners = preferenceListeners.get(id) ?? new Set();
+  listeners.add(listener);
+  preferenceListeners.set(id, listeners);
+  return () => listeners.delete(listener);
 }
 
 function isIronCowCharacter() {
@@ -1241,12 +1355,21 @@ Object.defineProperties(runtime.settings, {
       return settingsCatalog;
     },
   },
+  preferenceDefinitions: {
+    enumerable: true,
+    get() {
+      return preferenceDefinitions;
+    },
+  },
 });
 
 Object.assign(runtime.settings, {
   get: getSetting,
   set: setSetting,
   onChange: onSettingChange,
+  getPreference,
+  setPreference,
+  onPreferenceChange,
 });
 
 Object.assign(runtime.api, {

@@ -127,19 +127,19 @@ test("inventory sorting reads the enhancement level displayed on the item", () =
   assert.equal(runtime.api.getInventoryItemEnhancementLevel(plain), 0);
 });
 
-test("derived currency and loot categories participate in inventory sorting", () => {
+test("derived currency, loot, and equipment categories participate in inventory sorting", () => {
   assert.equal(runtime.api.isSortableInventoryCategory("Currencies"), true);
   assert.equal(runtime.api.isSortableInventoryCategory("Loots"), true);
   assert.equal(runtime.api.isSortableInventoryCategory("Food"), true);
-  assert.equal(runtime.api.isSortableInventoryCategory("Equipment"), false);
-  assert.equal(runtime.api.isSortableInventoryCategory("装备"), false);
-  assert.equal(runtime.api.isSortableInventoryCategory("裝備"), false);
+  assert.equal(runtime.api.isSortableInventoryCategory("Equipment"), true);
+  assert.equal(runtime.api.isSortableInventoryCategory("装备"), true);
+  assert.equal(runtime.api.isSortableInventoryCategory("裝備"), true);
   assert.equal(
     runtime.api.isSortableInventoryCategory(
       "Équipement",
       "/item_categories/equipment",
     ),
-    false,
+    true,
   );
 });
 
@@ -557,6 +557,65 @@ test("guild currencies move to fixed assets while task tokens stay inventory", a
   await runtime.settings.set("includeCowbellsInAssets", false);
 });
 
+test("optional token setting excludes the same stacks from inventory category values", async () => {
+  const optionalTokens = [
+    "/items/guild_token",
+    "/items/chimerical_token",
+    "/items/sinister_token",
+    "/items/enchanted_token",
+    "/items/pirate_token",
+  ];
+  const previousItems = runtime.state.initData_characterItems;
+  const previousDetails = runtime.state.initData_itemDetailMap;
+  const previousAsset = runtime.api.getAssetValue;
+  runtime.state.initData_characterItems = [
+    ...optionalTokens.map((itemHrid) => ({
+      itemHrid,
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    })),
+    {
+      itemHrid: "/items/task_token",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
+  runtime.state.initData_itemDetailMap = Object.fromEntries(
+    runtime.state.initData_characterItems.map(({ itemHrid }) => [
+      itemHrid,
+      { categoryHrid: "/item_categories/currency" },
+    ]),
+  );
+  runtime.api.getAssetValue = () => 10;
+
+  await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
+    persist: false,
+  });
+  assert.equal(
+    runtime.api
+      .calculateInventoryCategoryValues()
+      .get("/item_categories/currency"),
+    60,
+  );
+  await runtime.settings.set("includeGuildDungeonTokensInAssets", false, {
+    persist: false,
+  });
+  assert.equal(
+    runtime.api
+      .calculateInventoryCategoryValues()
+      .get("/item_categories/currency"),
+    10,
+  );
+  await runtime.settings.set("includeGuildDungeonTokensInAssets", true, {
+    persist: false,
+  });
+  runtime.state.initData_characterItems = previousItems;
+  runtime.state.initData_itemDetailMap = previousDetails;
+  runtime.api.getAssetValue = previousAsset;
+});
+
 test("market value sorting ranks every stack descending inside its category", async () => {
   document.body.innerHTML = `<section id="sort-parent"><div class="Inventory_items__newHash">
     <div class="Inventory_category__newHash"><div class="Inventory_itemGrid__newHash">
@@ -595,6 +654,49 @@ test("market value sorting ranks every stack descending inside its category", as
 
   runtime.api.getAssetValue = originalGetAssetValue;
   runtime.api.fetchMarketJSON = originalFetchMarketJSON;
+});
+
+test("equipment sorting uses enhancement, stack size, and derived badge values", async () => {
+  document.body.innerHTML = `<section><div class="Inventory_items__gear">
+    <div><div class="Inventory_itemGrid__gear">
+      <div class="Inventory_label__gear"><span class="Inventory_categoryButton__gear">Equipment</span></div>
+      <div id="plain-gear" class="Item_itemContainer__gear"><div class="Item_item__gear"><svg aria-label="Plain Gear"></svg><span class="Item_count__gear">2</span></div></div>
+      <div id="enhanced-gear" class="Item_itemContainer__gear"><div class="Item_item__gear"><svg aria-label="Enhanced Gear"></svg><span class="Item_enhancementLevel__gear">+7</span></div></div>
+      <div id="derived-gear" class="Item_itemContainer__gear"><div class="Item_item__gear"><svg aria-label="Derived Gear"></svg></div></div>
+    </div></div>
+  </div></section>`;
+  const originalAsset = runtime.api.getAssetValue;
+  const originalFetch = runtime.api.fetchMarketJSON;
+  runtime.state.itemEnNameToHridMap = {
+    "Plain Gear": "/items/plain-gear",
+    "Enhanced Gear": "/items/enhanced-gear",
+    "Derived Gear": "/items/derived-gear",
+  };
+  runtime.api.getAssetValue = (hrid, level) =>
+    hrid === "/items/plain-gear"
+      ? 60
+      : hrid === "/items/enhanced-gear" && level === 7
+        ? 150
+        : hrid === "/items/derived-gear"
+          ? 140
+          : 0;
+  runtime.api.fetchMarketJSON = async () => ({ marketData: {} });
+  runtime.settings.settingsMap.invSort.isTrue = true;
+
+  await runtime.api.addInvSortButton(
+    document.querySelector(".Inventory_items__gear"),
+  );
+  document.querySelector("#script_sortByFair_btn").click();
+
+  assert.equal(document.querySelector("#enhanced-gear").style.order, "0");
+  assert.equal(document.querySelector("#derived-gear").style.order, "1");
+  assert.equal(document.querySelector("#plain-gear").style.order, "2");
+  assert.match(document.querySelector("#enhanced-gear").textContent, /150/);
+  assert.match(document.querySelector("#derived-gear").textContent, /140/);
+  assert.match(document.querySelector("#plain-gear").textContent, /120/);
+
+  runtime.api.getAssetValue = originalAsset;
+  runtime.api.fetchMarketJSON = originalFetch;
 });
 
 test("all nine game languages keep asset and build-score summaries on the inventory tab", async () => {

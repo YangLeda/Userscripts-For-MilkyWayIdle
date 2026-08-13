@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.7",
-  "importantVersion": "26.4.7",
+  "latestVersion": "26.4.8",
+  "importantVersion": "26.4.8",
   "title": {
     "zh": "MWITools 有重要更新",
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "26.4.7 重要更新修复任务卡错位、新任务置顶，以及输入框保留焦点时按住 Ctrl 不显示生产利润、宝箱估算与强化成本面板；同时包含多语言、移动端显示与性能修复。建议前往 Greasy Fork 更新。",
-    "en": "The important 26.4.7 update fixes task-card alignment, new-task priority, and production profit, loot estimate, or enhancement cost panels not appearing when Ctrl is held while an input retains focus. It also includes localization, mobile display, and performance fixes. Update on Greasy Fork."
+    "zh": "26.4.8 重要更新修复配装切换后生产摘要、快捷输入和缺料提示消失与面板跳动，新增代币资产、摘要显示模式、缺料隐藏和字号设置，并补充生产成本悬浮提示及装备价值排序。建议前往 Greasy Fork 更新。",
+    "en": "The important 26.4.8 update fixes production summaries, quick inputs, and shortage hints disappearing or shifting after loadout changes. It also adds token assets, summary and shortage display controls, font sizing, compact production costs, and equipment value sorting. Update on Greasy Fork."
   }
 }

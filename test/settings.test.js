@@ -48,6 +48,19 @@ test("legacy settings merge into current defaults", () => {
     runtime.settings.settingsMap.includeCowbellsInAssets.isTrue,
     false,
   );
+  assert.equal(
+    runtime.settings.settingsMap.includeGuildDungeonTokensInAssets.isTrue,
+    true,
+  );
+  assert.equal(
+    runtime.settings.settingsMap.hideReadyProductionShortage.isTrue,
+    false,
+  );
+  assert.equal(
+    runtime.settings.getPreference("productionSummaryMode"),
+    "collapsed",
+  );
+  assert.equal(runtime.settings.getPreference("uiFontScale"), "standard");
   assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
   assert.equal(
     runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue,
@@ -81,16 +94,45 @@ test("legacy settings merge into current defaults", () => {
 
 test("setting changes persist the versioned and rollback-compatible shapes", async () => {
   await runtime.settings.set("notifiEmptyAction", true);
+  await runtime.settings.setPreference("productionSummaryMode", "expanded");
+  await runtime.settings.setPreference("uiFontScale", "large");
   assert.equal(
     JSON.parse(localStorage.getItem("MWITools_settings_v2")).values
       .notifiEmptyAction,
     true,
   );
+  const stored = JSON.parse(localStorage.getItem("MWITools_settings_v2"));
+  assert.equal(stored.preferences.productionSummaryMode, "expanded");
+  assert.equal(stored.preferences.uiFontScale, "large");
+  assert.equal(
+    document.documentElement.style.getPropertyValue("--mwi-ui-font-scale"),
+    "1.12",
+  );
+  await runtime.settings.setPreference("productionSummaryMode", "collapsed");
+  await runtime.settings.setPreference("uiFontScale", "standard");
   assert.equal(
     JSON.parse(localStorage.getItem("script_settingsMap")).notifiEmptyAction
       .isTrue,
     true,
   );
+});
+
+test("legacy disabled production summaries migrate to off mode", () => {
+  localStorage.removeItem("MWITools_settings_v2");
+  localStorage.setItem(
+    "script_settingsMap",
+    JSON.stringify({
+      productionSummary: { id: "productionSummary", isTrue: false },
+    }),
+  );
+  runtime.api.readSettings();
+  assert.equal(runtime.settings.getPreference("productionSummaryMode"), "off");
+  assert.equal(runtime.settings.settingsMap.productionSummary.isTrue, false);
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  void runtime.settings.setPreference("productionSummaryMode", "collapsed", {
+    persist: false,
+  });
+  runtime.api.persistSettings();
 });
 
 test("iron-cow adaptation recognizes both game modes and remains opt-in", async () => {
@@ -174,12 +216,22 @@ test("back mirror valuation resets to disabled once and then preserves user choi
   );
 });
 
-test("the settings catalog exposes every persisted feature switch", () => {
+test("the settings catalog exposes every persisted setting and enum preference", () => {
+  const catalog = Object.values(runtime.settings.catalog);
   assert.deepEqual(
-    Object.values(runtime.settings.catalog)
+    catalog
+      .filter((definition) => runtime.settings.settingsMap[definition.id])
       .map(({ id }) => id)
       .sort(),
     Object.keys(runtime.settings.settingsMap).sort(),
+  );
+  assert.deepEqual(
+    catalog
+      .flatMap((definition) =>
+        definition.control?.preference ? [definition.control.preference] : [],
+      )
+      .sort(),
+    Object.keys(runtime.settings.preferenceDefinitions).sort(),
   );
 });
 
@@ -221,7 +273,8 @@ test("card settings render every visible setting with nested children and search
     root.querySelectorAll(".mwi-setting-card").length,
     Object.values(runtime.settings.catalog).filter(
       (definition) =>
-        !definition.hidden && runtime.settings.settingsMap[definition.id],
+        !definition.hidden &&
+        (runtime.settings.settingsMap[definition.id] || definition.control),
     ).length,
   );
   assert.ok(root.querySelectorAll(".mwi-setting-child").length >= 14);
@@ -247,7 +300,10 @@ test("card settings render every visible setting with nested children and search
       card.querySelector(":scope > .mwi-setting-row > .mwi-setting-copy"),
     );
     assert.ok(
-      card.querySelector(":scope > .mwi-setting-row > .mwi-setting-toggle"),
+      card.querySelector(":scope > .mwi-setting-row > .mwi-setting-toggle") ||
+        card.querySelector(
+          ":scope > .mwi-setting-row > .mwi-setting-primary-select",
+        ),
     );
     assert.ok(card.querySelector(".mwi-setting-more"));
   }
@@ -259,6 +315,19 @@ test("card settings render every visible setting with nested children and search
   assert.match(root.textContent, /宝箱估值忽略牛铃/);
   assert.match(root.textContent, /普通背部装备按保护之镜估值/);
   assert.match(root.textContent, /购物车与采购/);
+  const summaryMode = root.querySelector('select[aria-label="本次生产摘要"]');
+  assert.ok(summaryMode);
+  assert.equal(summaryMode.value, "collapsed");
+  assert.deepEqual(
+    [...summaryMode.options].map((option) => option.value),
+    ["collapsed", "expanded", "off"],
+  );
+  const fontScale = root.querySelector('select[aria-label="插件字号"]');
+  assert.ok(fontScale);
+  assert.deepEqual(
+    [...fontScale.options].map((option) => option.value),
+    ["standard", "large", "largest"],
+  );
   const guildCreditCount = root.querySelector(
     'select[aria-label="公会信用推荐数量"]',
   );

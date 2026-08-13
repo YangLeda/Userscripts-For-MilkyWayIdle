@@ -702,28 +702,43 @@ function getDirectPrice(itemHrid, kind, mode) {
 
 function getPriceInfo(itemHrid, kind, mode) {
   const direct = getDirectPrice(itemHrid, kind, mode);
-  if (direct !== null || kind !== "sell") {
+  if (direct !== null) {
     return {
       value: direct,
-      source: direct === null ? "missing" : "market",
-      complete: direct !== null,
-      missingItemHrids: direct === null ? [itemHrid] : [],
+      source: "market",
+      complete: true,
+      fallback: false,
+      missingItemHrids: [],
     };
   }
-  const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
-  if (!(Number(derived?.value) > 0)) {
+  if (kind === "sell") {
+    const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
+    if (Number(derived?.value) > 0) {
+      return {
+        value: Number(derived.value),
+        source: derived.source === "market" ? "market" : "derived",
+        complete: Boolean(derived.complete),
+        fallback: false,
+        missingItemHrids: derived.missingItemHrids ?? [],
+      };
+    }
+  }
+  const marketValue = getDirectPrice(itemHrid, kind, "fair");
+  if (marketValue !== null) {
     return {
-      value: null,
-      source: "missing",
-      complete: false,
-      missingItemHrids: derived?.missingItemHrids ?? [itemHrid],
+      value: marketValue,
+      source: "market-value-fallback",
+      complete: true,
+      fallback: true,
+      missingItemHrids: [],
     };
   }
   return {
-    value: Number(derived.value),
-    source: derived.source === "market" ? "market" : "derived",
-    complete: Boolean(derived.complete),
-    missingItemHrids: derived.missingItemHrids ?? [],
+    value: null,
+    source: "missing",
+    complete: false,
+    fallback: false,
+    missingItemHrids: [itemHrid],
   };
 }
 
@@ -914,18 +929,28 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   function calculateValuation(mode) {
     const missingPrices = [];
+    const costMissingPrices = [];
+    const fallbackItemHrids = [];
     const unpricedByproducts = [];
     const derivedMissingPrices = [];
     const materialCostPerAction = inputs.reduce((total, input) => {
       const effectiveCount = getEffectiveInputCount(input, lessResource);
-      const price = getPrice(input.itemHrid, "buy", mode);
-      if (price === null) missingPrices.push(input.itemHrid);
-      return total + (price === null ? 0 : effectiveCount * price);
+      const priceInfo = getPriceInfo(input.itemHrid, "buy", mode);
+      if (priceInfo.value === null) {
+        missingPrices.push(input.itemHrid);
+        costMissingPrices.push(input.itemHrid);
+      }
+      if (priceInfo.fallback) fallbackItemHrids.push(input.itemHrid);
+      return (
+        total +
+        (priceInfo.value === null ? 0 : effectiveCount * priceInfo.value)
+      );
     }, 0);
     const primaryRevenuePerAction = outputs.reduce((total, output) => {
       const effectiveCount = output.count;
       const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
       if (priceInfo.value === null) missingPrices.push(output.itemHrid);
+      if (priceInfo.fallback) fallbackItemHrids.push(output.itemHrid);
       if (!priceInfo.complete && priceInfo.value !== null) {
         derivedMissingPrices.push(...priceInfo.missingItemHrids);
       }
@@ -938,6 +963,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       (total, output) => {
         const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
         if (priceInfo.value === null) unpricedByproducts.push(output.itemHrid);
+        if (priceInfo.fallback) fallbackItemHrids.push(output.itemHrid);
         if (!priceInfo.complete && priceInfo.value !== null) {
           derivedMissingPrices.push(...priceInfo.missingItemHrids);
         }
@@ -950,8 +976,13 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     );
     let teaCostPerHour = 0;
     for (const drink of teaEffects.drinks) {
-      const price = getPrice(drink.itemHrid, "buy", mode);
-      if (price === null) missingPrices.push(drink.itemHrid);
+      const priceInfo = getPriceInfo(drink.itemHrid, "buy", mode);
+      const price = priceInfo.value;
+      if (price === null) {
+        missingPrices.push(drink.itemHrid);
+        costMissingPrices.push(drink.itemHrid);
+      }
+      if (priceInfo.fallback) fallbackItemHrids.push(drink.itemHrid);
       const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
       teaCostPerHour += price === null ? 0 : price * countPerHour;
     }
@@ -984,7 +1015,10 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       netProfitPerAction,
       profitPerHour,
       totalProfit,
+      costComplete: costMissingPrices.length === 0,
+      costMissingPrices: [...new Set(costMissingPrices)],
       missingPrices: [...new Set(missingPrices)],
+      fallbackItemHrids: [...new Set(fallbackItemHrids)],
       unpricedByproducts: [...new Set(unpricedByproducts)],
       derivedMissingPrices: [...new Set(derivedMissingPrices)],
     };
@@ -1103,6 +1137,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     profitPerHour: selectedValuation.profitPerHour,
     totalProfit: selectedValuation.totalProfit,
     missingPrices,
+    fallbackItemHrids: selectedValuation.fallbackItemHrids,
     unpricedByproducts,
     derivedMissingPrices: selectedValuation.derivedMissingPrices,
   };
