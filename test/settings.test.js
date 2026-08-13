@@ -62,10 +62,7 @@ test("legacy settings merge into current defaults", () => {
   );
   assert.equal(runtime.settings.getPreference("uiFontScale"), "standard");
   assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
-  assert.equal(
-    runtime.settings.settingsMap.leaderboardBadgeGlint.isTrue,
-    false,
-  );
+  assert.equal(runtime.settings.settingsMap.leaderboardBadgeGlint.isTrue, true);
   assert.equal(
     runtime.settings.catalog.leaderboardBadgeGlint.parent,
     "leaderboardOverlay",
