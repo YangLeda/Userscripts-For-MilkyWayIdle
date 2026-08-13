@@ -106,14 +106,16 @@ test("latest version alone does not trigger an important update", () => {
   );
 });
 
-test("release 26.4.8 is the current important-update threshold", () => {
+test("release 26.4.9 is the current important-update threshold", () => {
   const releaseManifest = JSON.parse(
     readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
   );
-  assert.equal(releaseManifest.latestVersion, "26.4.8");
-  assert.equal(releaseManifest.importantVersion, "26.4.8");
-  assert.match(releaseManifest.message.zh, /生产摘要/);
-  assert.match(releaseManifest.message.en, /production summaries/);
+  assert.equal(releaseManifest.latestVersion, "26.4.9");
+  assert.equal(releaseManifest.importantVersion, "26.4.9");
+  assert.match(releaseManifest.title.zh, /26\.4\.9 重要更新/);
+  assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.9 update/);
+  assert.match(releaseManifest.message.zh, /三步规划计算器/);
+  assert.match(releaseManifest.message.en, /three-step planner/);
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.5"),
     true,
@@ -128,6 +130,10 @@ test("release 26.4.8 is the current important-update threshold", () => {
   );
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.8"),
+    true,
+  );
+  assert.equal(
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.9"),
     false,
   );
 });

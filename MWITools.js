@@ -42625,7 +42625,8 @@ ${locks}` : ""}`;
           "任务筛选现在默认全部未选并显示所有任务，选择多个专业、战斗或副本时按并集显示，副本也可独立筛选；新增一键重置筛选，桌面端全部筛选按钮保持同一行，移动端按空间换行。",
           "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。",
           "顶部当前动作条和行动队列中的每项动作现在统一显示纯剩余时长与括号内的 24 小时制结束时间，不再显示剩余次数或多余文字标签；结束时间跨日时会用第二组括号标记 +1 天、+2 天等实际相隔天数，队列总时间也会显示最终结束时刻。",
-          "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。"
+          "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。",
+          "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42640,7 +42641,8 @@ ${locks}` : ""}`;
           "Task filters now start unselected while showing every task, combine selected professions, combat, and dungeons as a union, and let dungeon filters work independently. A one-click reset was added; desktop keeps every filter on one row while mobile wraps as needed.",
           "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately.",
           "The top current-action bar and every action in the queue now share the same plain time-remaining and parenthesized 24-hour finish-time format, without remaining counts or extra text labels. A second parenthetical marker shows +1 day, +2 days, and so on after midnight, and the queue total now includes its final finish time.",
-          "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout."
+          "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout.",
+          "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes."
         ])
       })
     }),
