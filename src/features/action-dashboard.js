@@ -512,6 +512,15 @@ function isOwnedActionUi(node) {
 function shouldScheduleActionUi(records) {
   return records.some((record) => {
     const target = mutationElement(record.target);
+    const removedProductionMount = [...(record.removedNodes ?? [])].some(
+      (node) =>
+        node?.nodeType === 1 &&
+        (node.matches?.(".mwi-production-extensions") ||
+          node.querySelector?.(".mwi-production-extensions")),
+    );
+    if (removedProductionMount && target?.closest?.(ACTION_SURFACE_SELECTOR)) {
+      return true;
+    }
     const changed = [
       ...(record.addedNodes ?? []),
       ...(record.removedNodes ?? []),
@@ -584,11 +593,15 @@ function resolveActiveProductionPanelContext() {
     ),
   ]
     .filter((panel) => !isHiddenActionElement(panel))
-    .sort(
-      (left, right) =>
+    .sort((left, right) => {
+      const modalPriority =
         Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) -
-        Number(Boolean(left.closest('[class*="Modal_modalContainer"]'))),
-    );
+        Number(Boolean(left.closest('[class*="Modal_modalContainer"]')));
+      if (modalPriority) return modalPriority;
+      if (left.contains(right)) return 1;
+      if (right.contains(left)) return -1;
+      return 0;
+    });
   for (const panel of panels) {
     const actionHrid = resolvePanelAction(panel);
     if (!actionHrid || !isProductionAction(actionHrid)) continue;

@@ -26,6 +26,7 @@ const dom = new JSDOM(
 globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.location = dom.window.location;
+globalThis.MutationObserver = dom.window.MutationObserver;
 globalThis.window = dom.window;
 localStorage.setItem("i18nextLng", "zh-CN");
 
@@ -251,6 +252,48 @@ test("target-level estimate retries cleanly after a partially mounted panel", as
     panel.querySelector("#mwi-level-progress").textContent,
     /还需.*预计/,
   );
+});
+
+test("nested production wrappers use the innermost actionable panel", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const outer = document.createElement("div");
+  outer.className = "SkillActionDetail_skillActionDetail__outer";
+  panel.replaceWith(outer);
+  outer.append(panel);
+  delete panel.dataset.mwitoolsActionPanel;
+
+  const context = runtime.api.resolveActiveProductionPanelContext();
+  assert.equal(context.panel, panel);
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  runtime.api.renderProductionQuickInputs();
+  assert.equal(panel.querySelectorAll("#mwi-level-progress").length, 1);
+  assert.equal(panel.querySelectorAll("#quickInputCountButtons").length, 1);
+  assert.equal(
+    outer.querySelector(":scope > .mwi-production-extensions"),
+    null,
+  );
+
+  outer.replaceWith(panel);
+});
+
+test("removed production extension mounts are restored automatically", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.settings.settingsMap.actionPanel_totalTime.isTrue = true;
+  runtime.settings.settingsMap.actionPanel_totalTime_quickInputs.isTrue = true;
+  await runtime.features.handleCharacterData({ character: { id: 1 } });
+  await runtime.features.restart("actionPanel_totalTime_quickInputs");
+  runtime.api.renderProductionQuickInputs();
+  assert.ok(panel.querySelector("#quickInputCountButtons"));
+
+  panel.querySelector(".mwi-production-extensions").remove();
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.ok(panel.querySelector("#quickInputCountButtons"));
+  await runtime.features.disable("actionPanel_totalTime_quickInputs");
 });
 
 test("legacy gathering profit renders the shared conservative projection", async () => {

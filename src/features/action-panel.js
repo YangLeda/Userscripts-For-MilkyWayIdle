@@ -6,7 +6,7 @@ const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
 const ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
 const MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
 const ACTION_PANEL_SELECTOR =
-  'div[class*="SkillActionDetail_regularComponent"]';
+  'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1000];
 const actionPanelRetryStates = new Map();
 

@@ -12,9 +12,11 @@ export const ANNOUNCEMENTS = Object.freeze([
     body: Object.freeze({
       zh: Object.freeze([
         "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
+        "修复生产面板重建或存在嵌套容器时，目标等级和生产次数快捷输入不显示；插件现在会识别实际表单并自动恢复整组生产扩展。",
       ]),
       en: Object.freeze([
         "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
+        "Fixed target-level controls and production count shortcuts not appearing when the production panel was rebuilt or used nested containers. MWITools now identifies the actual form and restores the full production extension group automatically.",
       ]),
     }),
   }),

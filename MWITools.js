@@ -32539,7 +32539,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
   var ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
   var MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
-  var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"]';
+  var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
   var actionPanelRetryStates = /* @__PURE__ */ new Map();
   function addActionPanelStyles() {
@@ -33484,6 +33484,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function shouldScheduleActionUi(records) {
     return records.some((record) => {
       const target = mutationElement(record.target);
+      const removedProductionMount = [...record.removedNodes ?? []].some(
+        (node) => node?.nodeType === 1 && (node.matches?.(".mwi-production-extensions") || node.querySelector?.(".mwi-production-extensions"))
+      );
+      if (removedProductionMount && target?.closest?.(ACTION_SURFACE_SELECTOR)) {
+        return true;
+      }
       const changed = [
         ...record.addedNodes ?? [],
         ...record.removedNodes ?? []
@@ -33539,9 +33545,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       ...document.querySelectorAll(
         'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
       )
-    ].filter((panel) => !isHiddenActionElement(panel)).sort(
-      (left, right) => Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) - Number(Boolean(left.closest('[class*="Modal_modalContainer"]')))
-    );
+    ].filter((panel) => !isHiddenActionElement(panel)).sort((left, right) => {
+      const modalPriority = Number(Boolean(right.closest('[class*="Modal_modalContainer"]'))) - Number(Boolean(left.closest('[class*="Modal_modalContainer"]')));
+      if (modalPriority) return modalPriority;
+      if (left.contains(right)) return 1;
+      if (right.contains(left)) return -1;
+      return 0;
+    });
     for (const panel of panels) {
       const actionHrid = resolvePanelAction(panel);
       if (!actionHrid || !isProductionAction(actionHrid)) continue;
@@ -39997,10 +40007,12 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。"
+          "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
+          "修复生产面板重建或存在嵌套容器时，目标等级和生产次数快捷输入不显示；插件现在会识别实际表单并自动恢复整组生产扩展。"
         ]),
         en: Object.freeze([
-          "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node."
+          "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
+          "Fixed target-level controls and production count shortcuts not appearing when the production panel was rebuilt or used nested containers. MWITools now identifies the actual form and restores the full production extension group automatically."
         ])
       })
     }),
