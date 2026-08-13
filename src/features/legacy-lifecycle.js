@@ -45,11 +45,14 @@ const adapters = {
     scope: "character",
     initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
-      observeRelevantDom(scope, 'div[class*="Inventory_items"]', () =>
-        refreshInventoryIfNeeded(
-          "script_buildScore_added",
-          "#script_inventory_summary",
-        ),
+      observeRelevantDom(
+        scope,
+        'div[class*="Inventory_items"],#script_inventory_summary',
+        () =>
+          refreshInventoryIfNeeded(
+            "script_buildScore_added",
+            "#script_inventory_summary",
+          ),
       );
     },
     cleanup() {

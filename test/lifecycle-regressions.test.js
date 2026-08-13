@@ -42,7 +42,7 @@ after(async () => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
 runtime.state.initData_characterItems = [];
 
-test("inventory lifecycle restores output removed from a reused inventory node", async () => {
+test("inventory lifecycle restores a summary removed beside a reused inventory node", async () => {
   const originalSchedule = runtime.api.scheduleNetworthRefresh;
   let refreshes = 0;
   runtime.api.scheduleNetworthRefresh = () => {
@@ -54,14 +54,13 @@ test("inventory lifecycle restores output removed from a reused inventory node",
 
   document.body.innerHTML = `
     <section>
+      <div id="script_inventory_summary"></div>
       <div class="Inventory_items__fixture script_buildScore_added">
         <div class="Inventory_itemGrid__fixture"></div>
       </div>
     </section>`;
   refreshes = 0;
-  document
-    .querySelector(".Inventory_itemGrid__fixture")
-    .append(document.createElement("span"));
+  document.querySelector("#script_inventory_summary").remove();
   await settle();
 
   assert.ok(refreshes >= 1);

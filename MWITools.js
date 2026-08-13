@@ -40077,13 +40077,13 @@ ${locks}` : ""}`;
         zh: Object.freeze([
           "排行榜徽章新增总等级、迷宫深度、智力、耐力和任务积分，并使用游戏原生图标；徽章名次不再显示 # 前缀，个人主页会在姓名下方完整展示全部徽章，其他位置只保留名次最靠前的三个，好友列表则保持在姓名右侧；设置中可开启前五名彩色徽章的一秒横扫白光、一秒右上角呼吸闪光和三秒停顿循环，此效果默认关闭。",
           "修复切换到技能页再返回库存后，战斗与生活着装评分、总资产可能不再显示；即使游戏复用了旧库存节点，摘要也会自动恢复。",
-          "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，刷新网页后才会重新计算。",
+          "库存中的战斗着装评分、生活着装评分和总资产现在会在本次页面会话首次计算后保持不变；技能、装备、资产或市场数据变化只会恢复原有显示，游戏在切换技能后单独移除摘要时也会自动补回，刷新网页后才会重新计算。",
           "修复生产面板重建、存在嵌套容器或更换战斗技能后，目标等级和生产次数快捷输入不显示；插件现在会识别实际弹窗表单，并在技能数据与面板先后更新时稳定恢复整组生产扩展。"
         ]),
         en: Object.freeze([
           "Leaderboard badges now include Total Level, Labyrinth Depth, Intelligence, Stamina, and Task Points with native game icons. Badge ranks no longer show a # prefix, profiles show every badge on a second row below the name, other locations keep only the three best ranks, and friend-list badges stay beside the name. Settings can enable a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause on top-five rainbow badges; this effect is off by default.",
           "Fixed combat and skilling gear scores and total assets sometimes disappearing after switching to a skill and returning to Inventory. The summary now restores itself even when the game reuses the previous inventory node.",
-          "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display; reloading the page recalculates it.",
+          "Combat gear score, skilling gear score, and total assets in Inventory now stay fixed after their first calculation in the current page session. Ability, equipment, asset, and market updates only restore the existing display, including when the game removes the summary separately after an ability change; reloading the page recalculates it.",
           "Fixed target-level controls and production count shortcuts not appearing after production-panel rebuilds, nested containers, or combat ability changes. MWITools now identifies the actual modal form and reliably restores the full extension group when ability data and the panel update at different times."
         ])
       })
@@ -54016,7 +54016,7 @@ ${locks}` : ""}`;
         runtime.api.scheduleNetworthRefresh?.();
         observeRelevantDom(
           scope,
-          'div[class*="Inventory_items"]',
+          'div[class*="Inventory_items"],#script_inventory_summary',
           () => refreshInventoryIfNeeded(
             "script_buildScore_added",
             "#script_inventory_summary"
