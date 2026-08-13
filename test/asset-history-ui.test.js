@@ -237,23 +237,41 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     runtime.api.planning.getDiagnostics().calculationCount,
     beforeCalculation,
   );
+  const decisionStage = targets.querySelector(".planning-stage");
+  let pageScrollCalls = 0;
+  decisionStage.scrollIntoView = () => {
+    pageScrollCalls += 1;
+  };
+  panel.scrollTop = 40;
+  shell.scrollTop = 87;
+  panel.getBoundingClientRect = () => ({ top: 100 });
+  decisionStage.getBoundingClientRect = () => ({ top: 300 });
   targets.querySelector(".planning-calculate-bar .planning-primary").click();
   assert.equal(targets.hidden, false);
   assert.equal(list.hidden, true);
+  assert.equal(pageScrollCalls, 0);
+  assert.equal(panel.scrollTop, 232);
+  assert.equal(shell.scrollTop, 87);
   assert.equal(
     runtime.api.planning.getDiagnostics().calculationCount,
     beforeCalculation + 1,
   );
-  const decisionStage = targets.querySelector(".planning-stage");
   assert.equal(decisionStage.hidden, false);
   assert.match(decisionStage.textContent, /第 2 步：选择制作方式/);
   assert.doesNotMatch(decisionStage.textContent, /预计次数|单次/);
 
-  decisionStage
-    .querySelector(".planning-calculate-bar .planning-primary")
-    .click();
+  panel.scrollTop = 410;
+  shell.scrollTop = 93;
+  const stepThreeButton = decisionStage.querySelector(
+    ".planning-calculate-bar .planning-primary",
+  );
+  stepThreeButton.focus();
+  stepThreeButton.click();
   assert.equal(targets.hidden, true);
   assert.equal(list.hidden, false);
+  assert.equal(panel.scrollTop, 0);
+  assert.equal(shell.scrollTop, 93);
+  assert.notEqual(document.activeElement, stepThreeButton);
   assert.equal(
     runtime.api.planning.getDiagnostics().calculationCount,
     beforeCalculation + 2,
@@ -589,6 +607,67 @@ test("mobile remounts P/L when a different character-management panel becomes vi
 
   ui.destroy();
   scope.cleanup();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 1024,
+  });
+});
+
+test("mobile remounts Planning when responsive character branches switch visibility", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 390,
+  });
+  let mobileVisible = false;
+  const wrapShell = (shell, visibleWhenMobile) => {
+    const branch = document.createElement("div");
+    branch.className = "CharacterManagement_responsiveBranch__test";
+    branch.append(...shell.children);
+    shell.append(branch);
+    const navigation = branch.querySelector("nav");
+    navigation.getBoundingClientRect = () => ({
+      width: mobileVisible === visibleWhenMobile ? 356 : 0,
+      height: mobileVisible === visibleWhenMobile ? 24 : 0,
+    });
+    branch.hidden = mobileVisible !== visibleWhenMobile;
+    return branch;
+  };
+  const desktopShell = gameShell();
+  const desktopBranch = wrapShell(desktopShell, false);
+  const mobileShell = gameShell();
+  const mobileBranch = wrapShell(mobileShell, true);
+  const assetScope = runtime.createCleanupScope();
+  const assetUi = createAssetHistoryUi({
+    scope: assetScope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:mobile-planning",
+  });
+  const planningScope = runtime.createCleanupScope();
+  const planningUi = createPlanningUi({ scope: planningScope });
+
+  assert.equal(
+    document.querySelector("#mwitools-planning-tab").parentElement,
+    desktopBranch.querySelector("nav"),
+  );
+  mobileVisible = true;
+  desktopBranch.hidden = true;
+  mobileBranch.hidden = false;
+  await settleDom();
+
+  const planningTab = document.querySelector("#mwitools-planning-tab");
+  assert.equal(planningTab.parentElement, mobileBranch.querySelector("nav"));
+  assert.equal(
+    planningTab.previousElementSibling,
+    mobileBranch.querySelector("#mwitools-asset-history-tab"),
+  );
+  assert.equal(desktopBranch.querySelector("#mwitools-planning-tab"), null);
+
+  planningUi.destroy();
+  planningScope.cleanup();
+  assetUi.destroy();
+  assetScope.cleanup();
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
     value: 1024,

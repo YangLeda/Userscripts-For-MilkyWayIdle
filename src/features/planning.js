@@ -266,7 +266,7 @@ function addStyles() {
   style.textContent = `
     #${TAB_ID}[data-active="true"]{color:#7dd3fc!important;font-weight:700}
     [data-mwitools-planning-active="true"] button:not(#${TAB_ID}){border-color:var(--mwi-planning-idle-border,rgba(255,255,255,.16))!important;background:var(--mwi-planning-idle-background,rgba(255,255,255,.08))!important;box-shadow:var(--mwi-planning-idle-shadow,none)!important;color:var(--mwi-planning-idle-color,var(--color-text-secondary,#aeb5c0))!important;filter:none!important}
-    #${PANEL_ID}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    #${PANEL_ID}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
     #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} input,#${PANEL_ID} select{font:inherit}
     .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
     .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
@@ -1004,22 +1004,40 @@ export class PlanningPanel {
     this.listPage.hidden = this.route !== "list";
   }
 
+  blurCalculationControl() {
+    const activeElement = document.activeElement;
+    if (activeElement && this.host.contains(activeElement)) {
+      activeElement.blur?.();
+    }
+  }
+
+  scrollStageWithinPanel(stage) {
+    if (!stage || !this.host) return;
+    const panelRect = this.host.getBoundingClientRect?.();
+    const stageRect = stage.getBoundingClientRect?.();
+    if (!panelRect || !stageRect) return;
+    const target =
+      Number(this.host.scrollTop || 0) + stageRect.top - panelRect.top - 8;
+    this.host.scrollTop = Math.max(0, target);
+  }
+
   calculateDecisions() {
+    this.blurCalculationControl();
     this.decisionResult = planning.calculateDecisions();
     this.signatures.decisions = null;
     this.renderDecision(true);
     this.updateStatus();
-    globalThis.requestAnimationFrame?.(() =>
-      this.decisionStage?.scrollIntoView?.({ block: "start" }),
-    );
+    this.scrollStageWithinPanel(this.decisionStage);
   }
 
   calculateMaterials() {
+    this.blurCalculationControl();
     this.result = planning.calculateMaterials();
     this.signatures.materials = null;
     this.renderResult(true);
     this.updateStatus();
     this.setRoute("list");
+    this.host.scrollTop = 0;
   }
 
   scheduleUpdate({ catalog = false, house = false } = {}) {
@@ -1173,6 +1191,38 @@ function isCompactViewport() {
   return (
     window.matchMedia?.("(max-width:760px)")?.matches ??
     Number(window.innerWidth) <= 760
+  );
+}
+
+function isRelevantPlanningMountAttribute(target, navigationBranch) {
+  const management = target?.closest?.(
+    '[class*="CharacterManagement_characterManagement"]',
+  );
+  if (!management) return false;
+  if (
+    target === management ||
+    target === navigationBranch ||
+    target?.parentElement === navigationBranch ||
+    (navigationBranch && target?.contains?.(navigationBranch))
+  ) {
+    return true;
+  }
+  return target?.querySelectorAll?.('button[role="tab"]')?.length >= 5;
+}
+
+function isRelevantPlanningMountNode(node) {
+  if (node?.nodeType !== 1) return false;
+  if (
+    node.matches?.(`#${TAB_ID},#${PANEL_ID}`) ||
+    node.closest?.(`#${TAB_ID},#${PANEL_ID}`)
+  ) {
+    return false;
+  }
+  return Boolean(
+    node.matches?.(`#${ASSET_TAB_ID}`) ||
+    node.querySelector?.(`#${ASSET_TAB_ID}`) ||
+    node.matches?.('[class*="CharacterManagement_characterManagement"]') ||
+    node.querySelector?.('[class*="CharacterManagement_characterManagement"]'),
   );
 }
 
@@ -1392,29 +1442,10 @@ export function createPlanningUi({ scope }) {
           : record.target?.parentElement;
       if (target?.closest?.(`#${TAB_ID},#${PANEL_ID}`)) return false;
       if (record.type === "attributes") {
-        const management = target?.closest?.(
-          '[class*="CharacterManagement_characterManagement"]',
-        );
-        return Boolean(
-          management &&
-          (target === management ||
-            target === navigationBranch ||
-            target?.parentElement === navigationBranch),
-        );
+        return isRelevantPlanningMountAttribute(target, navigationBranch);
       }
       return [...record.addedNodes, ...record.removedNodes].some(
-        (node) =>
-          node?.nodeType === 1 &&
-          !(
-            node.matches?.(`#${TAB_ID},#${PANEL_ID}`) ||
-            node.closest?.(`#${TAB_ID},#${PANEL_ID}`)
-          ) &&
-          (node.matches?.(
-            '[class*="CharacterManagement_characterManagement"]',
-          ) ||
-            node.querySelector?.(
-              '[class*="CharacterManagement_characterManagement"]',
-            )),
+        isRelevantPlanningMountNode,
       );
     });
     if (relevant) mountScheduler.schedule();
@@ -1476,7 +1507,7 @@ export function createPlanningUi({ scope }) {
 
 runtime.features.register({
   id: "planningPage",
-  setting: "procurementAssistant",
+  setting: "planningPage",
   scope: "character",
   initialize({ scope }) {
     const ui = createPlanningUi({ scope });

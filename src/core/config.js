@@ -341,6 +341,13 @@ let settingsMap = {
       : "Enable the shopping cart, procurement plans, and production shortage actions.",
     isTrue: true,
   },
+  planningPage: {
+    id: "planningPage",
+    desc: isZH
+      ? "在角色页显示独立规划计算器"
+      : "Show the standalone Planning calculator on the character page.",
+    isTrue: true,
+  },
   hideReadyProductionShortage: {
     id: "hideReadyProductionShortage",
     desc: isZH
@@ -692,6 +699,14 @@ const catalogRows = [
     "Shopping cart & procurement",
     "控制购物车入口、采购计划、生产缺料提示和市场采购导航；关闭后相关界面会立即移除，已有清单数据仍保留。",
     "Control the shopping cart, procurement plans, production shortage hints, and marketplace navigation. Turning it off removes the related UI while preserving saved cart data.",
+  ],
+  [
+    "planningPage",
+    "production",
+    "规划计算器",
+    "Planning calculator",
+    "控制角色页“盈亏”旁的规划入口；可独立于购物车与采购功能开启或关闭，已有规划数据会保留。",
+    "Control the Planning tab beside P/L independently from shopping cart and procurement features while preserving saved planning data.",
   ],
   [
     "hideReadyProductionShortage",

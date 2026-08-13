@@ -77,9 +77,9 @@
     mod
   ));
 
-  // node_modules/lz-string/libs/lz-string.js
+  // ../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -1093,6 +1093,11 @@
       desc: isZH ? "启用购物车、采购计划和生产缺料加购" : "Enable the shopping cart, procurement plans, and production shortage actions.",
       isTrue: true
     },
+    planningPage: {
+      id: "planningPage",
+      desc: isZH ? "在角色页显示独立规划计算器" : "Show the standalone Planning calculator on the character page.",
+      isTrue: true
+    },
     hideReadyProductionShortage: {
       id: "hideReadyProductionShortage",
       desc: isZH ? "材料充足时隐藏生产缺料提示" : "Hide the production shortage hint when materials are ready.",
@@ -1414,6 +1419,14 @@
       "Shopping cart & procurement",
       "控制购物车入口、采购计划、生产缺料提示和市场采购导航；关闭后相关界面会立即移除，已有清单数据仍保留。",
       "Control the shopping cart, procurement plans, production shortage hints, and marketplace navigation. Turning it off removes the related UI while preserving saved cart data."
+    ],
+    [
+      "planningPage",
+      "production",
+      "规划计算器",
+      "Planning calculator",
+      "控制角色页“盈亏”旁的规划入口；可独立于购物车与采购功能开启或关闭，已有规划数据会保留。",
+      "Control the Planning tab beside P/L independently from shopping cart and procurement features while preserving saved planning data."
     ],
     [
       "hideReadyProductionShortage",
@@ -29196,7 +29209,7 @@ ${preview}`
     style.textContent = `
     #${TAB_ID2}[data-active="true"]{color:#7dd3fc!important;font-weight:700}
     [data-mwitools-planning-active="true"] button:not(#${TAB_ID2}){border-color:var(--mwi-planning-idle-border,rgba(255,255,255,.16))!important;background:var(--mwi-planning-idle-background,rgba(255,255,255,.08))!important;box-shadow:var(--mwi-planning-idle-shadow,none)!important;color:var(--mwi-planning-idle-color,var(--color-text-secondary,#aeb5c0))!important;filter:none!important}
-    #${PANEL_ID2}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    #${PANEL_ID2}{box-sizing:border-box;width:100%;max-width:100%;min-width:0;max-height:calc(100% - 34px);overflow-x:hidden;overflow-y:auto;overflow-anchor:none;overscroll-behavior:contain;scrollbar-gutter:stable;padding:12px 12px 28px;color:var(--color-text-primary,#eee);background:#111b2b;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
     #${PANEL_ID2} *{box-sizing:border-box}#${PANEL_ID2} button,#${PANEL_ID2} input,#${PANEL_ID2} select{font:inherit}
     .planning-intro{margin:0 0 10px;color:var(--color-text-secondary,#aeb5c0);font-size:.72rem;line-height:1.5}
     .planning-subtabs{display:flex;gap:4px;margin:0 0 10px;padding:3px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:#0c141f}.planning-subtabs button{flex:1;min-height:34px;border:0;border-radius:5px;background:transparent;color:#94a3b8;font-weight:700;cursor:pointer}.planning-subtabs button[data-active="true"]{background:#287fb4;color:#fff}.planning-page[hidden],.planning-stage[hidden]{display:none!important}.planning-stage-title{margin:0 0 10px;color:#dce8f5;font-size:.9rem}.planning-calculate-bar{display:flex;align-items:center;gap:10px;margin:10px 0;padding:9px 10px;border:1px solid rgba(56,189,248,.2);border-radius:8px;background:rgba(40,127,180,.08)}.planning-calculate-bar .planning-primary{margin-left:auto}.planning-dirty{color:#ffad62;font-size:.68rem}.planning-clean{color:#43d17f;font-size:.68rem}
@@ -29886,21 +29899,36 @@ ${preview}`
       this.targetPage.hidden = this.route !== "targets";
       this.listPage.hidden = this.route !== "list";
     }
+    blurCalculationControl() {
+      const activeElement = document.activeElement;
+      if (activeElement && this.host.contains(activeElement)) {
+        activeElement.blur?.();
+      }
+    }
+    scrollStageWithinPanel(stage) {
+      if (!stage || !this.host) return;
+      const panelRect = this.host.getBoundingClientRect?.();
+      const stageRect = stage.getBoundingClientRect?.();
+      if (!panelRect || !stageRect) return;
+      const target = Number(this.host.scrollTop || 0) + stageRect.top - panelRect.top - 8;
+      this.host.scrollTop = Math.max(0, target);
+    }
     calculateDecisions() {
+      this.blurCalculationControl();
       this.decisionResult = planning.calculateDecisions();
       this.signatures.decisions = null;
       this.renderDecision(true);
       this.updateStatus();
-      globalThis.requestAnimationFrame?.(
-        () => this.decisionStage?.scrollIntoView?.({ block: "start" })
-      );
+      this.scrollStageWithinPanel(this.decisionStage);
     }
     calculateMaterials() {
+      this.blurCalculationControl();
       this.result = planning.calculateMaterials();
       this.signatures.materials = null;
       this.renderResult(true);
       this.updateStatus();
       this.setRoute("list");
+      this.host.scrollTop = 0;
     }
     scheduleUpdate({ catalog = false, house = false } = {}) {
       this.catalogDirty ||= catalog;
@@ -30035,6 +30063,25 @@ ${preview}`
   };
   function isCompactViewport2() {
     return window.matchMedia?.("(max-width:760px)")?.matches ?? Number(window.innerWidth) <= 760;
+  }
+  function isRelevantPlanningMountAttribute(target, navigationBranch) {
+    const management = target?.closest?.(
+      '[class*="CharacterManagement_characterManagement"]'
+    );
+    if (!management) return false;
+    if (target === management || target === navigationBranch || target?.parentElement === navigationBranch || navigationBranch && target?.contains?.(navigationBranch)) {
+      return true;
+    }
+    return target?.querySelectorAll?.('button[role="tab"]')?.length >= 5;
+  }
+  function isRelevantPlanningMountNode(node) {
+    if (node?.nodeType !== 1) return false;
+    if (node.matches?.(`#${TAB_ID2},#${PANEL_ID2}`) || node.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) {
+      return false;
+    }
+    return Boolean(
+      node.matches?.(`#${ASSET_TAB_ID}`) || node.querySelector?.(`#${ASSET_TAB_ID}`) || node.matches?.('[class*="CharacterManagement_characterManagement"]') || node.querySelector?.('[class*="CharacterManagement_characterManagement"]')
+    );
   }
   function createPlanningUi({ scope }) {
     let active = false;
@@ -30235,19 +30282,10 @@ ${preview}`
         const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
         if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
         if (record.type === "attributes") {
-          const management = target?.closest?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          );
-          return Boolean(
-            management && (target === management || target === navigationBranch || target?.parentElement === navigationBranch)
-          );
+          return isRelevantPlanningMountAttribute(target, navigationBranch);
         }
         return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID2},#${PANEL_ID2}`) || node.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) && (node.matches?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ) || node.querySelector?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ))
+          isRelevantPlanningMountNode
         );
       });
       if (relevant) mountScheduler.schedule();
@@ -30303,7 +30341,7 @@ ${preview}`
   }
   runtime.features.register({
     id: "planningPage",
-    setting: "procurementAssistant",
+    setting: "planningPage",
     scope: "character",
     initialize({ scope }) {
       const ui = createPlanningUi({ scope });
@@ -42627,7 +42665,8 @@ ${locks}` : ""}`;
           "顶部当前动作条和行动队列中的每项动作现在统一显示纯剩余时长与括号内的 24 小时制结束时间，不再显示剩余次数或多余文字标签；结束时间跨日时会用第二组括号标记 +1 天、+2 天等实际相隔天数，队列总时间也会显示最终结束时刻。",
           "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。",
           "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。",
-          "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。"
+          "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。",
+          "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42644,7 +42683,8 @@ ${locks}` : ""}`;
           "The top current-action bar and every action in the queue now share the same plain time-remaining and parenthesized 24-hour finish-time format, without remaining counts or extra text labels. A second parenthetical marker shows +1 day, +2 days, and so on after midnight, and the queue total now includes its final finish time.",
           "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout.",
           "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes.",
-          "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure."
+          "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure.",
+          "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip."
         ])
       })
     }),

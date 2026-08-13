@@ -44,6 +44,9 @@ test("legacy settings merge into current defaults", () => {
   assert.equal(runtime.config.SCRIPT_COLOR_TOOLTIP, "#804600");
   assert.equal(runtime.settings.settingsMap.totalActionTime.isTrue, true);
   assert.equal(runtime.settings.settingsMap.assetHistory.isTrue, true);
+  assert.equal(runtime.settings.settingsMap.planningPage.isTrue, true);
+  assert.equal(runtime.settings.catalog.planningPage.group, "production");
+  assert.equal(runtime.settings.catalog.planningPage.parent, undefined);
   assert.equal(
     runtime.settings.settingsMap.includeCowbellsInAssets.isTrue,
     false,
