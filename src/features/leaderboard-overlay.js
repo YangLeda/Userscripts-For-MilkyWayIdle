@@ -1,9 +1,9 @@
 import { runtime } from "../core/runtime.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.2.2";
+const OVERLAY_VERSION = "1.3.0";
 const LEADERBOARD_API_URL =
-  "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
+  "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
 const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
 const STYLE_ID = "mwi-leaderboard-overlay-style";
@@ -13,6 +13,7 @@ const RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
 const LEADERBOARD_TABLE_SELECTOR =
   'table[class*="LeaderboardPanel_leaderboardTable"]';
 const DEFAULT_CATEGORIES = [
+  ["total_level", { zh: "总等级", en: "Total Level" }],
   ["milking", { zh: "挤奶", en: "Milking" }],
   ["foraging", { zh: "采摘", en: "Foraging" }],
   ["woodcutting", { zh: "伐木", en: "Woodcutting" }],
@@ -23,13 +24,42 @@ const DEFAULT_CATEGORIES = [
   ["brewing", { zh: "冲泡", en: "Brewing" }],
   ["alchemy", { zh: "炼金", en: "Alchemy" }],
   ["enhancing", { zh: "强化", en: "Enhancing" }],
+  ["stamina", { zh: "耐力", en: "Stamina" }],
+  ["intelligence", { zh: "智力", en: "Intelligence" }],
   ["attack", { zh: "攻击", en: "Attack" }],
   ["defense", { zh: "防御", en: "Defense" }],
   ["melee", { zh: "近战", en: "Melee" }],
   ["ranged", { zh: "远程", en: "Ranged" }],
   ["magic", { zh: "魔法", en: "Magic" }],
+  ["task_points", { zh: "任务积分", en: "Task Points" }],
+  ["labyrinth_depth", { zh: "迷宫深度", en: "Labyrinth Depth" }],
   ["fame_points", { zh: "名望", en: "Fame" }],
 ];
+const RATE_CATEGORIES = new Set([
+  "milking",
+  "foraging",
+  "woodcutting",
+  "cheesesmithing",
+  "crafting",
+  "tailoring",
+  "cooking",
+  "brewing",
+  "alchemy",
+  "enhancing",
+  "stamina",
+  "intelligence",
+  "attack",
+  "defense",
+  "melee",
+  "ranged",
+  "magic",
+]);
+const MISC_CATEGORY_SYMBOLS = Object.freeze({
+  total_level: "leaderboard",
+  task_points: "tasks",
+  labyrinth_depth: "labyrinth",
+  fame_points: "experience",
+});
 const NATIVE_SPRITE_FALLBACKS = Object.freeze({
   misc: "/static/media/misc_sprite.6560b17a.svg",
   skills: "/static/media/skills_sprite.3bb4d936.svg",
@@ -120,6 +150,9 @@ function ensureStyles(documentRef) {
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
+    .mwi-lb-badge--top-five{background-size:100% 100%,300% 100%;animation:mwi-lb-badge-shimmer 2.4s linear infinite}
+    @keyframes mwi-lb-badge-shimmer{to{background-position:0 0,300% 0}}
+    @media (prefers-reduced-motion:reduce){.mwi-lb-badge--top-five{animation:none}}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
@@ -146,7 +179,8 @@ function nativeSpriteBase(documentRef, kind) {
 }
 
 function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
-  if (customIconBaseUrl && category !== "fame_points") {
+  const miscSymbol = MISC_CATEGORY_SYMBOLS[category];
+  if (customIconBaseUrl && !miscSymbol) {
     const icon = documentRef.createElement("img");
     icon.className = "mwi-lb-badge-icon";
     icon.src = `${customIconBaseUrl}/${encodeURIComponent(category)}.png`;
@@ -155,8 +189,8 @@ function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
     return icon;
   }
 
-  const spriteKind = category === "fame_points" ? "misc" : "skills";
-  const symbol = category === "fame_points" ? "experience" : category;
+  const spriteKind = miscSymbol ? "misc" : "skills";
+  const symbol = miscSymbol || category;
   const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.classList.add("mwi-lb-badge-icon");
   icon.setAttribute("viewBox", "0 0 40 40");
@@ -258,18 +292,24 @@ function createOverlay(options = {}) {
       const profileNameBlock = profileRoot
         ? nameElement.closest('[class*="Header_name"]')
         : null;
-      const listNameBlock = nameElement.closest(
-        '[class*="GuildPanel_characterName"],[class*="SocialPanel_characterName"]',
+      const guildNameBlock = nameElement.closest(
+        '[class*="GuildPanel_characterName"]',
+      );
+      const friendNameBlock = nameElement.closest(
+        '[class*="SocialPanel_characterName"]',
       );
       const settingsNameColor = nameElement.closest(
         '[class*="SettingsPanel_nameColor"]',
       );
-      const badgeMount = profileNameBlock || listNameBlock || host;
+      const profileFallbackMount = profileRoot ? host.parentElement : null;
+      const badgeMount =
+        profileNameBlock || profileFallbackMount || guildNameBlock || host;
       let container =
         badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         (badgeMount === host
           ? null
-          : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`));
+          : host.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`)) ||
+        friendNameBlock?.querySelector(`[${BADGE_CONTAINER_ATTRIBUTE}]`);
       if (nameElement.closest('[class*="LeaderboardPanel_"]')) {
         container?.remove();
         continue;
@@ -278,22 +318,23 @@ function createOverlay(options = {}) {
         state.nameIndex.get(
           normalizedName(nameElement.getAttribute("data-name")),
         ) || [];
-      const visibleBadges = nameElement.closest('[class*="ChatMessage_name"]')
-        ? badges.slice(0, 3)
-        : badges;
+      const profilePlacement = Boolean(profileRoot);
+      const visibleBadges = profilePlacement ? badges : badges.slice(0, 3);
       if (!visibleBadges.length) {
         container?.remove();
         continue;
       }
-      const profilePlacement = Boolean(profileRoot);
-      const listPlacement = Boolean(listNameBlock);
+      const listPlacement = Boolean(guildNameBlock);
+      const friendPlacement = Boolean(friendNameBlock);
       const placement = profilePlacement
         ? "profile"
         : listPlacement
           ? "list"
-          : settingsNameColor
-            ? "settings"
-            : "inline";
+          : friendPlacement
+            ? "friend"
+            : settingsNameColor
+              ? "settings"
+              : "inline";
       const signature = badgeSignature(visibleBadges);
       const previousPlacement =
         container?.dataset.mwiLeaderboardPlacement || "";
@@ -308,7 +349,7 @@ function createOverlay(options = {}) {
         const profileName = profileNameBlock
           ? nameElement.closest('[class*="CharacterName_characterName"]') ||
             nameElement
-          : nameElement;
+          : host;
         if (
           container.parentElement !== badgeMount ||
           container.previousElementSibling !== profileName
@@ -318,6 +359,8 @@ function createOverlay(options = {}) {
       } else if (listPlacement) {
         if (container.parentElement !== badgeMount)
           badgeMount.append(container);
+      } else if (friendPlacement) {
+        if (container.parentElement !== host) host.append(container);
       } else if (!container.isConnected || previousPlacement === "profile") {
         host.append(container);
       }
@@ -326,7 +369,7 @@ function createOverlay(options = {}) {
       container.replaceChildren(
         ...visibleBadges.map((item) => {
           const badge = documentRef.createElement("span");
-          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}`;
+          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(`#${item.rank}`));
           const label = categoryLabel(item.label, item.category);
@@ -453,7 +496,11 @@ function createOverlay(options = {}) {
       scheduleRefresh();
     },
     enhanceLeaderboard({ category, rows }) {
-      if (!categoryOrder.includes(category)) return false;
+      if (!categoryOrder.includes(category) || !RATE_CATEGORIES.has(category)) {
+        removeRateColumn();
+        state.currentLeaderboard = null;
+        return false;
+      }
       state.currentLeaderboard = {
         category,
         rows: Array.isArray(rows) ? rows : [],
@@ -525,7 +572,14 @@ function create(options = {}) {
       instance?.setRankings(rankings);
     },
     enhanceLeaderboard(payload = {}) {
-      if (!allowedCategories.has(payload.category)) return false;
+      if (
+        !allowedCategories.has(payload.category) ||
+        !RATE_CATEGORIES.has(payload.category)
+      ) {
+        leaderboard = null;
+        instance?.clearLeaderboard();
+        return false;
+      }
       leaderboard = {
         category: payload.category,
         rows: Array.isArray(payload.rows) ? payload.rows : [],
@@ -599,14 +653,15 @@ function normalizeLeaderboardPayload(payload) {
   }
   const rows = leaderboard.rows
     .map((row) => {
-      const fame = category === "fame_points";
+      const scoreOnly =
+        category === "fame_points" || category === "task_points";
       return {
         characterId: Number(row?.characterId ?? row?.id),
         characterName: String(row?.characterName ?? row?.name ?? "").trim(),
         rank: Number(row?.rank),
-        level: fame ? 0 : Number(row?.level ?? row?.value1),
+        level: scoreOnly ? 0 : Number(row?.level ?? row?.value1),
         experience: Number(
-          row?.experience ?? (fame ? row?.value1 : row?.value2),
+          row?.experience ?? (scoreOnly ? row?.value1 : row?.value2),
         ),
         xpPerHour: validExperienceRate(row?.xpPerHour),
       };
@@ -784,6 +839,11 @@ function startIntegratedService() {
       return;
     }
     currentLeaderboard = normalized;
+    if (!RATE_CATEGORIES.has(normalized.category)) {
+      currentLeaderboard = null;
+      controller.clearLeaderboard();
+      return;
+    }
     if (!categories[normalized.category]) {
       categories = {
         ...categories,
