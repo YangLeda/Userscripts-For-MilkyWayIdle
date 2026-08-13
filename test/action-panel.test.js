@@ -90,8 +90,21 @@ test("production details add target-level and working quick-input controls", asy
   const actionContainer = document.querySelector(
     'div[class*="SkillActionDetail_actionContainer"]',
   );
-  assert.equal(quickInputs.parentElement, panel);
-  assert.equal(quickInputs.previousElementSibling, actionContainer);
+  assert.equal(
+    quickInputs.parentElement.classList.contains("mwi-production-extensions"),
+    true,
+  );
+  assert.equal(quickInputs.parentElement.parentElement, panel);
+  assert.equal(
+    quickInputs.parentElement.previousElementSibling,
+    actionContainer,
+  );
+  assert.equal(quickInputs.dataset.mwitoolsProductionSlot, "quickInputs");
+  assert.equal(
+    document.querySelector("#mwi-level-progress").dataset
+      .mwitoolsProductionSlot,
+    "targetLevel",
+  );
 
   const levelInput = document.querySelector("#tillLevelInput");
   assert.ok(levelInput.classList.contains("Input_input__native"));
@@ -238,6 +251,34 @@ test("target-level estimate retries cleanly after a partially mounted panel", as
     panel.querySelector("#mwi-level-progress").textContent,
     /还需.*预计/,
   );
+});
+
+test("legacy gathering profit renders the shared conservative projection", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const drops = panel.querySelector(
+    'div[class*="SkillActionDetail_dropTable"]',
+  );
+  drops.replaceChildren(
+    document.createElement("span"),
+    document.createElement("span"),
+  );
+  const originalProjection = runtime.api.projectAction;
+  const originalSetting =
+    runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue;
+  runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue = true;
+  runtime.api.projectAction = () => ({
+    valuations: { conservative: { profitPerHour: 123 } },
+  });
+  delete panel.dataset.mwitoolsActionPanel;
+
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  assert.match(panel.querySelector("#totalProfit").textContent, /123.*2\.95K/);
+
+  runtime.api.projectAction = originalProjection;
+  runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue =
+    originalSetting;
 });
 
 test("efficiency follows the game's authoritative buff maps", () => {

@@ -1,4 +1,5 @@
 import { runtime } from "../../core/runtime.js";
+import { createFrameScheduler } from "../../core/frame-scheduler.js";
 import { ASSET_COMPONENT_KEYS } from "./00-snapshot.js";
 import { getUtc8DayKey } from "./10-store.js";
 import { AssetHistoryChart } from "./20-chart.js";
@@ -1012,7 +1013,49 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
 
   addStyles();
   ensureMounted();
-  scope.interval(ensureMounted, 500);
+  const mountScheduler = createFrameScheduler(ensureMounted);
+  const MutationObserverRef =
+    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+  const mountObserver = new MutationObserverRef((records) => {
+    const relevant = records.some((record) => {
+      const target =
+        record.target?.nodeType === 1
+          ? record.target
+          : record.target?.parentElement;
+      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
+        return false;
+      }
+      if (record.type === "attributes") {
+        return Boolean(
+          target?.closest?.(
+            '[class*="CharacterManagement_characterManagement"]',
+          ),
+        );
+      }
+      return [...record.addedNodes, ...record.removedNodes].some(
+        (node) =>
+          node?.nodeType === 1 &&
+          !(
+            node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) ||
+            node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)
+          ) &&
+          (node.matches?.(
+            '[class*="CharacterManagement_characterManagement"]',
+          ) ||
+            node.querySelector?.(
+              '[class*="CharacterManagement_characterManagement"]',
+            )),
+      );
+    });
+    if (relevant) mountScheduler.schedule();
+  });
+  scope.observer(mountObserver, document.body, {
+    attributes: true,
+    attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+    childList: true,
+    subtree: true,
+  });
+  scope.add(() => mountScheduler.cancel());
   const handleTabBranchClick = (event) => {
     if (
       !active ||

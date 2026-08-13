@@ -282,19 +282,27 @@ function getEquippedItem(itemHrid) {
     )[0];
 }
 
-function getDrinkConcentrationMultiplier() {
-  const pouch = getEquippedItem("/items/guzzling_pouch");
-  if (!pouch) return 1;
+function getDrinkConcentrationMultiplier(options = {}) {
+  const overrideLevel = Number(options.guzzlingPouchLevel);
+  const hasOverride = Number.isFinite(overrideLevel) && overrideLevel >= 0;
+  const pouch = hasOverride ? null : getEquippedItem("/items/guzzling_pouch");
+  if (!hasOverride && !pouch) return 1;
   const detail =
     runtime.state.initData_itemDetailMap?.["/items/guzzling_pouch"];
+  const fallback = hasOverride ? 0.1 : 0;
   const base = Number(
-    detail?.equipmentDetail?.noncombatStats?.drinkConcentration ?? 0,
+    detail?.equipmentDetail?.noncombatStats?.drinkConcentration ?? fallback,
   );
   const enhancement = Number(
     detail?.equipmentDetail?.noncombatEnhancementBonuses?.drinkConcentration ??
       base,
   );
-  const level = Math.max(0, Math.floor(Number(pouch.enhancementLevel) || 0));
+  const level = Math.max(
+    0,
+    Math.floor(
+      hasOverride ? overrideLevel : Number(pouch.enhancementLevel) || 0,
+    ),
+  );
   return Math.max(
     1,
     1 + base + enhancement * (ENHANCEMENT_BONUSES[level] ?? 0),
@@ -307,11 +315,11 @@ function getSelectedDrinks(detail) {
   return asArray(slots[detail.type]).filter((drink) => drink?.itemHrid);
 }
 
-function getEffectiveTeaEffects(actionHrid) {
+function getEffectiveTeaEffects(actionHrid, options = {}) {
   const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
   const drinks = detail ? getSelectedDrinks(detail) : null;
   if (!detail || drinks === null) return null;
-  const concentrationMultiplier = getDrinkConcentrationMultiplier();
+  const concentrationMultiplier = getDrinkConcentrationMultiplier(options);
   const base = {
     efficiency: 0,
     extraExp: 0,
@@ -393,8 +401,8 @@ function projectActionCraftingCost(actionOrHrid, options = {}) {
     };
   }
 
-  const teaEffects = getEffectiveTeaEffects(actionHrid);
-  if (!teaEffects) {
+  const profile = getActionProductionProfile(action, options);
+  if (profile.status !== "complete") {
     return {
       status: "waiting",
       complete: false,
@@ -404,17 +412,15 @@ function projectActionCraftingCost(actionOrHrid, options = {}) {
       missingPrices: [],
     };
   }
+  const { teaEffects } = profile;
 
   const getUnitPrice =
     typeof options.getUnitPrice === "function"
       ? options.getUnitPrice
       : () => null;
   const missingPrices = [];
-  const inputs = getDirectInputs(detail).map((input) => {
-    const effectiveCount = getEffectiveInputCount(
-      input,
-      teaEffects.lessResource,
-    );
+  const inputs = profile.inputs.map((input) => {
+    const effectiveCount = input.effectiveCount;
     const unitPrice = Number(
       getUnitPrice(input.itemHrid, input.enhancementLevel ?? 0),
     );
@@ -431,7 +437,7 @@ function projectActionCraftingCost(actionOrHrid, options = {}) {
     0,
   );
 
-  const timing = getEffectiveSeconds(actionHrid, detail, options);
+  const timing = profile.timing;
   const secondsPerAction = timing?.secondsPerAction ?? null;
   const actionsPerHour = secondsPerAction ? 3600 / secondsPerAction : null;
   const drinks = teaEffects.drinks.map((drink) => {
@@ -491,6 +497,60 @@ function isPlayerDataReady() {
   );
 }
 
+function getActionProductionProfile(actionOrHrid, context = {}) {
+  const action =
+    typeof actionOrHrid === "string"
+      ? { actionHrid: actionOrHrid }
+      : (actionOrHrid ?? {});
+  const actionHrid = action.actionHrid ?? action.hrid;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!actionHrid || !detail) {
+    return { status: "waiting", actionHrid, missing: ["actionData"] };
+  }
+  if (!isPlayerDataReady()) {
+    return {
+      status: "waiting",
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+    };
+  }
+  const teaEffects = getEffectiveTeaEffects(actionHrid, context);
+  if (!teaEffects) {
+    return {
+      status: "waiting",
+      actionHrid,
+      detail,
+      missing: ["playerData"],
+    };
+  }
+  const timing = getEffectiveSeconds(actionHrid, detail, context);
+  const inputs = getDirectInputs(detail).map((input) => ({
+    ...input,
+    effectiveCount: getEffectiveInputCount(input, teaEffects.lessResource),
+  }));
+  const outputs = getEffectiveOutputs(detail, teaEffects);
+  return {
+    status: "complete",
+    actionHrid,
+    detail,
+    inputs,
+    outputs,
+    teaEffects,
+    timing,
+    secondsPerAction: timing?.secondsPerAction ?? null,
+    actionsPerHour: timing?.secondsPerAction
+      ? 3600 / timing.secondsPerAction
+      : null,
+    baseSeconds: timing?.baseSeconds ?? null,
+    cycleSeconds: timing?.cycleSeconds ?? null,
+    efficiencyPercent: timing?.efficiencyPercent ?? 0,
+    speedPercent: timing?.speedPercent ?? 0,
+    timingSource: timing?.timingSource ?? null,
+    missing: timing ? [] : ["actionTiming"],
+  };
+}
+
 function getActionCount(action) {
   if (action?.hasMaxCount === false) return Infinity;
   const target = Number(
@@ -545,6 +605,67 @@ function getEffectiveSeconds(actionHrid, detail, context = {}) {
   };
 }
 
+function getProjectedTotalSeconds(actionHrid, count, timing, context = {}) {
+  if (!Number.isFinite(count)) return Infinity;
+  if (!timing?.secondsPerAction) return null;
+  const liveDuration = Number(context.durationPerAction);
+  if (Number.isFinite(liveDuration) && liveDuration > 0) {
+    const cycles = Math.max(
+      count > 0 ? 1 : 0,
+      Math.round(count / getEfficiencyMultiplier(actionHrid)),
+    );
+    const currentCycleRemaining = Number(context.currentCycleRemainingSeconds);
+    return cycles > 0 &&
+      Number.isFinite(currentCycleRemaining) &&
+      currentCycleRemaining >= 0
+      ? Math.min(liveDuration, currentCycleRemaining) +
+          Math.max(0, cycles - 1) * liveDuration
+      : cycles * liveDuration;
+  }
+  return count * timing.secondsPerAction;
+}
+
+function projectActionTiming(actionOrHrid, requestedCount, context = {}) {
+  const action =
+    typeof actionOrHrid === "string"
+      ? { actionHrid: actionOrHrid }
+      : (actionOrHrid ?? {});
+  const actionHrid = action.actionHrid ?? action.hrid;
+  const profile = getActionProductionProfile(action, context);
+  const count =
+    requestedCount === undefined
+      ? getActionCount(action)
+      : Number(requestedCount);
+  const infinite = count === Infinity || !Number.isFinite(count);
+  const normalizedCount = infinite ? Infinity : Math.max(0, count);
+  if (profile.status !== "complete") {
+    return {
+      ...profile,
+      count: normalizedCount,
+      infinite,
+      totalSeconds: null,
+      finishAt: null,
+    };
+  }
+  const totalSeconds = getProjectedTotalSeconds(
+    actionHrid,
+    normalizedCount,
+    profile.timing,
+    context,
+  );
+  const now = Number(context.now ?? Date.now());
+  return {
+    ...profile,
+    count: normalizedCount,
+    infinite,
+    totalSeconds,
+    finishAt:
+      Number.isFinite(totalSeconds) && totalSeconds !== null
+        ? now + totalSeconds * 1000
+        : null,
+  };
+}
+
 const PROFIT_VALUATION_MODES = new Set(["conservative", "fair", "aggressive"]);
 const PROFIT_ACTION_TYPES = new Set([
   "/action_types/alchemy",
@@ -581,28 +702,43 @@ function getDirectPrice(itemHrid, kind, mode) {
 
 function getPriceInfo(itemHrid, kind, mode) {
   const direct = getDirectPrice(itemHrid, kind, mode);
-  if (direct !== null || kind !== "sell") {
+  if (direct !== null) {
     return {
       value: direct,
-      source: direct === null ? "missing" : "market",
-      complete: direct !== null,
-      missingItemHrids: direct === null ? [itemHrid] : [],
+      source: "market",
+      complete: true,
+      fallback: false,
+      missingItemHrids: [],
     };
   }
-  const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
-  if (!(Number(derived?.value) > 0)) {
+  if (kind === "sell") {
+    const derived = runtime.api.getAssetLiquidationValue?.(itemHrid, 0, mode);
+    if (Number(derived?.value) > 0) {
+      return {
+        value: Number(derived.value),
+        source: derived.source === "market" ? "market" : "derived",
+        complete: Boolean(derived.complete),
+        fallback: false,
+        missingItemHrids: derived.missingItemHrids ?? [],
+      };
+    }
+  }
+  const marketValue = getDirectPrice(itemHrid, kind, "fair");
+  if (marketValue !== null) {
     return {
-      value: null,
-      source: "missing",
-      complete: false,
-      missingItemHrids: derived?.missingItemHrids ?? [itemHrid],
+      value: marketValue,
+      source: "market-value-fallback",
+      complete: true,
+      fallback: true,
+      missingItemHrids: [],
     };
   }
   return {
-    value: Number(derived.value),
-    source: derived.source === "market" ? "market" : "derived",
-    complete: Boolean(derived.complete),
-    missingItemHrids: derived.missingItemHrids ?? [],
+    value: null,
+    source: "missing",
+    complete: false,
+    fallback: false,
+    missingItemHrids: [itemHrid],
   };
 }
 
@@ -707,9 +843,8 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     };
   }
 
-  const timing = getEffectiveSeconds(actionHrid, detail, context);
-  const teaEffects = getEffectiveTeaEffects(actionHrid);
-  if (!teaEffects) {
+  const profile = getActionProductionProfile(action, context);
+  if (profile.status !== "complete") {
     return {
       status: "waiting",
       actionHrid,
@@ -727,10 +862,9 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       totalSeconds: null,
     };
   }
-
-  const secondsPerAction = timing?.secondsPerAction ?? null;
-  const inputs = getDirectInputs(detail);
-  const outputs = getEffectiveOutputs(detail, teaEffects);
+  const { timing, teaEffects, outputs } = profile;
+  const secondsPerAction = profile.secondsPerAction;
+  const inputs = profile.inputs;
   const lessResource = teaEffects.lessResource;
 
   const alchemyCapacity = getAlchemyCapacity(action, detail, lessResource);
@@ -795,18 +929,28 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   function calculateValuation(mode) {
     const missingPrices = [];
+    const costMissingPrices = [];
+    const fallbackItemHrids = [];
     const unpricedByproducts = [];
     const derivedMissingPrices = [];
     const materialCostPerAction = inputs.reduce((total, input) => {
       const effectiveCount = getEffectiveInputCount(input, lessResource);
-      const price = getPrice(input.itemHrid, "buy", mode);
-      if (price === null) missingPrices.push(input.itemHrid);
-      return total + (price === null ? 0 : effectiveCount * price);
+      const priceInfo = getPriceInfo(input.itemHrid, "buy", mode);
+      if (priceInfo.value === null) {
+        missingPrices.push(input.itemHrid);
+        costMissingPrices.push(input.itemHrid);
+      }
+      if (priceInfo.fallback) fallbackItemHrids.push(input.itemHrid);
+      return (
+        total +
+        (priceInfo.value === null ? 0 : effectiveCount * priceInfo.value)
+      );
     }, 0);
     const primaryRevenuePerAction = outputs.reduce((total, output) => {
       const effectiveCount = output.count;
       const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
       if (priceInfo.value === null) missingPrices.push(output.itemHrid);
+      if (priceInfo.fallback) fallbackItemHrids.push(output.itemHrid);
       if (!priceInfo.complete && priceInfo.value !== null) {
         derivedMissingPrices.push(...priceInfo.missingItemHrids);
       }
@@ -819,6 +963,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       (total, output) => {
         const priceInfo = getPriceInfo(output.itemHrid, "sell", mode);
         if (priceInfo.value === null) unpricedByproducts.push(output.itemHrid);
+        if (priceInfo.fallback) fallbackItemHrids.push(output.itemHrid);
         if (!priceInfo.complete && priceInfo.value !== null) {
           derivedMissingPrices.push(...priceInfo.missingItemHrids);
         }
@@ -831,8 +976,13 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     );
     let teaCostPerHour = 0;
     for (const drink of teaEffects.drinks) {
-      const price = getPrice(drink.itemHrid, "buy", mode);
-      if (price === null) missingPrices.push(drink.itemHrid);
+      const priceInfo = getPriceInfo(drink.itemHrid, "buy", mode);
+      const price = priceInfo.value;
+      if (price === null) {
+        missingPrices.push(drink.itemHrid);
+        costMissingPrices.push(drink.itemHrid);
+      }
+      if (priceInfo.fallback) fallbackItemHrids.push(drink.itemHrid);
       const countPerHour = DRINKS_PER_HOUR * teaEffects.concentrationMultiplier;
       teaCostPerHour += price === null ? 0 : price * countPerHour;
     }
@@ -865,7 +1015,10 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
       netProfitPerAction,
       profitPerHour,
       totalProfit,
+      costComplete: costMissingPrices.length === 0,
+      costMissingPrices: [...new Set(costMissingPrices)],
       missingPrices: [...new Set(missingPrices)],
+      fallbackItemHrids: [...new Set(fallbackItemHrids)],
       unpricedByproducts: [...new Set(unpricedByproducts)],
       derivedMissingPrices: [...new Set(derivedMissingPrices)],
     };
@@ -933,30 +1086,12 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     };
   });
   const complete = selectedValuation.complete;
-  let totalSeconds = null;
-  if (effectivelyInfinite) {
-    totalSeconds = Infinity;
-  } else if (secondsPerAction !== null) {
-    const liveDuration = Number(context.durationPerAction);
-    if (Number.isFinite(liveDuration) && liveDuration > 0) {
-      const cycles = Math.max(
-        executableCount > 0 ? 1 : 0,
-        Math.round(executableCount / getEfficiencyMultiplier(actionHrid)),
-      );
-      const currentCycleRemaining = Number(
-        context.currentCycleRemainingSeconds,
-      );
-      totalSeconds =
-        cycles > 0 &&
-        Number.isFinite(currentCycleRemaining) &&
-        currentCycleRemaining >= 0
-          ? Math.min(liveDuration, currentCycleRemaining) +
-            Math.max(0, cycles - 1) * liveDuration
-          : cycles * liveDuration;
-    } else {
-      totalSeconds = executableCount * secondsPerAction;
-    }
-  }
+  const totalSeconds = getProjectedTotalSeconds(
+    actionHrid,
+    executableCount,
+    timing,
+    context,
+  );
   const now = Number(context.now ?? Date.now());
 
   return {
@@ -1002,6 +1137,7 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
     profitPerHour: selectedValuation.profitPerHour,
     totalProfit: selectedValuation.totalProfit,
     missingPrices,
+    fallbackItemHrids: selectedValuation.fallbackItemHrids,
     unpricedByproducts,
     derivedMissingPrices: selectedValuation.derivedMissingPrices,
   };
@@ -1043,12 +1179,14 @@ Object.assign(runtime.api, {
   getActionSpeedPercent,
   getDrinkConcentrationMultiplier,
   getEffectiveTeaEffects,
+  getActionProductionProfile,
   getInventoryCount,
   getExpectedOutputs,
   getDirectInputs,
   getActionRemainingCount: getActionCount,
   isPlayerProjectionDataReady: isPlayerDataReady,
   projectActionCraftingCost,
+  projectActionTiming,
   projectAction,
   projectQueue,
   resolveProductionActionByItemHrid,

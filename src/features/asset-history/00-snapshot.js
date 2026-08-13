@@ -105,6 +105,12 @@ export async function getAssetSnapshot() {
     ) {
       continue;
     }
+    if (
+      runtime.api.isOptionalTokenAsset?.(item.itemHrid) &&
+      !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.()
+    ) {
+      continue;
+    }
     const count = Math.max(0, Number(item.count ?? 0));
     const enhancementLevel = item.enhancementLevel ?? 0;
     const fairValue = runtime.api.getAssetValue(

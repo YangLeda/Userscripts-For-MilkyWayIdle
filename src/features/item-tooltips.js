@@ -18,6 +18,10 @@ function isEditableTarget(target) {
   );
 }
 
+function isModifierShortcutEvent(event) {
+  return ["Control", "Shift", "Alt", "Meta"].includes(event?.key);
+}
+
 function requiresHoverPanelShortcut() {
   return Boolean(
     runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue,
@@ -64,6 +68,7 @@ function showHoverPanelContext(context = hoverPanelContext, options = {}) {
     return runtime.api.showEnhancementCostPanel?.(
       context.anchor,
       context.plan ?? null,
+      { sticky: Boolean(options.sticky) },
     );
   }
   if (context.kind === "loot") {
@@ -111,12 +116,18 @@ function setHoverPanelContext(context) {
   dismissHoverPanelContext(context);
 }
 
-function clearHoverPanelContext(anchor = null, kind = null) {
+function clearHoverPanelContext(
+  anchor = null,
+  kind = null,
+  { preserveTouchPress = false } = {},
+) {
   if (anchor && hoverPanelContext?.anchor !== anchor) return;
   if (kind && hoverPanelContext?.kind !== kind) return;
-  clearTimeout(touchHoverPanelPress?.timer);
-  touchHoverPanelPress = null;
-  touchHoverPanelAuthorizedUntil = 0;
+  if (!preserveTouchPress) {
+    clearTimeout(touchHoverPanelPress?.timer);
+    touchHoverPanelPress = null;
+    touchHoverPanelAuthorizedUntil = 0;
+  }
   const previous = hoverPanelContext;
   hoverPanelContext = null;
   dismissHoverPanelContext(previous);
@@ -134,6 +145,42 @@ function removeSuppressedTooltipContent() {
   document
     .querySelectorAll('[data-mwitools-tooltip-market="true"]')
     .forEach((row) => row.remove());
+}
+
+function productionCostTooltipRows(itemHrid) {
+  if (!runtime.settings.settingsMap.itemTooltip_profit?.isTrue) return "";
+  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(itemHrid);
+  const label = runtime.config.isZH
+    ? "生产总成本/动作（效率 / 贪心）："
+    : "Production cost/action (Efficiency / Greedy): ";
+  let costText = runtime.config.isZH ? "无配方" : "No recipe";
+  if (actionHrid) {
+    const projection = runtime.api.projectAction?.(actionHrid, 1);
+    const costs = ["conservative", "aggressive"].map((mode) => {
+      const valuation = projection?.valuations?.[mode];
+      return valuation?.costComplete
+        ? (Number(valuation.materialCostPerAction) || 0) +
+            (Number(valuation.teaCostPerAction) || 0)
+        : null;
+    });
+    costText = costs
+      .map((cost) =>
+        cost === null
+          ? runtime.config.isZH
+            ? "缺价"
+            : "Missing price"
+          : numberFormatter(cost),
+      )
+      .join(" / ");
+  }
+  const shortcut = runtime.api.getTooltipProfitShortcut?.().display ?? "Ctrl";
+  const hint = runtime.config.isZH
+    ? `按住 ${shortcut} 显示详情；移动端长按显示详情`
+    : `Hold ${shortcut} for details; long-press on mobile`;
+  return `
+    <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${costText}</div>
+    <div data-mwitools-tooltip-market="true" style="color: var(--color-text-secondary,#777); font-size: calc(.6875rem * var(--mwi-ui-font-scale,1));">${hint}</div>
+  `;
 }
 
 /* 显示当前动作总时间 */
@@ -230,6 +277,15 @@ function timeReadable(sec) {
 /* 物品 ToolTips */
 const tooltipObserver = new MutationObserver(async function (mutations) {
   for (const mutation of mutations) {
+    for (const removed of mutation.removedNodes) {
+      if (
+        removed?.nodeType === 1 &&
+        (removed.matches?.(".MuiTooltip-popper") ||
+          removed.querySelector?.(".MuiTooltip-popper"))
+      ) {
+        runtime.api.disconnectActionQueueObserver?.(removed);
+      }
+    }
     for (const added of mutation.addedNodes) {
       if (
         added?.nodeType === 1 &&
@@ -560,7 +616,7 @@ async function handleTooltipItem(tooltip) {
 
   // 带强化等级的物品单独处理
   if (itemNameElems.length > 1) {
-    clearHoverPanelContext();
+    clearHoverPanelContext(null, null, { preserveTouchPress: true });
     runtime.api.dismissHoverPanel?.();
     runtime.api.handleItemTooltipWithEnhancementLevel(tooltip);
     return;
@@ -618,6 +674,7 @@ async function handleTooltipItem(tooltip) {
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
   }
+  if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
 
   insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
 
@@ -695,6 +752,7 @@ Object.assign(runtime.api, {
   getHousesEffBuffByActionHrid,
   getTeaBuffsByActionHrid,
   handleTooltipItem,
+  getProductionCostTooltipRows: productionCostTooltipRows,
   getActionHridFromItemName,
   clearTooltipProfitHoverContext: clearHoverPanelContext,
   setEnhancementHoverPanelContext,
@@ -745,18 +803,18 @@ runtime.features.register({
         width: 10px !important;
       }`),
     ];
-    let observing = false;
     const attach = () => {
-      if (observing || !document.body) return;
+      if (!document.body) return false;
       tooltipObserver.observe(document.body, {
         attributes: false,
         childList: true,
         characterData: false,
       });
-      observing = true;
+      return true;
     };
-    attach();
-    scope.interval(attach, 250);
+    if (!attach()) {
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
+    }
     scope.event(
       document,
       "dblclick",
@@ -774,7 +832,7 @@ runtime.features.register({
       (event) => {
         if (
           event.repeat ||
-          isEditableTarget(event.target) ||
+          (isEditableTarget(event.target) && !isModifierShortcutEvent(event)) ||
           !runtime.api.matchesTooltipProfitShortcut?.(event)
         ) {
           return;
@@ -888,19 +946,34 @@ runtime.features.register({
     const stopLootEstimate = runtime.settings.onChange(
       "lootChestEstimate",
       (enabled) => {
-        if (!enabled) clearHoverPanelContext(null, "loot");
+        if (!enabled) {
+          clearHoverPanelContext(null, "loot");
+          runtime.api.hideProductionProfitPanel?.("loot");
+        }
+      },
+    );
+    const stopEnhanceSim = runtime.settings.onChange(
+      "enhanceSim",
+      (enabled) => {
+        if (!enabled) {
+          clearHoverPanelContext(null, "enhancement");
+          runtime.api.hideEnhancementCostPanel?.();
+        }
       },
     );
     scope.add(() => {
       stopRequireKey?.();
       stopIronCow?.();
       stopLootEstimate?.();
+      stopEnhanceSim?.();
       tooltipObserver.disconnect();
       for (const style of styles) style?.remove?.();
       clearTimeout(touchHoverPanelPress?.timer);
       touchHoverPanelPress = null;
       hoverPanelShortcutHeld = false;
       clearHoverPanelContext();
+      runtime.api.hideProductionProfitPanel?.();
+      runtime.api.hideEnhancementCostPanel?.();
     });
   },
 });
@@ -922,12 +995,18 @@ runtime.features.register({
       if (!card || card.contains(event.relatedTarget)) return;
       clearHoverPanelContext(card, "profit");
     });
-    scope.add(() => clearHoverPanelContext(null, "profit"));
+    scope.add(() => {
+      clearHoverPanelContext(null, "profit");
+      runtime.api.hideProductionProfitPanel?.("profit");
+    });
   },
 });
 
 runtime.onMessage("init_character_data", () => {
-  if (!runtime.api.shouldSuppressMarketFeatures?.()) return;
-  clearHoverPanelContext(null, "profit");
-  removeSuppressedTooltipContent();
+  clearHoverPanelContext();
+  runtime.api.hideProductionProfitPanel?.();
+  runtime.api.hideEnhancementCostPanel?.();
+  if (runtime.api.shouldSuppressMarketFeatures?.()) {
+    removeSuppressedTooltipContent();
+  }
 });

@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
@@ -6,6 +7,46 @@ const HOUR_MS = 60 * 60 * 1000;
 const TREND_WINDOW_MS = 7 * 24 * HOUR_MS;
 const TREND_RATE_WINDOW_MS = 6 * HOUR_MS;
 const TREND_MINIMUM_COVERAGE_MS = HOUR_MS;
+const GUILD_SURFACE_SELECTOR = '[class*="Guild"],[class*="Leaderboard"]';
+const OWNED_GUILD_SELECTOR =
+  ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
+
+function observeGuildSurface(scope, render) {
+  const scheduler = createFrameScheduler(render);
+  const MutationObserverRef =
+    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+  const observer = new MutationObserverRef((records) => {
+    const relevant = records.some((record) => {
+      const target =
+        record.target?.nodeType === 1
+          ? record.target
+          : record.target?.parentElement;
+      const changed = [...record.addedNodes, ...record.removedNodes].filter(
+        (node) => node?.nodeType === 1,
+      );
+      if (
+        target?.closest?.(OWNED_GUILD_SELECTOR) ||
+        (changed.length &&
+          changed.every(
+            (node) =>
+              node.matches?.(OWNED_GUILD_SELECTOR) ||
+              node.closest?.(OWNED_GUILD_SELECTOR),
+          ))
+      ) {
+        return false;
+      }
+      if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
+      return changed.some(
+        (node) =>
+          node.matches?.(GUILD_SURFACE_SELECTOR) ||
+          node.querySelector?.(GUILD_SURFACE_SELECTOR),
+      );
+    });
+    if (relevant) scheduler.schedule();
+  });
+  scope.observer(observer, document.body, { childList: true, subtree: true });
+  scope.add(() => scheduler.cancel());
+}
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -766,7 +807,7 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     renderGuildOverview();
-    scope.interval(renderGuildOverview, 1500);
+    observeGuildSurface(scope, renderGuildOverview);
     scope.add(() =>
       document
         .querySelectorAll(".mwi-guild-xp-card")
@@ -788,7 +829,9 @@ for (const id of ["guildMemberXp", "guildLeaderboardXp", "guildIdleMembers"]) {
       addStyles();
       renderGuildTables();
       if (id === "guildIdleMembers") renderGuildOverview();
-      if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
+      if (id !== "guildIdleMembers") {
+        observeGuildSurface(scope, renderGuildTables);
+      }
       scope.add(() => {
         if (id === "guildIdleMembers") {
           document

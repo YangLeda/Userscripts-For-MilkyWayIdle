@@ -188,7 +188,8 @@ runtime.features.register({
         taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
         taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
       });
-      resolvedCards.forEach(({ card, task }) => {
+      resolvedCards.forEach(({ card, resolved, task }) => {
+        if (!resolved) return;
         const id = questId(task);
         const fresh = Boolean(
           id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id),
@@ -224,16 +225,15 @@ runtime.features.register({
         schedule();
       }),
     );
-    let trailingTimers = [];
-    const onInteraction = () => {
-      schedule();
-      trailingTimers.forEach(clearTimeout);
-      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
-    };
-    scope.event(document, "click", onInteraction, true);
+    const observer = new MutationObserver((records) => {
+      if (shouldRenderTaskNewMutations(records)) schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     render();
     scope.add(() => {
-      trailingTimers.forEach(clearTimeout);
       renderScheduler.cancel();
       if (liveTaskNewStates.get(storageKey) === state) {
         liveTaskNewStates.delete(storageKey);

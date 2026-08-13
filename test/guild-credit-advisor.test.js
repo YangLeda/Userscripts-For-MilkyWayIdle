@@ -243,6 +243,31 @@ test("advisor is a Shadow DOM external panel with a compact top three", async ()
   assert.equal(document.querySelectorAll(`#${host.id}`).length, 1);
 });
 
+test("advisor respects the configured recommendation count from one through eight", async (t) => {
+  setOrderBooks();
+  selectItem("cheese", "Cheese");
+  const previousGetter = runtime.api.getGuildCreditRecommendationCount;
+  t.after(() => {
+    if (previousGetter)
+      runtime.api.getGuildCreditRecommendationCount = previousGetter;
+    else delete runtime.api.getGuildCreditRecommendationCount;
+  });
+
+  runtime.api.getGuildCreditRecommendationCount = () => 1;
+  let host = await renderGuildCreditAdvisor();
+  assert.equal(
+    shadow(host, ".ranking").querySelectorAll(".rank-row").length,
+    1,
+  );
+
+  runtime.api.getGuildCreditRecommendationCount = () => 8;
+  host = await renderGuildCreditAdvisor();
+  assert.equal(
+    shadow(host, ".ranking").querySelectorAll(".rank-row").length,
+    4,
+  );
+});
+
 test("a selected option outside the top three gets a separate current row", async () => {
   setOrderBooks();
   selectItem("flour", "Flour");

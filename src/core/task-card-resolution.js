@@ -5,6 +5,7 @@ import { parseCompactNumber } from "./market.js";
 const NAME_SELECTOR = '[class*="RandomTask_name"]';
 let cachedActionMap = null;
 let cachedZhActionNames = null;
+let cachedZhMonsterNames = null;
 let cachedLocale = "";
 let cachedActionLabels = new Map();
 
@@ -49,7 +50,13 @@ function fiberQuest(card) {
 }
 
 function cardActionLabel(card) {
-  const title = String(card?.querySelector(NAME_SELECTOR)?.textContent ?? "");
+  const name = card?.querySelector(NAME_SELECTOR);
+  const nativeText = [...(name?.childNodes ?? [])]
+    .filter((node) => node.nodeType === 3)
+    .map((node) => node.textContent ?? "")
+    .join(" ")
+    .trim();
+  const title = String(nativeText || name?.textContent || "");
   return normalize(title.split(/\s[-–]\s/).at(-1));
 }
 
@@ -66,22 +73,27 @@ function cardRemaining(card) {
     : null;
 }
 
-function actionLabels(actionHrid) {
+function candidateLabels(task, actionHrid) {
   const actionMap = runtime.state.initData_actionDetailMap;
   const zhActionNames = runtime.data.ZHActionNames;
+  const zhMonsterNames = runtime.data.ZHMonsterNames;
   const locale = getGameLocale();
   if (
     actionMap !== cachedActionMap ||
     zhActionNames !== cachedZhActionNames ||
+    zhMonsterNames !== cachedZhMonsterNames ||
     locale !== cachedLocale
   ) {
     cachedActionMap = actionMap;
     cachedZhActionNames = zhActionNames;
+    cachedZhMonsterNames = zhMonsterNames;
     cachedLocale = locale;
     cachedActionLabels = new Map();
   }
-  if (cachedActionLabels.has(actionHrid)) {
-    return cachedActionLabels.get(actionHrid);
+  const monsterHrid = String(task?.monsterHrid ?? "");
+  const cacheKey = `${actionHrid ?? ""}\u001f${monsterHrid}`;
+  if (cachedActionLabels.has(cacheKey)) {
+    return cachedActionLabels.get(cacheKey);
   }
   const detail = actionMap?.[actionHrid];
   const labels = new Set(
@@ -89,20 +101,23 @@ function actionLabels(actionHrid) {
       detail?.name,
       zhActionNames?.[actionHrid],
       getLocalizedEntityName("action", actionHrid, { locale }),
+      monsterHrid && zhMonsterNames?.[monsterHrid],
+      monsterHrid && getLocalizedEntityName("monster", monsterHrid, { locale }),
       String(actionHrid ?? "")
         .split("/")
         .at(-1)
         ?.replaceAll("_", " "),
+      monsterHrid.split("/").at(-1)?.replaceAll("_", " "),
     ]
       .map(normalize)
       .filter(Boolean),
   );
-  cachedActionLabels.set(actionHrid, labels);
+  cachedActionLabels.set(cacheKey, labels);
   return labels;
 }
 
 function candidateMatches(candidate, label, remaining) {
-  if (!label || !actionLabels(candidate.actionHrid).has(label)) return false;
+  if (!label || !candidate.labels.has(label)) return false;
   return (
     remaining === null || Number(candidate.remaining) === Number(remaining)
   );
@@ -115,16 +130,20 @@ function candidateMatches(candidate, label, remaining) {
 export function resolveTaskCards(
   cards,
   quests,
-  { taskActionHrid, taskRemaining },
+  { taskActionHrid, taskRemaining, allowReusedPositional = false },
 ) {
   const questList = Array.isArray(quests) ? quests : [];
-  const questMetadata = questList.map((task, taskIndex) => ({
-    task,
-    taskIndex,
-    taskId: taskCardTaskId(task),
-    actionHrid: taskActionHrid(task),
-    remaining: taskRemaining(task),
-  }));
+  const questMetadata = questList.map((task, taskIndex) => {
+    const actionHrid = taskActionHrid(task);
+    return {
+      task,
+      taskIndex,
+      taskId: taskCardTaskId(task),
+      actionHrid,
+      labels: candidateLabels(task, actionHrid),
+      remaining: taskRemaining(task),
+    };
+  });
   const byId = new Map(
     questMetadata
       .map((candidate) => [candidate.taskId, candidate])
@@ -132,7 +151,7 @@ export function resolveTaskCards(
   );
   const semanticIndex = new Map();
   for (const candidate of questMetadata) {
-    for (const label of actionLabels(candidate.actionHrid)) {
+    for (const label of candidate.labels) {
       let entry = semanticIndex.get(label);
       if (!entry) {
         entry = { all: [], byRemaining: new Map() };
@@ -149,14 +168,23 @@ export function resolveTaskCards(
   const used = new Set();
   const rows = [...cards].map((card, originalIndex) => {
     let resolved = null;
+    let matchSource = null;
     const label = cardActionLabel(card);
     const remaining = cardRemaining(card);
     const fiberTask = fiberQuest(card);
     const fiberId = taskCardTaskId(fiberTask);
-    if (fiberId && byId.has(fiberId)) resolved = byId.get(fiberId);
-    else if (fiberTask) {
+    let fiberCandidate = fiberId ? byId.get(fiberId) : null;
+    if (!fiberCandidate && fiberTask) {
       const taskIndex = questList.indexOf(fiberTask);
-      if (taskIndex >= 0) resolved = questMetadata[taskIndex];
+      if (taskIndex >= 0) fiberCandidate = questMetadata[taskIndex];
+    }
+    if (
+      fiberCandidate &&
+      !used.has(fiberCandidate.taskIndex) &&
+      candidateMatches(fiberCandidate, label, remaining)
+    ) {
+      resolved = fiberCandidate;
+      matchSource = "fiber";
     }
     const priorId = String(card.dataset.mwitoolsTaskId ?? "");
     const prior = priorId ? byId.get(priorId) : null;
@@ -167,6 +195,7 @@ export function resolveTaskCards(
       candidateMatches(prior, label, remaining)
     ) {
       resolved = prior;
+      matchSource = "prior";
     }
 
     if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
@@ -174,6 +203,8 @@ export function resolveTaskCards(
       card,
       originalIndex,
       resolved,
+      matchSource,
+      allowPositional: !fiberTask && !priorId,
       label,
       remaining,
     };
@@ -200,11 +231,14 @@ export function resolveTaskCards(
       progressCandidates?.length ? progressCandidates : entry.all,
     );
     if (!row.resolved) continue;
+    row.matchSource = "semantic";
     used.add(row.resolved.taskIndex);
   }
 
   for (const row of rows) {
-    if (row.resolved) continue;
+    if (row.resolved || (!row.allowPositional && !allowReusedPositional)) {
+      continue;
+    }
     const positional =
       questList.length === rows.length && !used.has(row.originalIndex)
         ? questMetadata[row.originalIndex]
@@ -214,16 +248,20 @@ export function resolveTaskCards(
         ? questMetadata.find(({ taskIndex }) => !used.has(taskIndex))
         : null;
     row.resolved = positional ?? onlyUnused;
-    if (row.resolved) used.add(row.resolved.taskIndex);
+    if (!row.resolved) continue;
+    row.matchSource = "positional";
+    used.add(row.resolved.taskIndex);
   }
 
-  return rows.map(({ card, originalIndex, resolved }) => {
+  return rows.map(({ card, originalIndex, resolved, matchSource }) => {
     const task = resolved?.task ?? {};
     const taskIndex = Number.isInteger(resolved?.taskIndex)
       ? resolved.taskIndex
       : -1;
     return {
       card,
+      resolved: Boolean(resolved),
+      matchSource,
       task,
       taskId: taskCardTaskId(task),
       taskIndex,

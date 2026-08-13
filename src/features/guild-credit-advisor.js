@@ -527,8 +527,18 @@ function replacementSummaryMarkup(result, best) {
   return `<div class="summary"><strong>${escapeHtml(conclusion)}</strong><br>${escapeHtml(t(`税后可用 ${formatNumber(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
 }
 
-function advisorMarkup({ context, ranked, selected, replacement }) {
-  const top = ranked.slice(0, 3);
+function advisorMarkup({
+  context,
+  ranked,
+  selected,
+  replacement,
+  recommendationCount,
+}) {
+  const count = Math.min(
+    8,
+    Math.max(1, Math.floor(Number(recommendationCount)) || 3),
+  );
+  const top = ranked.slice(0, count);
   const creditName = itemName(context.creditItemHrid);
   const selectedInTop = top.some(
     ({ itemHrid }) => itemHrid === context.selectedItemHrid,
@@ -834,6 +844,7 @@ export async function renderGuildCreditAdvisor({ marketReady = false } = {}) {
     ranked,
     selected,
     replacement,
+    recommendationCount: runtime.api.getGuildCreditRecommendationCount?.() ?? 3,
   });
   mountGuildCreditAdvisor(host, modal);
   return host;

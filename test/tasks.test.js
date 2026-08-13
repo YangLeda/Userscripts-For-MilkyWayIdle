@@ -149,9 +149,14 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /\.mwi-task-filter-group--life,\.mwi-task-filter-group--combat\s*\{[^}]*flex-wrap:nowrap/,
   );
+  assert.match(styles, /\.mwi-task-filter-groups\s*\{[^}]*flex-wrap:wrap/);
   assert.match(
     styles,
-    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{\s*flex-wrap:wrap/,
+    /\.mwi-task-filter-group--combat\s*\{[^}]*flex:0 0 auto/,
+  );
+  assert.match(
+    styles,
+    /@media \(max-width:640px\)[\s\S]*\.mwi-task-filter-group--life\s*\{[^}]*flex-wrap:wrap/,
   );
   assert.match(
     styles,
@@ -201,7 +206,7 @@ test("tasks use a flat sorted list with statistics filters", () => {
 
   const toolbar = document.querySelector(".mwi-task-toolbar");
   assert.ok(toolbar);
-  assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 16);
+  assert.equal(toolbar.querySelectorAll(".mwi-task-filter").length, 14);
   const allFilter = toolbar.querySelector('[data-filter-kind="all"]');
   const sortButton = toolbar.querySelector(".mwi-task-sort-button");
   assert.equal(allFilter.parentElement.className, "mwi-task-toolbar-controls");
@@ -236,15 +241,27 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.equal(
     toolbar.querySelectorAll(
-      ":scope > .mwi-task-filter-group--life > .mwi-task-filter",
+      ":scope > .mwi-task-filter-groups > .mwi-task-filter-group--life > .mwi-task-filter",
     ).length,
-    10,
+    8,
   );
   assert.equal(
     toolbar.querySelectorAll(
-      ":scope > .mwi-task-filter-group--combat .mwi-task-filter",
+      ":scope > .mwi-task-filter-groups > .mwi-task-filter-group--combat .mwi-task-filter",
     ).length,
     5,
+  );
+  assert.equal(
+    toolbar.querySelector(
+      '[data-filter-kind="profession"][data-filter-value="alchemy"]',
+    ),
+    null,
+  );
+  assert.equal(
+    toolbar.querySelector(
+      '[data-filter-kind="profession"][data-filter-value="enhancing"]',
+    ),
+    null,
   );
   assert.equal(
     toolbar.querySelector('[data-filter-kind="all"] .mwi-task-filter-count')
@@ -338,8 +355,15 @@ test("task artwork resolves target items and monsters as translucent sprite art"
     `<svg style="display:none"><use href="/static/media/items_sprite.test.svg#coin"></use></svg>
      <svg style="display:none"><use href="/static/media/combat_monsters_sprite.test.svg#fly"></use></svg>`,
   );
+  const originalQuerySelectorAll = document.querySelectorAll.bind(document);
+  let spriteSourceScans = 0;
+  document.querySelectorAll = function querySelectorAll(selector) {
+    if (selector === "svg use") spriteSourceScans += 1;
+    return originalQuerySelectorAll(selector);
+  };
   runtime.settings.settingsMap.taskIcons.isTrue = true;
   runtime.api.renderTasks();
+  assert.equal(spriteSourceScans, 1);
   assert.match(
     cards[1].querySelector(".mwi-task-bg use").getAttribute("href"),
     /items_sprite\.test\.svg#lumber$/,
@@ -350,6 +374,47 @@ test("task artwork resolves target items and monsters as translucent sprite art"
   );
   runtime.settings.settingsMap.taskIcons.isTrue = false;
   runtime.api.renderTasks();
+  document.querySelectorAll = originalQuerySelectorAll;
+});
+
+test("combat action indexes are reused for repeated dungeon classification", () => {
+  const originalMap = runtime.state.initData_actionDetailMap;
+  let fightInfoReads = 0;
+  const fightInfo = { monsterHrid: "/monsters/cached_beast" };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/cached_beast": {
+      hrid: "/actions/combat/cached_beast",
+      name: "Cached Beast",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: { isDungeon: false, fightInfo },
+    },
+    "/actions/combat/cached_dungeon": {
+      hrid: "/actions/combat/cached_dungeon",
+      name: "Cached Dungeon",
+      type: "/action_types/combat",
+      combatZoneInfo: {
+        isDungeon: true,
+        get fightInfo() {
+          fightInfoReads += 1;
+          return fightInfo;
+        },
+      },
+    },
+  };
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = card("击败 - Cached Beast", "0 / 10");
+  const taskCard = wrapper.firstElementChild;
+  const context = { monsterHrid: "/monsters/cached_beast" };
+  assert.equal(
+    dungeonLocationsForCard(taskCard, {}, context)[0].isDungeon,
+    true,
+  );
+  const readsAfterBuild = fightInfoReads;
+  dungeonLocationsForCard(taskCard, {}, context);
+  dungeonLocationsForCard(taskCard, {}, context);
+  assert.equal(fightInfoReads, readsAfterBuild);
+  runtime.state.initData_actionDetailMap = originalMap;
 });
 
 test("task monsters resolve through a non-Chinese official dictionary", () => {
@@ -496,6 +561,20 @@ test("task mutation filtering ignores MWITools decorations but keeps native prog
     ]),
     false,
   );
+  taskCard.append(background);
+  background.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [],
+        removedNodes: [background],
+      },
+    ]),
+    true,
+    "React removing a task icon must schedule its restoration",
+  );
   const newBadge = document.createElement("span");
   newBadge.className = "mwi-task-new-badge";
   assert.equal(
@@ -587,7 +666,7 @@ test("disabling task statistics keeps the manual sort control only", () => {
   runtime.api.renderTasks();
   assert.equal(
     document.querySelectorAll(".mwi-task-toolbar .mwi-task-filter").length,
-    16,
+    14,
   );
 });
 
@@ -738,6 +817,9 @@ test("new tasks received on the current page move ahead of every category", () =
 });
 
 test("dungeon counts overlap and filters keep native combat cards", () => {
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+  };
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "beforeend",
@@ -1370,6 +1452,223 @@ test("producer lookups build the action output index only once per action map", 
 
   runtime.api.getExpectedOutputs = originalExpectedOutputs;
   runtime.state.initData_actionDetailMap = originalMap;
+});
+
+test("rerolled reused cards merge the latest matching task totals", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__rerolled-merge";
+  list.innerHTML = [
+    card("制作 - 木板", "1 / 5"),
+    card("挤奶 - 奶牛", "2 / 8"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "existing-lumber",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 1,
+    },
+    {
+      id: "reroll-old",
+      actionHrid: "/actions/milking/cow",
+      goalCount: 8,
+      currentCount: 2,
+    },
+  ];
+  runtime.api.renderTasks();
+
+  const reusedCard = list.querySelectorAll(TASK_SELECTOR)[1];
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "reroll-old");
+  assert.equal(reusedCard.dataset.mwitoolsMergeWired, "true");
+  reusedCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 木板";
+  [...reusedCard.querySelectorAll("div")].find((node) =>
+    node.textContent.startsWith("进度:"),
+  ).textContent = "进度: 1 / 6";
+  const replacementButton = document.createElement("button");
+  replacementButton.textContent = "前往";
+  reusedCard.querySelectorAll("button")[1].replaceWith(replacementButton);
+  runtime.state.characterQuests = [
+    {
+      id: "existing-lumber",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 1,
+    },
+    {
+      id: "reroll-new",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 6,
+      currentCount: 1,
+    },
+  ];
+  runtime.api.renderTasks();
+
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "reroll-new");
+  replacementButton.click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 9,
+    taskCount: 2,
+  });
+
+  runtime.state.pendingMergedTask = null;
+  runtime.state.characterQuests = runtime.state.characterQuests.map(
+    ({ id: _id, ...task }) => task,
+  );
+  runtime.api.renderTasks();
+  replacementButton.click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 9,
+    taskCount: 2,
+  });
+
+  runtime.state.pendingMergedTask = null;
+  runtime.state.characterQuests = [];
+  replacementButton.click();
+  assert.equal(runtime.state.pendingMergedTask, null);
+});
+
+test("full task capacity still renders the task module beside its reward card", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const quests = Array.from({ length: 30 }, (_, index) => ({
+    id: `full-capacity-${index}`,
+    actionHrid: "/actions/crafting/lumber",
+    currentCount: 0,
+    goalCount: 5,
+  }));
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<div class="TasksPanel_taskList__reward-card">
+       <div class="RandomTask_randomTask__reward">
+         <div class="RandomTask_name__reward">小紫牛的礼物</div>
+         <div>42 / 50 任务积分</div>
+         <button>领取</button>
+       </div>
+       ${quests.map(() => card("制作 - 木板", "0 / 5")).join("")}
+     </div>`,
+  );
+  runtime.state.characterQuests = quests;
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  const list = document.querySelector(".TasksPanel_taskList__reward-card");
+  const [rewardCard, ...questCards] = list.querySelectorAll(TASK_SELECTOR);
+  questCards.forEach((questCard, index) => {
+    questCard.__reactFiber$quest = {
+      memoizedProps: { characterQuest: quests[index] },
+    };
+  });
+
+  assert.equal(runtime.api.renderTasks({ allowReusedPositional: false }), true);
+  assert.equal(rewardCard.dataset.mwitoolsTaskId, undefined);
+  assert.equal(questCards.length, 30);
+  assert.deepEqual(
+    questCards.map((questCard) => questCard.dataset.mwitoolsTaskId),
+    quests.map(({ id }) => id),
+  );
+  assert.ok(document.querySelector(".mwi-task-toolbar"));
+});
+
+test("reused task cards keep the old icon during transition and settle on the new task", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg style="display:none"><use href="/static/media/items_sprite.reuse.svg#seed"></use></svg>
+     <div class="TasksPanel_taskList__reused-icon">
+       ${card("制作 - Old Output", "0 / 5")}
+     </div>`,
+  );
+  const oldQuest = {
+    id: "icon-old",
+    actionHrid: "/actions/crafting/old_output",
+    goalCount: 5,
+    currentCount: 0,
+  };
+  const newQuest = {
+    id: "icon-new",
+    actionHrid: "/actions/crafting/new_output",
+    goalCount: 7,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+    [oldQuest.actionHrid]: {
+      hrid: oldQuest.actionHrid,
+      name: "Old Output",
+      type: "/action_types/crafting",
+      outputItems: [{ itemHrid: "/items/old_output", count: 1 }],
+    },
+    [newQuest.actionHrid]: {
+      hrid: newQuest.actionHrid,
+      name: "New Output",
+      type: "/action_types/crafting",
+      outputItems: [{ itemHrid: "/items/new_output", count: 1 }],
+    },
+  };
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [oldQuest];
+  assert.equal(runtime.api.renderTasks(), true);
+
+  const reusedCard = document.querySelector(
+    ".TasksPanel_taskList__reused-icon " + TASK_SELECTOR,
+  );
+  reusedCard.__reactFiber$staleQuest = {
+    memoizedProps: { characterQuest: oldQuest },
+  };
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /items_sprite\.test\.svg#old_output$|items_sprite\.reuse\.svg#old_output$/,
+  );
+
+  runtime.state.characterQuests = [newQuest];
+  assert.equal(
+    runtime.api.renderTasks({ allowReusedPositional: false }),
+    false,
+  );
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "icon-old");
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#old_output$/,
+  );
+
+  reusedCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - New Output";
+  [...reusedCard.querySelectorAll("div")].find((node) =>
+    node.textContent.startsWith("进度:"),
+  ).textContent = "进度: 0 / 7";
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "icon-new");
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#new_output$/,
+  );
+
+  const removedBackground = reusedCard.querySelector(".mwi-task-bg");
+  removedBackground.remove();
+  assert.equal(
+    shouldRenderTaskMutations(
+      [
+        {
+          type: "childList",
+          target: reusedCard,
+          addedNodes: [],
+          removedNodes: [removedBackground],
+        },
+      ],
+      Number.MAX_SAFE_INTEGER,
+    ),
+    true,
+  );
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#new_output$/,
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 
 test("localized task controls wire merge and reset behavior", () => {

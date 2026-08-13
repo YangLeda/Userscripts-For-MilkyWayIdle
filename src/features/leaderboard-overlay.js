@@ -1,13 +1,11 @@
 import { runtime } from "../core/runtime.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.2.1";
+const OVERLAY_VERSION = "1.2.2";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
 const LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1000;
-const DEFAULT_ICON_BASE_URL =
-  "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
 const STYLE_ID = "mwi-leaderboard-overlay-style";
 const BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
 const RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
@@ -32,6 +30,11 @@ const DEFAULT_CATEGORIES = [
   ["magic", { zh: "魔法", en: "Magic" }],
   ["fame_points", { zh: "名望", en: "Fame" }],
 ];
+const NATIVE_SPRITE_FALLBACKS = Object.freeze({
+  misc: "/static/media/misc_sprite.6560b17a.svg",
+  skills: "/static/media/skills_sprite.3bb4d936.svg",
+});
+const nativeSpriteBasesByDocument = new WeakMap();
 
 let activeInstances = 0;
 let featureEnabled = false;
@@ -113,6 +116,7 @@ function ensureStyles(documentRef) {
   style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
+    [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="list"]{display:flex;width:100%;justify-content:center;margin-block-start:2px;margin-inline-start:0}
     .mwi-lb-badge{box-sizing:border-box;display:inline-flex;align-items:center;gap:1px;height:15px;min-height:15px;padding:0 3px 0 1px;border:1px solid;border-radius:999px;background:rgba(12,16,28,.78);color:#eef2ff;font:600 9px/1 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,.24);vertical-align:middle}
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
@@ -125,27 +129,43 @@ function ensureStyles(documentRef) {
   mount.append(style);
 }
 
-function createBadgeIcon(documentRef, category, iconBaseUrl) {
-  if (category !== "fame_points") {
+function nativeSpriteBase(documentRef, kind) {
+  let bases = nativeSpriteBasesByDocument.get(documentRef);
+  if (!bases) {
+    bases = new Map();
+    nativeSpriteBasesByDocument.set(documentRef, bases);
+  }
+  if (bases.has(kind)) return bases.get(kind);
+  const base =
+    [...documentRef.querySelectorAll("use")]
+      .map((element) => element.getAttribute("href") || "")
+      .find((href) => href.includes(`${kind}_sprite`))
+      ?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
+  bases.set(kind, base);
+  return base;
+}
+
+function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
+  if (customIconBaseUrl && category !== "fame_points") {
     const icon = documentRef.createElement("img");
     icon.className = "mwi-lb-badge-icon";
-    icon.src = `${iconBaseUrl}/${encodeURIComponent(category)}.png`;
+    icon.src = `${customIconBaseUrl}/${encodeURIComponent(category)}.png`;
     icon.alt = "";
     icon.setAttribute("aria-hidden", "true");
     return icon;
   }
 
+  const spriteKind = category === "fame_points" ? "misc" : "skills";
+  const symbol = category === "fame_points" ? "experience" : category;
   const icon = documentRef.createElementNS("http://www.w3.org/2000/svg", "svg");
   icon.classList.add("mwi-lb-badge-icon");
   icon.setAttribute("viewBox", "0 0 40 40");
   icon.setAttribute("aria-hidden", "true");
   const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-  const miscSprite =
-    [...documentRef.querySelectorAll("use")]
-      .map((element) => element.getAttribute("href") || "")
-      .find((href) => href.includes("misc_sprite"))
-      ?.split("#")[0] || "/static/media/misc_sprite.cfad291b.svg";
-  use.setAttribute("href", `${miscSprite}#experience`);
+  use.setAttribute(
+    "href",
+    `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`,
+  );
   icon.append(use);
   return icon;
 }
@@ -167,9 +187,7 @@ function createOverlay(options = {}) {
       : DEFAULT_CATEGORIES;
   const categoryOrder = categoryEntries.map(([category]) => category);
   const categoryLabels = Object.fromEntries(categoryEntries);
-  const iconBaseUrl = String(
-    options.iconBaseUrl || DEFAULT_ICON_BASE_URL,
-  ).replace(/\/+$/, "");
+  const iconBaseUrl = String(options.iconBaseUrl || "").replace(/\/+$/, "");
   const state = {
     categories: {},
     nameIndex: new Map(),
@@ -240,7 +258,13 @@ function createOverlay(options = {}) {
       const profileNameBlock = profileRoot
         ? nameElement.closest('[class*="Header_name"]')
         : null;
-      const badgeMount = profileNameBlock || host;
+      const listNameBlock = nameElement.closest(
+        '[class*="GuildPanel_characterName"],[class*="SocialPanel_characterName"]',
+      );
+      const settingsNameColor = nameElement.closest(
+        '[class*="SettingsPanel_nameColor"]',
+      );
+      const badgeMount = profileNameBlock || listNameBlock || host;
       let container =
         badgeMount.querySelector(`:scope > [${BADGE_CONTAINER_ATTRIBUTE}]`) ||
         (badgeMount === host
@@ -262,7 +286,14 @@ function createOverlay(options = {}) {
         continue;
       }
       const profilePlacement = Boolean(profileRoot);
-      const placement = profilePlacement ? "profile" : "inline";
+      const listPlacement = Boolean(listNameBlock);
+      const placement = profilePlacement
+        ? "profile"
+        : listPlacement
+          ? "list"
+          : settingsNameColor
+            ? "settings"
+            : "inline";
       const signature = badgeSignature(visibleBadges);
       const previousPlacement =
         container?.dataset.mwiLeaderboardPlacement || "";
@@ -284,6 +315,9 @@ function createOverlay(options = {}) {
         ) {
           profileName.insertAdjacentElement("afterend", container);
         }
+      } else if (listPlacement) {
+        if (container.parentElement !== badgeMount)
+          badgeMount.append(container);
       } else if (!container.isConnected || previousPlacement === "profile") {
         host.append(container);
       }

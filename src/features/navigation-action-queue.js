@@ -85,11 +85,24 @@ function add3rdPartyLinks() {
   targetNode.insertBefore(fragment, targetNode.firstChild);
 }
 
-const actionQueueObservers = new Map();
+let activeActionQueueObserver = null;
+
+function disconnectActionQueueObserver(root = null) {
+  if (!activeActionQueueObserver) return false;
+  if (
+    root &&
+    activeActionQueueObserver.menu !== root &&
+    !root.contains?.(activeActionQueueObserver.menu)
+  ) {
+    return false;
+  }
+  activeActionQueueObserver.observer.disconnect();
+  activeActionQueueObserver = null;
+  return true;
+}
 
 function disconnectActionQueueObservers() {
-  for (const observer of actionQueueObservers.values()) observer.disconnect();
-  actionQueueObservers.clear();
+  disconnectActionQueueObserver();
 }
 
 function handleActionQueueMenue(added) {
@@ -97,16 +110,16 @@ function handleActionQueueMenue(added) {
   handleActionQueueMenueCalculateTime(added);
 
   const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-  if (!listDiv || actionQueueObservers.has(added)) return;
+  if (!listDiv || activeActionQueueObserver?.menu === added) return;
+  disconnectActionQueueObserver();
   const observer = new MutationObserver(() => {
-    if (!runtime.settings.get("actionQueue")) {
-      observer.disconnect();
-      actionQueueObservers.delete(added);
+    if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+      disconnectActionQueueObserver(added);
       return;
     }
     handleActionQueueMenueCalculateTime(added);
   });
-  actionQueueObservers.set(added, observer);
+  activeActionQueueObserver = { menu: added, observer };
   observer.observe(listDiv, {
     characterData: false,
     subtree: false,
@@ -143,15 +156,17 @@ function handleActionQueueMenueCalculateTime(added) {
 
     const detail = runtime.state.initData_actionDetailMap[actionHrid];
     if (!detail) continue;
-    const baseTimePerActionSec = detail.baseTimeCost / 1_000_000_000;
-    const totalEffBuff = runtime.api.getTotalEffiPercentage(actionHrid);
-    const toolSpeedBuff = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-    let timePerActionSec = baseTimePerActionSec / (1 + toolSpeedBuff / 100);
-    timePerActionSec /= 1 + totalEffBuff / 100;
-    const totalTimeSec = count * timePerActionSec;
+    const timing = runtime.api.projectActionTiming?.(
+      actionHrid,
+      isInfinite ? Infinity : count,
+    );
+    const totalTimeSec = timing?.totalSeconds;
+    if (totalTimeSec === null || totalTimeSec === undefined) {
+      isAccumulatedTimeInfinite = true;
+    }
 
     let completion = runtime.config.isZH ? "到 ∞ " : "Complete at ∞ ";
-    if (!isAccumulatedTimeInfinite) {
+    if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
       accumulatedTimeSec += totalTimeSec;
       const currentTime = new Date();
       currentTime.setSeconds(currentTime.getSeconds() + accumulatedTimeSec);
@@ -159,8 +174,11 @@ function handleActionQueueMenueCalculateTime(added) {
     }
 
     if (hasSkippedFirstAction) {
+      const unavailable = !Number.isFinite(totalTimeSec);
       const html = `<div class="script_actionTime" style="color: ${runtime.config.SCRIPT_COLOR_MAIN};">${
-        isInfinite ? "[ ∞ ] " : `[${runtime.api.timeReadable(totalTimeSec)}]`
+        isInfinite || unavailable
+          ? "[ ∞ ] "
+          : `[${runtime.api.timeReadable(totalTimeSec)}]`
       } ${completion}</div>`;
       const target = actionDivList[actionDivListIndex]?.querySelector("div");
       const current = target?.querySelector("div.script_actionTime");
@@ -195,7 +213,10 @@ function getOriTextFromElement(element) {
 
 Object.assign(runtime.api, {
   add3rdPartyLinks,
+  disconnectActionQueueObserver,
   disconnectActionQueueObservers,
+  getActiveActionQueueObserverCount: () =>
+    activeActionQueueObserver === null ? 0 : 1,
   getOriTextFromElement,
   handleActionQueueMenue,
   handleActionQueueMenueCalculateTime,

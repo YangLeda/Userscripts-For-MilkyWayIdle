@@ -37,11 +37,6 @@ const Z_SCORES = Object.freeze({
   99.9: 3.09,
 });
 
-const ENHANCEMENT_BONUSES = Object.freeze([
-  0, 0.02, 0.042, 0.066, 0.092, 0.12, 0.15, 0.182, 0.216, 0.255, 0.29, 0.33,
-  0.372, 0.416, 0.462, 0.51, 0.56, 0.612, 0.666, 0.722, 0.78,
-]);
-
 const listeners = new Map();
 const cart = new Map();
 const plans = new Map();
@@ -375,24 +370,32 @@ function getGuzzlingPouchLevel() {
   return level;
 }
 
-function getDrinkConcentration() {
+function getProductionProfile(actionHrid) {
   const level = getGuzzlingPouchLevel();
-  if (level < 0) return 1;
-  const item = runtime.state.initData_itemDetailMap?.["/items/guzzling_pouch"];
-  const base = Number(
-    item?.equipmentDetail?.noncombatStats?.drinkConcentration ?? 0.1,
+  return runtime.api.getActionProductionProfile?.(
+    actionHrid,
+    level >= 0 ? { guzzlingPouchLevel: level } : {},
   );
-  const enhancement = Number(
-    item?.equipmentDetail?.noncombatEnhancementBonuses?.drinkConcentration ??
-      base,
-  );
-  return 1 + base + enhancement * (ENHANCEMENT_BONUSES[level] ?? 0);
 }
 
 function getTeaSavings(actionHrid) {
+  const profile = getProductionProfile(actionHrid);
+  if (profile?.status === "complete") {
+    return Math.min(
+      1,
+      Math.max(0, Number(profile.teaEffects?.lessResource) || 0),
+    );
+  }
   const buffs = runtime.api.getTeaBuffsByActionHrid?.(actionHrid) ?? {};
-  const baseSavings = Math.max(0, Number(buffs.lessResource) || 0) / 100;
-  return Math.min(1, baseSavings * getDrinkConcentration());
+  const level = getGuzzlingPouchLevel();
+  const concentration =
+    runtime.api.getDrinkConcentrationMultiplier?.(
+      level >= 0 ? { guzzlingPouchLevel: level } : {},
+    ) ?? 1;
+  return Math.min(
+    1,
+    (Math.max(0, Number(buffs.lessResource) || 0) / 100) * concentration,
+  );
 }
 
 function isBackEquipmentForProcurement(itemHrid) {
@@ -540,6 +543,27 @@ function getProducerAction(itemHrid) {
   return producerActionIndex.get(target) ?? null;
 }
 
+function getEffectiveProducerOutput(producer, itemHrid) {
+  const profile = getProductionProfile(producer?.actionHrid);
+  if (profile?.status !== "complete") {
+    return {
+      known: false,
+      count: Math.max(0, Number(producer?.outputCount) || 0),
+    };
+  }
+  const target = normalizeItemHrid(itemHrid);
+  return {
+    known: true,
+    count: (profile.outputs ?? []).reduce(
+      (total, output) =>
+        normalizeItemHrid(output?.itemHrid) === target
+          ? total + Math.max(0, Number(output?.count) || 0)
+          : total,
+      0,
+    ),
+  };
+}
+
 function mergeMaterial(target, material) {
   const key = itemKey(material.itemHrid, material.enhancementLevel);
   const existing = target.get(key);
@@ -571,6 +595,7 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
   const visited = new Set();
   let cycle = false;
   let truncated = false;
+  const unavailableOutputs = new Set();
   const calculationOptions = {
     ...options,
     excludeActionHrids: options.excludeActionHrids ?? new Set([actionHrid]),
@@ -613,14 +638,23 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
       );
       if (upgradeMaterial?.purchasable !== false) {
         if (producer) {
-          visit(
-            producer.actionHrid,
-            Math.ceil(
-              Math.max(0, Number(upgradeMaterial?.suggested) || 0) /
-                producer.outputCount,
-            ),
-            depth + 1,
+          const effectiveOutput = getEffectiveProducerOutput(
+            producer,
+            upgradeHrid,
           );
+          if (!effectiveOutput.known || effectiveOutput.count > 0) {
+            visit(
+              producer.actionHrid,
+              Math.ceil(
+                Math.max(0, Number(upgradeMaterial?.suggested) || 0) /
+                  effectiveOutput.count,
+              ),
+              depth + 1,
+            );
+          } else {
+            unavailableOutputs.add(upgradeHrid);
+            mergeMaterial(leaves, upgradeMaterial);
+          }
         } else if (upgradeMaterial) {
           mergeMaterial(leaves, upgradeMaterial);
         }
@@ -636,6 +670,7 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
     leaves: [...leaves.values()],
     cycle,
     truncated,
+    unavailableOutputs: [...unavailableOutputs],
   };
 }
 

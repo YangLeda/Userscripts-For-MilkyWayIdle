@@ -524,6 +524,31 @@ test("pinned panels close on outside clicks and when the main setting is disable
   await runtime.settings.set("lootChestEstimate", true);
 });
 
+test("sticky loot panels survive their anchor and ignore inside touches", async () => {
+  const anchor = ensureAnchor();
+  const panel = runtime.api.showLootChestPanel(anchor, ITEM.chest, {
+    sticky: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(panel.parentElement, document.body);
+  anchor.remove();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+
+  panel.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.ok(document.querySelector("#mwitools-production-profit-panel"));
+  document.body.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.equal(
+    document.querySelector("#mwitools-production-profit-panel"),
+    null,
+  );
+});
+
 test("unkeyed pinned panels hide irrelevant key switches", () => {
   setLootSettings({
     sellAtAsk: false,

@@ -7,7 +7,6 @@ const STYLE_ID = "mwitools-task-train-planner-style";
 const CONTROL_CLASS = "mwi-task-train-planner";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
-const ACTION_SELECTOR = '[class*="RandomTask_action"]';
 const OWNED_TASK_SELECTOR =
   '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 
@@ -20,7 +19,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .${CONTROL_CLASS}{flex:0 0 auto;margin-right:4px;white-space:nowrap}
+    .${CONTROL_CLASS}{flex:0 1 auto;min-width:0;max-width:100%;box-sizing:border-box;margin-right:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     button.${CONTROL_CLASS}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
     button.${CONTROL_CLASS}:hover{filter:brightness(1.16)}
     span.${CONTROL_CLASS}{padding:0 8px;color:#8f96ad;font:italic 11px/28px Roboto,Arial,sans-serif;user-select:none}
@@ -104,19 +103,23 @@ export function createTaskTrainPlan(
   );
 }
 
-export function insertBeforeTaskNavigation(card, fallbackHost, control) {
-  const navigation = [...card.querySelectorAll("button")].find((button) =>
+function findTaskNavigation(card) {
+  return [...card.querySelectorAll("button")].find((button) =>
     matchesGameTranslations(
       ["randomTask.go", "questModal.go"],
       button.textContent,
       { fallbackPatterns: [/^(?:前往|go)$/i] },
     ),
   );
+}
+
+export function insertBeforeTaskNavigation(card, control) {
+  const navigation = findTaskNavigation(card);
   if (navigation?.parentElement) {
     navigation.parentElement.insertBefore(control, navigation);
-  } else {
-    fallbackHost.appendChild(control);
+    return true;
   }
+  return false;
 }
 
 function plannerButton(entry, signature) {
@@ -148,39 +151,52 @@ function plannerLabel(text, title, signature) {
   return label;
 }
 
-export function renderTaskTrainPlanner() {
-  const cards = [...document.querySelectorAll(TASK_SELECTOR)];
-  if (!cards.length) return;
-  const quests = runtime.state.characterQuests ?? [];
+export function renderTaskTrainPlanner(
+  cards = [...document.querySelectorAll(TASK_SELECTOR)],
+  quests = runtime.state.characterQuests ?? [],
+) {
+  if (!cards.length) return true;
   const { entries } = collectTaskTrainGroups(quests);
   const resolvedCards = resolveTaskCards(cards, quests, {
     taskActionHrid,
     taskRemaining,
   });
-  for (const { card, taskIndex } of resolvedCards) {
+  let settled = true;
+  for (const { card, resolved, taskIndex } of resolvedCards) {
+    if (!resolved) {
+      settled = false;
+      continue;
+    }
     const entry = entries[taskIndex];
-    const action = card.querySelector(ACTION_SELECTOR);
-    if (!action) continue;
     const signature = entry
       ? [entry.state, entry.root, entry.remaining, runtime.config.isZH].join(
           ":",
         )
       : "none";
     const existingControls = [...card.querySelectorAll(`.${CONTROL_CLASS}`)];
+    if (!entry || entry.state === "done" || entry.state === "isolated") {
+      existingControls.forEach((node) => node.remove());
+      continue;
+    }
+    const navigation = findTaskNavigation(card);
+    if (!navigation?.parentElement) {
+      settled = false;
+      continue;
+    }
     if (
       existingControls.length === 1 &&
-      existingControls[0].dataset.signature === signature
+      existingControls[0].dataset.signature === signature &&
+      existingControls[0].parentElement === navigation.parentElement &&
+      existingControls[0].nextElementSibling === navigation
     ) {
       continue;
     }
     existingControls.forEach((node) => node.remove());
-    if (!entry || entry.state === "done") continue;
     if (entry.state === "top") {
-      insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
+      insertBeforeTaskNavigation(card, plannerButton(entry, signature));
     } else if (entry.state === "planned") {
       insertBeforeTaskNavigation(
         card,
-        action,
         plannerLabel(
           t("已被规划", "Included in plan"),
           t(
@@ -190,18 +206,9 @@ export function renderTaskTrainPlanner() {
           signature,
         ),
       );
-    } else if (entry.state === "isolated") {
-      insertBeforeTaskNavigation(
-        card,
-        action,
-        plannerLabel(
-          t("无需火车", "No train needed"),
-          t("该任务不属于升级链", "This task is not part of an upgrade chain"),
-          signature,
-        ),
-      );
     }
   }
+  return settled;
 }
 
 function cleanup() {
@@ -212,6 +219,25 @@ function cleanup() {
 }
 
 export function shouldRenderTaskTrainMutations(records) {
+  const removedControl = records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    return (
+      target?.isConnected &&
+      target?.closest?.(TASK_SELECTOR) &&
+      [...(record.removedNodes ?? [])].some(
+        (node) => node?.nodeType === 1 && node.matches?.(`.${CONTROL_CLASS}`),
+      )
+    );
+  });
+  const addedControl = records.some((record) =>
+    [...(record.addedNodes ?? [])].some(
+      (node) => node?.nodeType === 1 && node.matches?.(`.${CONTROL_CLASS}`),
+    ),
+  );
+  if (removedControl && !addedControl) return true;
   return records.some((record) => {
     const target =
       record.target?.nodeType === 1
@@ -247,19 +273,31 @@ runtime.features.register({
   dependsOn: ["semiAutoTrain"],
   initialize({ scope }) {
     addStyles();
-    renderTaskTrainPlanner();
-    const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
-    const schedule = () => renderScheduler.schedule();
-    let trailingTimers = [];
-    const onInteraction = () => {
-      schedule();
-      trailingTimers.forEach(clearTimeout);
-      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
+    let settleRetries = 0;
+    let renderScheduler = null;
+    const render = () => {
+      const cards = [...document.querySelectorAll(TASK_SELECTOR)];
+      const quests = runtime.state.characterQuests ?? [];
+      const settled = renderTaskTrainPlanner(cards, quests);
+      if (!settled && settleRetries < 3) {
+        settleRetries += 1;
+        renderScheduler.schedule();
+      } else {
+        settleRetries = 0;
+      }
     };
-    scope.event(document, "click", onInteraction, true);
+    renderScheduler = createFrameScheduler(render);
+    const schedule = () => renderScheduler.schedule();
+    render();
+    const observer = new MutationObserver((records) => {
+      if (shouldRenderTaskTrainMutations(records)) schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     scope.add(runtime.onMessage("quests_updated", schedule));
     scope.add(() => {
-      trailingTimers.forEach(clearTimeout);
       renderScheduler.cancel();
       cleanup();
     });

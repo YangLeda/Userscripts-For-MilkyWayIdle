@@ -26,6 +26,7 @@ globalThis.GM_addStyle = (css) => {
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
+await import("../src/core/action-projection.js");
 await import("../src/features/settings-and-notifications.js");
 await import("../src/features/navigation-action-queue.js");
 await import("../src/features/legacy-lifecycle.js");
@@ -90,6 +91,71 @@ test("disabling queue timing disconnects observers that could recreate output", 
   await settle();
   assert.equal(document.querySelector(".script_actionTime"), null);
   assert.equal(document.querySelector("#script_queueTotalTime"), null);
+});
+
+test("queued action timing uses community speed and total efficiency", () => {
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/action_speed", flatBoost: 0.25 },
+      ],
+    },
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/current": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+    },
+    "/actions/crafting/queued": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+    },
+  };
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/crafting/current",
+      maxCount: 1,
+      currentCount: 0,
+    },
+    {
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 4,
+      currentCount: 0,
+    },
+  ];
+  runtime.api.getTotalEffiPercentage = () => 100;
+  runtime.api.timeReadable = (seconds) => `${seconds}s`;
+  document.body.innerHTML = `<div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div>`;
+
+  const menu = document.querySelector(
+    ".QueuedActions_queuedActionsEditMenu__3OoQH",
+  );
+  runtime.api.handleActionQueueMenueCalculateTime(menu);
+  assert.match(document.querySelector(".script_actionTime").textContent, /16s/);
+  runtime.api.disconnectActionQueueObserver();
+});
+
+test("replacing one hundred queue menus retains only the active observer", () => {
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  for (let index = 0; index < 100; index += 1) {
+    const root = document.createElement("div");
+    root.innerHTML = `<div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div></div></div>`;
+    document.body.append(root);
+    const menu = root.firstElementChild;
+    runtime.api.handleActionQueueMenue(menu);
+    assert.equal(runtime.api.getActiveActionQueueObserverCount(), 1);
+    root.remove();
+    runtime.api.disconnectActionQueueObserver(root);
+    assert.equal(runtime.api.getActiveActionQueueObserverCount(), 0);
+  }
 });
 
 test("tooltip observer ignores text nodes added to the page", async () => {
@@ -186,12 +252,31 @@ test("profit tooltips require the configured key in either hover order", async (
       bubbles: true,
     }),
   );
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent("keyup", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+
+  calls.length = 0;
+  runtime.api.setTooltipProfitShortcut({ code: "KeyK", display: "K" });
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "k",
+      code: "KeyK",
+      bubbles: true,
+    }),
+  );
   assert.equal(
     calls.some((call) => call.type === "show"),
     false,
   );
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
 
-  const touchEvent = (type, x, y) => {
+  const touchEvent = (type, x, y, pointerId = 7) => {
     const event = new dom.window.MouseEvent(type, {
       bubbles: true,
       clientX: x,
@@ -199,7 +284,7 @@ test("profit tooltips require the configured key in either hover order", async (
     });
     Object.defineProperties(event, {
       pointerType: { value: "touch" },
-      pointerId: { value: 7 },
+      pointerId: { value: pointerId },
     });
     return event;
   };
@@ -223,6 +308,24 @@ test("profit tooltips require the configured key in either hover order", async (
     false,
   );
 
+  const secondCard = document.createElement("div");
+  secondCard.className = "SkillAction_skillAction__fixture";
+  secondCard.__reactFiber$keyTest = card.__reactFiber$keyTest;
+  document.body.append(secondCard);
+  calls.length = 0;
+  secondCard.dispatchEvent(touchEvent("pointerdown", 15, 15, 8));
+  runtime.api.clearTooltipProfitHoverContext(card, null, {
+    preserveTouchPress: true,
+  });
+  secondCard.dispatchEvent(
+    new dom.window.MouseEvent("mouseover", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  assert.equal(calls.find((call) => call.type === "show").anchor, secondCard);
+  assert.equal(calls.find((call) => call.type === "show").options.sticky, true);
+  secondCard.dispatchEvent(touchEvent("pointerup", 15, 15, 8));
+
   await runtime.features.disable("itemTooltip_profit");
   await runtime.features.disable("itemTooltip_prices");
   runtime.api.showProductionProfitPanel = originalShow;
@@ -233,8 +336,8 @@ test("enhancement costs share the tooltip key and touch long press", async () =>
   const originalShow = runtime.api.showEnhancementCostPanel;
   const originalHide = runtime.api.hideEnhancementCostPanel;
   const calls = [];
-  runtime.api.showEnhancementCostPanel = (anchor, plan) => {
-    calls.push({ type: "show", anchor, plan });
+  runtime.api.showEnhancementCostPanel = (anchor, plan, options) => {
+    calls.push({ type: "show", anchor, plan, options });
     return {};
   };
   runtime.api.hideEnhancementCostPanel = () => calls.push({ type: "hide" });
@@ -277,7 +380,25 @@ test("enhancement costs share the tooltip key and touch long press", async () =>
   anchor.dispatchEvent(touch);
   await new Promise((resolve) => setTimeout(resolve, 820));
   assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  assert.equal(calls.find((call) => call.type === "show").options.sticky, true);
+  const touchEnd = new dom.window.MouseEvent("pointerup", {
+    bubbles: true,
+    clientX: 10,
+    clientY: 10,
+  });
+  Object.defineProperties(touchEnd, {
+    pointerType: { value: "touch" },
+    pointerId: { value: 19 },
+  });
+  anchor.dispatchEvent(touchEnd);
+  assert.equal(
+    calls.some((call) => call.type === "hide"),
+    false,
+  );
 
+  await runtime.settings.set("enhanceSim", false, { persist: false });
+  assert.equal(calls.at(-1).type, "hide");
+  await runtime.settings.set("enhanceSim", true, { persist: false });
   clearEnhancementHoverPanelContext(anchor);
   await runtime.features.disable("itemTooltip_prices");
   runtime.api.showEnhancementCostPanel = originalShow;

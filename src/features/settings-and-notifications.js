@@ -3,6 +3,7 @@ import {
   getGameTranslation,
   matchesGameTranslation,
 } from "../core/game-localization.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const SETTINGS_V2_KEY = "MWITools_settings_v2";
 const BACK_MIRROR_DEFAULT_CORRECTION_KEY =
@@ -12,6 +13,37 @@ const EQUIPMENT_WARNING_STYLE_ID = "mwitools-equipment-warning-style";
 const SETTINGS_TAB_ATTRIBUTE = "data-mwitools-settings-tab";
 const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
 const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
+const GUILD_CREDIT_RECOMMENDATION_COUNT_KEY =
+  "MWITools_guild_credit_recommendation_count_v1";
+
+function normalizeGuildCreditRecommendationCount(value) {
+  const count = Math.floor(Number(value));
+  return Number.isFinite(count) ? Math.min(8, Math.max(1, count)) : 3;
+}
+
+function loadGuildCreditRecommendationCount() {
+  const stored = localStorage.getItem(GUILD_CREDIT_RECOMMENDATION_COUNT_KEY);
+  return stored === null ? 3 : normalizeGuildCreditRecommendationCount(stored);
+}
+
+let guildCreditRecommendationCount = loadGuildCreditRecommendationCount();
+
+function getGuildCreditRecommendationCount() {
+  return guildCreditRecommendationCount;
+}
+
+function setGuildCreditRecommendationCount(value) {
+  guildCreditRecommendationCount =
+    normalizeGuildCreditRecommendationCount(value);
+  localStorage.setItem(
+    GUILD_CREDIT_RECOMMENDATION_COUNT_KEY,
+    String(guildCreditRecommendationCount),
+  );
+  if (runtime.settings.get("guildCreditConversionsSort")) {
+    void runtime.api.renderGuildCreditRecommendations?.();
+  }
+  return guildCreditRecommendationCount;
+}
 
 function normalizeTooltipProfitShortcut(value) {
   const code = String(value?.code ?? "").trim();
@@ -78,7 +110,16 @@ function persistSettings() {
       Boolean(setting.isTrue),
     ]),
   );
-  localStorage.setItem(SETTINGS_V2_KEY, JSON.stringify({ version: 2, values }));
+  const preferences = Object.fromEntries(
+    Object.keys(runtime.settings.preferenceDefinitions ?? {}).map((id) => [
+      id,
+      runtime.settings.getPreference(id),
+    ]),
+  );
+  localStorage.setItem(
+    SETTINGS_V2_KEY,
+    JSON.stringify({ version: 2, values, preferences }),
+  );
 
   // Keep the legacy shape current so users can safely roll back MWITools.
   localStorage.setItem(
@@ -105,10 +146,21 @@ function applyVisualSettings() {
     .useOrangeAsMainColor.isTrue
     ? "#804600"
     : "darkgreen";
+  const scale =
+    { standard: 1, large: 1.12, largest: 1.25 }[
+      runtime.settings.getPreference("uiFontScale")
+    ] ?? 1;
+  document.documentElement?.style.setProperty(
+    "--mwi-ui-font-scale",
+    String(scale),
+  );
 }
+
+runtime.settings.onPreferenceChange?.("uiFontScale", applyVisualSettings);
 
 function readSettings() {
   let loadedV2 = false;
+  let storedPreferences = null;
   try {
     const storedV2 = JSON.parse(
       localStorage.getItem(SETTINGS_V2_KEY) || "null",
@@ -117,6 +169,7 @@ function readSettings() {
       for (const [id, value] of Object.entries(storedV2.values)) {
         applyStoredSetting(id, value);
       }
+      storedPreferences = storedV2.preferences ?? null;
       loadedV2 = true;
     }
   } catch (error) {
@@ -147,6 +200,22 @@ function readSettings() {
     }
   }
 
+  const legacyProductionSummaryEnabled = Boolean(
+    runtime.settings.settingsMap.productionSummary.isTrue,
+  );
+  for (const [id, definition] of Object.entries(
+    runtime.settings.preferenceDefinitions ?? {},
+  )) {
+    const value =
+      storedPreferences?.[id] ??
+      (id === "productionSummaryMode" && !legacyProductionSummaryEnabled
+        ? "off"
+        : definition.defaultValue);
+    void runtime.settings.setPreference(id, value, { persist: false });
+  }
+  runtime.settings.settingsMap.productionSummary.isTrue =
+    runtime.settings.getPreference("productionSummaryMode") !== "off";
+
   // Reset the briefly repurposed back-equipment option once. Valuing plain
   // back gear by a protection mirror is opt-in, so later choices stick.
   if (!localStorage.getItem(BACK_MIRROR_DEFAULT_CORRECTION_KEY)) {
@@ -169,12 +238,12 @@ function addSettingsStyles() {
     [${SETTINGS_TAB_ATTRIBUTE}][aria-selected="true"] { color:var(--color-primary,#fff); }
     .mwi-settings-hero { display:flex; justify-content:space-between; gap:14px; align-items:end; margin-bottom:11px; }
     .mwi-settings-title { font-size:1.2rem; font-weight:700; letter-spacing:.01em; }
-    .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:.78rem; line-height:1.35; }
+    .mwi-settings-subtitle { color:var(--color-text-secondary,#aaa); margin-top:3px; font-size:calc(.78rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
     .mwi-settings-search { width:min(320px,100%); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(0,0,0,.2); color:inherit; padding:7px 9px; }
     .mwi-settings-group { margin:0 0 10px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.13); overflow:hidden; }
     .mwi-settings-group-head { padding:10px 13px 8px; border-bottom:1px solid rgba(255,255,255,.08); }
     .mwi-settings-group-title { font-size:1rem; font-weight:700; }
-    .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:.75rem; margin-top:2px; line-height:1.35; }
+    .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); margin-top:2px; line-height:1.35; }
     .mwi-settings-grid { display:flex; flex-direction:column; padding:0 10px; }
     .mwi-setting-card { min-width:0; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.075); transition:background .15s; }
     .mwi-setting-card:last-child { border-bottom:0; }
@@ -184,9 +253,9 @@ function addSettingsStyles() {
     .mwi-setting-row { display:grid; min-height:42px; grid-template-columns:minmax(170px,.72fr) minmax(260px,1.5fr) auto minmax(40px,auto); align-items:center; gap:8px 14px; }
     .mwi-setting-copy { display:contents; }
     .mwi-setting-title-line { display:flex; min-width:0; grid-column:1; grid-row:1; align-items:center; gap:7px; text-align:left; }
-    .mwi-setting-title { min-width:0; font-size:.84rem; font-weight:650; line-height:1.25; }
-    .mwi-setting-summary { overflow:hidden; grid-column:2; grid-row:1; color:var(--color-text-secondary,#aaa); font-size:.71rem; line-height:1.3; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-setting-status { display:inline-flex; flex:0 0 auto; padding:1px 6px; border-radius:999px; font-size:.61rem; color:#aaa; background:rgba(255,255,255,.07); }
+    .mwi-setting-title { min-width:0; font-size:calc(.84rem * var(--mwi-ui-font-scale,1)); font-weight:650; line-height:1.25; }
+    .mwi-setting-summary { overflow:hidden; grid-column:2; grid-row:1; color:var(--color-text-secondary,#aaa); font-size:calc(.71rem * var(--mwi-ui-font-scale,1)); line-height:1.3; text-align:left; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-setting-status { display:inline-flex; flex:0 0 auto; padding:1px 6px; border-radius:999px; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); color:#aaa; background:rgba(255,255,255,.07); }
     .mwi-setting-status[data-status="active"] { color:#87d7a0; background:rgba(70,170,100,.13); }
     .mwi-setting-status[data-status="failed"] { color:#ff9a90; background:rgba(210,70,60,.14); }
     .mwi-setting-status[data-status="waiting"] { color:#e3c56d; background:rgba(210,170,60,.13); }
@@ -196,14 +265,17 @@ function addSettingsStyles() {
     .mwi-setting-toggle span::after { content:""; position:absolute; width:16px; height:16px; left:2px; top:2px; border-radius:50%; background:#fff; transition:.16s; }
     .mwi-setting-toggle input:checked + span { background:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); }
     .mwi-setting-toggle input:checked + span::after { transform:translateX(16px); }
-    .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:.68rem; color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
+    .mwi-setting-more { grid-column:3; grid-row:1; margin:0; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); color:var(--color-text-secondary,#aaa); text-align:left; white-space:nowrap; }
     .mwi-setting-more summary { display:inline-block; cursor:pointer; color:var(--color-primary,${runtime.config.SCRIPT_COLOR_MAIN}); list-style-position:inside; }
     .mwi-setting-more[open] { grid-column:1 / 4; grid-row:2; margin:0; padding-top:5px; border-top:1px solid rgba(255,255,255,.06); white-space:normal; }
     .mwi-setting-more p { margin:4px 0 1px; line-height:1.4; }
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
-    .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:.7rem; }
+    .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
-    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) 40px; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } }
+    .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
+    .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
+    .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
+    @media (max-width:700px) { .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
   styleHost.appendChild(style);
 }
@@ -261,14 +333,8 @@ function areSettingParentsEnabled(definition) {
   return true;
 }
 
-function createSettingCard(definition, options = {}) {
-  const setting = runtime.settings.settingsMap[definition.id];
-  const children = Object.values(runtime.settings.catalog).filter(
-    (candidate) => candidate.parent === definition.id,
-  );
-  const descendants = getSettingDescendants(definition.id);
+function createSelectSettingCard(definition, options = {}) {
   const card = document.createElement("article");
-  let cancelShortcutCapture = null;
   card.className = "mwi-setting-card";
   if (options.child) card.classList.add("mwi-setting-child");
   card.dataset.search = [
@@ -276,6 +342,90 @@ function createSettingCard(definition, options = {}) {
     definition.title?.en,
     definition.summary?.zh,
     definition.summary?.en,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const row = document.createElement("div");
+  row.className = "mwi-setting-row";
+  const copy = document.createElement("div");
+  copy.className = "mwi-setting-copy";
+  const titleLine = document.createElement("div");
+  titleLine.className = "mwi-setting-title-line";
+  const title = document.createElement("div");
+  title.className = "mwi-setting-title";
+  title.textContent = localizedText(definition.title);
+  titleLine.append(title);
+  const summary = document.createElement("div");
+  summary.className = "mwi-setting-summary";
+  summary.textContent = localizedText(definition.summary);
+  copy.append(titleLine, summary);
+  if (definition.details) {
+    const details = document.createElement("details");
+    details.className = "mwi-setting-more";
+    const heading = document.createElement("summary");
+    heading.textContent = runtime.config.isZH ? "详细说明" : "Details";
+    const detailsCopy = document.createElement("p");
+    detailsCopy.textContent = localizedText(definition.details);
+    details.append(heading, detailsCopy);
+    copy.append(details);
+  }
+
+  const select = document.createElement("select");
+  select.className = "mwi-setting-select mwi-setting-primary-select";
+  select.setAttribute("aria-label", localizedText(definition.title));
+  for (const [value, label] of definition.control.options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = localizedText(label);
+    select.append(option);
+  }
+  const preferenceId = definition.control.preference;
+  select.value = runtime.settings.getPreference(preferenceId);
+  select.addEventListener("change", async () => {
+    const value = select.value;
+    await runtime.settings.setPreference(preferenceId, value);
+    if (preferenceId === "productionSummaryMode") {
+      await runtime.settings.set("productionSummary", value !== "off");
+    }
+    if (preferenceId === "uiFontScale") applyVisualSettings();
+  });
+  row.append(copy, select);
+  card.append(row);
+  const stopPreferenceListener = runtime.settings.onPreferenceChange(
+    preferenceId,
+    (value) => {
+      select.value = value;
+      if (preferenceId === "uiFontScale") applyVisualSettings();
+    },
+  );
+  card._mwitoolsCleanup = () => stopPreferenceListener?.();
+  return card;
+}
+
+function createSettingCard(definition, options = {}) {
+  if (definition.control?.type === "select") {
+    return createSelectSettingCard(definition, options);
+  }
+  const setting = runtime.settings.settingsMap[definition.id];
+  const children = Object.values(runtime.settings.catalog).filter(
+    (candidate) => candidate.parent === definition.id,
+  );
+  const descendants = getSettingDescendants(definition.id);
+  const card = document.createElement("article");
+  let cancelShortcutCapture = null;
+  let auxiliaryControl = null;
+  card.className = "mwi-setting-card";
+  if (options.child) card.classList.add("mwi-setting-child");
+  card.dataset.search = [
+    definition.title?.zh,
+    definition.title?.en,
+    definition.summary?.zh,
+    definition.summary?.en,
+    ...(definition.id === "guildCreditConversionsSort"
+      ? ["推荐数量", "recommendation count"]
+      : []),
     ...descendants.flatMap((child) => [
       child.title?.zh,
       child.title?.en,
@@ -314,6 +464,7 @@ function createSettingCard(definition, options = {}) {
       );
       status.appendChild(retry);
     }
+    if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
   };
   setStatus();
   const titleLine = document.createElement("div");
@@ -388,6 +539,36 @@ function createSettingCard(definition, options = {}) {
     shortcutRow.append(shortcutLabel, shortcutButton);
     card.append(shortcutRow);
   }
+  if (definition.id === "guildCreditConversionsSort") {
+    const countRow = document.createElement("div");
+    countRow.className = "mwi-setting-shortcut-row";
+    const countLabel = document.createElement("span");
+    countLabel.textContent = runtime.config.isZH
+      ? "推荐数量"
+      : "Recommendations";
+    const countSelect = document.createElement("select");
+    countSelect.className = "mwi-setting-select";
+    countSelect.setAttribute(
+      "aria-label",
+      runtime.config.isZH ? "公会信用推荐数量" : "Guild credit recommendations",
+    );
+    for (let count = 1; count <= 8; count += 1) {
+      const option = document.createElement("option");
+      option.value = String(count);
+      option.textContent = String(count);
+      countSelect.appendChild(option);
+    }
+    countSelect.value = String(getGuildCreditRecommendationCount());
+    countSelect.disabled = !checkbox.checked;
+    countSelect.addEventListener("change", () => {
+      countSelect.value = String(
+        setGuildCreditRecommendationCount(countSelect.value),
+      );
+    });
+    countRow.append(countLabel, countSelect);
+    card.append(countRow);
+    auxiliaryControl = countSelect;
+  }
   for (const child of children) {
     card.append(createSettingCard(child, { child: true }));
   }
@@ -458,7 +639,7 @@ function renderSettings(root) {
         definition.group === groupId &&
         !definition.parent &&
         !definition.hidden &&
-        runtime.settings.settingsMap[definition.id],
+        (runtime.settings.settingsMap[definition.id] || definition.control),
     );
     if (!definitions.length) continue;
     const section = document.createElement("section");
@@ -729,7 +910,7 @@ function addEquipmentWarningStyles() {
   style.textContent = `
     .mwi-equipment-warning-host { position:relative!important; }
     @keyframes mwi-equipment-warning-pulse { 0%,100% { box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); } 50% { box-shadow:0 0 0 4px rgba(255,75,75,.16),0 2px 12px rgba(0,0,0,.5); } }
-    #script_item_warning { position:absolute; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,216px); height:22px; align-items:center; gap:5px; padding:1px 7px; border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:.64rem; font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
+    #script_item_warning { position:absolute; z-index:7; display:flex; box-sizing:border-box; min-width:28px; max-width:var(--mwi-equipment-warning-space,216px); height:22px; align-items:center; gap:5px; padding:1px 7px; border:2px solid #ff5b5b; outline:1px solid rgba(255,194,194,.72); outline-offset:2px; border-radius:999px; background:rgba(91,14,22,.96); color:#fff4f4; box-shadow:0 0 0 2px rgba(255,75,75,.38),0 2px 10px rgba(0,0,0,.42); text-shadow:0 1px 1px rgba(0,0,0,.9); font:inherit; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); font-weight:750; line-height:1; white-space:nowrap; overflow:hidden; pointer-events:none; animation:mwi-equipment-warning-pulse 1.8s ease-in-out infinite; }
     .mwi-equipment-warning-icon { flex:0 0 auto; color:#ffb7b7; font-size:.78rem; }
     .mwi-equipment-warning-text { min-width:0; overflow:hidden; text-overflow:ellipsis; }
     @media(prefers-reduced-motion:reduce) { #script_item_warning { animation:none; } }
@@ -969,6 +1150,8 @@ Object.assign(runtime.api, {
   getTooltipProfitShortcut,
   setTooltipProfitShortcut,
   matchesTooltipProfitShortcut,
+  getGuildCreditRecommendationCount,
+  setGuildCreditRecommendationCount,
   getEquipmentWarning,
   checkEquipment,
   hasItemHridInInv,
@@ -983,11 +1166,44 @@ runtime.features.register({
   initialize({ scope }) {
     addSettingsStyles();
     ensureSettingsPanel();
-    scope.interval(() => {
+    const render = () => {
       addSettingsStyles();
       ensureSettingsPanel();
-    }, 500);
+    };
+    const scheduler = createFrameScheduler(render);
+    const MutationObserverRef =
+      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (
+          target?.closest?.(
+            `#script_settings,[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}]`,
+          )
+        ) {
+          return false;
+        }
+        if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+          return true;
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.('[class*="SettingsPanel_settingsPanel"]') ||
+              node.querySelector?.('[class*="SettingsPanel_settingsPanel"]')),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     scope.add(() => {
+      scheduler.cancel();
       const root = document.querySelector("#script_settings");
       for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
         card._mwitoolsCleanup?.();

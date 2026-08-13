@@ -16,7 +16,7 @@ export function taskIdentity(task) {
   return taskCardTaskId(task);
 }
 
-function scrollContainerFor(element) {
+function scrollContainerFor(element, { fallbackToDocument = true } = {}) {
   for (let current = element; current; current = current.parentElement) {
     const style = globalThis.getComputedStyle?.(current);
     if (
@@ -26,7 +26,41 @@ function scrollContainerFor(element) {
       return current;
     }
   }
-  return document.scrollingElement ?? document.documentElement;
+  return fallbackToDocument
+    ? (document.scrollingElement ?? document.documentElement)
+    : null;
+}
+
+function clampScrollTop(scroller, value) {
+  const maximum = Math.max(
+    0,
+    Number(scroller?.scrollHeight || 0) - Number(scroller?.clientHeight || 0),
+  );
+  return Math.min(maximum, Math.max(0, Number(value) || 0));
+}
+
+function centerCardInScroller(card, scroller) {
+  const cardRect = card.getBoundingClientRect?.();
+  const scrollerRect = scroller.getBoundingClientRect?.();
+  if (!cardRect || !scrollerRect) return;
+  const target =
+    Number(scroller.scrollTop || 0) +
+    cardRect.top -
+    scrollerRect.top -
+    (Number(scroller.clientHeight || 0) - cardRect.height) / 2;
+  scroller.scrollTop = clampScrollTop(scroller, target);
+}
+
+function taskLayoutSignature(card, list, scroller) {
+  const cardRect = card?.getBoundingClientRect?.();
+  return [
+    card?.dataset.mwitoolsTaskId ?? "",
+    list?.children.length ?? 0,
+    Math.round(cardRect?.top ?? 0),
+    Math.round(cardRect?.height ?? 0),
+    Math.round(scroller?.scrollTop ?? 0),
+    Math.round(scroller?.scrollHeight ?? 0),
+  ].join(":");
 }
 
 export function captureTaskReturnContext(card, quests, now = Date.now()) {
@@ -168,16 +202,24 @@ function findTaskCard(context) {
 function restoreTaskPosition(context) {
   const card = findTaskCard(context);
   if (card) {
-    card.scrollIntoView?.({ block: "center", inline: "nearest" });
-    return true;
+    const list = card.closest(TASK_LIST_SELECTOR);
+    const scroller = scrollContainerFor(card, { fallbackToDocument: false });
+    if (scroller) centerCardInScroller(card, scroller);
+    return {
+      restored: true,
+      signature: taskLayoutSignature(card, list, scroller),
+    };
   }
   const list = document.querySelector(TASK_LIST_SELECTOR);
-  const scroller = scrollContainerFor(list);
+  const scroller = scrollContainerFor(list, { fallbackToDocument: false });
   if (list && scroller) {
-    scroller.scrollTop = context.scrollTop;
-    return true;
+    scroller.scrollTop = clampScrollTop(scroller, context.scrollTop);
+    return {
+      restored: true,
+      signature: taskLayoutSignature(null, list, scroller),
+    };
   }
-  return false;
+  return { restored: false, signature: "" };
 }
 
 runtime.features.register({
@@ -217,9 +259,21 @@ runtime.features.register({
         return;
       }
       let attempts = 0;
+      let previousSignature = "";
+      let stableSamples = 0;
       const restore = () => {
         restoreTimer = null;
-        if (restoreTaskPosition(context) || attempts >= 40) return;
+        const result = restoreTaskPosition(context);
+        if (result.restored) {
+          stableSamples =
+            result.signature === previousSignature ? stableSamples + 1 : 1;
+          previousSignature = result.signature;
+          if (stableSamples >= 2) return;
+        } else {
+          stableSamples = 0;
+          previousSignature = "";
+        }
+        if (attempts >= 40) return;
         attempts += 1;
         restoreTimer = setTimeout(restore, 50);
       };

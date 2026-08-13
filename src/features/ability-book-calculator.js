@@ -182,12 +182,15 @@ function addStyles() {
     .${PANEL_CLASS} .mwi-book-result{font-weight:650;color:#9fd7ab}
     .${PANEL_CLASS}[data-status="invalid"] .mwi-book-result{color:#ff9c8f}
     .${PANEL_CLASS} .mwi-book-muted{color:var(--color-text-secondary,#aaa)}
+    .${PANEL_CLASS} .mwi-book-cart{grid-column:1/-1;justify-self:start;min-height:25px;padding:3px 9px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;font-weight:650;cursor:pointer}
+    .${PANEL_CLASS} .mwi-book-cart:hover:not(:disabled){background:var(--color-space-700,#46547e)}
+    .${PANEL_CLASS} .mwi-book-cart:disabled{opacity:.55;cursor:default}
     @media(max-width:700px){.${PANEL_CLASS}{grid-template-columns:1fr;gap:4px}.${PANEL_CLASS}>*{grid-column:1!important}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-function createPanel(onTargetChange) {
+function createPanel(onTargetChange, onAddToCart) {
   const panel = document.createElement("section");
   panel.className = PANEL_CLASS;
   panel.dataset.surface = "dictionary";
@@ -210,13 +213,54 @@ function createPanel(onTargetChange) {
   result.setAttribute("aria-live", "polite");
   const cost = document.createElement("div");
   cost.className = "mwi-book-cost mwi-book-muted";
-  panel.append(title, state, perBook, target, result, cost);
+  const cart = document.createElement("button");
+  cart.type = "button";
+  cart.className = "mwi-book-cart";
+  cart.addEventListener("click", () => onAddToCart(panel));
+  panel.append(title, state, perBook, target, result, cost, cart);
   return panel;
 }
 
 function setPanelText(panel, selector, value) {
   const element = panel.querySelector(selector);
   if (element && element.textContent !== value) element.textContent = value;
+}
+
+function updateCartButton(panel, itemHrid, requirement) {
+  const button = panel.querySelector(".mwi-book-cart");
+  const procurement = runtime.api.procurement;
+  const cartEnabled = Boolean(
+    procurement &&
+    runtime.settings.settingsMap.procurementAssistant?.isTrue === true,
+  );
+  button.hidden = !cartEnabled;
+  button.disabled = true;
+  button.dataset.quantity = "0";
+  if (!cartEnabled) return;
+  if (!requirement || requirement.status === "invalid") {
+    button.textContent = t("加入购物车", "Add to cart");
+    return;
+  }
+  const totalBooks = Math.max(0, Math.ceil(requirement.totalBooks || 0));
+  const owned = Math.max(
+    0,
+    Number(procurement.getInventoryCount?.(itemHrid, 0)) || 0,
+  );
+  const listed = Math.max(
+    0,
+    Number(procurement.getCartItem?.(itemHrid, 0)?.quantity) || 0,
+  );
+  const shortage = Math.max(0, Math.ceil(totalBooks - owned - listed));
+  if (shortage <= 0) {
+    button.textContent = t("已备齐", "Covered");
+    return;
+  }
+  button.dataset.quantity = String(shortage);
+  button.disabled = false;
+  button.textContent = t(
+    `加入购物车（${shortage}）`,
+    `Add to cart (${shortage})`,
+  );
 }
 
 function updatePanel(panel, itemHrid, targetValues) {
@@ -242,6 +286,7 @@ function updatePanel(panel, itemHrid, targetValues) {
     setPanelText(panel, ".mwi-book-per-book", "");
     setPanelText(panel, ".mwi-book-result", "—");
     setPanelText(panel, ".mwi-book-cost", "");
+    updateCartButton(panel, itemHrid, null);
     return;
   }
   input.disabled = false;
@@ -321,6 +366,7 @@ function updatePanel(panel, itemHrid, targetValues) {
             );
   }
   setPanelText(panel, ".mwi-book-cost", costText);
+  updateCartButton(panel, itemHrid, requirement);
 }
 
 function visiblePanels(selector) {
@@ -342,14 +388,32 @@ runtime.features.register({
         `.${PANEL_CLASS}[data-surface="dictionary"]`,
       );
       if (!panel) {
-        panel = createPanel((changedPanel, value) => {
-          targetValues.set(changedPanel.dataset.itemHrid, Number(value));
-          updatePanel(
-            changedPanel,
-            changedPanel.dataset.itemHrid,
-            targetValues,
-          );
-        });
+        panel = createPanel(
+          (changedPanel, value) => {
+            targetValues.set(changedPanel.dataset.itemHrid, Number(value));
+            updatePanel(
+              changedPanel,
+              changedPanel.dataset.itemHrid,
+              targetValues,
+            );
+          },
+          (changedPanel) => {
+            const itemHrid = changedPanel.dataset.itemHrid;
+            const quantity = Number(
+              changedPanel.querySelector(".mwi-book-cart")?.dataset.quantity,
+            );
+            if (!itemHrid || !Number.isSafeInteger(quantity) || quantity <= 0)
+              return;
+            runtime.api.procurement?.addToCart?.({
+              itemHrid,
+              enhancementLevel: 0,
+              name: runtime.state.initData_itemDetailMap?.[itemHrid]?.name,
+              quantity,
+              source: "ability-book",
+            });
+            updatePanel(changedPanel, itemHrid, targetValues);
+          },
+        );
         container.appendChild(panel);
       }
       updatePanel(panel, itemHrid, targetValues);
@@ -383,6 +447,10 @@ runtime.features.register({
       "market_item_order_books_updated",
     ]) {
       scope.add(runtime.onMessage(type, schedule));
+    }
+    for (const type of ["cart:change", "inventory:change"]) {
+      const unsubscribe = runtime.api.procurement?.on?.(type, schedule);
+      if (typeof unsubscribe === "function") scope.add(unsubscribe);
     }
     scope.add(() => {
       if (refreshTimer !== null) clearTimeout(refreshTimer);

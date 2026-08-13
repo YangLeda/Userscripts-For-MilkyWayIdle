@@ -471,6 +471,132 @@ test("current artisan and gourmet tea use the equipped pouch concentration", () 
   assert.ok(Math.abs(result.profitPerHour - -140_280) < 1e-8);
 });
 
+test("production profiles combine community timing buffs and pouch overrides", () => {
+  const previousBuffs = runtime.state.actionTypeBuffSources;
+  const previousEfficiency = runtime.api.getTotalEffiPercentage;
+  runtime.state.actionTypeBuffSources = {
+    communityActionTypeBuffsMap: {
+      "/action_types/crafting": [
+        { typeHrid: "/buff_types/action_speed", flatBoost: 0.2 },
+      ],
+    },
+  };
+  runtime.api.getTotalEffiPercentage = () => 50;
+
+  const profile = runtime.api.getActionProductionProfile(
+    "/actions/crafting/tea-test",
+    { guzzlingPouchLevel: 0 },
+  );
+  assert.equal(profile.status, "complete");
+  assert.equal(profile.speedPercent, 20);
+  assert.equal(profile.efficiencyPercent, 50);
+  assert.ok(Math.abs(profile.teaEffects.lessResource - 0.11) < 1e-12);
+  assert.ok(Math.abs(profile.outputs[0].count - 1.22) < 1e-12);
+  assert.ok(Math.abs(profile.secondsPerAction - 20 / 9) < 1e-12);
+
+  runtime.state.actionTypeBuffSources = previousBuffs;
+  runtime.api.getTotalEffiPercentage = previousEfficiency;
+});
+
+test("efficiency tea reads a ten-percent buff while five remains its duration in minutes", () => {
+  const previous = {
+    actions: runtime.state.initData_actionDetailMap,
+    items: runtime.state.initData_itemDetailMap,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...previous.actions,
+    "/actions/crafting/efficiency-tea-test": {
+      hrid: "/actions/crafting/efficiency-tea-test",
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [{ itemHrid: "/items/output", count: 1 }],
+    },
+  };
+  runtime.state.initData_itemDetailMap = {
+    ...previous.items,
+    "/items/efficiency_tea": {
+      consumableDetail: {
+        buffs: [{ typeHrid: "/buff_types/efficiency", flatBoost: 0.1 }],
+        cooldownDuration: 5 * 60 * 1_000_000_000,
+      },
+    },
+  };
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/efficiency_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+
+  const base = runtime.api.getActionProductionProfile(
+    "/actions/crafting/efficiency-tea-test",
+  );
+  assert.equal(base.teaEffects.efficiency, 0.1);
+  assert.equal(
+    runtime.state.initData_itemDetailMap["/items/efficiency_tea"]
+      .consumableDetail.cooldownDuration /
+      1_000_000_000 /
+      60,
+    5,
+  );
+
+  runtime.state.initData_itemDetailMap["/items/guzzling_pouch"] = {
+    equipmentDetail: {
+      noncombatStats: { drinkConcentration: 0.5 },
+      noncombatEnhancementBonuses: { drinkConcentration: 0.5 },
+    },
+  };
+  const concentrated = runtime.api.getActionProductionProfile(
+    "/actions/crafting/efficiency-tea-test",
+    { guzzlingPouchLevel: 0 },
+  );
+  assert.equal(concentrated.teaEffects.concentrationMultiplier, 1.5);
+  assert.ok(Math.abs(concentrated.teaEffects.efficiency - 0.15) < 1e-12);
+
+  runtime.state.initData_actionDetailMap = previous.actions;
+  runtime.state.initData_itemDetailMap = previous.items;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+});
+
+test("production costs fall back to market value and expose fallback item HRIDs", () => {
+  const previous = {
+    ask: runtime.api.getAskPrice,
+    bid: runtime.api.getBidPrice,
+    fair: runtime.api.getFairValue,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+  };
+  runtime.api.getAskPrice = () => 0;
+  runtime.api.getBidPrice = () => 0;
+  runtime.api.getFairValue = (itemHrid) =>
+    itemHrid === "/items/input" ? 9 : 0;
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    ...previous.slots,
+    "/action_types/crafting": [],
+  };
+
+  let result = runtime.api.projectAction("/actions/crafting/test", 1);
+  for (const mode of ["conservative", "aggressive"]) {
+    assert.equal(result.valuations[mode].costComplete, true);
+    assert.equal(result.valuations[mode].materialCostPerAction, 18);
+    assert.deepEqual(result.valuations[mode].fallbackItemHrids, [
+      "/items/input",
+    ]);
+  }
+
+  runtime.api.getFairValue = () => 0;
+  result = runtime.api.projectAction("/actions/crafting/test", 1);
+  assert.equal(result.valuations.conservative.costComplete, false);
+  assert.deepEqual(result.valuations.conservative.costMissingPrices, [
+    "/items/input",
+  ]);
+
+  runtime.api.getAskPrice = previous.ask;
+  runtime.api.getBidPrice = previous.bid;
+  runtime.api.getFairValue = previous.fair;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+});
+
 test("gathering processing tea splits raw drops into recipe outputs", () => {
   const previous = {
     actions: runtime.state.initData_actionDetailMap,

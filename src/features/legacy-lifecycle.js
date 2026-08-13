@@ -1,7 +1,39 @@
 import { runtime } from "../core/runtime.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 function removeAll(selector) {
   document.querySelectorAll(selector).forEach((node) => node.remove());
+}
+
+function observeRelevantDom(scope, selector, callback) {
+  const scheduler = createFrameScheduler(callback);
+  const MutationObserverRef =
+    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+  const observer = new MutationObserverRef((records) => {
+    const relevant = records.some((record) => {
+      const target =
+        record.target?.nodeType === 1
+          ? record.target
+          : record.target?.parentElement;
+      if (target?.closest?.(selector)) return true;
+      return [...record.addedNodes, ...record.removedNodes].some(
+        (node) =>
+          node?.nodeType === 1 &&
+          (node.matches?.(selector) || node.querySelector?.(selector)),
+      );
+    });
+    if (relevant) scheduler.schedule();
+  });
+  scope.observer(observer, document.body, { childList: true, subtree: true });
+  scope.add(() => scheduler.cancel());
+  return scheduler;
+}
+
+function refreshInventoryIfNeeded(className) {
+  const needsRender = [
+    ...document.querySelectorAll('div[class*="Inventory_items"]'),
+  ].some((node) => !node.classList.contains(className));
+  if (needsRender) runtime.api.scheduleNetworthRefresh?.();
 }
 
 const adapters = {
@@ -9,12 +41,9 @@ const adapters = {
     scope: "character",
     initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
-      scope.interval(() => {
-        const needsRender = [
-          ...document.querySelectorAll('div[class*="Inventory_items"]'),
-        ].some((node) => !node.classList.contains("script_buildScore_added"));
-        if (needsRender) runtime.api.scheduleNetworthRefresh?.();
-      }, 500);
+      observeRelevantDom(scope, 'div[class*="Inventory_items"]', () =>
+        refreshInventoryIfNeeded("script_buildScore_added"),
+      );
     },
     cleanup() {
       removeAll("#script_inventory_summary");
@@ -34,12 +63,9 @@ const adapters = {
     scope: "character",
     initialize({ scope }) {
       runtime.api.scheduleNetworthRefresh?.();
-      scope.interval(() => {
-        const needsRender = [
-          ...document.querySelectorAll('div[class*="Inventory_items"]'),
-        ].some((node) => !node.classList.contains("script_invSort_added"));
-        if (needsRender) runtime.api.scheduleNetworthRefresh?.();
-      }, 500);
+      observeRelevantDom(scope, 'div[class*="Inventory_items"]', () =>
+        refreshInventoryIfNeeded("script_invSort_added"),
+      );
     },
     cleanup() {
       removeAll("#script_inv_sort_controls,#script_stack_price");
@@ -60,7 +86,9 @@ const adapters = {
     scope: "character",
     initialize({ scope }) {
       runtime.api.checkEquipment?.();
-      scope.interval(() => runtime.api.checkEquipment?.(), 500);
+      observeRelevantDom(scope, 'div[class*="Header_actionInfo"]', () =>
+        runtime.api.checkEquipment?.(),
+      );
     },
     cleanup() {
       removeAll("#script_item_warning");
@@ -92,7 +120,11 @@ for (const id of [
 adapters.ThirdPartyLinks = {
   initialize({ scope }) {
     runtime.api.add3rdPartyLinks?.();
-    scope.interval(() => runtime.api.add3rdPartyLinks?.(), 500);
+    observeRelevantDom(
+      scope,
+      'div[class*="NavigationBar_minorNavigationLinks"]',
+      () => runtime.api.add3rdPartyLinks?.(),
+    );
   },
   cleanup() {
     removeAll('[data-mwitools-external-link="true"]');
@@ -109,11 +141,13 @@ adapters.fillMarketOrderPrice = {
   scope: "character",
   initialize({ scope }) {
     let observed = null;
+    let listingObserver = null;
     const attach = () => {
       const target = document.querySelector(
         ".MarketplacePanel_marketListings__1GCyQ",
       );
       if (!target || target === observed) return;
+      listingObserver?.disconnect();
       observed = target;
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
@@ -124,10 +158,20 @@ adapters.fillMarketOrderPrice = {
           }
         }
       });
-      scope.observer(observer, target, { childList: true });
+      observer.observe(target, { childList: true });
+      listingObserver = observer;
     };
     attach();
-    scope.interval(attach, 500);
+    observeRelevantDom(
+      scope,
+      ".MarketplacePanel_marketListings__1GCyQ",
+      attach,
+    );
+    scope.add(() => {
+      listingObserver?.disconnect();
+      listingObserver = null;
+      observed = null;
+    });
   },
 };
 

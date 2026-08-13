@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
 const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
@@ -14,12 +15,12 @@ function addActionPanelStyles() {
   const style = document.createElement("style");
   style.id = ACTION_PANEL_STYLE_ID;
   style.textContent = `
-    .mwi-level-progress { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; line-height:1.35; }
+    .mwi-level-progress { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px 8px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
     .mwi-level-progress-row { display:flex; align-items:center; gap:6px; min-width:0; }
     .mwi-level-progress-label { flex:0 0 auto; color:var(--color-text-secondary,#aaa); }
     .mwi-target-level-input { width:48px!important; min-width:48px!important; height:23px!important; padding:1px 4px!important; border-radius:3px!important; font:inherit!important; text-align:center; }
     .mwi-level-progress-result { min-width:0; margin-left:auto; text-align:right; font-weight:600; overflow-wrap:anywhere; }
-    .mwi-level-meta { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:.625rem; }
+    .mwi-level-meta { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-native-level-stat { font:inherit; }
     @media(max-width:520px){.mwi-level-progress-row{align-items:flex-start;flex-wrap:wrap}.mwi-level-progress-result{width:100%;text-align:left}}
   `;
@@ -74,7 +75,12 @@ async function handleActionPanel(panel) {
   );
   if (!expElement || !inputElem) return false; // 不处理战斗 ActionPanel
 
-  const actionHrid = runtime.api.resolveProductionAction?.(panel);
+  const activeContext = runtime.api.resolveActiveProductionPanelContext?.();
+  if (activeContext?.panel && activeContext.panel !== panel) return false;
+  const actionHrid =
+    activeContext?.panel === panel
+      ? activeContext.actionHrid
+      : runtime.api.resolveProductionAction?.(panel);
   const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
   const duration = runtime.api.getProductionPanelDuration?.(panel);
   if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
@@ -212,11 +218,15 @@ async function handleActionPanel(panel) {
       `+${Number((effBuff - 1) * 100).toFixed(1)}%`,
     );
 
-    const anchor =
-      panel.querySelector("#mwi-production-summary") ??
-      panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ??
-      inputElem.parentElement;
-    anchor.insertAdjacentElement("afterend", levelCard);
+    if (runtime.api.mountProductionModule) {
+      runtime.api.mountProductionModule(panel, levelCard, "targetLevel");
+    } else {
+      const anchor =
+        panel.querySelector(
+          'div[class*="SkillActionDetail_actionContainer"]',
+        ) ?? inputElem.parentElement;
+      anchor.insertAdjacentElement("afterend", levelCard);
+    }
 
     let targetLevelEdited = false;
     const updateTargetLevel = () => {
@@ -259,68 +269,9 @@ async function handleActionPanel(panel) {
     runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue &&
     !runtime.api.shouldSuppressMarketFeatures?.()
   ) {
-    const marketJson = await runtime.api.fetchMarketJSON();
-
-    // 茶效率
-    const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
-
-    // 消耗饮料
-    let drinksConsumedPerHourAskPrice = 0;
-    let drinksConsumedPerHourBidPrice = 0;
-
-    const drinksList =
-      runtime.state.initData_actionTypeDrinkSlotsMap[
-        runtime.state.initData_actionDetailMap[actionHrid].type
-      ];
-    for (const drink of drinksList) {
-      if (!drink || !drink.itemHrid) {
-        continue;
-      }
-      drinksConsumedPerHourAskPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0]?.a ?? 0) * 12;
-      drinksConsumedPerHourBidPrice +=
-        (marketJson?.marketData[drink.itemHrid]?.[0]?.b ?? 0) * 12;
-    }
-
-    // 每小时动作数（包含工具缩减动作时间）
-    const baseTimePerActionSec =
-      runtime.state.initData_actionDetailMap[actionHrid].baseTimeCost /
-      1000000000;
-    const toolPercent = runtime.api.getToolsSpeedBuffByActionHrid(actionHrid);
-    const actualTimePerActionSec =
-      baseTimePerActionSec / (1 + toolPercent / 100);
-    let actionPerHour = 3600 / actualTimePerActionSec;
-
-    // 将掉落表看作每次动作掉落一件虚拟物品
-    const dropTable =
-      runtime.state.initData_actionDetailMap[actionHrid].dropTable;
-    let virtualItemNetBid = 0;
-    for (const drop of dropTable) {
-      const bid = marketJson?.marketData[drop.itemHrid]?.[0]?.b ?? 0;
-      const amount = drop.dropRate * ((drop.minCount + drop.maxCount) / 2);
-      virtualItemNetBid +=
-        bid * amount * (1 - runtime.api.getMarketTaxRate(drop.itemHrid));
-    }
-    let droprate = 1;
-    let itemPerHour = actionPerHour * droprate;
-
-    const totalEffiBuff = getTotalEffiPercentage(actionHrid);
-
-    // 总效率影响动作数/生产物品数
-    actionPerHour *= 1 + totalEffiBuff / 100;
-    itemPerHour *= 1 + totalEffiBuff / 100;
-
-    // 茶额外产品数量（不消耗原料）
-    const extraFreeItemPerHour = (itemPerHour * teaBuffs.quantity) / 100;
-
-    // 出售市场税
-    const bidAfterTax = virtualItemNetBid;
-
-    // 每小时利润
-    const profitPerHour =
-      itemPerHour * bidAfterTax +
-      extraFreeItemPerHour * bidAfterTax -
-      drinksConsumedPerHourAskPrice;
+    const projection = runtime.api.projectAction?.(actionHrid, 1);
+    const profitPerHour = projection?.valuations?.conservative?.profitPerHour;
+    if (!Number.isFinite(profitPerHour)) return true;
     const profitPerDay = 24 * profitPerHour;
 
     const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${
@@ -580,10 +531,40 @@ runtime.features.register({
   setting: "expPercentage",
   initialize({ scope }) {
     waitForProgressBar();
-    scope.interval(() => {
+    const render = () => {
       removeInsertedDivs();
       waitForProgressBar();
-    }, 1000);
+    };
+    const scheduler = createFrameScheduler(render);
+    const observer = new MutationObserver((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.(".insertedSpan")) return false;
+        return Boolean(
+          target?.matches?.(".NavigationBar_currentExperience__3GDeX") ||
+          target?.closest?.(".NavigationBar_currentExperience__3GDeX") ||
+          [...record.addedNodes, ...record.removedNodes].some(
+            (node) =>
+              node?.nodeType === 1 &&
+              (node.matches?.(".NavigationBar_currentExperience__3GDeX") ||
+                node.querySelector?.(
+                  ".NavigationBar_currentExperience__3GDeX",
+                )),
+          ),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      attributes: true,
+      attributeFilter: ["style"],
+      childList: true,
+      subtree: true,
+    });
+    scope.add(() => scheduler.cancel());
     scope.add(removeInsertedDivs);
   },
 });
@@ -603,9 +584,11 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     let observed = null;
+    let panelObserver = null;
     const attach = () => {
       const target = document.querySelector(MAIN_PANEL_SELECTOR);
       if (!target || observed === target) return;
+      panelObserver?.disconnect();
       observed = target;
       const observer = new MutationObserver((mutations) => {
         const panels = new Set();
@@ -627,18 +610,58 @@ runtime.features.register({
         }
         panels.forEach(scheduleActionPanel);
       });
-      scope.observer(observer, target, {
+      observer.observe(target, {
         childList: true,
         characterData: true,
         subtree: true,
       });
+      panelObserver = observer;
       target
         .querySelectorAll(ACTION_PANEL_SELECTOR)
         .forEach(scheduleActionPanel);
     };
     attach();
-    scope.interval(attach, 500);
+    const attachScheduler = createFrameScheduler(attach);
+    const mountObserver = new MutationObserver((records) => {
+      const relevant = records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.(MAIN_PANEL_SELECTOR) ||
+              node.querySelector?.(MAIN_PANEL_SELECTOR)),
+        ),
+      );
+      if (relevant) attachScheduler.schedule();
+    });
+    scope.observer(mountObserver, document.body, {
+      childList: true,
+      subtree: true,
+    });
+    for (const messageType of [
+      "items_updated",
+      "skills_updated",
+      "house_rooms_updated",
+      "achievement_buffs_updated",
+      "moo_pass_buffs_updated",
+      "community_buffs_updated",
+      "consumable_buffs_updated",
+      "equipment_buffs_updated",
+      "personal_buffs_updated",
+      "guild_buffs_updated",
+    ]) {
+      scope.add(
+        runtime.onMessage(messageType, () => {
+          document.querySelectorAll(ACTION_PANEL_SELECTOR).forEach((panel) => {
+            delete panel.dataset.mwitoolsActionPanel;
+            scheduleActionPanel(panel);
+          });
+        }),
+      );
+    }
     scope.add(() => {
+      attachScheduler.cancel();
+      panelObserver?.disconnect();
+      panelObserver = null;
       clearActionPanelRetries();
       document
         .querySelectorAll(

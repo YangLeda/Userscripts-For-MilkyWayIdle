@@ -54,7 +54,7 @@ function rowNames() {
 }
 
 test("exports the standalone overlay API and formatting helpers", () => {
-  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.1");
+  assert.equal(dom.window.MWILeaderboardOverlay.VERSION, "1.2.2");
   assert.equal(dom.window.MWILeaderboardOverlay.create, create);
   assert.equal(badgeTier(1), "rainbow");
   assert.equal(badgeTier(35), "gold");
@@ -86,6 +86,11 @@ test("renders top-100 ranking badges beside matching character names", async () 
       </div>
     </div>
     <div><span class="CharacterName_name__test" data-name="Outside">Outside</span></div>
+    <div class="SettingsPanel_nameColor__test">
+      <div class="CharacterName_characterName__test">
+        <span class="CharacterName_name__test" data-name="Cara">Cara</span>
+      </div>
+    </div>
     <div class="LeaderboardPanel_row__test">
       <span class="CharacterName_name__test" data-name="Alice">Alice</span>
     </div>`;
@@ -104,6 +109,7 @@ test("renders top-100 ranking badges beside matching character names", async () 
       ],
     },
     magic: { rows: [{ characterName: "ALICE", rank: 4 }] },
+    crafting: { rows: [{ characterName: "Cara", rank: 14 }] },
   });
   await settle();
 
@@ -130,6 +136,11 @@ test("renders top-100 ranking badges beside matching character names", async () 
     bobName.parentElement.querySelector("[data-mwi-leaderboard-badges]"),
     null,
   );
+  const settingsBadges = document.querySelector(
+    ".SettingsPanel_nameColor__test [data-mwi-leaderboard-badges]",
+  );
+  assert.equal(settingsBadges.textContent, "#14");
+  assert.equal(settingsBadges.dataset.mwiLeaderboardPlacement, "settings");
   assert.equal(
     document
       .querySelector('[data-name="Outside"]')
@@ -145,6 +156,68 @@ test("renders top-100 ranking badges beside matching character names", async () 
 
   overlay.destroy();
   assert.equal(document.querySelector("[data-mwi-leaderboard-badges]"), null);
+});
+
+test("places guild and friend-list badges below names so they cannot truncate them", async () => {
+  document.body.innerHTML = `
+    <svg><use href="/static/media/skills_sprite.current.svg#milking"></use></svg>
+    <div class="GuildPanel_characterName__test">
+      <div>
+        <span>
+          <div class="CharacterName_characterName__test">
+            <span class="CharacterName_name__test" data-name="LongGuildName">LongGuildName</span>
+          </div>
+        </span>
+      </div>
+    </div>
+    <div class="SocialPanel_characterName__test">
+      <div>
+        <span>
+          <div class="CharacterName_characterName__test">
+            <span class="CharacterName_name__test" data-name="LongGuildName">LongGuildName</span>
+          </div>
+        </span>
+      </div>
+    </div>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    milking: { rows: [{ characterName: "LongGuildName", rank: 6 }] },
+    crafting: { rows: [{ characterName: "LongGuildName", rank: 7 }] },
+    cooking: { rows: [{ characterName: "LongGuildName", rank: 14 }] },
+    magic: { rows: [{ characterName: "LongGuildName", rank: 18 }] },
+  });
+  await settle();
+
+  const listBlocks = document.querySelectorAll(
+    ".GuildPanel_characterName__test,.SocialPanel_characterName__test",
+  );
+  assert.equal(listBlocks.length, 2);
+  for (const listBlock of listBlocks) {
+    const badges = listBlock.querySelector(
+      ":scope > [data-mwi-leaderboard-badges]",
+    );
+    assert.ok(badges);
+    assert.equal(badges.dataset.mwiLeaderboardPlacement, "list");
+    assert.equal(badges.previousElementSibling, listBlock.firstElementChild);
+    assert.equal(
+      listBlock.querySelector(
+        ".CharacterName_characterName__test > [data-mwi-leaderboard-badges]",
+      ),
+      null,
+    );
+    assert.deepEqual(
+      [...badges.querySelectorAll(".mwi-lb-badge")].map(
+        (badge) => badge.textContent,
+      ),
+      ["#6", "#7", "#14", "#18"],
+    );
+  }
+  assert.match(
+    document.getElementById("mwi-leaderboard-overlay-style").textContent,
+    /placement="list"[^}]*justify-content:center/,
+  );
+
+  overlay.destroy();
 });
 
 test("renders fame with the game XP-buff icon and reads value1", async () => {
@@ -172,6 +245,24 @@ test("renders fame with the game XP-buff icon and reads value1", async () => {
   assert.equal(
     badge.querySelector("use").getAttribute("href"),
     "/static/media/misc_sprite.current.svg#experience",
+  );
+  overlay.destroy();
+});
+
+test("default ranking badges use the game's native skill sprite", async () => {
+  document.body.innerHTML = `
+    <svg><use href="/static/media/skills_sprite.current.svg#foraging"></use></svg>
+    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    milking: { rows: [{ characterName: "Alice", rank: 12 }] },
+  });
+  await settle();
+  const badge = document.querySelector(".mwi-lb-badge--rainbow");
+  assert.equal(badge.querySelector("img"), null);
+  assert.equal(
+    badge.querySelector("use").getAttribute("href"),
+    "/static/media/skills_sprite.current.svg#milking",
   );
   overlay.destroy();
 });

@@ -8,6 +8,7 @@ await import("../src/core/asset-values.js");
 
 const assetSettings = {
   includeCowbellsInAssets: false,
+  includeGuildDungeonTokensInAssets: true,
   valueBackEquipmentWithProtectionMirror: false,
 };
 runtime.settings.get = (id) => assetSettings[id];
@@ -542,6 +543,17 @@ test("non-tradable token assets are classified separately", () => {
     runtime.api.isNonTradableTokenAsset("/items/labyrinth_token"),
     false,
   );
+  assetSettings.includeGuildDungeonTokensInAssets = false;
+  for (const itemHrid of [
+    "/items/guild_token",
+    "/items/chimerical_token",
+    "/items/sinister_token",
+    "/items/enchanted_token",
+    "/items/pirate_token",
+  ]) {
+    assert.equal(runtime.api.isNonTradableTokenAsset(itemHrid), false);
+  }
+  assetSettings.includeGuildDungeonTokensInAssets = true;
 });
 
 test("enhanced equipment uses cost only outside the twenty-percent market band", () => {

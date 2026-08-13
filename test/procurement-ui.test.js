@@ -24,6 +24,7 @@ await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
+await import("../src/features/action-dashboard.js");
 await import("../src/features/procurement.js");
 
 // The shopping module follows the MWITools-wide language flag.
@@ -228,7 +229,7 @@ test("cart quantity hold-repeat stops after redraw, release, and clear", async (
   );
 });
 
-test("production procurement augments the existing summary instead of creating another card", () => {
+test("production procurement uses its stable sibling slot beside the summary", () => {
   document.body.insertAdjacentHTML(
     "beforeend",
     `<div class="SkillActionDetail_regularComponent__fixture">
@@ -237,12 +238,19 @@ test("production procurement augments the existing summary instead of creating a
       </div>
       <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
       <div class="SkillActionDetail_actionContainer__fixture"></div>
-      <section id="mwi-production-summary"></section>
+      <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
     </div>`,
   );
   runtime.api.renderProductionProcurement();
   const existingSummary = document.querySelector("#mwi-production-summary");
-  assert.ok(existingSummary.querySelector("#mwitools-procurement-production"));
+  const productionShortage = document.querySelector(
+    "#mwitools-procurement-production",
+  );
+  assert.equal(existingSummary.contains(productionShortage), false);
+  assert.equal(
+    productionShortage.closest(".mwi-production-extensions"),
+    existingSummary.closest(".mwi-production-extensions"),
+  );
   assert.equal(existingSummary.querySelector(".mwi-mm-summary-panel"), null);
   assert.equal(document.querySelectorAll("#mwi-production-summary").length, 1);
   const badge = document.querySelector(".mwi-procurement-badge");
@@ -252,9 +260,15 @@ test("production procurement augments the existing summary instead of creating a
   assert.equal(material.nextElementSibling, badge);
   assert.equal(
     material.parentElement.classList.contains(
-      "mwi-procurement-requirement-row",
+      "mwi-procurement-requirement-grid",
     ),
     true,
+  );
+  assert.equal(material.dataset.mwitoolsProcurementColumn, "item");
+  assert.equal(badge.dataset.mwitoolsProcurementColumn, "badge");
+  assert.equal(
+    material.style.getPropertyValue("--mwi-procurement-row"),
+    badge.style.getPropertyValue("--mwi-procurement-row"),
   );
   assert.equal(
     material
@@ -264,22 +278,57 @@ test("production procurement augments the existing summary instead of creating a
   );
   assert.match(badge.textContent, /^(缺|Need) /);
 
-  existingSummary.remove();
+  document.querySelector(".mwi-production-extensions").remove();
   runtime.api.renderProductionProcurement();
   const standalone = document.querySelector("#mwitools-procurement-production");
   assert.equal(
-    standalone.parentElement.classList.contains(
-      "SkillActionDetail_regularComponent__fixture",
-    ),
+    standalone.parentElement.classList.contains("mwi-production-extensions"),
     true,
   );
   assert.equal(
-    standalone.previousElementSibling.classList.contains(
-      "SkillActionDetail_actionContainer__fixture",
-    ),
-    true,
+    standalone.dataset.mwitoolsProductionSlot,
+    "shortage",
     "procurement must remain available without the optional production summary",
   );
+});
+
+test("production shortage keeps waiting and ready states stable and optionally hides ready", async () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "";
+  runtime.api.renderProductionProcurement();
+  let shortage = document.querySelector("#mwitools-procurement-production");
+  assert.equal(shortage.dataset.state, "waiting");
+  assert.match(shortage.textContent, /Enter a production quantity/);
+  assert.equal(shortage.hidden, false);
+
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 100,
+    },
+  ];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  input.value = "3";
+  runtime.api.renderProductionProcurement();
+  shortage = document.querySelector("#mwitools-procurement-production");
+  assert.match(shortage.textContent, /Materials ready/);
+  assert.equal(shortage.hidden, false);
+
+  await runtime.settings.set("hideReadyProductionShortage", true);
+  shortage = document.querySelector("#mwitools-procurement-production");
+  assert.equal(shortage.hidden, true);
+  input.value = "";
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-production").hidden,
+    false,
+  );
+  await runtime.settings.set("hideReadyProductionShortage", false);
+  input.value = "3";
 });
 
 test("sufficient materials keep their remaining quantity", () => {
@@ -391,6 +440,33 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
     "the enhancement action belongs at the bottom of the right-hand info column",
   );
   assert.match(summary.textContent, /Missing 2 materials/);
+  const requirementRoot = panel.querySelector(
+    '[class*="SkillActionDetail_itemRequirements"]',
+  );
+  const requirementItems = [
+    ...requirementRoot.querySelectorAll(
+      ':scope > [class*="Item_itemContainer"]',
+    ),
+  ];
+  const requirementBadges = [
+    ...requirementRoot.querySelectorAll(":scope > .mwi-procurement-badge"),
+  ];
+  assert.equal(
+    requirementRoot.classList.contains("mwi-procurement-requirement-grid"),
+    true,
+  );
+  assert.equal(requirementBadges.length, 3);
+  requirementItems.forEach((item, index) => {
+    assert.equal(item.dataset.mwitoolsProcurementColumn, "item");
+    assert.equal(
+      item.style.getPropertyValue("--mwi-procurement-row"),
+      String(index + 1),
+    );
+    assert.equal(
+      requirementBadges[index].style.getPropertyValue("--mwi-procurement-row"),
+      String(index + 1),
+    );
+  });
 
   summary.querySelector("button").click();
   await Promise.resolve();
@@ -486,6 +562,49 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   localStorage.setItem("i18nextLng", "en-US");
   runtime.api.procurement.removePlan(reservePlan.id);
   runtime.api.procurement.clearCart({ includeStarred: true });
+});
+
+test("four production materials keep item and shortage badges on matching rows", () => {
+  const panel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  const requirementRoot = panel.querySelector(
+    '[class*="SkillActionDetail_itemRequirements"]',
+  );
+  runtime.state.initData_actionDetailMap["/actions/crafting/board"].inputItems =
+    [
+      { itemHrid: "/items/nail", count: 2 },
+      { itemHrid: "/items/board", count: 1 },
+      { itemHrid: "/items/astral_enhancer", count: 1 },
+      { itemHrid: "/items/coin", count: 10 },
+    ];
+  requirementRoot.innerHTML = `
+    <div class="Item_itemContainer__fixture"><svg><use href="#nail"></use></svg></div>
+    <div class="Item_itemContainer__fixture"><svg><use href="#board"></use></svg></div>
+    <div class="Item_itemContainer__fixture"><svg><use href="#astral_enhancer"></use></svg></div>
+    <div class="Item_itemContainer__fixture"><svg><use href="#coin"></use></svg></div>`;
+
+  runtime.api.renderProductionProcurement();
+
+  const items = [
+    ...requirementRoot.querySelectorAll(
+      ':scope > [class*="Item_itemContainer"]',
+    ),
+  ];
+  const badges = [
+    ...requirementRoot.querySelectorAll(":scope > .mwi-procurement-badge"),
+  ];
+  assert.equal(items.length, 4);
+  assert.equal(badges.length, 4);
+  items.forEach((item, index) => {
+    const row = String(index + 1);
+    assert.equal(item.style.getPropertyValue("--mwi-procurement-row"), row);
+    assert.equal(
+      badges[index].style.getPropertyValue("--mwi-procurement-row"),
+      row,
+    );
+    assert.equal(badges[index].dataset.mwitoolsProcurementColumn, "badge");
+  });
 });
 
 test("house materials use DOM requirements and add only net shortages", async () => {

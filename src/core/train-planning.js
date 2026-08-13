@@ -218,12 +218,38 @@ function demandCount(taskCounts, itemHrid) {
   return positiveNumber(taskCounts?.[itemHrid]);
 }
 
+function effectiveStepOutput(step) {
+  const fallback = positiveNumber(step.outputCount) || 1;
+  if (!step.actionHrid) return { known: true, count: fallback };
+  const profile = runtime.api.getActionProductionProfile?.(step.actionHrid);
+  if (profile?.status !== "complete") {
+    return { known: false, count: fallback };
+  }
+  const target = normalizeItemHrid(step.outputHrid);
+  return {
+    known: true,
+    count: (profile.outputs ?? []).reduce(
+      (total, output) =>
+        normalizeItemHrid(output?.itemHrid) === target
+          ? total + positiveNumber(output?.count)
+          : total,
+      0,
+    ),
+  };
+}
+
 export function planTrainCounts(chain, taskCounts = {}) {
   const procurement = runtime.api.procurement;
   const planned = chain.steps.map((step) => ({ ...step, count: 0 }));
+  const unavailableOutputs = new Set();
   let requiredByAbove = 0;
   for (let index = planned.length - 1; index >= 0; index -= 1) {
     const step = planned[index];
+    const effectiveOutput = effectiveStepOutput(step);
+    const outputCount = effectiveOutput.count;
+    step.baseOutputCount = positiveNumber(step.outputCount) || 1;
+    step.outputCount = outputCount;
+    step.outputCountSource = effectiveOutput.known ? "player" : "recipe";
     const inventory = positiveNumber(
       procurement?.getInventoryCount?.(step.outputHrid, 0),
     );
@@ -232,19 +258,28 @@ export function planTrainCounts(chain, taskCounts = {}) {
     step.requiredByAbove = requiredByAbove;
     step.inventory = inventory;
     step.shortageUnits = shortageUnits;
+    if (effectiveOutput.known && outputCount <= 0) {
+      step.unavailableOutput = true;
+      step.count = 0;
+      step.plannedOutput = 0;
+      unavailableOutputs.add(step.outputHrid);
+      requiredByAbove = 0;
+      continue;
+    }
     step.count =
       step.kind === "shop"
         ? Math.max(ownActions, Math.ceil(shortageUnits))
-        : Math.max(
-            ownActions,
-            Math.ceil(shortageUnits / (positiveNumber(step.outputCount) || 1)),
-          );
-    step.plannedOutput = step.count * (positiveNumber(step.outputCount) || 1);
+        : Math.max(ownActions, Math.ceil(shortageUnits / outputCount));
+    step.plannedOutput = step.count * outputCount;
     requiredByAbove = step.inputHrid
       ? step.count * (positiveNumber(step.inputCount) || 1)
       : 0;
   }
-  return { ...chain, steps: planned };
+  return {
+    ...chain,
+    steps: planned,
+    unavailableOutputs: [...unavailableOutputs],
+  };
 }
 
 export function applyShopPreference(plan, taskCounts = {}) {

@@ -70,6 +70,100 @@ test("task cards use their Fiber quest instead of the DOM position", () => {
       ["1", 0, 1],
     ],
   );
+  assert.deepEqual(
+    resolved.map(({ resolved: isResolved, matchSource }) => [
+      isResolved,
+      matchSource,
+    ]),
+    [
+      [true, "fiber"],
+      [true, "fiber"],
+    ],
+  );
+});
+
+test("stale Fiber quests are rejected when React reuses a task card", () => {
+  const oldQuest = {
+    id: "old",
+    actionHrid: "/actions/crafting/old",
+    goalCount: 5,
+    currentCount: 0,
+  };
+  const newQuest = {
+    id: "new",
+    actionHrid: "/actions/crafting/new",
+    goalCount: 7,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    [oldQuest.actionHrid]: { name: "Old" },
+    [newQuest.actionHrid]: { name: "New" },
+  };
+  const reused = card("New", "0 / 7", oldQuest);
+  reused.dataset.mwitoolsTaskId = "old";
+
+  const [resolved] = resolveTaskCards([reused], [newQuest], {
+    taskActionHrid: actionHrid,
+    taskRemaining: remaining,
+  });
+
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.matchSource, "semantic");
+  assert.equal(resolved.taskId, "new");
+});
+
+test("task title decorations do not change semantic identity", () => {
+  const quest = {
+    id: "decorated-combat",
+    monsterHrid: "/monsters/werewolf",
+    goalCount: 185,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/gloomy_forest": { name: "Gloomy Forest" },
+  };
+  runtime.data.ZHMonsterNames = {
+    [quest.monsterHrid]: "狼人",
+  };
+  const decorated = card("狼人", "0 / 185");
+  const name = decorated.querySelector('[class*="RandomTask_name"]');
+  const mapIndex = document.createElement("span");
+  mapIndex.className = "script_taskMapIndex";
+  mapIndex.textContent = " 图10";
+  name.append(mapIndex);
+
+  const [resolved] = resolveTaskCards([decorated], [quest], {
+    taskActionHrid: () => "/actions/combat/gloomy_forest",
+    taskRemaining: remaining,
+  });
+
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.matchSource, "semantic");
+  assert.equal(resolved.taskId, "decorated-combat");
+});
+
+test("transitional cards stay unresolved instead of receiving positional tasks", () => {
+  const quest = {
+    id: "ready-later",
+    actionHrid: "/actions/crafting/ready_later",
+    goalCount: 4,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    [quest.actionHrid]: { name: "Ready Later" },
+  };
+  const transitional = card("Old Content", "0 / 9");
+  transitional.dataset.mwitoolsTaskId = "removed-task";
+
+  const [resolved] = resolveTaskCards([transitional], [quest], {
+    taskActionHrid: actionHrid,
+    taskRemaining: remaining,
+  });
+
+  assert.equal(resolved.resolved, false);
+  assert.equal(resolved.matchSource, null);
+  assert.equal(resolved.taskIndex, -1);
+  assert.equal(resolved.taskId, "");
 });
 
 test("semantic fallback matches shuffled and duplicate actions by progress", () => {

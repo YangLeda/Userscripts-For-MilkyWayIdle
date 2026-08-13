@@ -1,10 +1,14 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
 const MARKET_NAV_ID = "mwitools-procurement-market-nav";
 const PRODUCTION_ID = "mwitools-procurement-production";
+const PROCUREMENT_SURFACE_SELECTOR =
+  'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
+const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
 const procurement = runtime.api.procurement;
 
 let shell = null;
@@ -63,31 +67,37 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
+    .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
-    .mwi-procurement-requirement-row{width:max-content!important;max-width:none!important;grid-template-columns:repeat(4,max-content)!important;align-items:center!important;white-space:nowrap!important}
+    .mwi-procurement-requirement-grid{width:100%!important;max-width:100%!important;grid-template-columns:max-content max-content minmax(0,1fr) max-content!important;align-items:center!important;white-space:nowrap!important}
+    .mwi-procurement-requirement-cell{grid-row:var(--mwi-procurement-row)!important;min-width:0!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="owned"]{grid-column:1!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="required"]{grid-column:2!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="item"]{grid-column:3!important}
+    .mwi-procurement-requirement-cell[data-mwitools-procurement-column="badge"]{grid-column:4!important}
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
-    #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:.66rem}
+    #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
+    #${PRODUCTION_ID}[hidden]{display:none}
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
-    .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:.62rem;white-space:nowrap;cursor:pointer}
+    .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:inherit;white-space:nowrap;cursor:pointer}
     .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
-    .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;font-size:.65rem;cursor:pointer}
+    .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;cursor:pointer}
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
     .mwi-procurement-chain>summary{padding:4px 6px;cursor:pointer;color:var(--color-text-secondary,#aaa)}
     .mwi-procurement-chain-presets{display:flex;gap:4px;padding:0 6px 5px}
-    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:.62rem;cursor:pointer}
+    .mwi-procurement-chain-preset{min-height:22px;padding:2px 7px;border:1px solid rgba(255,255,255,.14);border-radius:4px;background:rgba(255,255,255,.04);color:var(--color-text-secondary,#aaa);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1));cursor:pointer}
     .mwi-procurement-chain-preset[aria-pressed="true"]{border-color:#8293d6;background:rgba(82,100,154,.34);color:#fff}
     .mwi-procurement-chain-list{display:grid;gap:3px;padding:0 6px 6px}
     .mwi-procurement-chain-stage{display:flex;align-items:center;gap:6px;min-width:0}
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-chain-stage span:last-child{margin-left:auto;color:#d7bb67;white-space:nowrap}
     .mwi-procurement-market-target{outline:2px solid rgba(245,158,11,.72)!important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 3px rgba(245,158,11,.12)}
-    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:.68rem}
+    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${MARKET_NAV_ID}[data-inside="true"]{border-radius:5px 5px 0 0;box-shadow:0 -5px 16px rgba(0,0,0,.35)}
     .mwi-procurement-nav-progress{flex:0 0 auto;color:var(--color-space-300,#9da9d0);white-space:nowrap}
     .mwi-procurement-nav-items{display:flex;min-width:0;flex:1;gap:4px;overflow-x:auto;padding:1px}
@@ -800,6 +810,16 @@ function createShell(scope) {
 }
 
 function resolveActionPanel() {
+  const shared = runtime.api.resolveActiveProductionPanelContext?.();
+  if (shared?.panel && shared?.input && shared?.actionHrid) {
+    return {
+      panel: shared.panel,
+      input: shared.input,
+      actionHrid: shared.actionHrid,
+      actionFunction: resolveActionFunction(shared.panel, shared.actionHrid),
+      count: shared.count,
+    };
+  }
   const inputs = [
     ...document.querySelectorAll(
       'div[class*="SkillActionDetail_maxActionCountInput"] input',
@@ -826,8 +846,8 @@ function resolveActionPanel() {
       )
         ? "/actions/enhancing/enhance"
         : null);
-    const count = runtime.api.parseCompactNumber?.(input.value);
-    if (!actionHrid || !Number.isFinite(count) || count <= 0) continue;
+    const parsedCount = runtime.api.parseCompactNumber?.(input.value);
+    if (!actionHrid) continue;
     return {
       panel,
       input,
@@ -837,7 +857,10 @@ function resolveActionPanel() {
         actionHrid,
         fiberContext?.actionFunction,
       ),
-      count: Math.ceil(count),
+      count:
+        Number.isFinite(parsedCount) && parsedCount > 0
+          ? Math.ceil(parsedCount)
+          : null,
     };
   }
   return null;
@@ -1025,16 +1048,59 @@ function findMaterialHost(panel, itemHrid) {
   return null;
 }
 
+function markRequirementCell(element, row, column) {
+  if (!element) return;
+  element.classList.add("mwi-procurement-requirement-cell");
+  element.style.setProperty("--mwi-procurement-row", String(row));
+  element.dataset.mwitoolsProcurementColumn = column;
+}
+
+function layoutMaterialBadge(panel, host, badge) {
+  const root =
+    host.closest('[class*="SkillActionDetail_itemRequirements"]') ??
+    host.parentElement;
+  if (!root) return;
+  const items = [
+    ...root.querySelectorAll(':scope > [class*="Item_itemContainer"]'),
+  ];
+  const rowIndex = items.indexOf(host);
+  if (rowIndex < 0) return;
+  const row = rowIndex + 1;
+  const owned = [
+    ...root.querySelectorAll(
+      ':scope > [class*="SkillActionDetail_inventoryCount"]',
+    ),
+  ];
+  const required = [
+    ...root.querySelectorAll(
+      ':scope > [class*="SkillActionDetail_inputCount"]',
+    ),
+  ];
+  root.classList.add("mwi-procurement-requirement-grid");
+  markRequirementCell(owned[rowIndex], row, "owned");
+  markRequirementCell(required[rowIndex], row, "required");
+  markRequirementCell(host, row, "item");
+  markRequirementCell(badge, row, "badge");
+  panel.classList.add("mwi-procurement-panel");
+}
+
 function clearProductionUi() {
   document.getElementById(PRODUCTION_ID)?.remove();
   document
     .querySelectorAll(".mwi-procurement-badge")
     .forEach((node) => node.remove());
   document
-    .querySelectorAll(".mwi-procurement-requirement-row")
+    .querySelectorAll(".mwi-procurement-requirement-grid")
     .forEach((node) =>
-      node.classList.remove("mwi-procurement-requirement-row"),
+      node.classList.remove("mwi-procurement-requirement-grid"),
     );
+  document
+    .querySelectorAll(".mwi-procurement-requirement-cell")
+    .forEach((node) => {
+      node.classList.remove("mwi-procurement-requirement-cell");
+      node.style.removeProperty("--mwi-procurement-row");
+      delete node.dataset.mwitoolsProcurementColumn;
+    });
   document
     .querySelectorAll(".mwi-procurement-panel")
     .forEach((node) => node.classList.remove("mwi-procurement-panel"));
@@ -1050,6 +1116,30 @@ function renderProductionProcurement() {
       return;
     }
     renderHouseProcurement(houseModal);
+    return;
+  }
+  if (context.count === null) {
+    clearProductionUi();
+    const root = document.createElement("section");
+    root.id = PRODUCTION_ID;
+    root.dataset.mwitoolsProductionExtension = "true";
+    root.dataset.state = "waiting";
+    const summary = document.createElement("div");
+    summary.className = "mwi-procurement-summary-line";
+    const state = document.createElement("span");
+    state.className = "mwi-procurement-summary-state";
+    state.textContent = t("请选择生产数量", "Enter a production quantity");
+    summary.append(state);
+    root.append(summary);
+    if (runtime.api.mountProductionModule) {
+      runtime.api.mountProductionModule(context.panel, root, "shortage");
+    } else {
+      const anchor =
+        context.panel.querySelector(
+          'div[class*="SkillActionDetail_actionContainer"]',
+        ) ?? context.input.parentElement;
+      anchor.insertAdjacentElement("afterend", root);
+    }
     return;
   }
   const settings = procurement.getSettings();
@@ -1092,11 +1182,9 @@ function renderProductionProcurement() {
   clearProductionUi();
   lastProductionSignature = signature;
   if (settings.badgesEnabled) {
-    context.panel.classList.add("mwi-procurement-panel");
     for (const material of direct.materials) {
       const host = findMaterialHost(context.panel, material.itemHrid);
       if (!host) continue;
-      host.parentElement?.classList.add("mwi-procurement-requirement-row");
       const badge = document.createElement("span");
       badge.className = "mwi-procurement-badge";
       badge.dataset.state = material.shortage ? "missing" : "ready";
@@ -1108,6 +1196,7 @@ function renderProductionProcurement() {
         .join("\n");
       badge.title = `${t("建议准备", "Suggested")}: ${exactNumber(material.suggested)}\n${t("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `\n${t("计划锁定", "Locked")}: ${exactNumber(material.locked)}\n${locks}` : ""}`;
       host.insertAdjacentElement("afterend", badge);
+      layoutMaterialBadge(context.panel, host, badge);
     }
   }
   const root = document.createElement("section");
@@ -1164,6 +1253,9 @@ function renderProductionProcurement() {
     summaryState.innerHTML = missing.length
       ? `${t("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t("建议准备已包含安全余量", "Suggested amounts include a safety margin")}`
       : t("材料充足", "Materials ready");
+    root.hidden = Boolean(
+      !missing.length && runtime.settings.get("hideReadyProductionShortage"),
+    );
     add.disabled = addable.length === 0;
     add.textContent = addable.length
       ? t("加入购物清单", "Add to shopping list")
@@ -1238,17 +1330,17 @@ function renderProductionProcurement() {
   const enhancingInfo = isEnhancing
     ? context.panel.querySelector('[class*="SkillActionDetail_info"]')
     : null;
-  const existingSummary = context.panel.querySelector(
-    "#mwi-production-summary",
-  );
   if (enhancingInfo) enhancingInfo.append(root);
-  else if (!isEnhancing && existingSummary) existingSummary.append(root);
   else {
-    const anchor =
-      context.panel.querySelector(
-        '[class*="SkillActionDetail_actionContainer"]',
-      ) ?? context.input.parentElement;
-    anchor.insertAdjacentElement("afterend", root);
+    if (runtime.api.mountProductionModule) {
+      runtime.api.mountProductionModule(context.panel, root, "shortage");
+    } else {
+      const anchor =
+        context.panel.querySelector(
+          '[class*="SkillActionDetail_actionContainer"]',
+        ) ?? context.input.parentElement;
+      anchor.insertAdjacentElement("afterend", root);
+    }
   }
 }
 
@@ -1947,12 +2039,81 @@ runtime.features.register({
         renderShell();
       }),
     );
+    scope.add(
+      runtime.settings.onChange?.("hideReadyProductionShortage", () => {
+        lastProductionSignature = "";
+        renderProductionProcurement();
+      }),
+    );
     renderProductionProcurement();
     updateMarketUi();
-    scope.interval(renderProductionProcurement, 350);
-    scope.interval(updateMarketUi, 900);
+    const renderScheduler = createFrameScheduler(() => {
+      renderProductionProcurement();
+      updateMarketUi();
+    });
+    const scheduleRender = () => renderScheduler.schedule();
+    const MutationObserverRef =
+      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        const changed = [...record.addedNodes, ...record.removedNodes].filter(
+          (node) => node?.nodeType === 1,
+        );
+        if (
+          target?.closest?.(OWNED_PROCUREMENT_SELECTOR) ||
+          (changed.length &&
+            changed.every(
+              (node) =>
+                node.matches?.(OWNED_PROCUREMENT_SELECTOR) ||
+                node.closest?.(OWNED_PROCUREMENT_SELECTOR),
+            ))
+        ) {
+          return false;
+        }
+        if (target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) return true;
+        return changed.some(
+          (node) =>
+            node.matches?.(PROCUREMENT_SURFACE_SELECTOR) ||
+            node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR),
+        );
+      });
+      if (relevant) scheduleRender();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
+    const scheduleFromInput = (event) => {
+      if (event.target?.closest?.(PROCUREMENT_SURFACE_SELECTOR)) {
+        scheduleRender();
+      }
+    };
+    scope.event(document, "input", scheduleFromInput, true);
+    scope.event(document, "change", scheduleFromInput, true);
+    for (const messageType of [
+      "items_updated",
+      "skills_updated",
+      "house_rooms_updated",
+      "achievement_buffs_updated",
+      "moo_pass_buffs_updated",
+      "community_buffs_updated",
+      "consumable_buffs_updated",
+      "equipment_buffs_updated",
+      "personal_buffs_updated",
+      "guild_buffs_updated",
+      "market_item_values_updated",
+      "market_item_order_books_updated",
+      "init_character_data",
+    ]) {
+      scope.add(runtime.onMessage(messageType, scheduleRender));
+    }
     scope.event(document, "keydown", handleShortcut, true);
     scope.add(() => {
+      renderScheduler.cancel();
       stopActiveHoldRepeat();
       clearProductionUi();
       clearMarketUi();

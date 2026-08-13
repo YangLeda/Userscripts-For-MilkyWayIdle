@@ -2,6 +2,7 @@ import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
 import {
+  getGameLocale,
   getLocalizedEntityName,
   matchesGameTranslations,
   resolveLocalizedEntity,
@@ -17,6 +18,7 @@ const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const OWNED_TASK_SELECTOR =
   '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
+const MERGE_HANDLER = Symbol("mwitoolsTaskMergeHandler");
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
@@ -31,6 +33,13 @@ let lastActionDetails = null;
 let lastActionCategories = null;
 let taskSpriteManifestPromise = null;
 const taskSpriteBases = new Map();
+let spriteScanDocument = null;
+let spriteSourcesScanned = false;
+let cachedTaskActionIndex = null;
+let cachedTaskActionIndexMap = null;
+let cachedTaskActionIndexLocale = "";
+const taskActionCache = new WeakMap();
+const taskRemainingCache = new WeakMap();
 let pageOrderBySlot = new Map();
 let activeProfessionFilters = new Set();
 let combatFilterEnabled = true;
@@ -164,8 +173,6 @@ const PROFESSIONS = [
   ["tailoring", "缝纫", "Tailoring"],
   ["cooking", "烹饪", "Cooking"],
   ["brewing", "冲泡", "Brewing"],
-  ["alchemy", "炼金", "Alchemy"],
-  ["enhancing", "强化", "Enhancing"],
   ["combat", "战斗", "Combat"],
 ].map(([key, zh, en], order) => ({ key, zh, en, order }));
 const LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
@@ -249,7 +256,13 @@ function rememberSpriteBase(kind, value) {
   }
 }
 
-function scanTaskSpriteBases() {
+function scanTaskSpriteBases({ force = false } = {}) {
+  if (spriteScanDocument !== document) {
+    spriteScanDocument = document;
+    spriteSourcesScanned = false;
+  }
+  if (spriteSourcesScanned && !force) return;
+  spriteSourcesScanned = true;
   try {
     document
       .querySelectorAll("svg use")
@@ -277,7 +290,7 @@ function scanTaskSpriteBases() {
 async function loadTaskSpriteManifest() {
   if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
   taskSpriteManifestPromise = (async () => {
-    scanTaskSpriteBases();
+    scanTaskSpriteBases({ force: true });
     try {
       const response = await globalThis.fetch(
         new URL("/asset-manifest.json", globalThis.location?.origin).href,
@@ -303,7 +316,6 @@ async function loadTaskSpriteManifest() {
 }
 
 function taskSpriteHref(kind, hrid) {
-  scanTaskSpriteBases();
   const base = taskSpriteBases.get(kind);
   const symbol = String(hrid ?? "")
     .split("/")
@@ -324,8 +336,10 @@ function addStyles() {
     [class*="RandomTask_randomTask"] [class*="RandomTask_buttonsContainer"] { margin-top:2px !important; }
     .mwi-task-toolbar { display:flex; flex-direction:column; align-items:stretch; gap:4px; margin:4px 0 8px; padding:5px; border:1px solid rgba(255,255,255,.12); border-radius:7px; background:rgba(0,0,0,.18); }
     .mwi-task-toolbar-controls { display:flex; width:100%; align-items:center; gap:4px; }
+    .mwi-task-filter-groups { display:flex; width:100%; min-width:0; align-items:center; flex-wrap:wrap; gap:4px; }
     .mwi-task-filter-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; }
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
+    .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
     .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
@@ -346,7 +360,7 @@ function addStyles() {
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
-      .mwi-task-filter-group--life { flex-wrap:wrap; }
+      .mwi-task-filter-group--life { min-width:0; flex:1 1 auto; flex-wrap:wrap; }
       .mwi-task-filter,.mwi-task-sort-button { min-width:28px; min-height:28px; gap:2px; padding:3px 5px; }
     }
   `;
@@ -374,35 +388,115 @@ function nestedValue(value, keys) {
   return null;
 }
 
-function taskActionHrid(task) {
-  const direct = nestedValue(task, [
-    "actionHrid",
-    "taskActionHrid",
-    "skillActionHrid",
-  ]);
-  if (direct) return direct;
-  const monsterHrid = nestedValue(task, ["monsterHrid"]);
-  if (!monsterHrid) return null;
-  for (const detail of Object.values(
-    runtime.state.initData_actionDetailMap ?? {},
-  )) {
-    if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-    const fightInfo = JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {});
-    if (fightInfo.includes(`"${monsterHrid}"`)) return detail.hrid;
+function normalizeTaskLookupName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function getTaskActionIndex() {
+  const actionMap = runtime.state.initData_actionDetailMap ?? {};
+  const locale = getGameLocale();
+  if (
+    cachedTaskActionIndex &&
+    cachedTaskActionIndexMap === actionMap &&
+    cachedTaskActionIndexLocale === locale
+  ) {
+    return cachedTaskActionIndex;
   }
-  return null;
+  const combatByName = new Map();
+  const combatByMonster = new Map();
+  const dungeonsByMonster = new Map();
+  const zoneActionByCategory = new Map();
+  for (const detail of Object.values(actionMap)) {
+    if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
+    for (const name of [
+      detail.name,
+      runtime.data.ZHActionNames?.[detail.hrid],
+      getLocalizedEntityName("action", detail.hrid, { locale }),
+    ]) {
+      const normalized = normalizeTaskLookupName(name);
+      if (normalized && !combatByName.has(normalized)) {
+        combatByName.set(normalized, detail);
+      }
+    }
+    if (
+      detail?.category &&
+      detail?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10 &&
+      !zoneActionByCategory.has(detail.category)
+    ) {
+      zoneActionByCategory.set(detail.category, detail);
+    }
+    const monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+    for (const monsterHrid of monsters) {
+      if (!combatByMonster.has(monsterHrid)) {
+        combatByMonster.set(monsterHrid, detail);
+      }
+      if (!detail?.combatZoneInfo?.isDungeon) continue;
+      if (!dungeonsByMonster.has(monsterHrid)) {
+        dungeonsByMonster.set(monsterHrid, []);
+      }
+      dungeonsByMonster.get(monsterHrid).push(detail);
+    }
+  }
+  cachedTaskActionIndexMap = actionMap;
+  cachedTaskActionIndexLocale = locale;
+  cachedTaskActionIndex = {
+    combatByName,
+    combatByMonster,
+    dungeonsByMonster,
+    zoneActionByCategory,
+  };
+  return cachedTaskActionIndex;
+}
+
+function taskActionHrid(task) {
+  if (!task || typeof task !== "object") return null;
+  const direct =
+    task.actionHrid ??
+    task.taskActionHrid ??
+    task.skillActionHrid ??
+    nestedValue(task, ["actionHrid", "taskActionHrid", "skillActionHrid"]);
+  if (direct) return direct;
+  const actionMap = runtime.state.initData_actionDetailMap ?? {};
+  const monsterHrid = task.monsterHrid ?? nestedValue(task, ["monsterHrid"]);
+  const cached = taskActionCache.get(task);
+  if (cached?.actionMap === actionMap && cached.monsterHrid === monsterHrid) {
+    return cached.value;
+  }
+  const value =
+    getTaskActionIndex().combatByMonster.get(monsterHrid)?.hrid ?? null;
+  taskActionCache.set(task, { actionMap, monsterHrid, value });
+  return value;
 }
 
 function taskRemaining(task) {
-  const target = Number(
-    nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]),
-  );
-  const current = Number(
-    nestedValue(task, ["currentCount", "completedCount", "progressCount"]),
-  );
-  return Number.isFinite(target)
+  if (!task || typeof task !== "object") return 0;
+  const targetSource =
+    task.targetCount ??
+    task.requiredCount ??
+    task.goalCount ??
+    task.count ??
+    nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]);
+  const currentSource =
+    task.currentCount ??
+    task.completedCount ??
+    task.progressCount ??
+    nestedValue(task, ["currentCount", "completedCount", "progressCount"]);
+  const cached = taskRemainingCache.get(task);
+  if (
+    cached?.targetSource === targetSource &&
+    cached.currentSource === currentSource
+  ) {
+    return cached.value;
+  }
+  const target = Number(targetSource);
+  const current = Number(currentSource);
+  const value = Number.isFinite(target)
     ? Math.max(0, target - (Number.isFinite(current) ? current : 0))
     : 0;
+  taskRemainingCache.set(task, { currentSource, targetSource, value });
+  return value;
 }
 
 function rewardValue(task) {
@@ -445,8 +539,8 @@ function taskProjection(task) {
   };
 }
 
-function targetNameFromCard(card) {
-  return visibleTaskTitle(card)
+function targetNameFromTitle(title) {
+  return String(title ?? "")
     .split(/\s[-–]\s/)
     .slice(1)
     .join(" - ")
@@ -459,8 +553,8 @@ function itemHridFromDisplayName(name) {
   return resolveLocalizedEntity("item", normalized);
 }
 
-function namedMonsterHridForCard(card) {
-  const monsterName = targetNameFromCard(card)
+function namedMonsterHridForCard(card, title = visibleTaskTitle(card)) {
+  const monsterName = targetNameFromTitle(title)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
   const translated = resolveLocalizedEntity("monster", monsterName);
@@ -468,15 +562,10 @@ function namedMonsterHridForCard(card) {
   if (String(translated).startsWith("/actions/combat/")) {
     return String(translated).replace("/actions/combat/", "/monsters/");
   }
-  const matchingAction = Object.values(
-    runtime.state.initData_actionDetailMap ?? {},
-  ).find(
-    (candidate) =>
-      String(candidate?.hrid).startsWith("/actions/combat/") &&
-      !candidate?.combatZoneInfo?.isDungeon &&
-      (candidate?.name === monsterName ||
-        getLocalizedEntityName("action", candidate.hrid) === monsterName),
+  const matchingAction = getTaskActionIndex().combatByName.get(
+    normalizeTaskLookupName(monsterName),
   );
+  if (matchingAction?.combatZoneInfo?.isDungeon) return null;
   return matchingAction?.hrid?.replace("/actions/combat/", "/monsters/");
 }
 
@@ -505,10 +594,10 @@ function fightMonsterHrids(value, result = new Set(), visited = new Set()) {
   return result;
 }
 
-function monsterHridForCard(card, task) {
+function monsterHridForCard(card, task, title = visibleTaskTitle(card)) {
   // The rendered title is the task's authoritative target. Action HRIDs may
   // identify a whole zone or dungeon and must not be treated as monster IDs.
-  const named = namedMonsterHridForCard(card);
+  const named = namedMonsterHridForCard(card, title);
   if (named) return named;
 
   const direct = normalizeMonsterHrid(
@@ -529,14 +618,16 @@ function monsterHridForCard(card, task) {
   return normalizeMonsterHrid(actionHrid) || null;
 }
 
-export function taskArtworkForCard(card, task) {
-  const profession = professionForCard(card, task);
+export function taskArtworkForCard(card, task, context = {}) {
+  const title = context.title ?? visibleTaskTitle(card);
+  const profession = context.profession ?? professionForCard(card, task, title);
   if (profession.key === "combat") {
-    const monsterHrid = monsterHridForCard(card, task);
+    const monsterHrid =
+      context.monsterHrid ?? monsterHridForCard(card, task, title);
     if (monsterHrid) return { kind: "combat_monsters", hrid: monsterHrid };
   }
 
-  const namedItemHrid = itemHridFromDisplayName(targetNameFromCard(card));
+  const namedItemHrid = itemHridFromDisplayName(targetNameFromTitle(title));
   if (namedItemHrid) return { kind: "items", hrid: namedItemHrid };
 
   const actionHrid = taskActionHrid(task);
@@ -554,13 +645,12 @@ export function taskArtworkForCard(card, task) {
   return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
 }
 
-function decorateCard(card, task) {
+function decorateCard(card, task, artwork = null) {
   card.querySelector(".mwi-task-insight")?.remove();
   if (!runtime.settings.get("taskIcons")) {
     card.querySelector(":scope > .mwi-task-bg")?.remove();
     return;
   }
-  const artwork = taskArtworkForCard(card, task);
   const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!href) {
@@ -584,6 +674,14 @@ function decorateCard(card, task) {
   card.appendChild(background);
 }
 
+function taskIconMatches(card, task) {
+  const existing = card.querySelector(":scope > .mwi-task-bg");
+  if (!runtime.settings.get("taskIcons")) return !existing;
+  const artwork = taskArtworkForCard(card, task);
+  const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+  return href ? existing?.dataset.spriteHref === href : existing === null;
+}
+
 function visibleTaskTitle(card) {
   const name = card.querySelector('div[class*="RandomTask_name"]');
   const text = String(
@@ -595,8 +693,27 @@ function visibleTaskTitle(card) {
   return text.trim().split("\n")[0].trim();
 }
 
-function professionForCard(card, task) {
-  const title = visibleTaskTitle(card);
+function isQuestTaskCard(card) {
+  // Full-capacity task pages can include a task-points reward tile that shares
+  // the native card and name classes but has no quest identity or progress.
+  if (!card.querySelector('div[class*="RandomTask_name"]')) return false;
+  if (
+    /(?:进度|progress)\s*:?[\s\S]*?\d[\d,.\s\u00a0\u202f]*\s*\/\s*\d/i.test(
+      String(card.textContent ?? ""),
+    )
+  ) {
+    return true;
+  }
+  return [...card.querySelectorAll("button")].some((button) =>
+    matchesGameTranslations(
+      ["randomTask.reroll", "randomTask.go", "questModal.go"],
+      button.textContent,
+      { fallbackPatterns: [/^(?:reset|重置|go|前往)$/i] },
+    ),
+  );
+}
+
+function professionForCard(card, task, title = visibleTaskTitle(card)) {
   for (const profession of PROFESSIONS) {
     const labels = [profession.zh, profession.en];
     if (
@@ -610,7 +727,7 @@ function professionForCard(card, task) {
       return profession;
     }
   }
-  if (resolveLocalizedEntity("monster", targetNameFromCard(card))) {
+  if (resolveLocalizedEntity("monster", targetNameFromTitle(title))) {
     return PROFESSIONS.find(({ key }) => key === "combat");
   }
   const actionHrid = taskActionHrid(task);
@@ -629,7 +746,7 @@ function professionForCard(card, task) {
   };
 }
 
-function isCompletedCard(card, task) {
+function isCompletedCard(card, task, cardText = null) {
   const target = Number(
     nestedValue(task, ["targetCount", "requiredCount", "goalCount", "count"]),
   );
@@ -646,7 +763,10 @@ function isCompletedCard(card, task) {
     return true;
   }
   const text = String(
-    runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? "",
+    cardText ??
+      runtime.api.getOriTextFromElement?.(card) ??
+      card.textContent ??
+      "",
   );
   const progress = text.match(
     /(?:进度|progress)\s*[:：]\s*([\d,.\s\u00a0\u202f]+)\s*\/\s*([\d,.\s\u00a0\u202f]+)/i,
@@ -666,41 +786,34 @@ function isCompletedCard(card, task) {
   return false;
 }
 
-function combatDetailForCard(card, task) {
+function combatDetailForCard(
+  card,
+  task,
+  { title = visibleTaskTitle(card), monsterHrid = "" } = {},
+) {
   const taskDetail =
     runtime.state.initData_actionDetailMap?.[taskActionHrid(task)];
-  const monsterName = targetNameFromCard(card)
+  const monsterName = targetNameFromTitle(title)
     .replace(/\s+(?:图|Z)\s*\d+\s*$/i, "")
     .trim();
   const translatedHrid =
     resolveLocalizedEntity("monster", monsterName) ||
     resolveLocalizedEntity("action", monsterName);
-  const monsterHrid = String(translatedHrid ?? "").replace(
-    "/actions/combat/",
+  const resolvedMonsterHrid =
+    monsterHrid ||
+    String(translatedHrid ?? "").replace("/actions/combat/", "/monsters/");
+  const index = getTaskActionIndex();
+  const translatedActionHrid = String(translatedHrid ?? "").replace(
     "/monsters/",
+    "/actions/combat/",
   );
-  for (const detail of Object.values(
-    runtime.state.initData_actionDetailMap ?? {},
-  )) {
-    if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
-    const localizedName = getLocalizedEntityName("action", detail.hrid);
-    if (
-      detail.name?.toLowerCase() === monsterName.toLowerCase() ||
-      localizedName === monsterName ||
-      detail.hrid ===
-        String(translatedHrid).replace("/monsters/", "/actions/combat/")
-    ) {
-      return detail;
-    }
-    if (
-      monsterHrid &&
-      JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
-        `"${monsterHrid}"`,
-      )
-    ) {
-      return detail;
-    }
-  }
+  const translatedDetail =
+    runtime.state.initData_actionDetailMap?.[translatedActionHrid];
+  const indexedDetail =
+    index.combatByName.get(normalizeTaskLookupName(monsterName)) ??
+    index.combatByMonster.get(resolvedMonsterHrid);
+  if (translatedDetail ?? indexedDetail)
+    return translatedDetail ?? indexedDetail;
   return String(taskDetail?.hrid ?? taskActionHrid(task)).startsWith(
     "/actions/combat/",
   )
@@ -708,8 +821,14 @@ function combatDetailForCard(card, task) {
     : null;
 }
 
-function combatLocationForCard(card, task) {
-  const detail = combatDetailForCard(card, task);
+function combatLocationForCard(
+  card,
+  task,
+  {
+    detail = combatDetailForCard(card, task),
+    title = visibleTaskTitle(card),
+  } = {},
+) {
   const categories = runtime.state.initData_actionCategoryDetailMap ?? {};
   if (detail?.combatZoneInfo?.isDungeon) {
     const name =
@@ -724,12 +843,8 @@ function combatLocationForCard(card, task) {
   }
   if (detail?.category) {
     const category = categories[detail.category];
-    const zoneAction = Object.values(
-      runtime.state.initData_actionDetailMap ?? {},
-    ).find(
-      (candidate) =>
-        candidate?.category === detail.category &&
-        candidate?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10,
+    const zoneAction = getTaskActionIndex().zoneActionByCategory.get(
+      detail.category,
     );
     const name =
       (runtime.config.isZH
@@ -742,7 +857,7 @@ function combatLocationForCard(card, task) {
       order: sortIndex,
     };
   }
-  const mapIndex = visibleTaskTitle(card).match(/(?:图|Z)\s*(\d+)\s*$/i)?.[1];
+  const mapIndex = title.match(/(?:图|Z)\s*(\d+)\s*$/i)?.[1];
   if (mapIndex) {
     return {
       key: `zone-index-${mapIndex}`,
@@ -781,25 +896,21 @@ function nonDungeonLocation() {
   };
 }
 
-export function dungeonLocationsForCard(card, task) {
+export function dungeonLocationsForCard(card, task, context = {}) {
   const actionHrid = taskActionHrid(task);
   const taskDetail = runtime.state.initData_actionDetailMap?.[actionHrid];
   if (taskDetail?.combatZoneInfo?.isDungeon) {
     return [dungeonLocation(taskDetail)];
   }
-  const monsterHrid = monsterHridForCard(card, task);
+  const monsterHrid =
+    context.monsterHrid ??
+    monsterHridForCard(card, task, context.title ?? visibleTaskTitle(card));
   if (!monsterHrid) return [nonDungeonLocation()];
   const actionDetails = runtime.state.initData_actionDetailMap ?? {};
   const matchingDungeonHrids = new Set(
-    Object.values(actionDetails)
-      .filter(
-        (detail) =>
-          detail?.combatZoneInfo?.isDungeon &&
-          JSON.stringify(detail.combatZoneInfo?.fightInfo ?? {}).includes(
-            `"${monsterHrid}"`,
-          ),
-      )
-      .map((detail) => detail.hrid),
+    (getTaskActionIndex().dungeonsByMonster.get(monsterHrid) ?? []).map(
+      (detail) => detail.hrid,
+    ),
   );
   for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
     if (dungeon.monsters.has(monsterHrid)) {
@@ -997,25 +1108,71 @@ function cleanupListDecorations({ restoreOrder = true } = {}) {
     });
 }
 
-function orderedRows(cards, tasks) {
+function taskCardSnapshot(card, task) {
+  const title = visibleTaskTitle(card);
+  const cardText = String(
+    runtime.api.getOriTextFromElement?.(card) ?? card.textContent ?? "",
+  );
+  return {
+    actionHrid: taskActionHrid(task) ?? "",
+    card,
+    completed: isCompletedCard(card, task, cardText),
+    progress:
+      cardText.match(
+        /(?:进度|progress)\s*[:：]\s*[\d,.\s\u00a0\u202f]+\s*\/\s*[\d,.\s\u00a0\u202f]+/i,
+      )?.[0] ?? "",
+    task,
+    taskId: taskId(task),
+    title,
+  };
+}
+
+function orderedRows(cards, tasks, snapshots = null) {
   const chains = productionChains(tasks);
   const rows = cards.map((card, index) => {
     const task = tasks[index];
+    const snapshot = snapshots?.[index] ?? taskCardSnapshot(card, task);
     const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
-    const completed = isCompletedCard(card, task);
+    const completed = snapshot.completed;
     const isNew = pageNewTaskIds.has(taskId(task));
     const state = isNew ? "new" : completed ? "completed" : "normal";
-    const profession = professionForCard(card, task);
+    const profession = professionForCard(card, task, snapshot.title);
+    const monsterHrid =
+      profession.key === "combat"
+        ? monsterHridForCard(card, task, snapshot.title)
+        : "";
+    const combatDetail =
+      profession.key === "combat"
+        ? combatDetailForCard(card, task, {
+            title: snapshot.title,
+            monsterHrid,
+          })
+        : null;
     const location =
-      profession.key === "combat" ? combatLocationForCard(card, task) : null;
+      profession.key === "combat"
+        ? combatLocationForCard(card, task, {
+            detail: combatDetail,
+            title: snapshot.title,
+          })
+        : null;
     const dungeonLocations =
-      profession.key === "combat" ? dungeonLocationsForCard(card, task) : [];
+      profession.key === "combat"
+        ? dungeonLocationsForCard(card, task, {
+            title: snapshot.title,
+            monsterHrid,
+          })
+        : [];
     const monsterGroupKey =
       profession.key === "combat"
-        ? monsterHridForCard(card, task) ||
-          taskActionHrid(task) ||
-          `combat-slot-${slot}`
+        ? monsterHrid || snapshot.actionHrid || `combat-slot-${slot}`
         : "";
+    const artwork = runtime.settings.get("taskIcons")
+      ? taskArtworkForCard(card, task, {
+          title: snapshot.title,
+          profession,
+          monsterHrid,
+        })
+      : null;
     pageClassifications.set(slot, {
       completed,
       state,
@@ -1023,6 +1180,7 @@ function orderedRows(cards, tasks) {
       location,
       dungeonLocations,
       monsterGroupKey,
+      artwork,
     });
     const taskState = state;
     if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -1047,6 +1205,7 @@ function orderedRows(cards, tasks) {
       location,
       dungeonLocations,
       monsterGroupKey,
+      artwork,
       info: actionSortInfo(task, slot),
       depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
       chain: chains?.get(taskActionHrid(task))?.group ?? index,
@@ -1258,6 +1417,8 @@ function ensureTaskToolbar(rows) {
       );
       toolbar.append(controls);
 
+      const filterGroups = document.createElement("div");
+      filterGroups.className = "mwi-task-filter-groups";
       const lifeFilters = document.createElement("div");
       lifeFilters.className =
         "mwi-task-filter-group mwi-task-filter-group--life";
@@ -1282,7 +1443,7 @@ function ensureTaskToolbar(rows) {
           }),
         );
       }
-      toolbar.append(lifeFilters);
+      filterGroups.append(lifeFilters);
 
       const combatFilters = document.createElement("div");
       combatFilters.className =
@@ -1327,7 +1488,8 @@ function ensureTaskToolbar(rows) {
         );
       }
       combatFilters.append(dungeons);
-      toolbar.append(combatFilters);
+      filterGroups.append(combatFilters);
+      toolbar.append(filterGroups);
     }
 
     const sortButton = document.createElement("button");
@@ -1434,10 +1596,9 @@ function restoreStableOrders(rows) {
   }
 }
 
-function renderFlatTaskList(cards, tasks, { sort = false } = {}) {
+function renderFlatTaskList(rows, { sort = false } = {}) {
   if (!taskListParent) return;
   cleanupListDecorations({ restoreOrder: false });
-  const rows = orderedRows(cards, tasks);
   if (sort) applyExplicitSort(rows);
   else restoreStableOrders(rows);
   ensureTaskToolbar(rows);
@@ -1445,30 +1606,61 @@ function renderFlatTaskList(cards, tasks, { sort = false } = {}) {
   return rows;
 }
 
-function wireMergeButtons(cards, tasks) {
-  cards.forEach((card, index) => {
-    if (card.dataset.mwitoolsMergeWired) return;
-    const button = [...card.querySelectorAll("button")].find((candidate) =>
-      matchesGameTranslations(
-        ["randomTask.go", "questModal.go"],
-        candidate.textContent,
-        { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
-      ),
-    );
-    if (!button) return;
-    card.dataset.mwitoolsMergeWired = "true";
-    button.addEventListener("click", () => {
-      if (!runtime.settings.get("taskMergeActions")) return;
-      const actionHrid = taskActionHrid(tasks[index]);
+function isMergeNavigationButton(candidate) {
+  return matchesGameTranslations(
+    ["randomTask.go", "questModal.go"],
+    candidate?.textContent,
+    { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
+  );
+}
+
+function liveTaskForCard(card, tasks) {
+  const parent = card?.parentElement;
+  if (!parent) return null;
+  const cards = [...document.querySelectorAll(TASK_SELECTOR)].filter(
+    (candidate) => candidate.parentElement === parent,
+  );
+  return (
+    resolveTaskCards(cards, tasks, {
+      taskActionHrid,
+      taskRemaining,
+    }).find((entry) => entry.card === card)?.task ?? null
+  );
+}
+
+function wireMergeButtons(cards) {
+  cards.forEach((card) => {
+    if (card[MERGE_HANDLER]) return;
+    if (![...card.querySelectorAll("button")].some(isMergeNavigationButton)) {
+      return;
+    }
+    const handler = (event) => {
+      const button = event.target?.closest?.("button");
+      if (
+        !button ||
+        !card.contains(button) ||
+        !isMergeNavigationButton(button) ||
+        !runtime.settings.get("taskMergeActions")
+      ) {
+        return;
+      }
+      const tasks = runtime.state.characterQuests ?? [];
+      const currentTask = liveTaskForCard(card, tasks);
+      const actionHrid = taskActionHrid(currentTask);
+      if (!actionHrid) return;
       const matching = tasks.filter(
         (task) => taskActionHrid(task) === actionHrid,
       );
+      if (!matching.length) return;
       runtime.state.pendingMergedTask = {
         actionHrid,
         count: matching.reduce((sum, task) => sum + taskRemaining(task), 0),
         taskCount: matching.length,
       };
-    });
+    };
+    card[MERGE_HANDLER] = handler;
+    card.dataset.mwitoolsMergeWired = "true";
+    card.addEventListener("click", handler, true);
   });
 }
 
@@ -1544,6 +1736,25 @@ function applyPendingMerge() {
 
 export function shouldRenderTaskMutations(records, now = Date.now()) {
   if (now < nativeResetChoiceUntil) return false;
+  const removedBackground = records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    return (
+      target?.isConnected &&
+      target?.closest?.(TASK_SELECTOR) &&
+      [...(record.removedNodes ?? [])].some(
+        (node) => node?.nodeType === 1 && node.matches?.(".mwi-task-bg"),
+      )
+    );
+  });
+  const addedBackground = records.some((record) =>
+    [...(record.addedNodes ?? [])].some(
+      (node) => node?.nodeType === 1 && node.matches?.(".mwi-task-bg"),
+    ),
+  );
+  if (removedBackground && !addedBackground) return true;
   return records.some((record) => {
     const target =
       record.target?.nodeType === 1
@@ -1573,7 +1784,7 @@ export function shouldRenderTaskMutations(records, now = Date.now()) {
   });
 }
 
-function taskRenderSignature(cards, tasks) {
+function taskRenderSignature(snapshots) {
   const settings = [
     runtime.config.isZH,
     runtime.settings.get("taskAutoSort"),
@@ -1584,22 +1795,19 @@ function taskRenderSignature(cards, tasks) {
     combatFilterEnabled,
     [...activeDungeonFilters].sort().join(","),
   ];
-  const rows = cards.map((card, index) => {
-    const task = tasks[index] ?? {};
+  const rows = snapshots.map((snapshot) => {
     return [
-      taskActionHrid(task) ?? "",
-      visibleTaskTitle(card),
-      String(card.textContent ?? "").match(
-        /(?:进度|progress)\s*[:：]\s*[\d,.]+\s*\/\s*[\d,.]+/i,
-      )?.[0] ?? "",
-      isCompletedCard(card, task) ? "1" : "0",
-      taskId(task),
+      snapshot.actionHrid,
+      snapshot.title,
+      snapshot.progress,
+      snapshot.completed ? "1" : "0",
+      snapshot.taskId,
     ].join("\u001f");
   });
   return [...settings, ...rows].join("\u001e");
 }
 
-function renderTasks({ forceSort = false } = {}) {
+function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
     applyPendingMerge();
@@ -1622,7 +1830,7 @@ function renderTasks({ forceSort = false } = {}) {
         runtime.state.mwitoolsPageNewTaskIds = new Set();
       }
     }
-    return;
+    return true;
   }
   const observedParent = cards[0]?.parentElement ?? null;
   const enteredNewTaskPage =
@@ -1649,12 +1857,25 @@ function renderTasks({ forceSort = false } = {}) {
     }
     taskListParent = observedParent;
   }
-  cards = cards.filter((card) => card.parentElement === taskListParent);
+  cards = cards.filter(
+    (card) => card.parentElement === taskListParent && isQuestTaskCard(card),
+  );
+  if (!cards.length) {
+    document
+      .querySelectorAll(".mwi-task-toolbar")
+      .forEach((node) => node.remove());
+    lastRenderedCards = [];
+    lastTaskRenderSignature = "";
+    applyPendingMerge();
+    return true;
+  }
   const tasks = runtime.state.characterQuests ?? [];
   const cardEntries = resolveTaskCards(cards, tasks, {
     taskActionHrid,
     taskRemaining,
+    allowReusedPositional,
   });
+  if (cardEntries.some((entry) => !entry.resolved)) return false;
   const cardTasks = cardEntries.map(({ task }) => task);
   assignStablePageSlots(cards, cardTasks);
   const newTaskSetChanged = syncPageNewTasks(
@@ -1662,7 +1883,10 @@ function renderTasks({ forceSort = false } = {}) {
     cardTasks,
     enteredNewTaskPage && !resumedTaskPage && !resumedResetPage,
   );
-  const signature = taskRenderSignature(cards, cardTasks);
+  const snapshots = cards.map((card, index) =>
+    taskCardSnapshot(card, cardTasks[index]),
+  );
+  const signature = taskRenderSignature(snapshots);
   const sameCards =
     cards.length === lastRenderedCards.length &&
     cards.every((card, index) => card === lastRenderedCards[index]);
@@ -1674,10 +1898,11 @@ function renderTasks({ forceSort = false } = {}) {
     sameCards &&
     actionDetails === lastActionDetails &&
     actionCategories === lastActionCategories &&
-    signature === lastTaskRenderSignature
+    signature === lastTaskRenderSignature &&
+    cardEntries.every(({ card, task }) => taskIconMatches(card, task))
   ) {
     applyPendingMerge();
-    return;
+    return true;
   }
 
   originalCards = [...cards];
@@ -1692,17 +1917,20 @@ function renderTasks({ forceSort = false } = {}) {
       delete card.dataset.mwitoolsLocation;
     }
   });
-  cards.forEach((card, index) => decorateCard(card, cardTasks[index]));
-  wireMergeButtons(cards, cardTasks);
+  if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
+  const rows = orderedRows(cards, cardTasks, snapshots);
+  rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
+  wireMergeButtons(cards);
   wireResetButtons(cards);
-  renderFlatTaskList(cards, cardTasks, {
+  renderFlatTaskList(rows, {
     sort: forceSort || sortOnEntry || newTaskSetChanged,
   });
   applyPendingMerge();
   lastRenderedCards = [...cards];
   lastActionDetails = actionDetails;
   lastActionCategories = actionCategories;
-  lastTaskRenderSignature = taskRenderSignature(cards, cardTasks);
+  lastTaskRenderSignature = signature;
+  return true;
 }
 
 function sortTasks() {
@@ -1717,12 +1945,15 @@ function cleanupTasks() {
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast",
     )
     .forEach((node) => node.remove());
-  document
-    .querySelectorAll("[data-mwitools-merge-wired],[data-mwitools-reset-wired]")
-    .forEach((node) => {
-      delete node.dataset.mwitoolsMergeWired;
-      delete node.dataset.mwitoolsResetWired;
-    });
+  document.querySelectorAll("[data-mwitools-merge-wired]").forEach((node) => {
+    const handler = node[MERGE_HANDLER];
+    if (handler) node.removeEventListener("click", handler, true);
+    delete node[MERGE_HANDLER];
+    delete node.dataset.mwitoolsMergeWired;
+  });
+  document.querySelectorAll("[data-mwitools-reset-wired]").forEach((node) => {
+    delete node.dataset.mwitoolsResetWired;
+  });
   document.getElementById(STYLE_ID)?.remove();
   originalCards = [];
   taskListParent = null;
@@ -1747,15 +1978,28 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     addStyles();
-    renderTasks();
     let active = true;
-    const renderScheduler = createFrameScheduler(renderTasks);
+    let settleRetries = 0;
+    let renderScheduler = null;
+    const render = () => {
+      const settled = renderTasks({
+        allowReusedPositional: false,
+      });
+      if (!settled && settleRetries < 3) {
+        settleRetries += 1;
+        renderScheduler.schedule();
+      } else {
+        settleRetries = 0;
+      }
+    };
+    renderScheduler = createFrameScheduler(render);
+    const scheduleRender = () => renderScheduler.schedule();
+    render();
     void loadTaskSpriteManifest().then(() => {
       if (!active) return;
       lastTaskRenderSignature = "";
-      renderTasks();
+      scheduleRender();
     });
-    const scheduleRender = () => renderScheduler.schedule();
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });

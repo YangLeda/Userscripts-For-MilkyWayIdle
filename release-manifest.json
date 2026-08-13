@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "latestVersion": "26.4.7",
-  "importantVersion": "26.4.7",
+  "latestVersion": "26.4.8",
+  "importantVersion": "26.4.8",
   "title": {
     "zh": "MWITools 有重要更新",
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "26.4.7 重要更新修复任务页礼物、未读提示与普通任务卡错位，并确保新任务全局置顶；同时包含多语言、生产购物清单、移动端显示与性能修复。建议前往 Greasy Fork 更新。",
-    "en": "The important 26.4.7 update fixes misaligned gift, unread-notice, and regular task cards and keeps all new tasks at the top. It also includes localization, production shopping-list, mobile display, and performance fixes. Update on Greasy Fork."
+    "zh": "26.4.8 重要更新修复配装切换后生产摘要、快捷输入和缺料提示消失、面板跳动或弹窗持续变高，新增代币资产、摘要显示模式、缺料隐藏和字号设置，并补充生产成本悬浮提示及装备价值排序。建议前往 Greasy Fork 更新。",
+    "en": "The important 26.4.8 update fixes production summaries, quick inputs, and shortage hints disappearing, shifting, or making the dialog grow continuously after loadout changes. It also adds token assets, summary and shortage display controls, font sizing, compact production costs, and equipment value sorting. Update on Greasy Fork."
   }
 }

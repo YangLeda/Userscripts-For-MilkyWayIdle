@@ -49,7 +49,7 @@ test("feedback image links only accept up to three HTTP(S) URLs", () => {
   assert.throws(() => normalizeImageLinks("not a url"), /格式/);
 });
 
-test("feedback button sits below total level and UI remains a singleton", () => {
+test("feedback button sits below total level and UI remains a singleton", async () => {
   const client = {
     list: async () => ({
       items: [],
@@ -88,6 +88,28 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     launcherStyle,
     /@media\(max-width:620px\)\{#mwitools-feedback-button\{font-size:9px\}/,
   );
+  assert.match(
+    launcherStyle,
+    /\.mwi-feedback-body\{min-height:0;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain/,
+  );
+  assert.match(
+    launcherStyle,
+    /\.mwi-feedback-field textarea\{min-height:105px;max-height:38vh;max-height:38dvh;field-sizing:content/,
+  );
+  assert.match(
+    launcherStyle,
+    /@media\(max-width:620px\).*\.mwi-feedback-modal\{max-height:calc\(100vh - 12px\);max-height:calc\(100dvh - 12px\)\}.*\.mwi-feedback-tabs\{flex:0 0 auto\}/,
+  );
+  document.body.style.overflow = "auto";
+  await panel.open();
+  assert.equal(document.body.style.overflow, "hidden");
+  panel.showTab("announcements");
+  const body = panel.root.querySelector(".mwi-feedback-body");
+  body.scrollTop = 120;
+  panel.renderAnnouncements();
+  assert.equal(body.scrollTop, 120);
+  panel.close();
+  assert.equal(document.body.style.overflow, "auto");
   runtime.config.isZH = false;
   panel.ensureButton();
   assert.equal(
@@ -359,22 +381,25 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves 26.4.6 separately from 26.4.7", () => {
+test("announcement history preserves each release separately through 26.4.8", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
+  const older = ANNOUNCEMENTS[2];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.7", "26.4.6"],
+    ["26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.7");
-  assert.equal(previous.version, "26.4.6");
-  assert.equal(previous.publishedAt, "2026-08-12");
+  assert.equal(current.version, "26.4.8");
+  assert.equal(previous.version, "26.4.7");
+  assert.equal(older.version, "26.4.6");
+  assert.equal(older.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(previous.body.zh.length, 20);
-  assert.equal(previous.body.en.length, 20);
-  assert.match(previous.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.equal(older.body.zh.length, 20);
+  assert.equal(older.body.en.length, 20);
+  assert.match(older.body.zh.join("\n"), /任务页改为平铺布局/);
   assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
-  assert.match(current.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(previous.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+  assert.match(current.body.zh.join("\n"), /炼金与强化/);
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

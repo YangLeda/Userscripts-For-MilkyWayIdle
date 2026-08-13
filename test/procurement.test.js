@@ -99,6 +99,90 @@ test("procurement computes direct shortages and recursive upgrade leaves", () =>
   );
 });
 
+test("upgrade chains use current tea output without purchasing the tea itself", () => {
+  const previous = {
+    skills: runtime.state.initData_characterSkills,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+    buffs: runtime.state.actionTypeBuffSources,
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/gourmet_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_itemDetailMap["/items/gourmet_tea"] = {
+    name: "Gourmet Tea",
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/gourmet", flatBoost: 1 }],
+    },
+  };
+
+  const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
+  assert.equal(chain.stages[1].count, 2);
+  assert.equal(
+    chain.leaves.find((material) => material.itemHrid === "/items/log")
+      .suggested,
+    4,
+  );
+  assert.equal(
+    chain.leaves.some((material) => material.itemHrid === "/items/gourmet_tea"),
+    false,
+  );
+
+  runtime.state.initData_characterSkills = previous.skills;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+  runtime.state.actionTypeBuffSources = previous.buffs;
+  delete runtime.state.initData_itemDetailMap["/items/gourmet_tea"];
+});
+
+test("upgrade chains buy an intermediate when current tea diverts all output", () => {
+  const previous = {
+    skills: runtime.state.initData_characterSkills,
+    slots: runtime.state.initData_actionTypeDrinkSlotsMap,
+    equipment: runtime.state.currentEquipmentMap,
+    buffs: runtime.state.actionTypeBuffSources,
+  };
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [{ itemHrid: "/items/processing_tea" }],
+  };
+  runtime.state.currentEquipmentMap = {};
+  runtime.state.actionTypeBuffSources = {};
+  runtime.state.initData_itemDetailMap["/items/processing_tea"] = {
+    name: "Processing Tea",
+    consumableDetail: {
+      buffs: [{ typeHrid: "/buff_types/processing", flatBoost: 1 }],
+    },
+  };
+  runtime.state.initData_actionDetailMap["/actions/crafting/board_lumber"] = {
+    hrid: "/actions/crafting/board_lumber",
+    type: "/action_types/crafting",
+    inputItems: [{ itemHrid: "/items/board", count: 1 }],
+    outputItems: [{ itemHrid: "/items/board_lumber", count: 1 }],
+  };
+
+  const chain = procurement.calculateUpgradeChain("/actions/crafting/final", 3);
+  assert.deepEqual(chain.unavailableOutputs, ["/items/board"]);
+  assert.equal(chain.stages.length, 1);
+  assert.equal(
+    chain.leaves.find((material) => material.itemHrid === "/items/board")
+      .suggested,
+    3,
+  );
+
+  runtime.state.initData_characterSkills = previous.skills;
+  runtime.state.initData_actionTypeDrinkSlotsMap = previous.slots;
+  runtime.state.currentEquipmentMap = previous.equipment;
+  runtime.state.actionTypeBuffSources = previous.buffs;
+  delete runtime.state.initData_itemDetailMap["/items/processing_tea"];
+  delete runtime.state.initData_actionDetailMap[
+    "/actions/crafting/board_lumber"
+  ];
+});
+
 test("non-back refinement upgrades remain purchasable", () => {
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/test_sword": {

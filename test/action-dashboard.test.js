@@ -117,7 +117,14 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     'div[class*="SkillActionDetail_actionContainer"]',
   );
   assert.ok(card);
-  assert.equal(controls.nextElementSibling, card);
+  assert.equal(
+    controls.nextElementSibling.classList.contains("mwi-production-extensions"),
+    true,
+  );
+  assert.equal(
+    card.closest(".mwi-production-extensions"),
+    controls.nextElementSibling,
+  );
   assert.match(card.textContent, /本次生产摘要/);
   assert.match(
     document.querySelector("#mwitools-action-dashboard-style").textContent,
@@ -164,7 +171,11 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   const extension = document.createElement("section");
   extension.dataset.mwitoolsProductionExtension = "true";
   extension.textContent = "shopping materials";
-  card.append(extension);
+  runtime.api.mountProductionModule(
+    card.closest("[class*=SkillActionDetail]") ?? card.parentElement,
+    extension,
+    "shortage",
+  );
   document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   ).value = "15000";
@@ -176,7 +187,9 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
   assert.match(card.textContent, /库存最多可做10/);
   assert.match(card.textContent, /本次总耗时1天1小时/);
   assert.equal(
-    card.querySelector('[data-mwitools-production-extension="true"]'),
+    card.parentElement.querySelector(
+      '[data-mwitools-production-extension="true"]:not(.mwi-production-extensions)',
+    ),
     extension,
     "production refreshes must preserve extension DOM without collapsing it",
   );
@@ -191,6 +204,7 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
     .querySelector('use[href*="items_sprite"]')
     .closest("svg");
   spriteHost.remove();
+  document.querySelector("#mwi-production-summary").remove();
   runtime.api.renderProductionPanel();
   const output = document.querySelector(".mwi-production-output-item");
   assert.equal(
@@ -276,6 +290,100 @@ test("disabled production summaries cannot be recreated by direct or quick-count
   runtime.settings.settingsMap.productionSummary.isTrue = true;
   runtime.api.renderProductionPanel();
   assert.ok(document.querySelector("#mwi-production-summary"));
+});
+
+test("production summary modes collapse, preserve expansion, expand, and turn off", async () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "5";
+  await runtime.settings.setPreference("productionSummaryMode", "collapsed", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  let card = document.querySelector("#mwi-production-summary");
+  assert.equal(card.dataset.expanded, "false");
+  assert.equal(card.querySelector(".mwi-production-card-body").hidden, true);
+  card.querySelector(".mwi-production-card-title").click();
+  assert.equal(card.dataset.expanded, "true");
+  input.value = "10";
+  runtime.api.renderProductionPanel();
+  assert.equal(card.dataset.expanded, "true");
+
+  await runtime.settings.setPreference("productionSummaryMode", "expanded", {
+    persist: false,
+  });
+  runtime.api.renderProductionPanel();
+  card = document.querySelector("#mwi-production-summary");
+  assert.equal(card.dataset.expanded, "true");
+  assert.equal(card.querySelector(".mwi-production-card-body").hidden, false);
+
+  await runtime.settings.setPreference("productionSummaryMode", "off", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = false;
+  runtime.api.renderProductionPanel();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+
+  await runtime.settings.setPreference("productionSummaryMode", "collapsed", {
+    persist: false,
+  });
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  input.value = "5";
+  runtime.api.renderProductionPanel();
+});
+
+test("replacing a loadout panel restores one stable set of production modules", () => {
+  const oldPanel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  oldPanel.hidden = true;
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__replacement";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__test">木板</div>
+    <div class="SkillActionDetail_actionContainer__test">
+      <div class="SkillActionDetail_maxActionCountInput__test"><input value=""></div>
+      <button class="SkillActionDetail_infiniteButton__test">∞</button>
+    </div>`;
+  oldPanel.parentElement.append(panel);
+
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  const context = runtime.api.resolveActiveProductionPanelContext();
+  assert.equal(context.panel, panel);
+  assert.equal(context.count, null);
+  assert.equal(panel.querySelectorAll(".mwi-production-extensions").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-quick-inputs").length,
+    1,
+  );
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  assert.equal(oldPanel.querySelector("#mwi-production-summary"), null);
+  assert.equal(oldPanel.querySelector(".mwi-production-quick-inputs"), null);
+  const mount = panel.querySelector(".mwi-production-extensions");
+  const styles = document.querySelector(
+    "#mwitools-action-dashboard-style",
+  ).textContent;
+  assert.match(
+    styles,
+    /\.mwi-production-extensions \{ display:contents!important; \}/,
+    "the logical mount must not become a stretchable layout box",
+  );
+  assert.match(
+    styles,
+    /\.mwi-production-extensions > \* \{ flex:0 0 auto!important;[^}]*height:auto!important; \}/,
+    "production modules must keep intrinsic height across repeated renders",
+  );
+  assert.equal(dom.window.getComputedStyle(mount).display, "contents");
+
+  panel.remove();
+  oldPanel.hidden = false;
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
 });
 
 test("production durations over one day use whole days, hours, and minutes", () => {
@@ -494,9 +602,115 @@ test("the top action bar keeps finish time on desktop and hides it on mobile", (
   assert.match(dashboardStyle, /flex-wrap:nowrap/);
   assert.match(
     dashboardStyle,
-    /@media\(max-width:520px\).*\.mwi-action-dashboard\{right:auto;width:max-content\}.*\.mwi-action-eta\{display:none\}/,
+    /\.mwi-action-dashboard \{[^}]*font-size:inherit/,
   );
-  assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
+  assert.match(
+    dashboardStyle,
+    /\.mwi-action-dashboard\[data-compact="true"\][^}]*width:max-content[^}]*padding-inline:4px/,
+  );
+  assert.match(
+    dashboardStyle,
+    /\.mwi-action-dashboard\[data-compact="true"\] \.mwi-action-eta \{ display:none; \}/,
+  );
+  assert.match(dashboardStyle, /\.mwi-action-dashboard \{[^}]*overflow:hidden/);
+  assert.match(
+    dashboardStyle,
+    /\.mwi-action-dashboard\[data-tight="true"\] \.mwi-action-time \{ display:none; \}/,
+  );
+});
+
+test("the top action bar drops finish time when its actual header space is narrow", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const nativeLabel = host.querySelector("span");
+  host.getBoundingClientRect = () => ({
+    left: 0,
+    right: 360,
+    width: 360,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 80 });
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.equal(dashboard.dataset.compact, "true");
+  assert.match(dashboard.textContent, /剩余/);
+  assert.match(dashboard.textContent, /还需/);
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+      .display,
+    "none",
+  );
+});
+
+test("a zero-width action-name box uses the current-action and queue boundaries", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const currentAction = host.closest('div[class*="Header_currentAction"]');
+  const actionsHost = currentAction.parentElement;
+  const nativeLabel = host.querySelector("span");
+  const queuedActions = document.createElement("button");
+  queuedActions.textContent = "+5 Queued Actions";
+  actionsHost.append(queuedActions);
+  Object.defineProperty(dom.window, "innerWidth", {
+    configurable: true,
+    value: 532,
+  });
+  host.getBoundingClientRect = () => ({ left: 21, right: 21, width: 0 });
+  currentAction.getBoundingClientRect = () => ({
+    left: 21,
+    right: 500,
+    width: 479,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 174, width: 153 });
+  queuedActions.getBoundingClientRect = () => ({
+    left: 430,
+    right: 497,
+    width: 67,
+  });
+  runtime.config.isZH = false;
+  nativeLabel.textContent = "Lumber";
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.match(dashboard.textContent, /Remaining/);
+  assert.equal(dashboard.dataset.compact, "true");
+  assert.equal(dashboard.dataset.tight, "false");
+  assert.equal(dashboard.style.left, "160px");
+  assert.equal(
+    dashboard.style.getPropertyValue("--mwi-action-dashboard-max-width"),
+    "243px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+      .display,
+    "none",
+  );
+  runtime.config.isZH = true;
+  nativeLabel.textContent = "木板";
+  queuedActions.remove();
+});
+
+test("an extremely narrow action header keeps only the remaining count", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const currentAction = host.closest('div[class*="Header_currentAction"]');
+  const nativeLabel = host.querySelector("span");
+  host.getBoundingClientRect = () => ({ left: 0, right: 0, width: 0 });
+  currentAction.getBoundingClientRect = () => ({
+    left: 0,
+    right: 230,
+    width: 230,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 80, width: 80 });
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.equal(dashboard.dataset.tight, "true");
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-time"))
+      .display,
+    "none",
+  );
 });
 
 test("the top action bar follows ordinal order and hides on header mismatch or combat", () => {
@@ -857,4 +1071,26 @@ test("the top action dashboard recognizes the current localized action name", ()
   runtime.api.renderActionDashboard();
   assert.ok(document.querySelector("#mwi-action-dashboard"));
   localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("unchanged production summaries reuse their DOM without mutations", () => {
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  localStorage.setItem("i18nextLng", "zh-CN");
+  document.querySelector('div[class*="SkillActionDetail_name"]').textContent =
+    "木板";
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "5";
+  runtime.api.renderProductionPanel();
+  const card = document.querySelector("#mwi-production-summary");
+  const firstChild = card.firstElementChild;
+  const observer = new dom.window.MutationObserver(() => {});
+  observer.observe(card, { attributes: true, childList: true, subtree: true });
+
+  runtime.api.renderProductionPanel();
+
+  assert.equal(card.firstElementChild, firstChild);
+  assert.equal(observer.takeRecords().length, 0);
+  observer.disconnect();
 });

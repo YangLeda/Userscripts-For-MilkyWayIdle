@@ -1,4 +1,5 @@
 import { runtime } from "../../core/runtime.js";
+import { createFrameScheduler } from "../../core/frame-scheduler.js";
 import { AnnouncementStore } from "./announcements.js";
 import { FeedbackClient } from "./client.js";
 import { OpinionCenterPanel } from "./panel.js";
@@ -35,9 +36,34 @@ runtime.features.register({
     };
     const ensure = () => panel.ensureButton();
     ensure();
-    scope.interval(ensure, 750);
+    const ensureScheduler = createFrameScheduler(ensure);
+    const MutationObserverRef =
+      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+    const observer = new MutationObserverRef((records) => {
+      const relevant = records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            !node.matches?.(
+              "#mwitools-feedback-root,#mwitools-feedback-button",
+            ) &&
+            (node.matches?.(
+              '[class*="Header_totalLevel"],[class*="totalLevel"]',
+            ) ||
+              node.querySelector?.(
+                '[class*="Header_totalLevel"],[class*="totalLevel"]',
+              )),
+        ),
+      );
+      if (relevant) ensureScheduler.schedule();
+    });
+    scope.observer(observer, document.body, {
+      childList: true,
+      subtree: true,
+    });
     schedule(1_500);
     scope.add(() => {
+      ensureScheduler.cancel();
       disposed = true;
       clearTimeout(timer);
       if (activeClient === client) activeClient = null;

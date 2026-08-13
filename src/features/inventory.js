@@ -24,6 +24,9 @@ function addInventorySummaryStyles() {
       line-height: var(--mwi-inventory-heading-line-height);
       text-align: left;
     }
+    [class*="Item_enhancementLevel"] ~ #script_stack_price {
+      margin-top: 15px;
+    }
     .mwi-inventory-summary-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
@@ -261,7 +264,7 @@ function addInventorySummaryStyles() {
       border-radius: 999px;
       background: rgba(230, 181, 79, .09);
       color: #e6c778;
-      font-size: .68rem;
+      font-size: calc(.6875rem * var(--mwi-ui-font-scale, 1));
       font-weight: 650;
       line-height: 1.25;
       letter-spacing: .015em;
@@ -361,6 +364,12 @@ function calculateInventoryCategoryValues() {
     if (
       item.itemHrid === "/items/cowbell" &&
       !runtime.api.shouldIncludeCowbellsInAssets()
+    ) {
+      continue;
+    }
+    if (
+      runtime.api.isOptionalTokenAsset?.(item.itemHrid) &&
+      !runtime.api.shouldIncludeGuildDungeonTokensInAssets?.()
     ) {
       continue;
     }
@@ -700,8 +709,7 @@ function getInventoryItemEnhancementLevel(itemElem) {
 }
 
 function isSortableInventoryCategory(typeName, categoryHrid = "") {
-  if (categoryHrid) return categoryHrid !== "/item_categories/equipment";
-  return !/^(?:Equipment|装备|裝備)$/iu.test(String(typeName ?? "").trim());
+  return Boolean(categoryHrid || String(typeName ?? "").trim());
 }
 
 async function addInvSortButton(invElem) {
@@ -1196,6 +1204,7 @@ async function addGuildCreditConversionsSortButton() {
 
 Object.assign(runtime.api, {
   calculateNetworth,
+  calculateInventoryCategoryValues,
   scheduleNetworthRefresh,
   addInventoryCategoryValues,
   getInventorySortUnitValue,

@@ -15,8 +15,8 @@ runtime.features.register({
       if (cleanupApplication) return;
       cleanupApplication = createDpsApplication(scope);
       scope.add(
-        runtime.onMessage("*", (_payload, rawMessage) => {
-          SocketHook.handleMessage(rawMessage);
+        runtime.onMessage("*", (payload) => {
+          SocketHook.handleMessage(payload);
         }),
       );
     };

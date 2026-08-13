@@ -19,6 +19,7 @@ globalThis.setInterval = (callback) => {
   return id;
 };
 globalThis.clearInterval = (id) => intervals.delete(id);
+const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
 runtime.config.isZH = true;
@@ -141,7 +142,7 @@ test("asset sharing provides separate Chinese and English profit/loss phrases", 
   assert.equal(document.activeElement, input);
 });
 
-test("盈亏 visually suppresses native selection without mutating React tab state", () => {
+test("盈亏 visually suppresses native selection without mutating React tab state", async () => {
   document.body.replaceChildren();
   intervals.clear();
   const shell = gameShell();
@@ -243,7 +244,7 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   tab.click();
   houseTab.setAttribute("aria-selected", "false");
   inventoryTab.setAttribute("aria-selected", "true");
-  for (const callback of intervals.values()) callback();
+  await settleDom();
   assert.equal(tab.dataset.active, "false");
   assert.equal(nativeContent.hidden, false);
 
@@ -306,7 +307,7 @@ test("mobile mounts P/L beside the visible character-management tabs", () => {
   });
 });
 
-test("mobile remounts P/L when a different character-management panel becomes visible", () => {
+test("mobile remounts P/L when a different character-management panel becomes visible", async () => {
   document.body.replaceChildren();
   intervals.clear();
   Object.defineProperty(window, "innerWidth", {
@@ -331,7 +332,7 @@ test("mobile remounts P/L when a different character-management panel becomes vi
     width: 356,
     height: 24,
   });
-  for (const callback of intervals.values()) callback();
+  await settleDom();
 
   const tab = document.querySelector("#mwitools-asset-history-tab");
   assert.equal(tab.parentElement, visibleMobileShell.querySelector("nav"));
@@ -356,7 +357,7 @@ test("mobile remounts P/L when a different character-management panel becomes vi
   });
 });
 
-test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", () => {
+test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", async () => {
   document.body.replaceChildren();
   intervals.clear();
   let shell = gameShell();
@@ -368,7 +369,7 @@ test("DOM rebuilds and repeated mounts never leave duplicate asset-history UI", 
   });
   shell.remove();
   shell = gameShell();
-  for (const callback of intervals.values()) callback();
+  await settleDom();
   assert.equal(
     document.querySelectorAll("#mwitools-asset-history-tab").length,
     1,
@@ -545,7 +546,7 @@ test("asset center keeps hidden component lines through live refreshes until clo
   }
 });
 
-test("asset center preserves tag form drafts during live snapshot updates", () => {
+test("asset center preserves management controls during live snapshot updates", () => {
   document.body.replaceChildren();
   localStorage.clear();
   const store = new AssetHistoryStore(localStorage);
@@ -566,6 +567,27 @@ test("asset center preserves tag form drafts during live snapshot updates", () =
     assert.equal(date.value, "2026-08-01");
     assert.equal(text.value, "尚未提交的标签");
     assert.equal(center.root.hidden, false);
+
+    center.root.querySelector('[data-route="settings"]').click();
+    const theme = center.root.querySelector('[data-setting="themeMode"]');
+    theme.value = "light";
+    theme.focus();
+    center.update({ values: { total: 23456 } });
+    assert.equal(
+      center.root.querySelector('[data-setting="themeMode"]'),
+      theme,
+    );
+    assert.equal(theme.value, "light");
+    assert.equal(document.activeElement, theme);
+
+    center.root.querySelector('[data-route="data"]').click();
+    const importMode = center.root.querySelector("[data-import-mode]");
+    importMode.value = "replace";
+    importMode.focus();
+    center.update({ values: { total: 34567 } });
+    assert.equal(center.root.querySelector("[data-import-mode]"), importMode);
+    assert.equal(importMode.value, "replace");
+    assert.equal(document.activeElement, importMode);
   } finally {
     center.destroy();
   }
