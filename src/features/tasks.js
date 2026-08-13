@@ -918,8 +918,9 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
       }
     });
     runtime.state.mwitoolsPageNewTaskIds = new Set();
-    return;
+    return false;
   }
+  const previousNewTaskIds = new Set(pageNewTaskIds);
   const freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []);
   const activeIds = new Set();
   cards.forEach((card, index) => {
@@ -954,6 +955,10 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
   runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
   const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
   if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
+  return (
+    previousNewTaskIds.size !== pageNewTaskIds.size ||
+    [...pageNewTaskIds].some((id) => !previousNewTaskIds.has(id))
+  );
 }
 
 function cleanupListDecorations({ restoreOrder = true } = {}) {
@@ -1651,7 +1656,7 @@ function renderTasks({ forceSort = false } = {}) {
   });
   const cardTasks = cardEntries.map(({ task }) => task);
   assignStablePageSlots(cards, cardTasks);
-  syncPageNewTasks(
+  const newTaskSetChanged = syncPageNewTasks(
     cards,
     cardTasks,
     enteredNewTaskPage && !resumedTaskPage && !resumedResetPage,
@@ -1690,7 +1695,7 @@ function renderTasks({ forceSort = false } = {}) {
   wireMergeButtons(cards, cardTasks);
   wireResetButtons(cards);
   renderFlatTaskList(cards, cardTasks, {
-    sort: forceSort || sortOnEntry,
+    sort: forceSort || sortOnEntry || newTaskSetChanged,
   });
   applyPendingMerge();
   lastRenderedCards = [...cards];

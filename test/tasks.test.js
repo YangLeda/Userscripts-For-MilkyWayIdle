@@ -671,6 +671,68 @@ test("new tasks sort first for one task-page visit without a group", () => {
   );
 });
 
+test("new tasks received on the current page move ahead of every category", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__live-new">
+      ${card("挤奶 - 奶牛", "0 / 20")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 水马", "0 / 10")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "known-milking", actionHrid: "/actions/milking/cow" },
+    { id: "known-fly", actionHrid: "/actions/combat/fly" },
+    { id: "known-aquahorse", actionHrid: "/actions/combat/aquahorse" },
+  ];
+  writeTaskNewState(taskNewStorageKey("tasks-test"), {
+    initialized: true,
+    known: new Set(runtime.state.characterQuests.map(({ id }) => id)),
+    fresh: new Set(),
+  });
+  runtime.settings.settingsMap.taskNewBadge.isTrue = true;
+  runtime.api.renderTasks();
+
+  const list = document.querySelector(".TasksPanel_taskList__live-new");
+  const cards = [...list.querySelectorAll(TASK_SELECTOR)];
+  cards[1].querySelector('div[class*="RandomTask_name"]').textContent =
+    "制作 - 木板";
+  cards[1].querySelector("div:nth-child(2)").textContent = "进度: 0 / 5";
+  cards[2].querySelector('div[class*="RandomTask_name"]').textContent =
+    "挤奶 - 奶牛";
+  cards[2].querySelector("div:nth-child(2)").textContent = "进度: 0 / 20";
+  runtime.state.characterQuests = [
+    { id: "known-milking", actionHrid: "/actions/milking/cow" },
+    { id: "fresh-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "fresh-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  writeTaskNewState(taskNewStorageKey("tasks-test"), {
+    initialized: true,
+    known: new Set(runtime.state.characterQuests.map(({ id }) => id)),
+    fresh: new Set(["fresh-crafting", "fresh-milking"]),
+  });
+
+  runtime.api.renderTasks();
+
+  const orderedIds = [...list.querySelectorAll(TASK_SELECTOR)]
+    .sort((left, right) => Number(left.style.order) - Number(right.style.order))
+    .map((taskCard) => taskCard.dataset.mwitoolsTaskId);
+  assert.deepEqual(orderedIds, [
+    "fresh-milking",
+    "fresh-crafting",
+    "known-milking",
+  ]);
+  assert.deepEqual(
+    [...list.querySelectorAll('[data-mwitools-task-state="new"]')]
+      .sort(
+        (left, right) => Number(left.style.order) - Number(right.style.order),
+      )
+      .map((taskCard) => taskCard.dataset.mwitoolsProfession),
+    ["milking", "crafting"],
+  );
+});
+
 test("dungeon counts overlap and filters keep native combat cards", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(

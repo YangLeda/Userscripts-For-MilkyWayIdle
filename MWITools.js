@@ -36863,8 +36863,9 @@ ${locks}` : ""}`;
         }
       });
       runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
-      return;
+      return false;
     }
+    const previousNewTaskIds = new Set(pageNewTaskIds);
     const freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []);
     const activeIds = /* @__PURE__ */ new Set();
     cards.forEach((card, index) => {
@@ -36899,6 +36900,7 @@ ${locks}` : ""}`;
     runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
     const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
     if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
+    return previousNewTaskIds.size !== pageNewTaskIds.size || [...pageNewTaskIds].some((id) => !previousNewTaskIds.has(id));
   }
   function cleanupListDecorations({ restoreOrder = true } = {}) {
     if (!taskListParent?.isConnected) return;
@@ -37490,7 +37492,7 @@ ${locks}` : ""}`;
     });
     const cardTasks = cardEntries.map(({ task }) => task);
     assignStablePageSlots(cards, cardTasks);
-    syncPageNewTasks(
+    const newTaskSetChanged = syncPageNewTasks(
       cards,
       cardTasks,
       enteredNewTaskPage && !resumedTaskPage && !resumedResetPage
@@ -37519,7 +37521,7 @@ ${locks}` : ""}`;
     wireMergeButtons(cards, cardTasks);
     wireResetButtons(cards);
     renderFlatTaskList(cards, cardTasks, {
-      sort: forceSort || sortOnEntry
+      sort: forceSort || sortOnEntry || newTaskSetChanged
     });
     applyPendingMerge();
     lastRenderedCards = [...cards];
@@ -38708,7 +38710,8 @@ ${locks}` : ""}`;
           "物品等级、市场筛选和地图编号改为按交互与数据消息刷新；DPS 启动器及收益、强化浮窗缩小观察范围，并移除高 GPU 占用的背景模糊。",
           "强化成本现在与生产收益和宝箱估算共用同一个自定义快捷键；桌面端按住触发，移动端长按触发。",
           "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。",
-          "生产购物清单现在默认补齐上一层成品与当前步骤材料，也可通过“所选链条”开关按勾选阶段补齐；有限次数的总产出、耗时和利润不再被当前库存截断，无限次数且无库存时会明确显示为 0。"
+          "生产购物清单现在默认补齐上一层成品与当前步骤材料，也可通过“所选链条”开关按勾选阶段补齐；有限次数的总产出、耗时和利润不再被当前库存截断，无限次数且无库存时会明确显示为 0。",
+          "任务页在当前页面刷新出新任务时，会立即将所有新任务置顶，再按专业和战斗分类排序；普通进度刷新继续保持卡片位置稳定。"
         ]),
         en: Object.freeze([
           "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
@@ -38723,7 +38726,8 @@ ${locks}` : ""}`;
           "Item levels, market filters, and map indexes now refresh on interactions and data messages. DPS launcher and estimate-panel observers are narrower, and expensive backdrop blur was removed.",
           "Enhancement costs now share the same custom shortcut as production profit and loot chest estimates: hold the key on desktop or long-press on touch devices.",
           "Release announcements are stored separately by version again, so the 26.4.6 history is no longer mixed into this release.",
-          "Production shopping lists now default to the direct predecessor and current-step materials, with a “Selected chain” switch for the checked stages. Finite totals are no longer capped by current inventory, while infinite production with no stock now clearly shows zero."
+          "Production shopping lists now default to the direct predecessor and current-step materials, with a “Selected chain” switch for the checked stages. Finite totals are no longer capped by current inventory, while infinite production with no stock now clearly shows zero.",
+          "When new tasks arrive on the current task page, all new tasks now move to the top before profession and combat sorting. Ordinary progress refreshes continue to keep card positions stable."
         ])
       })
     }),
