@@ -470,6 +470,13 @@ let settingsMap = {
       : "Show XP rates on standard leaderboards.",
     isTrue: true,
   },
+  leaderboardBadgeGlint: {
+    id: "leaderboardBadgeGlint",
+    desc: isZH
+      ? "前五名排行榜徽章显示扫光与闪光"
+      : "Animate top-five leaderboard badges with a sweep and glint.",
+    isTrue: false,
+  },
   forceMWIToolsDisplayZH: {
     id: "forceMWIToolsDisplayZH",
     desc: isZH ? "MWITools 强制显示中文" : "Always display MWITools in Chinese",
@@ -1071,6 +1078,14 @@ const catalogRows = [
     "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order.",
   ],
   [
+    "leaderboardBadgeGlint",
+    "leaderboard",
+    "前五名徽章闪光",
+    "Top-five badge glint",
+    "开启后，前五名彩色徽章会用一秒横扫白光、一秒右上角呼吸闪光和三秒停顿组成循环；默认关闭。",
+    "When enabled, top-five rainbow badges loop through a one-second white sweep, a one-second upper-right breathing glint, and a three-second pause. Off by default.",
+  ],
+  [
     "guildCreditConversionsSort",
     "guild",
     "公会信用兑换性价比推荐",
@@ -1156,6 +1171,7 @@ const settingParents = {
   guildMemberXp: "guildXpTracking",
   guildLeaderboardXp: "guildXpTracking",
   guildIdleMembers: "guildOverview",
+  leaderboardBadgeGlint: "leaderboardOverlay",
 };
 
 for (const [id, parent] of Object.entries(settingParents)) {

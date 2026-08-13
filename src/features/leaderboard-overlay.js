@@ -151,10 +151,10 @@ function ensureStyles(documentRef) {
     .mwi-lb-badge-icon{display:block;flex:none;width:11px;height:11px;object-fit:contain}
     .mwi-lb-badge--rainbow{border-color:transparent;color:#f8fbff;background:linear-gradient(rgba(12,16,28,.9),rgba(12,16,28,.9)) padding-box,linear-gradient(105deg,#ff5f6d,#ffd166,#67e8a5,#5cb8ff,#c77dff,#ff6ec7) border-box;box-shadow:0 0 7px rgba(121,190,255,.48),0 0 3px rgba(255,103,199,.34),inset 0 0 3px rgba(255,255,255,.14)}
     .mwi-lb-badge--top-five{position:relative;overflow:hidden;isolation:isolate}
-    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);filter:blur(.35px);transform:skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 7.8s ease-in-out infinite}
-    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);filter:blur(.25px);opacity:0;animation:mwi-lb-badge-corner-glint 7.8s ease-in-out infinite}
-    @keyframes mwi-lb-badge-light-sweep{0%,12%{left:-70%;opacity:0}16%{opacity:.28}32%{left:128%;opacity:.96}38%,100%{left:128%;opacity:0}}
-    @keyframes mwi-lb-badge-corner-glint{0%,33%,100%{opacity:0;transform:scale(.45)}37%{opacity:1;transform:scale(1.15)}42%{opacity:.34;transform:scale(.82)}47%{opacity:0;transform:scale(.55)}}
+    .mwi-lb-badge--top-five::before{content:"";position:absolute;z-index:2;inset:-35% auto -35% -70%;width:42%;pointer-events:none;background:linear-gradient(105deg,transparent 0%,rgba(255,255,255,.04) 24%,rgba(255,255,255,.92) 50%,rgba(255,255,255,.08) 76%,transparent 100%);filter:blur(.35px);transform:skewX(-18deg);opacity:0;animation:mwi-lb-badge-light-sweep 5s ease-in-out infinite}
+    .mwi-lb-badge--top-five::after{content:"";position:absolute;z-index:3;top:-1px;right:-1px;width:8px;height:8px;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 70% 25%,rgba(255,255,255,1) 0%,rgba(255,255,255,.88) 12%,rgba(174,225,255,.42) 36%,transparent 72%);filter:blur(.25px);opacity:0;animation:mwi-lb-badge-corner-glint 5s ease-in-out infinite}
+    @keyframes mwi-lb-badge-light-sweep{0%{left:-70%;opacity:0}3%{opacity:.28}18%{left:128%;opacity:.96}20%,100%{left:128%;opacity:0}}
+    @keyframes mwi-lb-badge-corner-glint{0%,20%,40%,100%{opacity:0;transform:scale(.45)}30%{opacity:1;transform:scale(1.15)}}
     @media (prefers-reduced-motion:reduce){.mwi-lb-badge--top-five::before,.mwi-lb-badge--top-five::after{animation:none;opacity:0}}
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
@@ -233,6 +233,7 @@ function createOverlay(options = {}) {
     destroyed: false,
     showBadges: options.showBadges !== false,
     showRates: options.showRates !== false,
+    showEffects: options.showEffects === true,
   };
 
   ensureStyles(documentRef);
@@ -372,7 +373,7 @@ function createOverlay(options = {}) {
       container.replaceChildren(
         ...visibleBadges.map((item) => {
           const badge = documentRef.createElement("span");
-          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
+          badge.className = `mwi-lb-badge mwi-lb-badge--${item.tier}${state.showEffects && item.rank <= 5 ? " mwi-lb-badge--top-five" : ""}`;
           const icon = createBadgeIcon(documentRef, item.category, iconBaseUrl);
           badge.append(icon, documentRef.createTextNode(String(item.rank)));
           const label = categoryLabel(item.label, item.category);
@@ -516,13 +517,19 @@ function createOverlay(options = {}) {
       removeRateColumn();
       state.currentLeaderboard = null;
     },
-    setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
+    setDisplay({
+      badges = state.showBadges,
+      rates = state.showRates,
+      effects = state.showEffects,
+    } = {}) {
       const nextBadges = Boolean(badges);
       const nextRates = Boolean(rates);
+      const nextEffects = Boolean(effects);
       if (state.showBadges && !nextBadges) removeBadges();
       if (state.showRates && !nextRates) removeRateColumn();
       state.showBadges = nextBadges;
       state.showRates = nextRates;
+      state.showEffects = nextEffects;
       scheduleRefresh();
     },
     destroy() {
@@ -545,6 +552,7 @@ function create(options = {}) {
   let display = {
     badges: options.showBadges !== false,
     rates: options.showRates !== false,
+    effects: options.showEffects === true,
   };
   const allowedCategories = new Set(
     (Array.isArray(options.categories) && options.categories.length
@@ -559,6 +567,7 @@ function create(options = {}) {
       ...options,
       showBadges: display.badges,
       showRates: display.rates,
+      showEffects: display.effects,
     });
     if (rankings) instance.setRankings(rankings);
     if (leaderboard) instance.enhanceLeaderboard(leaderboard);
@@ -598,6 +607,7 @@ function create(options = {}) {
       display = {
         badges: next.badges ?? display.badges,
         rates: next.rates ?? display.rates,
+        effects: next.effects ?? display.effects,
       };
       instance?.setDisplay(display);
     },
@@ -794,6 +804,7 @@ function integratedDisplay() {
   return {
     badges: integratedModes.has("badges"),
     rates: integratedModes.has("rates"),
+    effects: integratedModes.has("effects"),
   };
 }
 
@@ -912,6 +923,14 @@ runtime.features.register({
   setting: "leaderboardXpRate",
   initialize() {
     return activateIntegratedMode("rates");
+  },
+});
+
+runtime.features.register({
+  id: "leaderboardBadgeGlint",
+  setting: "leaderboardBadgeGlint",
+  initialize() {
+    return activateIntegratedMode("effects");
   },
 });
 

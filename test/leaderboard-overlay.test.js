@@ -387,10 +387,10 @@ test("profile names show every badge on an independent second row", async () => 
   overlay.destroy();
 });
 
-test("top-five rainbow badges sweep slowly then glint and respect reduced motion", async () => {
+test("top-five rainbow badges sweep for one second, glint for one, then pause", async () => {
   document.body.innerHTML = `
     <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
-  const overlay = create({ document });
+  const overlay = create({ document, showEffects: true });
   overlay.setRankings({
     total_level: { rows: [{ characterName: "Alice", rank: 5 }] },
     stamina: { rows: [{ characterName: "Alice", rank: 6 }] },
@@ -403,11 +403,38 @@ test("top-five rainbow badges sweep slowly then glint and respect reduced motion
   const styles = document.getElementById(
     "mwi-leaderboard-overlay-style",
   ).textContent;
-  assert.match(styles, /::before[^}]*mwi-lb-badge-light-sweep 7\.8s/);
-  assert.match(styles, /::after[^}]*mwi-lb-badge-corner-glint 7\.8s/);
-  assert.match(styles, /32%\{left:128%;opacity:\.96\}/);
-  assert.match(styles, /37%\{opacity:1;transform:scale\(1\.15\)\}/);
+  assert.match(styles, /::before[^}]*mwi-lb-badge-light-sweep 5s/);
+  assert.match(styles, /::after[^}]*mwi-lb-badge-corner-glint 5s/);
+  assert.match(styles, /18%\{left:128%;opacity:\.96\}20%,100%/);
+  assert.match(styles, /0%,20%,40%,100%\{opacity:0/);
+  assert.match(styles, /30%\{opacity:1;transform:scale\(1\.15\)\}/);
   assert.match(styles, /prefers-reduced-motion:reduce/);
+  overlay.destroy();
+});
+
+test("top-five badge effects are disabled by default and can be toggled", async () => {
+  document.body.innerHTML = `
+    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
+  const overlay = create({ document });
+  overlay.setRankings({
+    total_level: { rows: [{ characterName: "Alice", rank: 1 }] },
+  });
+  await settle();
+
+  assert.equal(
+    document
+      .querySelector(".mwi-lb-badge")
+      .classList.contains("mwi-lb-badge--top-five"),
+    false,
+  );
+  overlay.setDisplay({ effects: true });
+  await settle();
+  assert.equal(
+    document
+      .querySelector(".mwi-lb-badge")
+      .classList.contains("mwi-lb-badge--top-five"),
+    true,
+  );
   overlay.destroy();
 });
 
