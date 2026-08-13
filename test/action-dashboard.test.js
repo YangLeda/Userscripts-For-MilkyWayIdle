@@ -990,6 +990,59 @@ test("equipment warnings float below community buffs without moving action conte
   assert.equal(nativeName.outerHTML, nativeMarkup);
 });
 
+test("every skilling equipment reminder uses the current game item HRID", () => {
+  const previousItems = runtime.state.initData_characterItems;
+  const previousActions = runtime.state.currentActionsHridList;
+  const previousEquipment = runtime.state.currentEquipmentMap;
+  const cases = [
+    {
+      actionHrid: "/actions/cooking/test",
+      itemHrid: "/items/red_culinary_hat",
+      locationHrid: "/item_locations/head",
+    },
+    {
+      actionHrid: "/actions/crafting/test",
+      itemHrid: "/items/eye_watch",
+      locationHrid: "/item_locations/off_hand",
+    },
+    {
+      actionHrid: "/actions/woodcutting/test",
+      itemHrid: "/items/collectors_boots",
+      locationHrid: "/item_locations/feet",
+    },
+    {
+      actionHrid: "/actions/enhancing",
+      itemHrid: "/items/enchanted_gloves",
+      locationHrid: "/item_locations/hands",
+    },
+  ];
+
+  try {
+    runtime.state.labyrinthActive = false;
+    for (const { actionHrid, itemHrid, locationHrid } of cases) {
+      runtime.state.currentActionsHridList = [{ actionHrid }];
+      runtime.state.initData_characterItems = [
+        {
+          itemHrid,
+          itemLocationHrid: "/item_locations/inventory",
+          count: 1,
+        },
+      ];
+      runtime.state.currentEquipmentMap = {};
+      assert.equal(runtime.api.getEquipmentWarning()?.itemHrid, itemHrid);
+
+      runtime.state.currentEquipmentMap = {
+        [locationHrid]: { itemHrid, itemLocationHrid: locationHrid, count: 1 },
+      };
+      assert.equal(runtime.api.getEquipmentWarning(), null);
+    }
+  } finally {
+    runtime.state.initData_characterItems = previousItems;
+    runtime.state.currentActionsHridList = previousActions;
+    runtime.state.currentEquipmentMap = previousEquipment;
+  }
+});
+
 test("every localized skilling action resolves to its canonical action HRID", () => {
   const skillingPrefixes = [
     "/actions/milking/",

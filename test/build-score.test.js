@@ -272,6 +272,73 @@ test("all refined and non-refined cape states contribute to equipped score", () 
   runtime.api.getAssetValue = originalGetAssetValue;
 });
 
+test("all equipment reminder items contribute to skilling equipment score", () => {
+  const reminderItems = [
+    [
+      "/items/red_culinary_hat",
+      "/item_locations/head",
+      { cookingEfficiency: 0.1, brewingEfficiency: 0.1 },
+      10_000_000,
+    ],
+    [
+      "/items/eye_watch",
+      "/item_locations/off_hand",
+      { craftingEfficiency: 0.1 },
+      20_000_000,
+    ],
+    [
+      "/items/collectors_boots",
+      "/item_locations/feet",
+      { woodcuttingEfficiency: 0.1 },
+      30_000_000,
+    ],
+    [
+      "/items/enchanted_gloves",
+      "/item_locations/hands",
+      { enhancingSpeed: 0.1 },
+      40_000_000,
+    ],
+  ];
+
+  for (const [itemHrid, , noncombatStats, fairValue] of reminderItems) {
+    runtime.state.initData_itemDetailMap[itemHrid] = {
+      equipmentDetail: {
+        combatStats: {},
+        noncombatStats,
+        combatEnhancementBonuses: {},
+        noncombatEnhancementBonuses: {},
+      },
+    };
+    runtime.state.marketItemValues[itemHrid] = { 0: fairValue };
+  }
+
+  try {
+    const items = reminderItems.map(([itemHrid, itemLocationHrid]) => ({
+      itemHrid,
+      itemLocationHrid,
+      enhancementLevel: 0,
+      count: 1,
+    }));
+    assert.deepEqual(runtime.api.calculateGearScores(items), {
+      combatEquipment: 0,
+      skillingTools: 0,
+      skillingEquipment: 100,
+    });
+    for (const item of items) {
+      assert.deepEqual(runtime.api.classifyEquippedItem(item), {
+        isTool: false,
+        isCombat: false,
+        isSkilling: true,
+      });
+    }
+  } finally {
+    for (const [itemHrid] of reminderItems) {
+      delete runtime.state.initData_itemDetailMap[itemHrid];
+      delete runtime.state.marketItemValues[itemHrid];
+    }
+  }
+});
+
 test("combat and skilling houses are dynamic while all houses remain fixed assets", async () => {
   const houseScores = await runtime.api.calculateHouseScores(
     runtime.state.initData_characterHouseRoomMap,

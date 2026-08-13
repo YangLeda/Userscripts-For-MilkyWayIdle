@@ -820,7 +820,7 @@ function getEquipmentWarning() {
   if (!currentActionHrid) return null;
   const hasHat =
     runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid ===
-    "/items/red_chefs_hat"
+    "/items/red_culinary_hat"
       ? true
       : false; // Cooking, Brewing
   const hasOffHand =
@@ -852,10 +852,10 @@ function getEquipmentWarning() {
     currentActionHrid.includes("/actions/cooking/") ||
     currentActionHrid.includes("/actions/brewing/")
   ) {
-    if (!hasHat && hasItemHridInInv("/items/red_chefs_hat")) {
+    if (!hasHat && hasItemHridInInv("/items/red_culinary_hat")) {
       return {
         code: "missing-production-hat",
-        itemHrid: "/items/red_chefs_hat",
+        itemHrid: "/items/red_culinary_hat",
         text: runtime.config.isZH
           ? "未装备生活帽"
           : "Skilling hat not equipped",

@@ -46342,7 +46342,7 @@ ${locks}` : ""}`;
     if (runtime.state.labyrinthActive) return null;
     const currentActionHrid = runtime.state.currentActionsHridList?.[0]?.actionHrid;
     if (!currentActionHrid) return null;
-    const hasHat = runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid === "/items/red_chefs_hat" ? true : false;
+    const hasHat = runtime.state.currentEquipmentMap["/item_locations/head"]?.itemHrid === "/items/red_culinary_hat" ? true : false;
     const hasOffHand = runtime.state.currentEquipmentMap["/item_locations/off_hand"]?.itemHrid === "/items/eye_watch" ? true : false;
     const hasBoot = runtime.state.currentEquipmentMap["/item_locations/feet"]?.itemHrid === "/items/collectors_boots" ? true : false;
     const hasGlove = runtime.state.currentEquipmentMap["/item_locations/hands"]?.itemHrid === "/items/enchanted_gloves" ? true : false;
@@ -46354,10 +46354,10 @@ ${locks}` : ""}`;
         };
       }
     } else if (currentActionHrid.includes("/actions/cooking/") || currentActionHrid.includes("/actions/brewing/")) {
-      if (!hasHat && hasItemHridInInv("/items/red_chefs_hat")) {
+      if (!hasHat && hasItemHridInInv("/items/red_culinary_hat")) {
         return {
           code: "missing-production-hat",
-          itemHrid: "/items/red_chefs_hat",
+          itemHrid: "/items/red_culinary_hat",
           text: runtime.config.isZH ? "未装备生活帽" : "Skilling hat not equipped"
         };
       }
