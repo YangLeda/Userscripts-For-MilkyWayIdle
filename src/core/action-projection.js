@@ -772,7 +772,12 @@ function projectAction(actionOrHrid, requestedCount, context = {}) {
 
   const canApplyInventoryLimit =
     respectInventoryLimit &&
-    (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
+    (Boolean(alchemyCapacity) ||
+      !(
+        infinite &&
+        maxCraftable === 0 &&
+        context.respectInventoryLimit !== true
+      ));
   const executableCount = canApplyInventoryLimit
     ? Math.min(normalizedCount, maxCraftable)
     : normalizedCount;

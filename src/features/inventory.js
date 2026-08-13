@@ -1,6 +1,7 @@
 import { runtime } from "../core/runtime.js";
 import {
   getLocalizedEntityName,
+  matchesGameTranslations,
   resolveEntityFromElement,
 } from "../core/game-localization.js";
 
@@ -616,9 +617,12 @@ async function calculateNetworth(options = {}) {
       if (selectedTab.id === "mwitools-asset-history-tab") return false;
       if (selectedTab.dataset.mwiCreditTab === "true") return false;
       if (selectedTab.classList.contains("income-tab")) return false;
-      const text = selectedTab.textContent || "";
       if (
-        !/库存|Inventory/i.test(text) &&
+        !matchesGameTranslations(
+          "characterManagement.inventory",
+          selectedTab.textContent,
+          { fallbackPatterns: [/^(?:库存|Inventory)$/i] },
+        ) &&
         !selectedTab.querySelector('[class*="Inventory"]')
       ) {
         return false;
@@ -695,8 +699,9 @@ function getInventoryItemEnhancementLevel(itemElem) {
   return Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
 }
 
-function isSortableInventoryCategory(typeName) {
-  return typeName !== "Equipment";
+function isSortableInventoryCategory(typeName, categoryHrid = "") {
+  if (categoryHrid) return categoryHrid !== "/item_categories/equipment";
+  return !/^(?:Equipment|装备|裝備)$/iu.test(String(typeName ?? "").trim());
 }
 
 async function addInvSortButton(invElem) {
@@ -795,7 +800,11 @@ async function addInvSortButton(invElem) {
         runtime.api.getOriTextFromElement?.(categoryButton) ??
         categoryButton?.textContent ??
         "";
-      if (!isSortableInventoryCategory(typeName)) {
+      const categoryHrid = resolveInventoryCategoryHrid(
+        typeDiv,
+        categoryButton,
+      );
+      if (!isSortableInventoryCategory(typeName, categoryHrid)) {
         continue;
       }
 

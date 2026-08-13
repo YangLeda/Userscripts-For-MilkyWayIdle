@@ -123,6 +123,10 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     document.querySelector("#mwitools-action-dashboard-style").textContent,
     /grid-template-columns:repeat\(auto-fit,minmax\(min\(100%,110px\),1fr\)\)/,
   );
+  assert.match(
+    document.querySelector("#mwitools-action-dashboard-style").textContent,
+    /@media\(max-width:520px\).*mwi-production-metrics,.mwi-production-output-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/,
+  );
   const output = card.querySelector(".mwi-production-output-item");
   assert.ok(output);
   assert.match(
@@ -165,6 +169,12 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   ).value = "15000";
   runtime.api.renderProductionPanel();
+  assert.match(
+    card.querySelector(".mwi-production-output-item").title,
+    /木板 ×15,000/,
+  );
+  assert.match(card.textContent, /库存最多可做10/);
+  assert.match(card.textContent, /本次总耗时1天1小时/);
   assert.equal(
     card.querySelector('[data-mwitools-production-extension="true"]'),
     extension,
@@ -233,11 +243,39 @@ test("infinite production summaries use inventory capacity and expose a native-s
   logItem.count = 0;
   input.value = "∞";
   runtime.api.renderProductionPanel();
-  assert.match(card.textContent, /本次总耗时∞/);
-  assert.match(card.textContent, /本次总净利润∞/);
+  assert.match(card.textContent, /预期总产出.*木板.*×0/s);
+  assert.match(card.textContent, /本次总耗时0s/);
+  assert.match(card.textContent, /本次总净利润0/);
   assert.equal(maxButton.disabled, true);
   logItem.count = 20;
   input.value = "5";
+});
+
+test("disabled production summaries cannot be recreated by direct or quick-count renders", () => {
+  const input = document.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  );
+  input.value = "∞";
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  assert.ok(document.querySelector("#mwi-production-summary"));
+  assert.ok(document.querySelector(".mwi-max-action-button"));
+
+  runtime.settings.settingsMap.productionSummary.isTrue = false;
+  runtime.api.renderProductionPanel();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+  assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.api.renderProductionQuickInputs();
+  document
+    .querySelector('#quickInputCountButtons [data-quick-value="10"]')
+    .click();
+  assert.equal(document.querySelector("#mwi-production-summary"), null);
+  assert.equal(document.querySelector(".mwi-max-action-button"), null);
+
+  runtime.settings.settingsMap.productionSummary.isTrue = true;
+  runtime.api.renderProductionPanel();
+  assert.ok(document.querySelector("#mwi-production-summary"));
 });
 
 test("production durations over one day use whole days, hours, and minutes", () => {
@@ -400,7 +438,25 @@ test("combat dialogs never render the production summary", () => {
   assert.equal(document.querySelector("#mwi-production-summary"), null);
 });
 
-test("the top action bar shows only current-action count, time left, and finish time", () => {
+test("nameless action panels are ignored without reading a missing element", () => {
+  const original = runtime.api.getOriTextFromElement;
+  let sawMissing = false;
+  runtime.api.getOriTextFromElement = (element) => {
+    if (!element) sawMissing = true;
+    return element?.textContent ?? "";
+  };
+  try {
+    const panel = document.createElement("div");
+    panel.className = "SkillActionDetail_regularComponent__test";
+    assert.equal(runtime.api.resolveProductionAction(panel), null);
+    assert.equal(runtime.api.resolveProductionAction(null), null);
+    assert.equal(sawMissing, false);
+  } finally {
+    runtime.api.getOriTextFromElement = original;
+  }
+});
+
+test("the top action bar keeps finish time on desktop and hides it on mobile", () => {
   runtime.state.currentActionsHridList = [
     {
       actionHrid: "/actions/crafting/lumber",
@@ -423,6 +479,7 @@ test("the top action bar shows only current-action count, time left, and finish 
   assert.match(dashboard.textContent, /还需 53s/);
   assert.match(dashboard.textContent, /预计完成/);
   assert.doesNotMatch(dashboard.textContent, /利润|全部完成|999/);
+  assert.equal(dashboard.querySelector(".mwi-action-eta")?.tagName, "STRONG");
   assert.equal(dashboard.children.length, 1);
   assert.equal(
     document
@@ -434,7 +491,11 @@ test("the top action bar shows only current-action count, time left, and finish 
   const dashboardStyle = document.querySelector(
     "#mwitools-action-dashboard-style",
   ).textContent;
-  assert.match(dashboardStyle, /flex-wrap:wrap/);
+  assert.match(dashboardStyle, /flex-wrap:nowrap/);
+  assert.match(
+    dashboardStyle,
+    /@media\(max-width:520px\).*\.mwi-action-dashboard\{right:auto;width:max-content\}.*\.mwi-action-eta\{display:none\}/,
+  );
   assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
 });
 
@@ -605,8 +666,33 @@ test("enhancement actions use the finite amount shown in the native header", () 
   const dashboard = document.querySelector("#mwi-action-dashboard");
   assert.match(dashboard.textContent, /剩余 2\.94K/);
   assert.doesNotMatch(dashboard.textContent, /∞/);
-  assert.doesNotMatch(dashboard.textContent, /预计完成 —/);
+  assert.match(dashboard.textContent, /预计完成/);
   assert.match(dashboard.querySelector("span").title, /强化栏/);
+});
+
+test("unenhanced items and trailing warnings keep enhancement estimates visible", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren();
+  const nativeName = document.createElement("span");
+  nativeName.textContent = "骑士盾（2937）";
+  const warning = document.createElement("span");
+  warning.id = "script_item_warning";
+  warning.textContent = "缺少强化手套";
+  host.append(nativeName, warning);
+  runtime.state.currentActionsHridList = [
+    {
+      actionHrid: "/actions/enhancing",
+      hasMaxCount: false,
+      maxCount: 0,
+    },
+  ];
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.ok(dashboard);
+  assert.match(dashboard.textContent, /剩余 2\.94K/);
+  assert.doesNotMatch(dashboard.textContent, /∞|预计完成 —/);
 });
 
 test("equipment warnings float below community buffs without moving action content", () => {
@@ -750,5 +836,25 @@ test("action resolution follows the game's i18nextLng setting", () => {
     "/actions/crafting/lumber",
   );
 
+  localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("the top action dashboard recognizes the current localized action name", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  host.replaceChildren(
+    Object.assign(document.createElement("span"), { textContent: "Madera" }),
+  );
+  runtime.state.currentActionsHridList = [
+    {
+      ordinal: 1,
+      actionHrid: "/actions/crafting/lumber",
+      hasMaxCount: true,
+      maxCount: 6,
+      currentCount: 0,
+    },
+  ];
+  localStorage.setItem("i18nextLng", "es");
+  runtime.api.renderActionDashboard();
+  assert.ok(document.querySelector("#mwi-action-dashboard"));
   localStorage.setItem("i18nextLng", "zh-CN");
 });

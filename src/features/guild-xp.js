@@ -394,24 +394,26 @@ function findGuildOverviewHost() {
   );
   if (!guildPanel) return null;
 
-  const tabList = guildPanel.querySelector('[role="tablist"]');
-  const tabs = [...(tabList?.querySelectorAll('[role="tab"]') ?? [])];
-  const overviewTab =
-    tabs.find((tab) =>
-      /^(概览|overview)$/i.test(tab.textContent?.trim() ?? ""),
-    ) ?? tabs[0];
-  const ariaSelected = overviewTab?.getAttribute("aria-selected");
-  const overviewSelected =
-    ariaSelected !== null && ariaSelected !== undefined
-      ? ariaSelected === "true"
-      : overviewTab?.classList.contains("Mui-selected") ||
-        overviewTab?.getAttribute("tabindex") === "0";
-  if (!overviewSelected) return null;
-
   const host = guildPanel.querySelector('[class*="GuildPanel_overviewTab"]');
   const tabPanel = host?.closest('[class*="TabPanel_tabPanel"]');
+  const tabPanels = [
+    ...guildPanel.querySelectorAll('[class*="TabPanel_tabPanel"]'),
+  ];
+  const tabs = [
+    ...guildPanel.querySelectorAll('[role="tablist"] [role="tab"]'),
+  ];
+  const panelIndex = tabPanels.indexOf(tabPanel);
+  const overviewTab = panelIndex >= 0 ? tabs[panelIndex] : null;
+  const ariaSelected = overviewTab?.getAttribute("aria-selected");
+  const overviewSelected = overviewTab
+    ? ariaSelected !== null
+      ? ariaSelected === "true"
+      : overviewTab.classList.contains("Mui-selected") ||
+        overviewTab.getAttribute("tabindex") === "0"
+    : true;
   if (
     !host ||
+    !overviewSelected ||
     tabPanel?.hidden ||
     tabPanel?.className.includes("TabPanel_hidden")
   ) {
@@ -524,6 +526,7 @@ function appendRateColumns(table, rows, kind, parentId = "") {
   }
   const header = table.tHead.rows[0];
   if (!header.querySelector(".mwi-guild-recent-head")) {
+    const sortable = kind === "member";
     const columns = [
       ["mwi-guild-recent-head", t("近 6 小时 XP/h", "6h XP/h")],
       ["mwi-guild-day-head", t("24 小时 XP/h", "24h XP/h")],
@@ -536,10 +539,15 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       cell.className = className;
       const labelNode = document.createElement("span");
       labelNode.textContent = label;
+      cell.append(labelNode);
+      if (!sortable) {
+        header.append(cell);
+        continue;
+      }
       const sortIndicator = document.createElement("span");
       sortIndicator.className = "mwi-guild-rate-sort";
       sortIndicator.textContent = "↕";
-      cell.append(labelNode, sortIndicator);
+      cell.append(sortIndicator);
       cell.tabIndex = 0;
       cell.style.cursor = "pointer";
       cell.title = t("点击按经验速率排序", "Click to sort by XP rate");

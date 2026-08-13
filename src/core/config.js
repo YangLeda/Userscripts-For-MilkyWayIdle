@@ -65,8 +65,8 @@ let settingsMap = {
   totalActionTime: {
     id: "totalActionTime",
     desc: isZH
-      ? "左上角显示：当前动作预计总耗时、预计何时完成"
-      : "Top left: Estimated total time of the current action, estimated complete time.",
+      ? "左上角显示：当前动作剩余次数和剩余时间"
+      : "Top left: Remaining count and time for the current action.",
     isTrue: true,
   },
   actionPanel_totalTime: {
@@ -159,8 +159,8 @@ let settingsMap = {
   itemTooltip_profitRequireKey: {
     id: "itemTooltip_profitRequireKey",
     desc: isZH
-      ? "生产利润和宝箱估算需要同时按住自定义按键"
-      : "Require a shared custom held key for production profit and loot chest estimates.",
+      ? "生产利润、宝箱估算和强化成本需要同时按住自定义按键"
+      : "Require a shared custom held key for production profit, loot chest, and enhancement cost estimates.",
     isTrue: true,
   },
   lootChestEstimate: {
@@ -481,8 +481,8 @@ const settingsGroups = {
   actionBar: {
     title: { zh: "动作栏", en: "Action Bar" },
     summary: {
-      zh: "在顶部查看当前动作还剩多少次、还需多久以及预计完成时间。",
-      en: "See the current action's remaining count, time left, and estimated finish time.",
+      zh: "在顶部查看当前动作还剩多少次、还需多久。",
+      en: "See the current action's remaining count and time left.",
     },
   },
   production: {
@@ -605,8 +605,8 @@ const catalogRows = [
     "actionBar",
     "当前动作时间",
     "Current action timing",
-    "在顶部显示剩余次数、剩余时间和预计完成时刻。",
-    "Show remaining count, time remaining, and estimated completion time.",
+    "在顶部显示剩余次数和剩余时间。",
+    "Show remaining count and time remaining.",
   ],
   [
     "actionBarProfit",
@@ -765,8 +765,8 @@ const catalogRows = [
     "market",
     "悬浮扩展面板需要按键",
     "Require key for tooltip panels",
-    "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
-    "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices.",
+    "生产利润、宝箱估算和强化成本在桌面端共用一个自定义单键；移动端均需长按。",
+    "Use one shared custom held key for production profit, loot chest, and enhancement cost estimates on desktop; use a long press on touch devices.",
   ],
   [
     "lootChestEstimate",
@@ -1029,8 +1029,8 @@ const catalogRows = [
     "leaderboard",
     "排行榜经验速率",
     "Leaderboard XP rates",
-    "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
-    "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges.",
+    "在全服技能排行榜增加只读的经验/小时列；此开关不影响名次徽章或排行顺序。",
+    "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order.",
   ],
   [
     "guildCreditConversionsSort",

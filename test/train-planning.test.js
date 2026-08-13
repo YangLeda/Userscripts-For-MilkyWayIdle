@@ -111,6 +111,48 @@ test("train planning builds a proportional chain and prefers a cheaper shop root
   assert.equal(planning.trainChainDepth("/items/log"), -1);
 });
 
+test("train action index is reused and invalidates when action data changes", () => {
+  const originalMap = runtime.state.initData_actionDetailMap;
+  const originalOutputs = runtime.api.getExpectedOutputs;
+  let outputReads = 0;
+  runtime.api.getExpectedOutputs = (detail) => {
+    outputReads += 1;
+    return originalOutputs(detail);
+  };
+  try {
+    runtime.state.initData_actionDetailMap = {
+      first: {
+        hrid: "first",
+        upgradeItemHrid: "/items/base",
+        outputItems: [{ itemHrid: "/items/first", count: 1 }],
+      },
+      base: {
+        hrid: "base",
+        outputItems: [{ itemHrid: "/items/base", count: 1 }],
+      },
+    };
+    assert.ok(planning.findUpgradeActionToItem("/items/first"));
+    assert.ok(planning.findBaseActionForItem("/items/base"));
+    assert.equal(outputReads, 2);
+    planning.findUpgradeActionToItem("/items/first");
+    planning.findBaseActionForItem("/items/base");
+    assert.equal(outputReads, 2);
+
+    runtime.state.initData_actionDetailMap = {
+      next: {
+        hrid: "next",
+        upgradeItemHrid: "/items/base",
+        outputItems: [{ itemHrid: "/items/next", count: 1 }],
+      },
+    };
+    assert.ok(planning.findUpgradeActionToItem("/items/next"));
+    assert.equal(outputReads, 3);
+  } finally {
+    runtime.api.getExpectedOutputs = originalOutputs;
+    runtime.state.initData_actionDetailMap = originalMap;
+  }
+});
+
 test("train chains report cycles and parse compact counts", () => {
   const original = runtime.state.initData_actionDetailMap;
   runtime.state.initData_actionDetailMap = {

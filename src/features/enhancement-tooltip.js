@@ -9,6 +9,22 @@ import {
   showEnhancementCostPanel,
 } from "./enhancement-cost-panel.js";
 
+function setEnhancementContext(tooltip, plan) {
+  if (runtime.api.setEnhancementHoverPanelContext) {
+    runtime.api.setEnhancementHoverPanelContext(tooltip, plan);
+  } else {
+    showEnhancementCostPanel(tooltip, plan);
+  }
+}
+
+function clearEnhancementContext(tooltip) {
+  if (runtime.api.clearEnhancementHoverPanelContext) {
+    runtime.api.clearEnhancementHoverPanelContext(tooltip);
+  } else {
+    hideEnhancementCostPanel();
+  }
+}
+
 function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
   tooltipContent
     .querySelector('[data-mwitools-enhancement-market="true"]')
@@ -80,18 +96,21 @@ export async function handleEnhancedItemTooltip(tooltip) {
     ".ItemTooltipText_itemTooltipText__zFq3A",
   );
   if (!tooltipContent) {
+    clearEnhancementContext(tooltip);
     hideEnhancementCostPanel();
     return;
   }
   const { itemHrid, enhancementLevel } = readEnhancedTooltipItem(tooltip);
   if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
+    clearEnhancementContext(tooltip);
     hideEnhancementCostPanel();
     return;
   }
 
   if (runtime.settings.settingsMap.enhanceSim.isTrue) {
-    showEnhancementCostPanel(tooltip, null);
+    setEnhancementContext(tooltip, null);
   } else {
+    clearEnhancementContext(tooltip);
     hideEnhancementCostPanel();
   }
 
@@ -109,7 +128,7 @@ export async function handleEnhancedItemTooltip(tooltip) {
     targetLevel: enhancementLevel,
     ...getTooltipEnhancementPlanOptions(itemHrid),
   });
-  if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
+  if (tooltip.isConnected) setEnhancementContext(tooltip, plan);
 }
 
 runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;

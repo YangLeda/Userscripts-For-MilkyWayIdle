@@ -20,7 +20,10 @@ Object.assign(globalThis, {
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
-await import("../src/features/game-widgets.js");
+const { parseLocalizedBattleInfo } =
+  await import("../src/features/game-widgets.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 
 runtime.config.isZH = false;
 runtime.config.SCRIPT_COLOR_MAIN = "green";
@@ -64,4 +67,56 @@ test("battle summary keeps encounters and XP while hiding iron-cow revenue", asy
   assert.match(summary.textContent, /Total exp/);
   assert.doesNotMatch(summary.textContent, /revenue|Raw coins/i);
   assert.equal(marketFetches, 1, "iron mode must not request market data");
+});
+
+test("battle summaries parse official non-English templates", async () => {
+  registerGameLocaleResources("es", {
+    battlePanel: {
+      combatDuration: "Duración del combate: {{duration}}",
+      battles: "Batallas: {{battleId}}",
+      deaths: "Muertes: {{deathCount}}",
+    },
+    itemNames: { "/items/coin": "Moneda" },
+    actionNames: { "/actions/milking/cow": "Vaca" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  const info = document.querySelector(".BattlePanel_combatInfo__sHGCe");
+  info.textContent = "Duración del combate: 1h 30m 0s Batallas: 10 Muertes: 2";
+  assert.deepEqual(parseLocalizedBattleInfo(info.textContent), {
+    battleDurationSec: 5_400,
+    battleCount: 10,
+    deathCount: 2,
+  });
+
+  runtime.state.currentCharacterGameMode = "standard";
+  runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue = false;
+  await runtime.api.handleBattleSummary(message);
+  const summary = document.querySelector("#battle-summary");
+  assert.match(summary.textContent, /Encounters\/hour/);
+  assert.match(summary.textContent, /Revenue\/hour/);
+  assert.match(summary.textContent, /Total exp\/hour/);
+
+  localStorage.setItem("i18nextLng", "en");
+  info.textContent = "Combat Duration: 1h 0s Battles: 11 Deaths: 0";
+});
+
+test("map decorations scan on interaction without a background poll", async () => {
+  const tab = (label) =>
+    `<button class="MuiButtonBase-root MuiTab-root MuiTab-textColorPrimary css-1q2h7u5"><span class="MuiBadge-root TabsComponent_badge__1Du26 css-1rzb3uu">${label}</span></button>`;
+  document.body.innerHTML = `<div class="MainPanel_subPanelContainer__1i-H9"><div class="CombatPanel_tabsComponentContainer__GsQlg"><div class="MuiTabs-root MuiTabs-vertical css-6x4ics" id="tabs">${tab("A")}</div></div></div>`;
+  const tabs = document.querySelector("#tabs");
+  await runtime.features.enable("mapIndex");
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 1);
+
+  tabs.insertAdjacentHTML("beforeend", tab("B"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 1);
+  document.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 2);
+
+  await runtime.features.disable("mapIndex");
+  assert.equal(document.querySelectorAll(".script_mapIndex").length, 0);
 });

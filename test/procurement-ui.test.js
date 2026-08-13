@@ -243,6 +243,7 @@ test("production procurement augments the existing summary instead of creating a
   runtime.api.renderProductionProcurement();
   const existingSummary = document.querySelector("#mwi-production-summary");
   assert.ok(existingSummary.querySelector("#mwitools-procurement-production"));
+  assert.equal(existingSummary.querySelector(".mwi-mm-summary-panel"), null);
   assert.equal(document.querySelectorAll("#mwi-production-summary").length, 1);
   const badge = document.querySelector(".mwi-procurement-badge");
   const material = document.querySelector('[class*="Item_itemContainer"]');
@@ -262,6 +263,23 @@ test("production procurement augments the existing summary instead of creating a
     true,
   );
   assert.match(badge.textContent, /^(缺|Need) /);
+
+  existingSummary.remove();
+  runtime.api.renderProductionProcurement();
+  const standalone = document.querySelector("#mwitools-procurement-production");
+  assert.equal(
+    standalone.parentElement.classList.contains(
+      "SkillActionDetail_regularComponent__fixture",
+    ),
+    true,
+  );
+  assert.equal(
+    standalone.previousElementSibling.classList.contains(
+      "SkillActionDetail_actionContainer__fixture",
+    ),
+    true,
+    "procurement must remain available without the optional production summary",
+  );
 });
 
 test("sufficient materials keep their remaining quantity", () => {
@@ -334,13 +352,15 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   wrapper.className = "EnhancingPanel_panel__fixture";
   wrapper.innerHTML = `
     <div class="SkillActionDetail_skillActionDetail__fixture">
-      <div class="SkillActionDetail_itemRequirements__fixture">
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
-        <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
-        <span class="SkillActionDetail_inputCount__fixture">3 / 2,5</span>
-        <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
-        <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
+      <div class="SkillActionDetail_info__fixture">
+        <div class="SkillActionDetail_itemRequirements__fixture">
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#protection_mirror"></use></svg></div>
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#astral_enhancer"></use></svg></div>
+          <div class="Item_itemContainer__fixture"><svg><use href="/static/items.svg#coin"></use></svg></div>
+          <span class="SkillActionDetail_inputCount__fixture">3 / 2,5</span>
+          <span class="SkillActionDetail_inputCount__fixture">0 / 1</span>
+          <span class="SkillActionDetail_inputCount__fixture">1000 / 100</span>
+        </div>
       </div>
       <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
       <div class="SkillActionDetail_actionContainer__fixture"></div>
@@ -364,6 +384,11 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
   assert.equal(
     productionPanel.querySelector("#mwitools-procurement-production"),
     null,
+  );
+  assert.equal(
+    summary.parentElement.classList.contains("SkillActionDetail_info__fixture"),
+    true,
+    "the enhancement action belongs at the bottom of the right-hand info column",
   );
   assert.match(summary.textContent, /Missing 2 materials/);
 
@@ -407,6 +432,50 @@ test("enhancing procurement uses the visible panel, live count, and net shortage
     /已在清单中/,
   );
   runtime.config.isZH = false;
+
+  summary = panel.querySelector("#mwitools-procurement-production");
+  assert.equal(summary.classList.contains("mwi-mm-summary-panel"), true);
+  const sunnyInput = summary.querySelector(".mwi-mm-manual-input");
+  const sunnyAdd = summary.querySelector('[data-act="add"]');
+  assert.ok(sunnyInput?.hidden);
+  assert.ok(sunnyAdd?.hidden);
+  const inputSetter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )?.set;
+  inputSetter.call(sunnyInput, "5");
+  sunnyInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  sunnyInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+  sunnyAdd.click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    11,
+    "Sunny's expected count uses the compatibility input and live net shortage",
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/astral_enhancer").quantity,
+    5,
+  );
+  assert.equal(runtime.api.procurement.getCartItem("/items/coin"), null);
+  const repeatedSummary = panel.querySelector(
+    "#mwitools-procurement-production",
+  );
+  const repeatedInput = repeatedSummary.querySelector(".mwi-mm-manual-input");
+  inputSetter.call(repeatedInput, "5");
+  repeatedInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+  repeatedInput.dispatchEvent(new window.Event("change", { bubbles: true }));
+  repeatedSummary.querySelector('[data-act="add"]').click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/protection_mirror").quantity,
+    11,
+    "repeating the same expected count must not duplicate cart quantities",
+  );
+
+  await runtime.settings.set("procurementAssistant", false);
+  assert.equal(document.querySelector(".mwi-mm-summary-panel"), null);
+  await runtime.settings.set("procurementAssistant", true);
+  runtime.api.renderProductionProcurement();
+  assert.ok(panel.querySelector(".mwi-mm-summary-panel .mwi-mm-manual-input"));
 
   panel.querySelector('[class*="SkillActionDetail_inputCount"]').remove();
   runtime.api.renderProductionProcurement();
@@ -739,7 +808,7 @@ test("iron-cow adaptation keeps shortages while suppressing market shopping UI",
   runtime.api.procurement.clearCart({ includeStarred: true });
 });
 
-test("upgrade chains can start from the direct predecessor without expanding it", () => {
+test("upgrade-chain shopping defaults to the direct predecessor and can use selected stages", () => {
   const panel = document.createElement("div");
   panel.className = "SkillActionDetail_regularComponent__chain-fixture";
   panel.innerHTML = `
@@ -750,8 +819,14 @@ test("upgrade chains can start from the direct predecessor without expanding it"
   const previousResolver = runtime.api.resolveProductionAction;
   const previousCreatePlans =
     runtime.api.procurement.getSettings().createPlansByDefault;
+  const previousCreatePlan = runtime.api.procurement.createPlan;
+  const plannedMaterials = [];
   runtime.api.procurement.clearCart({ includeStarred: true });
-  runtime.api.procurement.setSetting("createPlansByDefault", false);
+  runtime.api.procurement.setSetting("createPlansByDefault", true);
+  runtime.api.procurement.createPlan = (_actionHrid, _count, materials) => {
+    plannedMaterials.push(materials.map((material) => material.itemHrid));
+    return { id: `test-plan-${plannedMaterials.length}` };
+  };
   Object.assign(runtime.state.initData_itemDetailMap, {
     "/items/shadow_pants": { name: "Shadow Pants" },
     "/items/beast_pants": { name: "Beast Pants" },
@@ -782,36 +857,161 @@ test("upgrade chains can start from the direct predecessor without expanding it"
   panel.querySelector('input[type="text"],input').value = "2";
 
   runtime.api.renderProductionProcurement();
-  const root = document.querySelector("#mwitools-procurement-production");
-  const previousButton = root.querySelectorAll(
-    ".mwi-procurement-chain-preset",
-  )[1];
-  const allButton = root.querySelector(".mwi-procurement-chain-preset");
+  let root = document.querySelector("#mwitools-procurement-production");
+  let chainMode = root.querySelector(".mwi-procurement-chain-mode input");
+  let allButton = root.querySelector(".mwi-procurement-chain-preset");
   const checkedState = () =>
     [...root.querySelectorAll(".mwi-procurement-chain-stage input")].map(
       (input) => input.checked,
     );
+  assert.equal(chainMode.checked, false);
+  assert.equal(chainMode.getAttribute("role"), "switch");
+  assert.equal(chainMode.getAttribute("aria-label"), "Selected chain");
+  assert.equal(
+    root.querySelectorAll(".mwi-procurement-chain-preset").length,
+    1,
+  );
+  assert.doesNotMatch(root.textContent, /Start from previous/);
   assert.deepEqual(checkedState(), [true, true]);
-  previousButton.click();
-  assert.deepEqual(checkedState(), [true, false]);
-  assert.equal(previousButton.getAttribute("aria-pressed"), "true");
-  allButton.click();
-  assert.deepEqual(checkedState(), [true, true]);
-  previousButton.click();
   root.querySelector(".mwi-procurement-inline-button").click();
 
-  const itemHrids = runtime.api.procurement
+  let itemHrids = runtime.api.procurement
     .getCartItems()
     .map((item) => item.itemHrid);
   assert.equal(itemHrids.includes("/items/beast_pants"), true);
   assert.equal(itemHrids.includes("/items/shadow_leather"), true);
   assert.equal(itemHrids.includes("/items/beast_leather"), false);
+  assert.deepEqual(plannedMaterials[0], [
+    "/items/beast_pants",
+    "/items/shadow_leather",
+  ]);
+
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.renderProductionProcurement();
+  root = document.querySelector("#mwitools-procurement-production");
+  chainMode = root.querySelector(".mwi-procurement-chain-mode input");
+  allButton = root.querySelector(".mwi-procurement-chain-preset");
+  chainMode.checked = true;
+  chainMode.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  const stageInputs = [
+    ...root.querySelectorAll(".mwi-procurement-chain-stage input"),
+  ];
+  stageInputs.forEach((input) => {
+    input.checked = false;
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  assert.equal(
+    root.querySelector(".mwi-procurement-inline-button").disabled,
+    true,
+  );
+  assert.match(root.textContent, /Materials ready/);
+  allButton.click();
+  assert.deepEqual(checkedState(), [true, true]);
+  assert.equal(
+    root.querySelector(".mwi-procurement-inline-button").disabled,
+    false,
+  );
+  root.querySelector(".mwi-procurement-inline-button").click();
+
+  itemHrids = runtime.api.procurement
+    .getCartItems()
+    .map((item) => item.itemHrid);
+  assert.equal(itemHrids.includes("/items/beast_pants"), false);
+  assert.equal(itemHrids.includes("/items/shadow_leather"), true);
+  assert.equal(itemHrids.includes("/items/beast_leather"), true);
+  assert.deepEqual(plannedMaterials[1], [
+    "/items/shadow_leather",
+    "/items/beast_leather",
+  ]);
 
   runtime.api.resolveProductionAction = previousResolver;
+  runtime.api.procurement.createPlan = previousCreatePlan;
   runtime.api.procurement.setSetting(
     "createPlansByDefault",
     previousCreatePlans,
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.renderProductionProcurement();
+  panel.remove();
+});
+
+test("single-stage refined back recipes procure only refinement materials", () => {
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__refined-back";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="1"></div>
+    <div class="SkillActionDetail_actionContainer__fixture"></div>
+    <section id="mwi-production-summary"></section>`;
+  document.body.append(panel);
+  const previousResolver = runtime.api.resolveProductionAction;
+  const previousSafety = runtime.api.procurement.getSettings().safetyLevel;
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.setSetting("safetyLevel", "off");
+  Object.assign(runtime.state.initData_itemDetailMap, {
+    "/items/gatherer_cape": { name: "Gatherer Cape" },
+    "/items/gatherer_cape_refined": {
+      name: "Gatherer Cape ★",
+      equipmentDetail: { type: "/equipment_types/back" },
+    },
+    "/items/labyrinth_refinement_shard": {
+      name: "Labyrinth Refinement Shard",
+    },
+  });
+  runtime.state.initData_actionDetailMap[
+    "/actions/tailoring/gatherer_cape_refined"
+  ] = {
+    hrid: "/actions/tailoring/gatherer_cape_refined",
+    name: "Gatherer Cape ★",
+    type: "/action_types/tailoring",
+    upgradeItemHrid: "/items/gatherer_cape",
+    inputItems: [{ itemHrid: "/items/labyrinth_refinement_shard", count: 89 }],
+    outputItems: [{ itemHrid: "/items/gatherer_cape_refined", count: 1 }],
+  };
+  runtime.state.initData_characterItems = [];
+  runtime.api.procurement.loadCharacterData("ui-character");
+  runtime.api.resolveProductionAction = () =>
+    "/actions/tailoring/gatherer_cape_refined";
+  const previousPlanIds = new Set(
+    runtime.api.procurement.getPlans().map((plan) => plan.id),
+  );
+
+  runtime.api.renderProductionProcurement();
+  const root = panel.querySelector("#mwitools-procurement-production");
+  assert.ok(root);
+  assert.equal(
+    root.querySelectorAll(".mwi-procurement-chain-stage input").length,
+    0,
+  );
+  root.querySelector(".mwi-procurement-inline-button").click();
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/gatherer_cape"),
+    null,
+  );
+  assert.equal(
+    runtime.api.procurement.getCartItem("/items/labyrinth_refinement_shard")
+      ?.quantity,
+    89,
+  );
+  const createdPlan = runtime.api.procurement
+    .getPlans()
+    .find((plan) => !previousPlanIds.has(plan.id));
+  assert.ok(createdPlan);
+  assert.equal(
+    Object.keys(createdPlan.materials).some((key) =>
+      key.startsWith("/items/gatherer_cape#"),
+    ),
+    false,
+  );
+  assert.equal(
+    Object.keys(createdPlan.materials).some((key) =>
+      key.startsWith("/items/labyrinth_refinement_shard#"),
+    ),
+    true,
+  );
+
+  runtime.api.resolveProductionAction = previousResolver;
+  runtime.api.procurement.setSetting("safetyLevel", previousSafety);
+  runtime.api.procurement.removePlan(createdPlan.id);
   runtime.api.procurement.clearCart({ includeStarred: true });
   runtime.api.renderProductionProcurement();
   panel.remove();

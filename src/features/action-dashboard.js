@@ -1,7 +1,10 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import { itemName } from "../core/localization.js";
-import { resolveLocalizedEntity } from "../core/game-localization.js";
+import {
+  getLocalizedEntityName,
+  resolveLocalizedEntity,
+} from "../core/game-localization.js";
 
 const STYLE_ID = "mwitools-action-dashboard-style";
 const QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
@@ -16,7 +19,7 @@ function formatDuration(seconds) {
   if (!Number.isFinite(seconds)) return "—";
   const normalized = Math.max(0, Math.round(seconds));
   if (normalized < 86_400) {
-    return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+    return runtime.api.timeReadable?.(normalized) || `${normalized}s`;
   }
   const days = Math.floor(normalized / 86_400);
   const hours = Math.floor((normalized % 86_400) / 3_600);
@@ -167,7 +170,7 @@ function addStyles() {
   style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
@@ -194,7 +197,7 @@ function addStyles() {
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-line{gap:2px 8px}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content}.mwi-action-line{gap:2px 8px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
@@ -234,14 +237,12 @@ function getLiveActionTiming(host) {
 
 function getNativeEnhancementCount(host, action) {
   if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
-  const nativeText = [...(host?.childNodes ?? [])]
-    .filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard")
-    .map((node) => node.textContent ?? "")
-    .join(" ")
-    .trim();
-  const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+  const matches = [
+    ...nativeActionText(host).matchAll(/[（(]\s*([\d\s.,]+)\s*[)）]/g),
+  ];
+  const match = matches.at(-1);
   if (!match) return null;
-  const count = Number(match[1].replace(/\D/g, ""));
+  const count = parseCompactNumber(match[1]);
   return Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
@@ -294,10 +295,12 @@ function actionHeaderNames(actionHrid, detail) {
   const names = new Set([
     detail?.name,
     runtime.data.ZHActionNames?.[actionHrid],
+    getLocalizedEntityName("action", actionHrid),
   ]);
   for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
     names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
     names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+    names.add(getLocalizedEntityName("item", output.itemHrid));
   }
   return [...names].map(normalizedActionText).filter(Boolean);
 }
@@ -312,8 +315,10 @@ function actionMatchesHeader(action, host) {
   if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
     return false;
   }
+  if (resolveLocalizedEntity("action", header) === actionHrid) return true;
   if (String(actionHrid).includes("/enhancing")) {
     return (
+      getNativeEnhancementCount(host, action) !== null ||
       /\+\s*\d+/.test(header) ||
       actionHeaderNames(actionHrid, detail).some((name) =>
         header.includes(name),
@@ -397,6 +402,7 @@ function renderActionDashboard() {
     projection.totalSeconds,
   )}`;
   const eta = document.createElement("strong");
+  eta.className = "mwi-action-eta";
   eta.textContent = projection.finishAt
     ? `${t("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}`
     : `${t("预计完成", "Finishes at")} —`;
@@ -493,6 +499,36 @@ function applyProductionQuickCount(input, count) {
   renderProductionPanel();
 }
 
+function getMinimumCountForDuration(actionHrid, targetSeconds, cycleSeconds) {
+  if (
+    !Number.isFinite(targetSeconds) ||
+    targetSeconds <= 0 ||
+    !Number.isFinite(cycleSeconds) ||
+    cycleSeconds <= 0
+  ) {
+    return 0;
+  }
+  const efficiencyPercent = Number(
+    runtime.api.getTotalEffiPercentage?.(actionHrid),
+  );
+  const rawMultiplier = 1 + efficiencyPercent / 100;
+  const efficiencyMultiplier =
+    Number.isFinite(rawMultiplier) && rawMultiplier > 0 ? rawMultiplier : 1;
+  const targetCycles = Math.max(1, Math.ceil(targetSeconds / cycleSeconds));
+  let count = Math.max(
+    1,
+    Math.ceil((targetCycles - 0.5) * efficiencyMultiplier),
+  );
+  while (Math.round(count / efficiencyMultiplier) < targetCycles) count += 1;
+  while (
+    count > 1 &&
+    Math.round((count - 1) / efficiencyMultiplier) >= targetCycles
+  ) {
+    count -= 1;
+  }
+  return count;
+}
+
 function createProductionQuickRow({
   panel,
   input,
@@ -557,9 +593,11 @@ function renderProductionQuickInputs() {
       values: QUICK_HOURS,
       resolveCount: (hoursValue) => {
         const liveDuration = getProductionPanelDuration(panel);
-        return Number.isFinite(liveDuration) && liveDuration > 0
-          ? Math.max(1, Math.round((hoursValue * 3_600) / liveDuration))
-          : 0;
+        return getMinimumCountForDuration(
+          actionHrid,
+          hoursValue * 3_600,
+          liveDuration,
+        );
       },
     });
     const counts = createProductionQuickRow({
@@ -576,13 +614,20 @@ function renderProductionQuickInputs() {
     );
     (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
   }
+  const efficiencyPercent = Number(
+    runtime.api.getTotalEffiPercentage?.(actionHrid),
+  );
+  const normalizedEfficiency =
+    Number.isFinite(efficiencyPercent) && efficiencyPercent > -100
+      ? efficiencyPercent
+      : 0;
   host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
     button.disabled = !Number.isFinite(duration) || duration <= 0;
     button.title = button.disabled
       ? t("无法读取当前单次耗时", "Current action duration unavailable")
       : t(
-          `按当前 ${duration}s/次换算`,
-          `Based on the current ${duration}s per action`,
+          `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
+          `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`,
         );
   });
   return host;
@@ -629,11 +674,11 @@ function syncMaxButton(panel, input, maxCraftable) {
 }
 
 function resolvePanelAction(panel) {
-  const name = runtime.api
-    .getOriTextFromElement?.(
-      panel?.querySelector('div[class*="SkillActionDetail_name"]'),
-    )
-    ?.trim();
+  const nameElement = panel?.querySelector(
+    'div[class*="SkillActionDetail_name"]',
+  );
+  if (!nameElement) return null;
+  const name = runtime.api.getOriTextFromElement?.(nameElement)?.trim();
   if (!name) return null;
 
   const localizedAction = resolveLocalizedEntity("action", name);
@@ -684,6 +729,15 @@ function metric(label, value) {
 
 function renderProductionPanel() {
   addStyles();
+  if (!runtime.settings.get("productionSummary")) {
+    document
+      .querySelectorAll("#mwi-production-summary")
+      .forEach((card) => card.remove());
+    document
+      .querySelectorAll(".mwi-max-action-button")
+      .forEach((button) => button.remove());
+    return;
+  }
   const panel = findActionPanel();
   const input = getCountInput(panel);
   const existingCards = [
@@ -714,7 +768,7 @@ function renderProductionPanel() {
     : Number.POSITIVE_INFINITY;
   const projection = runtime.api.projectAction(actionHrid, count, {
     durationPerAction: getProductionPanelDuration(panel),
-    respectInventoryLimit: true,
+    respectInventoryLimit: !Number.isFinite(count),
   });
   syncMaxButton(panel, input, projection.maxCraftable);
   let card = panel.querySelector("#mwi-production-summary");

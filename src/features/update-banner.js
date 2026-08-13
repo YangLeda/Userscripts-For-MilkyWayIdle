@@ -2,9 +2,10 @@ import { runtime } from "../core/runtime.js";
 
 const MANIFEST_URL =
   "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
-const GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
-const CACHE_KEY = "MWITools_important_update_manifest_v1";
-const CACHE_MAX_AGE = 6 * 60 * 60 * 1000;
+const FALLBACK_MANIFEST_URL =
+  "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
+const GREASY_FORK_DOWNLOAD_URL =
+  "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
 const STYLE_ID = "mwitools-important-update-style";
 const BANNER_ID = "mwitools-important-update-banner";
 
@@ -14,7 +15,7 @@ function t(value) {
 }
 
 function currentVersion() {
-  return String(globalThis.GM_info?.script?.version ?? "26.4.6");
+  return String(globalThis.GM_info?.script?.version ?? "26.4.7");
 }
 
 function isTestBuild() {
@@ -47,34 +48,16 @@ function shouldShowImportantUpdate(
   installedVersion = currentVersion(),
 ) {
   return Boolean(
+    manifest?.latestVersion &&
     manifest?.importantVersion &&
     compareVersions(installedVersion, manifest.importantVersion) < 0 &&
     localStorage.getItem(
-      `MWITools_update_banner_dismissed_${manifest.importantVersion}`,
+      `MWITools_update_banner_seen_${manifest.latestVersion}`,
     ) !== "true",
   );
 }
 
-function readCachedManifest() {
-  try {
-    const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-    if (!cached?.manifest || Date.now() - cached.savedAt > CACHE_MAX_AGE) {
-      return null;
-    }
-    return cached.manifest;
-  } catch {
-    return null;
-  }
-}
-
-function saveCachedManifest(manifest) {
-  localStorage.setItem(
-    CACHE_KEY,
-    JSON.stringify({ savedAt: Date.now(), manifest }),
-  );
-}
-
-function requestManifest() {
+function requestManifest(url) {
   const request =
     typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function"
       ? GM.xmlHttpRequest
@@ -82,19 +65,17 @@ function requestManifest() {
         ? GM_xmlhttpRequest
         : null;
   if (!request) {
-    return globalThis
-      .fetch(MANIFEST_URL, { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(
-            t({
-              zh: `更新清单请求失败（HTTP ${response.status}）`,
-              en: `Update manifest request failed (HTTP ${response.status})`,
-            }),
-          );
-        }
-        return response.json();
-      });
+    return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
+      if (!response.ok) {
+        throw new Error(
+          t({
+            zh: `更新清单请求失败（HTTP ${response.status}）`,
+            en: `Update manifest request failed (HTTP ${response.status})`,
+          }),
+        );
+      }
+      return response.json();
+    });
   }
   return new Promise((resolve, reject) => {
     const finish = (response) => {
@@ -118,7 +99,7 @@ function requestManifest() {
     try {
       const result = request({
         method: "GET",
-        url: MANIFEST_URL,
+        url,
         timeout: 5000,
         onload: finish,
         onerror: () =>
@@ -147,17 +128,57 @@ function requestManifest() {
   });
 }
 
-async function getImportantUpdateManifest() {
-  const cached = readCachedManifest();
-  if (cached) return cached;
-  const manifest = await requestManifest();
-  if (!manifest?.importantVersion) {
+function validateManifest(manifest) {
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    manifest.version !== 1 ||
+    typeof manifest.latestVersion !== "string" ||
+    !manifest.latestVersion.trim() ||
+    typeof manifest.importantVersion !== "string" ||
+    !manifest.importantVersion.trim() ||
+    !manifest.title ||
+    typeof manifest.title !== "object" ||
+    !manifest.message ||
+    typeof manifest.message !== "object"
+  ) {
     throw new Error(
       t({ zh: "更新清单格式无效。", en: "Invalid update manifest." }),
     );
   }
-  saveCachedManifest(manifest);
   return manifest;
+}
+
+async function fetchImportantUpdateManifest({
+  urls = [MANIFEST_URL, FALLBACK_MANIFEST_URL],
+  request = requestManifest,
+} = {}) {
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      return validateManifest(await request(url));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw (
+    lastError ??
+    new Error(t({ zh: "更新清单不可用。", en: "Update manifest unavailable." }))
+  );
+}
+
+let manifestCheck = null;
+
+function getImportantUpdateManifest() {
+  manifestCheck ??= fetchImportantUpdateManifest();
+  return manifestCheck;
+}
+
+function updateDownloadUrl() {
+  return (
+    String(globalThis.GM_info?.script?.downloadURL ?? "").trim() ||
+    GREASY_FORK_DOWNLOAD_URL
+  );
 }
 
 function addStyles() {
@@ -197,23 +218,25 @@ function renderImportantUpdateBanner(manifest) {
   banner.querySelector(".mwi-update-banner-title").textContent =
     t(manifest.title) ||
     (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-  banner.querySelector(".mwi-update-banner-message").textContent =
+  const message =
     t(manifest.message) ||
     (runtime.config.isZH
-      ? `建议更新到 ${manifest.importantVersion}`
-      : `Update to ${manifest.importantVersion} is recommended.`);
+      ? `建议更新到 ${manifest.latestVersion}`
+      : `Update to ${manifest.latestVersion} is recommended.`);
+  banner.querySelector(".mwi-update-banner-message").textContent = runtime
+    .config.isZH
+    ? `最新版本 ${manifest.latestVersion} · ${message}`
+    : `Latest version ${manifest.latestVersion} · ${message}`;
   const action = banner.querySelector(".mwi-update-banner-action");
   action.textContent = runtime.config.isZH ? "前往更新" : "Update";
-  action.href = manifest.url || GREASY_FORK_URL;
+  action.href = updateDownloadUrl();
+  localStorage.setItem(
+    `MWITools_update_banner_seen_${manifest.latestVersion}`,
+    "true",
+  );
   banner
     .querySelector(".mwi-update-banner-close")
-    .addEventListener("click", () => {
-      localStorage.setItem(
-        `MWITools_update_banner_dismissed_${manifest.importantVersion}`,
-        "true",
-      );
-      banner.remove();
-    });
+    .addEventListener("click", () => banner.remove());
   document.body.appendChild(banner);
   return true;
 }
@@ -247,5 +270,7 @@ Object.assign(runtime.api, {
   compareVersions,
   shouldShowImportantUpdate,
   renderImportantUpdateBanner,
+  fetchImportantUpdateManifest,
   getImportantUpdateManifest,
+  updateDownloadUrl,
 });

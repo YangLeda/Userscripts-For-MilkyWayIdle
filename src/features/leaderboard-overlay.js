@@ -1,7 +1,7 @@
 import { runtime } from "../core/runtime.js";
 import { localize } from "../core/localization.js";
 
-const OVERLAY_VERSION = "1.2.0";
+const OVERLAY_VERSION = "1.2.1";
 const LEADERBOARD_API_URL =
   "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
 const LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
@@ -119,8 +119,7 @@ function ensureStyles(documentRef) {
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
-    [${RATE_HEADER_ATTRIBUTE}]{cursor:pointer;user-select:none;white-space:nowrap}
-    [${RATE_HEADER_ATTRIBUTE}]:hover{filter:brightness(1.18)}
+    [${RATE_HEADER_ATTRIBUTE}]{white-space:nowrap}
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
   mount.append(style);
@@ -175,7 +174,6 @@ function createOverlay(options = {}) {
     categories: {},
     nameIndex: new Map(),
     currentLeaderboard: null,
-    sortMode: "official",
     refreshPending: false,
     destroyed: false,
     showBadges: options.showBadges !== false,
@@ -316,61 +314,6 @@ function createOverlay(options = {}) {
     );
   }
 
-  function updateHeaderCopy(header) {
-    const arrow =
-      state.sortMode === "descending"
-        ? " ↓"
-        : state.sortMode === "ascending"
-          ? " ↑"
-          : "";
-    const copy = `${t("经验/小时", "XP/hour")}${arrow}`;
-    if (header.textContent !== copy) header.textContent = copy;
-    header.title = t(
-      "点击排序：降序 → 升序 → 官方原排名",
-      "Click to sort: descending → ascending → official rank",
-    );
-    header.setAttribute(
-      "aria-sort",
-      state.sortMode === "descending"
-        ? "descending"
-        : state.sortMode === "ascending"
-          ? "ascending"
-          : "none",
-    );
-  }
-
-  function applyTableSort(table, rowsByName) {
-    const tbody = table.tBodies?.[0];
-    if (!tbody) return;
-    const rows = [...tbody.rows];
-    const currentCharacterName = normalizedName(
-      runtime.state.currentCharacterName,
-    );
-    rows.sort((left, right) => {
-      const leftName = left
-        .querySelector('[class*="CharacterName_name"][data-name]')
-        ?.getAttribute("data-name");
-      const rightName = right
-        .querySelector('[class*="CharacterName_name"][data-name]')
-        ?.getAttribute("data-name");
-      const normalizedLeftName = normalizedName(leftName);
-      const normalizedRightName = normalizedName(rightName);
-      if (currentCharacterName) {
-        const leftIsCurrent = normalizedLeftName === currentCharacterName;
-        const rightIsCurrent = normalizedRightName === currentCharacterName;
-        if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
-      }
-      return compareRateRows(
-        rowsByName.get(normalizedLeftName),
-        rowsByName.get(normalizedRightName),
-        state.sortMode,
-      );
-    });
-    if (rows.some((row, index) => tbody.rows[index] !== row)) {
-      rows.forEach((row) => tbody.append(row));
-    }
-  }
-
   function renderLeaderboardRateColumn() {
     if (!state.showRates) return;
     const current = state.currentLeaderboard;
@@ -384,18 +327,10 @@ function createOverlay(options = {}) {
     if (!header) {
       header = documentRef.createElement("th");
       header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
-      header.addEventListener("click", () => {
-        state.sortMode =
-          state.sortMode === "official"
-            ? "descending"
-            : state.sortMode === "descending"
-              ? "ascending"
-              : "official";
-        scheduleRefresh();
-      });
       headingRow.append(header);
     }
-    updateHeaderCopy(header);
+    const headerCopy = t("经验/小时", "XP/hour");
+    if (header.textContent !== headerCopy) header.textContent = headerCopy;
     const rowsByName = currentRowsByName();
     for (const rowElement of tbody.rows) {
       const name = rowElement
@@ -417,7 +352,6 @@ function createOverlay(options = {}) {
       if (cell.textContent !== copy) cell.textContent = copy;
       if (cell.title !== title) cell.title = title;
     }
-    applyTableSort(table, rowsByName);
   }
 
   function refresh() {
@@ -433,11 +367,6 @@ function createOverlay(options = {}) {
   }
 
   function removeRateColumn() {
-    const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
-    if (table && state.currentLeaderboard) {
-      state.sortMode = "official";
-      applyTableSort(table, currentRowsByName());
-    }
     documentRef
       .querySelectorAll(`[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`)
       .forEach((element) => element.remove());
@@ -495,7 +424,6 @@ function createOverlay(options = {}) {
         category,
         rows: Array.isArray(rows) ? rows : [],
       };
-      state.sortMode = "official";
       scheduleRefresh();
       return true;
     },
@@ -503,7 +431,6 @@ function createOverlay(options = {}) {
       if (!state.currentLeaderboard) return;
       removeRateColumn();
       state.currentLeaderboard = null;
-      state.sortMode = "official";
     },
     setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
       const nextBadges = Boolean(badges);

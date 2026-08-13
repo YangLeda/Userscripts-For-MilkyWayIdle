@@ -395,6 +395,34 @@ function getTeaSavings(actionHrid) {
   return Math.min(1, baseSavings * getDrinkConcentration());
 }
 
+function isBackEquipmentForProcurement(itemHrid) {
+  const detail =
+    runtime.state.initData_itemDetailMap?.[normalizeItemHrid(itemHrid)];
+  const equipment = detail?.equipmentDetail;
+  return [
+    detail?.itemLocationHrid,
+    detail?.equipmentSlotHrid,
+    detail?.slotHrid,
+    equipment?.itemLocationHrid,
+    equipment?.equipmentSlotHrid,
+    equipment?.slotHrid,
+    equipment?.equipmentTypeHrid,
+    equipment?.typeHrid,
+    equipment?.type,
+  ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+}
+
+function isRefinedBackUpgrade(detail) {
+  if (!normalizeItemHrid(detail?.upgradeItemHrid)) return false;
+  return (runtime.api.getExpectedOutputs?.(detail) ?? []).some((output) => {
+    const outputHrid = normalizeItemHrid(output?.itemHrid);
+    return (
+      outputHrid.endsWith("_refined") &&
+      isBackEquipmentForProcurement(outputHrid)
+    );
+  });
+}
+
 function materialRequirement(input, actionHrid, actionCount, options = {}) {
   const itemHrid = normalizeItemHrid(input.itemHrid);
   const enhancementLevel = normalizeEnhancementLevel(input.enhancementLevel);
@@ -448,7 +476,7 @@ function materialRequirement(input, actionHrid, actionCount, options = {}) {
       0,
       calculated.suggested - effectiveOwned - cartQuantity,
     ),
-    purchasable: !isCoin(itemHrid),
+    purchasable: options.purchasable !== false && !isCoin(itemHrid),
   };
 }
 
@@ -463,12 +491,16 @@ function calculateRequirements(actionHrid, count, options = {}) {
     ...options,
     excludeActionHrids: options.excludeActionHrids ?? new Set([actionHrid]),
   };
+  const excludedUpgradeHrid = isRefinedBackUpgrade(detail)
+    ? normalizeItemHrid(detail.upgradeItemHrid)
+    : "";
   const materials = inputs.map((input) =>
     materialRequirement(input, actionHrid, actionCount, {
       ...calculationOptions,
       isUpgradeItem:
         normalizeItemHrid(input.itemHrid) ===
         normalizeItemHrid(detail.upgradeItemHrid),
+      purchasable: normalizeItemHrid(input.itemHrid) !== excludedUpgradeHrid,
     }),
   );
   return {
@@ -579,17 +611,19 @@ function calculateUpgradeChain(actionHrid, count, options = {}) {
       const upgradeMaterial = projection.materials.find(
         (material) => material.itemHrid === upgradeHrid,
       );
-      if (producer) {
-        visit(
-          producer.actionHrid,
-          Math.ceil(
-            Math.max(0, Number(upgradeMaterial?.suggested) || 0) /
-              producer.outputCount,
-          ),
-          depth + 1,
-        );
-      } else {
-        if (upgradeMaterial) mergeMaterial(leaves, upgradeMaterial);
+      if (upgradeMaterial?.purchasable !== false) {
+        if (producer) {
+          visit(
+            producer.actionHrid,
+            Math.ceil(
+              Math.max(0, Number(upgradeMaterial?.suggested) || 0) /
+                producer.outputCount,
+            ),
+            depth + 1,
+          );
+        } else if (upgradeMaterial) {
+          mergeMaterial(leaves, upgradeMaterial);
+        }
       }
     }
     visited.delete(currentHrid);

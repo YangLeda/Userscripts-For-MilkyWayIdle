@@ -132,6 +132,15 @@ test("derived currency and loot categories participate in inventory sorting", ()
   assert.equal(runtime.api.isSortableInventoryCategory("Loots"), true);
   assert.equal(runtime.api.isSortableInventoryCategory("Food"), true);
   assert.equal(runtime.api.isSortableInventoryCategory("Equipment"), false);
+  assert.equal(runtime.api.isSortableInventoryCategory("装备"), false);
+  assert.equal(runtime.api.isSortableInventoryCategory("裝備"), false);
+  assert.equal(
+    runtime.api.isSortableInventoryCategory(
+      "Équipement",
+      "/item_categories/equipment",
+    ),
+    false,
+  );
 });
 
 test("inventory asset summaries rerender without restoring the removed header UI", async () => {
@@ -581,4 +590,77 @@ test("market value sorting ranks every stack descending inside its category", as
 
   runtime.api.getAssetValue = originalGetAssetValue;
   runtime.api.fetchMarketJSON = originalFetchMarketJSON;
+});
+
+test("all nine game languages keep asset and build-score summaries on the inventory tab", async () => {
+  const { registerGameLocaleResources } =
+    await import("../src/core/game-localization.js");
+  runtime.settings.settingsMap.invWorth.isTrue = true;
+
+  const inventoryLabels = {
+    en: "Inventory",
+    es: "Inventario",
+    fr: "Inventaire",
+    pt: "Inventário",
+    zh: "库存",
+    "zh-TW": "庫存",
+    ja: "インベントリ",
+    ko: "인벤토리",
+    ru: "Инвентарь",
+  };
+
+  for (const [locale, inventoryLabel] of Object.entries(inventoryLabels)) {
+    if (locale !== "en" && locale !== "zh") {
+      registerGameLocaleResources(locale, {
+        characterManagement: { inventory: inventoryLabel },
+        itemNames: { "/items/milk": `milk-${locale}` },
+        actionNames: { "/actions/milking/cow": `cow-${locale}` },
+        monsterNames: { "/monsters/rat": `rat-${locale}` },
+        abilityNames: { "/abilities/strike": `strike-${locale}` },
+      });
+    }
+    localStorage.setItem("i18nextLng", locale);
+    document.body.innerHTML = `
+      <section id="character-management">
+        <nav role="tablist">
+          <button id="inventory-tab" role="tab" aria-selected="true">${inventoryLabel}</button>
+          <button id="equipment-tab" role="tab" aria-selected="false">equipment-${locale}</button>
+        </nav>
+        <div class="TabsComponent_tabPanelsContainer__test">
+          <div class="TabPanel_tabPanel__test">
+            <div class="Inventory_items__${locale}"></div>
+          </div>
+        </div>
+      </section>`;
+
+    await runtime.api.calculateNetworth({ force: true });
+    await Promise.resolve();
+    let summary = document.querySelector("#script_inventory_summary");
+    assert.ok(summary, locale);
+    assert.notEqual(summary.style.display, "none", locale);
+    assert.match(summary.textContent, /战斗着装评分/, locale);
+    assert.match(summary.textContent, /生活着装评分/, locale);
+    assert.match(summary.textContent, /总资产/, locale);
+
+    document
+      .querySelector("#inventory-tab")
+      .setAttribute("aria-selected", "false");
+    document
+      .querySelector("#equipment-tab")
+      .setAttribute("aria-selected", "true");
+    await runtime.api.calculateNetworth({ force: true });
+    summary = document.querySelector("#script_inventory_summary");
+    assert.equal(summary.style.display, "none", locale);
+
+    document
+      .querySelector("#equipment-tab")
+      .setAttribute("aria-selected", "false");
+    document
+      .querySelector("#inventory-tab")
+      .setAttribute("aria-selected", "true");
+    await runtime.api.calculateNetworth({ force: true });
+    summary = document.querySelector("#script_inventory_summary");
+    assert.notEqual(summary.style.display, "none", locale);
+  }
+  localStorage.setItem("i18nextLng", "zh-CN");
 });

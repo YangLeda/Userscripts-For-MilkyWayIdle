@@ -424,6 +424,80 @@ test("history charts retain zoom gestures and calendar-normalized 7-day averages
   assert.equal(options.options.plugins.zoom.pan.enabled, true);
 });
 
+test("component charts use absolute holdings, compact tooltips, and persistent legend toggles", () => {
+  let options;
+  globalThis.Chart = class {
+    constructor(_context, value) {
+      options = value;
+    }
+    destroy() {}
+  };
+  runtime.config.isZH = false;
+  runtime.api.numberFormatter = (value) => `${value / 1_000}K`;
+  const chart = new AssetHistoryChart(
+    { hidden: false, getContext: () => ({}) },
+    { hidden: true, textContent: "" },
+  );
+  const entries = [
+    ["2026-08-01", { values: { ...completeValues(), equipment: 1_200 } }],
+    ["2026-08-02", { values: { ...completeValues(), equipment: 800 } }],
+  ];
+
+  chart.render(entries, { mode: "breakdown", range: null });
+  assert.deepEqual(options.data.datasets[0].data, [1_200, 800]);
+  assert.equal(options.options.plugins.title.text, "Component assets");
+  assert.equal(
+    options.options.plugins.tooltip.callbacks.label({
+      raw: 1_200,
+      dataset: { label: "Equipment" },
+    }),
+    "Equipment: 1.2K",
+  );
+
+  let visible = true;
+  const legendChart = {
+    data: options.data,
+    isDatasetVisible: () => visible,
+    setDatasetVisibility(_index, next) {
+      visible = next;
+    },
+    update() {},
+  };
+  options.options.plugins.legend.onClick(
+    null,
+    { datasetIndex: 0 },
+    { chart: legendChart },
+  );
+  assert.equal(visible, false);
+  chart.render(entries, { mode: "breakdown", range: 7 });
+  assert.equal(options.data.datasets[0].hidden, true);
+
+  const secondLegendChart = {
+    data: options.data,
+    isDatasetVisible: () => false,
+    setDatasetVisibility(_index, next) {
+      visible = next;
+    },
+    update() {},
+  };
+  options.options.plugins.legend.onClick(
+    null,
+    { datasetIndex: 0 },
+    { chart: secondLegendChart },
+  );
+  chart.render(entries, { mode: "breakdown", range: null });
+  assert.equal(options.data.datasets[0].hidden, false);
+
+  chart.render(
+    [
+      ["2026-08-01", { values: { ...completeValues(), total: 1_200 } }],
+      ["2026-08-02", { values: { ...completeValues(), total: 800 } }],
+    ],
+    { mode: "profit", range: null },
+  );
+  assert.deepEqual(options.data.datasets[0].data, [null, -400]);
+});
+
 test("schema two migrates complete Everyday Profit state without deleting legacy keys", () => {
   localStorage.clear();
   localStorage.setItem(

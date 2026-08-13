@@ -16,7 +16,7 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
+    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
@@ -239,7 +239,9 @@ export function showEnhancementCostPanel(anchor, plan = null) {
   const mutationObserver = new MutationObserver(() => {
     if (!anchor.isConnected) hideEnhancementCostPanel();
   });
-  mutationObserver.observe(document.body, { childList: true, subtree: true });
+  mutationObserver.observe(anchor.parentNode ?? document.body, {
+    childList: true,
+  });
   const resizeObserver = globalThis.ResizeObserver
     ? new globalThis.ResizeObserver(position)
     : null;

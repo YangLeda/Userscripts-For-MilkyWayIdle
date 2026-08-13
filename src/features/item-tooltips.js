@@ -25,6 +25,9 @@ function requiresHoverPanelShortcut() {
 }
 
 function canShowHoverPanel(context = hoverPanelContext) {
+  if (context?.kind === "enhancement") {
+    return Boolean(runtime.settings.settingsMap.enhanceSim?.isTrue);
+  }
   if (context?.kind === "loot") {
     return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
   }
@@ -37,16 +40,31 @@ function canShowHoverPanel(context = hoverPanelContext) {
 
 function hasEnabledHoverPanelFeature() {
   return Boolean(
+    runtime.settings.settingsMap.enhanceSim?.isTrue ||
     runtime.settings.settingsMap.lootChestEstimate?.isTrue ||
     (runtime.settings.settingsMap.itemTooltip_profit?.isTrue &&
       !runtime.api.shouldSuppressMarketFeatures?.()),
   );
 }
 
+function dismissHoverPanelContext(context = hoverPanelContext) {
+  if (context?.kind === "enhancement") {
+    runtime.api.hideEnhancementCostPanel?.();
+  } else {
+    runtime.api.dismissHoverPanel?.();
+  }
+}
+
 function showHoverPanelContext(context = hoverPanelContext, options = {}) {
   if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(context);
     return null;
+  }
+  if (context.kind === "enhancement") {
+    return runtime.api.showEnhancementCostPanel?.(
+      context.anchor,
+      context.plan ?? null,
+    );
   }
   if (context.kind === "loot") {
     return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
@@ -64,9 +82,16 @@ function showHoverPanelContext(context = hoverPanelContext, options = {}) {
 }
 
 function setHoverPanelContext(context) {
+  if (
+    hoverPanelContext &&
+    (hoverPanelContext.kind !== context?.kind ||
+      hoverPanelContext.anchor !== context?.anchor)
+  ) {
+    dismissHoverPanelContext(hoverPanelContext);
+  }
   hoverPanelContext = context;
   if (!canShowHoverPanel(context)) {
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(context);
     return;
   }
   if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
@@ -83,7 +108,7 @@ function setHoverPanelContext(context) {
     showHoverPanelContext(context, { sticky: true });
     return;
   }
-  runtime.api.dismissHoverPanel?.();
+  dismissHoverPanelContext(context);
 }
 
 function clearHoverPanelContext(anchor = null, kind = null) {
@@ -92,8 +117,17 @@ function clearHoverPanelContext(anchor = null, kind = null) {
   clearTimeout(touchHoverPanelPress?.timer);
   touchHoverPanelPress = null;
   touchHoverPanelAuthorizedUntil = 0;
+  const previous = hoverPanelContext;
   hoverPanelContext = null;
-  runtime.api.dismissHoverPanel?.();
+  dismissHoverPanelContext(previous);
+}
+
+export function setEnhancementHoverPanelContext(anchor, plan = null) {
+  setHoverPanelContext({ kind: "enhancement", anchor, plan });
+}
+
+export function clearEnhancementHoverPanelContext(anchor = null) {
+  clearHoverPanelContext(anchor, "enhancement");
 }
 
 function removeSuppressedTooltipContent() {
@@ -663,6 +697,8 @@ Object.assign(runtime.api, {
   handleTooltipItem,
   getActionHridFromItemName,
   clearTooltipProfitHoverContext: clearHoverPanelContext,
+  setEnhancementHoverPanelContext,
+  clearEnhancementHoverPanelContext,
 });
 
 Object.defineProperties(runtime.state, {
@@ -754,13 +790,13 @@ runtime.features.register({
       (event) => {
         if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
         hoverPanelShortcutHeld = false;
-        if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+        if (requiresHoverPanelShortcut()) dismissHoverPanelContext();
       },
       true,
     );
     scope.event(window, "blur", () => {
       hoverPanelShortcutHeld = false;
-      runtime.api.dismissHoverPanel?.();
+      dismissHoverPanelContext();
     });
     scope.event(
       document,
@@ -838,7 +874,7 @@ runtime.features.register({
       "itemTooltip_profitRequireKey",
       (required) => {
         if (!required) showHoverPanelContext();
-        else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+        else if (!hoverPanelShortcutHeld) dismissHoverPanelContext();
       },
     );
     const stopIronCow = runtime.settings.onChange(

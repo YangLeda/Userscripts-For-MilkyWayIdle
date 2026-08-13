@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "importantVersion": "26.4.6",
+  "latestVersion": "26.4.7",
+  "importantVersion": "26.4.7",
   "title": {
     "zh": "MWITools 有重要更新",
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "本次重要更新新增意见中心与公告，升级任务、资产和公会经验工具，并完成游戏九种内置语言适配。生产利润和宝箱估算现在默认需要按住 Ctrl，移动端需长按。建议前往 Greasy Fork 更新。",
-    "en": "This important update adds the Feedback Center and announcements, upgrades task, asset, and guild XP tools, and supports all nine built-in game languages. Production profit and loot chest estimates now require holding Ctrl by default, or a long press on touch devices. Update on Greasy Fork."
-  },
-  "url": "https://greasyfork.org/zh-CN/scripts/494467-mwitools"
+    "zh": "26.4.7 重要更新修复任务页礼物、未读提示与普通任务卡错位，并确保新任务全局置顶；同时包含多语言、生产购物清单、移动端显示与性能修复。建议前往 Greasy Fork 更新。",
+    "en": "The important 26.4.7 update fixes misaligned gift, unread-notice, and regular task cards and keeps all new tasks at the top. It also includes localization, production shopping-list, mobile display, and performance fixes. Update on Greasy Fork."
+  }
 }

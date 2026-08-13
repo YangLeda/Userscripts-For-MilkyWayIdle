@@ -3,16 +3,20 @@ import { parseCompactNumber } from "../core/market.js";
 import "../core/train-planning.js";
 import {
   getLocalizedEntityName,
+  matchesGameTranslations,
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
 import {
   resolveTaskCards,
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+const OWNED_TASK_SELECTOR =
+  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
@@ -313,6 +317,7 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
+    [class*="TasksPanel_taskList"] > * { min-width:0 !important; max-width:100% !important; box-sizing:border-box !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
@@ -631,7 +636,11 @@ function isCompletedCard(card, task) {
   if (target > 0 && taskRemaining(task) === 0) return true;
   if (
     [...card.querySelectorAll("button")].some((button) =>
-      /claim|领取/i.test(button.textContent),
+      matchesGameTranslations(
+        ["randomTask.claimReward", "questModal.claimReward"],
+        button.textContent,
+        { fallbackPatterns: [/claim|领取/i] },
+      ),
     )
   ) {
     return true;
@@ -910,8 +919,9 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
       }
     });
     runtime.state.mwitoolsPageNewTaskIds = new Set();
-    return;
+    return false;
   }
+  const previousNewTaskIds = new Set(pageNewTaskIds);
   const freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []);
   const activeIds = new Set();
   cards.forEach((card, index) => {
@@ -946,6 +956,10 @@ function syncPageNewTasks(cards, tasks, enteredNewTaskPage) {
   runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
   const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
   if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
+  return (
+    previousNewTaskIds.size !== pageNewTaskIds.size ||
+    [...pageNewTaskIds].some((id) => !previousNewTaskIds.has(id))
+  );
 }
 
 function cleanupListDecorations({ restoreOrder = true } = {}) {
@@ -1435,7 +1449,11 @@ function wireMergeButtons(cards, tasks) {
   cards.forEach((card, index) => {
     if (card.dataset.mwitoolsMergeWired) return;
     const button = [...card.querySelectorAll("button")].find((candidate) =>
-      /go|前往|开始/i.test(candidate.textContent),
+      matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        candidate.textContent,
+        { fallbackPatterns: [/^(?:go|前往|开始)$/i] },
+      ),
     );
     if (!button) return;
     card.dataset.mwitoolsMergeWired = "true";
@@ -1457,8 +1475,12 @@ function wireMergeButtons(cards, tasks) {
 function wireResetButtons(cards) {
   cards.forEach((card, index) => {
     if (card.dataset.mwitoolsResetWired) return;
+    const isResetButton = (candidate) =>
+      matchesGameTranslations("randomTask.reroll", candidate.textContent, {
+        fallbackPatterns: [/^(?:reset|重置)$/i],
+      });
     const hasResetButton = [...card.querySelectorAll("button")].some(
-      (candidate) => /reset|重置/i.test(candidate.textContent),
+      isResetButton,
     );
     if (!hasResetButton) return;
     card.dataset.mwitoolsResetWired = "true";
@@ -1466,11 +1488,7 @@ function wireResetButtons(cards) {
       "click",
       (event) => {
         const button = event.target?.closest?.("button");
-        if (
-          !button ||
-          !card.contains(button) ||
-          !/reset|重置/i.test(button.textContent)
-        ) {
+        if (!button || !card.contains(button) || !isResetButton(button)) {
           return;
         }
         nativeResetChoiceUntil = Date.now() + 10_000;
@@ -1531,14 +1549,27 @@ export function shouldRenderTaskMutations(records, now = Date.now()) {
       record.target?.nodeType === 1
         ? record.target
         : record.target?.parentElement;
-    if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
-    return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-      .filter((node) => node?.nodeType === 1)
-      .some(
+    if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
         (node) =>
-          node.matches?.('[class*="TasksPanel_taskList"]') ||
-          node.querySelector?.('[class*="TasksPanel_taskList"]'),
-      );
+          node.matches?.(OWNED_TASK_SELECTOR) ||
+          node.closest?.(OWNED_TASK_SELECTOR),
+      )
+    ) {
+      return false;
+    }
+    if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
+    return changedNodes.some(
+      (node) =>
+        node.matches?.('[class*="TasksPanel_taskList"]') ||
+        node.querySelector?.('[class*="TasksPanel_taskList"]'),
+    );
   });
 }
 
@@ -1626,7 +1657,7 @@ function renderTasks({ forceSort = false } = {}) {
   });
   const cardTasks = cardEntries.map(({ task }) => task);
   assignStablePageSlots(cards, cardTasks);
-  syncPageNewTasks(
+  const newTaskSetChanged = syncPageNewTasks(
     cards,
     cardTasks,
     enteredNewTaskPage && !resumedTaskPage && !resumedResetPage,
@@ -1665,7 +1696,7 @@ function renderTasks({ forceSort = false } = {}) {
   wireMergeButtons(cards, cardTasks);
   wireResetButtons(cards);
   renderFlatTaskList(cards, cardTasks, {
-    sort: forceSort || sortOnEntry,
+    sort: forceSort || sortOnEntry || newTaskSetChanged,
   });
   applyPendingMerge();
   lastRenderedCards = [...cards];
@@ -1717,25 +1748,19 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     renderTasks();
+    let active = true;
+    const renderScheduler = createFrameScheduler(renderTasks);
     void loadTaskSpriteManifest().then(() => {
+      if (!active) return;
       lastTaskRenderSignature = "";
       renderTasks();
     });
-    let renderPending = false;
-    const scheduleRender = () => {
-      if (renderPending) return;
-      renderPending = true;
-      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-        renderPending = false;
-        renderTasks();
-      });
-    };
+    const scheduleRender = () => renderScheduler.schedule();
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });
     scope.observer(observer, document.body, {
       childList: true,
-      characterData: true,
       subtree: true,
     });
     scope.add(
@@ -1745,9 +1770,10 @@ runtime.features.register({
       }),
     );
     scope.add(() => {
-      renderPending = false;
+      active = false;
+      renderScheduler.cancel();
+      cleanupTasks();
     });
-    scope.add(cleanupTasks);
   },
 });
 

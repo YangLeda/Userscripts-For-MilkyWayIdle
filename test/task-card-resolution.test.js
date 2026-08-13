@@ -13,6 +13,8 @@ globalThis.location = dom.window.location;
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { resolveTaskCards } =
   await import("../src/core/task-card-resolution.js");
 
@@ -132,6 +134,99 @@ test("semantic task progress follows game-locale grouping separators", () => {
   assert.deepEqual(
     resolved.map(({ taskId }) => taskId),
     ["22", "21"],
+  );
+  localStorage.setItem("i18nextLng", "en-US");
+});
+
+test("previous task IDs bypass repeated semantic matching in shuffled English cards", () => {
+  const quests = [
+    { id: 31, actionHrid: "/actions/crafting/first" },
+    { id: 32, actionHrid: "/actions/crafting/second" },
+  ];
+  runtime.state.initData_actionDetailMap = {
+    "/actions/crafting/first": { name: "First" },
+    "/actions/crafting/second": { name: "Second" },
+  };
+  const cards = [card("Second", "0 / 1"), card("First", "0 / 1")];
+  cards[0].dataset.mwitoolsTaskId = "32";
+  cards[1].dataset.mwitoolsTaskId = "31";
+  let actionReads = 0;
+  const resolved = resolveTaskCards(cards, quests, {
+    taskActionHrid(task) {
+      actionReads += 1;
+      return task.actionHrid;
+    },
+    taskRemaining: () => 1,
+  });
+  assert.deepEqual(
+    resolved.map(({ taskId }) => taskId),
+    ["32", "31"],
+  );
+  assert.equal(actionReads, 2);
+});
+
+test("semantic fallback reads each quest once as task counts grow", () => {
+  const count = 300;
+  const quests = Array.from({ length: count }, (_, index) => ({
+    id: `scale-${index}`,
+    actionHrid: `/actions/crafting/scale-${index}`,
+  }));
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    quests.map((quest, index) => [
+      quest.actionHrid,
+      { name: `Scale ${index}` },
+    ]),
+  );
+  let actionReads = 0;
+  const resolved = resolveTaskCards(
+    quests
+      .toReversed()
+      .map((quest, index) => card(`Scale ${count - index - 1}`, "0 / 1")),
+    quests,
+    {
+      taskActionHrid(task) {
+        actionReads += 1;
+        return task.actionHrid;
+      },
+      taskRemaining: () => 1,
+    },
+  );
+  assert.equal(actionReads, count);
+  assert.equal(resolved[0].taskId, `scale-${count - 1}`);
+  assert.equal(resolved.at(-1).taskId, "scale-0");
+});
+
+test("cached action labels invalidate when the game locale changes", () => {
+  const action = "/actions/crafting/localized";
+  const quest = { id: 41, actionHrid: action, goalCount: 1, currentCount: 0 };
+  runtime.state.initData_actionDetailMap = { [action]: { name: "Original" } };
+  registerGameLocaleResources("en", {
+    itemNames: {},
+    actionNames: { [action]: "English Action" },
+    monsterNames: {},
+    abilityNames: {},
+  });
+  registerGameLocaleResources("es", {
+    itemNames: {},
+    actionNames: { [action]: "Acción Española" },
+    monsterNames: {},
+    abilityNames: {},
+  });
+  localStorage.setItem("i18nextLng", "en-US");
+  assert.equal(
+    resolveTaskCards([card("English Action", "0 / 1")], [quest], {
+      taskActionHrid: actionHrid,
+      taskRemaining: remaining,
+    })[0].taskId,
+    "41",
+  );
+  localStorage.setItem("i18nextLng", "es");
+  assert.equal(
+    resolveTaskCards([card("Acción Española", "0 / 1")], [quest], {
+      taskActionHrid: actionHrid,
+      taskRemaining: remaining,
+    })[0].taskId,
+    "41",
   );
   localStorage.setItem("i18nextLng", "en-US");
 });

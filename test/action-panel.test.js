@@ -53,6 +53,8 @@ runtime.state.initData_actionDetailMap = {
 runtime.state.initData_characterSkills = [
   { skillHrid: "/skills/crafting", level: 100, experience: 1_000 },
 ];
+runtime.state.initData_characterItems = [];
+runtime.state.initData_actionTypeDrinkSlotsMap = {};
 runtime.state.initData_levelExperienceTable = Array.from(
   { length: 201 },
   (_, level) => level * 1_000,
@@ -118,8 +120,54 @@ test("production details add target-level and working quick-input controls", asy
     document.querySelector(
       'div[class*="SkillActionDetail_maxActionCountInput"] input',
     ).value,
+    "587",
+  );
+  const durationButton = document.querySelector(
+    '#quickInputHourButtons button[data-quick-value="24"]',
+  );
+  assert.match(durationButton.title, /99\.0%.*不少于/);
+  durationButton.click();
+  const durationCount = Number(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+  );
+  assert.equal(durationCount, 28140);
+  const durationProjection = runtime.api.projectAction(
+    "/actions/crafting/lumber",
+    durationCount,
+    { durationPerAction: 6.11 },
+  );
+  assert.ok(durationProjection.totalSeconds >= 24 * 3_600);
+  assert.ok(durationProjection.totalSeconds < 24 * 3_600 + 6.11);
+
+  const getTotalEfficiency = runtime.api.getTotalEffiPercentage;
+  runtime.api.getTotalEffiPercentage = () => Number.NaN;
+  runtime.api.renderProductionQuickInputs();
+  document
+    .querySelector('#quickInputHourButtons button[data-quick-value="0.5"]')
+    .click();
+  assert.equal(
+    document.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
     "295",
   );
+  runtime.api.getTotalEffiPercentage = getTotalEfficiency;
+
+  const durationValue = panel.querySelector(
+    'div[class*="SkillActionDetail_value"]',
+  );
+  durationValue.textContent = "—";
+  runtime.api.renderProductionQuickInputs();
+  assert.equal(
+    [...document.querySelectorAll("#quickInputHourButtons button")].every(
+      (button) => button.disabled,
+    ),
+    true,
+  );
+  durationValue.textContent = "6.11s";
+  runtime.api.renderProductionQuickInputs();
   document
     .querySelector('#quickInputCountButtons button[data-quick-value="1000"]')
     .click();
@@ -153,6 +201,43 @@ test("production details add target-level and working quick-input controls", asy
     .remove();
   runtime.api.renderProductionQuickInputs();
   assert.equal(document.querySelector(".mwi-production-quick-inputs"), null);
+});
+
+test("target-level estimate retries cleanly after a partially mounted panel", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  panel.innerHTML = `<div class="SkillActionDetail_name__test">木板</div>
+    <div class="SkillActionDetail_expGain__test">8.5</div>`;
+  delete panel.dataset.mwitoolsActionPanel;
+
+  assert.equal(await runtime.api.handleActionPanel(panel), false);
+  assert.equal(panel.dataset.mwitoolsActionPanel, undefined);
+  assert.equal(panel.querySelector("#mwi-level-progress"), null);
+
+  panel.insertAdjacentHTML(
+    "beforeend",
+    `<div class="SkillActionDetail_info__test">
+      <div class="SkillActionDetail_label__test">持续时间</div>
+      <div class="SkillActionDetail_value__test">6.11s</div>
+    </div>
+    <div class="SkillActionDetail_actionContainer__test">
+      <div class="SkillActionDetail_maxActionCountInput__test">
+        <input class="Input_input__native" value="300">
+      </div>
+    </div>
+    <div class="SkillActionDetail_dropTable__test"></div>`,
+  );
+
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  assert.equal(panel.dataset.mwitoolsActionPanel, "true");
+  assert.equal(panel.querySelectorAll("#mwi-level-progress").length, 1);
+  assert.equal(panel.querySelectorAll(".mwi-native-level-stat").length, 4);
+  assert.match(
+    panel.querySelector("#mwi-level-progress").textContent,
+    /还需.*预计/,
+  );
 });
 
 test("efficiency follows the game's authoritative buff maps", () => {

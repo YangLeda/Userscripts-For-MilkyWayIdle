@@ -17,8 +17,27 @@ globalThis.getComputedStyle = dom.window.getComputedStyle;
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { captureTaskReturnContext, taskIdentity } =
   await import("../src/features/task-auto-return.js");
+
+registerGameLocaleResources("es", {
+  randomTask: { go: "Ir" },
+  questModal: { go: "Ir" },
+  skillActionDetail: {
+    buttons: {
+      start: "Comenzar",
+      startNow: "Empezar ahora",
+      addToQueue: "Añadir a la cola #{{count}}",
+    },
+  },
+  navigationBar: { tasks: "Tareas" },
+  itemNames: { "/items/coin": "Moneda" },
+  actionNames: { "/actions/milking/cow": "Vaca" },
+  monsterNames: { "/monsters/rat": "Rata" },
+  abilityNames: { "/abilities/strike": "Golpe" },
+});
 
 runtime.config.isZH = true;
 runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
@@ -45,13 +64,13 @@ function setScrollable(element, scrollTop = 0) {
   element.scrollTop = scrollTop;
 }
 
-function taskPage({ task = true, scrollTop = 143 } = {}) {
+function taskPage({ task = true, scrollTop = 143, goLabel = "Go" } = {}) {
   const root = document.getElementById("root");
   root.innerHTML = `
     <div class="TasksPanel_taskList__test">
       ${
         task
-          ? `<div class="RandomTask_randomTask__test" data-mwitools-original-index="0" data-mwitools-profession="crafting"><button>Go</button></div>`
+          ? `<div class="RandomTask_randomTask__test" data-mwitools-original-index="0" data-mwitools-profession="crafting"><button>${goLabel}</button></div>`
           : ""
       }
     </div>`;
@@ -120,6 +139,27 @@ test("queue submission returns to the stable task in the flat list", async () =>
   await settle(620);
   assert.deepEqual(host.targets, ["tasks"]);
   assert.equal(restored, 1);
+});
+
+test("localized task and queue buttons preserve automatic return", async () => {
+  localStorage.setItem("i18nextLng", "es");
+  await runtime.features.restart("taskAutoReturn");
+  const first = taskPage({ goLabel: "Ir" });
+  let restored = 0;
+  const host = attachGameHost(() => {
+    const returned = taskPage({ goLabel: "Ir" });
+    returned.card.scrollIntoView = () => {
+      restored += 1;
+    };
+  });
+  first.go.click();
+  const commit = actionPage("Añadir a la cola #1");
+  await settle(20);
+  commit.click();
+  await settle(620);
+  assert.deepEqual(host.targets, ["tasks"]);
+  assert.equal(restored, 1);
+  localStorage.setItem("i18nextLng", "zh-CN");
 });
 
 test("manual close returns, while a non-task action never does", async () => {

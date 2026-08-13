@@ -21,39 +21,50 @@ function primaryOutput(detail) {
     : null;
 }
 
-function actionEntries() {
-  return Object.entries(runtime.state.initData_actionDetailMap ?? {});
+let cachedActionMap = null;
+let cachedUpgradeActions = new Map();
+let cachedBaseActions = new Map();
+let cachedUpgradeInputItems = new Set();
+
+function ensureActionIndex() {
+  const actionMap = runtime.state.initData_actionDetailMap ?? {};
+  if (actionMap === cachedActionMap) return;
+  cachedActionMap = actionMap;
+  cachedUpgradeActions = new Map();
+  cachedBaseActions = new Map();
+  cachedUpgradeInputItems = new Set();
+  for (const [fallbackHrid, detail] of Object.entries(actionMap)) {
+    const output = primaryOutput(detail);
+    if (!output?.itemHrid) continue;
+    if (detail?.upgradeItemHrid) {
+      cachedUpgradeInputItems.add(normalizeItemHrid(detail.upgradeItemHrid));
+      if (cachedUpgradeActions.has(output.itemHrid)) continue;
+      cachedUpgradeActions.set(output.itemHrid, {
+        actionHrid: detail.hrid ?? fallbackHrid,
+        detail,
+        output,
+        inputHrid: normalizeItemHrid(detail.upgradeItemHrid),
+      });
+    } else if (!cachedBaseActions.has(output.itemHrid)) {
+      cachedBaseActions.set(output.itemHrid, {
+        actionHrid: detail.hrid ?? fallbackHrid,
+        detail,
+        output,
+      });
+    }
+  }
 }
 
 export function findUpgradeActionToItem(itemHrid) {
   const target = normalizeItemHrid(itemHrid);
-  for (const [fallbackHrid, detail] of actionEntries()) {
-    if (!detail?.upgradeItemHrid) continue;
-    const output = primaryOutput(detail);
-    if (output?.itemHrid !== target) continue;
-    return {
-      actionHrid: detail.hrid ?? fallbackHrid,
-      detail,
-      output,
-      inputHrid: normalizeItemHrid(detail.upgradeItemHrid),
-    };
-  }
-  return null;
+  ensureActionIndex();
+  return cachedUpgradeActions.get(target) ?? null;
 }
 
 export function findBaseActionForItem(itemHrid) {
   const target = normalizeItemHrid(itemHrid);
-  for (const [fallbackHrid, detail] of actionEntries()) {
-    if (detail?.upgradeItemHrid) continue;
-    const output = primaryOutput(detail);
-    if (output?.itemHrid !== target) continue;
-    return {
-      actionHrid: detail.hrid ?? fallbackHrid,
-      detail,
-      output,
-    };
-  }
-  return null;
+  ensureActionIndex();
+  return cachedBaseActions.get(target) ?? null;
 }
 
 function inputCountFor(detail, itemHrid) {
@@ -302,11 +313,8 @@ export function trainChainDepth(itemHrid) {
     depth += 1;
   }
   if (depth) return depth;
-  return actionEntries().some(
-    ([, detail]) => normalizeItemHrid(detail?.upgradeItemHrid) === current,
-  )
-    ? 0
-    : -1;
+  ensureActionIndex();
+  return cachedUpgradeInputItems.has(current) ? 0 : -1;
 }
 
 export function parseTrainCount(raw) {

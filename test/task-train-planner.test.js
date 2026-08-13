@@ -110,3 +110,83 @@ test("a lone base-production task does not create an empty train", () => {
   assert.equal(entries[0].state, "isolated");
   assert.equal(groups.size, 0);
 });
+
+test("task train mutation filtering ignores MWITools controls but sees native cards", () => {
+  const taskCard = document.createElement("div");
+  taskCard.className = "RandomTask_randomTask__mutation-filter";
+  const control = document.createElement("button");
+  control.className = "mwi-task-train-planner";
+  assert.equal(
+    planner.shouldRenderTaskTrainMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [control],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+
+  const nativeCard = document.createElement("div");
+  nativeCard.className = "RandomTask_randomTask__native";
+  assert.equal(
+    planner.shouldRenderTaskTrainMutations([
+      {
+        type: "childList",
+        target: document.body,
+        addedNodes: [nativeCard],
+        removedNodes: [],
+      },
+    ]),
+    true,
+  );
+});
+
+test("localized train controls are inserted immediately before the native go button", async () => {
+  const { registerGameLocaleResources } =
+    await import("../src/core/game-localization.js");
+  registerGameLocaleResources("es", {
+    randomTask: { go: "Ir" },
+    itemNames: { "/items/base": "Base" },
+    actionNames: { "/actions/crafting/base": "Crear base" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+
+  const card = document.createElement("div");
+  const action = document.createElement("div");
+  const buttons = document.createElement("div");
+  const reroll = document.createElement("button");
+  const go = document.createElement("button");
+  const control = document.createElement("button");
+  reroll.textContent = "Volver a tirar";
+  go.textContent = "Ir";
+  control.className = "mwi-task-train-planner";
+  buttons.append(reroll, go);
+  card.append(action, buttons);
+
+  planner.insertBeforeTaskNavigation(card, action, control);
+
+  assert.equal(control.parentElement, buttons);
+  assert.equal(control.nextElementSibling, go);
+  localStorage.setItem("i18nextLng", "en");
+});
+
+test("repeated task renders keep exactly one train control per card", () => {
+  document.body.innerHTML = `<div class="RandomTask_randomTask__test">
+    <div class="RandomTask_action__test"></div>
+    <div class="RandomTask_buttons__test"><button>Go</button></div>
+  </div>`;
+  runtime.state.characterQuests = [quests[1]];
+
+  planner.renderTaskTrainPlanner();
+  planner.renderTaskTrainPlanner();
+  planner.renderTaskTrainPlanner();
+
+  const card = document.querySelector('div[class*="RandomTask_randomTask"]');
+  const controls = card.querySelectorAll(".mwi-task-train-planner");
+  assert.equal(controls.length, 1);
+  assert.equal(controls[0].nextElementSibling.textContent, "Go");
+});

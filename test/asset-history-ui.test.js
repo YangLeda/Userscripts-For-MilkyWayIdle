@@ -35,6 +35,8 @@ runtime.api.formatExactNumber = (value) =>
 runtime.api.getLatestAssetSnapshot = () => null;
 const { AssetHistoryStore } =
   await import("../src/features/asset-history/10-store.js");
+const { AssetCenter } =
+  await import("../src/features/asset-history/25-center.js");
 const {
   ASSET_SHARE_TEMPLATE_COUNT,
   buildAssetShareMessage,
@@ -469,6 +471,104 @@ test("asset center opens from the native P/L tab and cleans up its modal", () =>
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-asset-center-modal"), null);
   shell.remove();
+});
+
+test("asset center keeps hidden component lines through live refreshes until close", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  const chartInstances = [];
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor(_context, config) {
+      this.data = config.data;
+      this.options = config.options;
+      this.visibility = config.data.datasets.map(
+        (dataset) => dataset.hidden !== true,
+      );
+      chartInstances.push(this);
+    }
+    destroy() {}
+    update() {}
+    resetZoom() {}
+    isDatasetVisible(index) {
+      return this.visibility[index] ?? true;
+    }
+    setDatasetVisibility(index, visible) {
+      this.visibility[index] = visible;
+      this.data.datasets[index].hidden = !visible;
+    }
+  };
+
+  const store = new AssetHistoryStore(localStorage);
+  const scopeKey = "production:7";
+  const values = (equipment) => ({
+    equipment,
+    inventory: 200,
+    marketListings: 300,
+    houses: 400,
+    abilities: 500,
+    nonTradableTokens: 600,
+    shrine: 700,
+  });
+  store.updateDay("2026-08-12", values(1_200), scopeKey);
+  store.updateDay("2026-08-13", values(800), scopeKey);
+  const center = new AssetCenter({ store, scopeKey });
+
+  try {
+    center.open();
+    center.chartMode = "breakdown";
+    center.drawCenterChart();
+    let activeChart = chartInstances.at(-1);
+    activeChart.options.plugins.legend.onClick(
+      null,
+      { datasetIndex: 0 },
+      { chart: activeChart },
+    );
+    assert.equal(activeChart.isDatasetVisible(0), false);
+
+    center.update({ values: { ...values(750), total: 3_450 } });
+    activeChart = chartInstances.at(-1);
+    assert.equal(activeChart.data.datasets[0].hidden, true);
+
+    center.close();
+    center.open();
+    activeChart = chartInstances.at(-1);
+    assert.equal(activeChart.data.datasets[0].hidden, false);
+  } finally {
+    center.destroy();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
+});
+
+test("asset center preserves tag form drafts during live snapshot updates", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const store = new AssetHistoryStore(localStorage);
+  const center = new AssetCenter({ store, scopeKey: "production:7" });
+
+  try {
+    center.open();
+    center.root.querySelector('[data-route="tags"]').click();
+    const date = center.root.querySelector("[data-tag-date]");
+    const text = center.root.querySelector("[data-tag-text]");
+    date.value = "2026-08-01";
+    text.value = "尚未提交的标签";
+
+    center.update({ values: { total: 12345 } });
+
+    assert.equal(center.root.querySelector("[data-tag-date]"), date);
+    assert.equal(center.root.querySelector("[data-tag-text]"), text);
+    assert.equal(date.value, "2026-08-01");
+    assert.equal(text.value, "尚未提交的标签");
+    assert.equal(center.root.hidden, false);
+  } finally {
+    center.destroy();
+  }
 });
 
 test("asset center inserts one editable record into a historical date gap", () => {

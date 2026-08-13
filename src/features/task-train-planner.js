@@ -1,11 +1,15 @@
 import { runtime } from "../core/runtime.js";
+import { matchesGameTranslations } from "../core/game-localization.js";
 import { resolveTaskCards } from "../core/task-card-resolution.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-task-train-planner-style";
 const CONTROL_CLASS = "mwi-task-train-planner";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const ACTION_SELECTOR = '[class*="RandomTask_action"]';
+const OWNED_TASK_SELECTOR =
+  '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -100,12 +104,19 @@ export function createTaskTrainPlan(
   );
 }
 
-function insertBeforeNavigation(action, control) {
-  const navigation = [...action.querySelectorAll("button")].find((button) =>
-    /^(前往|go)$/i.test(button.textContent?.trim() ?? ""),
+export function insertBeforeTaskNavigation(card, fallbackHost, control) {
+  const navigation = [...card.querySelectorAll("button")].find((button) =>
+    matchesGameTranslations(
+      ["randomTask.go", "questModal.go"],
+      button.textContent,
+      { fallbackPatterns: [/^(?:前往|go)$/i] },
+    ),
   );
-  if (navigation) action.insertBefore(control, navigation);
-  else action.appendChild(control);
+  if (navigation?.parentElement) {
+    navigation.parentElement.insertBefore(control, navigation);
+  } else {
+    fallbackHost.appendChild(control);
+  }
 }
 
 function plannerButton(entry, signature) {
@@ -137,7 +148,7 @@ function plannerLabel(text, title, signature) {
   return label;
 }
 
-function render() {
+export function renderTaskTrainPlanner() {
   const cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) return;
   const quests = runtime.state.characterQuests ?? [];
@@ -155,16 +166,20 @@ function render() {
           ":",
         )
       : "none";
-    const existing = action.querySelector(`.${CONTROL_CLASS}`);
-    if (existing?.dataset.signature === signature) continue;
-    action
-      .querySelectorAll(`.${CONTROL_CLASS}`)
-      .forEach((node) => node.remove());
+    const existingControls = [...card.querySelectorAll(`.${CONTROL_CLASS}`)];
+    if (
+      existingControls.length === 1 &&
+      existingControls[0].dataset.signature === signature
+    ) {
+      continue;
+    }
+    existingControls.forEach((node) => node.remove());
     if (!entry || entry.state === "done") continue;
     if (entry.state === "top") {
-      insertBeforeNavigation(action, plannerButton(entry, signature));
+      insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
     } else if (entry.state === "planned") {
-      insertBeforeNavigation(
+      insertBeforeTaskNavigation(
+        card,
         action,
         plannerLabel(
           t("已被规划", "Included in plan"),
@@ -176,7 +191,8 @@ function render() {
         ),
       );
     } else if (entry.state === "isolated") {
-      insertBeforeNavigation(
+      insertBeforeTaskNavigation(
+        card,
         action,
         plannerLabel(
           t("无需火车", "No train needed"),
@@ -195,6 +211,35 @@ function cleanup() {
   document.getElementById(STYLE_ID)?.remove();
 }
 
+export function shouldRenderTaskTrainMutations(records) {
+  return records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    if (
+      changedNodes.length &&
+      changedNodes.every(
+        (node) =>
+          node.matches?.(OWNED_TASK_SELECTOR) ||
+          node.closest?.(OWNED_TASK_SELECTOR),
+      )
+    ) {
+      return false;
+    }
+    if (target?.closest?.(TASK_SELECTOR)) return true;
+    return changedNodes.some(
+      (node) =>
+        node.matches?.(TASK_SELECTOR) || node.querySelector?.(TASK_SELECTOR),
+    );
+  });
+}
+
 runtime.features.register({
   id: "taskTrainPlanner",
   setting: "taskTrainPlanner",
@@ -202,42 +247,22 @@ runtime.features.register({
   dependsOn: ["semiAutoTrain"],
   initialize({ scope }) {
     addStyles();
-    render();
-    let pending = false;
-    const schedule = () => {
-      if (pending) return;
-      pending = true;
-      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-        pending = false;
-        render();
-      });
+    renderTaskTrainPlanner();
+    const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
+    const schedule = () => renderScheduler.schedule();
+    let trailingTimers = [];
+    const onInteraction = () => {
+      schedule();
+      trailingTimers.forEach(clearTimeout);
+      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
     };
-    const observer = new MutationObserver((records) => {
-      if (
-        records.some((record) => {
-          const target =
-            record.target?.nodeType === 1
-              ? record.target
-              : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR)) return true;
-          return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
-            .filter((node) => node?.nodeType === 1)
-            .some(
-              (node) =>
-                node.matches?.(TASK_SELECTOR) ||
-                node.querySelector?.(TASK_SELECTOR),
-            );
-        })
-      ) {
-        schedule();
-      }
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+    scope.event(document, "click", onInteraction, true);
     scope.add(runtime.onMessage("quests_updated", schedule));
-    scope.add(cleanup);
+    scope.add(() => {
+      trailingTimers.forEach(clearTimeout);
+      renderScheduler.cancel();
+      cleanup();
+    });
   },
 });
 

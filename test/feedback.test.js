@@ -63,7 +63,7 @@ test("feedback button sits below total level and UI remains a singleton", () => 
   const second = panel.ensureButton();
   assert.equal(first, second);
   assert.equal(first.previousElementSibling.textContent, "总等级: 2178");
-  assert.match(first.textContent, /MWITools 意见中心/);
+  assert.equal(first.textContent, "✉MWITools");
   assert.equal(
     document.querySelectorAll("#mwitools-feedback-button").length,
     1,
@@ -79,7 +79,22 @@ test("feedback button sits below total level and UI remains a singleton", () => 
     document.querySelector(".mwi-feedback-head h2").textContent,
     "MWITools 意见中心",
   );
+  const launcherStyle = document.querySelector(
+    "#mwitools-feedback-style",
+  ).textContent;
+  assert.match(launcherStyle, /font-size:10px/);
+  assert.match(launcherStyle, /white-space:nowrap/);
+  assert.match(
+    launcherStyle,
+    /@media\(max-width:620px\)\{#mwitools-feedback-button\{font-size:9px\}/,
+  );
   runtime.config.isZH = false;
+  panel.ensureButton();
+  assert.equal(
+    first.querySelector(".mwi-opinion-label").textContent,
+    "MWITools",
+  );
+  assert.match(first.getAttribute("aria-label"), /MWITools Feedback Center/);
   panel.items = [
     {
       id: "english-status",
@@ -120,7 +135,7 @@ test("opinion center combines feedback and announcement unread states into one d
       },
       scope,
       announcements: announcementStore({
-        seen: item.announcementSeen ? ["26.4.6"] : [],
+        seen: item.announcementSeen ? ANNOUNCEMENTS.map(({ id }) => id) : [],
       }),
     });
     const button = panel.ensureButton();
@@ -190,7 +205,9 @@ test("opening feedback-only activity lands on My feedback", async () => {
       markRead: async () => {},
     },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({
+      seen: ANNOUNCEMENTS.map(({ id }) => id),
+    }),
   });
   panel.ensureButton();
   await panel.refresh();
@@ -226,7 +243,7 @@ test("failed feedback acknowledgements stay suppressed and retry on polling", as
       },
     },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
   const button = panel.ensureButton();
   await panel.refresh();
@@ -260,7 +277,7 @@ test("announcements remain usable when the feedback service is unavailable", asy
   await panel.open();
   assert.equal(button.dataset.unread, "false");
   assert.equal(announcements.unread().length, 0);
-  assert.match(panel.root.textContent, /26\.4\.6 更新公告/);
+  assert.match(panel.root.textContent, /26\.4\.7 更新公告/);
   scope.cleanup();
 });
 
@@ -308,11 +325,11 @@ test("announcement copy follows the MWITools language", () => {
   const panel = new FeedbackPanel({
     client: { list: async () => ({ items: [] }) },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
   runtime.config.isZH = false;
   panel.showTab("announcements");
-  assert.match(panel.root.textContent, /Version 26\.4\.6 update/);
+  assert.match(panel.root.textContent, /Version 26\.4\.7 update/);
   assert.match(panel.root.textContent, /Tasks now use a flat layout/);
   runtime.config.isZH = true;
   scope.cleanup();
@@ -323,7 +340,7 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   const panel = new FeedbackPanel({
     client: { list: async () => ({ items: [] }) },
     scope,
-    announcements: announcementStore({ seen: ["26.4.6"] }),
+    announcements: announcementStore({ seen: ["26.4.7"] }),
   });
 
   const emphasized = panel.root.querySelector(
@@ -342,10 +359,27 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("the current announcement covers every player-facing update bilingually", () => {
+test("announcement history preserves 26.4.6 separately from 26.4.7", () => {
   const current = ANNOUNCEMENTS[0];
-  assert.equal(current.version, "26.4.6");
+  const previous = ANNOUNCEMENTS[1];
+  assert.deepEqual(
+    ANNOUNCEMENTS.map(({ version }) => version),
+    ["26.4.7", "26.4.6"],
+  );
+  assert.equal(current.version, "26.4.7");
+  assert.equal(previous.version, "26.4.6");
+  assert.equal(previous.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
+  assert.equal(previous.body.zh.length, 20);
+  assert.equal(previous.body.en.length, 20);
+  assert.match(previous.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
+  assert.match(current.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
+});
+
+test("the announcement history covers every player-facing update bilingually", () => {
+  const allZh = ANNOUNCEMENTS.flatMap(({ body }) => body.zh).join("\n");
+  const allEn = ANNOUNCEMENTS.flatMap(({ body }) => body.en).join("\n");
   for (const pattern of [
     /铁牛模式适配/,
     /点金、分解、转化和解精炼/,
@@ -356,8 +390,15 @@ test("the current announcement covers every player-facing update bilingually", (
     /购物车数量加减按钮/,
     /数字解析和显示现在跟随游戏内语言/,
     /中文以外的游戏语言下火车点击加入队列后不续站/,
+    /分项图表改为显示各日期的实际资产持有值/,
+    /实时资产刷新后继续保持隐藏或显示状态/,
+    /精炼生活披风等背部装备提示没有新缺料/,
+    /改善英文界面卡顿/,
+    /九种官方语言下库存评分与总资产/,
+    /移动浏览器工具栏变化后页面底部偶尔出现白条/,
+    /Sunny 强化倍数按钮/,
   ]) {
-    assert.match(current.body.zh.join("\n"), pattern);
+    assert.match(allZh, pattern);
   }
   for (const pattern of [
     /Iron Cow adaptation/,
@@ -369,8 +410,15 @@ test("the current announcement covers every player-facing update bilingually", (
     /shopping-cart quantity buttons/,
     /Number parsing and display now follow the in-game language/,
     /trains not advancing after queue submission/,
+    /component charts now show actual holdings/,
+    /visibility now persists through live asset refreshes/,
+    /refined skilling capes and other back equipment/,
+    /improve English task-page performance/,
+    /all nine official game languages/,
+    /mobile browser toolbar changes/,
+    /Sunny's enhancement multiplier buttons/,
   ]) {
-    assert.match(current.body.en.join("\n"), pattern);
+    assert.match(allEn, pattern);
   }
 });
 

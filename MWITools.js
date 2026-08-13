@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.6
+// @version      26.4.7
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -890,7 +890,7 @@
     },
     totalActionTime: {
       id: "totalActionTime",
-      desc: isZH ? "左上角显示：当前动作预计总耗时、预计何时完成" : "Top left: Estimated total time of the current action, estimated complete time.",
+      desc: isZH ? "左上角显示：当前动作剩余次数和剩余时间" : "Top left: Remaining count and time for the current action.",
       isTrue: true
     },
     actionPanel_totalTime: {
@@ -960,7 +960,7 @@
     },
     itemTooltip_profitRequireKey: {
       id: "itemTooltip_profitRequireKey",
-      desc: isZH ? "生产利润和宝箱估算需要同时按住自定义按键" : "Require a shared custom held key for production profit and loot chest estimates.",
+      desc: isZH ? "生产利润、宝箱估算和强化成本需要同时按住自定义按键" : "Require a shared custom held key for production profit, loot chest, and enhancement cost estimates.",
       isTrue: true
     },
     lootChestEstimate: {
@@ -1210,8 +1210,8 @@
     actionBar: {
       title: { zh: "动作栏", en: "Action Bar" },
       summary: {
-        zh: "在顶部查看当前动作还剩多少次、还需多久以及预计完成时间。",
-        en: "See the current action's remaining count, time left, and estimated finish time."
+        zh: "在顶部查看当前动作还剩多少次、还需多久。",
+        en: "See the current action's remaining count and time left."
       }
     },
     production: {
@@ -1333,8 +1333,8 @@
       "actionBar",
       "当前动作时间",
       "Current action timing",
-      "在顶部显示剩余次数、剩余时间和预计完成时刻。",
-      "Show remaining count, time remaining, and estimated completion time."
+      "在顶部显示剩余次数和剩余时间。",
+      "Show remaining count and time remaining."
     ],
     [
       "actionBarProfit",
@@ -1493,8 +1493,8 @@
       "market",
       "悬浮扩展面板需要按键",
       "Require key for tooltip panels",
-      "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
-      "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices."
+      "生产利润、宝箱估算和强化成本在桌面端共用一个自定义单键；移动端均需长按。",
+      "Use one shared custom held key for production profit, loot chest, and enhancement cost estimates on desktop; use a long press on touch devices."
     ],
     [
       "lootChestEstimate",
@@ -1757,8 +1757,8 @@
       "leaderboard",
       "排行榜经验速率",
       "Leaderboard XP rates",
-      "在全服技能排行榜增加可排序的经验/小时列；此开关不影响名次徽章。",
-      "Add a sortable XP/hour column to standard skill leaderboards without affecting rank badges."
+      "在全服技能排行榜增加只读的经验/小时列；此开关不影响名次徽章或排行顺序。",
+      "Add a read-only XP/hour column to standard skill leaderboards without affecting rank badges or row order."
     ],
     [
       "guildCreditConversionsSort",
@@ -2336,6 +2336,18 @@
       (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
     ).join("");
     return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
+  }
+  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
+    const value = String(text ?? "").trim();
+    if ([...Array.isArray(paths) ? paths : [paths]].some(
+      (path) => matchesGameTranslation(path, value, { locale })
+    )) {
+      return true;
+    }
+    return fallbackPatterns.some((pattern) => {
+      if (pattern instanceof RegExp) return pattern.test(value);
+      return String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase();
+    });
   }
   function resetGameLocalizationCache() {
     localeResources.clear();
@@ -20113,7 +20125,7 @@
       }
       if (!inputs.length) maxCraftable = Infinity;
     }
-    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0));
+    const canApplyInventoryLimit = respectInventoryLimit && (Boolean(alchemyCapacity) || !(infinite && maxCraftable === 0 && context.respectInventoryLimit !== true));
     const executableCount = canApplyInventoryLimit ? Math.min(normalizedCount, maxCraftable) : normalizedCount;
     const effectivelyInfinite = !Number.isFinite(executableCount);
     const materialLimited = respectInventoryLimit && (inputs.length > 0 || Boolean(alchemyCapacity)) && Number.isFinite(maxCraftable) && maxCraftable > 0 && (infinite || maxCraftable < normalizedCount);
@@ -20684,6 +20696,28 @@
     const baseSavings = Math.max(0, Number(buffs.lessResource) || 0) / 100;
     return Math.min(1, baseSavings * getDrinkConcentration());
   }
+  function isBackEquipmentForProcurement(itemHrid) {
+    const detail = runtime.state.initData_itemDetailMap?.[normalizeItemHrid(itemHrid)];
+    const equipment = detail?.equipmentDetail;
+    return [
+      detail?.itemLocationHrid,
+      detail?.equipmentSlotHrid,
+      detail?.slotHrid,
+      equipment?.itemLocationHrid,
+      equipment?.equipmentSlotHrid,
+      equipment?.slotHrid,
+      equipment?.equipmentTypeHrid,
+      equipment?.typeHrid,
+      equipment?.type
+    ].some((value) => /(?:^|[/_])back(?:$|[/_])/.test(String(value ?? "")));
+  }
+  function isRefinedBackUpgrade(detail) {
+    if (!normalizeItemHrid(detail?.upgradeItemHrid)) return false;
+    return (runtime.api.getExpectedOutputs?.(detail) ?? []).some((output) => {
+      const outputHrid = normalizeItemHrid(output?.itemHrid);
+      return outputHrid.endsWith("_refined") && isBackEquipmentForProcurement(outputHrid);
+    });
+  }
   function materialRequirement(input, actionHrid, actionCount, options = {}) {
     const itemHrid = normalizeItemHrid(input.itemHrid);
     const enhancementLevel = normalizeEnhancementLevel(input.enhancementLevel);
@@ -20733,7 +20767,7 @@
         0,
         calculated.suggested - effectiveOwned - cartQuantity
       ),
-      purchasable: !isCoin(itemHrid)
+      purchasable: options.purchasable !== false && !isCoin(itemHrid)
     };
   }
   function calculateRequirements(actionHrid, count, options = {}) {
@@ -20747,10 +20781,12 @@
       ...options,
       excludeActionHrids: options.excludeActionHrids ?? /* @__PURE__ */ new Set([actionHrid])
     };
+    const excludedUpgradeHrid = isRefinedBackUpgrade(detail) ? normalizeItemHrid(detail.upgradeItemHrid) : "";
     const materials = inputs.map(
       (input) => materialRequirement(input, actionHrid, actionCount, {
         ...calculationOptions,
-        isUpgradeItem: normalizeItemHrid(input.itemHrid) === normalizeItemHrid(detail.upgradeItemHrid)
+        isUpgradeItem: normalizeItemHrid(input.itemHrid) === normalizeItemHrid(detail.upgradeItemHrid),
+        purchasable: normalizeItemHrid(input.itemHrid) !== excludedUpgradeHrid
       })
     );
     return {
@@ -20857,16 +20893,18 @@
         const upgradeMaterial = projection.materials.find(
           (material) => material.itemHrid === upgradeHrid
         );
-        if (producer) {
-          visit(
-            producer.actionHrid,
-            Math.ceil(
-              Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
-            ),
-            depth + 1
-          );
-        } else {
-          if (upgradeMaterial) mergeMaterial(leaves, upgradeMaterial);
+        if (upgradeMaterial?.purchasable !== false) {
+          if (producer) {
+            visit(
+              producer.actionHrid,
+              Math.ceil(
+                Math.max(0, Number(upgradeMaterial?.suggested) || 0) / producer.outputCount
+              ),
+              depth + 1
+            );
+          } else if (upgradeMaterial) {
+            mergeMaterial(leaves, upgradeMaterial);
+          }
         }
       }
       visited.delete(currentHrid);
@@ -21354,37 +21392,47 @@
     const itemHrid = normalizeItemHrid2(output?.itemHrid);
     return itemHrid ? { itemHrid, count: positiveNumber(output?.count) || 1 } : null;
   }
-  function actionEntries() {
-    return Object.entries(runtime.state.initData_actionDetailMap ?? {});
+  var cachedActionMap = null;
+  var cachedUpgradeActions = /* @__PURE__ */ new Map();
+  var cachedBaseActions = /* @__PURE__ */ new Map();
+  var cachedUpgradeInputItems = /* @__PURE__ */ new Set();
+  function ensureActionIndex() {
+    const actionMap = runtime.state.initData_actionDetailMap ?? {};
+    if (actionMap === cachedActionMap) return;
+    cachedActionMap = actionMap;
+    cachedUpgradeActions = /* @__PURE__ */ new Map();
+    cachedBaseActions = /* @__PURE__ */ new Map();
+    cachedUpgradeInputItems = /* @__PURE__ */ new Set();
+    for (const [fallbackHrid, detail] of Object.entries(actionMap)) {
+      const output = primaryOutput(detail);
+      if (!output?.itemHrid) continue;
+      if (detail?.upgradeItemHrid) {
+        cachedUpgradeInputItems.add(normalizeItemHrid2(detail.upgradeItemHrid));
+        if (cachedUpgradeActions.has(output.itemHrid)) continue;
+        cachedUpgradeActions.set(output.itemHrid, {
+          actionHrid: detail.hrid ?? fallbackHrid,
+          detail,
+          output,
+          inputHrid: normalizeItemHrid2(detail.upgradeItemHrid)
+        });
+      } else if (!cachedBaseActions.has(output.itemHrid)) {
+        cachedBaseActions.set(output.itemHrid, {
+          actionHrid: detail.hrid ?? fallbackHrid,
+          detail,
+          output
+        });
+      }
+    }
   }
   function findUpgradeActionToItem(itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
-    for (const [fallbackHrid, detail] of actionEntries()) {
-      if (!detail?.upgradeItemHrid) continue;
-      const output = primaryOutput(detail);
-      if (output?.itemHrid !== target) continue;
-      return {
-        actionHrid: detail.hrid ?? fallbackHrid,
-        detail,
-        output,
-        inputHrid: normalizeItemHrid2(detail.upgradeItemHrid)
-      };
-    }
-    return null;
+    ensureActionIndex();
+    return cachedUpgradeActions.get(target) ?? null;
   }
   function findBaseActionForItem(itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
-    for (const [fallbackHrid, detail] of actionEntries()) {
-      if (detail?.upgradeItemHrid) continue;
-      const output = primaryOutput(detail);
-      if (output?.itemHrid !== target) continue;
-      return {
-        actionHrid: detail.hrid ?? fallbackHrid,
-        detail,
-        output
-      };
-    }
-    return null;
+    ensureActionIndex();
+    return cachedBaseActions.get(target) ?? null;
   }
   function inputCountFor(detail, itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
@@ -21592,9 +21640,8 @@
       depth += 1;
     }
     if (depth) return depth;
-    return actionEntries().some(
-      ([, detail]) => normalizeItemHrid2(detail?.upgradeItemHrid) === current
-    ) ? 0 : -1;
+    ensureActionIndex();
+    return cachedUpgradeInputItems.has(current) ? 0 : -1;
   }
   function parseTrainCount(raw) {
     const match = String(raw ?? "").trim().toLowerCase().match(/^(\d+(?:\.\d+)?)([kmb])?$/);
@@ -23753,7 +23800,7 @@
   function createDuplicateWarningMonitor(options = {}) {
     const documentRef = options.documentRef ?? globalThis.document;
     const detect = options.detect ?? (() => detectDuplicateScripts(options));
-    const render2 = options.render ?? showDuplicateWarning;
+    const render = options.render ?? showDuplicateWarning;
     const scheduleTask = options.scheduleTask ?? globalThis.queueMicrotask;
     const setIntervalRef = options.setIntervalRef ?? globalThis.setInterval;
     const clearIntervalRef = options.clearIntervalRef ?? globalThis.clearInterval;
@@ -23773,7 +23820,7 @@
       const signature = duplicateSignature(duplicates);
       if (signature === lastSignature) return;
       lastSignature = signature;
-      render2(duplicates, {
+      render(duplicates, {
         documentRef,
         isZH: options.isZH ?? runtime.config.isZH,
         onDismiss() {
@@ -23819,6 +23866,101 @@
     initialize({ scope }) {
       const monitor = createDuplicateWarningMonitor();
       scope.add(() => monitor.destroy());
+    }
+  });
+
+  // src/features/mobile-viewport-fix.js
+  var STYLE_ID = "mwitools-mobile-viewport-style";
+  var ACTIVE_ATTRIBUTE = "data-mwitools-mobile-viewport";
+  var HEIGHT_PROPERTY = "--mwitools-visual-viewport-height";
+  function resolveVisualViewportHeight(windowRef = globalThis.window ?? globalThis, documentRef = globalThis.document) {
+    const candidates = [
+      windowRef?.visualViewport?.height,
+      windowRef?.innerHeight,
+      documentRef?.documentElement?.clientHeight
+    ];
+    for (const candidate of candidates) {
+      const height = Number(candidate);
+      if (Number.isFinite(height) && height > 0) return height;
+    }
+    return 0;
+  }
+  function syncMobileViewportHeight(windowRef = globalThis.window ?? globalThis, documentRef = globalThis.document) {
+    const root = documentRef?.documentElement;
+    const height = resolveVisualViewportHeight(windowRef, documentRef);
+    if (!root || !height) return false;
+    root.setAttribute(ACTIVE_ATTRIBUTE, "true");
+    root.style.setProperty(
+      HEIGHT_PROPERTY,
+      `${Math.round(height * 100) / 100}px`
+    );
+    return true;
+  }
+  function addStyles(documentRef = document) {
+    if (documentRef.getElementById(STYLE_ID)) return;
+    const style = documentRef.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = `
+    @media (max-width:760px), (any-pointer:coarse) {
+      html[${ACTIVE_ATTRIBUTE}="true"],
+      html[${ACTIVE_ATTRIBUTE}="true"] body,
+      html[${ACTIVE_ATTRIBUTE}="true"] #root {
+        height:var(${HEIGHT_PROPERTY},100dvh)!important;
+      }
+      html[${ACTIVE_ATTRIBUTE}="true"] body {
+        background-color:var(--color-background-game,#131419)!important;
+      }
+    }
+  `;
+    (documentRef.head ?? documentRef.documentElement).append(style);
+  }
+  function createViewportScheduler(windowRef, documentRef) {
+    let frame = null;
+    const run = () => {
+      frame = null;
+      syncMobileViewportHeight(windowRef, documentRef);
+    };
+    const schedule = () => {
+      if (frame !== null) return;
+      if (typeof windowRef.requestAnimationFrame === "function") {
+        frame = windowRef.requestAnimationFrame(run);
+      } else {
+        frame = windowRef.setTimeout(run, 0);
+      }
+    };
+    const cancel = () => {
+      if (frame === null) return;
+      if (typeof windowRef.cancelAnimationFrame === "function") {
+        windowRef.cancelAnimationFrame(frame);
+      } else {
+        windowRef.clearTimeout(frame);
+      }
+      frame = null;
+    };
+    return { schedule, cancel };
+  }
+  runtime.features.register({
+    id: "mobileViewportFix",
+    scope: "global",
+    initialize({ scope }) {
+      addStyles();
+      const scheduler = createViewportScheduler(window, document);
+      const schedule = scheduler.schedule;
+      syncMobileViewportHeight(window, document);
+      scope.event(window, "resize", schedule, { passive: true });
+      scope.event(window, "orientationchange", schedule, { passive: true });
+      scope.event(window, "pageshow", schedule, { passive: true });
+      scope.event(window.visualViewport, "resize", schedule, { passive: true });
+      scope.event(document, "visibilitychange", () => {
+        if (document.visibilityState === "visible") schedule();
+      });
+      scope.add(() => {
+        scheduler.cancel();
+        const root = document.documentElement;
+        root.removeAttribute(ACTIVE_ATTRIBUTE);
+        root.style.removeProperty(HEIGHT_PROPERTY);
+        document.getElementById(STYLE_ID)?.remove();
+      });
     }
   });
 
@@ -25301,13 +25443,14 @@
     });
   }
   function formatTooltip(value) {
-    return runtime.api.formatExactNumber?.(value, 0) ?? String(value);
+    return runtime.api.numberFormatter?.(value) ?? String(value);
   }
   var AssetHistoryChart = class {
-    constructor(canvas, fallback) {
+    constructor(canvas, fallback, { hiddenDatasets = null } = {}) {
       this.canvas = canvas;
       this.fallback = fallback;
       this.instance = null;
+      this.hiddenDatasets = hiddenDatasets ?? /* @__PURE__ */ new Set();
     }
     destroy() {
       this.instance?.destroy?.();
@@ -25372,7 +25515,8 @@
         datasets = ASSET_COMPONENT_KEYS.map((key) => ({
           type: "line",
           label: t(...LABELS[key]),
-          data: normalizedChanges(filtered, key),
+          data: filtered.map(([, record]) => record?.values?.[key] ?? null),
+          mwitoolsVisibilityKey: key,
           borderColor: COLORS[key],
           backgroundColor: COLORS[key],
           borderWidth: 2,
@@ -25380,7 +25524,7 @@
           tension: lineTension,
           spanGaps: true
         }));
-        title = t("分项每日变化", "Daily component changes");
+        title = t("分项资产", "Component assets");
       } else {
         datasets = [
           {
@@ -25397,6 +25541,10 @@
           }
         ];
         title = t("总资产历史", "Total asset history");
+      }
+      for (const dataset of datasets) {
+        const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+        dataset.hidden = this.hiddenDatasets.has(key);
       }
       this.destroy();
       const crosshairPlugin = {
@@ -25467,7 +25615,21 @@
           animation: false,
           plugins: {
             title: { display: true, text: title, color: "#eee" },
-            legend: { labels: { color: "#ddd", usePointStyle: true } },
+            legend: {
+              labels: { color: "#ddd", usePointStyle: true },
+              onClick: (_event, legendItem, legend) => {
+                const index = legendItem?.datasetIndex;
+                const chart = legend?.chart;
+                if (!Number.isInteger(index) || !chart) return;
+                const dataset = chart.data.datasets[index];
+                const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
+                const visible2 = chart.isDatasetVisible(index);
+                if (visible2) this.hiddenDatasets.add(key);
+                else this.hiddenDatasets.delete(key);
+                chart.setDatasetVisibility(index, !visible2);
+                chart.update();
+              }
+            },
             tooltip: {
               callbacks: {
                 label(context) {
@@ -25530,7 +25692,7 @@
    * SOFTWARE.
    */
   var ROOT_ID = "mwitools-asset-center-modal";
-  var STYLE_ID = "mwitools-asset-center-style";
+  var STYLE_ID2 = "mwitools-asset-center-style";
   var EP_MIT_LICENSE = `MIT License
 
 Copyright (c) 2025 VictoryWinWinWin, PaperCat, SuXingX
@@ -25582,13 +25744,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     date.setUTCDate(date.getUTCDate() + amount);
     return date.toISOString().slice(0, 10);
   }
-  function addStyles() {
-    if (document.getElementById(STYLE_ID)) return;
+  function addStyles2() {
+    if (document.getElementById(STYLE_ID2)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID;
+    style.id = STYLE_ID2;
     style.textContent = `
-    #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);backdrop-filter:blur(5px);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
-    #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.35)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
+    #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
+    #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.55)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
     #${ROOT_ID} *{box-sizing:border-box}#${ROOT_ID} button,#${ROOT_ID} input,#${ROOT_ID} select{font:inherit}#${ROOT_ID} button{color:inherit}
     #${ROOT_ID} .ep-shell{position:relative;display:grid;grid-template-columns:220px minmax(0,1fr);width:min(1180px,94vw);height:min(820px,92vh);min-width:720px;min-height:520px;overflow:hidden;border:1px solid hsl(var(--ep-border));border-radius:14px;background:hsl(var(--ep-bg));box-shadow:0 30px 90px rgba(0,0,0,.55);resize:both}
     #${ROOT_ID} .ep-sidebar{display:flex;min-width:0;flex-direction:column;border-right:1px solid hsl(var(--ep-border));background:linear-gradient(180deg,hsl(var(--ep-panel)),hsl(var(--ep-bg)));padding:16px 12px}
@@ -25622,9 +25784,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       this.reportMode = "month";
       this.reportDate = /* @__PURE__ */ new Date();
       this.chart = null;
+      this.hiddenChartDatasets = /* @__PURE__ */ new Set();
       this.previousFocus = null;
       this.snapshot = null;
-      addStyles();
+      addStyles2();
       this.build();
     }
     isZH() {
@@ -25732,6 +25895,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       document.body.style.overflow = "";
       this.chart?.destroy();
       this.chart = null;
+      this.hiddenChartDatasets.clear();
       if (this.pendingWindowSize) {
         this.store.setPreferences({ windowSize: this.pendingWindowSize });
         this.pendingWindowSize = null;
@@ -25740,7 +25904,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
-      if (!this.root.hidden) this.render();
+      if (!this.root.hidden && ["chart", "analysis", "stats", "achievements"].includes(this.route)) {
+        this.render();
+      }
     }
     applyTheme() {
       const prefs = this.store.getPreferences();
@@ -25853,7 +26019,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       });
       this.chart = new AssetHistoryChart(
         page.querySelector("[data-center-chart]"),
-        page.querySelector("[data-chart-fallback]")
+        page.querySelector("[data-chart-fallback]"),
+        { hiddenDatasets: this.hiddenChartDatasets }
       );
       this.drawCenterChart();
     }
@@ -26251,7 +26418,7 @@ ${values.map((item) => item.date).join("\n")}`
   // src/features/asset-history/30-panel.js
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
-  var STYLE_ID2 = "mwitools-asset-history-style";
+  var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
     ["total", "总计", "Total"],
@@ -26406,10 +26573,10 @@ ${values.map((item) => item.date).join("\n")}`
     input.setSelectionRange?.(message.length, message.length);
     return input;
   }
-  function addStyles2() {
-    if (document.getElementById(STYLE_ID2)) return;
+  function addStyles3() {
+    if (document.getElementById(STYLE_ID3)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID2;
+    style.id = STYLE_ID3;
     style.textContent = `
     #${TAB_ID}[data-active="true"] { color:#00c6ff!important; font-weight:700; }
     [data-mwitools-asset-active="true"] button:not(#${TAB_ID}) { border-color:var(--mwi-asset-idle-border,rgba(255,255,255,.16))!important; background:var(--mwi-asset-idle-background,rgba(255,255,255,.08))!important; box-shadow:var(--mwi-asset-idle-shadow,none)!important; color:var(--mwi-asset-idle-color,var(--color-text-secondary,#aeb5c0))!important; filter:none!important; }
@@ -26595,7 +26762,7 @@ ${values.map((item) => item.date).join("\n")}`
         <div class="mwi-asset-chart-controls">
           <button type="button" data-mode="total">${t2("总资产", "Total assets")}</button>
           <button type="button" data-mode="profit">${t2("每日盈亏", "Daily P/L")}</button>
-          <button type="button" data-mode="breakdown">${t2("分项变化", "Components")}</button>
+          <button type="button" data-mode="breakdown">${t2("分项资产", "Component assets")}</button>
           <span style="flex:1"></span>
           <button type="button" data-range="7">7${t2("天", "d")}</button>
           <button type="button" data-range="15">15${t2("天", "d")}</button>
@@ -27067,7 +27234,7 @@ ${preview}`
       }
       if (mountMode !== null) teardownMount();
     };
-    addStyles2();
+    addStyles3();
     ensureMounted();
     scope.interval(ensureMounted, 500);
     const handleTabBranchClick = (event) => {
@@ -27090,7 +27257,7 @@ ${preview}`
       },
       destroy() {
         teardownMount();
-        document.getElementById(STYLE_ID2)?.remove();
+        document.getElementById(STYLE_ID3)?.remove();
       }
     };
   }
@@ -27327,12 +27494,12 @@ ${preview}`
   });
 
   // src/features/leaderboard-overlay.js
-  var OVERLAY_VERSION = "1.2.0";
+  var OVERLAY_VERSION = "1.2.1";
   var LEADERBOARD_API_URL = "https://mwi-guild.43.167.210.211.sslip.io/api/v1/leaderboards?categories=16";
   var LEADERBOARD_CACHE_KEY = "MWITools_leaderboard_overlay_cache_v2";
   var LEADERBOARD_REFRESH_INTERVAL = 15 * 60 * 1e3;
   var DEFAULT_ICON_BASE_URL = "https://mwi-guild.43.167.210.211.sslip.io/dist/icons/skills";
-  var STYLE_ID3 = "mwi-leaderboard-overlay-style";
+  var STYLE_ID4 = "mwi-leaderboard-overlay-style";
   var BADGE_CONTAINER_ATTRIBUTE = "data-mwi-leaderboard-badges";
   var RATE_HEADER_ATTRIBUTE = "data-mwi-leaderboard-rate-header";
   var RATE_CELL_ATTRIBUTE = "data-mwi-leaderboard-rate-cell";
@@ -27407,7 +27574,7 @@ ${preview}`
     return rateDifference || leftRank - rightRank;
   }
   function ensureStyles(documentRef) {
-    if (documentRef.getElementById(STYLE_ID3)) return;
+    if (documentRef.getElementById(STYLE_ID4)) return;
     const mount = documentRef.head || documentRef.documentElement;
     if (!mount) {
       documentRef.addEventListener(
@@ -27418,7 +27585,7 @@ ${preview}`
       return;
     }
     const style = documentRef.createElement("style");
-    style.id = STYLE_ID3;
+    style.id = STYLE_ID4;
     style.textContent = `
     [${BADGE_CONTAINER_ATTRIBUTE}]{display:inline-flex;align-items:center;flex-wrap:wrap;gap:2px;margin-inline-start:4px;vertical-align:middle}
     [${BADGE_CONTAINER_ATTRIBUTE}][data-mwi-leaderboard-placement="profile"]{display:flex;flex-basis:100%;width:100%;margin-block-start:4px;margin-inline-start:0}
@@ -27428,8 +27595,7 @@ ${preview}`
     .mwi-lb-badge--gold{border-color:#d9aa38;color:#ffe8a3;box-shadow:0 0 5px rgba(217,170,56,.24)}
     .mwi-lb-badge--silver{border-color:#d8dee9;color:#f8fafc;box-shadow:0 0 4px rgba(226,232,240,.24)}
     .mwi-lb-badge--bronze{border-color:#b87333;color:#f2c49b;box-shadow:0 0 4px rgba(184,115,51,.24)}
-    [${RATE_HEADER_ATTRIBUTE}]{cursor:pointer;user-select:none;white-space:nowrap}
-    [${RATE_HEADER_ATTRIBUTE}]:hover{filter:brightness(1.18)}
+    [${RATE_HEADER_ATTRIBUTE}]{white-space:nowrap}
     [${RATE_CELL_ATTRIBUTE}]{font-variant-numeric:tabular-nums;white-space:nowrap}
   `;
     mount.append(style);
@@ -27473,7 +27639,6 @@ ${preview}`
       categories: {},
       nameIndex: /* @__PURE__ */ new Map(),
       currentLeaderboard: null,
-      sortMode: "official",
       refreshPending: false,
       destroyed: false,
       showBadges: options.showBadges !== false,
@@ -27584,46 +27749,6 @@ ${preview}`
         ])
       );
     }
-    function updateHeaderCopy(header) {
-      const arrow = state.sortMode === "descending" ? " ↓" : state.sortMode === "ascending" ? " ↑" : "";
-      const copy = `${t3("经验/小时", "XP/hour")}${arrow}`;
-      if (header.textContent !== copy) header.textContent = copy;
-      header.title = t3(
-        "点击排序：降序 → 升序 → 官方原排名",
-        "Click to sort: descending → ascending → official rank"
-      );
-      header.setAttribute(
-        "aria-sort",
-        state.sortMode === "descending" ? "descending" : state.sortMode === "ascending" ? "ascending" : "none"
-      );
-    }
-    function applyTableSort(table, rowsByName) {
-      const tbody = table.tBodies?.[0];
-      if (!tbody) return;
-      const rows = [...tbody.rows];
-      const currentCharacterName2 = normalizedName2(
-        runtime.state.currentCharacterName
-      );
-      rows.sort((left, right) => {
-        const leftName = left.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const rightName = right.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
-        const normalizedLeftName = normalizedName2(leftName);
-        const normalizedRightName = normalizedName2(rightName);
-        if (currentCharacterName2) {
-          const leftIsCurrent = normalizedLeftName === currentCharacterName2;
-          const rightIsCurrent = normalizedRightName === currentCharacterName2;
-          if (leftIsCurrent !== rightIsCurrent) return leftIsCurrent ? -1 : 1;
-        }
-        return compareRateRows(
-          rowsByName.get(normalizedLeftName),
-          rowsByName.get(normalizedRightName),
-          state.sortMode
-        );
-      });
-      if (rows.some((row, index) => tbody.rows[index] !== row)) {
-        rows.forEach((row) => tbody.append(row));
-      }
-    }
     function renderLeaderboardRateColumn() {
       if (!state.showRates) return;
       const current = state.currentLeaderboard;
@@ -27637,13 +27762,10 @@ ${preview}`
       if (!header) {
         header = documentRef.createElement("th");
         header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
-        header.addEventListener("click", () => {
-          state.sortMode = state.sortMode === "official" ? "descending" : state.sortMode === "descending" ? "ascending" : "official";
-          scheduleRefresh();
-        });
         headingRow.append(header);
       }
-      updateHeaderCopy(header);
+      const headerCopy = t3("经验/小时", "XP/hour");
+      if (header.textContent !== headerCopy) header.textContent = headerCopy;
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
         const name = rowElement.querySelector('[class*="CharacterName_name"][data-name]')?.getAttribute("data-name");
@@ -27660,7 +27782,6 @@ ${preview}`
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
-      applyTableSort(table, rowsByName);
     }
     function refresh() {
       if (state.destroyed) return;
@@ -27671,11 +27792,6 @@ ${preview}`
       documentRef.querySelectorAll(`[${BADGE_CONTAINER_ATTRIBUTE}]`).forEach((element) => element.remove());
     }
     function removeRateColumn() {
-      const table = documentRef.querySelector(LEADERBOARD_TABLE_SELECTOR);
-      if (table && state.currentLeaderboard) {
-        state.sortMode = "official";
-        applyTableSort(table, currentRowsByName());
-      }
       documentRef.querySelectorAll(`[${RATE_HEADER_ATTRIBUTE}],[${RATE_CELL_ATTRIBUTE}]`).forEach((element) => element.remove());
     }
     function scheduleRefresh() {
@@ -27723,7 +27839,6 @@ ${preview}`
           category,
           rows: Array.isArray(rows) ? rows : []
         };
-        state.sortMode = "official";
         scheduleRefresh();
         return true;
       },
@@ -27731,7 +27846,6 @@ ${preview}`
         if (!state.currentLeaderboard) return;
         removeRateColumn();
         state.currentLeaderboard = null;
-        state.sortMode = "official";
       },
       setDisplay({ badges = state.showBadges, rates = state.showRates } = {}) {
         const nextBadges = Boolean(badges);
@@ -27749,7 +27863,7 @@ ${preview}`
         removeBadges();
         removeRateColumn();
         activeInstances = Math.max(0, activeInstances - 1);
-        if (activeInstances === 0) documentRef.getElementById(STYLE_ID3)?.remove();
+        if (activeInstances === 0) documentRef.getElementById(STYLE_ID4)?.remove();
       }
     };
   }
@@ -28061,7 +28175,7 @@ ${preview}`
   });
 
   // src/features/battle-buffs.js
-  var STYLE_ID4 = "mwi-buff-style";
+  var STYLE_ID5 = "mwi-buff-style";
   var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
   var BUFFS = /* @__PURE__ */ new Map([
     ["/abilities/mana_spring", 10],
@@ -28114,9 +28228,9 @@ ${preview}`
     return parts[parts.length - 1] || hrid;
   }
   function ensureBuffStyles(scope) {
-    if (document.getElementById(STYLE_ID4)) return;
+    if (document.getElementById(STYLE_ID5)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID4;
+    style.id = STYLE_ID5;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
 .mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
@@ -29061,8 +29175,11 @@ ${preview}`
         if (selectedTab.id === "mwitools-asset-history-tab") return false;
         if (selectedTab.dataset.mwiCreditTab === "true") return false;
         if (selectedTab.classList.contains("income-tab")) return false;
-        const text = selectedTab.textContent || "";
-        if (!/库存|Inventory/i.test(text) && !selectedTab.querySelector('[class*="Inventory"]')) {
+        if (!matchesGameTranslations(
+          "characterManagement.inventory",
+          selectedTab.textContent,
+          { fallbackPatterns: [/^(?:库存|Inventory)$/i] }
+        ) && !selectedTab.querySelector('[class*="Inventory"]')) {
           return false;
         }
       }
@@ -29116,8 +29233,9 @@ ${preview}`
     const levelText = itemElem?.querySelector?.('[class*="Item_enhancementLevel"]')?.textContent ?? "";
     return Number.parseInt(levelText.replace(/\D/g, ""), 10) || 0;
   }
-  function isSortableInventoryCategory(typeName) {
-    return typeName !== "Equipment";
+  function isSortableInventoryCategory(typeName, categoryHrid = "") {
+    if (categoryHrid) return categoryHrid !== "/item_categories/equipment";
+    return !/^(?:Equipment|装备|裝備)$/iu.test(String(typeName ?? "").trim());
   }
   async function addInvSortButton(invElem) {
     const showSort = runtime.settings.settingsMap.invSort.isTrue;
@@ -29203,7 +29321,11 @@ ${preview}`
           '[class*="Inventory_categoryButton"]'
         );
         const typeName = runtime.api.getOriTextFromElement?.(categoryButton) ?? categoryButton?.textContent ?? "";
-        if (!isSortableInventoryCategory(typeName)) {
+        const categoryHrid = resolveInventoryCategoryHrid(
+          typeDiv,
+          categoryButton
+        );
+        if (!isSortableInventoryCategory(typeName, categoryHrid)) {
           continue;
         }
         const label = typeDiv.querySelector('[class*="Inventory_label"]');
@@ -30305,7 +30427,7 @@ ${preview}`
 
   // src/features/production-profit-panel.js
   var PANEL_ID2 = "mwitools-production-profit-panel";
-  var STYLE_ID5 = "mwitools-production-profit-panel-style";
+  var STYLE_ID6 = "mwitools-production-profit-panel-style";
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
@@ -30375,12 +30497,12 @@ ${preview}`
     const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
-  function addStyles3() {
-    if (document.getElementById(STYLE_ID5)) return;
+  function addStyles4() {
+    if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID5;
+    style.id = STYLE_ID6;
     style.textContent = `
-    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID2} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
@@ -30920,7 +31042,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       mutationObserver = new MutationObserver(() => {
         if (!anchor.isConnected) hideProductionProfitPanel();
       });
-      mutationObserver.observe(document.body, { childList: true, subtree: true });
+      mutationObserver.observe(anchor.parentNode ?? document.body, {
+        childList: true
+      });
       resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
       resizeObserver?.observe(anchor);
       resizeObserver?.observe(panel);
@@ -30967,7 +31091,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles3();
+    addStyles4();
     const projection = runtime.api.projectAction(actionHrid, 1);
     const primaryItemHrid = itemHrid ?? runtime.api.getExpectedOutputs?.(projection.detail)?.[0]?.itemHrid;
     if (!primaryItemHrid) return null;
@@ -30995,7 +31119,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       return null;
     }
     hideProductionProfitPanel();
-    addStyles3();
+    addStyles4();
     const panel = createPanelElement();
     panel.classList.toggle("mwi-profit-pinned", sticky);
     renderLootChestPanel(panel, itemHrid, chest, { pinned });
@@ -31095,6 +31219,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function canShowHoverPanel(context = hoverPanelContext) {
+    if (context?.kind === "enhancement") {
+      return Boolean(runtime.settings.settingsMap.enhanceSim?.isTrue);
+    }
     if (context?.kind === "loot") {
       return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
     }
@@ -31104,13 +31231,26 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function hasEnabledHoverPanelFeature() {
     return Boolean(
-      runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+      runtime.settings.settingsMap.enhanceSim?.isTrue || runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
     );
+  }
+  function dismissHoverPanelContext(context = hoverPanelContext) {
+    if (context?.kind === "enhancement") {
+      runtime.api.hideEnhancementCostPanel?.();
+    } else {
+      runtime.api.dismissHoverPanel?.();
+    }
   }
   function showHoverPanelContext(context = hoverPanelContext, options = {}) {
     if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
-      runtime.api.dismissHoverPanel?.();
+      dismissHoverPanelContext(context);
       return null;
+    }
+    if (context.kind === "enhancement") {
+      return runtime.api.showEnhancementCostPanel?.(
+        context.anchor,
+        context.plan ?? null
+      );
     }
     if (context.kind === "loot") {
       return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
@@ -31127,9 +31267,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function setHoverPanelContext(context) {
+    if (hoverPanelContext && (hoverPanelContext.kind !== context?.kind || hoverPanelContext.anchor !== context?.anchor)) {
+      dismissHoverPanelContext(hoverPanelContext);
+    }
     hoverPanelContext = context;
     if (!canShowHoverPanel(context)) {
-      runtime.api.dismissHoverPanel?.();
+      dismissHoverPanelContext(context);
       return;
     }
     if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
@@ -31146,7 +31289,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       showHoverPanelContext(context, { sticky: true });
       return;
     }
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(context);
   }
   function clearHoverPanelContext(anchor = null, kind = null) {
     if (anchor && hoverPanelContext?.anchor !== anchor) return;
@@ -31154,8 +31297,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     clearTimeout(touchHoverPanelPress?.timer);
     touchHoverPanelPress = null;
     touchHoverPanelAuthorizedUntil = 0;
+    const previous = hoverPanelContext;
     hoverPanelContext = null;
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(previous);
+  }
+  function setEnhancementHoverPanelContext(anchor, plan = null) {
+    setHoverPanelContext({ kind: "enhancement", anchor, plan });
+  }
+  function clearEnhancementHoverPanelContext(anchor = null) {
+    clearHoverPanelContext(anchor, "enhancement");
   }
   function removeSuppressedTooltipContent() {
     document.querySelectorAll('[data-mwitools-tooltip-market="true"]').forEach((row) => row.remove());
@@ -31605,7 +31755,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     getTeaBuffsByActionHrid,
     handleTooltipItem,
     getActionHridFromItemName,
-    clearTooltipProfitHoverContext: clearHoverPanelContext
+    clearTooltipProfitHoverContext: clearHoverPanelContext,
+    setEnhancementHoverPanelContext,
+    clearEnhancementHoverPanelContext
   });
   Object.defineProperties(runtime.state, {
     tooltipObserver: {
@@ -31690,13 +31842,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         (event) => {
           if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
           hoverPanelShortcutHeld = false;
-          if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+          if (requiresHoverPanelShortcut()) dismissHoverPanelContext();
         },
         true
       );
       scope.event(window, "blur", () => {
         hoverPanelShortcutHeld = false;
-        runtime.api.dismissHoverPanel?.();
+        dismissHoverPanelContext();
       });
       scope.event(
         document,
@@ -31767,7 +31919,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         "itemTooltip_profitRequireKey",
         (required) => {
           if (!required) showHoverPanelContext();
-          else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+          else if (!hoverPanelShortcutHeld) dismissHoverPanelContext();
         }
       );
       const stopIronCow = runtime.settings.onChange(
@@ -31827,6 +31979,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
   var EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
   var ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
+  var MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
+  var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"]';
+  var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
+  var actionPanelRetryStates = /* @__PURE__ */ new Map();
   function addActionPanelStyles() {
     if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -31844,7 +32000,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     (document.head ?? document.documentElement).appendChild(style);
   }
   var waitForActionPanelParent = () => {
-    const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
+    const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
     if (targetNode) {
       console.log(
         runtime.config.isZH ? "[MWITools] 开始监听行动面板。" : "[MWITools] Started observing the action panel."
@@ -31852,13 +32008,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const actionPanelObserver = new MutationObserver(async function(mutations) {
         for (const mutation of mutations) {
           for (const added of mutation.addedNodes) {
-            if (added?.classList?.contains("Modal_modalContainer__3B80m") && added.querySelector("div.SkillActionDetail_regularComponent__3oCgr")) {
-              handleActionPanel(
-                added.querySelector(
-                  "div.SkillActionDetail_regularComponent__3oCgr"
-                )
-              );
-            }
+            const panel = added?.matches?.(ACTION_PANEL_SELECTOR) ? added : added?.querySelector?.(ACTION_PANEL_SELECTOR);
+            if (panel) scheduleActionPanel(panel);
           }
         }
       });
@@ -31872,28 +32023,24 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     }
   };
   async function handleActionPanel(panel) {
-    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return;
+    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
     if (panel.dataset.mwitoolsActionPanel === "true" && panel.querySelector("#mwi-level-progress") && panel.querySelectorAll(".mwi-native-level-stat").length === 4)
-      return;
-    panel.querySelector("#mwi-level-progress")?.remove();
-    panel.querySelectorAll(".mwi-native-level-stat").forEach((element) => element.remove());
-    panel.dataset.mwitoolsActionPanel = "true";
-    addActionPanelStyles();
+      return true;
     const expElement = panel.querySelector(
       'div[class*="SkillActionDetail_expGain"]'
     );
     const inputElem = panel.querySelector(
       'div[class*="SkillActionDetail_maxActionCountInput"] input'
     );
-    if (!expElement || !inputElem) return;
+    if (!expElement || !inputElem) return false;
     const actionHrid = runtime.api.resolveProductionAction?.(panel);
     const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
     const duration = runtime.api.getProductionPanelDuration?.(panel);
-    if (!detail || !Number.isFinite(duration) || duration <= 0) return;
+    if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
     const exp = Number(
       String(runtime.api.getOriTextFromElement(expElement) ?? "").replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replaceAll(runtime.config.DECIMAL_SEPERATOR, ".")
     );
-    if (!Number.isFinite(exp) || exp <= 0) return;
+    if (!Number.isFinite(exp) || exp <= 0) return false;
     const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
     const effBuff = 1 + efficiencyDetails.total / 100;
     const skillHrid = detail.experienceGain?.skillHrid;
@@ -31906,6 +32053,22 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         break;
       }
     }
+    const infoContainer = panel.querySelector(
+      'div[class*="SkillActionDetail_info"]'
+    );
+    const nativeLabel = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_label"]'
+    );
+    const nativeValue = infoContainer?.querySelector(
+      'div[class*="SkillActionDetail_value"]'
+    );
+    if (currentExp === null || currentLevel === null || !infoContainer || !nativeLabel || !nativeValue) {
+      return false;
+    }
+    panel.querySelector("#mwi-level-progress")?.remove();
+    panel.querySelectorAll(".mwi-native-level-stat").forEach((element) => element.remove());
+    delete panel.dataset.mwitoolsActionPanel;
+    addActionPanelStyles();
     if (currentExp !== null && currentLevel !== null) {
       const calculateNeedToLevel = (currentLevel2, targetLevel, effBuff2, duration2, exp2) => {
         let needTotalTimeSec = 0;
@@ -31953,39 +32116,28 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       tillLevelNumber.className = "mwi-level-progress-result";
       row.append(label, tillLevelInput, tillLevelNumber);
       levelCard.append(row);
-      const infoContainer = panel.querySelector(
-        'div[class*="SkillActionDetail_info"]'
+      const addNativeStat = (id, labelText, valueText) => {
+        const statLabel = document.createElement("div");
+        statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
+        statLabel.textContent = labelText;
+        const statValue = document.createElement("div");
+        statValue.id = id;
+        statValue.className = `${nativeValue.className} mwi-native-level-stat`;
+        statValue.textContent = valueText;
+        infoContainer.append(statLabel, statValue);
+      };
+      addNativeStat(
+        "expPerHour",
+        runtime.config.isZH ? "经验/小时" : "XP/hour",
+        runtime.api.numberFormatter(
+          Math.round(3600 / duration * exp * effBuff)
+        )
       );
-      const nativeLabel = infoContainer?.querySelector(
-        'div[class*="SkillActionDetail_label"]'
+      addNativeStat(
+        "currentEfficiency",
+        runtime.config.isZH ? "当前效率" : "Efficiency",
+        `+${Number((effBuff - 1) * 100).toFixed(1)}%`
       );
-      const nativeValue = infoContainer?.querySelector(
-        'div[class*="SkillActionDetail_value"]'
-      );
-      if (infoContainer && nativeLabel && nativeValue) {
-        const addNativeStat = (id, labelText, valueText) => {
-          const statLabel = document.createElement("div");
-          statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
-          statLabel.textContent = labelText;
-          const statValue = document.createElement("div");
-          statValue.id = id;
-          statValue.className = `${nativeValue.className} mwi-native-level-stat`;
-          statValue.textContent = valueText;
-          infoContainer.append(statLabel, statValue);
-        };
-        addNativeStat(
-          "expPerHour",
-          runtime.config.isZH ? "经验/小时" : "XP/hour",
-          runtime.api.numberFormatter(
-            Math.round(3600 / duration * exp * effBuff)
-          )
-        );
-        addNativeStat(
-          "currentEfficiency",
-          runtime.config.isZH ? "当前效率" : "Efficiency",
-          `+${Number((effBuff - 1) * 100).toFixed(1)}%`
-        );
-      }
       const anchor = panel.querySelector("#mwi-production-summary") ?? panel.querySelector('div[class*="SkillActionDetail_actionContainer"]') ?? inputElem.parentElement;
       anchor.insertAdjacentElement("afterend", levelCard);
       let targetLevelEdited = false;
@@ -32015,6 +32167,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       });
       updateTargetLevel();
     }
+    panel.dataset.mwitoolsActionPanel = "true";
     if ((panel.querySelector('div[class*="SkillActionDetail_dropTable"]')?.children.length ?? 0) > 1 && runtime.settings.settingsMap.actionPanel_foragingTotal.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()) {
       const marketJson = await runtime.api.fetchMarketJSON();
       const teaBuffs = runtime.api.getTeaBuffsByActionHrid(actionHrid);
@@ -32051,6 +32204,38 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       const htmlStr = `<div id="totalProfit" class="mwi-level-meta">${runtime.config.isZH ? "综合利润: " : "Overall profit: "}<span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerHour)}">${runtime.api.numberFormatter(profitPerHour)}</span>${runtime.config.isZH ? "/小时" : "/hour"}, <span class="mwi-number" title="${runtime.api.formatExactNumber(profitPerDay)}">${runtime.api.numberFormatter(profitPerDay)}</span>${runtime.config.isZH ? "/天" : "/day"}</div>`;
       panel.querySelector("#mwi-level-progress")?.insertAdjacentHTML("beforeend", htmlStr);
     }
+    return true;
+  }
+  function scheduleActionPanel(panel) {
+    if (!panel?.isConnected || actionPanelRetryStates.has(panel)) return;
+    const state = { attempt: 0, timer: null };
+    actionPanelRetryStates.set(panel, state);
+    const run = async () => {
+      state.timer = null;
+      if (!panel.isConnected) {
+        actionPanelRetryStates.delete(panel);
+        return;
+      }
+      let ready2 = false;
+      try {
+        ready2 = await handleActionPanel(panel);
+      } catch (error) {
+        console.info("[MWITools] Action panel enhancement unavailable", error);
+      }
+      if (ready2 || state.attempt >= ACTION_PANEL_RETRY_DELAYS.length - 1) {
+        actionPanelRetryStates.delete(panel);
+        return;
+      }
+      state.attempt += 1;
+      state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[state.attempt]);
+    };
+    state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
+  }
+  function clearActionPanelRetries() {
+    for (const state of actionPanelRetryStates.values()) {
+      if (state.timer !== null) clearTimeout(state.timer);
+    }
+    actionPanelRetryStates.clear();
   }
   function sumBuffValue(buffs, typeHrid) {
     return (buffs ?? []).reduce(
@@ -32244,32 +32429,35 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     initialize({ scope }) {
       let observed = null;
       const attach = () => {
-        const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+        const target = document.querySelector(MAIN_PANEL_SELECTOR);
         if (!target || observed === target) return;
         observed = target;
         const observer = new MutationObserver((mutations) => {
+          const panels = /* @__PURE__ */ new Set();
           for (const mutation of mutations) {
+            const mutationTarget = mutation.target?.nodeType === 1 ? mutation.target : mutation.target?.parentElement;
+            const containingPanel = mutationTarget?.closest?.(
+              ACTION_PANEL_SELECTOR
+            );
+            if (containingPanel) panels.add(containingPanel);
             for (const added of mutation.addedNodes) {
-              const panel = added?.querySelector?.(
-                "div.SkillActionDetail_regularComponent__3oCgr"
-              );
-              if (panel && (!panel.querySelector("#mwi-level-progress") || panel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
-                handleActionPanel(panel);
-              }
+              if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
+              added?.querySelectorAll?.(ACTION_PANEL_SELECTOR).forEach((panel) => panels.add(panel));
             }
           }
+          panels.forEach(scheduleActionPanel);
         });
-        scope.observer(observer, target, { childList: true, subtree: true });
-        const openPanel = target.querySelector(
-          "div.SkillActionDetail_regularComponent__3oCgr"
-        );
-        if (openPanel && (!openPanel.querySelector("#mwi-level-progress") || openPanel.querySelectorAll(".mwi-native-level-stat").length !== 4)) {
-          handleActionPanel(openPanel);
-        }
+        scope.observer(observer, target, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+        target.querySelectorAll(ACTION_PANEL_SELECTOR).forEach(scheduleActionPanel);
       };
       attach();
       scope.interval(attach, 500);
       scope.add(() => {
+        clearActionPanelRetries();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
         ).forEach((node) => node.remove());
@@ -32279,7 +32467,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/action-dashboard.js
-  var STYLE_ID6 = "mwitools-action-dashboard-style";
+  var STYLE_ID7 = "mwitools-action-dashboard-style";
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   function t6(zh, en) {
@@ -32290,7 +32478,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (!Number.isFinite(seconds)) return "—";
     const normalized = Math.max(0, Math.round(seconds));
     if (normalized < 86400) {
-      return runtime.api.timeReadable?.(normalized) ?? `${normalized}s`;
+      return runtime.api.timeReadable?.(normalized) || `${normalized}s`;
     }
     const days = Math.floor(normalized / 86400);
     const hours = Math.floor(normalized % 86400 / 3600);
@@ -32410,14 +32598,14 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     item.append(count);
     return item;
   }
-  function addStyles4() {
-    if (document.getElementById(STYLE_ID6)) return;
+  function addStyles5() {
+    if (document.getElementById(STYLE_ID7)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID6;
+    style.id = STYLE_ID7;
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:.6875rem; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
-    .mwi-action-line { display:flex; align-items:center; flex-wrap:wrap; gap:3px 10px; max-width:100%; color:#ffa500; }
+    .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
@@ -32444,7 +32632,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
     .mwi-production-quick-buttons { display:flex; min-width:0; flex:1; flex-wrap:wrap; gap:2px; }
     .mwi-production-quick-button { min-width:0!important; height:21px!important; padding:1px 5px!important; font-size:.625rem!important; line-height:1!important; }
-    @media(max-width:520px){.mwi-action-line{gap:2px 8px}}
+    @media(max-width:520px){.mwi-action-dashboard{right:auto;width:max-content}.mwi-action-line{gap:2px 8px}.mwi-action-eta{display:none}.mwi-production-card{padding:5px;font-size:.625rem}.mwi-production-card-title{padding-bottom:3px;font-size:.66rem}.mwi-production-metrics,.mwi-production-output-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px}.mwi-production-metric{padding:3px 2px}.mwi-production-label{min-height:1.3em;font-size:.54rem}.mwi-production-value{font-size:.64rem}.mwi-production-output-grid[data-count="1"] .mwi-production-output-item{grid-column:1/-1}.mwi-production-output-item{gap:3px}.mwi-production-output-count{font-size:.66rem}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -32474,10 +32662,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function getNativeEnhancementCount(host, action) {
     if (!String(action?.actionHrid ?? "").includes("/enhancing")) return null;
-    const nativeText = [...host?.childNodes ?? []].filter((node) => node.nodeType !== 1 || node.id !== "mwi-action-dashboard").map((node) => node.textContent ?? "").join(" ").trim();
-    const match = nativeText.match(/\(([\d\s.,]+)\)\s*$/);
+    const matches = [
+      ...nativeActionText(host).matchAll(/[（(]\s*([\d\s.,]+)\s*[)）]/g)
+    ];
+    const match = matches.at(-1);
     if (!match) return null;
-    const count = Number(match[1].replace(/\D/g, ""));
+    const count = parseCompactNumber(match[1]);
     return Number.isSafeInteger(count) && count >= 0 ? count : null;
   }
   function getProductionPanelDuration(panel) {
@@ -32507,11 +32697,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function actionHeaderNames(actionHrid, detail) {
     const names = /* @__PURE__ */ new Set([
       detail?.name,
-      runtime.data.ZHActionNames?.[actionHrid]
+      runtime.data.ZHActionNames?.[actionHrid],
+      getLocalizedEntityName("action", actionHrid)
     ]);
     for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
       names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
       names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
+      names.add(getLocalizedEntityName("item", output.itemHrid));
     }
     return [...names].map(normalizedActionText).filter(Boolean);
   }
@@ -32525,8 +32717,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     if (!header || /^(doing nothing|无事可做|没有行动)$/.test(header)) {
       return false;
     }
+    if (resolveLocalizedEntity("action", header) === actionHrid) return true;
     if (String(actionHrid).includes("/enhancing")) {
-      return /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
+      return getNativeEnhancementCount(host, action) !== null || /\+\s*\d+/.test(header) || actionHeaderNames(actionHrid, detail).some(
         (name) => header.includes(name)
       );
     }
@@ -32535,7 +32728,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function renderActionDashboard() {
-    addStyles4();
+    addStyles5();
     const host = document.querySelector('div[class*="Header_actionName"]');
     const actions = [...runtime.state.currentActionsHridList ?? []].sort(
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
@@ -32602,6 +32795,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       projection.totalSeconds
     )}`;
     const eta = document.createElement("strong");
+    eta.className = "mwi-action-eta";
     eta.textContent = projection.finishAt ? `${t6("预计完成", "Finishes at")} ${formatClock(projection.finishAt)}` : `${t6("预计完成", "Finishes at")} —`;
     primary.append(remaining, currentTime, eta);
     root.append(primary);
@@ -32678,6 +32872,26 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
     renderProductionPanel();
   }
+  function getMinimumCountForDuration(actionHrid, targetSeconds, cycleSeconds) {
+    if (!Number.isFinite(targetSeconds) || targetSeconds <= 0 || !Number.isFinite(cycleSeconds) || cycleSeconds <= 0) {
+      return 0;
+    }
+    const efficiencyPercent = Number(
+      runtime.api.getTotalEffiPercentage?.(actionHrid)
+    );
+    const rawMultiplier = 1 + efficiencyPercent / 100;
+    const efficiencyMultiplier = Number.isFinite(rawMultiplier) && rawMultiplier > 0 ? rawMultiplier : 1;
+    const targetCycles = Math.max(1, Math.ceil(targetSeconds / cycleSeconds));
+    let count = Math.max(
+      1,
+      Math.ceil((targetCycles - 0.5) * efficiencyMultiplier)
+    );
+    while (Math.round(count / efficiencyMultiplier) < targetCycles) count += 1;
+    while (count > 1 && Math.round((count - 1) / efficiencyMultiplier) >= targetCycles) {
+      count -= 1;
+    }
+    return count;
+  }
   function createProductionQuickRow({
     panel,
     input,
@@ -32711,7 +32925,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return row;
   }
   function renderProductionQuickInputs() {
-    addStyles4();
+    addStyles5();
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const actionHrid = resolvePanelAction(panel);
@@ -32739,7 +32953,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         values: QUICK_HOURS,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
-          return Number.isFinite(liveDuration) && liveDuration > 0 ? Math.max(1, Math.round(hoursValue * 3600 / liveDuration)) : 0;
+          return getMinimumCountForDuration(
+            actionHrid,
+            hoursValue * 3600,
+            liveDuration
+          );
         }
       });
       const counts = createProductionQuickRow({
@@ -32756,11 +32974,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       );
       (actionContainer ?? countGroup).insertAdjacentElement("afterend", host);
     }
+    const efficiencyPercent = Number(
+      runtime.api.getTotalEffiPercentage?.(actionHrid)
+    );
+    const normalizedEfficiency = Number.isFinite(efficiencyPercent) && efficiencyPercent > -100 ? efficiencyPercent : 0;
     host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
       button.disabled = !Number.isFinite(duration) || duration <= 0;
       button.title = button.disabled ? t6("无法读取当前单次耗时", "Current action duration unavailable") : t6(
-        `按当前 ${duration}s/次换算`,
-        `Based on the current ${duration}s per action`
+        `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
+        `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`
       );
     });
     return host;
@@ -32803,9 +33025,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     ) : t6("当前没有有限的可生产次数", "No finite production maximum");
   }
   function resolvePanelAction(panel) {
-    const name = runtime.api.getOriTextFromElement?.(
-      panel?.querySelector('div[class*="SkillActionDetail_name"]')
-    )?.trim();
+    const nameElement = panel?.querySelector(
+      'div[class*="SkillActionDetail_name"]'
+    );
+    if (!nameElement) return null;
+    const name = runtime.api.getOriTextFromElement?.(nameElement)?.trim();
     if (!name) return null;
     const localizedAction = resolveLocalizedEntity("action", name);
     if (localizedAction) return localizedAction;
@@ -32845,7 +33069,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     return box;
   }
   function renderProductionPanel() {
-    addStyles4();
+    addStyles5();
+    if (!runtime.settings.get("productionSummary")) {
+      document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
+      document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      return;
+    }
     const panel = findActionPanel();
     const input = getCountInput(panel);
     const existingCards = [
@@ -32870,7 +33099,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     const count = input ? runtime.api.parseCompactNumber(input.value) : Number.POSITIVE_INFINITY;
     const projection = runtime.api.projectAction(actionHrid, count, {
       durationPerAction: getProductionPanelDuration(panel),
-      respectInventoryLimit: true
+      respectInventoryLimit: !Number.isFinite(count)
     });
     syncMaxButton(panel, input, projection.maxCraftable);
     let card = panel.querySelector("#mwi-production-summary");
@@ -32963,7 +33192,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     setting: "totalActionTime",
     scope: "character",
     initialize({ scope }) {
-      addStyles4();
+      addStyles5();
       renderActionDashboard();
       scope.interval(renderActionDashboard, 500);
       scope.add(() => {
@@ -33029,7 +33258,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   });
 
   // src/features/procurement.js
-  var STYLE_ID7 = "mwitools-procurement-style";
+  var STYLE_ID8 = "mwitools-procurement-style";
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
@@ -33071,10 +33300,10 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   function escapeHtml4(value) {
     return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
   }
-  function addStyles5() {
-    if (document.getElementById(STYLE_ID7)) return;
+  function addStyles6() {
+    if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID7;
+    style.id = STYLE_ID8;
     style.textContent = `
     .mwi-procurement-badge{position:static!important;display:inline-flex;max-width:78px;min-height:16px;align-items:center;margin-left:4px;padding:0 4px;border:1px solid rgba(255,255,255,.16);border-radius:3px;background:rgba(15,18,28,.72);font:600 .58rem/1.35 Roboto,Arial,sans-serif;vertical-align:middle;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:auto}
     .mwi-procurement-panel{min-width:330px!important;max-width:min(420px,calc(100vw - 24px))!important}
@@ -33086,6 +33315,8 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
     .mwi-procurement-summary-state{min-width:0;flex:1;color:var(--color-text-secondary,#aaa);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-summary-state strong{color:#ffad62}
+    .mwi-procurement-chain-mode{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,#aaa);font-size:.62rem;white-space:nowrap;cursor:pointer}
+    .mwi-procurement-chain-mode input{width:14px;height:14px;margin:0;accent-color:#8293d6;cursor:pointer}
     .mwi-procurement-inline-button{min-height:24px;padding:2px 8px;border:1px solid rgba(255,255,255,.16);border-radius:4px;background:var(--color-midnight-500,#343a54);color:var(--color-neutral-100,#eee);font:inherit;font-size:.65rem;cursor:pointer}
     .mwi-procurement-inline-button:hover{background:var(--color-space-700,#46547e)}
     .mwi-procurement-chain{margin-top:4px;border-radius:4px;background:rgba(0,0,0,.12)}
@@ -33902,6 +34133,45 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       materials
     };
   }
+  function appendSunnyEnhancingCompatibility(root) {
+    root.classList.add("mwi-mm-summary-panel");
+    const input = document.createElement("input");
+    input.className = "mwi-mm-manual-input";
+    input.type = "number";
+    input.inputMode = "numeric";
+    input.hidden = true;
+    input.setAttribute("aria-hidden", "true");
+    const add = document.createElement("button");
+    add.type = "button";
+    add.dataset.act = "add";
+    add.hidden = true;
+    add.setAttribute("aria-hidden", "true");
+    add.addEventListener("click", () => {
+      if (!root.isConnected || document.getElementById(PRODUCTION_ID) !== root) {
+        return;
+      }
+      const count = parseCompactNumber(input.value);
+      const context = resolveActionPanel();
+      if (!Number.isFinite(count) || count <= 0 || context?.actionFunction !== "/action_functions/enhancing") {
+        return;
+      }
+      const requirements = calculateEnhancingRequirements({
+        ...context,
+        count: Math.ceil(count)
+      });
+      const result = procurement.addRequirementsToCart(
+        requirements?.materials ?? [],
+        "enhancing"
+      );
+      showToast(
+        result.added ? t7(
+          `已加入 ${result.added} 种材料`,
+          `Added ${result.added} ${materialNoun(result.added)}`
+        ) : t7("没有新的缺料", "No new shortages")
+      );
+    });
+    root.append(input, add);
+  }
   function findMaterialHost(panel, itemHrid) {
     const bare = procurement.normalizeItemHrid(itemHrid).split("/").at(-1);
     for (const node of panel.querySelectorAll('[class*="Item_itemContainer"]')) {
@@ -33980,36 +34250,66 @@ ${locks}` : ""}`;
     const root = document.createElement("section");
     root.id = PRODUCTION_ID;
     root.dataset.mwitoolsProductionExtension = "true";
-    const missing = materials.filter(
-      (material) => material.purchasable && material.shortage > 0
-    );
-    const addable = materials.filter(
-      (material) => material.purchasable && material.addableShortage > 0
-    );
+    const hasSelectableChain = (chain?.stages?.length ?? 0) > 1;
+    const previousStepMaterials = hasSelectableChain ? procurement.selectUpgradeChainMaterials(chain, [
+      chain.stages[0].actionHrid
+    ]) : materials;
+    let stageInputs = [];
     const summary = document.createElement("div");
     summary.className = "mwi-procurement-summary-line";
-    summary.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready")}</span>`;
+    const summaryState = document.createElement("span");
+    summaryState.className = "mwi-procurement-summary-state";
+    let chainModeInput = null;
+    if (hasSelectableChain) {
+      const chainMode = document.createElement("label");
+      chainMode.className = "mwi-procurement-chain-mode";
+      chainModeInput = document.createElement("input");
+      chainModeInput.type = "checkbox";
+      chainModeInput.setAttribute("role", "switch");
+      chainModeInput.setAttribute("aria-label", t7("所选链条", "Selected chain"));
+      const chainModeLabel = document.createElement("span");
+      chainModeLabel.textContent = t7("所选链条", "Selected chain");
+      chainMode.append(chainModeInput, chainModeLabel);
+      summary.append(summaryState, chainMode);
+    } else {
+      summary.append(summaryState);
+    }
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
-    add.disabled = addable.length === 0 && !chain?.stages?.length;
-    add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
-    add.addEventListener("click", () => {
-      const selectedActions = new Set(
-        [
-          ...root.querySelectorAll(".mwi-procurement-chain-stage input:checked")
-        ].map((input) => input.dataset.action)
+    const selectedMaterials = () => {
+      if (!hasSelectableChain || !chainModeInput?.checked) {
+        return previousStepMaterials;
+      }
+      return procurement.selectUpgradeChainMaterials(
+        chain,
+        stageInputs.filter((input) => input.checked).map((input) => input.dataset.action)
       );
-      const selectedMaterials = chain?.stages?.length ? procurement.selectUpgradeChainMaterials(chain, selectedActions) : materials;
+    };
+    const updateSummary = () => {
+      const scopedMaterials = selectedMaterials();
+      const missing = scopedMaterials.filter(
+        (material) => material.purchasable && material.shortage > 0
+      );
+      const addable = scopedMaterials.filter(
+        (material) => material.purchasable && material.addableShortage > 0
+      );
+      summaryState.innerHTML = missing.length ? `${t7("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t7("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t7("材料充足", "Materials ready");
+      add.disabled = addable.length === 0;
+      add.textContent = addable.length ? t7("加入购物清单", "Add to shopping list") : t7("已在清单中", "Already listed");
+    };
+    chainModeInput?.addEventListener("change", updateSummary);
+    add.addEventListener("click", () => {
+      const scopedMaterials = selectedMaterials();
       const result = procurement.addRequirementsToCart(
-        selectedMaterials,
+        scopedMaterials,
         isEnhancing ? "enhancing" : "production"
       );
       if (!isEnhancing && settings2.createPlansByDefault && result.added > 0) {
         procurement.createPlan(
           context.actionHrid,
           context.count,
-          selectedMaterials
+          scopedMaterials
         );
       }
       showToast(
@@ -34021,7 +34321,8 @@ ${locks}` : ""}`;
     });
     summary.append(add);
     root.append(summary);
-    if (chain?.stages?.length > 1) {
+    if (isEnhancing) appendSunnyEnhancingCompatibility(root);
+    if (hasSelectableChain) {
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
@@ -34040,43 +34341,33 @@ ${locks}` : ""}`;
       allButton.type = "button";
       allButton.className = "mwi-procurement-chain-preset";
       allButton.textContent = t7("全链条", "Full chain");
-      const previousButton = document.createElement("button");
-      previousButton.type = "button";
-      previousButton.className = "mwi-procurement-chain-preset";
-      previousButton.textContent = t7("从上一步开始", "Start from previous");
-      const checkboxes = [...list.querySelectorAll("input[type=checkbox]")];
+      stageInputs = [...list.querySelectorAll("input[type=checkbox]")];
       const updatePresetState = () => {
-        const checked = checkboxes.map((input) => input.checked);
+        const checked = stageInputs.map((input) => input.checked);
         allButton.setAttribute("aria-pressed", String(checked.every(Boolean)));
-        previousButton.setAttribute(
-          "aria-pressed",
-          String(
-            Boolean(checked[0]) && checked.slice(1).every((value) => !value)
-          )
-        );
+        updateSummary();
       };
       allButton.addEventListener("click", () => {
-        checkboxes.forEach((input) => {
+        stageInputs.forEach((input) => {
           input.checked = true;
         });
         updatePresetState();
       });
-      previousButton.addEventListener("click", () => {
-        checkboxes.forEach((input, index) => {
-          input.checked = index === 0;
-        });
-        updatePresetState();
-      });
-      checkboxes.forEach(
+      stageInputs.forEach(
         (input) => input.addEventListener("change", updatePresetState)
       );
-      presets.append(allButton, previousButton);
+      presets.append(allButton);
       updatePresetState();
       details.append(heading, presets, list);
       root.append(details);
     }
-    const existingSummary = isEnhancing ? null : context.panel.querySelector("#mwi-production-summary");
-    if (existingSummary) existingSummary.append(root);
+    updateSummary();
+    const enhancingInfo = isEnhancing ? context.panel.querySelector('[class*="SkillActionDetail_info"]') : null;
+    const existingSummary = context.panel.querySelector(
+      "#mwi-production-summary"
+    );
+    if (enhancingInfo) enhancingInfo.append(root);
+    else if (!isEnhancing && existingSummary) existingSummary.append(root);
     else {
       const anchor = context.panel.querySelector(
         '[class*="SkillActionDetail_actionContainer"]'
@@ -34639,7 +34930,7 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope, characterId }) {
       runtime.api.openProcurementMarketplace = openMarketplace;
-      addStyles5();
+      addStyles6();
       if (procurement.activeCharacterId !== characterId) {
         procurement.loadCharacterData(characterId);
       }
@@ -34660,7 +34951,7 @@ ${locks}` : ""}`;
         stopActiveHoldRepeat();
         clearProductionUi();
         clearMarketUi();
-        document.getElementById(STYLE_ID7)?.remove();
+        document.getElementById(STYLE_ID8)?.remove();
         runtime.api.openProcurementMarketplace = null;
       });
     }
@@ -34672,8 +34963,41 @@ ${locks}` : ""}`;
     openProcurementMarketplace: openMarketplace
   });
 
+  // src/core/frame-scheduler.js
+  function createFrameScheduler(callback) {
+    let active = true;
+    let pending = false;
+    let cancelPending = null;
+    const run = () => {
+      pending = false;
+      cancelPending = null;
+      if (active) callback();
+    };
+    return {
+      schedule() {
+        if (!active || pending) return false;
+        pending = true;
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          const id = globalThis.requestAnimationFrame(run);
+          cancelPending = () => globalThis.cancelAnimationFrame?.(id);
+        } else {
+          const id = globalThis.setTimeout(run, 0);
+          cancelPending = () => globalThis.clearTimeout(id);
+        }
+        return true;
+      },
+      cancel() {
+        if (!active) return;
+        active = false;
+        cancelPending?.();
+        cancelPending = null;
+        pending = false;
+      }
+    };
+  }
+
   // src/features/semi-auto-train.js
-  var STYLE_ID8 = "mwitools-semi-auto-train-style";
+  var STYLE_ID9 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
   var DETAIL_CLASS = "mwi-train-detail-modal";
   var ACTIVE_INDICATOR_ID = "mwi-train-active-indicator";
@@ -34694,10 +35018,17 @@ ${locks}` : ""}`;
     "handleGoToAction"
   ];
   var activeTrain = null;
-  var scanPending = false;
+  var scanScheduler = createFrameScheduler(scan);
   var navigationRequestId = 0;
-  function raf(callback) {
-    return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
+  function shouldScanTrainMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(`.${CONTROL_CLASS},.mwi-train-toast`)) return false;
+      if (target?.closest?.(PANEL_SELECTOR)) return true;
+      return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+        (node) => node.matches?.(PANEL_SELECTOR) || node.querySelector?.(PANEL_SELECTOR)
+      );
+    });
   }
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -34715,10 +35046,10 @@ ${locks}` : ""}`;
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 2600);
   }
-  function addStyles6() {
-    if (document.getElementById(STYLE_ID8)) return;
+  function addStyles7() {
+    if (document.getElementById(STYLE_ID9)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID8;
+    style.id = STYLE_ID9;
     style.textContent = `
     .${CONTROL_CLASS}{display:flex;min-width:0;max-width:100%;align-items:center;flex-wrap:wrap;justify-content:flex-end;gap:4px;margin-left:auto}
     .mwi-train-button{height:24px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer;white-space:nowrap}
@@ -34928,7 +35259,8 @@ ${locks}` : ""}`;
     const names = new Set(
       [
         detail?.name,
-        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null
+        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
+        getLocalizedEntityName("action", actionHrid)
       ].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
     );
     const card = [
@@ -35140,7 +35472,11 @@ ${locks}` : ""}`;
     const buttonsContainer = panel.querySelector(BUTTONS_SELECTOR);
     if (buttonsContainer) return buttonsContainer;
     return [...panel.querySelectorAll("button")].find(
-      (button) => /添加到队列|add to queue/i.test(button.textContent ?? "")
+      (button) => matchesGameTranslations(
+        "skillActionDetail.buttons.addToQueue",
+        button.textContent,
+        { fallbackPatterns: [/添加到队列|add to queue/i] }
+      )
     );
   }
   function isNativeQueueSubmission(event, host) {
@@ -35524,7 +35860,6 @@ ${locks}` : ""}`;
     host.appendChild(controls);
   }
   function scan() {
-    scanPending = false;
     renderActiveIndicator();
     const context = panelContext();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window2) => {
@@ -35540,9 +35875,7 @@ ${locks}` : ""}`;
     renderControls(context);
   }
   function scheduleScan() {
-    if (scanPending) return;
-    scanPending = true;
-    raf(scan);
+    scanScheduler?.schedule();
   }
   function cleanup2() {
     cancelTrain("");
@@ -35551,9 +35884,8 @@ ${locks}` : ""}`;
     document.getElementById(ACTIVE_INDICATOR_ID)?.remove();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((node) => node.classList.remove(WIDE_WINDOW_CLASS));
     clearTrainShopHighlight();
-    document.getElementById(STYLE_ID8)?.remove();
+    document.getElementById(STYLE_ID9)?.remove();
     closeDetail();
-    scanPending = false;
   }
   runtime.features.register({
     id: "semiAutoTrain",
@@ -35561,12 +35893,32 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["procurementAssistant"],
     initialize({ scope }) {
-      addStyles6();
+      addStyles7();
+      scanScheduler?.cancel();
+      const scheduler = createFrameScheduler(scan);
+      scanScheduler = scheduler;
       scan();
-      const observer = new MutationObserver(scheduleScan);
+      let observerTimer = null;
+      const observer = new MutationObserver((records) => {
+        if (!shouldScanTrainMutations(records) || observerTimer !== null) return;
+        observerTimer = setTimeout(() => {
+          observerTimer = null;
+          scheduler.schedule();
+        }, 200);
+      });
       scope.observer(observer, document.body, { childList: true, subtree: true });
-      scope.interval(scan, 500);
-      scope.add(cleanup2);
+      const scheduleForProductionInput = (event) => {
+        if (event.target?.matches?.(INPUT_SELECTOR)) scheduleScan();
+      };
+      scope.event(document, "input", scheduleForProductionInput, true);
+      scope.event(document, "change", scheduleForProductionInput, true);
+      scope.add(() => {
+        clearTimeout(observerTimer);
+        observerTimer = null;
+        if (scanScheduler === scheduler) scanScheduler = null;
+        scheduler.cancel();
+        cleanup2();
+      });
     }
   });
   Object.assign(runtime.api, {
@@ -35585,6 +35937,10 @@ ${locks}` : ""}`;
 
   // src/core/task-card-resolution.js
   var NAME_SELECTOR = '[class*="RandomTask_name"]';
+  var cachedActionMap2 = null;
+  var cachedZhActionNames = null;
+  var cachedLocale = "";
+  var cachedActionLabels = /* @__PURE__ */ new Map();
   function normalize(value) {
     return String(value ?? "").replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
   }
@@ -35625,77 +35981,113 @@ ${locks}` : ""}`;
     return Number.isFinite(current) && Number.isFinite(target) ? Math.max(0, target - current) : null;
   }
   function actionLabels(actionHrid) {
-    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    return new Set(
+    const actionMap = runtime.state.initData_actionDetailMap;
+    const zhActionNames = runtime.data.ZHActionNames;
+    const locale = getGameLocale();
+    if (actionMap !== cachedActionMap2 || zhActionNames !== cachedZhActionNames || locale !== cachedLocale) {
+      cachedActionMap2 = actionMap;
+      cachedZhActionNames = zhActionNames;
+      cachedLocale = locale;
+      cachedActionLabels = /* @__PURE__ */ new Map();
+    }
+    if (cachedActionLabels.has(actionHrid)) {
+      return cachedActionLabels.get(actionHrid);
+    }
+    const detail = actionMap?.[actionHrid];
+    const labels = new Set(
       [
         detail?.name,
-        runtime.data.ZHActionNames?.[actionHrid],
-        getLocalizedEntityName("action", actionHrid),
+        zhActionNames?.[actionHrid],
+        getLocalizedEntityName("action", actionHrid, { locale }),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " ")
       ].map(normalize).filter(Boolean)
     );
+    cachedActionLabels.set(actionHrid, labels);
+    return labels;
   }
-  function semanticCandidates(card, quests, taskActionHrid3, taskRemaining3) {
-    const label = cardActionLabel(card);
-    const remaining = cardRemaining(card);
-    let candidates = quests.map((task, taskIndex) => ({
-      task,
-      taskIndex,
-      taskId: taskCardTaskId(task),
-      actionHrid: taskActionHrid3(task)
-    })).filter(
-      ({ actionHrid }) => label ? actionLabels(actionHrid).has(label) : false
-    );
-    if (remaining !== null) {
-      const progressMatches = candidates.filter(
-        ({ task }) => Number(taskRemaining3(task)) === remaining
-      );
-      if (progressMatches.length) candidates = progressMatches;
-    }
-    return candidates;
+  function candidateMatches(candidate, label, remaining) {
+    if (!label || !actionLabels(candidate.actionHrid).has(label)) return false;
+    return remaining === null || Number(candidate.remaining) === Number(remaining);
   }
   function resolveTaskCards(cards, quests, { taskActionHrid: taskActionHrid3, taskRemaining: taskRemaining3 }) {
     const questList = Array.isArray(quests) ? quests : [];
+    const questMetadata = questList.map((task, taskIndex) => ({
+      task,
+      taskIndex,
+      taskId: taskCardTaskId(task),
+      actionHrid: taskActionHrid3(task),
+      remaining: taskRemaining3(task)
+    }));
     const byId = new Map(
-      questList.map((task, taskIndex) => [taskCardTaskId(task), { task, taskIndex }]).filter(([id]) => id)
+      questMetadata.map((candidate) => [candidate.taskId, candidate]).filter(([id]) => id)
     );
+    const semanticIndex = /* @__PURE__ */ new Map();
+    for (const candidate of questMetadata) {
+      for (const label of actionLabels(candidate.actionHrid)) {
+        let entry = semanticIndex.get(label);
+        if (!entry) {
+          entry = { all: [], byRemaining: /* @__PURE__ */ new Map() };
+          semanticIndex.set(label, entry);
+        }
+        entry.all.push(candidate);
+        const remainingKey = String(Number(candidate.remaining));
+        if (!entry.byRemaining.has(remainingKey)) {
+          entry.byRemaining.set(remainingKey, []);
+        }
+        entry.byRemaining.get(remainingKey).push(candidate);
+      }
+    }
     const used = /* @__PURE__ */ new Set();
     const rows = [...cards].map((card, originalIndex) => {
       let resolved = null;
+      const label = cardActionLabel(card);
+      const remaining = cardRemaining(card);
       const fiberTask = fiberQuest(card);
       const fiberId = taskCardTaskId(fiberTask);
       if (fiberId && byId.has(fiberId)) resolved = byId.get(fiberId);
       else if (fiberTask) {
         const taskIndex = questList.indexOf(fiberTask);
-        if (taskIndex >= 0) resolved = { task: fiberTask, taskIndex };
+        if (taskIndex >= 0) resolved = questMetadata[taskIndex];
+      }
+      const priorId = String(card.dataset.mwitoolsTaskId ?? "");
+      const prior = priorId ? byId.get(priorId) : null;
+      if (!resolved && prior && !used.has(prior.taskIndex) && candidateMatches(prior, label, remaining)) {
+        resolved = prior;
       }
       if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
       return {
         card,
         originalIndex,
-        resolved
+        resolved,
+        label,
+        remaining
       };
     });
+    const candidateCursors = /* @__PURE__ */ new Map();
+    const firstUnused = (candidates) => {
+      let index = candidateCursors.get(candidates) ?? 0;
+      while (index < candidates.length && used.has(candidates[index].taskIndex)) {
+        index += 1;
+      }
+      candidateCursors.set(candidates, index + 1);
+      return candidates[index] ?? null;
+    };
     for (const row of rows) {
       if (row.resolved) continue;
-      const candidates = semanticCandidates(
-        row.card,
-        questList,
-        taskActionHrid3,
-        taskRemaining3
-      ).filter(({ taskIndex }) => !used.has(taskIndex));
-      if (!candidates.length) continue;
-      const priorId = String(row.card.dataset.mwitoolsTaskId ?? "");
-      row.resolved = candidates.find(({ taskId: taskId2 }) => taskId2 && taskId2 === priorId) ?? candidates[0];
+      const entry = semanticIndex.get(row.label);
+      if (!entry) continue;
+      const progressCandidates = row.remaining === null ? null : entry.byRemaining.get(String(Number(row.remaining)));
+      row.resolved = firstUnused(
+        progressCandidates?.length ? progressCandidates : entry.all
+      );
+      if (!row.resolved) continue;
       used.add(row.resolved.taskIndex);
     }
     for (const row of rows) {
       if (row.resolved) continue;
-      const unused = questList.map((task, taskIndex) => ({ task, taskIndex })).filter(({ taskIndex }) => !used.has(taskIndex));
-      const positional = unused.find(
-        ({ taskIndex }) => questList.length === rows.length && taskIndex === row.originalIndex
-      );
-      row.resolved = positional ?? (unused.length === 1 ? unused[0] : null);
+      const positional = questList.length === rows.length && !used.has(row.originalIndex) ? questMetadata[row.originalIndex] : null;
+      const onlyUnused = questList.length - used.size === 1 ? questMetadata.find(({ taskIndex }) => !used.has(taskIndex)) : null;
+      row.resolved = positional ?? onlyUnused;
       if (row.resolved) used.add(row.resolved.taskIndex);
     }
     return rows.map(({ card, originalIndex, resolved }) => {
@@ -35707,14 +36099,15 @@ ${locks}` : ""}`;
         taskId: taskCardTaskId(task),
         taskIndex,
         originalIndex,
-        actionHrid: taskActionHrid3(task)
+        actionHrid: resolved?.actionHrid ?? taskActionHrid3(task)
       };
     });
   }
 
   // src/features/tasks.js
-  var STYLE_ID9 = "mwitools-task-style";
+  var STYLE_ID10 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -35973,12 +36366,13 @@ ${locks}` : ""}`;
     const symbol = String(hrid ?? "").split("/").at(-1);
     return base && symbol ? `${base}#${symbol}` : "";
   }
-  function addStyles7() {
-    if (document.getElementById(STYLE_ID9)) return;
+  function addStyles8() {
+    if (document.getElementById(STYLE_ID10)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID9;
+    style.id = STYLE_ID10;
     style.textContent = `
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
+    [class*="TasksPanel_taskList"] > * { min-width:0 !important; max-width:100% !important; box-sizing:border-box !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
     [class*="RandomTask_randomTask"] > [class*="RandomTask_content"] { gap:2px !important; padding:8px !important; font-size:.8125rem; }
     [class*="RandomTask_randomTask"] [class*="RandomTask_taskInfo"] { gap:2px !important; }
@@ -36240,7 +36634,11 @@ ${locks}` : ""}`;
     );
     if (target > 0 && taskRemaining(task) === 0) return true;
     if ([...card.querySelectorAll("button")].some(
-      (button) => /claim|领取/i.test(button.textContent)
+      (button) => matchesGameTranslations(
+        ["randomTask.claimReward", "questModal.claimReward"],
+        button.textContent,
+        { fallbackPatterns: [/claim|领取/i] }
+      )
     )) {
       return true;
     }
@@ -36466,8 +36864,9 @@ ${locks}` : ""}`;
         }
       });
       runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
-      return;
+      return false;
     }
+    const previousNewTaskIds = new Set(pageNewTaskIds);
     const freshIds = new Set(runtime.api.getNewTaskIds?.() ?? []);
     const activeIds = /* @__PURE__ */ new Set();
     cards.forEach((card, index) => {
@@ -36502,6 +36901,7 @@ ${locks}` : ""}`;
     runtime.state.mwitoolsPageNewTaskIds = new Set(pageNewTaskIds);
     const activeFresh = [...freshIds].filter((id) => activeIds.has(id));
     if (activeFresh.length) runtime.api.acknowledgeNewTaskIds?.(activeFresh);
+    return previousNewTaskIds.size !== pageNewTaskIds.size || [...pageNewTaskIds].some((id) => !previousNewTaskIds.has(id));
   }
   function cleanupListDecorations({ restoreOrder = true } = {}) {
     if (!taskListParent?.isConnected) return;
@@ -36916,7 +37316,11 @@ ${locks}` : ""}`;
     cards.forEach((card, index) => {
       if (card.dataset.mwitoolsMergeWired) return;
       const button = [...card.querySelectorAll("button")].find(
-        (candidate) => /go|前往|开始/i.test(candidate.textContent)
+        (candidate) => matchesGameTranslations(
+          ["randomTask.go", "questModal.go"],
+          candidate.textContent,
+          { fallbackPatterns: [/^(?:go|前往|开始)$/i] }
+        )
       );
       if (!button) return;
       card.dataset.mwitoolsMergeWired = "true";
@@ -36937,8 +37341,11 @@ ${locks}` : ""}`;
   function wireResetButtons(cards) {
     cards.forEach((card, index) => {
       if (card.dataset.mwitoolsResetWired) return;
+      const isResetButton = (candidate) => matchesGameTranslations("randomTask.reroll", candidate.textContent, {
+        fallbackPatterns: [/^(?:reset|重置)$/i]
+      });
       const hasResetButton = [...card.querySelectorAll("button")].some(
-        (candidate) => /reset|重置/i.test(candidate.textContent)
+        isResetButton
       );
       if (!hasResetButton) return;
       card.dataset.mwitoolsResetWired = "true";
@@ -36946,7 +37353,7 @@ ${locks}` : ""}`;
         "click",
         (event) => {
           const button = event.target?.closest?.("button");
-          if (!button || !card.contains(button) || !/reset|重置/i.test(button.textContent)) {
+          if (!button || !card.contains(button) || !isResetButton(button)) {
             return;
           }
           nativeResetChoiceUntil = Date.now() + 1e4;
@@ -36993,8 +37400,18 @@ ${locks}` : ""}`;
     if (now < nativeResetChoiceUntil) return false;
     return records.some((record) => {
       const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR) || node.closest?.(OWNED_TASK_SELECTOR)
+      )) {
+        return false;
+      }
       if (target?.closest?.('[class*="TasksPanel_taskList"]')) return true;
-      return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+      return changedNodes.some(
         (node) => node.matches?.('[class*="TasksPanel_taskList"]') || node.querySelector?.('[class*="TasksPanel_taskList"]')
       );
     });
@@ -37076,7 +37493,7 @@ ${locks}` : ""}`;
     });
     const cardTasks = cardEntries.map(({ task }) => task);
     assignStablePageSlots(cards, cardTasks);
-    syncPageNewTasks(
+    const newTaskSetChanged = syncPageNewTasks(
       cards,
       cardTasks,
       enteredNewTaskPage && !resumedTaskPage && !resumedResetPage
@@ -37105,7 +37522,7 @@ ${locks}` : ""}`;
     wireMergeButtons(cards, cardTasks);
     wireResetButtons(cards);
     renderFlatTaskList(cards, cardTasks, {
-      sort: forceSort || sortOnEntry
+      sort: forceSort || sortOnEntry || newTaskSetChanged
     });
     applyPendingMerge();
     lastRenderedCards = [...cards];
@@ -37126,7 +37543,7 @@ ${locks}` : ""}`;
       delete node.dataset.mwitoolsMergeWired;
       delete node.dataset.mwitoolsResetWired;
     });
-    document.getElementById(STYLE_ID9)?.remove();
+    document.getElementById(STYLE_ID10)?.remove();
     originalCards = [];
     taskListParent = null;
     pageClassifications = /* @__PURE__ */ new Map();
@@ -37148,27 +37565,21 @@ ${locks}` : ""}`;
     setting: "taskInsights",
     scope: "character",
     initialize({ scope }) {
-      addStyles7();
+      addStyles8();
       renderTasks();
+      let active = true;
+      const renderScheduler = createFrameScheduler(renderTasks);
       void loadTaskSpriteManifest().then(() => {
+        if (!active) return;
         lastTaskRenderSignature = "";
         renderTasks();
       });
-      let renderPending = false;
-      const scheduleRender = () => {
-        if (renderPending) return;
-        renderPending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          renderPending = false;
-          renderTasks();
-        });
-      };
+      const scheduleRender = () => renderScheduler.schedule();
       const observer = new MutationObserver((records) => {
         if (shouldRenderTaskMutations(records)) scheduleRender();
       });
       scope.observer(observer, document.body, {
         childList: true,
-        characterData: true,
         subtree: true
       });
       scope.add(
@@ -37178,9 +37589,10 @@ ${locks}` : ""}`;
         })
       );
       scope.add(() => {
-        renderPending = false;
+        active = false;
+        renderScheduler.cancel();
+        cleanupTasks();
       });
-      scope.add(cleanupTasks);
     }
   });
   for (const id of [
@@ -37204,7 +37616,7 @@ ${locks}` : ""}`;
     });
   }
   Object.assign(runtime.api, {
-    addTaskStyles: addStyles7,
+    addTaskStyles: addStyles8,
     armTemporaryTaskReturn,
     cancelTemporaryTaskReturn,
     resumeTemporaryTaskReturn,
@@ -37217,17 +37629,18 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-train-planner.js
-  var STYLE_ID10 = "mwitools-task-train-planner-style";
+  var STYLE_ID11 = "mwitools-task-train-planner-style";
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var ACTION_SELECTOR = '[class*="RandomTask_action"]';
+  var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles8() {
-    if (document.getElementById(STYLE_ID10)) return;
+  function addStyles9() {
+    if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID10;
+    style.id = STYLE_ID11;
     style.textContent = `
     .${CONTROL_CLASS2}{flex:0 0 auto;margin-right:4px;white-space:nowrap}
     button.${CONTROL_CLASS2}{height:28px;padding:0 8px;border:1px solid rgba(144,166,235,.55);border-radius:4px;background:#282844;color:#e8e8ef;font:600 11px/1 Roboto,Arial,sans-serif;cursor:pointer}
@@ -37299,12 +37712,19 @@ ${locks}` : ""}`;
       taskCounts
     );
   }
-  function insertBeforeNavigation(action, control) {
-    const navigation = [...action.querySelectorAll("button")].find(
-      (button) => /^(前往|go)$/i.test(button.textContent?.trim() ?? "")
+  function insertBeforeTaskNavigation(card, fallbackHost, control) {
+    const navigation = [...card.querySelectorAll("button")].find(
+      (button) => matchesGameTranslations(
+        ["randomTask.go", "questModal.go"],
+        button.textContent,
+        { fallbackPatterns: [/^(?:前往|go)$/i] }
+      )
     );
-    if (navigation) action.insertBefore(control, navigation);
-    else action.appendChild(control);
+    if (navigation?.parentElement) {
+      navigation.parentElement.insertBefore(control, navigation);
+    } else {
+      fallbackHost.appendChild(control);
+    }
   }
   function plannerButton(entry, signature) {
     const button = document.createElement("button");
@@ -37333,7 +37753,7 @@ ${locks}` : ""}`;
     label.title = title;
     return label;
   }
-  function render() {
+  function renderTaskTrainPlanner() {
     const cards = [...document.querySelectorAll(TASK_SELECTOR2)];
     if (!cards.length) return;
     const quests = runtime.state.characterQuests ?? [];
@@ -37349,14 +37769,17 @@ ${locks}` : ""}`;
       const signature = entry ? [entry.state, entry.root, entry.remaining, runtime.config.isZH].join(
         ":"
       ) : "none";
-      const existing = action.querySelector(`.${CONTROL_CLASS2}`);
-      if (existing?.dataset.signature === signature) continue;
-      action.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
+      const existingControls = [...card.querySelectorAll(`.${CONTROL_CLASS2}`)];
+      if (existingControls.length === 1 && existingControls[0].dataset.signature === signature) {
+        continue;
+      }
+      existingControls.forEach((node) => node.remove());
       if (!entry || entry.state === "done") continue;
       if (entry.state === "top") {
-        insertBeforeNavigation(action, plannerButton(entry, signature));
+        insertBeforeTaskNavigation(card, action, plannerButton(entry, signature));
       } else if (entry.state === "planned") {
-        insertBeforeNavigation(
+        insertBeforeTaskNavigation(
+          card,
           action,
           plannerLabel(
             t10("已被规划", "Included in plan"),
@@ -37368,7 +37791,8 @@ ${locks}` : ""}`;
           )
         );
       } else if (entry.state === "isolated") {
-        insertBeforeNavigation(
+        insertBeforeTaskNavigation(
+          card,
           action,
           plannerLabel(
             t10("无需火车", "No train needed"),
@@ -37381,7 +37805,26 @@ ${locks}` : ""}`;
   }
   function cleanup3() {
     document.querySelectorAll(`.${CONTROL_CLASS2}`).forEach((node) => node.remove());
-    document.getElementById(STYLE_ID10)?.remove();
+    document.getElementById(STYLE_ID11)?.remove();
+  }
+  function shouldRenderTaskTrainMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR2)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR2) || node.closest?.(OWNED_TASK_SELECTOR2)
+      )) {
+        return false;
+      }
+      if (target?.closest?.(TASK_SELECTOR2)) return true;
+      return changedNodes.some(
+        (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
+      );
+    });
   }
   runtime.features.register({
     id: "taskTrainPlanner",
@@ -37389,34 +37832,23 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["semiAutoTrain"],
     initialize({ scope }) {
-      addStyles8();
-      render();
-      let pending = false;
-      const schedule = () => {
-        if (pending) return;
-        pending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          pending = false;
-          render();
-        });
+      addStyles9();
+      renderTaskTrainPlanner();
+      const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
+      const schedule = () => renderScheduler.schedule();
+      let trailingTimers = [];
+      const onInteraction = () => {
+        schedule();
+        trailingTimers.forEach(clearTimeout);
+        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
       };
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR2)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR2) || node.querySelector?.(TASK_SELECTOR2)
-          );
-        })) {
-          schedule();
-        }
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      scope.event(document, "click", onInteraction, true);
       scope.add(runtime.onMessage("quests_updated", schedule));
-      scope.add(cleanup3);
+      scope.add(() => {
+        trailingTimers.forEach(clearTimeout);
+        renderScheduler.cancel();
+        cleanup3();
+      });
     }
   });
   Object.assign(runtime.api, {
@@ -37425,8 +37857,9 @@ ${locks}` : ""}`;
   });
 
   // src/features/task-new-badge.js
-  var STYLE_ID11 = "mwitools-task-new-style";
+  var STYLE_ID12 = "mwitools-task-new-style";
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var OWNED_TASK_SELECTOR3 = '.mwi-task-new-badge,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
     return taskCardTaskId(quest);
@@ -37498,10 +37931,10 @@ ${locks}` : ""}`;
     }
     return state;
   }
-  function addStyles9() {
-    if (document.getElementById(STYLE_ID11)) return;
+  function addStyles10() {
+    if (document.getElementById(STYLE_ID12)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID11;
+    style.id = STYLE_ID12;
     style.textContent = `
     ${TASK_SELECTOR3}.mwi-task-is-new{position:relative}
     .mwi-task-new-badge{position:absolute;z-index:5;right:5px;top:5px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:auto!important;min-width:18px!important;max-width:max-content!important;height:18px!important;min-height:18px!important;margin:0!important;padding:0 4px!important;flex:0 0 auto!important;border:1px solid rgba(255,220,128,.72);border-radius:4px;background:#f0aa2e;color:#221704;font-size:9px;font-weight:800;line-height:16px;letter-spacing:0;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.32);pointer-events:none}
@@ -37514,7 +37947,26 @@ ${locks}` : ""}`;
       node.classList.remove("mwi-task-is-new");
       delete node.dataset.mwitoolsTaskNewWired;
     });
-    document.getElementById(STYLE_ID11)?.remove();
+    document.getElementById(STYLE_ID12)?.remove();
+  }
+  function shouldRenderTaskNewMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR3)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR3) || node.closest?.(OWNED_TASK_SELECTOR3)
+      )) {
+        return false;
+      }
+      if (target?.closest?.(TASK_SELECTOR3)) return true;
+      return changedNodes.some(
+        (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
+      );
+    });
   }
   runtime.features.register({
     id: "taskNewBadge",
@@ -37522,14 +37974,14 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["taskInsights"],
     initialize({ scope, characterId }) {
-      addStyles9();
+      addStyles10();
       const storageKey = taskNewStorageKey(characterId);
       const state = readTaskNewState(storageKey);
       liveTaskNewStates.set(storageKey, state);
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
-      const render2 = () => {
+      const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
         let changed = false;
@@ -37563,15 +38015,8 @@ ${locks}` : ""}`;
           }
         });
       };
-      let pending = false;
-      const schedule = () => {
-        if (pending) return;
-        pending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          pending = false;
-          render2();
-        });
-      };
+      const renderScheduler = createFrameScheduler(render);
+      const schedule = () => renderScheduler.schedule();
       scope.add(
         runtime.onMessage("quests_updated", (payload) => {
           const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
@@ -37586,24 +38031,17 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR3)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
-          );
-        })) {
-          schedule();
-        }
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
-      render2();
+      let trailingTimers = [];
+      const onInteraction = () => {
+        schedule();
+        trailingTimers.forEach(clearTimeout);
+        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
+      };
+      scope.event(document, "click", onInteraction, true);
+      render();
       scope.add(() => {
-        pending = false;
+        trailingTimers.forEach(clearTimeout);
+        renderScheduler.cancel();
         if (liveTaskNewStates.get(storageKey) === state) {
           liveTaskNewStates.delete(storageKey);
         }
@@ -37671,12 +38109,25 @@ ${locks}` : ""}`;
     ).replaceAll(/\s+/g, " ").trim();
   }
   function isGoButton(button) {
-    return /^(前往|go)$/i.test(buttonText(button));
+    return matchesGameTranslations(
+      ["randomTask.go", "questModal.go"],
+      buttonText(button),
+      { fallbackPatterns: [/^(?:前往|go)$/i] }
+    );
   }
   function isCommitButton(button) {
-    const text = buttonText(button);
-    return /^(添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)$/i.test(
-      text
+    return matchesGameTranslations(
+      [
+        "skillActionDetail.buttons.start",
+        "skillActionDetail.buttons.startNow",
+        "skillActionDetail.buttons.addToQueue"
+      ],
+      buttonText(button),
+      {
+        fallbackPatterns: [
+          /^(?:添加任务|添加到队列|加入队列|立即开始|开始任务|开始动作|添加|开始|队列|add task|add to (?:action )?queue|start task|start action|start now|start immediately|add|start|queue)(?:\s*#\d+)?$/i
+        ]
+      }
     );
   }
   function findGameHost() {
@@ -37720,7 +38171,9 @@ ${locks}` : ""}`;
       'nav button,[class*="Nav"] button,[class*="nav"] button'
     );
     const taskButton = [...buttons].find(
-      (button) => /^(任务|tasks)$/i.test(buttonText(button))
+      (button) => matchesGameTranslations("navigationBar.tasks", buttonText(button), {
+        fallbackPatterns: [/^(?:任务|tasks)$/i]
+      })
     );
     taskButton?.click();
     return Boolean(taskButton);
@@ -37841,7 +38294,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/ability-book-calculator.js
-  var STYLE_ID12 = "mwitools-ability-book-calculator-style";
+  var STYLE_ID13 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
   function t11(zh, en) {
@@ -37976,10 +38429,10 @@ ${locks}` : ""}`;
       ...characterAbility
     };
   }
-  function addStyles10() {
-    if (document.getElementById(STYLE_ID12)) return;
+  function addStyles11() {
+    if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID12;
+    style.id = STYLE_ID13;
     style.textContent = `
     .${PANEL_CLASS}{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 10px;margin:8px 0;padding:8px 10px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(0,0,0,.16);color:var(--color-text-primary,#eee);font-size:.72rem;line-height:1.35}
     .${PANEL_CLASS} .mwi-book-title{grid-column:1/-1;font-size:.78rem;font-weight:700;color:var(--color-primary,#e0bc42)}
@@ -38129,7 +38582,7 @@ ${locks}` : ""}`;
     setting: "skillbook",
     scope: "character",
     initialize({ scope }) {
-      addStyles10();
+      addStyles11();
       const targetValues = /* @__PURE__ */ new Map();
       let refreshTimer2 = null;
       const updateSurface = (container, itemHrid) => {
@@ -38182,7 +38635,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
         document.querySelectorAll(`.${PANEL_CLASS}`).forEach((panel) => panel.remove());
-        document.getElementById(STYLE_ID12)?.remove();
+        document.getElementById(STYLE_ID13)?.remove();
       });
       refresh();
     }
@@ -38237,6 +38690,51 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.7",
+      version: "26.4.7",
+      publishedAt: "2026-08-13",
+      title: Object.freeze({
+        zh: "26.4.7 更新公告",
+        en: "Version 26.4.7 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复移动浏览器工具栏变化后页面底部偶尔出现白条并整体上移；Sunny 强化倍数按钮现在可再次把对应期望次数的净缺料加入购物车。",
+          "资产中心图例在实时资产刷新后继续保持隐藏或显示状态。",
+          "修复九种官方语言下库存评分与总资产、当前行动倒计时、任务合并与自动返回、战斗每小时统计不显示或未生效的问题；装备分类也不再因语言不同参与库存排序。",
+          "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
+          "修复任务页重复出现多个规划火车、资产中心日期选择器被实时刷新关闭，以及强化当前行动条的剩余次数与预计完成时间偶尔不显示。",
+          "意见审理台现在显示反馈者使用的 MWITools 版本；重大更新清单支持 GitHub 失败后从反馈服务器读取，并明确显示最新版本且每个版本最多提醒一次。",
+          "移动端生产摘要改为紧凑双列，顶部行动条只保留剩余次数和时间并随内容收缩；桌面端继续显示预计完成时间。意见中心入口统一精简为单行 MWITools。",
+          "DPS 面板改为每秒刷新一次，伤害、治疗和击杀仍按战斗消息实时累计；长时间离线或挂起后会直接快进时间桶，不再逐个循环补齐。",
+          "任务卡的语义匹配与火车升级链改用索引，任务附属控件按需刷新，并取消功能关闭后尚未执行的帧回调，降低乱序任务和战斗期间的后台开销。",
+          "物品等级、市场筛选和地图编号改为按交互与数据消息刷新；DPS 启动器及收益、强化浮窗缩小观察范围，并移除高 GPU 占用的背景模糊。",
+          "强化成本现在与生产收益和宝箱估算共用同一个自定义快捷键；桌面端按住触发，移动端长按触发。",
+          "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。",
+          "生产购物清单现在默认补齐上一层成品与当前步骤材料，也可通过“所选链条”开关按勾选阶段补齐；有限次数的总产出、耗时和利润不再被当前库存截断，无限次数且无库存时会明确显示为 0。",
+          "任务页在当前页面刷新出新任务时，会立即将所有新任务置顶，再按专业和战斗分类排序；普通进度刷新继续保持卡片位置稳定。",
+          "修复不同缩放比例或窄窗口下任务页礼物、未读提示和普通任务卡宽度不一致、列边界错位及横向溢出。"
+        ]),
+        en: Object.freeze([
+          "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
+          "Asset Center legend visibility now persists through live asset refreshes.",
+          "Fixed inventory scores and total assets, the current-action countdown, task merging and auto-return, and hourly battle statistics not appearing or activating across all nine official game languages. Equipment also stays excluded from inventory sorting in every language.",
+          "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
+          "Fixed duplicate train-planning controls on tasks, live asset refreshes closing date pickers, and remaining counts and completion estimates intermittently missing from the current-action bar while enhancing.",
+          "The feedback review console now shows each reporter's MWITools version. Important-update manifests fall back to the feedback server when GitHub fails, show the latest version explicitly, and appear at most once per version.",
+          "Mobile production summaries now use a compact two-column layout, and the mobile current-action bar keeps only the remaining count and time while shrinking to its content. Desktop keeps the finish-time estimate. The Feedback Center launcher is shortened to a single-line MWITools label.",
+          "The DPS panel now refreshes once per second while damage, healing, and kills remain event-driven. Long suspended gaps fast-forward graph buckets instead of replaying every missing interval.",
+          "Task semantic matching and train upgrade lookups now use indexes, task decorations refresh on demand, and queued frames are cancelled on feature cleanup to reduce shuffled-task and combat overhead.",
+          "Item levels, market filters, and map indexes now refresh on interactions and data messages. DPS launcher and estimate-panel observers are narrower, and expensive backdrop blur was removed.",
+          "Enhancement costs now share the same custom shortcut as production profit and loot chest estimates: hold the key on desktop or long-press on touch devices.",
+          "Release announcements are stored separately by version again, so the 26.4.6 history is no longer mixed into this release.",
+          "Production shopping lists now default to the direct predecessor and current-step materials, with a “Selected chain” switch for the checked stages. Finite totals are no longer capped by current inventory, while infinite production with no stock now clearly shows zero.",
+          "When new tasks arrive on the current task page, all new tasks now move to the top before profession and combat sorting. Ordinary progress refreshes continue to keep card positions stable.",
+          "Fixed mismatched widths, misaligned column edges, and horizontal overflow between gift, unread-notice, and regular task cards at different zoom levels or in narrow windows."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.6",
       version: "26.4.6",
       publishedAt: "2026-08-12",
@@ -38262,7 +38760,11 @@ ${locks}` : ""}`;
           "移除作用有限的消耗品回复速度、单位回复成本和理论每日用量显示。",
           "修复购物车数量加减按钮长按后可能无法停止，现在松手、清空、删除、收起或切换页签都会立即结束连续加减。",
           "数字解析和显示现在跟随游戏内语言，修复逗号作为小数点、句点或空格作为千分位时，生产材料、房屋数量、任务进度和行动时间计算错误，并稳定公会经验速率条宽度。",
-          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。"
+          "修复中文以外的游戏语言下火车点击加入队列后不续站，以及角色管理页不显示盈亏标签的问题。",
+          "修复全服技能与公会排行榜可能被经验速率排序或当前角色置顶改变顺序；经验速率继续作为只读信息显示。",
+          "资产中心的分项图表改为显示各日期的实际资产持有值，图例可点击隐藏或恢复曲线，悬浮数值使用 K/M/B/T 单位。",
+          "修复精炼生活披风等背部装备提示没有新缺料的问题；强化缺料加购移至右侧信息列，单阶段与多阶段升级链均可正确加入购物车。",
+          "关闭产出与库存摘要后不再重新出现本次生产摘要；同时减少任务页重复的多语言匹配和插件自身刷新，改善英文界面卡顿。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38280,7 +38782,11 @@ ${locks}` : ""}`;
           "Removed the low-value consumable recovery-rate, cost-per-recovery, and theoretical daily-use display.",
           "Fixed shopping-cart quantity buttons sometimes continuing forever after a long press. Releasing, clearing, deleting, collapsing, or changing tabs now stops repeat adjustments immediately.",
           "Number parsing and display now follow the in-game language, fixing production materials, house quantities, task progress, and action timing when commas are decimals and periods or spaces are grouping separators, while stabilizing guild XP rate-bar widths.",
-          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language."
+          "Fixed trains not advancing after queue submission and the P/L tab missing from Character Management when the game uses a non-Chinese language.",
+          "Fixed standard skill and guild leaderboard order being changed by XP-rate sorting or current-character pinning; XP rates remain available as read-only information.",
+          "Asset component charts now show actual holdings for each date, legends can hide and restore lines, and hover values use K/M/B/T units.",
+          "Fixed refined skilling capes and other back equipment reporting no new shortages. Enhancement shopping now sits in the right-hand information column, and both single- and multi-stage upgrade chains add materials correctly.",
+          "Disabling the output and inventory summary now keeps the production summary hidden. Repeated multilingual task matching and MWITools-owned refreshes were also reduced to improve English task-page performance."
         ])
       })
     })
@@ -38647,7 +39153,7 @@ ${locks}` : ""}`;
   // src/features/opinion-center/panel.js
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
-  var STYLE_ID13 = "mwitools-feedback-style";
+  var STYLE_ID14 = "mwitools-feedback-style";
   function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -38659,12 +39165,12 @@ ${locks}` : ""}`;
     };
     return labels[status] ? t13(...labels[status]) : status;
   }
-  function addStyles11() {
-    if (document.getElementById(STYLE_ID13)) return;
+  function addStyles12() {
+    if (document.getElementById(STYLE_ID14)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID13;
+    style.id = STYLE_ID14;
     style.textContent = `
-    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:5px;width:auto;min-width:76px;margin:2px auto 0;padding:1px 7px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:11px;line-height:1.2;cursor:pointer}
+    #${BUTTON_ID}{position:relative;display:flex;align-items:center;align-self:center;justify-content:center;gap:4px;width:auto;min-width:0;margin:2px auto 0;padding:1px 6px;border:1px solid rgba(245,158,11,.55);border-radius:4px;background:rgba(245,158,11,.1);color:#ffc45b;font-size:10px;line-height:1.2;white-space:nowrap;cursor:pointer}.mwi-opinion-label{white-space:nowrap}
     #${BUTTON_ID}:hover{background:rgba(245,158,11,.19);color:#ffd887}#${BUTTON_ID}[data-unread="true"]{border-color:#ff6b6b;box-shadow:0 0 8px rgba(255,74,74,.62);animation:mwi-opinion-alert 1.4s ease-in-out infinite}.mwi-opinion-dot{position:absolute;right:-4px;top:-4px;width:9px;height:9px;border:2px solid #171b2a;border-radius:50%;background:#f04444;box-shadow:0 0 6px rgba(255,54,54,.9)}.mwi-opinion-dot[hidden]{display:none}@keyframes mwi-opinion-alert{0%,100%{filter:brightness(1)}50%{filter:brightness(1.32)}}
     #${ROOT_ID2}{position:fixed;inset:0;z-index:2147482600;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(4,6,12,.72);font-family:inherit;color:#e7e9f0}#${ROOT_ID2}[hidden]{display:none}
     .mwi-feedback-modal{display:flex;flex-direction:column;width:min(760px,100%);max-height:min(820px,calc(100vh - 32px));overflow:hidden;border:1px solid #45516f;border-radius:9px;background:#171b2a;box-shadow:0 20px 60px rgba(0,0,0,.65)}
@@ -38676,7 +39182,7 @@ ${locks}` : ""}`;
     .mwi-feedback-list{display:grid;gap:8px}.mwi-feedback-card{padding:11px;border:1px solid #353f59;border-radius:6px;background:#131927;cursor:pointer}.mwi-feedback-card:hover{background:#1b2336}.mwi-feedback-card h3{margin:0 0 5px;font-size:13px}.mwi-feedback-card-meta{display:flex;gap:7px;align-items:center;color:#959fb8;font-size:11px}.mwi-feedback-status{padding:2px 6px;border-radius:4px;background:#55401c;color:#ffd06f}.mwi-feedback-status.processing{background:#193f58;color:#7ad9ff}.mwi-feedback-status.closed{background:#24452e;color:#84df9d}.mwi-feedback-empty{padding:35px;text-align:center;color:#8d97b0}.mwi-feedback-detail-back{margin-bottom:10px;border:0;background:transparent;color:#81b7ff;cursor:pointer}.mwi-feedback-detail h3{margin:0 0 5px}.mwi-feedback-copy{white-space:pre-wrap;word-break:break-word;line-height:1.5}.mwi-feedback-section{margin-top:12px;padding:11px;border:1px solid #343e58;border-radius:6px;background:#131825}.mwi-feedback-section h4{margin:0 0 7px;font-size:12px;color:#b8c0d3}.mwi-feedback-messages{display:grid;gap:7px}.mwi-feedback-message{padding:8px 10px;border-radius:5px;background:#20283b;border-left:3px solid #f1ae42}.mwi-feedback-message.admin{border-left-color:#68a8ff}.mwi-feedback-message time{display:block;margin-top:4px;color:#8993aa;font-size:10px}.mwi-feedback-actions{display:flex;gap:8px;margin-top:12px}.mwi-feedback-actions button{padding:7px 11px;border:1px solid #465273;border-radius:5px;background:#26314d;color:#e7ebf5;cursor:pointer}.mwi-feedback-reply{display:flex;gap:8px;margin-top:9px}.mwi-feedback-reply textarea{min-height:64px}.mwi-feedback-reply button{align-self:flex-end}.mwi-feedback-notice{margin-bottom:12px;padding:9px;border-radius:5px;background:rgba(64,127,199,.12);color:#b8d7fb;font-size:12px}.mwi-announcement-list{display:grid;gap:10px}.mwi-announcement-card{padding:14px;border:1px solid #3d4967;border-radius:7px;background:#131927}.mwi-announcement-card h3{margin:0;font-size:15px;color:#ffd071}.mwi-announcement-meta{margin-top:4px;color:#8993aa;font-size:11px}.mwi-announcement-card ul{margin:12px 0 0;padding-left:20px}.mwi-announcement-card li{margin:7px 0;color:#d8ddea;line-height:1.5}
     .mwi-announcement-card li strong{color:#ff5f66}
     @media(prefers-reduced-motion:reduce){#${BUTTON_ID}[data-unread="true"]{animation:none}}
-    @media(max-width:620px){#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
+    @media(max-width:620px){#${BUTTON_ID}{font-size:9px}#${ROOT_ID2}{padding:6px}.mwi-feedback-modal{max-height:calc(100vh - 12px)}.mwi-feedback-body{padding:11px}.mwi-feedback-grid{grid-template-columns:1fr}.mwi-feedback-field.is-wide{grid-column:1}.mwi-feedback-reply{flex-direction:column}}
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
@@ -38709,7 +39215,7 @@ ${locks}` : ""}`;
       this.build();
     }
     build() {
-      addStyles11();
+      addStyles12();
       this.root = document.createElement("div");
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
@@ -38776,10 +39282,7 @@ ${locks}` : ""}`;
         button.append(icon, label, dot);
         this.scope.event(button, "click", () => this.open());
       }
-      button.querySelector(".mwi-opinion-label").textContent = t13(
-        "MWITools 意见中心",
-        "MWITools Feedback Center"
-      );
+      button.querySelector(".mwi-opinion-label").textContent = "MWITools";
       if (button.parentElement !== totalLevel.parentElement || button.previousElementSibling !== totalLevel) {
         totalLevel.insertAdjacentElement("afterend", button);
       }
@@ -39241,10 +39744,10 @@ ${locks}` : ""}`;
     destroy() {
       document.getElementById(BUTTON_ID)?.remove();
       this.root?.remove();
-      document.getElementById(STYLE_ID13)?.remove();
+      document.getElementById(STYLE_ID14)?.remove();
     }
   };
-  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID13 };
+  var feedbackUiIds = { ROOT_ID: ROOT_ID2, BUTTON_ID, STYLE_ID: STYLE_ID14 };
   var FeedbackPanel = OpinionCenterPanel;
 
   // src/features/opinion-center/index.js
@@ -39298,7 +39801,7 @@ ${locks}` : ""}`;
   };
 
   // src/features/guild-xp.js
-  var STYLE_ID14 = "mwitools-guild-xp-style";
+  var STYLE_ID15 = "mwitools-guild-xp-style";
   var rateCache = /* @__PURE__ */ new Map();
   var HOUR_MS2 = 60 * 60 * 1e3;
   var TREND_WINDOW_MS = 7 * 24 * HOUR_MS2;
@@ -39435,10 +39938,10 @@ ${locks}` : ""}`;
       );
     }
   }
-  function addStyles12() {
-    if (document.getElementById(STYLE_ID14)) return;
+  function addStyles13() {
+    if (document.getElementById(STYLE_ID15)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID14;
+    style.id = STYLE_ID15;
     style.textContent = `
     .mwi-guild-xp-card { margin:10px 0; padding:11px 12px; border:1px solid rgba(255,255,255,.13); border-radius:8px; background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(0,0,0,.17)); color:var(--color-text-primary,#eee); }
     .mwi-guild-xp-head { display:flex; justify-content:space-between; gap:12px; align-items:baseline; }
@@ -39635,17 +40138,19 @@ ${locks}` : ""}`;
       'div[class*="GuildPanel_guildPanel"]'
     );
     if (!guildPanel) return null;
-    const tabList = guildPanel.querySelector('[role="tablist"]');
-    const tabs = [...tabList?.querySelectorAll('[role="tab"]') ?? []];
-    const overviewTab = tabs.find(
-      (tab) => /^(概览|overview)$/i.test(tab.textContent?.trim() ?? "")
-    ) ?? tabs[0];
-    const ariaSelected = overviewTab?.getAttribute("aria-selected");
-    const overviewSelected = ariaSelected !== null && ariaSelected !== void 0 ? ariaSelected === "true" : overviewTab?.classList.contains("Mui-selected") || overviewTab?.getAttribute("tabindex") === "0";
-    if (!overviewSelected) return null;
     const host = guildPanel.querySelector('[class*="GuildPanel_overviewTab"]');
     const tabPanel = host?.closest('[class*="TabPanel_tabPanel"]');
-    if (!host || tabPanel?.hidden || tabPanel?.className.includes("TabPanel_hidden")) {
+    const tabPanels = [
+      ...guildPanel.querySelectorAll('[class*="TabPanel_tabPanel"]')
+    ];
+    const tabs = [
+      ...guildPanel.querySelectorAll('[role="tablist"] [role="tab"]')
+    ];
+    const panelIndex = tabPanels.indexOf(tabPanel);
+    const overviewTab = panelIndex >= 0 ? tabs[panelIndex] : null;
+    const ariaSelected = overviewTab?.getAttribute("aria-selected");
+    const overviewSelected = overviewTab ? ariaSelected !== null ? ariaSelected === "true" : overviewTab.classList.contains("Mui-selected") || overviewTab.getAttribute("tabindex") === "0" : true;
+    if (!host || !overviewSelected || tabPanel?.hidden || tabPanel?.className.includes("TabPanel_hidden")) {
       return null;
     }
     return host;
@@ -39734,6 +40239,7 @@ ${locks}` : ""}`;
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
+      const sortable = kind === "member";
       const columns = [
         ["mwi-guild-recent-head", t14("近 6 小时 XP/h", "6h XP/h")],
         ["mwi-guild-day-head", t14("24 小时 XP/h", "24h XP/h")],
@@ -39744,10 +40250,15 @@ ${locks}` : ""}`;
         cell.className = className;
         const labelNode = document.createElement("span");
         labelNode.textContent = label;
+        cell.append(labelNode);
+        if (!sortable) {
+          header.append(cell);
+          continue;
+        }
         const sortIndicator = document.createElement("span");
         sortIndicator.className = "mwi-guild-rate-sort";
         sortIndicator.textContent = "↕";
-        cell.append(labelNode, sortIndicator);
+        cell.append(sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
         cell.title = t14("点击按经验速率排序", "Click to sort by XP rate");
@@ -39950,7 +40461,7 @@ ${locks}` : ""}`;
     scope: "character",
     dependsOn: ["guildXpTracking"],
     initialize({ scope }) {
-      addStyles12();
+      addStyles13();
       renderGuildOverview();
       scope.interval(renderGuildOverview, 1500);
       scope.add(
@@ -39965,7 +40476,7 @@ ${locks}` : ""}`;
       scope: "character",
       dependsOn: id === "guildIdleMembers" ? ["guildXpTracking", "guildOverview"] : ["guildXpTracking"],
       initialize({ scope }) {
-        addStyles12();
+        addStyles13();
         renderGuildTables();
         if (id === "guildIdleMembers") renderGuildOverview();
         if (id !== "guildIdleMembers") scope.interval(renderGuildTables, 1500);
@@ -40006,6 +40517,77 @@ ${locks}` : ""}`;
     return runtime.config.isZH ? zh : en;
   }
   var lastBattleSummaryMessage = null;
+  function escapeRegularExpression2(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function translatedTemplateValue(text, path, fallbacks, valuePattern) {
+    const templates = [getGameTranslation(path), ...fallbacks].filter(Boolean);
+    for (const template of templates) {
+      let captured = false;
+      const parts = String(template).split(/({{[^}]+}})/g);
+      const source = parts.map((part) => {
+        if (/^{{[^}]+}}$/.test(part)) {
+          if (captured) return `(?:${valuePattern})`;
+          captured = true;
+          return `(${valuePattern})`;
+        }
+        return escapeRegularExpression2(part).replace(/\s+/g, "\\s+");
+      }).join("");
+      if (!captured) continue;
+      const match = String(text ?? "").match(new RegExp(source, "iu"));
+      if (match?.[1]) return match[1].trim();
+    }
+    return "";
+  }
+  function durationSeconds(value) {
+    let total = 0;
+    let found = false;
+    for (const match of String(value ?? "").matchAll(/(\d+)\s*([dhms])/gi)) {
+      found = true;
+      const amount = Number(match[1]);
+      total += amount * ({ d: 86400, h: 3600, m: 60, s: 1 }[match[2].toLowerCase()] ?? 0);
+    }
+    return found ? total : null;
+  }
+  function wholeNumber(value) {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    return digits ? Number(digits) : null;
+  }
+  function parseLocalizedBattleInfo(text) {
+    const duration = translatedTemplateValue(
+      text,
+      "battlePanel.combatDuration",
+      [
+        "Combat Duration: {{duration}}",
+        "战斗时间: {{duration}}",
+        "战斗时长: {{duration}}"
+      ],
+      "(?:\\d+\\s*[dhms]\\s*)+"
+    );
+    const battles = translatedTemplateValue(
+      text,
+      "battlePanel.battles",
+      ["Battles: {{battleId}}", "交战: {{battleId}}", "战斗: {{battleId}}"],
+      "[\\d\\s.,\\u00a0\\u202f]+"
+    );
+    const deaths = translatedTemplateValue(
+      text,
+      "battlePanel.deaths",
+      [
+        "Deaths: {{deathCount}}",
+        "战败: {{deathCount}}",
+        "死亡次数: {{deathCount}}"
+      ],
+      "[\\d\\s.,\\u00a0\\u202f]+"
+    );
+    const battleDurationSec = durationSeconds(duration);
+    const battleCount = wholeNumber(battles);
+    const deathCount = wholeNumber(deaths);
+    if (!Number.isFinite(battleDurationSec) || !Number.isFinite(battleCount) || !Number.isFinite(deathCount)) {
+      return null;
+    }
+    return { battleDurationSec, battleCount, deathCount };
+  }
   async function handleBattleSummary(message) {
     lastBattleSummaryMessage = message;
     const suppressMarket = runtime.api.shouldSuppressMarketFeatures?.() ?? false;
@@ -40065,16 +40647,12 @@ ${locks}` : ""}`;
           ".BattlePanel_combatInfo__sHGCe"
         );
         if (combatInfoElement) {
-          let matches = combatInfoElement.innerHTML.match(
-            /(战斗时间|战斗时长|Combat Duration): (?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(?:(\d+)s).*?(交战|战斗|Battles): (\d+).*?(战败|死亡次数|Deaths): (\d+)/
+          const battleInfo = parseLocalizedBattleInfo(
+            combatInfoElement.textContent
           );
-          if (matches) {
-            let days = parseInt(matches[2], 10) || 0;
-            let hours = parseInt(matches[3], 10) || 0;
-            let minutes = parseInt(matches[4], 10) || 0;
-            let seconds = parseInt(matches[5], 10) || 0;
-            let battles = parseInt(matches[7], 10) - 1;
-            battleDurationSec = days * 86400 + hours * 3600 + minutes * 60 + seconds;
+          if (battleInfo) {
+            battleDurationSec = battleInfo.battleDurationSec;
+            const battles = battleInfo.battleCount - 1;
             const efficiencyPerHour = battleDurationSec ? (battles / battleDurationSec * 3600).toFixed(1) : "—";
             appendSummary(
               "script_battleNumbers",
@@ -40493,12 +41071,37 @@ ${locks}` : ""}`;
       }
     }
   });
+  function scanOnDemand(scope, scan2, messages = []) {
+    let coalescedTimer = null;
+    let trailingTimer = null;
+    const flush = () => {
+      coalescedTimer = null;
+      scan2();
+    };
+    const scheduleSoon = () => {
+      if (coalescedTimer !== null) return;
+      coalescedTimer = setTimeout(flush, 0);
+    };
+    const onInteraction = () => {
+      scheduleSoon();
+      clearTimeout(trailingTimer);
+      trailingTimer = setTimeout(scan2, 250);
+    };
+    scan2();
+    scope.event(document, "click", onInteraction, true);
+    messages.forEach((message) => {
+      scope.add(runtime.onMessage(message, scheduleSoon));
+    });
+    scope.add(() => {
+      clearTimeout(coalescedTimer);
+      clearTimeout(trailingTimer);
+    });
+  }
   runtime.features.register({
     id: "itemIconLevel",
     setting: "itemIconLevel",
     initialize({ scope }) {
-      addItemLevels();
-      scope.interval(addItemLevels, 500);
+      scanOnDemand(scope, addItemLevels, ["items_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_itemLevel,.script_key").forEach((node) => node.remove())
       );
@@ -40517,8 +41120,7 @@ ${locks}` : ""}`;
     id: "marketFilter",
     setting: "marketFilter",
     initialize({ scope }) {
-      addMarketFilterButtons();
-      scope.interval(addMarketFilterButtons, 500);
+      scanOnDemand(scope, addMarketFilterButtons);
       scope.add(() => document.querySelector("#script_filters")?.remove());
     }
   });
@@ -40527,8 +41129,7 @@ ${locks}` : ""}`;
     setting: "taskMapIndex",
     scope: "character",
     initialize({ scope }) {
-      handleTaskCard();
-      scope.interval(handleTaskCard, 500);
+      scanOnDemand(scope, handleTaskCard, ["quests_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_taskMapIndex").forEach((node) => node.remove())
       );
@@ -40538,8 +41139,7 @@ ${locks}` : ""}`;
     id: "mapIndex",
     setting: "mapIndex",
     initialize({ scope }) {
-      addIndexToMaps();
-      scope.interval(addIndexToMaps, 500);
+      scanOnDemand(scope, addIndexToMaps);
       scope.add(
         () => document.querySelectorAll(".script_mapIndex").forEach((node) => node.remove())
       );
@@ -41369,19 +41969,19 @@ ${locks}` : ""}`;
 
   // src/features/enhancement-cost-panel.js
   var PANEL_ID3 = "mwitools-enhancement-cost-panel";
-  var STYLE_ID15 = "mwitools-enhancement-cost-panel-style";
+  var STYLE_ID16 = "mwitools-enhancement-cost-panel-style";
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
   function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
-  function addStyles13() {
-    if (document.getElementById(STYLE_ID15)) return;
+  function addStyles14() {
+    if (document.getElementById(STYLE_ID16)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID15;
+    style.id = STYLE_ID16;
     style.textContent = `
-    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
+    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
     #${PANEL_ID3} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
@@ -41553,7 +42153,7 @@ ${locks}` : ""}`;
       return activePanel2.panel;
     }
     hideEnhancementCostPanel();
-    addStyles13();
+    addStyles14();
     const panel = document.createElement("aside");
     panel.id = PANEL_ID3;
     panel.setAttribute("role", "status");
@@ -41564,7 +42164,9 @@ ${locks}` : ""}`;
     const mutationObserver = new MutationObserver(() => {
       if (!anchor.isConnected) hideEnhancementCostPanel();
     });
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    mutationObserver.observe(anchor.parentNode ?? document.body, {
+      childList: true
+    });
     const resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
     resizeObserver?.observe(anchor);
     resizeObserver?.observe(panel);
@@ -41588,6 +42190,20 @@ ${locks}` : ""}`;
   });
 
   // src/features/enhancement-tooltip.js
+  function setEnhancementContext(tooltip, plan) {
+    if (runtime.api.setEnhancementHoverPanelContext) {
+      runtime.api.setEnhancementHoverPanelContext(tooltip, plan);
+    } else {
+      showEnhancementCostPanel(tooltip, plan);
+    }
+  }
+  function clearEnhancementContext(tooltip) {
+    if (runtime.api.clearEnhancementHoverPanelContext) {
+      runtime.api.clearEnhancementHoverPanelContext(tooltip);
+    } else {
+      hideEnhancementCostPanel();
+    }
+  }
   function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
     tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove();
     if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue || runtime.api.shouldSuppressMarketFeatures?.()) {
@@ -41643,17 +42259,20 @@ ${locks}` : ""}`;
       ".ItemTooltipText_itemTooltipText__zFq3A"
     );
     if (!tooltipContent) {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
       return;
     }
     const { itemHrid, enhancementLevel } = readEnhancedTooltipItem(tooltip);
     if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
       return;
     }
     if (runtime.settings.settingsMap.enhanceSim.isTrue) {
-      showEnhancementCostPanel(tooltip, null);
+      setEnhancementContext(tooltip, null);
     } else {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
     }
     if (!runtime.api.shouldSuppressMarketFeatures?.()) {
@@ -41669,7 +42288,7 @@ ${locks}` : ""}`;
       targetLevel: enhancementLevel,
       ...getTooltipEnhancementPlanOptions(itemHrid)
     });
-    if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
+    if (tooltip.isConnected) setEnhancementContext(tooltip, plan);
   }
   runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
   runtime.onMessage("init_character_data", () => {
@@ -42503,17 +43122,16 @@ ${locks}` : ""}`;
 
   // src/features/update-banner.js
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
-  var GREASY_FORK_URL = "https://greasyfork.org/zh-CN/scripts/494467-mwitools";
-  var CACHE_KEY = "MWITools_important_update_manifest_v1";
-  var CACHE_MAX_AGE = 6 * 60 * 60 * 1e3;
-  var STYLE_ID16 = "mwitools-important-update-style";
+  var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
+  var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
+  var STYLE_ID17 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
   function t17(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.6");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.7");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -42533,32 +43151,15 @@ ${locks}` : ""}`;
   }
   function shouldShowImportantUpdate(manifest, installedVersion = currentVersion()) {
     return Boolean(
-      manifest?.importantVersion && compareVersions(installedVersion, manifest.importantVersion) < 0 && localStorage.getItem(
-        `MWITools_update_banner_dismissed_${manifest.importantVersion}`
+      manifest?.latestVersion && manifest?.importantVersion && compareVersions(installedVersion, manifest.importantVersion) < 0 && localStorage.getItem(
+        `MWITools_update_banner_seen_${manifest.latestVersion}`
       ) !== "true"
     );
   }
-  function readCachedManifest() {
-    try {
-      const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-      if (!cached?.manifest || Date.now() - cached.savedAt > CACHE_MAX_AGE) {
-        return null;
-      }
-      return cached.manifest;
-    } catch {
-      return null;
-    }
-  }
-  function saveCachedManifest(manifest) {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({ savedAt: Date.now(), manifest })
-    );
-  }
-  function requestManifest() {
+  function requestManifest(url) {
     const request2 = typeof GM !== "undefined" && typeof GM.xmlHttpRequest === "function" ? GM.xmlHttpRequest : typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : null;
     if (!request2) {
-      return globalThis.fetch(MANIFEST_URL, { cache: "no-store" }).then((response) => {
+      return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
             t17({
@@ -42592,7 +43193,7 @@ ${locks}` : ""}`;
       try {
         const result = request2({
           method: "GET",
-          url: MANIFEST_URL,
+          url,
           timeout: 5e3,
           onload: finish,
           onerror: () => reject(
@@ -42618,22 +43219,40 @@ ${locks}` : ""}`;
       }
     });
   }
-  async function getImportantUpdateManifest() {
-    const cached = readCachedManifest();
-    if (cached) return cached;
-    const manifest = await requestManifest();
-    if (!manifest?.importantVersion) {
+  function validateManifest(manifest) {
+    if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
         t17({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
-    saveCachedManifest(manifest);
     return manifest;
   }
-  function addStyles14() {
-    if (document.getElementById(STYLE_ID16)) return;
+  async function fetchImportantUpdateManifest({
+    urls = [MANIFEST_URL, FALLBACK_MANIFEST_URL],
+    request: request2 = requestManifest
+  } = {}) {
+    let lastError = null;
+    for (const url of urls) {
+      try {
+        return validateManifest(await request2(url));
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ?? new Error(t17({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+  }
+  var manifestCheck = null;
+  function getImportantUpdateManifest() {
+    manifestCheck ??= fetchImportantUpdateManifest();
+    return manifestCheck;
+  }
+  function updateDownloadUrl() {
+    return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
+  }
+  function addStyles15() {
+    if (document.getElementById(STYLE_ID17)) return;
     const style = document.createElement("style");
-    style.id = STYLE_ID16;
+    style.id = STYLE_ID17;
     style.textContent = `
     #${BANNER_ID}{position:fixed;left:50%;top:8px;z-index:2147482500;display:flex;box-sizing:border-box;width:min(720px,calc(100vw - 24px));align-items:center;gap:10px;padding:8px 10px;border:1px solid rgba(245,158,11,.62);border-radius:6px;background:rgba(25,28,42,.97);color:var(--color-neutral-100,#eee);box-shadow:0 9px 24px rgba(0,0,0,.42);font:inherit;transform:translateX(-50%)}
     .mwi-update-banner-icon{display:flex;width:28px;height:28px;flex:0 0 auto;align-items:center;justify-content:center;border-radius:5px;background:rgba(245,158,11,.14);color:#f5a623;font-weight:800}
@@ -42651,7 +43270,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles14();
+    addStyles15();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -42664,17 +43283,16 @@ ${locks}` : ""}`;
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
     banner.querySelector(".mwi-update-banner-title").textContent = t17(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    banner.querySelector(".mwi-update-banner-message").textContent = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.importantVersion}` : `Update to ${manifest.importantVersion} is recommended.`);
+    const message = t17(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
-    action.href = manifest.url || GREASY_FORK_URL;
-    banner.querySelector(".mwi-update-banner-close").addEventListener("click", () => {
-      localStorage.setItem(
-        `MWITools_update_banner_dismissed_${manifest.importantVersion}`,
-        "true"
-      );
-      banner.remove();
-    });
+    action.href = updateDownloadUrl();
+    localStorage.setItem(
+      `MWITools_update_banner_seen_${manifest.latestVersion}`,
+      "true"
+    );
+    banner.querySelector(".mwi-update-banner-close").addEventListener("click", () => banner.remove());
     document.body.appendChild(banner);
     return true;
   }
@@ -42694,7 +43312,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         disposed = true;
         document.getElementById(BANNER_ID)?.remove();
-        document.getElementById(STYLE_ID16)?.remove();
+        document.getElementById(STYLE_ID17)?.remove();
       });
     }
   });
@@ -42702,7 +43320,9 @@ ${locks}` : ""}`;
     compareVersions,
     shouldShowImportantUpdate,
     renderImportantUpdateBanner,
-    getImportantUpdateManifest
+    fetchImportantUpdateManifest,
+    getImportantUpdateManifest,
+    updateDownloadUrl
   });
 
   // src/features/dps/assets/close.png
@@ -44490,21 +45110,34 @@ ${locks}` : ""}`;
       fragmentPrefix = null;
     }
     function tickBuckets(ts) {
-      while (ts - bucketTs >= BUCKET_MS) {
+      const steps = Math.floor((ts - bucketTs) / BUCKET_MS);
+      if (steps <= 0) return;
+      if (steps >= BUCKETS) {
+        dmgBuckets.fill(0);
+        bossBuckets.fill(_isBoss);
+        curBucket = (curBucket + steps) % BUCKETS;
+        bucketTs += steps * BUCKET_MS;
+        return;
+      }
+      for (let step = 0; step < steps; step += 1) {
         curBucket = (curBucket + 1) % BUCKETS;
         dmgBuckets[curBucket] = 0;
         bossBuckets[curBucket] = _isBoss;
-        bucketTs += BUCKET_MS;
       }
+      bucketTs += steps * BUCKET_MS;
     }
     function tickFullBuckets(ts) {
-      while (ts - fullBucketTs >= BUCKET_MS) {
-        if (fullDmgBuckets.length < FULL_MAX_BUCKETS) {
-          fullDmgBuckets.push(0);
-          fullBossBuckets.push(_isBoss);
-        }
-        fullBucketTs += BUCKET_MS;
+      const steps = Math.floor((ts - fullBucketTs) / BUCKET_MS);
+      if (steps <= 0) return;
+      const appendCount = Math.min(
+        steps,
+        FULL_MAX_BUCKETS - fullDmgBuckets.length
+      );
+      if (appendCount > 0) {
+        fullDmgBuckets.push(...new Array(appendCount).fill(0));
+        fullBossBuckets.push(...new Array(appendCount).fill(_isBoss));
       }
+      fullBucketTs += steps * BUCKET_MS;
     }
     return {
       reset(nextMeta = {}) {
@@ -44818,7 +45451,7 @@ ${locks}` : ""}`;
           ])
         );
       },
-      // Avance les buckets au temps actuel — appelé à chaque render tick (250ms).
+      // Avance les buckets au temps actuel — appelé à chaque render tick (1s).
       // Sans ça, curBucket ne s'avance qu'à la réception de dégâts. En idle (entre
       // deux vagues), le bucket courant garde sa valeur accumulée et s'affiche comme
       // le point "now" pendant toute la pause → pic artificiel dans le graphe.
@@ -47908,7 +48541,7 @@ ${locks}` : ""}`;
       else nice = 10;
       return nice * mag;
     }
-    function render2(points) {
+    function render(points) {
       canvas.style.display = "block";
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, CW, CH);
@@ -48029,7 +48662,7 @@ ${locks}` : ""}`;
       ctx.lineTo(PAD.left + DW, PAD.top + DH);
       ctx.stroke();
     }
-    return { canvas, render: render2 };
+    return { canvas, render };
   }
   function buildDetailsGraph() {
     const GRAPH_BUCKET_MS = 2e3, CSS_HEIGHT = 112, canvas = document.createElement("canvas");
@@ -48060,7 +48693,7 @@ ${locks}` : ""}`;
         return "-" + Math.round(seconds / 60) + (english ? "m" : "分");
       return "-" + Math.round(seconds) + (english ? "s" : "秒");
     }
-    function render2(rawPoints) {
+    function render(rawPoints) {
       const points = Array.isArray(rawPoints) ? rawPoints : [], english = Settings.getLanguage() === "en";
       const width = Math.max(
         240,
@@ -48216,7 +48849,7 @@ ${locks}` : ""}`;
       ctx.fillStyle = latest.isBoss ? "#ff817a" : "#f5d568";
       ctx.fillText(formatRate(smoothed[count - 1].dps) + " DPS", width - 9, 13);
     }
-    return { canvas, render: render2 };
+    return { canvas, render };
   }
   function openClassPicker(name, anchor, rerender) {
     const old = document.getElementById("kikimeter-class-picker");
@@ -48279,7 +48912,7 @@ ${locks}` : ""}`;
         top: top + "px"
       });
     }
-    function render2(row) {
+    function render(row) {
       if (!popup || !row) return;
       const scrollTop = popup.scrollTop;
       popup.innerHTML = "";
@@ -48408,12 +49041,12 @@ ${locks}` : ""}`;
         popup.addEventListener("mouseleave", scheduleClose);
         document.body.appendChild(popup);
       }
-      render2(row);
+      render(row);
     }
     function update(rows) {
       if (!popup) return false;
       const row = (rows || []).find((item) => item.name === playerName);
-      if (row && Array.isArray(row.breakdown)) render2(row);
+      if (row && Array.isArray(row.breakdown)) render(row);
       else close();
       return !!popup;
     }
@@ -49514,7 +50147,7 @@ ${locks}` : ""}`;
           inject();
         }, 200);
       });
-      reinjector.observe(document.body, { childList: true, subtree: true });
+      reinjector.observe(document.body, { childList: true });
       if (viewportHandler) {
         window.removeEventListener("resize", viewportHandler);
         window.visualViewport?.removeEventListener("resize", viewportHandler);
@@ -50073,7 +50706,7 @@ ${locks}` : ""}`;
       root.appendChild(header);
       segmentSelect = buildSegmentPicker(() => {
         KikiMeter.refreshSegments();
-        render2();
+        render();
       });
       Object.assign(segmentSelect.style, {
         display: "block",
@@ -50172,17 +50805,17 @@ ${locks}` : ""}`;
     function setMode(i) {
       modeIdx = i;
       Settings.setRecountMode(MODES[i].id);
-      render2();
+      render();
     }
     function toggle(v) {
       build();
       open = v === void 0 ? !open : v;
       if (open) KikiMeter.close();
       root.style.display = open ? "block" : "none";
-      if (open) render2();
+      if (open) render();
       return open;
     }
-    function render2(view = ViewData.get()) {
+    function render(view = ViewData.get()) {
       if (!open || !root) return;
       refreshSegmentSelect(segmentSelect);
       if (graphObj && Settings.getRecountShowGraph())
@@ -50211,10 +50844,10 @@ ${locks}` : ""}`;
           breakdownTitle: mode.id === "taken" ? Settings.getLanguage() === "en" ? "Damage Taken Sources" : "承伤来源" : void 0,
           breakdownRateLabel: mode.id === "taken" ? "DTPS" : "DPS"
         })),
-        render2
+        render
       );
     }
-    return { toggle, render: render2, isOpen: () => open };
+    return { toggle, render, isOpen: () => open };
   })();
 
   // src/features/dps/90-application.js
@@ -50520,7 +51153,7 @@ ${locks}` : ""}`;
       Session.advanceBuckets();
       persistActive();
       if (KikiMeter.isOpen()) renderSelectedPanels();
-    }, 250);
+    }, 1e3);
     Object.assign(MWI, {
       enabled: true,
       bus: SocketHook.bus,

@@ -99,6 +99,48 @@ test("procurement computes direct shortages and recursive upgrade leaves", () =>
   );
 });
 
+test("non-back refinement upgrades remain purchasable", () => {
+  Object.assign(runtime.state.initData_itemDetailMap, {
+    "/items/test_sword": {
+      name: "Test Sword",
+      equipmentDetail: { type: "/equipment_types/main_hand" },
+    },
+    "/items/test_sword_refined": {
+      name: "Test Sword ★",
+      equipmentDetail: { type: "/equipment_types/main_hand" },
+    },
+    "/items/refinement_shard": { name: "Refinement Shard" },
+  });
+  runtime.state.initData_actionDetailMap["/actions/forge/test_sword_refined"] =
+    {
+      hrid: "/actions/forge/test_sword_refined",
+      name: "Test Sword ★",
+      type: "/action_types/forging",
+      upgradeItemHrid: "/items/test_sword",
+      inputItems: [{ itemHrid: "/items/refinement_shard", count: 10 }],
+      outputItems: [{ itemHrid: "/items/test_sword_refined", count: 1 }],
+    };
+
+  const direct = procurement.calculateRequirements(
+    "/actions/forge/test_sword_refined",
+    1,
+  );
+  assert.equal(
+    direct.materials.find(
+      (material) => material.itemHrid === "/items/test_sword",
+    ).purchasable,
+    true,
+  );
+  const chain = procurement.calculateUpgradeChain(
+    "/actions/forge/test_sword_refined",
+    1,
+  );
+  assert.equal(
+    chain.leaves.some((material) => material.itemHrid === "/items/test_sword"),
+    true,
+  );
+});
+
 test("artisan safety margin uses per-action fractional variance and pouch concentration", () => {
   procurement.setSetting("safetyLevel", "95");
   procurement.setSetting("safetyThreshold", 10);

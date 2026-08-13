@@ -462,6 +462,29 @@ export function matchesGameTranslation(
   return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
 }
 
+export function matchesGameTranslations(
+  paths,
+  text,
+  { locale = getGameLocale(), fallbackPatterns = [] } = {},
+) {
+  const value = String(text ?? "").trim();
+  if (
+    [...(Array.isArray(paths) ? paths : [paths])].some((path) =>
+      matchesGameTranslation(path, value, { locale }),
+    )
+  ) {
+    return true;
+  }
+  return fallbackPatterns.some((pattern) => {
+    if (pattern instanceof RegExp) return pattern.test(value);
+    return (
+      String(pattern ?? "")
+        .trim()
+        .toLocaleLowerCase() === value.toLocaleLowerCase()
+    );
+  });
+}
+
 export function resetGameLocalizationCache() {
   localeResources.clear();
   warnedLocales.clear();

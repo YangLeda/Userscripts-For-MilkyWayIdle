@@ -3,6 +3,11 @@ import { runtime } from "../core/runtime.js";
 const ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
 const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
 const ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
+const MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
+const ACTION_PANEL_SELECTOR =
+  'div[class*="SkillActionDetail_regularComponent"]';
+const ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1000];
+const actionPanelRetryStates = new Map();
 
 function addActionPanelStyles() {
   if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
@@ -23,7 +28,7 @@ function addActionPanelStyles() {
 
 /* 动作面板 */
 const waitForActionPanelParent = () => {
-  const targetNode = document.querySelector("div.GamePage_mainPanel__2njyb");
+  const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
   if (targetNode) {
     console.log(
       runtime.config.isZH
@@ -35,16 +40,10 @@ const waitForActionPanelParent = () => {
     ) {
       for (const mutation of mutations) {
         for (const added of mutation.addedNodes) {
-          if (
-            added?.classList?.contains("Modal_modalContainer__3B80m") &&
-            added.querySelector("div.SkillActionDetail_regularComponent__3oCgr")
-          ) {
-            handleActionPanel(
-              added.querySelector(
-                "div.SkillActionDetail_regularComponent__3oCgr",
-              ),
-            );
-          }
+          const panel = added?.matches?.(ACTION_PANEL_SELECTOR)
+            ? added
+            : added?.querySelector?.(ACTION_PANEL_SELECTOR);
+          if (panel) scheduleActionPanel(panel);
         }
       }
     });
@@ -59,19 +58,13 @@ const waitForActionPanelParent = () => {
 };
 
 async function handleActionPanel(panel) {
-  if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return;
+  if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
   if (
     panel.dataset.mwitoolsActionPanel === "true" &&
     panel.querySelector("#mwi-level-progress") &&
     panel.querySelectorAll(".mwi-native-level-stat").length === 4
   )
-    return;
-  panel.querySelector("#mwi-level-progress")?.remove();
-  panel
-    .querySelectorAll(".mwi-native-level-stat")
-    .forEach((element) => element.remove());
-  panel.dataset.mwitoolsActionPanel = "true";
-  addActionPanelStyles();
+    return true;
 
   const expElement = panel.querySelector(
     'div[class*="SkillActionDetail_expGain"]',
@@ -79,19 +72,19 @@ async function handleActionPanel(panel) {
   const inputElem = panel.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',
   );
-  if (!expElement || !inputElem) return; // 不处理战斗 ActionPanel
+  if (!expElement || !inputElem) return false; // 不处理战斗 ActionPanel
 
   const actionHrid = runtime.api.resolveProductionAction?.(panel);
   const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
   const duration = runtime.api.getProductionPanelDuration?.(panel);
-  if (!detail || !Number.isFinite(duration) || duration <= 0) return;
+  if (!detail || !Number.isFinite(duration) || duration <= 0) return false;
 
   const exp = Number(
     String(runtime.api.getOriTextFromElement(expElement) ?? "")
       .replaceAll(runtime.config.THOUSAND_SEPERATOR, "")
       .replaceAll(runtime.config.DECIMAL_SEPERATOR, "."),
   );
-  if (!Number.isFinite(exp) || exp <= 0) return;
+  if (!Number.isFinite(exp) || exp <= 0) return false;
 
   const efficiencyDetails = getActionEfficiencyDetails(actionHrid);
   const effBuff = 1 + efficiencyDetails.total / 100;
@@ -105,6 +98,32 @@ async function handleActionPanel(panel) {
       break;
     }
   }
+  const infoContainer = panel.querySelector(
+    'div[class*="SkillActionDetail_info"]',
+  );
+  const nativeLabel = infoContainer?.querySelector(
+    'div[class*="SkillActionDetail_label"]',
+  );
+  const nativeValue = infoContainer?.querySelector(
+    'div[class*="SkillActionDetail_value"]',
+  );
+  if (
+    currentExp === null ||
+    currentLevel === null ||
+    !infoContainer ||
+    !nativeLabel ||
+    !nativeValue
+  ) {
+    return false;
+  }
+
+  panel.querySelector("#mwi-level-progress")?.remove();
+  panel
+    .querySelectorAll(".mwi-native-level-stat")
+    .forEach((element) => element.remove());
+  delete panel.dataset.mwitoolsActionPanel;
+  addActionPanelStyles();
+
   if (currentExp !== null && currentLevel !== null) {
     const calculateNeedToLevel = (
       currentLevel,
@@ -170,39 +189,28 @@ async function handleActionPanel(panel) {
     row.append(label, tillLevelInput, tillLevelNumber);
     levelCard.append(row);
 
-    const infoContainer = panel.querySelector(
-      'div[class*="SkillActionDetail_info"]',
+    const addNativeStat = (id, labelText, valueText) => {
+      const statLabel = document.createElement("div");
+      statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
+      statLabel.textContent = labelText;
+      const statValue = document.createElement("div");
+      statValue.id = id;
+      statValue.className = `${nativeValue.className} mwi-native-level-stat`;
+      statValue.textContent = valueText;
+      infoContainer.append(statLabel, statValue);
+    };
+    addNativeStat(
+      "expPerHour",
+      runtime.config.isZH ? "经验/小时" : "XP/hour",
+      runtime.api.numberFormatter(
+        Math.round((3600 / duration) * exp * effBuff),
+      ),
     );
-    const nativeLabel = infoContainer?.querySelector(
-      'div[class*="SkillActionDetail_label"]',
+    addNativeStat(
+      "currentEfficiency",
+      runtime.config.isZH ? "当前效率" : "Efficiency",
+      `+${Number((effBuff - 1) * 100).toFixed(1)}%`,
     );
-    const nativeValue = infoContainer?.querySelector(
-      'div[class*="SkillActionDetail_value"]',
-    );
-    if (infoContainer && nativeLabel && nativeValue) {
-      const addNativeStat = (id, labelText, valueText) => {
-        const statLabel = document.createElement("div");
-        statLabel.className = `${nativeLabel.className} mwi-native-level-stat`;
-        statLabel.textContent = labelText;
-        const statValue = document.createElement("div");
-        statValue.id = id;
-        statValue.className = `${nativeValue.className} mwi-native-level-stat`;
-        statValue.textContent = valueText;
-        infoContainer.append(statLabel, statValue);
-      };
-      addNativeStat(
-        "expPerHour",
-        runtime.config.isZH ? "经验/小时" : "XP/hour",
-        runtime.api.numberFormatter(
-          Math.round((3600 / duration) * exp * effBuff),
-        ),
-      );
-      addNativeStat(
-        "currentEfficiency",
-        runtime.config.isZH ? "当前效率" : "Efficiency",
-        `+${Number((effBuff - 1) * 100).toFixed(1)}%`,
-      );
-    }
 
     const anchor =
       panel.querySelector("#mwi-production-summary") ??
@@ -241,6 +249,8 @@ async function handleActionPanel(panel) {
     });
     updateTargetLevel();
   }
+
+  panel.dataset.mwitoolsActionPanel = "true";
 
   // 显示Foraging最后一个图综合收益
   if (
@@ -320,6 +330,40 @@ async function handleActionPanel(panel) {
       .querySelector("#mwi-level-progress")
       ?.insertAdjacentHTML("beforeend", htmlStr);
   }
+  return true;
+}
+
+function scheduleActionPanel(panel) {
+  if (!panel?.isConnected || actionPanelRetryStates.has(panel)) return;
+  const state = { attempt: 0, timer: null };
+  actionPanelRetryStates.set(panel, state);
+  const run = async () => {
+    state.timer = null;
+    if (!panel.isConnected) {
+      actionPanelRetryStates.delete(panel);
+      return;
+    }
+    let ready = false;
+    try {
+      ready = await handleActionPanel(panel);
+    } catch (error) {
+      console.info("[MWITools] Action panel enhancement unavailable", error);
+    }
+    if (ready || state.attempt >= ACTION_PANEL_RETRY_DELAYS.length - 1) {
+      actionPanelRetryStates.delete(panel);
+      return;
+    }
+    state.attempt += 1;
+    state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[state.attempt]);
+  };
+  state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
+}
+
+function clearActionPanelRetries() {
+  for (const state of actionPanelRetryStates.values()) {
+    if (state.timer !== null) clearTimeout(state.timer);
+  }
+  actionPanelRetryStates.clear();
 }
 
 function sumBuffValue(buffs, typeHrid) {
@@ -560,40 +604,42 @@ runtime.features.register({
   initialize({ scope }) {
     let observed = null;
     const attach = () => {
-      const target = document.querySelector("div.GamePage_mainPanel__2njyb");
+      const target = document.querySelector(MAIN_PANEL_SELECTOR);
       if (!target || observed === target) return;
       observed = target;
       const observer = new MutationObserver((mutations) => {
+        const panels = new Set();
         for (const mutation of mutations) {
+          const mutationTarget =
+            mutation.target?.nodeType === 1
+              ? mutation.target
+              : mutation.target?.parentElement;
+          const containingPanel = mutationTarget?.closest?.(
+            ACTION_PANEL_SELECTOR,
+          );
+          if (containingPanel) panels.add(containingPanel);
           for (const added of mutation.addedNodes) {
-            const panel = added?.querySelector?.(
-              "div.SkillActionDetail_regularComponent__3oCgr",
-            );
-            if (
-              panel &&
-              (!panel.querySelector("#mwi-level-progress") ||
-                panel.querySelectorAll(".mwi-native-level-stat").length !== 4)
-            ) {
-              handleActionPanel(panel);
-            }
+            if (added?.matches?.(ACTION_PANEL_SELECTOR)) panels.add(added);
+            added
+              ?.querySelectorAll?.(ACTION_PANEL_SELECTOR)
+              .forEach((panel) => panels.add(panel));
           }
         }
+        panels.forEach(scheduleActionPanel);
       });
-      scope.observer(observer, target, { childList: true, subtree: true });
-      const openPanel = target.querySelector(
-        "div.SkillActionDetail_regularComponent__3oCgr",
-      );
-      if (
-        openPanel &&
-        (!openPanel.querySelector("#mwi-level-progress") ||
-          openPanel.querySelectorAll(".mwi-native-level-stat").length !== 4)
-      ) {
-        handleActionPanel(openPanel);
-      }
+      scope.observer(observer, target, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+      target
+        .querySelectorAll(ACTION_PANEL_SELECTOR)
+        .forEach(scheduleActionPanel);
     };
     attach();
     scope.interval(attach, 500);
     scope.add(() => {
+      clearActionPanelRetries();
       document
         .querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat",

@@ -29,7 +29,8 @@ await import("../src/core/state.js");
 await import("../src/features/settings-and-notifications.js");
 await import("../src/features/navigation-action-queue.js");
 await import("../src/features/legacy-lifecycle.js");
-await import("../src/features/item-tooltips.js");
+const { clearEnhancementHoverPanelContext, setEnhancementHoverPanelContext } =
+  await import("../src/features/item-tooltips.js");
 
 after(async () => {
   for (const { id } of runtime.features.list()) {
@@ -226,4 +227,59 @@ test("profit tooltips require the configured key in either hover order", async (
   await runtime.features.disable("itemTooltip_prices");
   runtime.api.showProductionProfitPanel = originalShow;
   runtime.api.dismissHoverPanel = originalDismiss;
+});
+
+test("enhancement costs share the tooltip key and touch long press", async () => {
+  const originalShow = runtime.api.showEnhancementCostPanel;
+  const originalHide = runtime.api.hideEnhancementCostPanel;
+  const calls = [];
+  runtime.api.showEnhancementCostPanel = (anchor, plan) => {
+    calls.push({ type: "show", anchor, plan });
+    return {};
+  };
+  runtime.api.hideEnhancementCostPanel = () => calls.push({ type: "hide" });
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
+  runtime.settings.settingsMap.itemTooltip_profitRequireKey.isTrue = true;
+  runtime.settings.settingsMap.enhanceSim.isTrue = true;
+  const anchor = document.createElement("div");
+  document.body.replaceChildren(anchor);
+  await runtime.features.enable("itemTooltip_prices");
+
+  setEnhancementHoverPanelContext(anchor, { status: "complete" });
+  assert.equal(calls.filter((call) => call.type === "show").length, 0);
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  window.dispatchEvent(
+    new dom.window.KeyboardEvent("keyup", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+  assert.equal(calls.at(-1).type, "hide");
+
+  calls.length = 0;
+  const touch = new dom.window.MouseEvent("pointerdown", {
+    bubbles: true,
+    clientX: 10,
+    clientY: 10,
+  });
+  Object.defineProperties(touch, {
+    pointerType: { value: "touch" },
+    pointerId: { value: 19 },
+  });
+  anchor.dispatchEvent(touch);
+  await new Promise((resolve) => setTimeout(resolve, 820));
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+
+  clearEnhancementHoverPanelContext(anchor);
+  await runtime.features.disable("itemTooltip_prices");
+  runtime.api.showEnhancementCostPanel = originalShow;
+  runtime.api.hideEnhancementCostPanel = originalHide;
 });

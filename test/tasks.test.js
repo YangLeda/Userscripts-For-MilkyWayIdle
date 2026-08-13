@@ -136,6 +136,10 @@ test("tasks use a flat sorted list with statistics filters", () => {
     styles,
     /TasksPanel_taskList[^}]*repeat\(auto-fill,minmax\(min\(100%,270px\),1fr\)/,
   );
+  assert.match(
+    styles,
+    /TasksPanel_taskList[^}]*> \*[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*box-sizing:\s*border-box/,
+  );
   assert.match(styles, /RandomTask_randomTask[^}]*min-width:\s*0\s*!important/);
   assert.match(
     styles,
@@ -468,6 +472,57 @@ test("a reset refreshes metadata without changing the current card order", () =>
   );
 });
 
+test("task mutation filtering ignores MWITools decorations but keeps native progress", () => {
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__mutation-filter";
+  const taskCard = document.createElement("div");
+  taskCard.className = "RandomTask_randomTask__mutation-filter";
+  const progress = document.createElement("div");
+  progress.textContent = "进度: 1 / 10";
+  taskCard.append(progress);
+  list.append(taskCard);
+  document.body.append(list);
+
+  const background = document.createElement("div");
+  background.className = "mwi-task-bg";
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [background],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+  const newBadge = document.createElement("span");
+  newBadge.className = "mwi-task-new-badge";
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [newBadge],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "characterData",
+        target: progress.firstChild,
+        addedNodes: [],
+        removedNodes: [],
+      },
+    ]),
+    true,
+  );
+  list.remove();
+});
+
 test("opening the native reset payment choice pauses task regrouping", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
@@ -617,6 +672,68 @@ test("new tasks sort first for one task-page visit without a group", () => {
       '.TasksPanel_taskList__new-reentered [data-mwitools-profession="milking"]',
     ).length,
     1,
+  );
+});
+
+test("new tasks received on the current page move ahead of every category", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__live-new">
+      ${card("挤奶 - 奶牛", "0 / 20")}
+      ${card("击败 - 苍蝇", "0 / 10")}
+      ${card("击败 - 水马", "0 / 10")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "known-milking", actionHrid: "/actions/milking/cow" },
+    { id: "known-fly", actionHrid: "/actions/combat/fly" },
+    { id: "known-aquahorse", actionHrid: "/actions/combat/aquahorse" },
+  ];
+  writeTaskNewState(taskNewStorageKey("tasks-test"), {
+    initialized: true,
+    known: new Set(runtime.state.characterQuests.map(({ id }) => id)),
+    fresh: new Set(),
+  });
+  runtime.settings.settingsMap.taskNewBadge.isTrue = true;
+  runtime.api.renderTasks();
+
+  const list = document.querySelector(".TasksPanel_taskList__live-new");
+  const cards = [...list.querySelectorAll(TASK_SELECTOR)];
+  cards[1].querySelector('div[class*="RandomTask_name"]').textContent =
+    "制作 - 木板";
+  cards[1].querySelector("div:nth-child(2)").textContent = "进度: 0 / 5";
+  cards[2].querySelector('div[class*="RandomTask_name"]').textContent =
+    "挤奶 - 奶牛";
+  cards[2].querySelector("div:nth-child(2)").textContent = "进度: 0 / 20";
+  runtime.state.characterQuests = [
+    { id: "known-milking", actionHrid: "/actions/milking/cow" },
+    { id: "fresh-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "fresh-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  writeTaskNewState(taskNewStorageKey("tasks-test"), {
+    initialized: true,
+    known: new Set(runtime.state.characterQuests.map(({ id }) => id)),
+    fresh: new Set(["fresh-crafting", "fresh-milking"]),
+  });
+
+  runtime.api.renderTasks();
+
+  const orderedIds = [...list.querySelectorAll(TASK_SELECTOR)]
+    .sort((left, right) => Number(left.style.order) - Number(right.style.order))
+    .map((taskCard) => taskCard.dataset.mwitoolsTaskId);
+  assert.deepEqual(orderedIds, [
+    "fresh-milking",
+    "fresh-crafting",
+    "known-milking",
+  ]);
+  assert.deepEqual(
+    [...list.querySelectorAll('[data-mwitools-task-state="new"]')]
+      .sort(
+        (left, right) => Number(left.style.order) - Number(right.style.order),
+      )
+      .map((taskCard) => taskCard.dataset.mwitoolsProfession),
+    ["milking", "crafting"],
   );
 });
 
@@ -1253,4 +1370,53 @@ test("producer lookups build the action output index only once per action map", 
 
   runtime.api.getExpectedOutputs = originalExpectedOutputs;
   runtime.state.initData_actionDetailMap = originalMap;
+});
+
+test("localized task controls wire merge and reset behavior", () => {
+  registerGameLocaleResources("es", {
+    randomTask: {
+      go: "Ir",
+      reroll: "Volver a tirar",
+      claimReward: "Reclamar recompensa",
+    },
+    questModal: { go: "Ir", claimReward: "Reclamar recompensa" },
+    itemNames: { "/items/lumber": "Madera" },
+    actionNames: { "/actions/crafting/lumber": "Madera" },
+    monsterNames: { "/monsters/rat": "Rata" },
+    abilityNames: { "/abilities/strike": "Golpe" },
+  });
+  localStorage.setItem("i18nextLng", "es");
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__localized-controls">
+      <div class="RandomTask_randomTask__localized">
+        <div class="RandomTask_name__localized">Fabricación - Madera</div>
+        <div>Progreso: 0 / 5</div>
+        <button>Volver a tirar</button>
+        <button>Ir</button>
+      </div>
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "localized-controls", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.api.renderTasks();
+
+  const localizedCard = document.querySelector(
+    ".RandomTask_randomTask__localized",
+  );
+  assert.equal(localizedCard.dataset.mwitoolsMergeWired, "true");
+  assert.equal(localizedCard.dataset.mwitoolsResetWired, "true");
+  [...localizedCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "Ir")
+    .click();
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/crafting/lumber",
+    count: 0,
+    taskCount: 1,
+  });
+  runtime.state.pendingMergedTask = null;
+  localStorage.setItem("i18nextLng", "zh-CN");
 });
