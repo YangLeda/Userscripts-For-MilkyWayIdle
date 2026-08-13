@@ -7,7 +7,7 @@
     "en": "Important MWITools update"
   },
   "message": {
-    "zh": "26.4.7 重要更新修复任务页礼物、未读提示与普通任务卡错位，并确保新任务全局置顶；同时包含多语言、生产购物清单、移动端显示与性能修复。建议前往 Greasy Fork 更新。",
-    "en": "The important 26.4.7 update fixes misaligned gift, unread-notice, and regular task cards and keeps all new tasks at the top. It also includes localization, production shopping-list, mobile display, and performance fixes. Update on Greasy Fork."
+    "zh": "26.4.7 重要更新修复任务卡错位、新任务置顶，以及输入框保留焦点时按住 Ctrl 不显示生产利润、宝箱估算与强化成本面板；同时包含多语言、移动端显示与性能修复。建议前往 Greasy Fork 更新。",
+    "en": "The important 26.4.7 update fixes task-card alignment, new-task priority, and production profit, loot estimate, or enhancement cost panels not appearing when Ctrl is held while an input retains focus. It also includes localization, mobile display, and performance fixes. Update on Greasy Fork."
   }
 }

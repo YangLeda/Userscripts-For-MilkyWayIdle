@@ -31213,6 +31213,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       target?.closest?.('input,textarea,select,[contenteditable="true"]')
     );
   }
+  function isModifierShortcutEvent(event) {
+    return ["Control", "Shift", "Alt", "Meta"].includes(event?.key);
+  }
   function requiresHoverPanelShortcut() {
     return Boolean(
       runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue
@@ -31828,7 +31831,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         window,
         "keydown",
         (event) => {
-          if (event.repeat || isEditableTarget(event.target) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
+          if (event.repeat || isEditableTarget(event.target) && !isModifierShortcutEvent(event) || !runtime.api.matchesTooltipProfitShortcut?.(event)) {
             return;
           }
           hoverPanelShortcutHeld = true;
@@ -38713,7 +38716,8 @@ ${locks}` : ""}`;
           "版本公告恢复按版本独立保存，26.4.6 的历史内容不再混入本版公告。",
           "生产购物清单现在默认补齐上一层成品与当前步骤材料，也可通过“所选链条”开关按勾选阶段补齐；有限次数的总产出、耗时和利润不再被当前库存截断，无限次数且无库存时会明确显示为 0。",
           "任务页在当前页面刷新出新任务时，会立即将所有新任务置顶，再按专业和战斗分类排序；普通进度刷新继续保持卡片位置稳定。",
-          "修复不同缩放比例或窄窗口下任务页礼物、未读提示和普通任务卡宽度不一致、列边界错位及横向溢出。"
+          "修复不同缩放比例或窄窗口下任务页礼物、未读提示和普通任务卡宽度不一致、列边界错位及横向溢出。",
+          "修复聊天框或数量输入框仍有焦点时，按住 Ctrl 等修饰键不显示生产利润、宝箱估算和强化成本面板；自定义字母键仍会在输入时避免误触。"
         ]),
         en: Object.freeze([
           "Fixed an occasional bottom white strip and upward-shifted game layout after mobile browser toolbar changes. Sunny's enhancement multiplier buttons can again add the net shortages for their expected action counts to the shopping cart.",
@@ -38730,7 +38734,8 @@ ${locks}` : ""}`;
           "Release announcements are stored separately by version again, so the 26.4.6 history is no longer mixed into this release.",
           "Production shopping lists now default to the direct predecessor and current-step materials, with a “Selected chain” switch for the checked stages. Finite totals are no longer capped by current inventory, while infinite production with no stock now clearly shows zero.",
           "When new tasks arrive on the current task page, all new tasks now move to the top before profession and combat sorting. Ordinary progress refreshes continue to keep card positions stable.",
-          "Fixed mismatched widths, misaligned column edges, and horizontal overflow between gift, unread-notice, and regular task cards at different zoom levels or in narrow windows."
+          "Fixed mismatched widths, misaligned column edges, and horizontal overflow between gift, unread-notice, and regular task cards at different zoom levels or in narrow windows.",
+          "Fixed production profit, loot estimate, and enhancement cost panels not appearing while Ctrl or another modifier key was held with focus still in chat or a quantity input. Custom letter shortcuts remain suppressed while typing."
         ])
       })
     }),

@@ -18,6 +18,10 @@ function isEditableTarget(target) {
   );
 }
 
+function isModifierShortcutEvent(event) {
+  return ["Control", "Shift", "Alt", "Meta"].includes(event?.key);
+}
+
 function requiresHoverPanelShortcut() {
   return Boolean(
     runtime.settings.settingsMap.itemTooltip_profitRequireKey?.isTrue,
@@ -774,7 +778,7 @@ runtime.features.register({
       (event) => {
         if (
           event.repeat ||
-          isEditableTarget(event.target) ||
+          (isEditableTarget(event.target) && !isModifierShortcutEvent(event)) ||
           !runtime.api.matchesTooltipProfitShortcut?.(event)
         ) {
           return;

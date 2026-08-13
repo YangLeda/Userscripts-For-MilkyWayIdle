@@ -186,10 +186,29 @@ test("profit tooltips require the configured key in either hover order", async (
       bubbles: true,
     }),
   );
+  assert.equal(calls.filter((call) => call.type === "show").length, 1);
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent("keyup", {
+      key: "Control",
+      code: "ControlLeft",
+      bubbles: true,
+    }),
+  );
+
+  calls.length = 0;
+  runtime.api.setTooltipProfitShortcut({ code: "KeyK", display: "K" });
+  input.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", {
+      key: "k",
+      code: "KeyK",
+      bubbles: true,
+    }),
+  );
   assert.equal(
     calls.some((call) => call.type === "show"),
     false,
   );
+  runtime.api.setTooltipProfitShortcut({ code: "Control", display: "Ctrl" });
 
   const touchEvent = (type, x, y) => {
     const event = new dom.window.MouseEvent(type, {

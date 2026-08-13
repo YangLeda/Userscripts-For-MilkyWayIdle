@@ -112,6 +112,8 @@ test("release 26.4.7 is the current important-update threshold", () => {
   );
   assert.equal(releaseManifest.latestVersion, "26.4.7");
   assert.equal(releaseManifest.importantVersion, "26.4.7");
+  assert.match(releaseManifest.message.zh, /Ctrl/);
+  assert.match(releaseManifest.message.en, /Ctrl/);
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.5"),
     true,
