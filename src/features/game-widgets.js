@@ -661,12 +661,38 @@ Object.defineProperties(runtime.state, {
   },
 });
 
+function scanOnDemand(scope, scan, messages = []) {
+  let coalescedTimer = null;
+  let trailingTimer = null;
+  const flush = () => {
+    coalescedTimer = null;
+    scan();
+  };
+  const scheduleSoon = () => {
+    if (coalescedTimer !== null) return;
+    coalescedTimer = setTimeout(flush, 0);
+  };
+  const onInteraction = () => {
+    scheduleSoon();
+    clearTimeout(trailingTimer);
+    trailingTimer = setTimeout(scan, 250);
+  };
+  scan();
+  scope.event(document, "click", onInteraction, true);
+  messages.forEach((message) => {
+    scope.add(runtime.onMessage(message, scheduleSoon));
+  });
+  scope.add(() => {
+    clearTimeout(coalescedTimer);
+    clearTimeout(trailingTimer);
+  });
+}
+
 runtime.features.register({
   id: "itemIconLevel",
   setting: "itemIconLevel",
   initialize({ scope }) {
-    addItemLevels();
-    scope.interval(addItemLevels, 500);
+    scanOnDemand(scope, addItemLevels, ["items_updated"]);
     scope.add(() =>
       document
         .querySelectorAll(".script_itemLevel,.script_key")
@@ -690,8 +716,7 @@ runtime.features.register({
   id: "marketFilter",
   setting: "marketFilter",
   initialize({ scope }) {
-    addMarketFilterButtons();
-    scope.interval(addMarketFilterButtons, 500);
+    scanOnDemand(scope, addMarketFilterButtons);
     scope.add(() => document.querySelector("#script_filters")?.remove());
   },
 });
@@ -701,8 +726,7 @@ runtime.features.register({
   setting: "taskMapIndex",
   scope: "character",
   initialize({ scope }) {
-    handleTaskCard();
-    scope.interval(handleTaskCard, 500);
+    scanOnDemand(scope, handleTaskCard, ["quests_updated"]);
     scope.add(() =>
       document
         .querySelectorAll(".script_taskMapIndex")
@@ -715,8 +739,7 @@ runtime.features.register({
   id: "mapIndex",
   setting: "mapIndex",
   initialize({ scope }) {
-    addIndexToMaps();
-    scope.interval(addIndexToMaps, 500);
+    scanOnDemand(scope, addIndexToMaps);
     scope.add(() =>
       document
         .querySelectorAll(".script_mapIndex")

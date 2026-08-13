@@ -660,11 +660,11 @@ function syncMaxButton(panel, input, maxCraftable) {
 }
 
 function resolvePanelAction(panel) {
-  const name = runtime.api
-    .getOriTextFromElement?.(
-      panel?.querySelector('div[class*="SkillActionDetail_name"]'),
-    )
-    ?.trim();
+  const nameElement = panel?.querySelector(
+    'div[class*="SkillActionDetail_name"]',
+  );
+  if (!nameElement) return null;
+  const name = runtime.api.getOriTextFromElement?.(nameElement)?.trim();
   if (!name) return null;
 
   const localizedAction = resolveLocalizedEntity("action", name);

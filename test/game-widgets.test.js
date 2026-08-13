@@ -101,3 +101,22 @@ test("battle summaries parse official non-English templates", async () => {
   localStorage.setItem("i18nextLng", "en");
   info.textContent = "Combat Duration: 1h 0s Battles: 11 Deaths: 0";
 });
+
+test("map decorations scan on interaction without a background poll", async () => {
+  const tab = (label) =>
+    `<button class="MuiButtonBase-root MuiTab-root MuiTab-textColorPrimary css-1q2h7u5"><span class="MuiBadge-root TabsComponent_badge__1Du26 css-1rzb3uu">${label}</span></button>`;
+  document.body.innerHTML = `<div class="MainPanel_subPanelContainer__1i-H9"><div class="CombatPanel_tabsComponentContainer__GsQlg"><div class="MuiTabs-root MuiTabs-vertical css-6x4ics" id="tabs">${tab("A")}</div></div></div>`;
+  const tabs = document.querySelector("#tabs");
+  await runtime.features.enable("mapIndex");
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 1);
+
+  tabs.insertAdjacentHTML("beforeend", tab("B"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 1);
+  document.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(tabs.querySelectorAll(".script_mapIndex").length, 2);
+
+  await runtime.features.disable("mapIndex");
+  assert.equal(document.querySelectorAll(".script_mapIndex").length, 0);
+});

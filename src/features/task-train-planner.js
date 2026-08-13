@@ -1,6 +1,7 @@
 import { runtime } from "../core/runtime.js";
 import { matchesGameTranslations } from "../core/game-localization.js";
 import { resolveTaskCards } from "../core/task-card-resolution.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-task-train-planner-style";
 const CONTROL_CLASS = "mwi-task-train-planner";
@@ -8,7 +9,7 @@ const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const ACTION_SELECTOR = '[class*="RandomTask_action"]';
 const OWNED_TASK_SELECTOR =
-  '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,[data-mwitools-task-mirror="true"]';
+  '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -247,24 +248,21 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     renderTaskTrainPlanner();
-    let pending = false;
-    const schedule = () => {
-      if (pending) return;
-      pending = true;
-      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-        pending = false;
-        renderTaskTrainPlanner();
-      });
+    const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
+    const schedule = () => renderScheduler.schedule();
+    let trailingTimers = [];
+    const onInteraction = () => {
+      schedule();
+      trailingTimers.forEach(clearTimeout);
+      trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
     };
-    const observer = new MutationObserver((records) => {
-      if (shouldRenderTaskTrainMutations(records)) schedule();
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+    scope.event(document, "click", onInteraction, true);
     scope.add(runtime.onMessage("quests_updated", schedule));
-    scope.add(cleanup);
+    scope.add(() => {
+      trailingTimers.forEach(clearTimeout);
+      renderScheduler.cancel();
+      cleanup();
+    });
   },
 });
 

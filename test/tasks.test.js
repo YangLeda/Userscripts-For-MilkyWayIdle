@@ -492,6 +492,19 @@ test("task mutation filtering ignores MWITools decorations but keeps native prog
     ]),
     false,
   );
+  const newBadge = document.createElement("span");
+  newBadge.className = "mwi-task-new-badge";
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [newBadge],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
   assert.equal(
     shouldRenderTaskMutations([
       {

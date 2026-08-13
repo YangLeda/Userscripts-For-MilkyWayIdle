@@ -10,12 +10,13 @@ import {
   resolveTaskCards,
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
   'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
 const OWNED_TASK_SELECTOR =
-  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
+  '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
 let originalCards = [];
 let taskListParent = null;
 let pageClassifications = new Map();
@@ -1741,25 +1742,19 @@ runtime.features.register({
   initialize({ scope }) {
     addStyles();
     renderTasks();
+    let active = true;
+    const renderScheduler = createFrameScheduler(renderTasks);
     void loadTaskSpriteManifest().then(() => {
+      if (!active) return;
       lastTaskRenderSignature = "";
       renderTasks();
     });
-    let renderPending = false;
-    const scheduleRender = () => {
-      if (renderPending) return;
-      renderPending = true;
-      (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-        renderPending = false;
-        renderTasks();
-      });
-    };
+    const scheduleRender = () => renderScheduler.schedule();
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });
     scope.observer(observer, document.body, {
       childList: true,
-      characterData: true,
       subtree: true,
     });
     scope.add(
@@ -1769,9 +1764,10 @@ runtime.features.register({
       }),
     );
     scope.add(() => {
-      renderPending = false;
+      active = false;
+      renderScheduler.cancel();
+      cleanupTasks();
     });
-    scope.add(cleanupTasks);
   },
 });
 

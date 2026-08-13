@@ -960,7 +960,7 @@
     },
     itemTooltip_profitRequireKey: {
       id: "itemTooltip_profitRequireKey",
-      desc: isZH ? "生产利润和宝箱估算需要同时按住自定义按键" : "Require a shared custom held key for production profit and loot chest estimates.",
+      desc: isZH ? "生产利润、宝箱估算和强化成本需要同时按住自定义按键" : "Require a shared custom held key for production profit, loot chest, and enhancement cost estimates.",
       isTrue: true
     },
     lootChestEstimate: {
@@ -1493,8 +1493,8 @@
       "market",
       "悬浮扩展面板需要按键",
       "Require key for tooltip panels",
-      "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
-      "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices."
+      "生产利润、宝箱估算和强化成本在桌面端共用一个自定义单键；移动端均需长按。",
+      "Use one shared custom held key for production profit, loot chest, and enhancement cost estimates on desktop; use a long press on touch devices."
     ],
     [
       "lootChestEstimate",
@@ -21392,37 +21392,47 @@
     const itemHrid = normalizeItemHrid2(output?.itemHrid);
     return itemHrid ? { itemHrid, count: positiveNumber(output?.count) || 1 } : null;
   }
-  function actionEntries() {
-    return Object.entries(runtime.state.initData_actionDetailMap ?? {});
+  var cachedActionMap = null;
+  var cachedUpgradeActions = /* @__PURE__ */ new Map();
+  var cachedBaseActions = /* @__PURE__ */ new Map();
+  var cachedUpgradeInputItems = /* @__PURE__ */ new Set();
+  function ensureActionIndex() {
+    const actionMap = runtime.state.initData_actionDetailMap ?? {};
+    if (actionMap === cachedActionMap) return;
+    cachedActionMap = actionMap;
+    cachedUpgradeActions = /* @__PURE__ */ new Map();
+    cachedBaseActions = /* @__PURE__ */ new Map();
+    cachedUpgradeInputItems = /* @__PURE__ */ new Set();
+    for (const [fallbackHrid, detail] of Object.entries(actionMap)) {
+      const output = primaryOutput(detail);
+      if (!output?.itemHrid) continue;
+      if (detail?.upgradeItemHrid) {
+        cachedUpgradeInputItems.add(normalizeItemHrid2(detail.upgradeItemHrid));
+        if (cachedUpgradeActions.has(output.itemHrid)) continue;
+        cachedUpgradeActions.set(output.itemHrid, {
+          actionHrid: detail.hrid ?? fallbackHrid,
+          detail,
+          output,
+          inputHrid: normalizeItemHrid2(detail.upgradeItemHrid)
+        });
+      } else if (!cachedBaseActions.has(output.itemHrid)) {
+        cachedBaseActions.set(output.itemHrid, {
+          actionHrid: detail.hrid ?? fallbackHrid,
+          detail,
+          output
+        });
+      }
+    }
   }
   function findUpgradeActionToItem(itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
-    for (const [fallbackHrid, detail] of actionEntries()) {
-      if (!detail?.upgradeItemHrid) continue;
-      const output = primaryOutput(detail);
-      if (output?.itemHrid !== target) continue;
-      return {
-        actionHrid: detail.hrid ?? fallbackHrid,
-        detail,
-        output,
-        inputHrid: normalizeItemHrid2(detail.upgradeItemHrid)
-      };
-    }
-    return null;
+    ensureActionIndex();
+    return cachedUpgradeActions.get(target) ?? null;
   }
   function findBaseActionForItem(itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
-    for (const [fallbackHrid, detail] of actionEntries()) {
-      if (detail?.upgradeItemHrid) continue;
-      const output = primaryOutput(detail);
-      if (output?.itemHrid !== target) continue;
-      return {
-        actionHrid: detail.hrid ?? fallbackHrid,
-        detail,
-        output
-      };
-    }
-    return null;
+    ensureActionIndex();
+    return cachedBaseActions.get(target) ?? null;
   }
   function inputCountFor(detail, itemHrid) {
     const target = normalizeItemHrid2(itemHrid);
@@ -21630,9 +21640,8 @@
       depth += 1;
     }
     if (depth) return depth;
-    return actionEntries().some(
-      ([, detail]) => normalizeItemHrid2(detail?.upgradeItemHrid) === current
-    ) ? 0 : -1;
+    ensureActionIndex();
+    return cachedUpgradeInputItems.has(current) ? 0 : -1;
   }
   function parseTrainCount(raw) {
     const match = String(raw ?? "").trim().toLowerCase().match(/^(\d+(?:\.\d+)?)([kmb])?$/);
@@ -25645,8 +25654,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-    #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);backdrop-filter:blur(5px);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
-    #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.35)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
+    #${ROOT_ID}{--ep-bg:222 18% 10%;--ep-panel:222 17% 13%;--ep-card:222 16% 16%;--ep-card2:222 15% 19%;--ep-fg:210 20% 96%;--ep-muted:215 12% 66%;--ep-border:215 14% 25%;--ep-accent:191 100% 50%;position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:rgba(3,7,18,.72);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:hsl(var(--ep-fg))}
+    #${ROOT_ID}[hidden]{display:none!important}#${ROOT_ID}.ep-light{--ep-bg:var(--ep-light-h,38) var(--ep-light-s,44%) 94%;--ep-panel:var(--ep-light-h,38) 35% 97%;--ep-card:0 0% 100%;--ep-card2:var(--ep-light-h,38) 25% 95%;--ep-fg:220 18% 18%;--ep-muted:220 9% 43%;--ep-border:220 12% 82%;background:rgba(15,23,42,.55)}#${ROOT_ID}.ep-glass-heart .neg{color:#f59e9e!important}
     #${ROOT_ID} *{box-sizing:border-box}#${ROOT_ID} button,#${ROOT_ID} input,#${ROOT_ID} select{font:inherit}#${ROOT_ID} button{color:inherit}
     #${ROOT_ID} .ep-shell{position:relative;display:grid;grid-template-columns:220px minmax(0,1fr);width:min(1180px,94vw);height:min(820px,92vh);min-width:720px;min-height:520px;overflow:hidden;border:1px solid hsl(var(--ep-border));border-radius:14px;background:hsl(var(--ep-bg));box-shadow:0 30px 90px rgba(0,0,0,.55);resize:both}
     #${ROOT_ID} .ep-sidebar{display:flex;min-width:0;flex-direction:column;border-right:1px solid hsl(var(--ep-border));background:linear-gradient(180deg,hsl(var(--ep-panel)),hsl(var(--ep-bg)));padding:16px 12px}
@@ -30398,7 +30407,7 @@ ${preview}`
     const style = document.createElement("style");
     style.id = STYLE_ID5;
     style.textContent = `
-    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; backdrop-filter:blur(12px); }
+    #${PANEL_ID2} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:12px; line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID2} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
@@ -30938,7 +30947,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       mutationObserver = new MutationObserver(() => {
         if (!anchor.isConnected) hideProductionProfitPanel();
       });
-      mutationObserver.observe(document.body, { childList: true, subtree: true });
+      mutationObserver.observe(anchor.parentNode ?? document.body, {
+        childList: true
+      });
       resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
       resizeObserver?.observe(anchor);
       resizeObserver?.observe(panel);
@@ -31113,6 +31124,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function canShowHoverPanel(context = hoverPanelContext) {
+    if (context?.kind === "enhancement") {
+      return Boolean(runtime.settings.settingsMap.enhanceSim?.isTrue);
+    }
     if (context?.kind === "loot") {
       return Boolean(runtime.settings.settingsMap.lootChestEstimate?.isTrue);
     }
@@ -31122,13 +31136,26 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
   }
   function hasEnabledHoverPanelFeature() {
     return Boolean(
-      runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
+      runtime.settings.settingsMap.enhanceSim?.isTrue || runtime.settings.settingsMap.lootChestEstimate?.isTrue || runtime.settings.settingsMap.itemTooltip_profit?.isTrue && !runtime.api.shouldSuppressMarketFeatures?.()
     );
+  }
+  function dismissHoverPanelContext(context = hoverPanelContext) {
+    if (context?.kind === "enhancement") {
+      runtime.api.hideEnhancementCostPanel?.();
+    } else {
+      runtime.api.dismissHoverPanel?.();
+    }
   }
   function showHoverPanelContext(context = hoverPanelContext, options = {}) {
     if (!context?.anchor?.isConnected || !canShowHoverPanel(context)) {
-      runtime.api.dismissHoverPanel?.();
+      dismissHoverPanelContext(context);
       return null;
+    }
+    if (context.kind === "enhancement") {
+      return runtime.api.showEnhancementCostPanel?.(
+        context.anchor,
+        context.plan ?? null
+      );
     }
     if (context.kind === "loot") {
       return runtime.api.showLootChestPanel?.(context.anchor, context.itemHrid, {
@@ -31145,9 +31172,12 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     );
   }
   function setHoverPanelContext(context) {
+    if (hoverPanelContext && (hoverPanelContext.kind !== context?.kind || hoverPanelContext.anchor !== context?.anchor)) {
+      dismissHoverPanelContext(hoverPanelContext);
+    }
     hoverPanelContext = context;
     if (!canShowHoverPanel(context)) {
-      runtime.api.dismissHoverPanel?.();
+      dismissHoverPanelContext(context);
       return;
     }
     if (!requiresHoverPanelShortcut() || hoverPanelShortcutHeld) {
@@ -31164,7 +31194,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
       showHoverPanelContext(context, { sticky: true });
       return;
     }
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(context);
   }
   function clearHoverPanelContext(anchor = null, kind = null) {
     if (anchor && hoverPanelContext?.anchor !== anchor) return;
@@ -31172,8 +31202,15 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     clearTimeout(touchHoverPanelPress?.timer);
     touchHoverPanelPress = null;
     touchHoverPanelAuthorizedUntil = 0;
+    const previous = hoverPanelContext;
     hoverPanelContext = null;
-    runtime.api.dismissHoverPanel?.();
+    dismissHoverPanelContext(previous);
+  }
+  function setEnhancementHoverPanelContext(anchor, plan = null) {
+    setHoverPanelContext({ kind: "enhancement", anchor, plan });
+  }
+  function clearEnhancementHoverPanelContext(anchor = null) {
+    clearHoverPanelContext(anchor, "enhancement");
   }
   function removeSuppressedTooltipContent() {
     document.querySelectorAll('[data-mwitools-tooltip-market="true"]').forEach((row) => row.remove());
@@ -31623,7 +31660,9 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     getTeaBuffsByActionHrid,
     handleTooltipItem,
     getActionHridFromItemName,
-    clearTooltipProfitHoverContext: clearHoverPanelContext
+    clearTooltipProfitHoverContext: clearHoverPanelContext,
+    setEnhancementHoverPanelContext,
+    clearEnhancementHoverPanelContext
   });
   Object.defineProperties(runtime.state, {
     tooltipObserver: {
@@ -31708,13 +31747,13 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         (event) => {
           if (!runtime.api.matchesTooltipProfitShortcut?.(event)) return;
           hoverPanelShortcutHeld = false;
-          if (requiresHoverPanelShortcut()) runtime.api.dismissHoverPanel?.();
+          if (requiresHoverPanelShortcut()) dismissHoverPanelContext();
         },
         true
       );
       scope.event(window, "blur", () => {
         hoverPanelShortcutHeld = false;
-        runtime.api.dismissHoverPanel?.();
+        dismissHoverPanelContext();
       });
       scope.event(
         document,
@@ -31785,7 +31824,7 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
         "itemTooltip_profitRequireKey",
         (required) => {
           if (!required) showHoverPanelContext();
-          else if (!hoverPanelShortcutHeld) runtime.api.dismissHoverPanel?.();
+          else if (!hoverPanelShortcutHeld) dismissHoverPanelContext();
         }
       );
       const stopIronCow = runtime.settings.onChange(
@@ -32880,9 +32919,11 @@ ${t5("概率", "Chance")}: ${chance} · ${t5("数量", "Count")}: ${countRange} 
     ) : t6("当前没有有限的可生产次数", "No finite production maximum");
   }
   function resolvePanelAction(panel) {
-    const name = runtime.api.getOriTextFromElement?.(
-      panel?.querySelector('div[class*="SkillActionDetail_name"]')
-    )?.trim();
+    const nameElement = panel?.querySelector(
+      'div[class*="SkillActionDetail_name"]'
+    );
+    if (!nameElement) return null;
+    const name = runtime.api.getOriTextFromElement?.(nameElement)?.trim();
     if (!name) return null;
     const localizedAction = resolveLocalizedEntity("action", name);
     if (localizedAction) return localizedAction;
@@ -34759,6 +34800,39 @@ ${locks}` : ""}`;
     openProcurementMarketplace: openMarketplace
   });
 
+  // src/core/frame-scheduler.js
+  function createFrameScheduler(callback) {
+    let active = true;
+    let pending = false;
+    let cancelPending = null;
+    const run = () => {
+      pending = false;
+      cancelPending = null;
+      if (active) callback();
+    };
+    return {
+      schedule() {
+        if (!active || pending) return false;
+        pending = true;
+        if (typeof globalThis.requestAnimationFrame === "function") {
+          const id = globalThis.requestAnimationFrame(run);
+          cancelPending = () => globalThis.cancelAnimationFrame?.(id);
+        } else {
+          const id = globalThis.setTimeout(run, 0);
+          cancelPending = () => globalThis.clearTimeout(id);
+        }
+        return true;
+      },
+      cancel() {
+        if (!active) return;
+        active = false;
+        cancelPending?.();
+        cancelPending = null;
+        pending = false;
+      }
+    };
+  }
+
   // src/features/semi-auto-train.js
   var STYLE_ID8 = "mwitools-semi-auto-train-style";
   var CONTROL_CLASS = "mwi-train-controls";
@@ -34781,10 +34855,17 @@ ${locks}` : ""}`;
     "handleGoToAction"
   ];
   var activeTrain = null;
-  var scanPending = false;
+  var scanScheduler = createFrameScheduler(scan);
   var navigationRequestId = 0;
-  function raf(callback) {
-    return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
+  function shouldScanTrainMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(`.${CONTROL_CLASS},.mwi-train-toast`)) return false;
+      if (target?.closest?.(PANEL_SELECTOR)) return true;
+      return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
+        (node) => node.matches?.(PANEL_SELECTOR) || node.querySelector?.(PANEL_SELECTOR)
+      );
+    });
   }
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -35616,7 +35697,6 @@ ${locks}` : ""}`;
     host.appendChild(controls);
   }
   function scan() {
-    scanPending = false;
     renderActiveIndicator();
     const context = panelContext();
     document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window2) => {
@@ -35632,9 +35712,7 @@ ${locks}` : ""}`;
     renderControls(context);
   }
   function scheduleScan() {
-    if (scanPending) return;
-    scanPending = true;
-    raf(scan);
+    scanScheduler?.schedule();
   }
   function cleanup2() {
     cancelTrain("");
@@ -35645,7 +35723,6 @@ ${locks}` : ""}`;
     clearTrainShopHighlight();
     document.getElementById(STYLE_ID8)?.remove();
     closeDetail();
-    scanPending = false;
   }
   runtime.features.register({
     id: "semiAutoTrain",
@@ -35654,11 +35731,31 @@ ${locks}` : ""}`;
     dependsOn: ["procurementAssistant"],
     initialize({ scope }) {
       addStyles6();
+      scanScheduler?.cancel();
+      const scheduler = createFrameScheduler(scan);
+      scanScheduler = scheduler;
       scan();
-      const observer = new MutationObserver(scheduleScan);
+      let observerTimer = null;
+      const observer = new MutationObserver((records) => {
+        if (!shouldScanTrainMutations(records) || observerTimer !== null) return;
+        observerTimer = setTimeout(() => {
+          observerTimer = null;
+          scheduler.schedule();
+        }, 200);
+      });
       scope.observer(observer, document.body, { childList: true, subtree: true });
-      scope.interval(scan, 500);
-      scope.add(cleanup2);
+      const scheduleForProductionInput = (event) => {
+        if (event.target?.matches?.(INPUT_SELECTOR)) scheduleScan();
+      };
+      scope.event(document, "input", scheduleForProductionInput, true);
+      scope.event(document, "change", scheduleForProductionInput, true);
+      scope.add(() => {
+        clearTimeout(observerTimer);
+        observerTimer = null;
+        if (scanScheduler === scheduler) scanScheduler = null;
+        scheduler.cancel();
+        cleanup2();
+      });
     }
   });
   Object.assign(runtime.api, {
@@ -35677,7 +35774,7 @@ ${locks}` : ""}`;
 
   // src/core/task-card-resolution.js
   var NAME_SELECTOR = '[class*="RandomTask_name"]';
-  var cachedActionMap = null;
+  var cachedActionMap2 = null;
   var cachedZhActionNames = null;
   var cachedLocale = "";
   var cachedActionLabels = /* @__PURE__ */ new Map();
@@ -35724,8 +35821,8 @@ ${locks}` : ""}`;
     const actionMap = runtime.state.initData_actionDetailMap;
     const zhActionNames = runtime.data.ZHActionNames;
     const locale = getGameLocale();
-    if (actionMap !== cachedActionMap || zhActionNames !== cachedZhActionNames || locale !== cachedLocale) {
-      cachedActionMap = actionMap;
+    if (actionMap !== cachedActionMap2 || zhActionNames !== cachedZhActionNames || locale !== cachedLocale) {
+      cachedActionMap2 = actionMap;
       cachedZhActionNames = zhActionNames;
       cachedLocale = locale;
       cachedActionLabels = /* @__PURE__ */ new Map();
@@ -35745,79 +35842,89 @@ ${locks}` : ""}`;
     cachedActionLabels.set(actionHrid, labels);
     return labels;
   }
-  function semanticCandidates(card, quests, taskActionHrid3, taskRemaining3) {
-    const label = cardActionLabel(card);
-    const remaining = cardRemaining(card);
-    let candidates = quests.map((task, taskIndex) => ({
-      task,
-      taskIndex,
-      taskId: taskCardTaskId(task),
-      actionHrid: taskActionHrid3(task)
-    })).filter(
-      ({ actionHrid }) => label ? actionLabels(actionHrid).has(label) : false
-    );
-    if (remaining !== null) {
-      const progressMatches = candidates.filter(
-        ({ task }) => Number(taskRemaining3(task)) === remaining
-      );
-      if (progressMatches.length) candidates = progressMatches;
-    }
-    return candidates;
-  }
-  function priorCandidateMatches(card, candidate, taskActionHrid3, taskRemaining3) {
-    const actionHrid = taskActionHrid3(candidate.task);
-    const label = cardActionLabel(card);
-    if (!label || !actionLabels(actionHrid).has(label)) return false;
-    const remaining = cardRemaining(card);
-    return remaining === null || Number(taskRemaining3(candidate.task)) === remaining;
+  function candidateMatches(candidate, label, remaining) {
+    if (!label || !actionLabels(candidate.actionHrid).has(label)) return false;
+    return remaining === null || Number(candidate.remaining) === Number(remaining);
   }
   function resolveTaskCards(cards, quests, { taskActionHrid: taskActionHrid3, taskRemaining: taskRemaining3 }) {
     const questList = Array.isArray(quests) ? quests : [];
+    const questMetadata = questList.map((task, taskIndex) => ({
+      task,
+      taskIndex,
+      taskId: taskCardTaskId(task),
+      actionHrid: taskActionHrid3(task),
+      remaining: taskRemaining3(task)
+    }));
     const byId = new Map(
-      questList.map((task, taskIndex) => [taskCardTaskId(task), { task, taskIndex }]).filter(([id]) => id)
+      questMetadata.map((candidate) => [candidate.taskId, candidate]).filter(([id]) => id)
     );
+    const semanticIndex = /* @__PURE__ */ new Map();
+    for (const candidate of questMetadata) {
+      for (const label of actionLabels(candidate.actionHrid)) {
+        let entry = semanticIndex.get(label);
+        if (!entry) {
+          entry = { all: [], byRemaining: /* @__PURE__ */ new Map() };
+          semanticIndex.set(label, entry);
+        }
+        entry.all.push(candidate);
+        const remainingKey = String(Number(candidate.remaining));
+        if (!entry.byRemaining.has(remainingKey)) {
+          entry.byRemaining.set(remainingKey, []);
+        }
+        entry.byRemaining.get(remainingKey).push(candidate);
+      }
+    }
     const used = /* @__PURE__ */ new Set();
     const rows = [...cards].map((card, originalIndex) => {
       let resolved = null;
+      const label = cardActionLabel(card);
+      const remaining = cardRemaining(card);
       const fiberTask = fiberQuest(card);
       const fiberId = taskCardTaskId(fiberTask);
       if (fiberId && byId.has(fiberId)) resolved = byId.get(fiberId);
       else if (fiberTask) {
         const taskIndex = questList.indexOf(fiberTask);
-        if (taskIndex >= 0) resolved = { task: fiberTask, taskIndex };
+        if (taskIndex >= 0) resolved = questMetadata[taskIndex];
       }
       const priorId = String(card.dataset.mwitoolsTaskId ?? "");
       const prior = priorId ? byId.get(priorId) : null;
-      if (!resolved && prior && !used.has(prior.taskIndex) && priorCandidateMatches(card, prior, taskActionHrid3, taskRemaining3)) {
+      if (!resolved && prior && !used.has(prior.taskIndex) && candidateMatches(prior, label, remaining)) {
         resolved = prior;
       }
       if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
       return {
         card,
         originalIndex,
-        resolved
+        resolved,
+        label,
+        remaining
       };
     });
+    const candidateCursors = /* @__PURE__ */ new Map();
+    const firstUnused = (candidates) => {
+      let index = candidateCursors.get(candidates) ?? 0;
+      while (index < candidates.length && used.has(candidates[index].taskIndex)) {
+        index += 1;
+      }
+      candidateCursors.set(candidates, index + 1);
+      return candidates[index] ?? null;
+    };
     for (const row of rows) {
       if (row.resolved) continue;
-      const candidates = semanticCandidates(
-        row.card,
-        questList,
-        taskActionHrid3,
-        taskRemaining3
-      ).filter(({ taskIndex }) => !used.has(taskIndex));
-      if (!candidates.length) continue;
-      const priorId = String(row.card.dataset.mwitoolsTaskId ?? "");
-      row.resolved = candidates.find(({ taskId: taskId2 }) => taskId2 && taskId2 === priorId) ?? candidates[0];
+      const entry = semanticIndex.get(row.label);
+      if (!entry) continue;
+      const progressCandidates = row.remaining === null ? null : entry.byRemaining.get(String(Number(row.remaining)));
+      row.resolved = firstUnused(
+        progressCandidates?.length ? progressCandidates : entry.all
+      );
+      if (!row.resolved) continue;
       used.add(row.resolved.taskIndex);
     }
     for (const row of rows) {
       if (row.resolved) continue;
-      const unused = questList.map((task, taskIndex) => ({ task, taskIndex })).filter(({ taskIndex }) => !used.has(taskIndex));
-      const positional = unused.find(
-        ({ taskIndex }) => questList.length === rows.length && taskIndex === row.originalIndex
-      );
-      row.resolved = positional ?? (unused.length === 1 ? unused[0] : null);
+      const positional = questList.length === rows.length && !used.has(row.originalIndex) ? questMetadata[row.originalIndex] : null;
+      const onlyUnused = questList.length - used.size === 1 ? questMetadata.find(({ taskIndex }) => !used.has(taskIndex)) : null;
+      row.resolved = positional ?? onlyUnused;
       if (row.resolved) used.add(row.resolved.taskIndex);
     }
     return rows.map(({ card, originalIndex, resolved }) => {
@@ -35829,7 +35936,7 @@ ${locks}` : ""}`;
         taskId: taskCardTaskId(task),
         taskIndex,
         originalIndex,
-        actionHrid: taskActionHrid3(task)
+        actionHrid: resolved?.actionHrid ?? taskActionHrid3(task)
       };
     });
   }
@@ -35837,7 +35944,7 @@ ${locks}` : ""}`;
   // src/features/tasks.js
   var STYLE_ID9 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
-  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
+  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -37294,25 +37401,19 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addStyles7();
       renderTasks();
+      let active = true;
+      const renderScheduler = createFrameScheduler(renderTasks);
       void loadTaskSpriteManifest().then(() => {
+        if (!active) return;
         lastTaskRenderSignature = "";
         renderTasks();
       });
-      let renderPending = false;
-      const scheduleRender = () => {
-        if (renderPending) return;
-        renderPending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          renderPending = false;
-          renderTasks();
-        });
-      };
+      const scheduleRender = () => renderScheduler.schedule();
       const observer = new MutationObserver((records) => {
         if (shouldRenderTaskMutations(records)) scheduleRender();
       });
       scope.observer(observer, document.body, {
         childList: true,
-        characterData: true,
         subtree: true
       });
       scope.add(
@@ -37322,9 +37423,10 @@ ${locks}` : ""}`;
         })
       );
       scope.add(() => {
-        renderPending = false;
+        active = false;
+        renderScheduler.cancel();
+        cleanupTasks();
       });
-      scope.add(cleanupTasks);
     }
   });
   for (const id of [
@@ -37365,7 +37467,7 @@ ${locks}` : ""}`;
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var ACTION_SELECTOR = '[class*="RandomTask_action"]';
-  var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,[data-mwitools-task-mirror="true"]';
+  var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -37566,24 +37668,21 @@ ${locks}` : ""}`;
     initialize({ scope }) {
       addStyles8();
       renderTaskTrainPlanner();
-      let pending = false;
-      const schedule = () => {
-        if (pending) return;
-        pending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          pending = false;
-          renderTaskTrainPlanner();
-        });
+      const renderScheduler = createFrameScheduler(renderTaskTrainPlanner);
+      const schedule = () => renderScheduler.schedule();
+      let trailingTimers = [];
+      const onInteraction = () => {
+        schedule();
+        trailingTimers.forEach(clearTimeout);
+        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
       };
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskTrainMutations(records)) schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      scope.event(document, "click", onInteraction, true);
       scope.add(runtime.onMessage("quests_updated", schedule));
-      scope.add(cleanup3);
+      scope.add(() => {
+        trailingTimers.forEach(clearTimeout);
+        renderScheduler.cancel();
+        cleanup3();
+      });
     }
   });
   Object.assign(runtime.api, {
@@ -37594,6 +37693,7 @@ ${locks}` : ""}`;
   // src/features/task-new-badge.js
   var STYLE_ID11 = "mwitools-task-new-style";
   var TASK_SELECTOR3 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
+  var OWNED_TASK_SELECTOR3 = '.mwi-task-new-badge,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,[data-mwitools-task-mirror="true"]';
   var liveTaskNewStates = /* @__PURE__ */ new Map();
   function questId(quest) {
     return taskCardTaskId(quest);
@@ -37683,6 +37783,25 @@ ${locks}` : ""}`;
     });
     document.getElementById(STYLE_ID11)?.remove();
   }
+  function shouldRenderTaskNewMutations(records) {
+    return records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      if (target?.closest?.(OWNED_TASK_SELECTOR3)) return false;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      if (changedNodes.length && changedNodes.every(
+        (node) => node.matches?.(OWNED_TASK_SELECTOR3) || node.closest?.(OWNED_TASK_SELECTOR3)
+      )) {
+        return false;
+      }
+      if (target?.closest?.(TASK_SELECTOR3)) return true;
+      return changedNodes.some(
+        (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
+      );
+    });
+  }
   runtime.features.register({
     id: "taskNewBadge",
     setting: "taskNewBadge",
@@ -37730,15 +37849,8 @@ ${locks}` : ""}`;
           }
         });
       };
-      let pending = false;
-      const schedule = () => {
-        if (pending) return;
-        pending = true;
-        (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(() => {
-          pending = false;
-          render();
-        });
-      };
+      const renderScheduler = createFrameScheduler(render);
+      const schedule = () => renderScheduler.schedule();
       scope.add(
         runtime.onMessage("quests_updated", (payload) => {
           const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
@@ -37753,24 +37865,17 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      const observer = new MutationObserver((records) => {
-        if (records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(TASK_SELECTOR3)) return true;
-          return [...record.addedNodes ?? [], ...record.removedNodes ?? []].filter((node) => node?.nodeType === 1).some(
-            (node) => node.matches?.(TASK_SELECTOR3) || node.querySelector?.(TASK_SELECTOR3)
-          );
-        })) {
-          schedule();
-        }
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      let trailingTimers = [];
+      const onInteraction = () => {
+        schedule();
+        trailingTimers.forEach(clearTimeout);
+        trailingTimers = [250, 700].map((delay) => setTimeout(schedule, delay));
+      };
+      scope.event(document, "click", onInteraction, true);
       render();
       scope.add(() => {
-        pending = false;
+        trailingTimers.forEach(clearTimeout);
+        renderScheduler.cancel();
         if (liveTaskNewStates.get(storageKey) === state) {
           liveTaskNewStates.delete(storageKey);
         }
@@ -38453,7 +38558,11 @@ ${locks}` : ""}`;
           "精炼背部装备加入购物清单时不再包含不可交易的原始背部物品；生产时长快捷按钮现在结合当前综合效率向上换算，避免队列早于所选时长结束。",
           "修复任务页重复出现多个规划火车、资产中心日期选择器被实时刷新关闭，以及强化当前行动条的剩余次数与预计完成时间偶尔不显示。",
           "意见审理台现在显示反馈者使用的 MWITools 版本；重大更新清单支持 GitHub 失败后从反馈服务器读取，并明确显示最新版本且每个版本最多提醒一次。",
-          "移动端生产摘要改为紧凑双列，顶部行动条只保留剩余次数和时间；意见中心入口统一精简为单行 MWITools。"
+          "移动端生产摘要改为紧凑双列，顶部行动条只保留剩余次数和时间；意见中心入口统一精简为单行 MWITools。",
+          "DPS 面板改为每秒刷新一次，伤害、治疗和击杀仍按战斗消息实时累计；长时间离线或挂起后会直接快进时间桶，不再逐个循环补齐。",
+          "任务卡的语义匹配与火车升级链改用索引，任务附属控件按需刷新，并取消功能关闭后尚未执行的帧回调，降低乱序任务和战斗期间的后台开销。",
+          "物品等级、市场筛选和地图编号改为按交互与数据消息刷新；DPS 启动器及收益、强化浮窗缩小观察范围，并移除高 GPU 占用的背景模糊。",
+          "强化成本现在与生产收益和宝箱估算共用同一个自定义快捷键；桌面端按住触发，移动端长按触发。"
         ]),
         en: Object.freeze([
           "Feedback is now the Feedback Center, with release announcements and one red-dot notification for replies and new announcements.",
@@ -38480,7 +38589,11 @@ ${locks}` : ""}`;
           "Refined back equipment no longer adds its untradeable base item to the shopping list. Production duration shortcuts now round up using current total efficiency so queues do not finish before the selected duration.",
           "Fixed duplicate train-planning controls on tasks, live asset refreshes closing date pickers, and remaining counts and completion estimates intermittently missing from the current-action bar while enhancing.",
           "The feedback review console now shows each reporter's MWITools version. Important-update manifests fall back to the feedback server when GitHub fails, show the latest version explicitly, and appear at most once per version.",
-          "Mobile production summaries now use a compact two-column layout, the current-action bar keeps only the remaining count and time, and the Feedback Center launcher is shortened to a single-line MWITools label."
+          "Mobile production summaries now use a compact two-column layout, the current-action bar keeps only the remaining count and time, and the Feedback Center launcher is shortened to a single-line MWITools label.",
+          "The DPS panel now refreshes once per second while damage, healing, and kills remain event-driven. Long suspended gaps fast-forward graph buckets instead of replaying every missing interval.",
+          "Task semantic matching and train upgrade lookups now use indexes, task decorations refresh on demand, and queued frames are cancelled on feature cleanup to reduce shuffled-task and combat overhead.",
+          "Item levels, market filters, and map indexes now refresh on interactions and data messages. DPS launcher and estimate-panel observers are narrower, and expensive backdrop blur was removed.",
+          "Enhancement costs now share the same custom shortcut as production profit and loot chest estimates: hold the key on desktop or long-press on touch devices."
         ])
       })
     })
@@ -40765,12 +40878,37 @@ ${locks}` : ""}`;
       }
     }
   });
+  function scanOnDemand(scope, scan2, messages = []) {
+    let coalescedTimer = null;
+    let trailingTimer = null;
+    const flush = () => {
+      coalescedTimer = null;
+      scan2();
+    };
+    const scheduleSoon = () => {
+      if (coalescedTimer !== null) return;
+      coalescedTimer = setTimeout(flush, 0);
+    };
+    const onInteraction = () => {
+      scheduleSoon();
+      clearTimeout(trailingTimer);
+      trailingTimer = setTimeout(scan2, 250);
+    };
+    scan2();
+    scope.event(document, "click", onInteraction, true);
+    messages.forEach((message) => {
+      scope.add(runtime.onMessage(message, scheduleSoon));
+    });
+    scope.add(() => {
+      clearTimeout(coalescedTimer);
+      clearTimeout(trailingTimer);
+    });
+  }
   runtime.features.register({
     id: "itemIconLevel",
     setting: "itemIconLevel",
     initialize({ scope }) {
-      addItemLevels();
-      scope.interval(addItemLevels, 500);
+      scanOnDemand(scope, addItemLevels, ["items_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_itemLevel,.script_key").forEach((node) => node.remove())
       );
@@ -40789,8 +40927,7 @@ ${locks}` : ""}`;
     id: "marketFilter",
     setting: "marketFilter",
     initialize({ scope }) {
-      addMarketFilterButtons();
-      scope.interval(addMarketFilterButtons, 500);
+      scanOnDemand(scope, addMarketFilterButtons);
       scope.add(() => document.querySelector("#script_filters")?.remove());
     }
   });
@@ -40799,8 +40936,7 @@ ${locks}` : ""}`;
     setting: "taskMapIndex",
     scope: "character",
     initialize({ scope }) {
-      handleTaskCard();
-      scope.interval(handleTaskCard, 500);
+      scanOnDemand(scope, handleTaskCard, ["quests_updated"]);
       scope.add(
         () => document.querySelectorAll(".script_taskMapIndex").forEach((node) => node.remove())
       );
@@ -40810,8 +40946,7 @@ ${locks}` : ""}`;
     id: "mapIndex",
     setting: "mapIndex",
     initialize({ scope }) {
-      addIndexToMaps();
-      scope.interval(addIndexToMaps, 500);
+      scanOnDemand(scope, addIndexToMaps);
       scope.add(
         () => document.querySelectorAll(".script_mapIndex").forEach((node) => node.remove())
       );
@@ -41653,7 +41788,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID15;
     style.textContent = `
-    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; backdrop-filter:blur(10px); }
+    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
     #${PANEL_ID3} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
     .mwi-enhancement-metric { display:contents; }
@@ -41836,7 +41971,9 @@ ${locks}` : ""}`;
     const mutationObserver = new MutationObserver(() => {
       if (!anchor.isConnected) hideEnhancementCostPanel();
     });
-    mutationObserver.observe(document.body, { childList: true, subtree: true });
+    mutationObserver.observe(anchor.parentNode ?? document.body, {
+      childList: true
+    });
     const resizeObserver = globalThis.ResizeObserver ? new globalThis.ResizeObserver(position) : null;
     resizeObserver?.observe(anchor);
     resizeObserver?.observe(panel);
@@ -41860,6 +41997,20 @@ ${locks}` : ""}`;
   });
 
   // src/features/enhancement-tooltip.js
+  function setEnhancementContext(tooltip, plan) {
+    if (runtime.api.setEnhancementHoverPanelContext) {
+      runtime.api.setEnhancementHoverPanelContext(tooltip, plan);
+    } else {
+      showEnhancementCostPanel(tooltip, plan);
+    }
+  }
+  function clearEnhancementContext(tooltip) {
+    if (runtime.api.clearEnhancementHoverPanelContext) {
+      runtime.api.clearEnhancementHoverPanelContext(tooltip);
+    } else {
+      hideEnhancementCostPanel();
+    }
+  }
   function appendMarketRows(tooltipContent, itemHrid, enhancementLevel) {
     tooltipContent.querySelector('[data-mwitools-enhancement-market="true"]')?.remove();
     if (!runtime.settings.settingsMap.itemTooltip_prices.isTrue || runtime.api.shouldSuppressMarketFeatures?.()) {
@@ -41915,17 +42066,20 @@ ${locks}` : ""}`;
       ".ItemTooltipText_itemTooltipText__zFq3A"
     );
     if (!tooltipContent) {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
       return;
     }
     const { itemHrid, enhancementLevel } = readEnhancedTooltipItem(tooltip);
     if (!itemHrid || !runtime.state.initData_itemDetailMap?.[itemHrid]) {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
       return;
     }
     if (runtime.settings.settingsMap.enhanceSim.isTrue) {
-      showEnhancementCostPanel(tooltip, null);
+      setEnhancementContext(tooltip, null);
     } else {
+      clearEnhancementContext(tooltip);
       hideEnhancementCostPanel();
     }
     if (!runtime.api.shouldSuppressMarketFeatures?.()) {
@@ -41941,7 +42095,7 @@ ${locks}` : ""}`;
       targetLevel: enhancementLevel,
       ...getTooltipEnhancementPlanOptions(itemHrid)
     });
-    if (tooltip.isConnected) showEnhancementCostPanel(tooltip, plan);
+    if (tooltip.isConnected) setEnhancementContext(tooltip, plan);
   }
   runtime.api.handleItemTooltipWithEnhancementLevel = handleEnhancedItemTooltip;
   runtime.onMessage("init_character_data", () => {
@@ -44763,21 +44917,34 @@ ${locks}` : ""}`;
       fragmentPrefix = null;
     }
     function tickBuckets(ts) {
-      while (ts - bucketTs >= BUCKET_MS) {
+      const steps = Math.floor((ts - bucketTs) / BUCKET_MS);
+      if (steps <= 0) return;
+      if (steps >= BUCKETS) {
+        dmgBuckets.fill(0);
+        bossBuckets.fill(_isBoss);
+        curBucket = (curBucket + steps) % BUCKETS;
+        bucketTs += steps * BUCKET_MS;
+        return;
+      }
+      for (let step = 0; step < steps; step += 1) {
         curBucket = (curBucket + 1) % BUCKETS;
         dmgBuckets[curBucket] = 0;
         bossBuckets[curBucket] = _isBoss;
-        bucketTs += BUCKET_MS;
       }
+      bucketTs += steps * BUCKET_MS;
     }
     function tickFullBuckets(ts) {
-      while (ts - fullBucketTs >= BUCKET_MS) {
-        if (fullDmgBuckets.length < FULL_MAX_BUCKETS) {
-          fullDmgBuckets.push(0);
-          fullBossBuckets.push(_isBoss);
-        }
-        fullBucketTs += BUCKET_MS;
+      const steps = Math.floor((ts - fullBucketTs) / BUCKET_MS);
+      if (steps <= 0) return;
+      const appendCount = Math.min(
+        steps,
+        FULL_MAX_BUCKETS - fullDmgBuckets.length
+      );
+      if (appendCount > 0) {
+        fullDmgBuckets.push(...new Array(appendCount).fill(0));
+        fullBossBuckets.push(...new Array(appendCount).fill(_isBoss));
       }
+      fullBucketTs += steps * BUCKET_MS;
     }
     return {
       reset(nextMeta = {}) {
@@ -45091,7 +45258,7 @@ ${locks}` : ""}`;
           ])
         );
       },
-      // Avance les buckets au temps actuel — appelé à chaque render tick (250ms).
+      // Avance les buckets au temps actuel — appelé à chaque render tick (1s).
       // Sans ça, curBucket ne s'avance qu'à la réception de dégâts. En idle (entre
       // deux vagues), le bucket courant garde sa valeur accumulée et s'affiche comme
       // le point "now" pendant toute la pause → pic artificiel dans le graphe.
@@ -49787,7 +49954,7 @@ ${locks}` : ""}`;
           inject();
         }, 200);
       });
-      reinjector.observe(document.body, { childList: true, subtree: true });
+      reinjector.observe(document.body, { childList: true });
       if (viewportHandler) {
         window.removeEventListener("resize", viewportHandler);
         window.visualViewport?.removeEventListener("resize", viewportHandler);
@@ -50793,7 +50960,7 @@ ${locks}` : ""}`;
       Session.advanceBuckets();
       persistActive();
       if (KikiMeter.isOpen()) renderSelectedPanels();
-    }, 250);
+    }, 1e3);
     Object.assign(MWI, {
       enabled: true,
       bus: SocketHook.bus,

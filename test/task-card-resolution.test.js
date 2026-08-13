@@ -162,7 +162,38 @@ test("previous task IDs bypass repeated semantic matching in shuffled English ca
     resolved.map(({ taskId }) => taskId),
     ["32", "31"],
   );
-  assert.equal(actionReads, 4);
+  assert.equal(actionReads, 2);
+});
+
+test("semantic fallback reads each quest once as task counts grow", () => {
+  const count = 300;
+  const quests = Array.from({ length: count }, (_, index) => ({
+    id: `scale-${index}`,
+    actionHrid: `/actions/crafting/scale-${index}`,
+  }));
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    quests.map((quest, index) => [
+      quest.actionHrid,
+      { name: `Scale ${index}` },
+    ]),
+  );
+  let actionReads = 0;
+  const resolved = resolveTaskCards(
+    quests
+      .toReversed()
+      .map((quest, index) => card(`Scale ${count - index - 1}`, "0 / 1")),
+    quests,
+    {
+      taskActionHrid(task) {
+        actionReads += 1;
+        return task.actionHrid;
+      },
+      taskRemaining: () => 1,
+    },
+  );
+  assert.equal(actionReads, count);
+  assert.equal(resolved[0].taskId, `scale-${count - 1}`);
+  assert.equal(resolved.at(-1).taskId, "scale-0");
 });
 
 test("cached action labels invalidate when the game locale changes", () => {

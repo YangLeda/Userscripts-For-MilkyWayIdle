@@ -3,6 +3,7 @@ import {
   getLocalizedEntityName,
   matchesGameTranslations,
 } from "../core/game-localization.js";
+import { createFrameScheduler } from "../core/frame-scheduler.js";
 
 const STYLE_ID = "mwitools-semi-auto-train-style";
 const CONTROL_CLASS = "mwi-train-controls";
@@ -28,11 +29,25 @@ const ACTION_NAVIGATION_HANDLERS = [
 ];
 
 let activeTrain = null;
-let scanPending = false;
+let scanScheduler = createFrameScheduler(scan);
 let navigationRequestId = 0;
 
-function raf(callback) {
-  return (globalThis.requestAnimationFrame ?? globalThis.setTimeout)(callback);
+function shouldScanTrainMutations(records) {
+  return records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    if (target?.closest?.(`.${CONTROL_CLASS},.mwi-train-toast`)) return false;
+    if (target?.closest?.(PANEL_SELECTOR)) return true;
+    return [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])]
+      .filter((node) => node?.nodeType === 1)
+      .some(
+        (node) =>
+          node.matches?.(PANEL_SELECTOR) ||
+          node.querySelector?.(PANEL_SELECTOR),
+      );
+  });
 }
 
 function t(zh, en) {
@@ -1022,7 +1037,6 @@ function renderControls(context) {
 }
 
 function scan() {
-  scanPending = false;
   renderActiveIndicator();
   const context = panelContext();
   document.querySelectorAll(`.${WIDE_WINDOW_CLASS}`).forEach((window) => {
@@ -1039,9 +1053,7 @@ function scan() {
 }
 
 function scheduleScan() {
-  if (scanPending) return;
-  scanPending = true;
-  raf(scan);
+  scanScheduler?.schedule();
 }
 
 function cleanup() {
@@ -1059,7 +1071,6 @@ function cleanup() {
   clearTrainShopHighlight();
   document.getElementById(STYLE_ID)?.remove();
   closeDetail();
-  scanPending = false;
 }
 
 runtime.features.register({
@@ -1069,11 +1080,31 @@ runtime.features.register({
   dependsOn: ["procurementAssistant"],
   initialize({ scope }) {
     addStyles();
+    scanScheduler?.cancel();
+    const scheduler = createFrameScheduler(scan);
+    scanScheduler = scheduler;
     scan();
-    const observer = new MutationObserver(scheduleScan);
+    let observerTimer = null;
+    const observer = new MutationObserver((records) => {
+      if (!shouldScanTrainMutations(records) || observerTimer !== null) return;
+      observerTimer = setTimeout(() => {
+        observerTimer = null;
+        scheduler.schedule();
+      }, 200);
+    });
     scope.observer(observer, document.body, { childList: true, subtree: true });
-    scope.interval(scan, 500);
-    scope.add(cleanup);
+    const scheduleForProductionInput = (event) => {
+      if (event.target?.matches?.(INPUT_SELECTOR)) scheduleScan();
+    };
+    scope.event(document, "input", scheduleForProductionInput, true);
+    scope.event(document, "change", scheduleForProductionInput, true);
+    scope.add(() => {
+      clearTimeout(observerTimer);
+      observerTimer = null;
+      if (scanScheduler === scheduler) scanScheduler = null;
+      scheduler.cancel();
+      cleanup();
+    });
   },
 });
 

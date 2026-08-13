@@ -431,6 +431,24 @@ test("combat dialogs never render the production summary", () => {
   assert.equal(document.querySelector("#mwi-production-summary"), null);
 });
 
+test("nameless action panels are ignored without reading a missing element", () => {
+  const original = runtime.api.getOriTextFromElement;
+  let sawMissing = false;
+  runtime.api.getOriTextFromElement = (element) => {
+    if (!element) sawMissing = true;
+    return element?.textContent ?? "";
+  };
+  try {
+    const panel = document.createElement("div");
+    panel.className = "SkillActionDetail_regularComponent__test";
+    assert.equal(runtime.api.resolveProductionAction(panel), null);
+    assert.equal(runtime.api.resolveProductionAction(null), null);
+    assert.equal(sawMissing, false);
+  } finally {
+    runtime.api.getOriTextFromElement = original;
+  }
+});
+
 test("the top action bar shows only current-action count and time left", () => {
   runtime.state.currentActionsHridList = [
     {

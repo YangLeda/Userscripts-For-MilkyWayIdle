@@ -152,25 +152,38 @@ const Session = (() => {
   }
 
   function tickBuckets(ts) {
-    while (ts - bucketTs >= BUCKET_MS) {
+    const steps = Math.floor((ts - bucketTs) / BUCKET_MS);
+    if (steps <= 0) return;
+    if (steps >= BUCKETS) {
+      dmgBuckets.fill(0);
+      bossBuckets.fill(_isBoss);
+      curBucket = (curBucket + steps) % BUCKETS;
+      bucketTs += steps * BUCKET_MS;
+      return;
+    }
+    for (let step = 0; step < steps; step += 1) {
       curBucket = (curBucket + 1) % BUCKETS;
       dmgBuckets[curBucket] = 0;
       bossBuckets[curBucket] = _isBoss;
-      bucketTs += BUCKET_MS;
     }
+    bucketTs += steps * BUCKET_MS;
   }
 
   // Avance l'historique complet (non rebouclé) : pousse un nouveau bucket à
   // 0 à chaque tick au lieu d'écraser un ancien. S'arrête de grandir au-delà
   // de FULL_MAX_BUCKETS (garde-fou mémoire, jamais atteint en pratique).
   function tickFullBuckets(ts) {
-    while (ts - fullBucketTs >= BUCKET_MS) {
-      if (fullDmgBuckets.length < FULL_MAX_BUCKETS) {
-        fullDmgBuckets.push(0);
-        fullBossBuckets.push(_isBoss);
-      }
-      fullBucketTs += BUCKET_MS;
+    const steps = Math.floor((ts - fullBucketTs) / BUCKET_MS);
+    if (steps <= 0) return;
+    const appendCount = Math.min(
+      steps,
+      FULL_MAX_BUCKETS - fullDmgBuckets.length,
+    );
+    if (appendCount > 0) {
+      fullDmgBuckets.push(...new Array(appendCount).fill(0));
+      fullBossBuckets.push(...new Array(appendCount).fill(_isBoss));
     }
+    fullBucketTs += steps * BUCKET_MS;
   }
 
   return {
@@ -502,7 +515,7 @@ const Session = (() => {
         ]),
       );
     },
-    // Avance les buckets au temps actuel — appelé à chaque render tick (250ms).
+    // Avance les buckets au temps actuel — appelé à chaque render tick (1s).
     // Sans ça, curBucket ne s'avance qu'à la réception de dégâts. En idle (entre
     // deux vagues), le bucket courant garde sa valeur accumulée et s'affiche comme
     // le point "now" pendant toute la pause → pic artificiel dans le graphe.

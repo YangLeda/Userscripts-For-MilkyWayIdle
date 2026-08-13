@@ -2216,6 +2216,29 @@ assert(
 SegmentSelection.select("current");
 assert(ViewData.get().current, "无法切回当前战斗");
 
+const realPerformance = globalThis.performance;
+let fakeNow = 1000;
+globalThis.performance = { now: () => fakeNow };
+try {
+  Session.reset({ combatKey: "long-idle-fast-forward", characterId: "A" });
+  Session.addTeamDamage(10, fakeNow);
+  fakeNow += 180 * 24 * 60 * 60 * 1000;
+  const started = realPerformance.now();
+  Session.advanceBuckets();
+  const duration = realPerformance.now() - started;
+  assert(duration < 500, "DPS 长时间空档仍逐个推进数百万个时间桶");
+  assert(
+    Session.getFullGraphPoints().length === 1900,
+    "DPS 完整图表快进后没有遵守历史桶上限",
+  );
+  assert(
+    Session.getGraphPoints().every((point) => point.dps === 0),
+    "DPS 环形图表快进后保留了过期伤害",
+  );
+} finally {
+  globalThis.performance = realPerformance;
+}
+
 console.log(
   "银河奶牛DPS统计 tests: classes, attribution, reconnect, history, and Details segment selection passed.",
 );

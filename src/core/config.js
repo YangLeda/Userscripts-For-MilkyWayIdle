@@ -159,8 +159,8 @@ let settingsMap = {
   itemTooltip_profitRequireKey: {
     id: "itemTooltip_profitRequireKey",
     desc: isZH
-      ? "生产利润和宝箱估算需要同时按住自定义按键"
-      : "Require a shared custom held key for production profit and loot chest estimates.",
+      ? "生产利润、宝箱估算和强化成本需要同时按住自定义按键"
+      : "Require a shared custom held key for production profit, loot chest, and enhancement cost estimates.",
     isTrue: true,
   },
   lootChestEstimate: {
@@ -765,8 +765,8 @@ const catalogRows = [
     "market",
     "悬浮扩展面板需要按键",
     "Require key for tooltip panels",
-    "生产利润和宝箱估算在桌面端共用一个自定义单键；移动端均需长按。",
-    "Use one shared custom held key for production profit and loot chest estimates on desktop; use a long press on touch devices.",
+    "生产利润、宝箱估算和强化成本在桌面端共用一个自定义单键；移动端均需长按。",
+    "Use one shared custom held key for production profit, loot chest, and enhancement cost estimates on desktop; use a long press on touch devices.",
   ],
   [
     "lootChestEstimate",

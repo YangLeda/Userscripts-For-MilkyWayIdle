@@ -16,9 +16,42 @@ const {
   initializeQuestState,
   questId,
   readTaskNewState,
+  shouldRenderTaskNewMutations,
   taskNewStorageKey,
   writeTaskNewState,
 } = await import("../src/features/task-new-badge.js");
+
+test("new-task observer ignores its own badge but keeps native task updates", () => {
+  const task = document.createElement("div");
+  task.className = "RandomTask_randomTask__test";
+  const progress = document.createElement("span");
+  progress.textContent = "Progress: 1 / 10";
+  const badge = document.createElement("span");
+  badge.className = "mwi-task-new-badge";
+  task.append(progress, badge);
+  document.body.append(task);
+  assert.equal(
+    shouldRenderTaskNewMutations([
+      {
+        target: task,
+        addedNodes: [badge],
+        removedNodes: [],
+      },
+    ]),
+    false,
+  );
+  assert.equal(
+    shouldRenderTaskNewMutations([
+      {
+        target: progress.firstChild,
+        addedNodes: [],
+        removedNodes: [],
+      },
+    ]),
+    true,
+  );
+  task.remove();
+});
 
 test("task IDs normalize and newly received tasks persist by server and character", () => {
   assert.equal(questId({ characterQuestID: 12 }), "12");

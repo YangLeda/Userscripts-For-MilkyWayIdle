@@ -1172,7 +1172,7 @@ const KikiMeter = (() => {
         inject();
       }, 200);
     });
-    reinjector.observe(document.body, { childList: true, subtree: true });
+    reinjector.observe(document.body, { childList: true });
     if (viewportHandler) {
       window.removeEventListener("resize", viewportHandler);
       window.visualViewport?.removeEventListener("resize", viewportHandler);
