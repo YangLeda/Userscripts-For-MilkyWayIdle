@@ -402,7 +402,10 @@ test("announcement history preserves each release separately through 26.4.9", ()
   assert.doesNotMatch(current.body.zh.join("\n"), /任务页改为平铺布局/);
   assert.match(older.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
   assert.match(previous.body.zh.join("\n"), /炼金与强化/);
-  assert.match(current.body.zh.join("\n"), /切换到技能页再返回库存/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /切换到技能页再返回库存.*残留的隐藏状态/,
+  );
   assert.match(
     current.body.zh.join("\n"),
     /评分和总资产现在会在本次页面会话首次计算后保持不变.*单独移除摘要时也会自动补回/,

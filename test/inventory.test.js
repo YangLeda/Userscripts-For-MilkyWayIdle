@@ -251,15 +251,8 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
   assert.equal(noneButton.style.fontWeight, "500");
 
-  const profitTab = document.createElement("button");
-  profitTab.id = "mwitools-asset-history-tab";
-  profitTab.setAttribute("aria-selected", "true");
-  profitTab.dataset.active = "true";
-  document.body.prepend(profitTab);
-  await runtime.api.calculateNetworth();
-  assert.equal(summary.style.display, "none");
-  assert.equal(sortControls.style.display, "none");
-  profitTab.remove();
+  summary.style.display = "none";
+  sortControls.style.display = "none";
   await runtime.api.calculateNetworth();
   assert.equal(summary.style.display, "");
   assert.equal(sortControls.style.display, "");
@@ -737,7 +730,7 @@ test("equipment sorting uses enhancement, stack size, and derived badge values",
   runtime.api.fetchMarketJSON = originalFetch;
 });
 
-test("all nine game languages keep asset and build-score summaries on the inventory tab", async () => {
+test("all nine game languages leave inventory summary visibility to the native panel", async () => {
   const { registerGameLocaleResources } =
     await import("../src/core/game-localization.js");
   runtime.settings.settingsMap.invWorth.isTrue = true;
@@ -793,9 +786,16 @@ test("all nine game languages keep asset and build-score summaries on the invent
     document
       .querySelector("#equipment-tab")
       .setAttribute("aria-selected", "true");
+    document
+      .querySelector(".TabPanel_tabPanel__test")
+      .classList.add("TabPanel_hidden__test");
     await runtime.api.calculateNetworth({ force: true });
     summary = document.querySelector("#script_inventory_summary");
-    assert.equal(summary.style.display, "none", locale);
+    assert.equal(summary.style.display, "", locale);
+    assert.ok(
+      summary.closest('[class*="TabPanel_hidden"]'),
+      `${locale} native panel`,
+    );
 
     document
       .querySelector("#equipment-tab")
@@ -803,6 +803,9 @@ test("all nine game languages keep asset and build-score summaries on the invent
     document
       .querySelector("#inventory-tab")
       .setAttribute("aria-selected", "true");
+    document
+      .querySelector(".TabPanel_tabPanel__test")
+      .classList.remove("TabPanel_hidden__test");
     await runtime.api.calculateNetworth({ force: true });
     summary = document.querySelector("#script_inventory_summary");
     assert.notEqual(summary.style.display, "none", locale);

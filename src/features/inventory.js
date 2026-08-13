@@ -1,7 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import {
   getLocalizedEntityName,
-  matchesGameTranslations,
   resolveEntityFromElement,
 } from "../core/game-localization.js";
 
@@ -617,40 +616,8 @@ async function calculateNetworth() {
     });
   };
 
-  const isInventoryTabActive = (invElem) => {
-    const hiddenTabPanel = invElem.closest('[class*="TabPanel_hidden"]');
-    if (hiddenTabPanel) return false;
-    const parentContainer =
-      invElem.closest('[class*="TabsComponent_tabPanelsContainer"]')
-        ?.parentElement ?? document;
-    const assetHistoryTab = parentContainer.querySelector(
-      '#mwitools-asset-history-tab[data-active="true"]',
-    );
-    if (assetHistoryTab) return false;
-    const selectedTab = parentContainer.querySelector(
-      'button[aria-selected="true"], button.Mui-selected, [role="tab"][aria-selected="true"]',
-    );
-    if (selectedTab) {
-      if (selectedTab.id === "mwitools-asset-history-tab") return false;
-      if (selectedTab.dataset.mwiCreditTab === "true") return false;
-      if (selectedTab.classList.contains("income-tab")) return false;
-      if (
-        !matchesGameTranslations(
-          "characterManagement.inventory",
-          selectedTab.textContent,
-          { fallbackPatterns: [/^(?:库存|Inventory)$/i] },
-        ) &&
-        !selectedTab.querySelector('[class*="Inventory"]')
-      ) {
-        return false;
-      }
-    }
-    return true;
-  };
-
   const renderInventoryPanels = () => {
     for (const node of targetNodes) {
-      const activeTab = isInventoryTabActive(node);
       if (showWorth) {
         node.classList.add("script_buildScore_added");
         const renderVersion = `${display.version}:${runtime.config.isZH ? "zh" : "en"}`;
@@ -676,13 +643,13 @@ async function calculateNetworth() {
         "#script_inventory_summary",
       );
       if (summary) {
-        summary.style.display = activeTab ? "" : "none";
+        summary.style.removeProperty("display");
       }
       const sortControls = node.parentElement?.querySelector(
         "#script_inv_sort_controls",
       );
       if (sortControls) {
-        sortControls.style.display = activeTab ? "" : "none";
+        sortControls.style.removeProperty("display");
       }
     }
   };
