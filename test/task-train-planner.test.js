@@ -167,7 +167,7 @@ test("localized train controls are inserted immediately before the native go but
   buttons.append(reroll, go);
   card.append(action, buttons);
 
-  planner.insertBeforeTaskNavigation(card, action, control);
+  planner.insertBeforeTaskNavigation(card, control);
 
   assert.equal(control.parentElement, buttons);
   assert.equal(control.nextElementSibling, go);
@@ -176,6 +176,8 @@ test("localized train controls are inserted immediately before the native go but
 
 test("repeated task renders keep exactly one train control per card", () => {
   document.body.innerHTML = `<div class="RandomTask_randomTask__test">
+    <div class="RandomTask_name__test">Crafting - top</div>
+    <div>Progress: 1 / 3</div>
     <div class="RandomTask_action__test"></div>
     <div class="RandomTask_buttons__test"><button>Go</button></div>
   </div>`;
@@ -189,4 +191,61 @@ test("repeated task renders keep exactly one train control per card", () => {
   const controls = card.querySelectorAll(".mwi-task-train-planner");
   assert.equal(controls.length, 1);
   assert.equal(controls[0].nextElementSibling.textContent, "Go");
+});
+
+test("isolated tasks omit the no-train label", () => {
+  document.body.innerHTML = `<div class="RandomTask_randomTask__isolated">
+    <div class="RandomTask_name__test">Crafting - other</div>
+    <div>Progress: 0 / 2</div>
+    <div class="RandomTask_action__test"></div>
+    <div class="RandomTask_buttons__test"><button>Go</button></div>
+  </div>`;
+
+  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[2]]), true);
+  assert.equal(document.querySelector(".mwi-task-train-planner"), null);
+  assert.doesNotMatch(document.body.textContent, /No train needed|无需火车/);
+});
+
+test("train controls wait for navigation and repair a misplaced mount", () => {
+  document.body.innerHTML = `<div class="RandomTask_randomTask__staged">
+    <div class="RandomTask_name__test">Crafting - top</div>
+    <div>Progress: 1 / 3</div>
+    <div class="RandomTask_action__test"></div>
+  </div>`;
+  const card = document.querySelector('div[class*="RandomTask_randomTask"]');
+  const action = card.querySelector('div[class*="RandomTask_action"]');
+
+  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[1]]), false);
+  assert.equal(card.querySelector(".mwi-task-train-planner"), null);
+
+  const buttons = document.createElement("div");
+  buttons.className = "RandomTask_buttons__test";
+  const go = document.createElement("button");
+  go.textContent = "Go";
+  buttons.append(go);
+  card.append(buttons);
+  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[1]]), true);
+  const control = card.querySelector(".mwi-task-train-planner");
+  assert.equal(control.parentElement, buttons);
+  assert.equal(control.nextElementSibling, go);
+
+  action.append(control);
+  assert.equal(planner.renderTaskTrainPlanner(undefined, [quests[1]]), true);
+  const repairedControl = card.querySelector(".mwi-task-train-planner");
+  assert.equal(repairedControl.parentElement, buttons);
+  assert.equal(repairedControl.nextElementSibling, go);
+
+  repairedControl.remove();
+  assert.equal(
+    planner.shouldRenderTaskTrainMutations([
+      {
+        type: "childList",
+        target: buttons,
+        addedNodes: [],
+        removedNodes: [repairedControl],
+      },
+    ]),
+    true,
+    "React removing a train control must schedule its restoration",
+  );
 });

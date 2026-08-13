@@ -115,7 +115,7 @@ function candidateMatches(candidate, label, remaining) {
 export function resolveTaskCards(
   cards,
   quests,
-  { taskActionHrid, taskRemaining },
+  { taskActionHrid, taskRemaining, allowReusedPositional = false },
 ) {
   const questList = Array.isArray(quests) ? quests : [];
   const questMetadata = questList.map((task, taskIndex) => ({
@@ -149,14 +149,23 @@ export function resolveTaskCards(
   const used = new Set();
   const rows = [...cards].map((card, originalIndex) => {
     let resolved = null;
+    let matchSource = null;
     const label = cardActionLabel(card);
     const remaining = cardRemaining(card);
     const fiberTask = fiberQuest(card);
     const fiberId = taskCardTaskId(fiberTask);
-    if (fiberId && byId.has(fiberId)) resolved = byId.get(fiberId);
-    else if (fiberTask) {
+    let fiberCandidate = fiberId ? byId.get(fiberId) : null;
+    if (!fiberCandidate && fiberTask) {
       const taskIndex = questList.indexOf(fiberTask);
-      if (taskIndex >= 0) resolved = questMetadata[taskIndex];
+      if (taskIndex >= 0) fiberCandidate = questMetadata[taskIndex];
+    }
+    if (
+      fiberCandidate &&
+      !used.has(fiberCandidate.taskIndex) &&
+      candidateMatches(fiberCandidate, label, remaining)
+    ) {
+      resolved = fiberCandidate;
+      matchSource = "fiber";
     }
     const priorId = String(card.dataset.mwitoolsTaskId ?? "");
     const prior = priorId ? byId.get(priorId) : null;
@@ -167,6 +176,7 @@ export function resolveTaskCards(
       candidateMatches(prior, label, remaining)
     ) {
       resolved = prior;
+      matchSource = "prior";
     }
 
     if (Number.isInteger(resolved?.taskIndex)) used.add(resolved.taskIndex);
@@ -174,6 +184,8 @@ export function resolveTaskCards(
       card,
       originalIndex,
       resolved,
+      matchSource,
+      allowPositional: !fiberTask && !priorId,
       label,
       remaining,
     };
@@ -200,11 +212,14 @@ export function resolveTaskCards(
       progressCandidates?.length ? progressCandidates : entry.all,
     );
     if (!row.resolved) continue;
+    row.matchSource = "semantic";
     used.add(row.resolved.taskIndex);
   }
 
   for (const row of rows) {
-    if (row.resolved) continue;
+    if (row.resolved || (!row.allowPositional && !allowReusedPositional)) {
+      continue;
+    }
     const positional =
       questList.length === rows.length && !used.has(row.originalIndex)
         ? questMetadata[row.originalIndex]
@@ -214,16 +229,20 @@ export function resolveTaskCards(
         ? questMetadata.find(({ taskIndex }) => !used.has(taskIndex))
         : null;
     row.resolved = positional ?? onlyUnused;
-    if (row.resolved) used.add(row.resolved.taskIndex);
+    if (!row.resolved) continue;
+    row.matchSource = "positional";
+    used.add(row.resolved.taskIndex);
   }
 
-  return rows.map(({ card, originalIndex, resolved }) => {
+  return rows.map(({ card, originalIndex, resolved, matchSource }) => {
     const task = resolved?.task ?? {};
     const taskIndex = Number.isInteger(resolved?.taskIndex)
       ? resolved.taskIndex
       : -1;
     return {
       card,
+      resolved: Boolean(resolved),
+      matchSource,
       task,
       taskId: taskCardTaskId(task),
       taskIndex,

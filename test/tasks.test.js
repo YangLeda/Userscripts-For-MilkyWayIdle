@@ -561,6 +561,20 @@ test("task mutation filtering ignores MWITools decorations but keeps native prog
     ]),
     false,
   );
+  taskCard.append(background);
+  background.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      {
+        type: "childList",
+        target: taskCard,
+        addedNodes: [],
+        removedNodes: [background],
+      },
+    ]),
+    true,
+    "React removing a task icon must schedule its restoration",
+  );
   const newBadge = document.createElement("span");
   newBadge.className = "mwi-task-new-badge";
   assert.equal(
@@ -1517,6 +1531,105 @@ test("rerolled reused cards merge the latest matching task totals", () => {
   runtime.state.characterQuests = [];
   replacementButton.click();
   assert.equal(runtime.state.pendingMergedTask, null);
+});
+
+test("reused task cards keep the old icon during transition and settle on the new task", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg style="display:none"><use href="/static/media/items_sprite.reuse.svg#seed"></use></svg>
+     <div class="TasksPanel_taskList__reused-icon">
+       ${card("制作 - Old Output", "0 / 5")}
+     </div>`,
+  );
+  const oldQuest = {
+    id: "icon-old",
+    actionHrid: "/actions/crafting/old_output",
+    goalCount: 5,
+    currentCount: 0,
+  };
+  const newQuest = {
+    id: "icon-new",
+    actionHrid: "/actions/crafting/new_output",
+    goalCount: 7,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+    [oldQuest.actionHrid]: {
+      hrid: oldQuest.actionHrid,
+      name: "Old Output",
+      type: "/action_types/crafting",
+      outputItems: [{ itemHrid: "/items/old_output", count: 1 }],
+    },
+    [newQuest.actionHrid]: {
+      hrid: newQuest.actionHrid,
+      name: "New Output",
+      type: "/action_types/crafting",
+      outputItems: [{ itemHrid: "/items/new_output", count: 1 }],
+    },
+  };
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [oldQuest];
+  assert.equal(runtime.api.renderTasks(), true);
+
+  const reusedCard = document.querySelector(
+    ".TasksPanel_taskList__reused-icon " + TASK_SELECTOR,
+  );
+  reusedCard.__reactFiber$staleQuest = {
+    memoizedProps: { characterQuest: oldQuest },
+  };
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /items_sprite\.test\.svg#old_output$|items_sprite\.reuse\.svg#old_output$/,
+  );
+
+  runtime.state.characterQuests = [newQuest];
+  assert.equal(
+    runtime.api.renderTasks({ allowReusedPositional: false }),
+    false,
+  );
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "icon-old");
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#old_output$/,
+  );
+
+  reusedCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - New Output";
+  [...reusedCard.querySelectorAll("div")].find((node) =>
+    node.textContent.startsWith("进度:"),
+  ).textContent = "进度: 0 / 7";
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(reusedCard.dataset.mwitoolsTaskId, "icon-new");
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#new_output$/,
+  );
+
+  const removedBackground = reusedCard.querySelector(".mwi-task-bg");
+  removedBackground.remove();
+  assert.equal(
+    shouldRenderTaskMutations(
+      [
+        {
+          type: "childList",
+          target: reusedCard,
+          addedNodes: [],
+          removedNodes: [removedBackground],
+        },
+      ],
+      Number.MAX_SAFE_INTEGER,
+    ),
+    true,
+  );
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.match(
+    reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#new_output$/,
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 
 test("localized task controls wire merge and reset behavior", () => {

@@ -674,6 +674,14 @@ function decorateCard(card, task, artwork = null) {
   card.appendChild(background);
 }
 
+function taskIconMatches(card, task) {
+  const existing = card.querySelector(":scope > .mwi-task-bg");
+  if (!runtime.settings.get("taskIcons")) return !existing;
+  const artwork = taskArtworkForCard(card, task);
+  const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+  return href ? existing?.dataset.spriteHref === href : existing === null;
+}
+
 function visibleTaskTitle(card) {
   const name = card.querySelector('div[class*="RandomTask_name"]');
   const text = String(
@@ -1708,6 +1716,25 @@ function applyPendingMerge() {
 
 export function shouldRenderTaskMutations(records, now = Date.now()) {
   if (now < nativeResetChoiceUntil) return false;
+  const removedBackground = records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    return (
+      target?.isConnected &&
+      target?.closest?.(TASK_SELECTOR) &&
+      [...(record.removedNodes ?? [])].some(
+        (node) => node?.nodeType === 1 && node.matches?.(".mwi-task-bg"),
+      )
+    );
+  });
+  const addedBackground = records.some((record) =>
+    [...(record.addedNodes ?? [])].some(
+      (node) => node?.nodeType === 1 && node.matches?.(".mwi-task-bg"),
+    ),
+  );
+  if (removedBackground && !addedBackground) return true;
   return records.some((record) => {
     const target =
       record.target?.nodeType === 1
@@ -1760,7 +1787,7 @@ function taskRenderSignature(snapshots) {
   return [...settings, ...rows].join("\u001e");
 }
 
-function renderTasks({ forceSort = false } = {}) {
+function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
     applyPendingMerge();
@@ -1783,7 +1810,7 @@ function renderTasks({ forceSort = false } = {}) {
         runtime.state.mwitoolsPageNewTaskIds = new Set();
       }
     }
-    return;
+    return true;
   }
   const observedParent = cards[0]?.parentElement ?? null;
   const enteredNewTaskPage =
@@ -1815,7 +1842,9 @@ function renderTasks({ forceSort = false } = {}) {
   const cardEntries = resolveTaskCards(cards, tasks, {
     taskActionHrid,
     taskRemaining,
+    allowReusedPositional,
   });
+  if (cardEntries.some((entry) => !entry.resolved)) return false;
   const cardTasks = cardEntries.map(({ task }) => task);
   assignStablePageSlots(cards, cardTasks);
   const newTaskSetChanged = syncPageNewTasks(
@@ -1838,10 +1867,11 @@ function renderTasks({ forceSort = false } = {}) {
     sameCards &&
     actionDetails === lastActionDetails &&
     actionCategories === lastActionCategories &&
-    signature === lastTaskRenderSignature
+    signature === lastTaskRenderSignature &&
+    cardEntries.every(({ card, task }) => taskIconMatches(card, task))
   ) {
     applyPendingMerge();
-    return;
+    return true;
   }
 
   originalCards = [...cards];
@@ -1869,6 +1899,7 @@ function renderTasks({ forceSort = false } = {}) {
   lastActionDetails = actionDetails;
   lastActionCategories = actionCategories;
   lastTaskRenderSignature = signature;
+  return true;
 }
 
 function sortTasks() {
@@ -1916,15 +1947,28 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     addStyles();
-    renderTasks();
     let active = true;
-    const renderScheduler = createFrameScheduler(renderTasks);
+    let settleRetries = 0;
+    let renderScheduler = null;
+    const render = () => {
+      const settled = renderTasks({
+        allowReusedPositional: false,
+      });
+      if (!settled && settleRetries < 3) {
+        settleRetries += 1;
+        renderScheduler.schedule();
+      } else {
+        settleRetries = 0;
+      }
+    };
+    renderScheduler = createFrameScheduler(render);
+    const scheduleRender = () => renderScheduler.schedule();
+    render();
     void loadTaskSpriteManifest().then(() => {
       if (!active) return;
       lastTaskRenderSignature = "";
-      renderTasks();
+      scheduleRender();
     });
-    const scheduleRender = () => renderScheduler.schedule();
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });

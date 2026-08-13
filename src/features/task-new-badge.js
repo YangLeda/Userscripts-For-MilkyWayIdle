@@ -171,10 +171,6 @@ runtime.features.register({
     initializeQuestState(state, initial);
     writeTaskNewState(storageKey, state);
 
-    let lastRenderedCards = [];
-    let lastRenderedQuests = null;
-    let lastFreshSignature = "";
-    let lastLanguage = null;
     const render = () => {
       const quests = runtime.state.characterQuests ?? [];
       const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -188,25 +184,12 @@ runtime.features.register({
       }
       if (changed) writeTaskNewState(storageKey, state);
       const cards = [...document.querySelectorAll(TASK_SELECTOR)];
-      const freshSignature = [...(runtime.state.mwitoolsPageNewTaskIds ?? [])]
-        .sort()
-        .join(",");
-      const sameCards =
-        cards.length === lastRenderedCards.length &&
-        cards.every((card, index) => card === lastRenderedCards[index]);
-      if (
-        sameCards &&
-        quests === lastRenderedQuests &&
-        freshSignature === lastFreshSignature &&
-        runtime.config.isZH === lastLanguage
-      ) {
-        return;
-      }
       const resolvedCards = resolveTaskCards(cards, quests, {
         taskActionHrid: (task) => runtime.api.taskActionHrid?.(task),
         taskRemaining: (task) => runtime.api.taskRemaining?.(task) ?? 0,
       });
-      resolvedCards.forEach(({ card, task }) => {
+      resolvedCards.forEach(({ card, resolved, task }) => {
+        if (!resolved) return;
         const id = questId(task);
         const fresh = Boolean(
           id && runtime.state.mwitoolsPageNewTaskIds?.has?.(id),
@@ -222,10 +205,6 @@ runtime.features.register({
           badge?.remove();
         }
       });
-      lastRenderedCards = cards;
-      lastRenderedQuests = quests;
-      lastFreshSignature = freshSignature;
-      lastLanguage = runtime.config.isZH;
     };
 
     const renderScheduler = createFrameScheduler(render);
