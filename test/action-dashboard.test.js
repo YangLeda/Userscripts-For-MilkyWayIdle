@@ -504,7 +504,11 @@ test("the top action bar keeps finish time on desktop and hides it on mobile", (
     dashboardStyle,
     /\.mwi-action-dashboard\[data-compact="true"\] \.mwi-action-eta \{ display:none; \}/,
   );
-  assert.doesNotMatch(dashboardStyle, /white-space:nowrap; overflow:hidden/);
+  assert.match(dashboardStyle, /\.mwi-action-dashboard \{[^}]*overflow:hidden/);
+  assert.match(
+    dashboardStyle,
+    /\.mwi-action-dashboard\[data-tight="true"\] \.mwi-action-time \{ display:none; \}/,
+  );
 });
 
 test("the top action bar drops finish time when its actual header space is narrow", () => {
@@ -525,6 +529,77 @@ test("the top action bar drops finish time when its actual header space is narro
   assert.match(dashboard.textContent, /还需/);
   assert.equal(
     dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+      .display,
+    "none",
+  );
+});
+
+test("a zero-width action-name box uses the current-action and queue boundaries", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const currentAction = host.closest('div[class*="Header_currentAction"]');
+  const actionsHost = currentAction.parentElement;
+  const nativeLabel = host.querySelector("span");
+  const queuedActions = document.createElement("button");
+  queuedActions.textContent = "+5 Queued Actions";
+  actionsHost.append(queuedActions);
+  Object.defineProperty(dom.window, "innerWidth", {
+    configurable: true,
+    value: 532,
+  });
+  host.getBoundingClientRect = () => ({ left: 21, right: 21, width: 0 });
+  currentAction.getBoundingClientRect = () => ({
+    left: 21,
+    right: 500,
+    width: 479,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 174, width: 153 });
+  queuedActions.getBoundingClientRect = () => ({
+    left: 430,
+    right: 497,
+    width: 67,
+  });
+  runtime.config.isZH = false;
+  nativeLabel.textContent = "Lumber";
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.match(dashboard.textContent, /Remaining/);
+  assert.equal(dashboard.dataset.compact, "true");
+  assert.equal(dashboard.dataset.tight, "false");
+  assert.equal(dashboard.style.left, "160px");
+  assert.equal(
+    dashboard.style.getPropertyValue("--mwi-action-dashboard-max-width"),
+    "243px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-eta"))
+      .display,
+    "none",
+  );
+  runtime.config.isZH = true;
+  nativeLabel.textContent = "木板";
+  queuedActions.remove();
+});
+
+test("an extremely narrow action header keeps only the remaining count", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const currentAction = host.closest('div[class*="Header_currentAction"]');
+  const nativeLabel = host.querySelector("span");
+  host.getBoundingClientRect = () => ({ left: 0, right: 0, width: 0 });
+  currentAction.getBoundingClientRect = () => ({
+    left: 0,
+    right: 230,
+    width: 230,
+  });
+  nativeLabel.getBoundingClientRect = () => ({ right: 80, width: 80 });
+
+  runtime.api.renderActionDashboard();
+
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  assert.equal(dashboard.dataset.tight, "true");
+  assert.equal(
+    dom.window.getComputedStyle(dashboard.querySelector(".mwi-action-time"))
       .display,
     "none",
   );

@@ -175,13 +175,14 @@ function addStyles() {
   style.id = STYLE_ID;
   style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
-    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:calc(100% - var(--mwi-action-dashboard-left,0px)); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:visible; pointer-events:none; }
+    .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:var(--mwi-action-dashboard-max-width,calc(100% - var(--mwi-action-dashboard-left,0px))); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:hidden; pointer-events:none; }
     .mwi-action-line { display:flex; align-items:center; flex-wrap:nowrap; gap:3px 10px; max-width:100%; color:#ffa500; }
     .mwi-action-line > * { min-width:0; white-space:nowrap; }
     .mwi-action-line strong { color:inherit; font-weight:650; }
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-eta { display:none; }
+    .mwi-action-dashboard[data-tight="true"] .mwi-action-time { display:none; }
     .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:.6875rem; }
     .mwi-production-card-title { padding:0 2px 4px; font-size:.72rem; font-weight:600; }
     .mwi-production-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,110px),1fr)); gap:4px; }
@@ -339,6 +340,44 @@ function actionMatchesHeader(action, host) {
   );
 }
 
+function rectWidth(rect) {
+  return Math.max(
+    0,
+    Number(rect?.width) || Number(rect?.right) - Number(rect?.left),
+  );
+}
+
+function actionDashboardLayout(host, lastNativeChild) {
+  const hostRect = host.getBoundingClientRect();
+  const currentAction =
+    host.closest?.('[class*="Header_currentAction"]') ?? host.parentElement;
+  const currentActionRect = currentAction?.getBoundingClientRect?.();
+  const layoutRect = rectWidth(hostRect) ? hostRect : currentActionRect;
+  const layoutLeft = Number(layoutRect?.left) || 0;
+  let layoutRight = Number(layoutRect?.right) || layoutLeft;
+  const childRect = lastNativeChild?.getBoundingClientRect();
+  const childRight = Number(childRect?.right) || layoutLeft;
+
+  for (const sibling of currentAction?.parentElement?.children ?? []) {
+    if (sibling === currentAction) continue;
+    const siblingRect = sibling.getBoundingClientRect?.();
+    const siblingLeft = Number(siblingRect?.left);
+    if (
+      rectWidth(siblingRect) > 0 &&
+      Number.isFinite(siblingLeft) &&
+      siblingLeft >= childRight
+    ) {
+      layoutRight = Math.min(layoutRight, siblingLeft - 6);
+    }
+  }
+
+  const left = Math.max(0, childRight - layoutLeft + 7);
+  return {
+    left,
+    availableWidth: Math.max(0, layoutRight - layoutLeft - left),
+  };
+}
+
 function renderActionDashboard() {
   addStyles();
   const host = document.querySelector('div[class*="Header_actionName"]');
@@ -374,25 +413,24 @@ function renderActionDashboard() {
       (element) => element !== root && element.id !== "script_item_warning",
     )
     .at(-1);
-  const hostRect = host.getBoundingClientRect();
-  const childRect = lastNativeChild?.getBoundingClientRect();
-  const left = Math.max(
-    0,
-    (childRect?.right ?? hostRect.left) - hostRect.left + 7,
-  );
+  const { left, availableWidth } = actionDashboardLayout(host, lastNativeChild);
   root.style.left = `${left}px`;
   root.style.setProperty("--mwi-action-dashboard-left", `${left}px`);
-  const hostWidth = Math.max(
-    0,
-    Number(hostRect.width) || Number(hostRect.right) - Number(hostRect.left),
-  );
+  if (availableWidth > 0) {
+    root.style.setProperty(
+      "--mwi-action-dashboard-max-width",
+      `${availableWidth}px`,
+    );
+  } else {
+    root.style.removeProperty("--mwi-action-dashboard-max-width");
+  }
   const viewportWidth =
     Number(host.ownerDocument?.defaultView?.innerWidth) || 0;
-  const availableWidth = Math.max(0, hostWidth - left);
   root.dataset.compact = String(
     (availableWidth > 0 && availableWidth < 420) ||
       (availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520),
   );
+  root.dataset.tight = String(availableWidth > 0 && availableWidth < 180);
   root.replaceChildren();
   root.removeAttribute("title");
 
@@ -418,6 +456,7 @@ function renderActionDashboard() {
     );
   }
   const currentTime = document.createElement("span");
+  currentTime.className = "mwi-action-time";
   currentTime.textContent = `${t("还需", "Time left")} ${formatDuration(
     projection.totalSeconds,
   )}`;

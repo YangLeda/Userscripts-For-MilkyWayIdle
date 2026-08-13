@@ -22,6 +22,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "排行榜徽章改用游戏原生技能与名望图标，不再从 MWITools 排行榜服务器加载图标文件。",
         "修复重置任务后卡片被原地复用时，“前往”仍按旧任务计算合并数量；现在会根据当前卡片和最新任务数据重新汇总。",
         "战斗模拟器重新从最近一场战斗读取队友实际携带的食物和咖啡；尚未取得对应战斗数据时，组队导入也不再中断。",
+        "修复中英文下顶部当前动作时间在窄窗口中与动作名称或排队按钮重叠；可用空间不足时会自动精简显示。",
       ]),
       en: Object.freeze([
         "Reduced background polling and repeated work across idle, production, market, and combat-stat views on mobile, and fixed memory growth after repeatedly opening the action queue to reduce heat, battery drain, and long-session stutter.",
@@ -35,6 +36,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Leaderboard badges now use the game's native skill and Fame icons instead of loading icon files from the MWITools leaderboard server.",
         "Fixed Go still using stale merged counts when a rerolled task reused the same card. Merge totals are now recalculated from the current card and latest task data.",
         "Combat simulators once again read teammates' actual food and coffee from the latest battle. Group imports also no longer stop when matching battle data has not been captured yet.",
+        "Fixed the top current-action timing overlapping the action name or queued-actions button in narrow windows in both Chinese and English. The summary now simplifies itself when space is limited.",
       ]),
     }),
   }),
