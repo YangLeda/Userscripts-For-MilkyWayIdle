@@ -112,6 +112,36 @@ test("stale Fiber quests are rejected when React reuses a task card", () => {
   assert.equal(resolved.taskId, "new");
 });
 
+test("task title decorations do not change semantic identity", () => {
+  const quest = {
+    id: "decorated-combat",
+    monsterHrid: "/monsters/werewolf",
+    goalCount: 185,
+    currentCount: 0,
+  };
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/gloomy_forest": { name: "Gloomy Forest" },
+  };
+  runtime.data.ZHMonsterNames = {
+    [quest.monsterHrid]: "狼人",
+  };
+  const decorated = card("狼人", "0 / 185");
+  const name = decorated.querySelector('[class*="RandomTask_name"]');
+  const mapIndex = document.createElement("span");
+  mapIndex.className = "script_taskMapIndex";
+  mapIndex.textContent = " 图10";
+  name.append(mapIndex);
+
+  const [resolved] = resolveTaskCards([decorated], [quest], {
+    taskActionHrid: () => "/actions/combat/gloomy_forest",
+    taskRemaining: remaining,
+  });
+
+  assert.equal(resolved.resolved, true);
+  assert.equal(resolved.matchSource, "semantic");
+  assert.equal(resolved.taskId, "decorated-combat");
+});
+
 test("transitional cards stay unresolved instead of receiving positional tasks", () => {
   const quest = {
     id: "ready-later",
