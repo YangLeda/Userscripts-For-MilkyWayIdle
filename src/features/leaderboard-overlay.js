@@ -339,7 +339,7 @@ function createOverlay(options = {}) {
             : settingsNameColor
               ? "settings"
               : "inline";
-      const signature = badgeSignature(visibleBadges);
+      const signature = `${badgeSignature(visibleBadges)}|effects:${state.showEffects}`;
       const previousPlacement =
         container?.dataset.mwiLeaderboardPlacement || "";
       if (!container) {

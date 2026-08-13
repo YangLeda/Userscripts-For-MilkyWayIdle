@@ -45,6 +45,16 @@ function settle() {
   return new Promise((resolve) => setTimeout(resolve, 40));
 }
 
+async function waitFor(getValue, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = getValue();
+    if (value) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("Timed out waiting for leaderboard overlay state");
+}
+
 function rowNames() {
   return [...document.querySelectorAll("tbody tr")].map((row) =>
     row
@@ -412,30 +422,30 @@ test("top-five rainbow badges sweep for one second, glint for one, then pause", 
   overlay.destroy();
 });
 
-test("top-five badge effects are disabled by default and can be toggled", async () => {
-  document.body.innerHTML = `
-    <span class="CharacterName_name__test" data-name="Alice">Alice</span>`;
-  const overlay = create({ document });
-  overlay.setRankings({
-    total_level: { rows: [{ characterName: "Alice", rank: 1 }] },
-  });
-  await settle();
+test("standalone top-five badge effects default to off and can be toggled", async () => {
+  const isolatedDom = new JSDOM(
+    `<span class="CharacterName_name__test" data-name="Alice">Alice</span>`,
+    { url: "https://test.milkywayidle.com/" },
+  );
+  const isolatedDocument = isolatedDom.window.document;
+  const overlay = create({ document: isolatedDocument });
+  try {
+    overlay.setRankings({
+      total_level: { rows: [{ characterName: "Alice", rank: 1 }] },
+    });
+    const badge = await waitFor(() =>
+      isolatedDocument.querySelector(".mwi-lb-badge"),
+    );
+    assert.equal(badge.classList.contains("mwi-lb-badge--top-five"), false);
 
-  assert.equal(
-    document
-      .querySelector(".mwi-lb-badge")
-      .classList.contains("mwi-lb-badge--top-five"),
-    false,
-  );
-  overlay.setDisplay({ effects: true });
-  await settle();
-  assert.equal(
-    document
-      .querySelector(".mwi-lb-badge")
-      .classList.contains("mwi-lb-badge--top-five"),
-    true,
-  );
-  overlay.destroy();
+    overlay.setDisplay({ effects: true });
+    await waitFor(() =>
+      isolatedDocument.querySelector(".mwi-lb-badge.mwi-lb-badge--top-five"),
+    );
+  } finally {
+    overlay.destroy();
+    isolatedDom.window.close();
+  }
 });
 
 test("adds a read-only experience-rate column without changing row order", async () => {

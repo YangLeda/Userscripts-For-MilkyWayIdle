@@ -30690,7 +30690,7 @@ ${preview}`
         const listPlacement = Boolean(guildNameBlock);
         const friendPlacement = Boolean(friendNameBlock);
         const placement = profilePlacement ? "profile" : listPlacement ? "list" : friendPlacement ? "friend" : settingsNameColor ? "settings" : "inline";
-        const signature = badgeSignature(visibleBadges);
+        const signature = `${badgeSignature(visibleBadges)}|effects:${state.showEffects}`;
         const previousPlacement = container?.dataset.mwiLeaderboardPlacement || "";
         if (!container) {
           container = documentRef.createElement("span");
@@ -42626,7 +42626,8 @@ ${locks}` : ""}`;
           "总等级下方的意见中心左侧新增快捷设置齿轮，可在随时打开的浮窗中搜索并调整完整 MWITools 设置；设置页与快捷浮窗共享相同状态并立即生效。",
           "顶部当前动作条和行动队列中的每项动作现在统一显示纯剩余时长与括号内的 24 小时制结束时间，不再显示剩余次数或多余文字标签；结束时间跨日时会用第二组括号标记 +1 天、+2 天等实际相隔天数，队列总时间也会显示最终结束时刻。",
           "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。",
-          "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。"
+          "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。",
+          "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42642,7 +42643,8 @@ ${locks}` : ""}`;
           "A quick-settings gear now sits to the left of the Feedback Center below Total Level, opening the complete searchable MWITools settings in an always-available popover. The settings page and quick panel share state and apply changes immediately.",
           "The top current-action bar and every action in the queue now share the same plain time-remaining and parenthesized 24-hour finish-time format, without remaining counts or extra text labels. A second parenthetical marker shows +1 day, +2 days, and so on after midnight, and the queue total now includes its final finish time.",
           "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout.",
-          "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes."
+          "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes.",
+          "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure."
         ])
       })
     }),
