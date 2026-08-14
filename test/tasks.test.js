@@ -265,7 +265,11 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.match(
     styles,
-    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*left:68%[^}]*width:24%[^}]*height:88%/,
+    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*right:8%[^}]*left:0[^}]*display:flex[^}]*height:88%[^}]*flex-direction:row-reverse/,
+  );
+  assert.match(
+    styles,
+    /\.mwi-task-bg svg\s*\{[^}]*width:24%[^}]*height:100%[^}]*flex:0 0 24%/,
   );
   assert.match(
     styles,
@@ -1038,6 +1042,7 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       <use href="/static/media/combat_monsters_sprite.test.svg#fly"></use>
     </svg>`,
   );
+  resetGameSpriteSources();
   runtime.api.renderTasks();
 
   const list = document.querySelector(".TasksPanel_taskList__dungeons");
@@ -1078,6 +1083,19 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       runtime.state.characterQuests[0],
     ).length,
     3,
+  );
+  assert.deepEqual(
+    [
+      ...document
+        .querySelector(TASK_SELECTOR)
+        .querySelectorAll(":scope > .mwi-task-bg use"),
+    ].map((use) => use.getAttribute("href")),
+    [
+      "/static/media/combat_monsters_sprite.test.svg#fly",
+      "/static/media/actions_sprite.test.svg#chimerical_den",
+      "/static/media/actions_sprite.test.svg#sinister_circus",
+      "/static/media/actions_sprite.test.svg#pirate_cove",
+    ],
   );
 
   toolbar

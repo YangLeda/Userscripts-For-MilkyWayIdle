@@ -418,7 +418,7 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(current.body.zh.length, 18);
   assert.match(
     current.body.zh.join("\n"),
-    /恢复任务页地牢筛选按钮的官方图标.*菱形占位符/,
+    /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,
   );
   assert.match(
     current.body.zh.join("\n"),

@@ -164,8 +164,8 @@ function addStyles() {
     .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
     .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
-    .mwi-task-bg svg { width:100%; height:100%; }
+    .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
+    .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
@@ -474,31 +474,58 @@ export function taskArtworkForCard(card, task, context = {}) {
   return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
 }
 
-function decorateCard(card, task, artwork = null) {
+function taskArtworksForCard(card, task, context = {}) {
+  const primary = taskArtworkForCard(card, task, context);
+  if (!primary) return [];
+  if (primary.kind !== "combat_monsters") return [primary];
+  const dungeonLocations =
+    context.dungeonLocations ?? dungeonLocationsForCard(card, task, context);
+  const seen = new Set();
+  const dungeons = dungeonLocations
+    .filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid)
+    .filter(({ actionHrid }) => {
+      if (seen.has(actionHrid)) return false;
+      seen.add(actionHrid);
+      return true;
+    })
+    .map(({ actionHrid }) => ({ kind: "actions", hrid: actionHrid }));
+  return [primary, ...dungeons];
+}
+
+function artworkHrefs(artworks) {
+  return artworks
+    .map(({ kind, hrid }) => getGameSpriteHref(kind, hrid))
+    .filter(Boolean);
+}
+
+function decorateCard(card, task, artworks = null) {
   card.querySelector(".mwi-task-insight")?.remove();
   if (!runtime.settings.get("taskIcons")) {
     card.querySelector(":scope > .mwi-task-bg")?.remove();
     return;
   }
-  const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
+  const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
+  const signature = hrefs.join("\n");
   const existing = card.querySelector(":scope > .mwi-task-bg");
-  if (!href) {
+  if (!hrefs.length) {
     existing?.remove();
     return;
   }
-  if (existing?.dataset.spriteHref === href) return;
+  if (existing?.dataset.spriteHref === signature) return;
   existing?.remove();
   const background = document.createElement("div");
   background.className = "mwi-task-bg";
-  background.dataset.spriteHref = href;
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "100%");
-  svg.setAttribute("height", "100%");
-  svg.setAttribute("aria-hidden", "true");
-  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", href);
-  svg.appendChild(use);
-  background.appendChild(svg);
+  background.dataset.spriteHref = signature;
+  for (const href of hrefs) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.appendChild(use);
+    background.appendChild(svg);
+  }
   card.style.position = "relative";
   card.appendChild(background);
 }
@@ -506,9 +533,10 @@ function decorateCard(card, task, artwork = null) {
 function taskIconMatches(card, task) {
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!runtime.settings.get("taskIcons")) return !existing;
-  const artwork = taskArtworkForCard(card, task);
-  const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
-  return href ? existing?.dataset.spriteHref === href : existing === null;
+  const signature = artworkHrefs(taskArtworksForCard(card, task)).join("\n");
+  return signature
+    ? existing?.dataset.spriteHref === signature
+    : existing === null;
 }
 
 function visibleTaskTitle(card) {
@@ -977,13 +1005,15 @@ function orderedRows(cards, tasks, snapshots = null) {
       profession.key === "combat"
         ? monsterHrid || snapshot.actionHrid || `combat-slot-${slot}`
         : "";
-    const artwork = runtime.settings.get("taskIcons")
-      ? taskArtworkForCard(card, task, {
+    const artworks = runtime.settings.get("taskIcons")
+      ? taskArtworksForCard(card, task, {
           title: snapshot.title,
           profession,
           monsterHrid,
+          dungeonLocations,
         })
-      : null;
+      : [];
+    const artwork = artworks[0] ?? null;
     pageClassifications.set(slot, {
       completed,
       state,
@@ -992,6 +1022,7 @@ function orderedRows(cards, tasks, snapshots = null) {
       dungeonLocations,
       monsterGroupKey,
       artwork,
+      artworks,
     });
     const taskState = state;
     if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -1017,6 +1048,7 @@ function orderedRows(cards, tasks, snapshots = null) {
       dungeonLocations,
       monsterGroupKey,
       artwork,
+      artworks,
       info: actionSortInfo(task, slot),
       depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
       chain: chains?.get(taskActionHrid(task))?.group ?? index,
@@ -1715,7 +1747,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   });
   if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
   const rows = orderedRows(cards, cardTasks, snapshots);
-  rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
+  rows.forEach((row) => decorateCard(row.card, row.task, row.artworks));
   wireMergeButtons(cards);
   wireResetButtons(cards);
   renderFlatTaskList(rows, {

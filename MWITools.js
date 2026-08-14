@@ -24564,8 +24564,8 @@ ${locks}` : ""}`;
     .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
     .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
-    .mwi-task-bg svg { width:100%; height:100%; }
+    .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
+    .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
@@ -24805,40 +24805,58 @@ ${locks}` : ""}`;
     if (outputItemHrid) return { kind: "items", hrid: outputItemHrid };
     return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
   }
-  function decorateCard(card, task, artwork = null) {
+  function taskArtworksForCard(card, task, context = {}) {
+    const primary = taskArtworkForCard(card, task, context);
+    if (!primary) return [];
+    if (primary.kind !== "combat_monsters") return [primary];
+    const dungeonLocations = context.dungeonLocations ?? dungeonLocationsForCard(card, task, context);
+    const seen = /* @__PURE__ */ new Set();
+    const dungeons = dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).filter(({ actionHrid }) => {
+      if (seen.has(actionHrid)) return false;
+      seen.add(actionHrid);
+      return true;
+    }).map(({ actionHrid }) => ({ kind: "actions", hrid: actionHrid }));
+    return [primary, ...dungeons];
+  }
+  function artworkHrefs(artworks) {
+    return artworks.map(({ kind, hrid }) => getGameSpriteHref(kind, hrid)).filter(Boolean);
+  }
+  function decorateCard(card, task, artworks = null) {
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
       card.querySelector(":scope > .mwi-task-bg")?.remove();
       return;
     }
-    const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
+    const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
+    const signature = hrefs.join("\n");
     const existing = card.querySelector(":scope > .mwi-task-bg");
-    if (!href) {
+    if (!hrefs.length) {
       existing?.remove();
       return;
     }
-    if (existing?.dataset.spriteHref === href) return;
+    if (existing?.dataset.spriteHref === signature) return;
     existing?.remove();
     const background = document.createElement("div");
     background.className = "mwi-task-bg";
-    background.dataset.spriteHref = href;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", href);
-    svg.appendChild(use);
-    background.appendChild(svg);
+    background.dataset.spriteHref = signature;
+    for (const href of hrefs) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "100%");
+      svg.setAttribute("aria-hidden", "true");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", href);
+      svg.appendChild(use);
+      background.appendChild(svg);
+    }
     card.style.position = "relative";
     card.appendChild(background);
   }
   function taskIconMatches(card, task) {
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!runtime.settings.get("taskIcons")) return !existing;
-    const artwork = taskArtworkForCard(card, task);
-    const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
-    return href ? existing?.dataset.spriteHref === href : existing === null;
+    const signature = artworkHrefs(taskArtworksForCard(card, task)).join("\n");
+    return signature ? existing?.dataset.spriteHref === signature : existing === null;
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
@@ -25209,11 +25227,13 @@ ${locks}` : ""}`;
         monsterHrid
       }) : [];
       const monsterGroupKey = profession.key === "combat" ? monsterHrid || snapshot.actionHrid || `combat-slot-${slot}` : "";
-      const artwork = runtime.settings.get("taskIcons") ? taskArtworkForCard(card, task, {
+      const artworks = runtime.settings.get("taskIcons") ? taskArtworksForCard(card, task, {
         title: snapshot.title,
         profession,
-        monsterHrid
-      }) : null;
+        monsterHrid,
+        dungeonLocations
+      }) : [];
+      const artwork = artworks[0] ?? null;
       pageClassifications.set(slot, {
         completed,
         state,
@@ -25221,7 +25241,8 @@ ${locks}` : ""}`;
         location: location2,
         dungeonLocations,
         monsterGroupKey,
-        artwork
+        artwork,
+        artworks
       });
       const taskState = state;
       if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -25244,6 +25265,7 @@ ${locks}` : ""}`;
         dungeonLocations,
         monsterGroupKey,
         artwork,
+        artworks,
         info: actionSortInfo(task, slot),
         depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
         chain: chains?.get(taskActionHrid(task))?.group ?? index
@@ -25835,7 +25857,7 @@ ${locks}` : ""}`;
     });
     if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
     const rows2 = orderedRows(cards, cardTasks, snapshots);
-    rows2.forEach((row) => decorateCard(row.card, row.task, row.artwork));
+    rows2.forEach((row) => decorateCard(row.card, row.task, row.artworks));
     wireMergeButtons(cards);
     wireResetButtons(cards);
     renderFlatTaskList(rows2, {
@@ -27204,7 +27226,7 @@ ${locks}` : ""}`;
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
           "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
           "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
-          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。"
+          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27224,7 +27246,7 @@ ${locks}` : ""}`;
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
           "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
           "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
-          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders."
+          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork."
         ])
       })
     }),
