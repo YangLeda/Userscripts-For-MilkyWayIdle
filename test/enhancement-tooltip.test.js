@@ -14,8 +14,11 @@ const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
-const { getTooltipEnhancementPlanOptions, readEnhancedTooltipItem } =
-  await import("../src/features/enhancement-tooltip.js");
+const {
+  getEnhancedMarketValue,
+  getTooltipEnhancementPlanOptions,
+  readEnhancedTooltipItem,
+} = await import("../src/features/enhancement-tooltip.js");
 
 test("refined tooltip identity comes from its sprite and level marker", () => {
   runtime.state.initData_itemDetailMap = {
@@ -109,4 +112,33 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   runtime.api.getAssetValue = originals.getAssetValue;
   runtime.api.isBackEquipment = originals.isBackEquipment;
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = false;
+});
+
+test("enhanced market value uses completed detail plan cost", () => {
+  const originalGetFairValue = runtime.api.getFairValue;
+  runtime.api.getFairValue = () => 123_456;
+
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 7, {
+      status: "complete",
+      totalCost: 987_654,
+    }),
+    987_654,
+  );
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 7, {
+      status: "incomplete",
+      totalCost: 987_654,
+    }),
+    123_456,
+  );
+  assert.equal(
+    getEnhancedMarketValue("/items/rippling_trident", 0, {
+      status: "complete",
+      totalCost: 987_654,
+    }),
+    123_456,
+  );
+
+  runtime.api.getFairValue = originalGetFairValue;
 });

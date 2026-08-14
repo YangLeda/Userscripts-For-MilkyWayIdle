@@ -57,6 +57,40 @@ function countWithUnit(value) {
   return `${compactNumber(number, digits)} ${t("个", "pcs")}`;
 }
 
+function teaName(teaType) {
+  return (
+    {
+      none: t("无茶", "no tea"),
+      enhancing_tea: t("强化茶", "Enhancing Tea"),
+      super_enhancing_tea: t("超级强化茶", "Super Enhancing Tea"),
+      ultra_enhancing_tea: t("究极强化茶", "Ultra Enhancing Tea"),
+    }[teaType] ?? teaType
+  );
+}
+
+function profileSummary(plan) {
+  const profile = plan?.simulationProfile;
+  if (!profile) return null;
+  const tea = teaName(profile.teaType);
+  const blessed = profile.blessedTea ? t("幸运茶", "Blessed Tea") : "";
+  const parts = [
+    t(`强化 ${profile.playerLevel}`, `Enh ${profile.playerLevel}`),
+    t(`房子 ${profile.houseLevel}`, `House ${profile.houseLevel}`),
+    t(
+      `强化器 ${profile.enhancerBonusPercent}%`,
+      `Enhancer ${profile.enhancerBonusPercent}%`,
+    ),
+    t(
+      `装备 ${profile.gearSpeedBonusPercent}%`,
+      `Gear ${profile.gearSpeedBonusPercent}%`,
+    ),
+    tea,
+    blessed,
+    t(`${profile.taxRatePercent}% 税`, `${profile.taxRatePercent}% tax`),
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
 function metric(label, value, exactValue = null, titleText = "") {
   const row = document.createElement("div");
   row.className = "mwi-enhancement-metric";
@@ -117,7 +151,17 @@ function renderPanel(panel, plan) {
   grid.className = "mwi-enhancement-grid";
   const protectionMetric = metric("", protection.text, null, protection.title);
   protectionMetric.classList.add("mwi-enhancement-protection");
+  const summary = profileSummary(plan);
   grid.append(
+    ...(summary
+      ? [
+          (() => {
+            const row = metric("", summary, null, summary);
+            row.classList.add("mwi-enhancement-protection");
+            return row;
+          })(),
+        ]
+      : []),
     metric(
       t("总成本", "Total cost"),
       complete ? compactNumber(plan.totalCost, 1) : "—",
