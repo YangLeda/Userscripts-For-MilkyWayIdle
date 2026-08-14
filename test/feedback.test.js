@@ -415,7 +415,11 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 23);
+  assert.equal(current.body.zh.length, 24);
+  assert.match(
+    current.body.zh.join("\n"),
+    /自托管更新源.*校验脚本、元数据、版本和更新地址.*CDN 缓存刷新/,
+  );
   assert.match(
     current.body.zh.join("\n"),
     /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
