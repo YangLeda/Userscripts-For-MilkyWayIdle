@@ -577,6 +577,31 @@ assert(
   ClassSystem.classFor("列表装备") === "crossbow",
   "装备确认的弩职业被修正后攻速重新覆盖为弓",
 );
+ClassSystem.setDetected("旧剑缓存", "sword");
+ClassSystem.setDetected("旧弩缓存", "crossbow");
+const correctedBattleClasses = ClassSystem.registerPlayers([
+  player("旧剑缓存", "stab", "physical", "attack", 2555611941),
+  player("旧弩缓存", "stab", "physical", "attack", 2536856906),
+]);
+assert(
+  correctedBattleClasses["旧剑缓存"] === "spear" &&
+    ClassSystem.classFor("旧剑缓存") === "spear",
+  "本场明确的枪属性没有纠正旧剑缓存",
+);
+assert(
+  correctedBattleClasses["旧弩缓存"] === "spear" &&
+    ClassSystem.classFor("旧弩缓存") === "spear",
+  "本场明确的枪属性没有纠正旧弩缓存",
+);
+ClassSystem.setDetected("手动职业优先", "crossbow");
+ClassSystem.setOverride("手动职业优先", "sword");
+ClassSystem.registerPlayers([
+  player("手动职业优先", "stab", "physical", "attack", 2555611941),
+]);
+assert(
+  ClassSystem.classFor("手动职业优先") === "sword",
+  "本场自动识别覆盖了手动指定职业",
+);
 ClassSystem.setDetected("Ting", "spear");
 const swordEvidence = ClassSystem.learnAbility("Ting", "/abilities/maim");
 assert(

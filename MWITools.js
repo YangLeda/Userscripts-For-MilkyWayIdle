@@ -29108,6 +29108,7 @@ ${locks}` : ""}`;
           "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
           "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。",
           "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
+          "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。"
         ]),
@@ -29123,6 +29124,7 @@ ${locks}` : ""}`;
           "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
           "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place.",
           "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
+          "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added."
         ])
@@ -36277,18 +36279,25 @@ ${locks}` : ""}`;
     function setOverride(name, classId) {
       Settings.setClassOverride(name, classId === "auto" ? null : classId);
     }
+    function resolveBattleClass(name, player, source) {
+      const override = name ? Settings.getClassOverride(name) : null;
+      if (override) return override;
+      const known = name ? detected.get(name) || Settings.getCachedClass(name) || UNKNOWN : UNKNOWN;
+      const live = identify(player);
+      if (live === UNKNOWN) return known;
+      const ranged = /* @__PURE__ */ new Set(["bow", "crossbow"]);
+      const onlyRangedIntervalChanged = !weaponHridFromPlayer(player) && ranged.has(known) && ranged.has(live);
+      const classId = onlyRangedIntervalChanged ? known : live;
+      if (name && classId !== known) setDetected(name, classId, source);
+      return classId;
+    }
     function registerPlayers(players) {
       const out = {};
       (players || []).forEach((p) => {
         const name = p.character && p.character.name || p.name;
         syncWeaponCache(name, p);
-        const known = name ? classFor(name) : UNKNOWN;
-        const classId = known !== UNKNOWN ? known : identify(p);
-        if (name) {
-          if (known === UNKNOWN && classId !== UNKNOWN)
-            setDetected(name, classId);
-          out[name] = classId;
-        }
+        const classId = resolveBattleClass(name, p, "本场战斗人物属性");
+        if (name) out[name] = classId;
       });
       return out;
     }
@@ -36298,12 +36307,12 @@ ${locks}` : ""}`;
       const name = unit.character && unit.character.name || unit.characterName || unit.name || payload && payload.characterName || "";
       syncWeaponCache(name, unit);
       const known = name ? classFor(name) : UNKNOWN;
-      const classId = known !== UNKNOWN ? known : identify(unit);
+      const classId = resolveBattleClass(name, unit, "战斗人物属性");
       if (!name || classId === UNKNOWN) return { name, classId, updated: false };
       return {
         name,
         classId,
-        updated: known === UNKNOWN && setDetected(name, classId, "战斗人物属性"),
+        updated: known !== classId,
         source: "combatDetails.combatStats"
       };
     }

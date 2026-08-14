@@ -350,18 +350,28 @@ const ClassSystem = (() => {
   function setOverride(name, classId) {
     Settings.setClassOverride(name, classId === "auto" ? null : classId);
   }
+  function resolveBattleClass(name, player, source) {
+    const override = name ? Settings.getClassOverride(name) : null;
+    if (override) return override;
+    const known = name
+      ? detected.get(name) || Settings.getCachedClass(name) || UNKNOWN
+      : UNKNOWN;
+    const live = identify(player);
+    if (live === UNKNOWN) return known;
+    const ranged = new Set(["bow", "crossbow"]);
+    const onlyRangedIntervalChanged =
+      !weaponHridFromPlayer(player) && ranged.has(known) && ranged.has(live);
+    const classId = onlyRangedIntervalChanged ? known : live;
+    if (name && classId !== known) setDetected(name, classId, source);
+    return classId;
+  }
   function registerPlayers(players) {
     const out = {};
     (players || []).forEach((p) => {
       const name = (p.character && p.character.name) || p.name;
       syncWeaponCache(name, p);
-      const known = name ? classFor(name) : UNKNOWN;
-      const classId = known !== UNKNOWN ? known : identify(p);
-      if (name) {
-        if (known === UNKNOWN && classId !== UNKNOWN)
-          setDetected(name, classId);
-        out[name] = classId;
-      }
+      const classId = resolveBattleClass(name, p, "本场战斗人物属性");
+      if (name) out[name] = classId;
     });
     return out;
   }
@@ -378,12 +388,12 @@ const ClassSystem = (() => {
       "";
     syncWeaponCache(name, unit);
     const known = name ? classFor(name) : UNKNOWN;
-    const classId = known !== UNKNOWN ? known : identify(unit);
+    const classId = resolveBattleClass(name, unit, "战斗人物属性");
     if (!name || classId === UNKNOWN) return { name, classId, updated: false };
     return {
       name,
       classId,
-      updated: known === UNKNOWN && setDetected(name, classId, "战斗人物属性"),
+      updated: known !== classId,
       source: "combatDetails.combatStats",
     };
   }
