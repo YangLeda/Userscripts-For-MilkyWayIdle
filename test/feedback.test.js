@@ -436,6 +436,14 @@ test("announcement history preserves each release separately through 26.4.9", ()
     current.body.en.join("\n"),
     /Purple Cow-style performance setup.*Smooth.*restart the guide/,
   );
+  assert.match(
+    current.body.zh.join("\n"),
+    /左上角总进度.*应用配置后自动刷新页面/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /overall progress bar.*refreshes the page automatically/,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

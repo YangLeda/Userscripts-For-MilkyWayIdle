@@ -27,6 +27,7 @@ let dpsPerformance = {
   refreshIntervalMs: 1000,
 };
 let persistCount = 0;
+let pageReloadCount = 0;
 runtime.api.persistSettings = () => {
   persistCount += 1;
 };
@@ -36,6 +37,9 @@ runtime.api.dpsPerformance = {
     dpsPerformance = { ...dpsPerformance, ...value };
     return { ...dpsPerformance };
   },
+};
+runtime.api.reloadPage = () => {
+  pageReloadCount += 1;
 };
 runtime.features.pauseInitialization();
 
@@ -150,20 +154,33 @@ test("the native-style custom path groups choices, applies once, and restores fo
   trigger.textContent = "settings";
   document.body.append(trigger);
   trigger.focus();
+  runtime.config.isZH = true;
+  pageReloadCount = 0;
 
   const resultPromise = openPerformanceOnboarding({ firstRun: false });
   const root = document.getElementById(PERFORMANCE_ONBOARDING_ID);
   assert.ok(root);
   assert.equal(root.getAttribute("aria-modal"), "true");
   assert.ok(root.querySelector(".mwi-performance-card"));
+  assert.match(root.textContent, /设备长时间挂机/);
+  assert.doesNotMatch(root.textContent, /手机长时间挂机/);
+  const progress = () => root.querySelector('[role="progressbar"]');
+  assert.equal(progress().getAttribute("aria-valuenow"), "0");
+  assert.equal(progress().getAttribute("aria-valuemax"), "3");
 
   const next = () =>
     root.querySelector(".mwi-performance-button-primary").click();
   next();
+  assert.equal(progress().getAttribute("aria-valuenow"), "1");
+  assert.doesNotMatch(root.textContent, /战斗开/);
   root.querySelector('[data-value="life"]').click();
   next();
+  assert.equal(progress().getAttribute("aria-valuenow"), "2");
   root.querySelector('[data-value="custom"]').click();
+  assert.equal(progress().getAttribute("aria-valuemax"), "7");
+  assert.equal(progress().getAttribute("aria-valuenow"), "2");
   next();
+  assert.equal(progress().getAttribute("aria-valuenow"), "3");
   assert.match(
     root.querySelector(".mwi-performance-title").textContent,
     /战斗|Combat/,
@@ -181,6 +198,8 @@ test("the native-style custom path groups choices, applies once, and restores fo
     root.querySelector(".mwi-performance-title").textContent,
     /确认|Confirm/,
   );
+  assert.equal(progress().getAttribute("aria-valuenow"), "7");
+  assert.equal(progress().textContent.includes("7 / 7"), true);
   next();
   const result = await resultPromise;
   assert.equal(result.result, "applied");
@@ -188,6 +207,7 @@ test("the native-style custom path groups choices, applies once, and restores fo
   assert.equal(result.profile.usage, "life");
   assert.equal(runtime.settings.get("showDamage"), false);
   assert.equal(dpsPerformance.refreshIntervalMs, 2000);
+  assert.equal(pageReloadCount, 1);
   assert.equal(document.activeElement, trigger);
 });
 
@@ -195,6 +215,7 @@ test("Esc cancels a restarted guide without applying edits or leaking dialogs", 
   const { openPerformanceOnboarding, PERFORMANCE_ONBOARDING_ID } =
     await import("../src/features/performance-onboarding.js");
   const before = localStorage.getItem(profile.PERFORMANCE_PROFILE_STORAGE_KEY);
+  const reloadCountBeforeCancel = pageReloadCount;
   const resultPromise = openPerformanceOnboarding({ firstRun: false });
   document.dispatchEvent(
     new globalThis.KeyboardEvent("keydown", {
@@ -204,6 +225,7 @@ test("Esc cancels a restarted guide without applying edits or leaking dialogs", 
   );
   const result = await resultPromise;
   assert.equal(result.result, "cancelled");
+  assert.equal(pageReloadCount, reloadCountBeforeCancel);
   assert.equal(
     localStorage.getItem(profile.PERFORMANCE_PROFILE_STORAGE_KEY),
     before,

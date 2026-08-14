@@ -170,9 +170,12 @@ function addStyles() {
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{display:block;width:130px;height:100px}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 10px;padding:1px 7px;border-radius:4px;background:var(--color-space-600,#394064);font-size:14px;font-weight:600;white-space:nowrap}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{position:relative;display:grid;width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 32px));overflow:hidden;border:1px solid var(--color-neutral-200,#d0d0d0);border-radius:4px;background:var(--color-midnight-900,#131419);box-shadow:rgba(208,208,208,.28) 0 0 4px 4px;grid-template-rows:auto minmax(0,1fr) auto}
-    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding:14px 48px 8px 18px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{position:relative;min-height:38px;padding:14px 150px 8px;text-align:center}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-title{font-size:17px;font-weight:700}
-    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{margin-top:2px;color:var(--color-neutral-400,#999);font-size:11px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{position:absolute;left:14px;top:10px;width:120px;color:var(--color-neutral-400,#999);font-size:10px;text-align:left}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-label{display:flex;justify-content:space-between;gap:6px;margin-bottom:3px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-track{height:5px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.13)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-fill{display:block;height:100%;border-radius:inherit;background:var(--color-primary,#ee9a1d);transition:width .2s ease}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-close{position:absolute;z-index:2;right:8px;top:7px;display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;background:transparent;color:#fff;font-size:25px;line-height:1;cursor:pointer}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{min-height:180px;overflow:auto;overscroll-behavior:contain;padding:10px 18px 16px}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-copy{margin:0 auto 14px;max-width:470px;color:var(--color-neutral-200,#d0d0d0);text-align:center}
@@ -216,7 +219,8 @@ function addStyles() {
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{width:76px;height:58px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 0 12px -8px;font-size:11px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{width:100%;max-height:calc(100vh - 70px);max-height:calc(100dvh - 70px)}
-      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding-top:12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{min-height:32px;padding:42px 40px 8px 12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{left:12px;right:44px;top:9px;width:auto}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{padding:8px 12px 12px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options,#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{grid-template-columns:1fr}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{min-height:68px}
@@ -416,45 +420,71 @@ class PerformanceOnboarding {
     if (this.stage === "welcome") {
       return {
         title: isZH() ? "欢迎使用 MWITools" : "Welcome to MWITools",
-        progress: isZH() ? "性能初始化" : "Performance setup",
       };
     }
     if (this.stage === "usage") {
       return {
         title: isZH() ? "你主要怎么玩？" : "How do you usually play?",
-        progress: isZH() ? "第 1 步，共 3 步" : "Step 1 of 3",
       };
     }
     if (this.stage === "tier") {
       return {
         title: isZH() ? "选择设备性能档位" : "Choose a performance tier",
-        progress: isZH() ? "第 2 步，共 3 步" : "Step 2 of 3",
       };
     }
     if (this.stage.startsWith("custom:")) {
       const index = Number(this.stage.split(":")[1]);
       return {
         title: t(CUSTOM_GROUPS[index].title),
-        progress: isZH()
-          ? `自定义 ${index + 1} / ${CUSTOM_GROUPS.length}`
-          : `Custom ${index + 1} of ${CUSTOM_GROUPS.length}`,
       };
     }
     return {
       title: isZH() ? "确认性能设置" : "Confirm performance settings",
-      progress: isZH() ? "第 3 步，共 3 步" : "Step 3 of 3",
     };
+  }
+
+  overallProgress() {
+    const custom = this.tier === "custom";
+    const total = custom ? CUSTOM_GROUPS.length + 3 : 3;
+    if (this.stage === "welcome") return { current: 0, total };
+    if (this.stage === "usage") return { current: 1, total };
+    if (this.stage === "tier") return { current: 2, total };
+    if (this.stage.startsWith("custom:")) {
+      return {
+        current: Number(this.stage.split(":")[1]) + 3,
+        total,
+      };
+    }
+    return { current: total, total };
   }
 
   render() {
     const info = this.stageInfo();
+    const overall = this.overallProgress();
     this.head.replaceChildren();
     const title = document.createElement("div");
     title.className = "mwi-performance-title";
     title.textContent = info.title;
     const progress = document.createElement("div");
     progress.className = "mwi-performance-progress";
-    progress.textContent = info.progress;
+    progress.setAttribute("role", "progressbar");
+    progress.setAttribute("aria-valuemin", "0");
+    progress.setAttribute("aria-valuemax", String(overall.total));
+    progress.setAttribute("aria-valuenow", String(overall.current));
+    const progressLabel = document.createElement("div");
+    progressLabel.className = "mwi-performance-progress-label";
+    const progressTitle = document.createElement("span");
+    progressTitle.textContent = isZH() ? "总进度" : "Overall";
+    const progressValue = document.createElement("span");
+    progressValue.textContent = `${overall.current} / ${overall.total}`;
+    progressLabel.append(progressTitle, progressValue);
+    const progressTrack = document.createElement("div");
+    progressTrack.className = "mwi-performance-progress-track";
+    const progressFill = document.createElement("span");
+    progressFill.className = "mwi-performance-progress-fill";
+    progressFill.style.width = `${(overall.current / overall.total) * 100}%`;
+    progressTrack.append(progressFill);
+    progress.append(progressLabel, progressTrack);
     this.head.append(title, progress);
     this.body.replaceChildren();
     this.footer.replaceChildren();
@@ -470,8 +500,8 @@ class PerformanceOnboarding {
     const copy = document.createElement("p");
     copy.className = "mwi-performance-copy";
     copy.textContent = isZH()
-      ? "根据你的玩法和设备选择合适配置，可以减少手机长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。"
-      : "Choose a setup for your play style and device to reduce heat, battery use, and long-session stutter. You can restart this guide from Settings at any time.";
+      ? "根据你的玩法和设备选择合适配置，可以减少设备长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。"
+      : "Choose a setup for your play style and device to reduce heat, power use, and stutter during long unattended sessions. You can restart this guide from Settings at any time.";
     const note = document.createElement("div");
     note.className = "mwi-performance-note";
     note.textContent = isZH()
@@ -524,14 +554,6 @@ class PerformanceOnboarding {
       options.append(button);
     }
     this.body.append(options);
-    if (kind === "usage") {
-      const note = document.createElement("div");
-      note.className = "mwi-performance-note";
-      note.textContent = isZH()
-        ? "“战斗开”会在战斗或平衡模式开启，在生活模式关闭。"
-        : '"Combat on" enables a feature for Combat and Balanced and disables it for Skilling.';
-      this.body.append(note);
-    }
   }
 
   renderCustom() {
@@ -636,6 +658,7 @@ class PerformanceOnboarding {
             choices: this.tier === "custom" ? this.choices : null,
           });
           this.finish("applied");
+          this.reloadPage();
         } catch (error) {
           this.closing = false;
           next.disabled = false;
@@ -656,6 +679,23 @@ class PerformanceOnboarding {
       this.goNext();
     });
     this.footer.append(next);
+  }
+
+  reloadPage() {
+    try {
+      if (typeof runtime.api.reloadPage === "function") {
+        runtime.api.reloadPage();
+        return;
+      }
+      globalThis.location?.reload?.();
+    } catch (error) {
+      console.error(
+        isZH()
+          ? "[MWITools] 应用性能设置后刷新页面失败"
+          : "[MWITools] Failed to reload after applying performance settings",
+        error,
+      );
+    }
   }
 
   goNext() {

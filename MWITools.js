@@ -42882,7 +42882,7 @@ ${locks}` : ""}`;
           "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。",
           "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
           "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
-          "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。"
+          "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；左上角总进度会在自定义流程中显示当前步数，应用配置后自动刷新页面。可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42903,7 +42903,7 @@ ${locks}` : ""}`;
           "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned.",
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
           "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
-          "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. General settings now show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike."
+          "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. An overall progress bar in the upper-left tracks custom steps, and applying the profile now refreshes the page automatically. General settings show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike."
         ])
       })
     }),
@@ -48577,9 +48577,12 @@ ${locks}` : ""}`;
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{display:block;width:130px;height:100px}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 10px;padding:1px 7px;border-radius:4px;background:var(--color-space-600,#394064);font-size:14px;font-weight:600;white-space:nowrap}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{position:relative;display:grid;width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 32px));overflow:hidden;border:1px solid var(--color-neutral-200,#d0d0d0);border-radius:4px;background:var(--color-midnight-900,#131419);box-shadow:rgba(208,208,208,.28) 0 0 4px 4px;grid-template-rows:auto minmax(0,1fr) auto}
-    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding:14px 48px 8px 18px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{position:relative;min-height:38px;padding:14px 150px 8px;text-align:center}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-title{font-size:17px;font-weight:700}
-    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{margin-top:2px;color:var(--color-neutral-400,#999);font-size:11px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{position:absolute;left:14px;top:10px;width:120px;color:var(--color-neutral-400,#999);font-size:10px;text-align:left}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-label{display:flex;justify-content:space-between;gap:6px;margin-bottom:3px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-track{height:5px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.13)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-fill{display:block;height:100%;border-radius:inherit;background:var(--color-primary,#ee9a1d);transition:width .2s ease}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-close{position:absolute;z-index:2;right:8px;top:7px;display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;background:transparent;color:#fff;font-size:25px;line-height:1;cursor:pointer}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{min-height:180px;overflow:auto;overscroll-behavior:contain;padding:10px 18px 16px}
     #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-copy{margin:0 auto 14px;max-width:470px;color:var(--color-neutral-200,#d0d0d0);text-align:center}
@@ -48623,7 +48626,8 @@ ${locks}` : ""}`;
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{width:76px;height:58px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 0 12px -8px;font-size:11px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{width:100%;max-height:calc(100vh - 70px);max-height:calc(100dvh - 70px)}
-      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding-top:12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{min-height:32px;padding:42px 40px 8px 12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{left:12px;right:44px;top:9px;width:auto}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{padding:8px 12px 12px}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options,#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{grid-template-columns:1fr}
       #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{min-height:68px}
@@ -48808,43 +48812,70 @@ ${locks}` : ""}`;
     stageInfo() {
       if (this.stage === "welcome") {
         return {
-          title: isZH2() ? "欢迎使用 MWITools" : "Welcome to MWITools",
-          progress: isZH2() ? "性能初始化" : "Performance setup"
+          title: isZH2() ? "欢迎使用 MWITools" : "Welcome to MWITools"
         };
       }
       if (this.stage === "usage") {
         return {
-          title: isZH2() ? "你主要怎么玩？" : "How do you usually play?",
-          progress: isZH2() ? "第 1 步，共 3 步" : "Step 1 of 3"
+          title: isZH2() ? "你主要怎么玩？" : "How do you usually play?"
         };
       }
       if (this.stage === "tier") {
         return {
-          title: isZH2() ? "选择设备性能档位" : "Choose a performance tier",
-          progress: isZH2() ? "第 2 步，共 3 步" : "Step 2 of 3"
+          title: isZH2() ? "选择设备性能档位" : "Choose a performance tier"
         };
       }
       if (this.stage.startsWith("custom:")) {
         const index = Number(this.stage.split(":")[1]);
         return {
-          title: t18(CUSTOM_GROUPS[index].title),
-          progress: isZH2() ? `自定义 ${index + 1} / ${CUSTOM_GROUPS.length}` : `Custom ${index + 1} of ${CUSTOM_GROUPS.length}`
+          title: t18(CUSTOM_GROUPS[index].title)
         };
       }
       return {
-        title: isZH2() ? "确认性能设置" : "Confirm performance settings",
-        progress: isZH2() ? "第 3 步，共 3 步" : "Step 3 of 3"
+        title: isZH2() ? "确认性能设置" : "Confirm performance settings"
       };
+    }
+    overallProgress() {
+      const custom = this.tier === "custom";
+      const total = custom ? CUSTOM_GROUPS.length + 3 : 3;
+      if (this.stage === "welcome") return { current: 0, total };
+      if (this.stage === "usage") return { current: 1, total };
+      if (this.stage === "tier") return { current: 2, total };
+      if (this.stage.startsWith("custom:")) {
+        return {
+          current: Number(this.stage.split(":")[1]) + 3,
+          total
+        };
+      }
+      return { current: total, total };
     }
     render() {
       const info = this.stageInfo();
+      const overall = this.overallProgress();
       this.head.replaceChildren();
       const title = document.createElement("div");
       title.className = "mwi-performance-title";
       title.textContent = info.title;
       const progress = document.createElement("div");
       progress.className = "mwi-performance-progress";
-      progress.textContent = info.progress;
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", String(overall.total));
+      progress.setAttribute("aria-valuenow", String(overall.current));
+      const progressLabel = document.createElement("div");
+      progressLabel.className = "mwi-performance-progress-label";
+      const progressTitle = document.createElement("span");
+      progressTitle.textContent = isZH2() ? "总进度" : "Overall";
+      const progressValue = document.createElement("span");
+      progressValue.textContent = `${overall.current} / ${overall.total}`;
+      progressLabel.append(progressTitle, progressValue);
+      const progressTrack = document.createElement("div");
+      progressTrack.className = "mwi-performance-progress-track";
+      const progressFill = document.createElement("span");
+      progressFill.className = "mwi-performance-progress-fill";
+      progressFill.style.width = `${overall.current / overall.total * 100}%`;
+      progressTrack.append(progressFill);
+      progress.append(progressLabel, progressTrack);
       this.head.append(title, progress);
       this.body.replaceChildren();
       this.footer.replaceChildren();
@@ -48858,7 +48889,7 @@ ${locks}` : ""}`;
     renderWelcome() {
       const copy = document.createElement("p");
       copy.className = "mwi-performance-copy";
-      copy.textContent = isZH2() ? "根据你的玩法和设备选择合适配置，可以减少手机长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。" : "Choose a setup for your play style and device to reduce heat, battery use, and long-session stutter. You can restart this guide from Settings at any time.";
+      copy.textContent = isZH2() ? "根据你的玩法和设备选择合适配置，可以减少设备长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。" : "Choose a setup for your play style and device to reduce heat, power use, and stutter during long unattended sessions. You can restart this guide from Settings at any time.";
       const note = document.createElement("div");
       note.className = "mwi-performance-note";
       note.textContent = isZH2() ? "只会调整性能相关功能，不会修改语言、估值口径、通知或已保存的数据。" : "Only performance-related features change. Language, valuation rules, notifications, and saved data stay untouched.";
@@ -48902,12 +48933,6 @@ ${locks}` : ""}`;
         options.append(button);
       }
       this.body.append(options);
-      if (kind === "usage") {
-        const note = document.createElement("div");
-        note.className = "mwi-performance-note";
-        note.textContent = isZH2() ? "“战斗开”会在战斗或平衡模式开启，在生活模式关闭。" : '"Combat on" enables a feature for Combat and Balanced and disables it for Skilling.';
-        this.body.append(note);
-      }
     }
     renderCustom() {
       const index = Number(this.stage.split(":")[1]);
@@ -49001,6 +49026,7 @@ ${locks}` : ""}`;
               choices: this.tier === "custom" ? this.choices : null
             });
             this.finish("applied");
+            this.reloadPage();
           } catch (error) {
             this.closing = false;
             next.disabled = false;
@@ -49019,6 +49045,20 @@ ${locks}` : ""}`;
         this.goNext();
       });
       this.footer.append(next);
+    }
+    reloadPage() {
+      try {
+        if (typeof runtime.api.reloadPage === "function") {
+          runtime.api.reloadPage();
+          return;
+        }
+        globalThis.location?.reload?.();
+      } catch (error) {
+        console.error(
+          isZH2() ? "[MWITools] 应用性能设置后刷新页面失败" : "[MWITools] Failed to reload after applying performance settings",
+          error
+        );
+      }
     }
     goNext() {
       this.history.push(this.stage);
