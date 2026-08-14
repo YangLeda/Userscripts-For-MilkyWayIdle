@@ -415,7 +415,7 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 18);
+  assert.equal(current.body.zh.length, 19);
   assert.match(
     current.body.zh.join("\n"),
     /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,
@@ -435,6 +435,10 @@ test("announcement history preserves each release separately through 26.4.11", (
     /全部九种游戏语言.*不会新增游戏数据网络请求/,
   );
   assert.match(current.body.zh.join("\n"), /contains 权限错误.*界面重建/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /恢复食物与饮品的回复性价比.*回复 100 血或蓝所需金币/,
+  );
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);
   assert.match(earliest.body.zh.join("\n"), /任务页改为平铺布局/);

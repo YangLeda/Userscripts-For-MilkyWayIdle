@@ -1168,6 +1168,11 @@
       desc: isZH ? "物品悬浮窗显示：市场价值和订单簿价格" : "Item tooltip: Market value and order book prices.",
       isTrue: true
     },
+    showConsumTips: {
+      id: "showConsumTips",
+      desc: isZH ? "物品悬浮窗显示：按市场价值计算消耗品回复性价比" : "Item tooltip: Consumable recovery efficiency based on market value.",
+      isTrue: true
+    },
     itemTooltip_profit: {
       id: "itemTooltip_profit",
       desc: isZH ? "物品悬浮窗显示：生产成本和利润计算 [依赖上一项]" : "Item tooltip: Production cost and profit. [Depends on the previous selection]",
@@ -1751,6 +1756,14 @@
       "Show server value and current ask and bid prices in item tooltips."
     ],
     [
+      "showConsumTips",
+      "market",
+      "消耗品性价比",
+      "Consumable efficiency",
+      "按市场价值显示回复 100 血或蓝所需的金币。",
+      "Show the market-value cost to restore 100 HP or MP."
+    ],
+    [
       "itemTooltip_profit",
       "market",
       "悬浮生产利润",
@@ -2110,6 +2123,7 @@
     productionProfit: "actionPanel_totalTime",
     hideReadyProductionShortage: "procurementAssistant",
     showsKeyInfoInIcon: "itemIconLevel",
+    showConsumTips: "itemTooltip_prices",
     itemTooltip_profit: "itemTooltip_prices",
     itemTooltip_profitRequireKey: "itemTooltip_prices",
     lootChestEstimate: "itemTooltip_prices",
@@ -19059,6 +19073,27 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: var(--color-text-secondary,#777); font-size: calc(.6875rem * var(--mwi-ui-font-scale,1));">${hint}</div>
   `;
   }
+  function consumableEfficiencyTooltipRow(itemHrid, marketValue) {
+    if (!runtime.settings.settingsMap.showConsumTips?.isTrue) return "";
+    const detail = runtime.state.initData_itemDetailMap?.[itemHrid]?.consumableDetail;
+    const restores = [
+      {
+        amount: Number(detail?.hitpointRestore),
+        unit: runtime.config.isZH ? "血" : "hp"
+      },
+      {
+        amount: Number(detail?.manapointRestore),
+        unit: runtime.config.isZH ? "蓝" : "mp"
+      }
+    ].filter(({ amount }) => Number.isFinite(amount) && amount > 0);
+    if (!restores.length) return "";
+    const value = Number(marketValue);
+    const efficiency = Number.isFinite(value) && value > 0 ? restores.map(
+      ({ amount, unit }) => runtime.config.isZH ? `${numberFormatter2(value * 100 / amount, 0)}金/100${unit}` : `${numberFormatter2(value * 100 / amount, 0)} coins/100${unit}`
+    ).join(runtime.config.isZH ? "，" : ", ") : "-";
+    const label = runtime.config.isZH ? "消耗品性价比：" : "Consumable efficiency: ";
+    return `<div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${efficiency}</div>`;
+  }
   function timeReadable(sec) {
     if (!Number.isFinite(sec) || sec < 0) return "—";
     const normalized = Math.round(sec);
@@ -19394,6 +19429,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
     <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
+      appendHTMLStr += consumableEfficiencyTooltipRow(itemHrid, fairValue);
     }
     if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
@@ -27226,7 +27262,8 @@ ${locks}` : ""}`;
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
           "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
           "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
-          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。"
+          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
+          "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27246,7 +27283,8 @@ ${locks}` : ""}`;
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
           "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
           "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
-          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork."
+          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
+          "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures."
         ])
       })
     }),

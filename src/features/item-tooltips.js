@@ -184,6 +184,39 @@ function productionCostTooltipRows(itemHrid) {
   `;
 }
 
+function consumableEfficiencyTooltipRow(itemHrid, marketValue) {
+  if (!runtime.settings.settingsMap.showConsumTips?.isTrue) return "";
+  const detail =
+    runtime.state.initData_itemDetailMap?.[itemHrid]?.consumableDetail;
+  const restores = [
+    {
+      amount: Number(detail?.hitpointRestore),
+      unit: runtime.config.isZH ? "血" : "hp",
+    },
+    {
+      amount: Number(detail?.manapointRestore),
+      unit: runtime.config.isZH ? "蓝" : "mp",
+    },
+  ].filter(({ amount }) => Number.isFinite(amount) && amount > 0);
+  if (!restores.length) return "";
+
+  const value = Number(marketValue);
+  const efficiency =
+    Number.isFinite(value) && value > 0
+      ? restores
+          .map(({ amount, unit }) =>
+            runtime.config.isZH
+              ? `${numberFormatter((value * 100) / amount, 0)}金/100${unit}`
+              : `${numberFormatter((value * 100) / amount, 0)} coins/100${unit}`,
+          )
+          .join(runtime.config.isZH ? "，" : ", ")
+      : "-";
+  const label = runtime.config.isZH
+    ? "消耗品性价比："
+    : "Consumable efficiency: ";
+  return `<div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${efficiency}</div>`;
+}
+
 function timeReadable(sec) {
   if (!Number.isFinite(sec) || sec < 0) return "—";
   const normalized = Math.round(sec);
@@ -613,6 +646,7 @@ async function handleTooltipItem(tooltip) {
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
+    appendHTMLStr += consumableEfficiencyTooltipRow(itemHrid, fairValue);
   }
   if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
 

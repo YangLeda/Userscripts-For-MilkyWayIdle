@@ -156,6 +156,13 @@ let settingsMap = {
       : "Item tooltip: Market value and order book prices.",
     isTrue: true,
   },
+  showConsumTips: {
+    id: "showConsumTips",
+    desc: isZH
+      ? "物品悬浮窗显示：按市场价值计算消耗品回复性价比"
+      : "Item tooltip: Consumable recovery efficiency based on market value.",
+    isTrue: true,
+  },
   itemTooltip_profit: {
     id: "itemTooltip_profit",
     desc: isZH
@@ -821,6 +828,14 @@ const catalogRows = [
     "Show server value and current ask and bid prices in item tooltips.",
   ],
   [
+    "showConsumTips",
+    "market",
+    "消耗品性价比",
+    "Consumable efficiency",
+    "按市场价值显示回复 100 血或蓝所需的金币。",
+    "Show the market-value cost to restore 100 HP or MP.",
+  ],
+  [
     "itemTooltip_profit",
     "market",
     "悬浮生产利润",
@@ -1183,6 +1198,7 @@ const settingParents = {
   productionProfit: "actionPanel_totalTime",
   hideReadyProductionShortage: "procurementAssistant",
   showsKeyInfoInIcon: "itemIconLevel",
+  showConsumTips: "itemTooltip_prices",
   itemTooltip_profit: "itemTooltip_prices",
   itemTooltip_profitRequireKey: "itemTooltip_prices",
   lootChestEstimate: "itemTooltip_prices",
