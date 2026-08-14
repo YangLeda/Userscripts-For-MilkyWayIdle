@@ -1,5 +1,8 @@
 import { runtime } from "../core/runtime.js";
-import { formatRemainingTiming } from "../core/time-format.js";
+import {
+  formatRemainingDuration,
+  formatRemainingTiming,
+} from "../core/time-format.js";
 
 export const THIRD_PARTY_LINKS = [
   {
@@ -97,9 +100,42 @@ function disconnectActionQueueObserver(root = null) {
   ) {
     return false;
   }
+  if (activeActionQueueObserver.frameId !== null) {
+    (globalThis.cancelAnimationFrame ?? clearTimeout)(
+      activeActionQueueObserver.frameId,
+    );
+  }
+  clearTimeout(activeActionQueueObserver.retryId);
   activeActionQueueObserver.observer.disconnect();
   activeActionQueueObserver = null;
   return true;
+}
+
+function scheduleActionQueueRefresh(added, { retry = true } = {}) {
+  const active = activeActionQueueObserver;
+  if (!active || active.menu !== added) return;
+  if (active.frameId !== null) {
+    (globalThis.cancelAnimationFrame ?? clearTimeout)(active.frameId);
+  }
+  clearTimeout(active.retryId);
+  const requestFrame =
+    globalThis.requestAnimationFrame ?? ((callback) => setTimeout(callback, 0));
+  active.frameId = requestFrame(() => {
+    if (activeActionQueueObserver !== active) return;
+    active.frameId = null;
+    if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+      disconnectActionQueueObserver(added);
+      return;
+    }
+    handleActionQueueMenueCalculateTime(added);
+    if (retry) {
+      active.retryId = setTimeout(() => {
+        if (activeActionQueueObserver === active && added.isConnected) {
+          handleActionQueueMenueCalculateTime(added);
+        }
+      }, 100);
+    }
+  });
 }
 
 function disconnectActionQueueObservers() {
@@ -108,102 +144,116 @@ function disconnectActionQueueObservers() {
 
 function handleActionQueueMenue(added) {
   if (!runtime.settings.get("actionQueue")) return;
-  handleActionQueueMenueCalculateTime(added);
-
   const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-  if (!listDiv || activeActionQueueObserver?.menu === added) return;
+  if (!listDiv) return;
+  if (activeActionQueueObserver?.menu === added) {
+    scheduleActionQueueRefresh(added);
+    return;
+  }
   disconnectActionQueueObserver();
   const observer = new MutationObserver(() => {
     if (!runtime.settings.get("actionQueue") || !added.isConnected) {
       disconnectActionQueueObserver(added);
       return;
     }
-    handleActionQueueMenueCalculateTime(added);
+    scheduleActionQueueRefresh(added);
   });
-  activeActionQueueObserver = { menu: added, observer };
+  activeActionQueueObserver = {
+    menu: added,
+    observer,
+    frameId: null,
+    retryId: null,
+  };
   observer.observe(listDiv, {
     characterData: false,
     subtree: false,
     childList: true,
   });
+  handleActionQueueMenueCalculateTime(added);
 }
 
 function handleActionQueueMenueCalculateTime(added) {
   const actionDivList = added.querySelectorAll(
     "div.QueuedActions_action__r3HlD",
   );
-  if (!actionDivList.length) return;
-  if (
-    actionDivList.length !==
-    runtime.state.currentActionsHridList.length - 1
-  ) {
+  const actions = [...(runtime.state.currentActionsHridList ?? [])].sort(
+    (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
+  );
+  if (!actionDivList.length && actions.length > 1) return false;
+  if (actionDivList.length !== Math.max(0, actions.length - 1)) {
     console.error(
       runtime.config.isZH
         ? "[MWITools] 行动队列提示中的行动数量不一致。"
         : "[MWITools] Action count mismatch in the action queue tooltip.",
     );
-    return;
+    return false;
   }
 
-  let actionDivListIndex = 0;
-  let hasSkippedFirstAction = false;
-  let accumulatedTimeSec = 0;
-  let isAccumulatedTimeInfinite = false;
+  let finitePrefixSeconds = 0;
+  let reachedInfinite = false;
   const now = Date.now();
-  for (const actionObj of runtime.state.currentActionsHridList) {
-    const actionHrid = actionObj.actionHrid;
+  for (const [index, actionObj] of actions.entries()) {
+    const queuedRow = index > 0 ? actionDivList[index - 1] : null;
+    const target = queuedRow?.querySelector("div");
+    const current = target?.querySelector("div.script_actionTime");
+    if (reachedInfinite) {
+      current?.remove();
+      continue;
+    }
+    const actionHrid = String(actionObj.actionHrid ?? "");
     const count = actionObj.maxCount - actionObj.currentCount;
     const isInfinite = count === 0 || actionHrid.includes("/combat/");
-    if (isInfinite) isAccumulatedTimeInfinite = true;
-
     const detail = runtime.state.initData_actionDetailMap[actionHrid];
-    if (!detail) continue;
-    const timing = runtime.api.projectActionTiming?.(
-      actionHrid,
-      isInfinite ? Infinity : count,
-    );
+    const timing = detail
+      ? runtime.api.projectActionTiming?.(
+          actionHrid,
+          isInfinite ? Infinity : count,
+        )
+      : null;
     const totalTimeSec = timing?.totalSeconds;
-    if (totalTimeSec === null || totalTimeSec === undefined) {
-      isAccumulatedTimeInfinite = true;
-    }
+    const unavailable = !Number.isFinite(totalTimeSec);
+    const boundary = isInfinite || unavailable;
+    if (boundary) reachedInfinite = true;
+    else finitePrefixSeconds += totalTimeSec;
 
-    let finishAt = null;
-    if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
-      accumulatedTimeSec += totalTimeSec;
-      finishAt = now + accumulatedTimeSec * 1000;
-    }
-
-    if (hasSkippedFirstAction) {
-      const unavailable = !Number.isFinite(totalTimeSec);
-      const target = actionDivList[actionDivListIndex]?.querySelector("div");
-      const current = target?.querySelector("div.script_actionTime");
+    if (queuedRow) {
       const output = current ?? document.createElement("div");
       output.className = "script_actionTime";
       output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
       output.textContent = formatRemainingTiming(
-        isInfinite || unavailable || isAccumulatedTimeInfinite
-          ? Infinity
-          : totalTimeSec,
-        finishAt,
+        boundary ? Infinity : totalTimeSec,
+        boundary ? null : now + finitePrefixSeconds * 1000,
         { isZH: runtime.config.isZH, now },
       );
       if (!current) target?.append(output);
-      actionDivListIndex += 1;
     }
-    hasSkippedFirstAction = true;
   }
 
-  const currentTotal = document.querySelector("div#script_queueTotalTime");
+  const currentTotal = added.parentElement?.querySelector(
+    ":scope > div#script_queueTotalTime",
+  );
   const total = currentTotal ?? document.createElement("div");
   total.id = "script_queueTotalTime";
   total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-  total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${formatRemainingTiming(
-    isAccumulatedTimeInfinite ? Infinity : accumulatedTimeSec,
-    isAccumulatedTimeInfinite ? null : now + accumulatedTimeSec * 1000,
-    { isZH: runtime.config.isZH, now },
-  )}`;
+  const totalText = reachedInfinite
+    ? finitePrefixSeconds > 0
+      ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞`
+      : "∞"
+    : formatRemainingTiming(
+        finitePrefixSeconds,
+        now + finitePrefixSeconds * 1000,
+        { isZH: runtime.config.isZH, now },
+      );
+  total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
   if (!currentTotal) added.insertAdjacentElement("afterend", total);
+  return true;
 }
+
+runtime.onMessage("actions_updated", () => {
+  if (activeActionQueueObserver) {
+    scheduleActionQueueRefresh(activeActionQueueObserver.menu);
+  }
+});
 
 function getOriTextFromElement(element) {
   if (!element) {

@@ -431,6 +431,51 @@ test("shopping data is isolated by server and character", () => {
   );
 });
 
+test("cart order is validated, persisted, and keeps omitted or new items", () => {
+  procurement.loadCharacterData("cart-order-character");
+  procurement.clearCart({ includeStarred: true });
+  procurement.addToCart({ itemHrid: "/items/nail", quantity: 1 });
+  procurement.addToCart({ itemHrid: "/items/board", quantity: 1 });
+  procurement.addToCart({ itemHrid: "/items/astral_enhancer", quantity: 1 });
+
+  assert.equal(
+    procurement.setCartOrder([
+      "/items/astral_enhancer#0",
+      "/items/astral_enhancer#0",
+      "/items/missing#0",
+      "/items/nail#0",
+    ]),
+    true,
+  );
+  assert.deepEqual(
+    procurement.getCartItems().map((item) => item.itemHrid),
+    ["/items/astral_enhancer", "/items/nail", "/items/board"],
+  );
+  procurement.addToCart({ itemHrid: "/items/protection_mirror", quantity: 1 });
+  assert.deepEqual(
+    procurement.getCartItems().map((item) => item.itemHrid),
+    [
+      "/items/astral_enhancer",
+      "/items/nail",
+      "/items/board",
+      "/items/protection_mirror",
+    ],
+  );
+
+  procurement.loadCharacterData("cart-order-other");
+  procurement.loadCharacterData("cart-order-character");
+  assert.deepEqual(
+    procurement.getCartItems().map((item) => item.itemHrid),
+    [
+      "/items/astral_enhancer",
+      "/items/nail",
+      "/items/board",
+      "/items/protection_mirror",
+    ],
+  );
+  procurement.loadCharacterData("character-a");
+});
+
 test("v1 shopping data migrates project claims in creation order", () => {
   localStorage.setItem(
     "MWITools_procurement_v1:production:legacy-character",

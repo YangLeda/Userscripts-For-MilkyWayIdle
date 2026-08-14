@@ -161,7 +161,11 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     /×5/,
   );
   assert.match(card.textContent, /库存最多可做10/);
-  assert.match(card.textContent, /本次总耗时30s/);
+  assert.doesNotMatch(card.textContent, /本次总耗时|Duration/);
+  assert.match(
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 30s/,
+  );
   assert.match(card.textContent, /本次总净利润400/);
 
   runtime.api.renderProductionPanel();
@@ -185,7 +189,10 @@ test("Chinese crafting dialogs keep the market-value profit", () => {
     /木板 ×15,000/,
   );
   assert.match(card.textContent, /库存最多可做10/);
-  assert.match(card.textContent, /本次总耗时1天1小时/);
+  assert.match(
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 1天1小时/,
+  );
   assert.equal(
     card.parentElement.querySelector(
       '[data-mwitools-production-extension="true"]:not(.mwi-production-extensions)',
@@ -222,7 +229,10 @@ test("iron-cow adaptation keeps production timing but removes market profit", ()
   runtime.api.renderProductionPanel();
 
   const card = document.querySelector("#mwi-production-summary");
-  assert.match(card.textContent, /本次总耗时/);
+  assert.match(
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时/,
+  );
   assert.doesNotMatch(card.textContent, /净利润|市场价格缺失/);
 
   runtime.state.currentCharacterGameMode = "standard";
@@ -243,7 +253,10 @@ test("infinite production summaries use inventory capacity and expose a native-s
     'button[class*="SkillActionDetail_infiniteButton"]',
   );
   assert.match(card.textContent, /预期总产出.*木板.*×10/s);
-  assert.match(card.textContent, /本次总耗时60s/);
+  assert.match(
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 60s/,
+  );
   assert.match(card.textContent, /本次总净利润800/);
   assert.ok(maxButton);
   assert.equal(maxButton.textContent, "最大");
@@ -258,7 +271,10 @@ test("infinite production summaries use inventory capacity and expose a native-s
   input.value = "∞";
   runtime.api.renderProductionPanel();
   assert.match(card.textContent, /预期总产出.*木板.*×0/s);
-  assert.match(card.textContent, /本次总耗时0s/);
+  assert.match(
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 0s/,
+  );
   assert.match(card.textContent, /本次总净利润0/);
   assert.equal(maxButton.disabled, true);
   logItem.count = 20;
@@ -397,11 +413,11 @@ test("production durations over one day use whole days, hours, and minutes", () 
   input.value = "20000";
   runtime.api.renderProductionPanel();
   assert.match(
-    document.querySelector("#mwi-production-summary").textContent,
-    /本次总耗时1天9小时20分/,
+    document.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 1天9小时20分/,
   );
   assert.doesNotMatch(
-    document.querySelector("#mwi-production-summary").textContent,
+    document.querySelector(".mwi-production-duration-inline").textContent,
     /1\.4天/,
   );
   logItem.count = 20;
@@ -471,7 +487,10 @@ test("gathering dialogs without a count input still render expected outputs", ()
     card.querySelector(".mwi-production-output-item").title,
     /牛奶 ×2/,
   );
-  assert.match(card.textContent, /本次总耗时∞/);
+  assert.match(
+    panel.querySelector(".mwi-production-duration-inline").textContent,
+    /耗时 ∞/,
+  );
   assert.match(card.textContent, /每小时净利润/);
   assert.equal(panel.contains(card), true);
   assert.equal(hiddenOldPanel.querySelector("#mwi-production-summary"), null);
@@ -982,6 +1001,22 @@ test("enhancement actions use the finite amount shown in the native header", () 
   assert.match(dashboard.textContent, /^8小时9分23秒（/);
   assert.doesNotMatch(dashboard.textContent, /∞|剩余|还需|预计完成|2\.94K/);
   assert.match(dashboard.querySelector(".mwi-action-time").title, /强化栏/);
+});
+
+test("enhancement countdown reuses its node when native count text flickers", () => {
+  const host = document.querySelector('div[class*="Header_actionName"]');
+  const nativeName = host.querySelector("span");
+  const dashboard = document.querySelector("#mwi-action-dashboard");
+  const time = dashboard.querySelector(".mwi-action-time");
+  const before = time.textContent;
+
+  nativeName.textContent = "骑士盾 +3";
+  runtime.api.renderActionDashboard();
+
+  assert.equal(document.querySelector("#mwi-action-dashboard"), dashboard);
+  assert.equal(document.querySelector(".mwi-action-time"), time);
+  assert.doesNotMatch(time.textContent, /∞/);
+  assert.equal(time.textContent, before);
 });
 
 test("unenhanced items and trailing warnings keep enhancement estimates visible", () => {

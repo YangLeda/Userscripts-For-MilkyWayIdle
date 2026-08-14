@@ -413,7 +413,7 @@ test("announcement history preserves each release separately through 26.4.10", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 4);
+  assert.equal(current.body.zh.length, 8);
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);
   assert.match(earliest.body.zh.join("\n"), /任务页改为平铺布局/);
@@ -449,6 +449,9 @@ test("announcement history preserves each release separately through 26.4.10", (
     /overall progress bar.*refreshes the page automatically/,
   );
   assert.match(current.body.zh.join("\n"), /自动开启铁牛模式适配/);
+  assert.match(current.body.zh.join("\n"), /刷新价值.*鼠标和触屏拖动排序/);
+  assert.match(current.body.zh.join("\n"), /有限时长 \+ ∞/);
+  assert.match(current.body.en.join("\n"), /MWI TaskManager/);
   assert.doesNotMatch(previous.body.zh.join("\n"), /小紫牛风格|自动开启铁牛/);
 });
 

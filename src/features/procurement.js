@@ -26,6 +26,7 @@ let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
 let lastProductionSignature = "";
 let activeHoldRepeatStop = null;
+let activeCartDrag = null;
 
 const MARKET_SESSION_OPEN_GRACE_MS = 2_500;
 
@@ -113,8 +114,11 @@ function addStyles() {
 }
 
 function shellStyles() {
+  const fontFamily = runtime.config.isZH
+    ? '"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif'
+    : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
   return `
-    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
@@ -131,13 +135,14 @@ function shellStyles() {
     .tabs{display:flex;flex:0 0 auto;gap:2px;margin:8px 12px 0;padding:2px;border-radius:7px;background:color-mix(in srgb,var(--text) 5%,transparent)}
     .tab{flex:1;min-width:0;padding:7px 0;border-radius:5px;color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}.tab:hover{color:var(--text)}.tab[data-active="true"]{background:var(--accent);color:#fff}
     .body{min-height:100px;flex:1 1 auto;overflow-y:auto;padding:4px 12px 6px}.empty{margin:12px 2px;padding:26px 12px;border-radius:8px;background:color-mix(in srgb,var(--text) 4%,transparent);color:var(--muted);font-size:12.5px;line-height:1.7;text-align:center}
-    .cart-row{display:grid;min-height:56px;grid-template-columns:26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:9px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}
-    .star{grid-column:1;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
-    .item-icon{grid-column:2;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
-    .item-name{grid-column:3;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
-    .row-controls{grid-column:4;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
-    .delete{grid-column:5;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
-    .row-bottom{grid-column:3/6;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
+    .cart-row{display:grid;min-height:56px;grid-template-columns:20px 26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:7px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}.cart-row[data-dragging="true"]{z-index:1;border-radius:7px;background:color-mix(in srgb,var(--accent) 24%,var(--panel));box-shadow:0 5px 16px rgba(0,0,0,.28)}
+    .cart-drag{grid-column:1;grid-row:1/span 2;width:20px;height:38px;border-radius:5px;color:color-mix(in srgb,var(--muted) 70%,transparent);font-size:17px;line-height:1;cursor:grab;touch-action:none;user-select:none}.cart-drag:hover{background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text)}.cart-drag:active{cursor:grabbing}
+    .star{grid-column:2;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
+    .item-icon{grid-column:3;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
+    .item-name{grid-column:4;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
+    .row-controls{grid-column:5;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+    .delete{grid-column:6;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
+    .row-bottom{grid-column:4/7;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
     .panel-footer{display:flex;flex:0 0 auto;align-items:center;gap:8px;min-height:56px;padding:10px 14px;border-top:1px solid color-mix(in srgb,var(--line) 55%,transparent);color:var(--muted);font-size:11px}.panel-footer:empty{display:none}.footer-total{font-size:10px;line-height:1.35}.footer-total strong{display:block;color:var(--gold);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.footer-total small{display:block;color:var(--muted);font-size:9px}.clear{margin-left:auto;padding:9px 18px;border-radius:6px;background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text);font-size:12.5px;font-weight:700}.clear:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
     .plan-row{display:flex;min-height:58px;flex-direction:column;gap:6px;padding:8px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.row-top{display:flex;align-items:center;gap:8px;min-width:0}.plan-title{min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.plan-status{color:var(--gold);font-size:10.5px}.progress{height:4px;overflow:hidden;border-radius:2px;background:color-mix(in srgb,var(--text) 7%,transparent)}.progress>span{display:block;height:100%;background:var(--accent)}.plan-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px}.plan-actions{display:flex;gap:5px}.plan-actions button{padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:11px;font-weight:600}.plan-actions button:hover{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text)}
     .setting-section{margin-top:5px}.setting-section-title{padding:8px 4px 4px;color:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.4px}.setting-row{display:flex;min-height:48px;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 32%,transparent)}.setting-label{min-width:0;flex:1;color:var(--text);font-size:13px;font-weight:600}.setting-label small{display:block;margin-top:2px;color:var(--muted);font-size:10.5px;font-weight:400}.switch-state{min-width:18px;color:var(--muted);font-size:10.5px;text-align:right}.switch-state[data-on="true"]{color:#3edd8b;font-weight:700}.switch{position:relative;width:42px;height:23px;flex:0 0 auto;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);transition:background-color .15s}.switch::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.5;transition:transform .15s,opacity .15s}.switch[data-on="true"]{background:#29c274}.switch[data-on="true"]::after{transform:translateX(19px);opacity:1}
@@ -223,16 +228,232 @@ function renderShell() {
     button.dataset.active = String(button.dataset.tab === activeTab);
   }
   const body = shadow.querySelector(".body");
-  shadow.querySelector(".panel-footer").replaceChildren();
   if (activeTab === "plans") renderPlans(body);
   else if (activeTab === "settings") renderProcurementSettings(body);
   else renderCart(body);
 }
 
+function prepareFooter(mode) {
+  const footer = shadow.querySelector(".panel-footer");
+  if (footer.dataset.mode !== mode) {
+    footer.replaceChildren();
+    footer.dataset.mode = mode;
+  }
+  return footer;
+}
+
+function latestCartItem(row) {
+  const parsed = procurement.parseItemKey(row.dataset.cartKey);
+  return procurement.getCartItem(parsed.itemHrid, parsed.enhancementLevel);
+}
+
+function abandonCartDrag() {
+  const drag = activeCartDrag;
+  if (!drag) return;
+  activeCartDrag = null;
+  drag.row.dataset.dragging = "false";
+  window.removeEventListener("pointermove", moveCartDrag, true);
+  window.removeEventListener("pointerup", stopCartDrag, true);
+  window.removeEventListener("pointercancel", cancelCartDrag, true);
+}
+
+function finishCartDrag(cancelled = false) {
+  const drag = activeCartDrag;
+  if (!drag) return;
+  abandonCartDrag();
+  if (cancelled) {
+    renderCart(shadow.querySelector(".body"));
+    return;
+  }
+  procurement.setCartOrder(
+    [...shadow.querySelectorAll(".cart-row")].map((row) => row.dataset.cartKey),
+  );
+}
+
+function moveCartDrag(event) {
+  if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+  event.preventDefault();
+  const { row, body } = activeCartDrag;
+  const others = [...body.querySelectorAll(".cart-row")].filter(
+    (candidate) => candidate !== row,
+  );
+  const before = others.find(
+    (candidate) =>
+      event.clientY <
+      candidate.getBoundingClientRect().top +
+        candidate.getBoundingClientRect().height / 2,
+  );
+  if (before) body.insertBefore(row, before);
+  else body.append(row);
+}
+
+function stopCartDrag(event) {
+  if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+  finishCartDrag(false);
+}
+
+function cancelCartDrag(event) {
+  if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+  finishCartDrag(true);
+}
+
+function createCartRow(key, body) {
+  const row = document.createElement("article");
+  row.className = "cart-row";
+  row.dataset.cartKey = key;
+  row.innerHTML = `
+    <button class="cart-drag" type="button" title="${t("拖动排序", "Drag to reorder")}" aria-label="${t("拖动排序", "Drag to reorder")}">⋮⋮</button>
+    <button class="star">${STAR_ICON}</button>
+    <button class="item-icon"></button>
+    <button class="item-name"></button>
+    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
+    <button class="delete" title="${t("删除", "Remove")}">×</button>
+    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
+  const setQuantity = (quantity) => {
+    const item = latestCartItem(row);
+    if (item)
+      procurement.setCartItemQuantity(
+        item.itemHrid,
+        quantity,
+        item.enhancementLevel,
+      );
+  };
+  row.querySelector(".star").addEventListener("click", () => {
+    const item = latestCartItem(row);
+    if (item)
+      procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
+        starred: !item.starred,
+      });
+  });
+  for (const target of row.querySelectorAll(".item-name,.item-icon")) {
+    target.addEventListener("click", () => {
+      const item = latestCartItem(row);
+      if (item && !marketFeaturesSuppressed())
+        openMarketplace(item.itemHrid, item.enhancementLevel);
+    });
+  }
+  row.querySelector(".delete").addEventListener("click", () => {
+    stopActiveHoldRepeat();
+    const item = latestCartItem(row);
+    if (item) procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
+  });
+  const quantityInput = row.querySelector(".qty");
+  quantityInput.addEventListener("change", () => {
+    setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
+  });
+  for (const step of row.querySelectorAll(".step")) {
+    const update = () => {
+      const item = latestCartItem(row);
+      if (!item) return stopActiveHoldRepeat();
+      setQuantity(item.quantity + Number(step.dataset.step));
+    };
+    step.addEventListener("click", update);
+    installHoldRepeat(step, update);
+  }
+  row.querySelector(".threshold").addEventListener("change", (event) => {
+    const item = latestCartItem(row);
+    if (item)
+      procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
+        threshold: event.target.value
+          ? runtime.api.parseCompactNumber?.(event.target.value)
+          : null,
+      });
+  });
+  const dragHandle = row.querySelector(".cart-drag");
+  dragHandle.addEventListener("pointerdown", (event) => {
+    if (activeCartDrag) finishCartDrag(true);
+    event.preventDefault();
+    activeCartDrag = { pointerId: event.pointerId, row, body };
+    row.dataset.dragging = "true";
+    dragHandle.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", moveCartDrag, true);
+    window.addEventListener("pointerup", stopCartDrag, true);
+    window.addEventListener("pointercancel", cancelCartDrag, true);
+  });
+  return row;
+}
+
+function updateCartRow(row, item, { marketEnabled, pricesEnabled, price }) {
+  row.dataset.cartKey = procurement.itemKey(
+    item.itemHrid,
+    item.enhancementLevel,
+  );
+  const star = row.querySelector(".star");
+  star.dataset.active = String(Boolean(item.starred));
+  star.title = t(
+    "收藏：买齐后保留并监控常备数量",
+    "Favorite: keep and restock",
+  );
+  const icon = row.querySelector(".item-icon");
+  icon.disabled = !marketEnabled;
+  icon.title = marketEnabled ? t("在市场中打开", "Open in marketplace") : "";
+  icon.innerHTML = renderItemIcon(item);
+  const name = row.querySelector(".item-name");
+  name.disabled = !marketEnabled;
+  name.title = item.name;
+  name.textContent = `${item.name}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}`;
+  const quantity = row.querySelector(".qty");
+  const activeElement = row.getRootNode()?.activeElement;
+  if (activeElement !== quantity) quantity.value = item.quantity;
+  const owned = procurement.getInventoryCount(
+    item.itemHrid,
+    item.enhancementLevel,
+  );
+  const ownedNode = row.querySelector(".owned");
+  ownedNode.title = exactNumber(owned);
+  ownedNode.textContent = `${t("库存", "Stock")} ${formatNumber(owned)}`;
+  const priceNode = row.querySelector(".price");
+  priceNode.hidden = !pricesEnabled;
+  priceNode.title = price > 0 ? exactNumber(price * item.quantity) : "—";
+  priceNode.textContent =
+    price > 0
+      ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}`
+      : "—";
+  const thresholdWrap = row.querySelector(".threshold-wrap");
+  thresholdWrap.hidden = !item.starred;
+  const threshold = row.querySelector(".threshold");
+  if (activeElement !== threshold) threshold.value = item.threshold ?? "";
+}
+
+function renderCartFooter({ marketEnabled, settings, total, unpriced }) {
+  const footer = prepareFooter("cart");
+  let totalNode = footer.querySelector(".footer-total");
+  let clear = footer.querySelector(".clear");
+  if (!totalNode) {
+    totalNode = document.createElement("span");
+    totalNode.className = "footer-total";
+    totalNode.innerHTML = `<span></span><strong></strong><small></small>`;
+    footer.append(totalNode);
+  }
+  if (!clear) {
+    clear = document.createElement("button");
+    clear.className = "clear";
+    clear.addEventListener("click", () => {
+      stopActiveHoldRepeat();
+      procurement.clearCart();
+    });
+    footer.append(clear);
+  }
+  totalNode.hidden = !marketEnabled;
+  totalNode.querySelector("span").textContent = t("补齐合计", "Total");
+  const strong = totalNode.querySelector("strong");
+  strong.title = unpriced
+    ? t("部分物品缺少价格", "Some items are unpriced")
+    : exactNumber(total);
+  strong.textContent =
+    settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—";
+  const small = totalNode.querySelector("small");
+  small.textContent = unpriced
+    ? `${unpriced} ${t("项未估价", "unpriced")}`
+    : "";
+  clear.textContent = t("清空未收藏", "Clear");
+}
+
 function renderCart(body) {
   const items = procurement.getCartItems();
-  body.replaceChildren();
   if (!items.length) {
+    if (activeCartDrag) finishCartDrag(true);
+    body.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = t(
@@ -240,16 +461,26 @@ function renderCart(body) {
       "Your shopping list is empty. Add missing materials from a production or housing panel.",
     );
     body.append(empty);
+    prepareFooter("empty");
     return;
   }
+  body.querySelector(".empty")?.remove();
   const settings = procurement.getSettings();
   const marketEnabled = !marketFeaturesSuppressed();
   const pricesEnabled = marketEnabled && settings.pricesEnabled;
+  const currentRows = new Map(
+    [...body.querySelectorAll(".cart-row")].map((row) => [
+      row.dataset.cartKey,
+      row,
+    ]),
+  );
+  const wantedKeys = new Set();
   let total = 0;
   let unpriced = 0;
   for (const item of items) {
-    const row = document.createElement("article");
-    row.className = "cart-row";
+    const key = procurement.itemKey(item.itemHrid, item.enhancementLevel);
+    wantedKeys.add(key);
+    const row = currentRows.get(key) ?? createCartRow(key, body);
     const price = pricesEnabled
       ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) ||
         runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) ||
@@ -259,81 +490,16 @@ function renderCart(body) {
       if (price > 0) total += price * item.quantity;
       else unpriced += 1;
     }
-    row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" ${marketEnabled ? `title="${t("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon(item)}</button>
-      <button class="item-name" title="${escapeHtml(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
-      <div class="row-controls">
-        <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t("待购数量", "Quantity")}">
-        <button class="step" data-step="1">＋</button>
-      </div>
-      <button class="delete" title="${t("删除", "Remove")}">×</button>
-      <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t("库存", "Stock")} ${formatNumber(procurement.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber(price)} · ${t("计", "total")} ${formatNumber(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
-      </div>`;
-    const setQuantity = (quantity) => {
-      procurement.setCartItemQuantity(
-        item.itemHrid,
-        quantity,
-        item.enhancementLevel,
-      );
-    };
-    row.querySelector(".star").addEventListener("click", () => {
-      procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
-        starred: !item.starred,
-      });
-    });
-    for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-      if (marketEnabled) {
-        target.addEventListener("click", () => {
-          openMarketplace(item.itemHrid, item.enhancementLevel);
-        });
-      }
-    }
-    row.querySelector(".delete").addEventListener("click", () => {
-      stopActiveHoldRepeat();
-      procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
-    });
-    const quantityInput = row.querySelector(".qty");
-    quantityInput.addEventListener("change", () => {
-      setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
-    });
-    for (const step of row.querySelectorAll(".step")) {
-      step.addEventListener("click", () => {
-        setQuantity(item.quantity + Number(step.dataset.step));
-      });
-      installHoldRepeat(step, () => {
-        const latest = procurement.getCartItem(
-          item.itemHrid,
-          item.enhancementLevel,
-        );
-        if (!latest) {
-          stopActiveHoldRepeat();
-          return;
-        }
-        setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
-      });
-    }
-    row.querySelector(".threshold").addEventListener("change", (event) => {
-      procurement.updateCartItem(item.itemHrid, item.enhancementLevel, {
-        threshold: event.target.value
-          ? runtime.api.parseCompactNumber?.(event.target.value)
-          : null,
-      });
-    });
-    body.append(row);
+    updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
+    if (!activeCartDrag) body.append(row);
+    else if (!row.isConnected) body.append(row);
   }
-  const footer = shadow.querySelector(".panel-footer");
-  footer.innerHTML = `
-    ${marketEnabled ? `<span class="footer-total">${t("补齐合计", "Total")}<strong title="${unpriced ? t("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings.cartTotalEnabled && !unpriced ? formatNumber(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
-    <button class="clear">${t("清空未收藏", "Clear")}</button>`;
-  footer.querySelector(".clear").addEventListener("click", () => {
-    stopActiveHoldRepeat();
-    procurement.clearCart();
-  });
+  for (const [key, row] of currentRows) {
+    if (wantedKeys.has(key)) continue;
+    if (activeCartDrag?.row === row) abandonCartDrag();
+    row.remove();
+  }
+  renderCartFooter({ marketEnabled, settings, total, unpriced });
 }
 
 function stopActiveHoldRepeat() {
@@ -376,6 +542,7 @@ function installHoldRepeat(button, callback) {
 function renderPlans(body) {
   const plans = procurement.getPlans();
   body.replaceChildren();
+  const footer = prepareFooter("plans");
   if (!plans.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
@@ -419,7 +586,6 @@ function renderPlans(body) {
       });
     body.append(row);
   }
-  const footer = shadow.querySelector(".panel-footer");
   footer.innerHTML = `<span>${t("生产项目", "Projects")} ${plans.length}</span><button class="clear">${t("清空项目", "Clear projects")}</button>`;
   footer.querySelector(".clear").addEventListener("click", () => {
     for (const plan of procurement.getPlans()) procurement.removePlan(plan.id);
@@ -573,6 +739,7 @@ const SETTING_DESCRIPTIONS = {
 
 function renderProcurementSettings(body) {
   body.replaceChildren();
+  prepareFooter("settings");
   const settings = procurement.getSettings();
   for (const sectionDefinition of SETTING_SECTIONS) {
     const section = document.createElement("section");
@@ -802,6 +969,7 @@ function createShell(scope) {
     renderShell();
   });
   scope.add(() => {
+    abandonCartDrag();
     shell?.remove();
     shell = null;
     shadow = null;

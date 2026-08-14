@@ -922,6 +922,35 @@ function getCartItem(itemHrid, enhancementLevel = 0) {
   );
 }
 
+function setCartOrder(keys) {
+  if (!Array.isArray(keys)) return false;
+  const orderedKeys = [];
+  const seen = new Set();
+  for (const value of keys) {
+    const key = String(value ?? "");
+    if (!key || seen.has(key) || !cart.has(key)) continue;
+    seen.add(key);
+    orderedKeys.push(key);
+  }
+  for (const key of cart.keys()) {
+    if (seen.has(key)) continue;
+    seen.add(key);
+    orderedKeys.push(key);
+  }
+  const currentKeys = [...cart.keys()];
+  if (
+    currentKeys.length === orderedKeys.length &&
+    currentKeys.every((key, index) => key === orderedKeys[index])
+  ) {
+    return false;
+  }
+  const reordered = orderedKeys.map((key) => [key, cart.get(key)]);
+  cart.clear();
+  for (const [key, item] of reordered) cart.set(key, item);
+  saveCartAndEmit({ reason: "reorder" });
+  return true;
+}
+
 function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
   persistData();
   emit("cart:change", { reason, added, items: getCartItems() });
@@ -1635,6 +1664,7 @@ Object.assign(runtime.api, {
     aggregateRequirements,
     getCartItems,
     getCartItem,
+    setCartOrder,
     getCartAllocationSummary,
     addToCart,
     addRequirementsToCart,

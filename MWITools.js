@@ -21536,6 +21536,31 @@
       item ? { ...item, name: resolveItemName(item.itemHrid) || item.name } : null
     );
   }
+  function setCartOrder(keys) {
+    if (!Array.isArray(keys)) return false;
+    const orderedKeys = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const value of keys) {
+      const key = String(value ?? "");
+      if (!key || seen.has(key) || !cart.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    for (const key of cart.keys()) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    const currentKeys = [...cart.keys()];
+    if (currentKeys.length === orderedKeys.length && currentKeys.every((key, index) => key === orderedKeys[index])) {
+      return false;
+    }
+    const reordered = orderedKeys.map((key) => [key, cart.get(key)]);
+    cart.clear();
+    for (const [key, item] of reordered) cart.set(key, item);
+    saveCartAndEmit({ reason: "reorder" });
+    return true;
+  }
   function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
     persistData();
     emit("cart:change", { reason, added, items: getCartItems() });
@@ -22155,6 +22180,7 @@
       aggregateRequirements,
       getCartItems,
       getCartItem,
+      setCartOrder,
       getCartAllocationSummary,
       addToCart,
       addRequirementsToCart,
@@ -24842,7 +24868,9 @@
     runtime.state.initData_characterAbilities = payload.characterAbilities;
     runtime.state.initData_myMarketListings = payload.myMarketListings ?? [];
     runtime.state.initData_combatAbilities = payload.combatUnit?.combatAbilities ?? [];
-    runtime.state.currentActionsHridList = [...payload.characterActions ?? []];
+    runtime.state.currentActionsHridList = normalizeActionList(
+      payload.characterActions ?? []
+    );
     runtime.state.characterQuests = (payload.characterQuests ?? []).map(
       (quest, index) => ({ ...quest, _mwitoolsOriginalIndex: index })
     );
@@ -24947,15 +24975,55 @@
     ]);
     if (rows2.length) runtime.state.guildLeaderboard = rows2;
   }
-  function applyActionsUpdated(payload) {
-    for (const action of payload.endCharacterActions) {
-      if (action.isDone === false)
-        runtime.state.currentActionsHridList.push(action);
-      else
-        runtime.state.currentActionsHridList = runtime.state.currentActionsHridList.filter(
-          ({ id }) => id !== action.id
-        );
+  function normalizeActionList(actions) {
+    const keyed = /* @__PURE__ */ new Map();
+    const idless = [];
+    for (const [index, action] of (Array.isArray(actions) ? actions : []).entries()) {
+      if (!action) continue;
+      const id = action.id;
+      if (id === null || id === void 0) {
+        idless.push({ action, index });
+        continue;
+      }
+      const key = String(id);
+      const previous = keyed.get(key);
+      keyed.set(key, {
+        action: previous ? { ...previous.action, ...action } : action,
+        index: previous?.index ?? index
+      });
     }
+    return [...keyed.values(), ...idless].sort((left, right) => {
+      const leftOrdinal = Number(left.action?.ordinal);
+      const rightOrdinal = Number(right.action?.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.MAX_SAFE_INTEGER;
+      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.index - right.index;
+    }).map(({ action }) => action);
+  }
+  function applyActionsUpdated(payload) {
+    const updates = payload.endCharacterActions;
+    if (!Array.isArray(updates)) return;
+    let current = normalizeActionList(runtime.state.currentActionsHridList);
+    for (const update of updates) {
+      if (!update) continue;
+      const id = update.id;
+      if (id === null || id === void 0) {
+        if (update.isDone !== true) current.push(update);
+        continue;
+      }
+      const key = String(id);
+      const index = current.findIndex(
+        (action) => action?.id !== null && action?.id !== void 0 && String(action.id) === key
+      );
+      if (update.isDone === true) {
+        if (index >= 0) current.splice(index, 1);
+      } else if (index >= 0) {
+        current[index] = { ...current[index], ...update };
+      } else {
+        current.push(update);
+      }
+    }
+    runtime.state.currentActionsHridList = normalizeActionList(current);
   }
   function applyActionCompleted(payload) {
     const action = payload.endCharacterAction;
@@ -25524,6 +25592,11 @@
       ".deltaNetworthDiv,#deltaNetworthChartModal,#refreshNetworthIcon,.epPrecisionHintActions,#everyday-profit-chartjs,#everyday-profit-zoom,#everyday-profit-crosshair"
     )) {
       duplicates.push("Everyday Profit Plus Fixed");
+    }
+    if (documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
+      "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon"
+    )) {
+      duplicates.push("MWI TaskManager");
     }
     return duplicates;
   }
@@ -32331,13 +32404,13 @@ ${preview}`
       heading.appendChild(value);
     }
   }
-  async function getFrozenInventoryDisplay() {
+  async function getFrozenInventoryDisplay(force = false) {
     const key = inventoryDisplayKey();
     if (!key) return null;
-    if (frozenInventoryDisplays.has(key)) {
+    if (!force && frozenInventoryDisplays.has(key)) {
       return frozenInventoryDisplays.get(key);
     }
-    if (frozenInventoryDisplayPromises.has(key)) {
+    if (!force && frozenInventoryDisplayPromises.has(key)) {
       return frozenInventoryDisplayPromises.get(key);
     }
     const pendingDisplay = runtime.api.refreshAssetSnapshot().then((snapshot) => {
@@ -32353,7 +32426,7 @@ ${preview}`
     frozenInventoryDisplayPromises.set(key, pendingDisplay);
     return pendingDisplay;
   }
-  async function calculateNetworth() {
+  async function calculateNetworth(options = {}) {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     const targetNodes = document.querySelectorAll(
       'div[class*="Inventory_items"]'
@@ -32361,7 +32434,7 @@ ${preview}`
     if (!targetNodes.length) return;
     const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
     const showSort = runtime.settings.settingsMap.invSort.isTrue;
-    const display = showWorth ? await getFrozenInventoryDisplay() : null;
+    const display = showWorth ? await getFrozenInventoryDisplay(options.force === true) : null;
     if (showWorth && !display) return;
     const snapshot = display?.snapshot;
     addInventorySummaryStyles();
@@ -32585,7 +32658,11 @@ ${preview}`
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
+    const refreshButton = `<button
+        id="script_refresh_inventory_btn">
+        ${runtime.config.isZH ? "刷新价值" : "Refresh values"}
+        </button>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
     if (!invElem.isConnected || !invElem.parentElement) return;
     const existingSummary = invElem.parentElement.querySelector(
       "#script_inventory_summary"
@@ -32596,10 +32673,10 @@ ${preview}`
       invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
     }
     const sortItemsBy = (order) => {
-      const controls = invElem.parentElement?.querySelector(
+      const controls2 = invElem.parentElement?.querySelector(
         "#script_inv_sort_controls"
       );
-      if (controls) controls.dataset.sortOrder = order;
+      if (controls2) controls2.dataset.sortOrder = order;
       for (const typeDiv of invElem.children) {
         const categoryButton = typeDiv.querySelector(
           '[class*="Inventory_categoryButton"]'
@@ -32661,11 +32738,30 @@ ${preview}`
         }
       }
     };
+    const controls = invElem.parentElement?.querySelector(
+      "#script_inv_sort_controls"
+    );
+    if (controls) controls.mwitoolsSortItemsBy = sortItemsBy;
     if (showSort) {
       invElem.parentElement.querySelector("button#script_sortByFair_btn")?.addEventListener("click", () => sortItemsBy("fair"));
       invElem.parentElement.querySelector("button#script_sortByAsk_btn")?.addEventListener("click", () => sortItemsBy("ask"));
       invElem.parentElement.querySelector("button#script_sortByBid_btn")?.addEventListener("click", () => sortItemsBy("bid"));
       invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
+    }
+    if (showWorth) {
+      invElem.parentElement.querySelector("button#script_refresh_inventory_btn")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const order = controls?.dataset.sortOrder ?? "none";
+        button.disabled = true;
+        button.textContent = runtime.config.isZH ? "刷新中…" : "Refreshing…";
+        try {
+          await calculateNetworth({ force: true });
+          controls?.mwitoolsSortItemsBy?.(order);
+        } finally {
+          button.disabled = false;
+          button.textContent = runtime.config.isZH ? "刷新价值" : "Refresh values";
+        }
+      });
     }
   }
   async function addGuildCreditConversionsSortButton() {
@@ -35962,7 +36058,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
-  var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-extensions";
+  var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-duration-inline,.mwi-production-extensions";
   var PRODUCTION_MODULE_ORDER = Object.freeze({
     quickInputs: 10,
     summary: 20,
@@ -35970,6 +36066,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     targetLevel: 40
   });
   var productionDataRevision = 0;
+  var enhancementTimingCache = { identity: "", count: null };
   function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -36094,6 +36191,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID8;
+    const productionFont = runtime.config.isZH ? "inherit" : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:var(--mwi-action-dashboard-max-width,calc(100% - var(--mwi-action-dashboard-left,0px))); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:hidden; pointer-events:none; }
@@ -36103,7 +36201,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
     .mwi-action-time { overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
-    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-extensions { display:contents!important; }
     .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
     .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
@@ -36129,6 +36227,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); font-weight:700; line-height:1; white-space:nowrap; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
+    .mwi-production-duration-inline { display:inline-flex; align-items:center; margin-inline-start:7px; padding:0; border:0; background:transparent; color:${runtime.config.SCRIPT_COLOR_MAIN}; font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
     .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-quick-row { display:flex; min-width:0; align-items:flex-start; gap:3px; }
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
@@ -36187,6 +36286,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     document.querySelectorAll(".mwi-action-dashboard-host").forEach(
       (element) => element.classList.remove("mwi-action-dashboard-host")
     );
+    enhancementTimingCache = { identity: "", count: null };
   }
   function nativeActionText(host) {
     return [...host?.childNodes ?? []].filter(
@@ -36265,12 +36365,39 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
     );
     const current = actions[0];
-    if (!host || !current || !actionMatchesHeader(current, host)) {
+    if (!host || !current) {
+      clearActionDashboard();
+      return null;
+    }
+    const identity = String(current.id ?? current.actionHrid ?? "");
+    const isEnhancement = String(current.actionHrid ?? "").includes("/enhancing");
+    const existingRoot = host.querySelector("#mwi-action-dashboard");
+    if (!actionMatchesHeader(current, host)) {
+      if (isEnhancement && existingRoot?.dataset.actionIdentity === identity) {
+        return existingRoot;
+      }
       clearActionDashboard();
       return null;
     }
     const timing = getLiveActionTiming(host);
-    const enhancementCount = getNativeEnhancementCount(host, current);
+    let enhancementCount = getNativeEnhancementCount(host, current);
+    if (isEnhancement) {
+      if (enhancementTimingCache.identity !== identity) {
+        enhancementTimingCache = { identity, count: null };
+      }
+      if (enhancementCount !== null) {
+        enhancementTimingCache.count = enhancementCount;
+      } else if (enhancementTimingCache.count !== null) {
+        enhancementCount = enhancementTimingCache.count;
+      } else if (existingRoot?.dataset.actionIdentity === identity) {
+        return existingRoot;
+      } else {
+        clearActionDashboard();
+        return null;
+      }
+    } else {
+      enhancementTimingCache = { identity: "", count: null };
+    }
     const projection = runtime.api.projectAction(
       current,
       enhancementCount ?? void 0,
@@ -36279,7 +36406,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         currentCycleRemainingSeconds: timing.currentCycleRemaining
       }
     );
-    let root = host.querySelector("#mwi-action-dashboard");
+    let root = existingRoot;
     if (!root) {
       root = document.createElement("div");
       root.id = "mwi-action-dashboard";
@@ -36287,6 +36414,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       host.appendChild(root);
     }
     host.classList.add("mwi-action-dashboard-host");
+    root.dataset.actionIdentity = identity;
     root.style.position = "absolute";
     const lastNativeChild = [...host.children].filter(
       (element) => element !== root && element.id !== "script_item_warning"
@@ -36307,17 +36435,25 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       availableWidth > 0 && availableWidth < 420 || availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520
     );
     root.dataset.tight = String(availableWidth > 0 && availableWidth < 180);
-    root.replaceChildren();
     root.removeAttribute("title");
-    const primary = document.createElement("div");
-    primary.className = "mwi-action-line";
-    const currentTime = document.createElement("strong");
-    currentTime.className = "mwi-action-time";
+    let primary = root.querySelector(":scope > .mwi-action-line");
+    if (!primary) {
+      primary = document.createElement("div");
+      primary.className = "mwi-action-line";
+      root.append(primary);
+    }
+    let currentTime = primary.querySelector(":scope > .mwi-action-time");
+    if (!currentTime) {
+      currentTime = document.createElement("strong");
+      currentTime.className = "mwi-action-time";
+      primary.append(currentTime);
+    }
     currentTime.textContent = formatRemainingTiming(
       projection.totalSeconds,
       projection.finishAt,
       { isZH: runtime.config.isZH }
     );
+    currentTime.removeAttribute("title");
     if (projection.materialLimited) {
       currentTime.title = t7(
         "已按当前库存中的可用原料计算",
@@ -36329,8 +36465,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "Based on the amount currently available for enhancement"
       );
     }
-    primary.append(currentTime);
-    root.append(primary);
     return root;
   }
   function mutationElement(node) {
@@ -36657,6 +36791,26 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       `Use inventory maximum: ${maxCraftable}`
     ) : t7("当前没有有限的可生产次数", "No finite production maximum");
   }
+  function syncProductionDuration(panel, input, totalSeconds) {
+    document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => {
+      if (!panel?.contains(element)) element.remove();
+    });
+    const target = input?.closest(
+      'div[class*="SkillActionDetail_maxActionCountInput"],div[class*="SkillActionDetail_actionContainer"]'
+    ) ?? panel?.querySelector('div[class*="SkillActionDetail_actionContainer"]');
+    if (!target) return null;
+    let duration = panel.querySelector(".mwi-production-duration-inline");
+    if (!duration) {
+      duration = document.createElement("span");
+      duration.className = "mwi-production-duration-inline";
+    }
+    duration.textContent = `${t7("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
+    target.append(duration);
+    return duration;
+  }
+  function removeProductionDuration() {
+    document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => element.remove());
+  }
   function resolvePanelAction(panel) {
     const nameElement = panel?.querySelector(
       'div[class*="SkillActionDetail_name"]'
@@ -36707,6 +36861,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!runtime.settings.get("productionSummary") || summaryMode === "off") {
       document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
       document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      removeProductionDuration();
       return;
     }
     const context = resolveActiveProductionPanelContext();
@@ -36718,6 +36873,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!panel) {
       existingCards.forEach((card2) => card2.remove());
       document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      removeProductionDuration();
       return;
     }
     existingCards.filter((card2) => !panel.contains(card2)).forEach((card2) => card2.remove());
@@ -36729,6 +36885,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!actionHrid || !isProductionAction(actionHrid)) {
       existingCard?.remove();
       panel.querySelector(".mwi-max-action-button")?.remove();
+      panel.querySelector(".mwi-production-duration-inline")?.remove();
       return;
     }
     const count = context?.count ?? Number.POSITIVE_INFINITY;
@@ -36756,12 +36913,22 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         item.count ?? 0
       ])
     ]);
-    if (existingCard?.dataset.renderSignature === signature) return existingCard;
+    const hasDuration = Boolean(
+      panel.querySelector(".mwi-production-duration-inline")
+    );
+    const needsMaxButton = Boolean(
+      input && findInfinityButton(panel, input) && !panel.querySelector(".mwi-max-action-button")
+    );
+    if (existingCard?.dataset.renderSignature === signature && hasDuration && !needsMaxButton) {
+      return existingCard;
+    }
     const projection = runtime.api.projectAction(actionHrid, count, {
       durationPerAction,
       respectInventoryLimit: !Number.isFinite(count)
     });
     syncMaxButton(panel, input, projection.maxCraftable);
+    syncProductionDuration(panel, input, projection.totalSeconds);
+    if (existingCard?.dataset.renderSignature === signature) return existingCard;
     let card = panel.querySelector("#mwi-production-summary");
     if (!card) {
       card = document.createElement("section");
@@ -36821,10 +36988,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       metric(
         t7("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number2(projection.maxCraftable)
-      ),
-      metric(
-        t7("本次总耗时", "Duration"),
-        formatDuration(projection.totalSeconds)
       )
     );
     if (showProfit) {
@@ -36865,6 +37028,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     document.querySelector("#mwi-production-summary")?.remove();
     document.querySelector(".mwi-max-action-button")?.remove();
+    removeProductionDuration();
     removeProductionQuickInputs();
     document.querySelectorAll(".mwi-production-extensions:empty").forEach((mount) => mount.remove());
   }
@@ -36888,10 +37052,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       render();
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
-        document.querySelector("#mwi-action-dashboard")?.remove();
-        document.querySelectorAll(".mwi-action-dashboard-host").forEach(
-          (element) => element.classList.remove("mwi-action-dashboard-host")
-        );
+        clearActionDashboard();
       });
     }
   });
@@ -37005,6 +37166,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var marketSessionRestoreNavTarget = "";
   var lastProductionSignature = "";
   var activeHoldRepeatStop = null;
+  var activeCartDrag = null;
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
@@ -37077,8 +37239,9 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     (document.head ?? document.documentElement).appendChild(style);
   }
   function shellStyles() {
+    const fontFamily = runtime.config.isZH ? '"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif' : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     return `
-    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
@@ -37095,13 +37258,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .tabs{display:flex;flex:0 0 auto;gap:2px;margin:8px 12px 0;padding:2px;border-radius:7px;background:color-mix(in srgb,var(--text) 5%,transparent)}
     .tab{flex:1;min-width:0;padding:7px 0;border-radius:5px;color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}.tab:hover{color:var(--text)}.tab[data-active="true"]{background:var(--accent);color:#fff}
     .body{min-height:100px;flex:1 1 auto;overflow-y:auto;padding:4px 12px 6px}.empty{margin:12px 2px;padding:26px 12px;border-radius:8px;background:color-mix(in srgb,var(--text) 4%,transparent);color:var(--muted);font-size:12.5px;line-height:1.7;text-align:center}
-    .cart-row{display:grid;min-height:56px;grid-template-columns:26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:9px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}
-    .star{grid-column:1;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
-    .item-icon{grid-column:2;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
-    .item-name{grid-column:3;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
-    .row-controls{grid-column:4;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
-    .delete{grid-column:5;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
-    .row-bottom{grid-column:3/6;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
+    .cart-row{display:grid;min-height:56px;grid-template-columns:20px 26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:7px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}.cart-row[data-dragging="true"]{z-index:1;border-radius:7px;background:color-mix(in srgb,var(--accent) 24%,var(--panel));box-shadow:0 5px 16px rgba(0,0,0,.28)}
+    .cart-drag{grid-column:1;grid-row:1/span 2;width:20px;height:38px;border-radius:5px;color:color-mix(in srgb,var(--muted) 70%,transparent);font-size:17px;line-height:1;cursor:grab;touch-action:none;user-select:none}.cart-drag:hover{background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text)}.cart-drag:active{cursor:grabbing}
+    .star{grid-column:2;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
+    .item-icon{grid-column:3;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
+    .item-name{grid-column:4;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
+    .row-controls{grid-column:5;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+    .delete{grid-column:6;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
+    .row-bottom{grid-column:4/7;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
     .panel-footer{display:flex;flex:0 0 auto;align-items:center;gap:8px;min-height:56px;padding:10px 14px;border-top:1px solid color-mix(in srgb,var(--line) 55%,transparent);color:var(--muted);font-size:11px}.panel-footer:empty{display:none}.footer-total{font-size:10px;line-height:1.35}.footer-total strong{display:block;color:var(--gold);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.footer-total small{display:block;color:var(--muted);font-size:9px}.clear{margin-left:auto;padding:9px 18px;border-radius:6px;background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text);font-size:12.5px;font-weight:700}.clear:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
     .plan-row{display:flex;min-height:58px;flex-direction:column;gap:6px;padding:8px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.row-top{display:flex;align-items:center;gap:8px;min-width:0}.plan-title{min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.plan-status{color:var(--gold);font-size:10.5px}.progress{height:4px;overflow:hidden;border-radius:2px;background:color-mix(in srgb,var(--text) 7%,transparent)}.progress>span{display:block;height:100%;background:var(--accent)}.plan-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px}.plan-actions{display:flex;gap:5px}.plan-actions button{padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:11px;font-weight:600}.plan-actions button:hover{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text)}
     .setting-section{margin-top:5px}.setting-section-title{padding:8px 4px 4px;color:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.4px}.setting-row{display:flex;min-height:48px;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 32%,transparent)}.setting-label{min-width:0;flex:1;color:var(--text);font-size:13px;font-weight:600}.setting-label small{display:block;margin-top:2px;color:var(--muted);font-size:10.5px;font-weight:400}.switch-state{min-width:18px;color:var(--muted);font-size:10.5px;text-align:right}.switch-state[data-on="true"]{color:#3edd8b;font-weight:700}.switch{position:relative;width:42px;height:23px;flex:0 0 auto;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);transition:background-color .15s}.switch::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.5;transition:transform .15s,opacity .15s}.switch[data-on="true"]{background:#29c274}.switch[data-on="true"]::after{transform:translateX(19px);opacity:1}
@@ -37173,15 +37337,208 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
-    shadow.querySelector(".panel-footer").replaceChildren();
     if (activeTab === "plans") renderPlans(body);
     else if (activeTab === "settings") renderProcurementSettings(body);
     else renderCart(body);
   }
+  function prepareFooter(mode) {
+    const footer = shadow.querySelector(".panel-footer");
+    if (footer.dataset.mode !== mode) {
+      footer.replaceChildren();
+      footer.dataset.mode = mode;
+    }
+    return footer;
+  }
+  function latestCartItem(row) {
+    const parsed = procurement3.parseItemKey(row.dataset.cartKey);
+    return procurement3.getCartItem(parsed.itemHrid, parsed.enhancementLevel);
+  }
+  function abandonCartDrag() {
+    const drag = activeCartDrag;
+    if (!drag) return;
+    activeCartDrag = null;
+    drag.row.dataset.dragging = "false";
+    window.removeEventListener("pointermove", moveCartDrag, true);
+    window.removeEventListener("pointerup", stopCartDrag, true);
+    window.removeEventListener("pointercancel", cancelCartDrag, true);
+  }
+  function finishCartDrag(cancelled = false) {
+    const drag = activeCartDrag;
+    if (!drag) return;
+    abandonCartDrag();
+    if (cancelled) {
+      renderCart(shadow.querySelector(".body"));
+      return;
+    }
+    procurement3.setCartOrder(
+      [...shadow.querySelectorAll(".cart-row")].map((row) => row.dataset.cartKey)
+    );
+  }
+  function moveCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    event.preventDefault();
+    const { row, body } = activeCartDrag;
+    const others = [...body.querySelectorAll(".cart-row")].filter(
+      (candidate) => candidate !== row
+    );
+    const before = others.find(
+      (candidate) => event.clientY < candidate.getBoundingClientRect().top + candidate.getBoundingClientRect().height / 2
+    );
+    if (before) body.insertBefore(row, before);
+    else body.append(row);
+  }
+  function stopCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    finishCartDrag(false);
+  }
+  function cancelCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    finishCartDrag(true);
+  }
+  function createCartRow(key, body) {
+    const row = document.createElement("article");
+    row.className = "cart-row";
+    row.dataset.cartKey = key;
+    row.innerHTML = `
+    <button class="cart-drag" type="button" title="${t8("拖动排序", "Drag to reorder")}" aria-label="${t8("拖动排序", "Drag to reorder")}">⋮⋮</button>
+    <button class="star">${STAR_ICON}</button>
+    <button class="item-icon"></button>
+    <button class="item-name"></button>
+    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t8("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
+    <button class="delete" title="${t8("删除", "Remove")}">×</button>
+    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
+    const setQuantity = (quantity) => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.setCartItemQuantity(
+          item.itemHrid,
+          quantity,
+          item.enhancementLevel
+        );
+    };
+    row.querySelector(".star").addEventListener("click", () => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
+          starred: !item.starred
+        });
+    });
+    for (const target of row.querySelectorAll(".item-name,.item-icon")) {
+      target.addEventListener("click", () => {
+        const item = latestCartItem(row);
+        if (item && !marketFeaturesSuppressed())
+          openMarketplace(item.itemHrid, item.enhancementLevel);
+      });
+    }
+    row.querySelector(".delete").addEventListener("click", () => {
+      stopActiveHoldRepeat();
+      const item = latestCartItem(row);
+      if (item) procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
+    });
+    const quantityInput = row.querySelector(".qty");
+    quantityInput.addEventListener("change", () => {
+      setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
+    });
+    for (const step of row.querySelectorAll(".step")) {
+      const update = () => {
+        const item = latestCartItem(row);
+        if (!item) return stopActiveHoldRepeat();
+        setQuantity(item.quantity + Number(step.dataset.step));
+      };
+      step.addEventListener("click", update);
+      installHoldRepeat(step, update);
+    }
+    row.querySelector(".threshold").addEventListener("change", (event) => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
+          threshold: event.target.value ? runtime.api.parseCompactNumber?.(event.target.value) : null
+        });
+    });
+    const dragHandle = row.querySelector(".cart-drag");
+    dragHandle.addEventListener("pointerdown", (event) => {
+      if (activeCartDrag) finishCartDrag(true);
+      event.preventDefault();
+      activeCartDrag = { pointerId: event.pointerId, row, body };
+      row.dataset.dragging = "true";
+      dragHandle.setPointerCapture?.(event.pointerId);
+      window.addEventListener("pointermove", moveCartDrag, true);
+      window.addEventListener("pointerup", stopCartDrag, true);
+      window.addEventListener("pointercancel", cancelCartDrag, true);
+    });
+    return row;
+  }
+  function updateCartRow(row, item, { marketEnabled, pricesEnabled, price }) {
+    row.dataset.cartKey = procurement3.itemKey(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    const star = row.querySelector(".star");
+    star.dataset.active = String(Boolean(item.starred));
+    star.title = t8(
+      "收藏：买齐后保留并监控常备数量",
+      "Favorite: keep and restock"
+    );
+    const icon = row.querySelector(".item-icon");
+    icon.disabled = !marketEnabled;
+    icon.title = marketEnabled ? t8("在市场中打开", "Open in marketplace") : "";
+    icon.innerHTML = renderItemIcon2(item);
+    const name = row.querySelector(".item-name");
+    name.disabled = !marketEnabled;
+    name.title = item.name;
+    name.textContent = `${item.name}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}`;
+    const quantity = row.querySelector(".qty");
+    const activeElement = row.getRootNode()?.activeElement;
+    if (activeElement !== quantity) quantity.value = item.quantity;
+    const owned = procurement3.getInventoryCount(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    const ownedNode = row.querySelector(".owned");
+    ownedNode.title = exactNumber(owned);
+    ownedNode.textContent = `${t8("库存", "Stock")} ${formatNumber4(owned)}`;
+    const priceNode = row.querySelector(".price");
+    priceNode.hidden = !pricesEnabled;
+    priceNode.title = price > 0 ? exactNumber(price * item.quantity) : "—";
+    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
+    const thresholdWrap = row.querySelector(".threshold-wrap");
+    thresholdWrap.hidden = !item.starred;
+    const threshold = row.querySelector(".threshold");
+    if (activeElement !== threshold) threshold.value = item.threshold ?? "";
+  }
+  function renderCartFooter({ marketEnabled, settings: settings2, total, unpriced }) {
+    const footer = prepareFooter("cart");
+    let totalNode = footer.querySelector(".footer-total");
+    let clear = footer.querySelector(".clear");
+    if (!totalNode) {
+      totalNode = document.createElement("span");
+      totalNode.className = "footer-total";
+      totalNode.innerHTML = `<span></span><strong></strong><small></small>`;
+      footer.append(totalNode);
+    }
+    if (!clear) {
+      clear = document.createElement("button");
+      clear.className = "clear";
+      clear.addEventListener("click", () => {
+        stopActiveHoldRepeat();
+        procurement3.clearCart();
+      });
+      footer.append(clear);
+    }
+    totalNode.hidden = !marketEnabled;
+    totalNode.querySelector("span").textContent = t8("补齐合计", "Total");
+    const strong = totalNode.querySelector("strong");
+    strong.title = unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
+    strong.textContent = settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—";
+    const small = totalNode.querySelector("small");
+    small.textContent = unpriced ? `${unpriced} ${t8("项未估价", "unpriced")}` : "";
+    clear.textContent = t8("清空未收藏", "Clear");
+  }
   function renderCart(body) {
     const items = procurement3.getCartItems();
-    body.replaceChildren();
     if (!items.length) {
+      if (activeCartDrag) finishCartDrag(true);
+      body.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = t8(
@@ -37189,94 +37546,41 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
       body.append(empty);
+      prepareFooter("empty");
       return;
     }
+    body.querySelector(".empty")?.remove();
     const settings2 = procurement3.getSettings();
     const marketEnabled = !marketFeaturesSuppressed();
     const pricesEnabled = marketEnabled && settings2.pricesEnabled;
+    const currentRows = new Map(
+      [...body.querySelectorAll(".cart-row")].map((row) => [
+        row.dataset.cartKey,
+        row
+      ])
+    );
+    const wantedKeys = /* @__PURE__ */ new Set();
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
-      const row = document.createElement("article");
-      row.className = "cart-row";
+      const key = procurement3.itemKey(item.itemHrid, item.enhancementLevel);
+      wantedKeys.add(key);
+      const row = currentRows.get(key) ?? createCartRow(key, body);
       const price = pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
       if (pricesEnabled && item.quantity > 0) {
         if (price > 0) total += price * item.quantity;
         else unpriced += 1;
       }
-      row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t8("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" ${marketEnabled ? `title="${t8("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml5(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml5(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
-      <div class="row-controls">
-        <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t8("待购数量", "Quantity")}">
-        <button class="step" data-step="1">＋</button>
-      </div>
-      <button class="delete" title="${t8("删除", "Remove")}">×</button>
-      <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t8("库存", "Stock")} ${formatNumber4(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
-      </div>`;
-      const setQuantity = (quantity) => {
-        procurement3.setCartItemQuantity(
-          item.itemHrid,
-          quantity,
-          item.enhancementLevel
-        );
-      };
-      row.querySelector(".star").addEventListener("click", () => {
-        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
-          starred: !item.starred
-        });
-      });
-      for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-        if (marketEnabled) {
-          target.addEventListener("click", () => {
-            openMarketplace(item.itemHrid, item.enhancementLevel);
-          });
-        }
-      }
-      row.querySelector(".delete").addEventListener("click", () => {
-        stopActiveHoldRepeat();
-        procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
-      });
-      const quantityInput = row.querySelector(".qty");
-      quantityInput.addEventListener("change", () => {
-        setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
-      });
-      for (const step of row.querySelectorAll(".step")) {
-        step.addEventListener("click", () => {
-          setQuantity(item.quantity + Number(step.dataset.step));
-        });
-        installHoldRepeat(step, () => {
-          const latest = procurement3.getCartItem(
-            item.itemHrid,
-            item.enhancementLevel
-          );
-          if (!latest) {
-            stopActiveHoldRepeat();
-            return;
-          }
-          setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
-        });
-      }
-      row.querySelector(".threshold").addEventListener("change", (event) => {
-        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
-          threshold: event.target.value ? runtime.api.parseCompactNumber?.(event.target.value) : null
-        });
-      });
-      body.append(row);
+      updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
+      if (!activeCartDrag) body.append(row);
+      else if (!row.isConnected) body.append(row);
     }
-    const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `
-    ${marketEnabled ? `<span class="footer-total">${t8("补齐合计", "Total")}<strong title="${unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t8("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
-    <button class="clear">${t8("清空未收藏", "Clear")}</button>`;
-    footer.querySelector(".clear").addEventListener("click", () => {
-      stopActiveHoldRepeat();
-      procurement3.clearCart();
-    });
+    for (const [key, row] of currentRows) {
+      if (wantedKeys.has(key)) continue;
+      if (activeCartDrag?.row === row) abandonCartDrag();
+      row.remove();
+    }
+    renderCartFooter({ marketEnabled, settings: settings2, total, unpriced });
   }
   function stopActiveHoldRepeat() {
     activeHoldRepeatStop?.();
@@ -37316,6 +37620,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function renderPlans(body) {
     const plans2 = procurement3.getPlans();
     body.replaceChildren();
+    const footer = prepareFooter("plans");
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -37353,7 +37658,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       });
       body.append(row);
     }
-    const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `<span>${t8("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t8("清空项目", "Clear projects")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement3.getPlans()) procurement3.removePlan(plan.id);
@@ -37504,6 +37808,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   };
   function renderProcurementSettings(body) {
     body.replaceChildren();
+    prepareFooter("settings");
     const settings2 = procurement3.getSettings();
     for (const sectionDefinition of SETTING_SECTIONS) {
       const section = document.createElement("section");
@@ -37722,6 +38027,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       renderShell();
     });
     scope.add(() => {
+      abandonCartDrag();
       shell?.remove();
       shell = null;
       shadow = null;
@@ -42867,13 +43173,21 @@ ${locks}` : ""}`;
           "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
           "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
           "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；左上角总进度会在自定义流程中显示当前步数，应用配置后自动刷新页面。可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。",
-          "检测到铁牛或旧铁牛角色时，现在会自动开启铁牛模式适配，隐藏该模式不可用的市场价格、交易利润与市场采购操作；切回普通角色时这些功能仍会正常显示。"
+          "检测到铁牛或旧铁牛角色时，现在会自动开启铁牛模式适配，隐藏该模式不可用的市场价格、交易利润与市场采购操作；切回普通角色时这些功能仍会正常显示。",
+          "库存排序旁恢复“刷新价值”按钮，可在需要时主动生成新资产快照，同时保留当前排序与摘要展开状态；购物清单新增鼠标和触屏拖动排序并按角色、服务器保存，清单行与“清空未收藏”按钮也会在库存和价格更新时保持稳定，不再反复重建闪烁。",
+          "强化行动的剩余时间改为原位更新，并会在原生强化数量文字短暂缺失时沿用同一行动最后一次有效数量，不再闪成无限或消失。本次生产总耗时已移到数量、无限与最大控制右侧，以无边框的“耗时”文字显示；购物车与生产摘要的英文界面也改用更清晰的系统字体。",
+          "行动队列更新现在按行动 ID 合并、去重并按真实序号排序，上下重排后会在已打开的队列内立即刷新耗时。遇到无限行动时保留此前可达的有限总时长并显示“有限时长 + ∞”，无限后的行动不再计算或残留旧时间；队列关闭后会立即停止相关观察与延迟校验。",
+          "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
           "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
           "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. An overall progress bar in the upper-left tracks custom steps, and applying the profile now refreshes the page automatically. General settings show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike.",
-          "Detecting an Iron Cow or Legacy Iron Cow character now automatically enables Iron Cow adaptation, hiding marketplace prices, trading profit, and marketplace procurement actions that are unavailable in those modes; these features remain visible after switching back to a standard character."
+          "Detecting an Iron Cow or Legacy Iron Cow character now automatically enables Iron Cow adaptation, hiding marketplace prices, trading profit, and marketplace procurement actions that are unavailable in those modes; these features remain visible after switching back to a standard character.",
+          "A Refresh values button has returned beside Inventory sorting, letting players create a fresh asset snapshot on demand while preserving the selected sort and expanded summary. Shopping-list rows can now be reordered with mouse or touch and persist per character and server; keyed rows and the Clear unfavorited button also stay mounted during inventory and price updates instead of being rebuilt and flickering.",
+          "Enhancement remaining time now updates in place and keeps the last valid native quantity for the same action when that text briefly disappears, preventing the estimate from flashing to infinity or vanishing. Production duration now appears as unboxed Duration text to the right of the quantity, infinity, and Max controls, and English Shopping Cart and Production Summary surfaces use a clearer system UI font stack.",
+          "Action updates now merge and deduplicate by action ID and sort by the authoritative ordinal, so moving actions up or down refreshes an open queue immediately. The queue keeps every reachable finite duration before the first infinite action and displays “finite duration + ∞”; actions after infinity are not calculated and stale timing is removed. Queue observers and transition checks stop as soon as the menu or feature closes.",
+          "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID."
         ])
       })
     }),
@@ -45607,97 +45921,143 @@ ${locks}` : ""}`;
     if (root && activeActionQueueObserver.menu !== root && !root.contains?.(activeActionQueueObserver.menu)) {
       return false;
     }
+    if (activeActionQueueObserver.frameId !== null) {
+      (globalThis.cancelAnimationFrame ?? clearTimeout)(
+        activeActionQueueObserver.frameId
+      );
+    }
+    clearTimeout(activeActionQueueObserver.retryId);
     activeActionQueueObserver.observer.disconnect();
     activeActionQueueObserver = null;
     return true;
+  }
+  function scheduleActionQueueRefresh(added, { retry = true } = {}) {
+    const active = activeActionQueueObserver;
+    if (!active || active.menu !== added) return;
+    if (active.frameId !== null) {
+      (globalThis.cancelAnimationFrame ?? clearTimeout)(active.frameId);
+    }
+    clearTimeout(active.retryId);
+    const requestFrame = globalThis.requestAnimationFrame ?? ((callback) => setTimeout(callback, 0));
+    active.frameId = requestFrame(() => {
+      if (activeActionQueueObserver !== active) return;
+      active.frameId = null;
+      if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+        disconnectActionQueueObserver(added);
+        return;
+      }
+      handleActionQueueMenueCalculateTime(added);
+      if (retry) {
+        active.retryId = setTimeout(() => {
+          if (activeActionQueueObserver === active && added.isConnected) {
+            handleActionQueueMenueCalculateTime(added);
+          }
+        }, 100);
+      }
+    });
   }
   function disconnectActionQueueObservers() {
     disconnectActionQueueObserver();
   }
   function handleActionQueueMenue(added) {
     if (!runtime.settings.get("actionQueue")) return;
-    handleActionQueueMenueCalculateTime(added);
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-    if (!listDiv || activeActionQueueObserver?.menu === added) return;
+    if (!listDiv) return;
+    if (activeActionQueueObserver?.menu === added) {
+      scheduleActionQueueRefresh(added);
+      return;
+    }
     disconnectActionQueueObserver();
     const observer = new MutationObserver(() => {
       if (!runtime.settings.get("actionQueue") || !added.isConnected) {
         disconnectActionQueueObserver(added);
         return;
       }
-      handleActionQueueMenueCalculateTime(added);
+      scheduleActionQueueRefresh(added);
     });
-    activeActionQueueObserver = { menu: added, observer };
+    activeActionQueueObserver = {
+      menu: added,
+      observer,
+      frameId: null,
+      retryId: null
+    };
     observer.observe(listDiv, {
       characterData: false,
       subtree: false,
       childList: true
     });
+    handleActionQueueMenueCalculateTime(added);
   }
   function handleActionQueueMenueCalculateTime(added) {
     const actionDivList = added.querySelectorAll(
       "div.QueuedActions_action__r3HlD"
     );
-    if (!actionDivList.length) return;
-    if (actionDivList.length !== runtime.state.currentActionsHridList.length - 1) {
+    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
+      (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
+    );
+    if (!actionDivList.length && actions.length > 1) return false;
+    if (actionDivList.length !== Math.max(0, actions.length - 1)) {
       console.error(
         runtime.config.isZH ? "[MWITools] 行动队列提示中的行动数量不一致。" : "[MWITools] Action count mismatch in the action queue tooltip."
       );
-      return;
+      return false;
     }
-    let actionDivListIndex = 0;
-    let hasSkippedFirstAction = false;
-    let accumulatedTimeSec = 0;
-    let isAccumulatedTimeInfinite = false;
+    let finitePrefixSeconds = 0;
+    let reachedInfinite = false;
     const now = Date.now();
-    for (const actionObj of runtime.state.currentActionsHridList) {
-      const actionHrid = actionObj.actionHrid;
+    for (const [index, actionObj] of actions.entries()) {
+      const queuedRow = index > 0 ? actionDivList[index - 1] : null;
+      const target = queuedRow?.querySelector("div");
+      const current = target?.querySelector("div.script_actionTime");
+      if (reachedInfinite) {
+        current?.remove();
+        continue;
+      }
+      const actionHrid = String(actionObj.actionHrid ?? "");
       const count = actionObj.maxCount - actionObj.currentCount;
       const isInfinite = count === 0 || actionHrid.includes("/combat/");
-      if (isInfinite) isAccumulatedTimeInfinite = true;
       const detail = runtime.state.initData_actionDetailMap[actionHrid];
-      if (!detail) continue;
-      const timing = runtime.api.projectActionTiming?.(
+      const timing = detail ? runtime.api.projectActionTiming?.(
         actionHrid,
         isInfinite ? Infinity : count
-      );
+      ) : null;
       const totalTimeSec = timing?.totalSeconds;
-      if (totalTimeSec === null || totalTimeSec === void 0) {
-        isAccumulatedTimeInfinite = true;
-      }
-      let finishAt = null;
-      if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
-        accumulatedTimeSec += totalTimeSec;
-        finishAt = now + accumulatedTimeSec * 1e3;
-      }
-      if (hasSkippedFirstAction) {
-        const unavailable = !Number.isFinite(totalTimeSec);
-        const target = actionDivList[actionDivListIndex]?.querySelector("div");
-        const current = target?.querySelector("div.script_actionTime");
+      const unavailable = !Number.isFinite(totalTimeSec);
+      const boundary = isInfinite || unavailable;
+      if (boundary) reachedInfinite = true;
+      else finitePrefixSeconds += totalTimeSec;
+      if (queuedRow) {
         const output = current ?? document.createElement("div");
         output.className = "script_actionTime";
         output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
         output.textContent = formatRemainingTiming(
-          isInfinite || unavailable || isAccumulatedTimeInfinite ? Infinity : totalTimeSec,
-          finishAt,
+          boundary ? Infinity : totalTimeSec,
+          boundary ? null : now + finitePrefixSeconds * 1e3,
           { isZH: runtime.config.isZH, now }
         );
         if (!current) target?.append(output);
-        actionDivListIndex += 1;
       }
-      hasSkippedFirstAction = true;
     }
-    const currentTotal = document.querySelector("div#script_queueTotalTime");
+    const currentTotal = added.parentElement?.querySelector(
+      ":scope > div#script_queueTotalTime"
+    );
     const total = currentTotal ?? document.createElement("div");
     total.id = "script_queueTotalTime";
     total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-    total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${formatRemainingTiming(
-      isAccumulatedTimeInfinite ? Infinity : accumulatedTimeSec,
-      isAccumulatedTimeInfinite ? null : now + accumulatedTimeSec * 1e3,
+    const totalText = reachedInfinite ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞` : "∞" : formatRemainingTiming(
+      finitePrefixSeconds,
+      now + finitePrefixSeconds * 1e3,
       { isZH: runtime.config.isZH, now }
-    )}`;
+    );
+    total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
     if (!currentTotal) added.insertAdjacentElement("afterend", total);
+    return true;
   }
+  runtime.onMessage("actions_updated", () => {
+    if (activeActionQueueObserver) {
+      scheduleActionQueueRefresh(activeActionQueueObserver.menu);
+    }
+  });
   function getOriTextFromElement(element) {
     if (!element) {
       console.error(

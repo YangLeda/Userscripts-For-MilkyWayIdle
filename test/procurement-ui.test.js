@@ -176,6 +176,85 @@ test("optional auto-expand opens the cart only after successful additions", () =
   runtime.api.procurement.setSetting("autoExpandOnAddEnabled", false);
 });
 
+test("cart rows and footer stay stable while pointer drag persists order", () => {
+  const procurement = runtime.api.procurement;
+  procurement.clearCart({ includeStarred: true });
+  procurement.addToCart({ itemHrid: "/items/nail", name: "Nail", quantity: 1 });
+  procurement.addToCart({
+    itemHrid: "/items/board",
+    name: "Board",
+    quantity: 1,
+  });
+  procurement.addToCart({
+    itemHrid: "/items/astral_enhancer",
+    name: "Astral Enhancer",
+    quantity: 1,
+  });
+  runtime.api.renderProcurementShell();
+
+  const host = document.querySelector("#mwitools-procurement-host");
+  const root = host.shadowRoot;
+  root.querySelector('.tab[data-tab="cart"]').click();
+  const firstRow = root.querySelector(".cart-row");
+  const clearButton = root.querySelector(".panel-footer .clear");
+  runtime.api.renderProcurementShell();
+  assert.equal(root.querySelector(".cart-row"), firstRow);
+  assert.equal(root.querySelector(".panel-footer .clear"), clearButton);
+
+  let pageScrolled = false;
+  const originalScrollTo = window.scrollTo;
+  const originalScrollIntoView = window.Element.prototype.scrollIntoView;
+  window.scrollTo = () => {
+    pageScrolled = true;
+  };
+  window.Element.prototype.scrollIntoView = () => {
+    pageScrolled = true;
+  };
+  try {
+    [...root.querySelectorAll(".cart-row")].forEach((row, index) => {
+      row.getBoundingClientRect = () => ({
+        top: index * 60,
+        height: 50,
+      });
+    });
+    firstRow.querySelector(".cart-drag").dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", {
+        bubbles: true,
+        cancelable: true,
+        clientY: 5,
+      }),
+    );
+    window.dispatchEvent(
+      new dom.window.MouseEvent("pointermove", {
+        bubbles: true,
+        cancelable: true,
+        clientY: 999,
+      }),
+    );
+    window.dispatchEvent(
+      new dom.window.MouseEvent("pointerup", { bubbles: true, clientY: 999 }),
+    );
+  } finally {
+    window.scrollTo = originalScrollTo;
+    window.Element.prototype.scrollIntoView = originalScrollIntoView;
+  }
+
+  assert.equal(pageScrolled, false);
+  assert.deepEqual(
+    procurement.getCartItems().map((item) => item.itemHrid),
+    ["/items/board", "/items/astral_enhancer", "/items/nail"],
+  );
+  runtime.api.renderProcurementShell();
+  assert.deepEqual(
+    [...root.querySelectorAll(".cart-row")].map(
+      (row) => procurement.parseItemKey(row.dataset.cartKey).itemHrid,
+    ),
+    ["/items/board", "/items/astral_enhancer", "/items/nail"],
+  );
+  assert.equal(root.querySelector(".panel-footer .clear"), clearButton);
+  procurement.clearCart({ includeStarred: true });
+});
+
 test("cart quantity hold-repeat stops after redraw, release, and clear", async () => {
   const host = document.querySelector("#mwitools-procurement-host");
   const drawer = host.shadowRoot.querySelector(".drawer");
@@ -915,8 +994,8 @@ test("iron-cow adaptation keeps shortages while suppressing market shopping UI",
     host.shadowRoot.querySelector(".item-name").textContent,
     /Board/,
   );
-  assert.equal(host.shadowRoot.querySelector(".price"), null);
-  assert.equal(host.shadowRoot.querySelector(".footer-total"), null);
+  assert.equal(host.shadowRoot.querySelector(".price").hidden, true);
+  assert.equal(host.shadowRoot.querySelector(".footer-total").hidden, true);
   assert.equal(host.shadowRoot.querySelector(".item-name").disabled, true);
   assert.equal(
     runtime.api.openProcurementMarketplace("/items/board", 0),

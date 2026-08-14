@@ -171,7 +171,9 @@ function applyCharacterData(payload) {
   runtime.state.initData_myMarketListings = payload.myMarketListings ?? [];
   runtime.state.initData_combatAbilities =
     payload.combatUnit?.combatAbilities ?? [];
-  runtime.state.currentActionsHridList = [...(payload.characterActions ?? [])];
+  runtime.state.currentActionsHridList = normalizeActionList(
+    payload.characterActions ?? [],
+  );
   runtime.state.characterQuests = (payload.characterQuests ?? []).map(
     (quest, index) => ({ ...quest, _mwitoolsOriginalIndex: index }),
   );
@@ -293,16 +295,68 @@ function applyLeaderboard(payload) {
   if (rows.length) runtime.state.guildLeaderboard = rows;
 }
 
-function applyActionsUpdated(payload) {
-  for (const action of payload.endCharacterActions) {
-    if (action.isDone === false)
-      runtime.state.currentActionsHridList.push(action);
-    else
-      runtime.state.currentActionsHridList =
-        runtime.state.currentActionsHridList.filter(
-          ({ id }) => id !== action.id,
-        );
+function normalizeActionList(actions) {
+  const keyed = new Map();
+  const idless = [];
+  for (const [index, action] of (Array.isArray(actions)
+    ? actions
+    : []
+  ).entries()) {
+    if (!action) continue;
+    const id = action.id;
+    if (id === null || id === undefined) {
+      idless.push({ action, index });
+      continue;
+    }
+    const key = String(id);
+    const previous = keyed.get(key);
+    keyed.set(key, {
+      action: previous ? { ...previous.action, ...action } : action,
+      index: previous?.index ?? index,
+    });
   }
+  return [...keyed.values(), ...idless]
+    .sort((left, right) => {
+      const leftOrdinal = Number(left.action?.ordinal);
+      const rightOrdinal = Number(right.action?.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal)
+        ? leftOrdinal
+        : Number.MAX_SAFE_INTEGER;
+      const rightOrder = Number.isFinite(rightOrdinal)
+        ? rightOrdinal
+        : Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.index - right.index;
+    })
+    .map(({ action }) => action);
+}
+
+function applyActionsUpdated(payload) {
+  const updates = payload.endCharacterActions;
+  if (!Array.isArray(updates)) return;
+  let current = normalizeActionList(runtime.state.currentActionsHridList);
+  for (const update of updates) {
+    if (!update) continue;
+    const id = update.id;
+    if (id === null || id === undefined) {
+      if (update.isDone !== true) current.push(update);
+      continue;
+    }
+    const key = String(id);
+    const index = current.findIndex(
+      (action) =>
+        action?.id !== null &&
+        action?.id !== undefined &&
+        String(action.id) === key,
+    );
+    if (update.isDone === true) {
+      if (index >= 0) current.splice(index, 1);
+    } else if (index >= 0) {
+      current[index] = { ...current[index], ...update };
+    } else {
+      current.push(update);
+    }
+  }
+  runtime.state.currentActionsHridList = normalizeActionList(current);
 }
 
 function applyActionCompleted(payload) {

@@ -27,6 +27,8 @@ const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
+await import("../src/core/message-state.js");
+await import("../src/core/messages.js");
 await import("../src/features/settings-and-notifications.js");
 await import("../src/features/navigation-action-queue.js");
 await import("../src/features/legacy-lifecycle.js");
@@ -69,9 +71,23 @@ test("inventory lifecycle restores a summary removed beside a reused inventory n
 });
 
 test("disabling queue timing disconnects observers that could recreate output", async () => {
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
   runtime.state.initData_actionDetailMap = {
-    "/actions/crafting/current": { baseTimeCost: 10_000_000_000 },
-    "/actions/crafting/queued": { baseTimeCost: 10_000_000_000 },
+    "/actions/crafting/current": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+      inputItems: [],
+    },
+    "/actions/crafting/queued": {
+      type: "/action_types/crafting",
+      baseTimeCost: 10_000_000_000,
+      outputItems: [],
+      inputItems: [],
+    },
   };
   runtime.state.currentActionsHridList = [
     {
@@ -180,6 +196,157 @@ test("queued action timing uses community speed and total efficiency", () => {
     runtime.config.isZH = originalLanguage;
     runtime.api.disconnectActionQueueObserver();
   }
+});
+
+test("queue totals keep the finite prefix and stop at the first infinity", () => {
+  runtime.config.isZH = true;
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  runtime.state.initData_characterSkills = [];
+  runtime.state.initData_characterItems = [];
+  runtime.state.initData_actionTypeDrinkSlotsMap = {
+    "/action_types/crafting": [],
+  };
+  runtime.state.actionTypeBuffSources = {};
+  runtime.api.getTotalEffiPercentage = () => 0;
+  runtime.api.getToolsSpeedBuffByActionHrid = () => 0;
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    ["current", "queued", "infinite", "unreachable"].map((name) => [
+      `/actions/crafting/${name}`,
+      {
+        type: "/action_types/crafting",
+        baseTimeCost: 60_000_000_000,
+        outputItems: [],
+      },
+    ]),
+  );
+  runtime.state.currentActionsHridList = [
+    {
+      id: "current",
+      ordinal: 0,
+      actionHrid: "/actions/crafting/current",
+      maxCount: 90,
+      currentCount: 0,
+    },
+    {
+      id: "queued",
+      ordinal: 1,
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 10,
+      currentCount: 0,
+    },
+    {
+      id: "infinite",
+      ordinal: 2,
+      actionHrid: "/actions/crafting/infinite",
+      maxCount: 0,
+      currentCount: 0,
+    },
+    {
+      id: "unreachable",
+      ordinal: 3,
+      actionHrid: "/actions/crafting/unreachable",
+      maxCount: 5,
+      currentCount: 0,
+    },
+  ];
+  document.body.innerHTML = `<div><div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6">${'<div class="QueuedActions_action__r3HlD"><div></div></div>'.repeat(3)}</div></div></div>`;
+  const menu = document.querySelector(
+    ".QueuedActions_queuedActionsEditMenu__3OoQH",
+  );
+  const rows = menu.querySelectorAll(".QueuedActions_action__r3HlD");
+  const stale = document.createElement("div");
+  stale.className = "script_actionTime";
+  stale.textContent = "stale";
+  rows[2].firstElementChild.append(stale);
+
+  runtime.api.handleActionQueueMenueCalculateTime(menu);
+
+  assert.equal(
+    document.querySelector("#script_queueTotalTime").textContent,
+    "总时间：1小时40分 + ∞",
+  );
+  assert.match(
+    rows[0].querySelector(".script_actionTime").textContent,
+    /^10分/,
+  );
+  assert.equal(rows[1].querySelector(".script_actionTime").textContent, "∞");
+  assert.equal(rows[2].querySelector(".script_actionTime"), null);
+
+  runtime.state.currentActionsHridList = [
+    {
+      id: "infinite",
+      ordinal: 0,
+      actionHrid: "/actions/crafting/infinite",
+      maxCount: 0,
+      currentCount: 0,
+    },
+    {
+      id: "queued",
+      ordinal: 1,
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 10,
+      currentCount: 0,
+    },
+  ];
+  rows[2].remove();
+  rows[1].remove();
+  runtime.api.handleActionQueueMenueCalculateTime(menu);
+  assert.equal(
+    document.querySelector("#script_queueTotalTime").textContent,
+    "总时间：∞",
+  );
+  assert.equal(rows[0].querySelector(".script_actionTime"), null);
+});
+
+test("open queue timing refreshes after an actions_updated reorder", async () => {
+  runtime.settings.settingsMap.actionQueue.isTrue = true;
+  runtime.state.currentActionsHridList = [
+    {
+      id: 1,
+      ordinal: 0,
+      actionHrid: "/actions/crafting/current",
+      maxCount: 1,
+      currentCount: 0,
+    },
+    {
+      id: 2,
+      ordinal: 1,
+      actionHrid: "/actions/crafting/queued",
+      maxCount: 2,
+      currentCount: 0,
+    },
+    {
+      id: 3,
+      ordinal: 2,
+      actionHrid: "/actions/crafting/unreachable",
+      maxCount: 3,
+      currentCount: 0,
+    },
+  ];
+  document.body.innerHTML = `<div><div class="QueuedActions_queuedActionsEditMenu__3OoQH"><div class="QueuedActions_actions__2Lur6"><div class="QueuedActions_action__r3HlD"><div></div></div><div class="QueuedActions_action__r3HlD"><div></div></div></div></div></div>`;
+  const menu = document.querySelector(
+    ".QueuedActions_queuedActionsEditMenu__3OoQH",
+  );
+  const list = menu.querySelector(".QueuedActions_actions__2Lur6");
+  runtime.api.handleActionQueueMenue(menu);
+  assert.match(list.children[0].textContent, /^2分/);
+
+  list.insertBefore(list.children[1], list.children[0]);
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "actions_updated",
+      endCharacterActions: [
+        { id: "2", ordinal: 2 },
+        { id: "3", ordinal: 1 },
+      ],
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 130));
+
+  assert.match(list.children[0].textContent, /^3分/);
+  assert.match(list.children[1].textContent, /^2分/);
+  assert.equal(runtime.state.currentActionsHridList.length, 3);
+  runtime.api.disconnectActionQueueObserver();
 });
 
 test("queued action timing marks multi-day finishes with the shared format", () => {

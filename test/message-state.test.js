@@ -221,6 +221,48 @@ test("character, action and equipment messages update canonical state", () => {
   );
 });
 
+test("action updates merge by string id, deduplicate, and follow ordinal order", () => {
+  runtime.api.applyGameMessage({
+    type: "init_character_data",
+    characterID: "queue-order-character",
+    characterSkills: [],
+    characterItems: [],
+    characterActions: [
+      { id: 1, actionHrid: "/actions/first", ordinal: 1, currentCount: 0 },
+      { id: "2", actionHrid: "/actions/second", ordinal: 2 },
+      { id: 1, currentCount: 3 },
+    ],
+  });
+  assert.equal(runtime.state.currentActionsHridList.length, 2);
+  assert.equal(runtime.state.currentActionsHridList[0].currentCount, 3);
+
+  runtime.api.applyGameMessage({
+    type: "actions_updated",
+    endCharacterActions: [
+      { id: "1", ordinal: 3, currentCount: 4 },
+      { id: 2, ordinal: 1, currentCount: 2 },
+    ],
+  });
+  assert.deepEqual(
+    runtime.state.currentActionsHridList.map(
+      ({ id, ordinal, currentCount }) => [String(id), ordinal, currentCount],
+    ),
+    [
+      ["2", 1, 2],
+      ["1", 3, 4],
+    ],
+  );
+
+  runtime.api.applyGameMessage({
+    type: "actions_updated",
+    endCharacterActions: [{ id: "2", isDone: true }],
+  });
+  assert.deepEqual(
+    runtime.state.currentActionsHridList.map(({ id }) => String(id)),
+    ["1"],
+  );
+});
+
 test("character game mode and labyrinth activity follow authoritative messages", () => {
   runtime.api.applyGameMessage({
     type: "init_character_data",

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { JSDOM } from "jsdom";
 
@@ -200,7 +201,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.equal(document.querySelectorAll(".mwi-summary-icon").length, 0);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    0,
+    1,
   );
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
@@ -418,7 +419,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
 });
 
-test("inventory scores and total assets stay frozen for the page session", async () => {
+test("inventory values stay frozen until an explicit forced refresh", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   const originalRefresh = runtime.api.refreshAssetSnapshot;
   let refreshCount = 0;
@@ -435,18 +436,38 @@ test("inventory scores and total assets stay frozen for the page session", async
 
   runtime.state.marketItemValues["/items/milk"][0] = 2_000;
   runtime.api.invalidateAssetValueCache();
-  document.querySelector("#script_inventory_summary").remove();
-  await runtime.api.calculateNetworth({ force: true });
+  await runtime.api.calculateNetworth();
 
   assert.equal(
     document.querySelector("#script_inventory_summary").textContent,
     before,
   );
   assert.equal(refreshCount, 1);
+
+  await runtime.api.calculateNetworth({ force: true });
+  assert.notEqual(
+    document.querySelector("#script_inventory_summary").textContent,
+    before,
+  );
+  assert.equal(refreshCount, 2);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    0,
+    1,
   );
+
+  document.querySelector("#toggleNetWorth").click();
+  const refreshButton = document.querySelector("#script_refresh_inventory_btn");
+  const controls = document.querySelector("#script_inv_sort_controls");
+  controls.dataset.sortOrder = "fair";
+  refreshButton.click();
+  assert.equal(refreshButton.disabled, true);
+  assert.match(refreshButton.textContent, /刷新中/);
+  await delay(0);
+  assert.equal(refreshButton.disabled, false);
+  assert.equal(refreshButton.textContent, "刷新价值");
+  assert.equal(controls.dataset.sortOrder, "fair");
+  assert.equal(document.querySelector("#netWorthDetails").hidden, false);
+  assert.equal(refreshCount, 3);
 
   runtime.state.marketItemValues["/items/milk"][0] = 1_000;
   runtime.api.invalidateAssetValueCache();

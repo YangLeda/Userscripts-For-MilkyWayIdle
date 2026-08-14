@@ -427,13 +427,13 @@ function addInventoryCategoryValues(
   }
 }
 
-async function getFrozenInventoryDisplay() {
+async function getFrozenInventoryDisplay(force = false) {
   const key = inventoryDisplayKey();
   if (!key) return null;
-  if (frozenInventoryDisplays.has(key)) {
+  if (!force && frozenInventoryDisplays.has(key)) {
     return frozenInventoryDisplays.get(key);
   }
-  if (frozenInventoryDisplayPromises.has(key)) {
+  if (!force && frozenInventoryDisplayPromises.has(key)) {
     return frozenInventoryDisplayPromises.get(key);
   }
   const pendingDisplay = runtime.api
@@ -453,7 +453,7 @@ async function getFrozenInventoryDisplay() {
   return pendingDisplay;
 }
 
-async function calculateNetworth() {
+async function calculateNetworth(options = {}) {
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
   const targetNodes = document.querySelectorAll(
     'div[class*="Inventory_items"]',
@@ -462,7 +462,9 @@ async function calculateNetworth() {
 
   const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
   const showSort = runtime.settings.settingsMap.invSort.isTrue;
-  const display = showWorth ? await getFrozenInventoryDisplay() : null;
+  const display = showWorth
+    ? await getFrozenInventoryDisplay(options.force === true)
+    : null;
   if (showWorth && !display) return;
   const snapshot = display?.snapshot;
   addInventorySummaryStyles();
@@ -732,9 +734,13 @@ async function addInvSortButton(invElem) {
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
+  const refreshButton = `<button
+        id="script_refresh_inventory_btn">
+        ${runtime.config.isZH ? "刷新价值" : "Refresh values"}
+        </button>`;
   const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     showSort ? (runtime.config.isZH ? "物品排序：" : "Sort items by: ") : ""
-  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
+  }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
   if (!invElem.isConnected || !invElem.parentElement) return;
   const existingSummary = invElem.parentElement.querySelector(
     "#script_inventory_summary",
@@ -836,6 +842,11 @@ async function addInvSortButton(invElem) {
     }
   };
 
+  const controls = invElem.parentElement?.querySelector(
+    "#script_inv_sort_controls",
+  );
+  if (controls) controls.mwitoolsSortItemsBy = sortItemsBy;
+
   if (showSort) {
     invElem.parentElement
       .querySelector("button#script_sortByFair_btn")
@@ -849,6 +860,25 @@ async function addInvSortButton(invElem) {
     invElem.parentElement
       .querySelector("button#script_sortByNone_btn")
       ?.addEventListener("click", () => sortItemsBy("none"));
+  }
+  if (showWorth) {
+    invElem.parentElement
+      .querySelector("button#script_refresh_inventory_btn")
+      ?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const order = controls?.dataset.sortOrder ?? "none";
+        button.disabled = true;
+        button.textContent = runtime.config.isZH ? "刷新中…" : "Refreshing…";
+        try {
+          await calculateNetworth({ force: true });
+          controls?.mwitoolsSortItemsBy?.(order);
+        } finally {
+          button.disabled = false;
+          button.textContent = runtime.config.isZH
+            ? "刷新价值"
+            : "Refresh values";
+        }
+      });
   }
 }
 
