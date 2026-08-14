@@ -81,6 +81,34 @@ test("detects the current Everyday Profit Plus Fixed DOM markers", () => {
   chart.remove();
 });
 
+test("detects TaskManager only from its dedicated marker combination", () => {
+  const taskSort = document.createElement("div");
+  taskSort.id = "TaskSort";
+  document.body.append(taskSort);
+  assert.doesNotMatch(
+    detectDuplicateScripts({
+      pageWindow: {},
+      documentRef: document,
+      dpsWasPresent: false,
+    }).join(" "),
+    /TaskManager/,
+  );
+
+  const actionIcon = document.createElement("div");
+  actionIcon.id = "ActionIcon";
+  document.body.append(actionIcon);
+  assert.match(
+    detectDuplicateScripts({
+      pageWindow: {},
+      documentRef: document,
+      dpsWasPresent: false,
+    }).join(" "),
+    /MWI TaskManager/,
+  );
+  taskSort.remove();
+  actionIcon.remove();
+});
+
 test("duplicate monitor coalesces mutations and ignores its own warning", () => {
   document.body.replaceChildren();
   let duplicates = ["Everyday Profit Plus Fixed"];

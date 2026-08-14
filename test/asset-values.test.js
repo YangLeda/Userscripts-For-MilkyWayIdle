@@ -816,3 +816,63 @@ test("guild shrine value accumulates every purchased buff level", () => {
   runtime.state.guildDataLoaded = false;
   assert.equal(runtime.api.getGuildShrineValue(), null);
 });
+
+test("recipe and shop reverse indexes rebuild when source objects are replaced", () => {
+  const previousActions = runtime.state.initData_actionDetailMap;
+  const previousShop = runtime.state.initData_shopItemDetailMap;
+  const previousTaskShop = runtime.state.initData_taskShopItemDetailMap;
+  const previousLabyrinthShop =
+    runtime.state.initData_labyrinthShopItemDetailMap;
+
+  runtime.state.initData_taskShopItemDetailMap = {};
+  runtime.state.initData_labyrinthShopItemDetailMap = {};
+  runtime.state.initData_shopItemDetailMap = {};
+  runtime.state.initData_actionDetailMap = {
+    first_recipe: {
+      inputItems: [{ itemHrid: "/items/material_cheap", count: 2 }],
+      outputItems: [{ itemHrid: "/items/indexed_recipe_a", count: 1 }],
+    },
+  };
+  runtime.api.invalidateAssetValueCache();
+  assert.equal(
+    runtime.api.getAssetValue("/items/indexed_recipe_a", 0, {
+      forceAcquisitionValue: true,
+    }),
+    200,
+  );
+
+  runtime.state.initData_actionDetailMap = {
+    replacement_recipe: {
+      inputItems: [{ itemHrid: "/items/material_expensive", count: 3 }],
+      outputItems: [{ itemHrid: "/items/indexed_recipe_b", count: 1 }],
+    },
+  };
+  assert.equal(
+    runtime.api.getAssetValue("/items/indexed_recipe_b", 0, {
+      forceAcquisitionValue: true,
+    }),
+    1_500,
+  );
+
+  runtime.state.initData_shopItemDetailMap = {
+    first_reward: {
+      itemHrid: "/items/indexed_shop_a",
+      costs: [{ itemHrid: "/items/material_cheap", count: 4 }],
+    },
+  };
+  assert.equal(runtime.api.getAssetValue("/items/indexed_shop_a"), 400);
+
+  runtime.state.initData_shopItemDetailMap = {
+    replacement_reward: {
+      itemHrid: "/items/indexed_shop_b",
+      costs: [{ itemHrid: "/items/material_expensive", count: 2 }],
+    },
+  };
+  assert.equal(runtime.api.getAssetValue("/items/indexed_shop_b"), 1_000);
+
+  runtime.state.initData_actionDetailMap = previousActions;
+  runtime.state.initData_shopItemDetailMap = previousShop;
+  runtime.state.initData_taskShopItemDetailMap = previousTaskShop;
+  runtime.state.initData_labyrinthShopItemDetailMap = previousLabyrinthShop;
+  runtime.api.invalidateAssetValueCache();
+});

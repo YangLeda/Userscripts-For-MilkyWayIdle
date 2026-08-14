@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.9
+// @version      26.4.10
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -77,9 +77,9 @@
     mod
   ));
 
-  // ../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
+  // node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -595,6 +595,7 @@
   var featureStates = /* @__PURE__ */ new Map();
   var featureStatusListeners = /* @__PURE__ */ new Set();
   var runtimeStarted = false;
+  var featureInitializationPaused = false;
   var activeCharacterId = "";
   function emitFeatureStatus(id) {
     const snapshot = runtime.features.getStatus(id);
@@ -721,6 +722,7 @@
       this.starts.push({ name, start: start2 });
     },
     start() {
+      featureInitializationPaused = false;
       for (const feature of this.starts) {
         try {
           const result = feature.start();
@@ -784,7 +786,9 @@
             error: null
           });
         }
-        if (runtimeStarted) void initializeFeature(definition.id);
+        if (runtimeStarted && !featureInitializationPaused) {
+          void initializeFeature(definition.id);
+        }
         return definition.id;
       },
       async initializeAll(scope = null) {
@@ -800,20 +804,36 @@
         return initializeFeature(id);
       },
       async syncSetting(settingId) {
-        const touched = [];
+        return this.syncSettings([settingId]);
+      },
+      async syncSettings(settingIds) {
+        const changed = new Set(settingIds ?? []);
+        const affected = /* @__PURE__ */ new Set();
         for (const [id, definition] of featureDefinitions) {
-          if (definition.setting !== settingId) continue;
-          touched.push(id);
-          if (isFeatureEnabled(definition)) await initializeFeature(id);
-          else await disableFeature(id);
+          if (changed.has(definition.setting)) affected.add(id);
         }
-        for (const parentId of touched) {
+        let expanded = true;
+        while (expanded) {
+          expanded = false;
           for (const [id, definition] of featureDefinitions) {
-            if (!definition.dependsOn?.includes(parentId)) continue;
-            if (isFeatureEnabled(definition)) await initializeFeature(id);
-            else await disableFeature(id);
+            if (!affected.has(id) && definition.dependsOn?.some(
+              (dependencyId) => affected.has(dependencyId)
+            )) {
+              affected.add(id);
+              expanded = true;
+            }
           }
         }
+        if (featureInitializationPaused) return [...affected];
+        for (const [id, definition] of [...featureDefinitions].reverse()) {
+          if (!affected.has(id) || isFeatureEnabled(definition)) continue;
+          await disableFeature(id);
+        }
+        for (const [id, definition] of featureDefinitions) {
+          if (!affected.has(id) || !isFeatureEnabled(definition)) continue;
+          await initializeFeature(id);
+        }
+        return [...affected];
       },
       async handleCharacterData(payload) {
         const nextCharacterId = resolveCharacterId(payload);
@@ -825,7 +845,15 @@
         }
         const changed = activeCharacterId !== nextCharacterId;
         activeCharacterId = nextCharacterId;
-        if (changed) await this.initializeAll("character");
+        if (changed && !featureInitializationPaused) {
+          await this.initializeAll("character");
+        }
+      },
+      pauseInitialization() {
+        featureInitializationPaused = true;
+      },
+      resumeInitialization() {
+        featureInitializationPaused = false;
       },
       getStatus(id) {
         const state = featureStates.get(id) ?? {
@@ -1315,6 +1343,14 @@
       "MWITools font size",
       "调整 MWITools 面板、提示和角标的字号，不影响游戏原生界面。",
       "Adjust text in MWITools panels, hints, and badges without changing the game UI."
+    ],
+    [
+      "hoverFontScale",
+      "general",
+      "悬浮窗口字号",
+      "Tooltip panel font size",
+      "调整生产利润、宝箱估值与强化成本悬浮窗口的字号，不影响游戏原生提示和页面布局。",
+      "Adjust production profit, loot valuation, and enhancement cost tooltip panels without changing native game tooltips or page layout."
     ],
     [
       "useOrangeAsMainColor",
@@ -1875,6 +1911,15 @@
       ["largest", { zh: "最大", en: "Largest" }]
     ]
   };
+  settingsCatalog.hoverFontScale.control = {
+    type: "select",
+    preference: "hoverFontScale",
+    options: [
+      ["standard", { zh: "标准", en: "Standard" }],
+      ["large", { zh: "较大", en: "Large" }],
+      ["largest", { zh: "最大", en: "Largest" }]
+    ]
+  };
   var settingParents = {
     actionBarProfit: "totalActionTime",
     actionQueue: "totalActionTime",
@@ -1916,6 +1961,10 @@
       values: Object.freeze(["collapsed", "expanded", "off"])
     }),
     uiFontScale: Object.freeze({
+      defaultValue: "standard",
+      values: Object.freeze(["standard", "large", "largest"])
+    }),
+    hoverFontScale: Object.freeze({
       defaultValue: "standard",
       values: Object.freeze(["standard", "large", "largest"])
     })
@@ -1991,6 +2040,80 @@
     }
     await runtime.features.syncSetting(id);
     return true;
+  }
+  async function applySettingsBatch({ values = {}, preferences = {} } = {}, options = {}) {
+    const settingChanges = [];
+    const preferenceChanges = [];
+    const nextValues = { ...values };
+    if (Object.hasOwn(preferences, "productionSummaryMode") && !Object.hasOwn(nextValues, "productionSummary")) {
+      nextValues.productionSummary = normalizePreference(
+        "productionSummaryMode",
+        preferences.productionSummaryMode
+      ) !== "off";
+    }
+    for (const [id, value] of Object.entries(nextValues)) {
+      if (!settingsMap[id]) {
+        throw new TypeError(`Unknown MWITools setting: ${id}`);
+      }
+      if (typeof value !== "boolean") {
+        throw new TypeError(`MWITools setting ${id} must be boolean`);
+      }
+    }
+    for (const [id, value] of Object.entries(preferences)) {
+      if (!preferenceDefinitions[id]) {
+        throw new TypeError(`Unknown MWITools preference: ${id}`);
+      }
+      if (!preferenceDefinitions[id].values.includes(value)) {
+        throw new TypeError(`Invalid MWITools preference value for ${id}`);
+      }
+    }
+    for (const [id, value] of Object.entries(nextValues)) {
+      const normalized = value;
+      const previous = settingsMap[id].isTrue;
+      settingsMap[id].isTrue = normalized;
+      if (previous !== normalized || options.force) {
+        settingChanges.push({ id, value: normalized, previous });
+      }
+    }
+    for (const [id, value] of Object.entries(preferences)) {
+      const normalized = normalizePreference(id, value);
+      if (normalized === void 0) continue;
+      const previous = preferenceValues[id];
+      preferenceValues[id] = normalized;
+      if (previous !== normalized || options.force) {
+        preferenceChanges.push({ id, value: normalized, previous });
+      }
+    }
+    if (options.persist !== false) runtime.api.persistSettings?.();
+    for (const change of preferenceChanges) {
+      for (const listener of preferenceListeners.get(change.id) ?? []) {
+        try {
+          listener(change.value, change.previous);
+        } catch (error) {
+          console.error(
+            isZH ? `[MWITools] 偏好设置 ${change.id} 的监听器执行失败` : `[MWITools] Preference listener failed for ${change.id}`,
+            error
+          );
+        }
+      }
+    }
+    for (const change of settingChanges) {
+      for (const listener of settingListeners.get(change.id) ?? []) {
+        try {
+          listener(change.value, change.previous);
+        } catch (error) {
+          console.error(
+            isZH ? `[MWITools] 设置 ${change.id} 的监听器执行失败` : `[MWITools] Setting listener failed for ${change.id}`,
+            error
+          );
+        }
+      }
+    }
+    await runtime.features.syncSettings(settingChanges.map(({ id }) => id));
+    return {
+      settings: settingChanges.map(({ id }) => id),
+      preferences: preferenceChanges.map(({ id }) => id)
+    };
   }
   function onSettingChange(id, listener) {
     const listeners2 = settingListeners.get(id) ?? /* @__PURE__ */ new Set();
@@ -2095,6 +2218,7 @@
   Object.assign(runtime.settings, {
     get: getSetting,
     set: setSetting,
+    applyBatch: applySettingsBatch,
     onChange: onSettingChange,
     getPreference,
     setPreference,
@@ -20199,6 +20323,43 @@
     "/action_types/tailoring",
     "/action_types/woodcutting"
   ]);
+  var productionActionIndexSource = null;
+  var productionActionIndex = null;
+  function getProductionActionIndex() {
+    const source = runtime.state.initData_actionDetailMap;
+    if (source === productionActionIndexSource && productionActionIndex) {
+      return productionActionIndex;
+    }
+    const candidatesByItem = /* @__PURE__ */ new Map();
+    for (const [actionHrid, detail] of Object.entries(source ?? {})) {
+      if (!PROFIT_ACTION_TYPES.has(detail?.type)) continue;
+      for (const output of getExpectedOutputs(detail)) {
+        const itemHrid = String(output?.itemHrid ?? "");
+        if (!itemHrid || !(Number(output.count) > 0)) continue;
+        const candidates = candidatesByItem.get(itemHrid) ?? [];
+        candidates.push([actionHrid, detail]);
+        candidatesByItem.set(itemHrid, candidates);
+      }
+    }
+    const index = /* @__PURE__ */ new Map();
+    for (const [itemHrid, candidates] of candidatesByItem) {
+      const slug = itemHrid.split("/").at(-1);
+      const exact = candidates.find(
+        ([actionHrid]) => actionHrid.endsWith(`/${slug}`)
+      );
+      if (exact) {
+        index.set(itemHrid, exact[0]);
+        continue;
+      }
+      candidates.sort(
+        ([leftHrid, left], [rightHrid, right]) => (Number(left?.sortIndex) || 0) - (Number(right?.sortIndex) || 0) || leftHrid.localeCompare(rightHrid)
+      );
+      index.set(itemHrid, candidates[0][0]);
+    }
+    productionActionIndexSource = source;
+    productionActionIndex = index;
+    return productionActionIndex;
+  }
   function getDirectPrice(itemHrid, kind, mode) {
     let value = 0;
     if (mode === "conservative") {
@@ -20292,21 +20453,7 @@
   function resolveProductionActionByItemHrid(itemHrid) {
     const target = String(itemHrid ?? "");
     if (!target) return null;
-    const matches = Object.entries(
-      runtime.state.initData_actionDetailMap ?? {}
-    ).filter(
-      ([, detail]) => PROFIT_ACTION_TYPES.has(detail?.type) && getExpectedOutputs(detail).some(
-        (output) => output?.itemHrid === target && Number(output.count) > 0
-      )
-    );
-    if (!matches.length) return null;
-    const slug = target.split("/").at(-1);
-    const exact = matches.find(([actionHrid]) => actionHrid.endsWith(`/${slug}`));
-    if (exact) return exact[0];
-    matches.sort(
-      ([leftHrid, left], [rightHrid, right]) => (Number(left?.sortIndex) || 0) - (Number(right?.sortIndex) || 0) || leftHrid.localeCompare(rightHrid)
-    );
-    return matches[0][0];
+    return getProductionActionIndex().get(target) ?? null;
   }
   function projectAction(actionOrHrid, requestedCount, context = {}) {
     const action = typeof actionOrHrid === "string" ? { actionHrid: actionOrHrid } : actionOrHrid ?? {};
@@ -21410,6 +21557,31 @@
       item ? { ...item, name: resolveItemName(item.itemHrid) || item.name } : null
     );
   }
+  function setCartOrder(keys) {
+    if (!Array.isArray(keys)) return false;
+    const orderedKeys = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const value of keys) {
+      const key = String(value ?? "");
+      if (!key || seen.has(key) || !cart.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    for (const key of cart.keys()) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      orderedKeys.push(key);
+    }
+    const currentKeys = [...cart.keys()];
+    if (currentKeys.length === orderedKeys.length && currentKeys.every((key, index) => key === orderedKeys[index])) {
+      return false;
+    }
+    const reordered = orderedKeys.map((key) => [key, cart.get(key)]);
+    cart.clear();
+    for (const [key, item] of reordered) cart.set(key, item);
+    saveCartAndEmit({ reason: "reorder" });
+    return true;
+  }
   function saveCartAndEmit({ reason = "update", added = 0 } = {}) {
     persistData();
     emit("cart:change", { reason, added, items: getCartItems() });
@@ -22029,6 +22201,7 @@
       aggregateRequirements,
       getCartItems,
       getCartItem,
+      setCartOrder,
       getCartAllocationSummary,
       addToCart,
       addRequirementsToCart,
@@ -22304,7 +22477,10 @@
     return recipeCache.get(item) ?? null;
   }
   function isCraftableItem(itemHrid) {
-    return Boolean(findProductionRecipe(procurement.normalizeItemHrid(itemHrid)));
+    const item = procurement.normalizeItemHrid(itemHrid);
+    const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(item);
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return Boolean(actionHrid && runtime.api.getDirectInputs?.(detail)?.length);
   }
   function currentHouseLevel(houseRoomHrid) {
     const map = runtime.state.initData_characterHouseRoomMap ?? {};
@@ -23398,6 +23574,10 @@
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
+  var actionOutputIndexSource = null;
+  var actionOutputIndexes = null;
+  var shopRewardIndexSources = null;
+  var shopRewardIndex = null;
   function positiveNumber2(value) {
     const number3 = Number(value);
     return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
@@ -23415,6 +23595,10 @@
     assetValueCache.clear();
     assetLiquidationCache.clear();
     guildCreditHridCache = null;
+    actionOutputIndexSource = null;
+    actionOutputIndexes = null;
+    shopRewardIndexSources = null;
+    shopRewardIndex = null;
     runtime.api.resetAssetValuationMarketSnapshot?.();
   }
   function getItemDetails(itemHrid) {
@@ -23571,6 +23755,75 @@
       runtime.state.initData_taskShopItemDetailMap,
       runtime.state.initData_labyrinthShopItemDetailMap
     ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
+  }
+  function assetItemKey(itemHrid, enhancementLevel = 0) {
+    return `${itemHrid}#${Number(enhancementLevel) || 0}`;
+  }
+  function getActionOutputIndexes() {
+    const source = runtime.state.initData_actionDetailMap;
+    if (source === actionOutputIndexSource && actionOutputIndexes) {
+      return actionOutputIndexes;
+    }
+    const byItemAndLevel = /* @__PURE__ */ new Map();
+    const upgradesByItem = /* @__PURE__ */ new Map();
+    for (const [, action] of entriesOfMap(source)) {
+      const countsByKey = /* @__PURE__ */ new Map();
+      const countsByItem = /* @__PURE__ */ new Map();
+      for (const output of action?.outputItems ?? []) {
+        const itemHrid = output?.itemHrid ?? output?.hrid;
+        if (!itemHrid) continue;
+        const count = positiveNumber2(output.count ?? 1);
+        if (!count) continue;
+        const key = assetItemKey(itemHrid, output.enhancementLevel);
+        countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+        countsByItem.set(itemHrid, (countsByItem.get(itemHrid) ?? 0) + count);
+      }
+      for (const [key, outputCount] of countsByKey) {
+        const candidates = byItemAndLevel.get(key) ?? [];
+        candidates.push({ action, outputCount });
+        byItemAndLevel.set(key, candidates);
+      }
+      if (action?.upgradeItemHrid) {
+        for (const [itemHrid, outputCount] of countsByItem) {
+          const candidates = upgradesByItem.get(itemHrid) ?? [];
+          candidates.push({ action, outputCount });
+          upgradesByItem.set(itemHrid, candidates);
+        }
+      }
+    }
+    actionOutputIndexSource = source;
+    actionOutputIndexes = { byItemAndLevel, upgradesByItem };
+    return actionOutputIndexes;
+  }
+  function getShopRewardIndex() {
+    const sources = [
+      runtime.state.initData_shopItemDetailMap,
+      runtime.state.initData_taskShopItemDetailMap,
+      runtime.state.initData_labyrinthShopItemDetailMap
+    ];
+    if (shopRewardIndex && shopRewardIndexSources?.every((source, index2) => source === sources[index2])) {
+      return shopRewardIndex;
+    }
+    const index = /* @__PURE__ */ new Map();
+    for (const detail of getShopDetails()) {
+      const countsByKey = /* @__PURE__ */ new Map();
+      for (const reward of normalizeRewardRecords(detail)) {
+        const itemHrid = reward?.itemHrid ?? reward?.hrid;
+        if (!itemHrid) continue;
+        const count = positiveNumber2(reward.count ?? 1);
+        if (!count) continue;
+        const key = assetItemKey(itemHrid, reward.enhancementLevel);
+        countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+      }
+      for (const [key, rewardCount] of countsByKey) {
+        const candidates = index.get(key) ?? [];
+        candidates.push({ detail, rewardCount });
+        index.set(key, candidates);
+      }
+    }
+    shopRewardIndexSources = sources;
+    shopRewardIndex = index;
+    return shopRewardIndex;
   }
   function getLootConfig(overrides = {}) {
     const settings2 = runtime.settings.settingsMap ?? {};
@@ -23905,14 +24158,8 @@
   }
   function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const detail of getShopDetails()) {
-      const rewards = normalizeRewardRecords(detail);
-      const matchingCount = rewards.reduce((total, reward) => {
-        const rewardHrid = reward?.itemHrid ?? reward?.hrid;
-        const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
-        return rewardHrid === itemHrid && rewardLevel === enhancementLevel ? total + positiveNumber2(reward.count ?? 1) : total;
-      }, 0);
-      if (!matchingCount) continue;
+    const candidates = getShopRewardIndex().get(assetItemKey(itemHrid, enhancementLevel)) ?? [];
+    for (const { detail, rewardCount } of candidates) {
       let totalCost = 0, complete = true;
       for (const cost of normalizeCostRecords(detail)) {
         const costHrid = cost?.itemHrid ?? cost?.hrid;
@@ -23930,7 +24177,7 @@
         totalCost += count * unitValue;
       }
       if (complete && totalCost > 0) {
-        bestValue = Math.min(bestValue, totalCost / matchingCount);
+        bestValue = Math.min(bestValue, totalCost / rewardCount);
       }
     }
     return Number.isFinite(bestValue) ? bestValue : 0;
@@ -23938,16 +24185,10 @@
   function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
     if (!String(itemHrid).endsWith("_refined")) return 0;
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        return outputHrid === itemHrid ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
+    const candidates = getActionOutputIndexes().upgradesByItem.get(itemHrid) ?? [];
+    for (const { action, outputCount } of candidates) {
       const baseItemHrid = action?.upgradeItemHrid;
-      if (!outputCount || !baseItemHrid) continue;
+      if (!baseItemHrid) continue;
       const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
       let totalCost = acquisitionCostValue(baseItemHrid, retainedLevel, context), complete = totalCost > 0;
       for (const cost of action.inputItems ?? []) {
@@ -23973,16 +24214,10 @@
   }
   function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-        return outputHrid === itemHrid && outputLevel === enhancementLevel ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
-      if (!outputCount) continue;
+    const candidates = getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel)
+    ) ?? [];
+    for (const { action, outputCount } of candidates) {
       let totalCost = 0;
       let complete = true;
       const inputItems = action?.inputItems ?? [];
@@ -24191,16 +24426,10 @@
   function getCraftedLiquidationValue(itemHrid, enhancementLevel, mode, context) {
     let bestValue = Number.POSITIVE_INFINITY;
     let missingItemHrids = [];
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-        return outputHrid === itemHrid && outputLevel === enhancementLevel ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
-      if (!outputCount) continue;
+    const candidates = getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel)
+    ) ?? [];
+    for (const { action, outputCount } of candidates) {
       const inputItems = [...action?.inputItems ?? []];
       const upgradeItemHrid = action?.upgradeItemHrid;
       if (upgradeItemHrid) {
@@ -24660,7 +24889,9 @@
     runtime.state.initData_characterAbilities = payload.characterAbilities;
     runtime.state.initData_myMarketListings = payload.myMarketListings ?? [];
     runtime.state.initData_combatAbilities = payload.combatUnit?.combatAbilities ?? [];
-    runtime.state.currentActionsHridList = [...payload.characterActions ?? []];
+    runtime.state.currentActionsHridList = normalizeActionList(
+      payload.characterActions ?? []
+    );
     runtime.state.characterQuests = (payload.characterQuests ?? []).map(
       (quest, index) => ({ ...quest, _mwitoolsOriginalIndex: index })
     );
@@ -24765,15 +24996,55 @@
     ]);
     if (rows2.length) runtime.state.guildLeaderboard = rows2;
   }
-  function applyActionsUpdated(payload) {
-    for (const action of payload.endCharacterActions) {
-      if (action.isDone === false)
-        runtime.state.currentActionsHridList.push(action);
-      else
-        runtime.state.currentActionsHridList = runtime.state.currentActionsHridList.filter(
-          ({ id }) => id !== action.id
-        );
+  function normalizeActionList(actions) {
+    const keyed = /* @__PURE__ */ new Map();
+    const idless = [];
+    for (const [index, action] of (Array.isArray(actions) ? actions : []).entries()) {
+      if (!action) continue;
+      const id = action.id;
+      if (id === null || id === void 0) {
+        idless.push({ action, index });
+        continue;
+      }
+      const key = String(id);
+      const previous = keyed.get(key);
+      keyed.set(key, {
+        action: previous ? { ...previous.action, ...action } : action,
+        index: previous?.index ?? index
+      });
     }
+    return [...keyed.values(), ...idless].sort((left, right) => {
+      const leftOrdinal = Number(left.action?.ordinal);
+      const rightOrdinal = Number(right.action?.ordinal);
+      const leftOrder = Number.isFinite(leftOrdinal) ? leftOrdinal : Number.MAX_SAFE_INTEGER;
+      const rightOrder = Number.isFinite(rightOrdinal) ? rightOrdinal : Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder || left.index - right.index;
+    }).map(({ action }) => action);
+  }
+  function applyActionsUpdated(payload) {
+    const updates = payload.endCharacterActions;
+    if (!Array.isArray(updates)) return;
+    let current = normalizeActionList(runtime.state.currentActionsHridList);
+    for (const update of updates) {
+      if (!update) continue;
+      const id = update.id;
+      if (id === null || id === void 0) {
+        if (update.isDone !== true) current.push(update);
+        continue;
+      }
+      const key = String(id);
+      const index = current.findIndex(
+        (action) => action?.id !== null && action?.id !== void 0 && String(action.id) === key
+      );
+      if (update.isDone === true) {
+        if (index >= 0) current.splice(index, 1);
+      } else if (index >= 0) {
+        current[index] = { ...current[index], ...update };
+      } else {
+        current.push(update);
+      }
+    }
+    runtime.state.currentActionsHridList = normalizeActionList(current);
   }
   function applyActionCompleted(payload) {
     const action = payload.endCharacterAction;
@@ -25343,11 +25614,16 @@
     )) {
       duplicates.push("Everyday Profit Plus Fixed");
     }
+    if (documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
+      "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon"
+    )) {
+      duplicates.push("MWI TaskManager");
+    }
     return duplicates;
   }
   function showDuplicateWarning(duplicates, {
     documentRef = globalThis.document,
-    isZH: isZH2 = runtime.config.isZH,
+    isZH: isZH3 = runtime.config.isZH,
     onDismiss = null
   } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
@@ -25361,7 +25637,7 @@
       const close = documentRef.createElement("button");
       close.type = "button";
       close.textContent = "×";
-      close.setAttribute("aria-label", isZH2 ? "关闭提醒" : "Close warning");
+      close.setAttribute("aria-label", isZH3 ? "关闭提醒" : "Close warning");
       close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
       close.addEventListener("click", () => {
         onDismiss?.();
@@ -25371,8 +25647,8 @@
       documentRef.body.append(warning);
     }
     const content = warning.lastElementChild;
-    const names = duplicates.join(isZH2 ? "、" : ", ");
-    const message = isZH2 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+    const names = duplicates.join(isZH3 ? "、" : ", ");
+    const message = isZH3 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
     if (content.textContent !== message) content.textContent = message;
     return warning;
   }
@@ -30187,6 +30463,11 @@ ${preview}`
         );
       }
     };
+    const ensurePanel = () => {
+      if (panel || !host?.isConnected) return false;
+      panel = new PlanningPanel(host);
+      return true;
+    };
     const syncViewport = () => {
       if (!host) return;
       if (!isCompactViewport2() || !active) {
@@ -30230,6 +30511,7 @@ ${preview}`
         return;
       }
       navigationBranch.dataset.mwitoolsPlanningActive = "true";
+      const panelCreated = ensurePanel();
       for (const node of [...shell2?.children ?? []]) {
         if (node === navigationBranch || node === host || node.tagName === "STYLE") {
           continue;
@@ -30244,7 +30526,7 @@ ${preview}`
         node.style.display = "none";
       }
       syncViewport();
-      if (activating || panel?.updatePending) panel?.update();
+      if (!panelCreated && (activating || panel?.updatePending)) panel?.update();
     };
     const teardown = () => {
       setActive(false);
@@ -30289,7 +30571,6 @@ ${preview}`
       host.id = PANEL_ID2;
       host.hidden = true;
       shell2.appendChild(host);
-      panel = new PlanningPanel(host);
     };
     const ensureMounted = () => {
       const loadout = findCharacterManagementLoadoutTab();
@@ -30377,7 +30658,10 @@ ${preview}`
         document.getElementById(STYLE_ID4)?.remove();
       },
       getDiagnostics() {
-        return { updateCount: panel?.updateCount ?? 0 };
+        return {
+          panelMounted: Boolean(panel),
+          updateCount: panel?.updateCount ?? 0
+        };
       }
     };
   }
@@ -31762,16 +32046,39 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      --mwi-inventory-heading-font-size: .875rem;
-      --mwi-inventory-heading-line-height: 1.2;
       display: block !important;
       margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: var(--mwi-inventory-heading-font-size);
-      line-height: var(--mwi-inventory-heading-line-height);
+      font-family: inherit;
+      font-size: calc(.875rem * var(--mwi-ui-font-scale, 1));
+      line-height: 1.2;
       text-align: left;
     }
     #script_inv_sort_controls { display: block !important; }
+    #script_inv_sort_controls button {
+      margin: 0 2px;
+      padding: 2px 8px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .08);
+      color: var(--color-text-secondary, #aeb5c0);
+      box-shadow: none;
+      font: inherit;
+      font-size: .78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s ease-in-out;
+    }
+    #script_inv_sort_controls[data-sort-order="fair"] #script_sortByFair_btn,
+    #script_inv_sort_controls[data-sort-order="ask"] #script_sortByAsk_btn,
+    #script_inv_sort_controls[data-sort-order="bid"] #script_sortByBid_btn,
+    #script_inv_sort_controls[data-sort-order="none"] #script_sortByNone_btn {
+      border-color: transparent;
+      background: ${runtime.config.SCRIPT_COLOR_MAIN};
+      color: #0b1522;
+      box-shadow: 0 0 8px rgba(0, 198, 255, .45);
+      font-weight: 700;
+    }
     [class*="Item_enhancementLevel"] ~ #script_stack_price {
       margin-top: 15px;
     }
@@ -32030,17 +32337,8 @@ ${preview}`
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
-  function syncInventorySummaryTypography(invElem, summary) {
-    const categoryTitle = invElem.querySelector(
-      '[class*="Inventory_categoryButton"]'
-    );
-    const computed = categoryTitle ? categoryTitle.ownerDocument?.defaultView?.getComputedStyle(categoryTitle) : null;
-    const fontSize = Number.parseFloat(computed?.fontSize) > 0 ? computed.fontSize : ".875rem";
-    const lineHeight = computed?.lineHeight && computed.lineHeight !== "normal" ? computed.lineHeight : "1.2";
-    summary.style.setProperty("--mwi-inventory-heading-font-size", fontSize);
-    summary.style.setProperty("--mwi-inventory-heading-line-height", lineHeight);
-  }
   function scheduleNetworthRefresh() {
+    addInventorySummaryStyles();
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     clearTimeout(inventoryRefreshTimer);
     inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
@@ -32127,13 +32425,13 @@ ${preview}`
       heading.appendChild(value);
     }
   }
-  async function getFrozenInventoryDisplay() {
+  async function getFrozenInventoryDisplay(force = false) {
     const key = inventoryDisplayKey();
     if (!key) return null;
-    if (frozenInventoryDisplays.has(key)) {
+    if (!force && frozenInventoryDisplays.has(key)) {
       return frozenInventoryDisplays.get(key);
     }
-    if (frozenInventoryDisplayPromises.has(key)) {
+    if (!force && frozenInventoryDisplayPromises.has(key)) {
       return frozenInventoryDisplayPromises.get(key);
     }
     const pendingDisplay = runtime.api.refreshAssetSnapshot().then((snapshot) => {
@@ -32149,7 +32447,7 @@ ${preview}`
     frozenInventoryDisplayPromises.set(key, pendingDisplay);
     return pendingDisplay;
   }
-  async function calculateNetworth() {
+  async function calculateNetworth(options = {}) {
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     const targetNodes = document.querySelectorAll(
       'div[class*="Inventory_items"]'
@@ -32157,7 +32455,7 @@ ${preview}`
     if (!targetNodes.length) return;
     const showWorth = runtime.settings.settingsMap.invWorth.isTrue;
     const showSort = runtime.settings.settingsMap.invSort.isTrue;
-    const display = showWorth ? await getFrozenInventoryDisplay() : null;
+    const display = showWorth ? await getFrozenInventoryDisplay(options.force === true) : null;
     if (showWorth && !display) return;
     const snapshot = display?.snapshot;
     addInventorySummaryStyles();
@@ -32249,7 +32547,6 @@ ${preview}`
       const summary = invElem.parentElement.querySelector(
         "#script_inventory_summary"
       );
-      syncInventorySummaryTypography(invElem, summary);
       const toggleScores = summary.querySelector("#toggleScores");
       const ScoreDetails = summary.querySelector("#buildScores");
       const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
@@ -32382,7 +32679,11 @@ ${preview}`
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
+    const refreshButton = `<button
+        id="script_refresh_inventory_btn">
+        ${runtime.config.isZH ? "刷新价值" : "Refresh values"}
+        </button>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}${showWorth ? ` ${refreshButton}` : ""}</div>`;
     if (!invElem.isConnected || !invElem.parentElement) return;
     const existingSummary = invElem.parentElement.querySelector(
       "#script_inventory_summary"
@@ -32392,42 +32693,11 @@ ${preview}`
     } else {
       invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
     }
-    const updateSortButtonStyles = (activeOrder) => {
-      const parent = invElem.parentElement;
-      if (!parent) return;
-      const btnMap = {
-        fair: parent.querySelector("button#script_sortByFair_btn"),
-        ask: parent.querySelector("button#script_sortByAsk_btn"),
-        bid: parent.querySelector("button#script_sortByBid_btn"),
-        none: parent.querySelector("button#script_sortByNone_btn")
-      };
-      for (const [key, btn] of Object.entries(btnMap)) {
-        if (!btn) continue;
-        const isActive = key === activeOrder;
-        btn.style.borderRadius = "4px";
-        btn.style.padding = "2px 8px";
-        btn.style.margin = "0 2px";
-        btn.style.cursor = "pointer";
-        btn.style.font = "inherit";
-        btn.style.fontSize = "0.78rem";
-        btn.style.transition = "all 0.15s ease-in-out";
-        if (isActive) {
-          btn.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-          btn.style.color = "#0b1522";
-          btn.style.fontWeight = "700";
-          btn.style.border = "1px solid transparent";
-          btn.style.boxShadow = "0 0 8px rgba(0, 198, 255, 0.45)";
-        } else {
-          btn.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
-          btn.style.color = "var(--color-text-secondary, #aeb5c0)";
-          btn.style.fontWeight = "500";
-          btn.style.border = "1px solid rgba(255, 255, 255, 0.16)";
-          btn.style.boxShadow = "none";
-        }
-      }
-    };
     const sortItemsBy = (order) => {
-      updateSortButtonStyles(order);
+      const controls2 = invElem.parentElement?.querySelector(
+        "#script_inv_sort_controls"
+      );
+      if (controls2) controls2.dataset.sortOrder = order;
       for (const typeDiv of invElem.children) {
         const categoryButton = typeDiv.querySelector(
           '[class*="Inventory_categoryButton"]'
@@ -32489,12 +32759,30 @@ ${preview}`
         }
       }
     };
+    const controls = invElem.parentElement?.querySelector(
+      "#script_inv_sort_controls"
+    );
+    if (controls) controls.mwitoolsSortItemsBy = sortItemsBy;
     if (showSort) {
       invElem.parentElement.querySelector("button#script_sortByFair_btn")?.addEventListener("click", () => sortItemsBy("fair"));
       invElem.parentElement.querySelector("button#script_sortByAsk_btn")?.addEventListener("click", () => sortItemsBy("ask"));
       invElem.parentElement.querySelector("button#script_sortByBid_btn")?.addEventListener("click", () => sortItemsBy("bid"));
       invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
-      updateSortButtonStyles("none");
+    }
+    if (showWorth) {
+      invElem.parentElement.querySelector("button#script_refresh_inventory_btn")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const order = controls?.dataset.sortOrder ?? "none";
+        button.disabled = true;
+        button.textContent = runtime.config.isZH ? "刷新中…" : "Refreshing…";
+        try {
+          await calculateNetworth({ force: true });
+          controls?.mwitoolsSortItemsBy?.(order);
+        } finally {
+          button.disabled = false;
+          button.textContent = runtime.config.isZH ? "刷新价值" : "Refresh values";
+        }
+      });
     }
   }
   async function addGuildCreditConversionsSortButton() {
@@ -33610,14 +33898,14 @@ ${preview}`
     const style = document.createElement("style");
     style.id = STYLE_ID7;
     style.textContent = `
-    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
+    #${PANEL_ID3} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1) * var(--mwi-hover-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID3} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
     .mwi-profit-header-main { min-width:0; }
-    .mwi-profit-title { color:#fff; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-profit-subtitle { margin-top:2px; color:var(--color-text-secondary,#aeb4bf); font-size:11px; }
-    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:max(.6875rem,10px); font-weight:650; white-space:nowrap; }
+    .mwi-profit-title { color:#fff; font-size:calc(14px * var(--mwi-hover-font-scale,1)); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-profit-subtitle { margin-top:2px; color:var(--color-text-secondary,#aeb4bf); font-size:calc(11px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:max(calc(.6875rem * var(--mwi-hover-font-scale,1)),calc(10px * var(--mwi-hover-font-scale,1))); font-weight:650; white-space:nowrap; }
     .mwi-profit-status.complete { color:#7bd69a; background:rgba(66,185,108,.1); }
     .mwi-profit-status.partial { color:#e7bd68; background:rgba(221,164,51,.1); }
     .mwi-profit-status.incomplete { color:#ef8c86; background:rgba(218,73,65,.1); }
@@ -33626,26 +33914,26 @@ ${preview}`
     .mwi-profit-card { min-width:0; padding:10px; border:1px solid rgba(255,255,255,.095); border-radius:8px; background:rgba(255,255,255,.035); }
     .mwi-profit-card.cost { border-top:2px solid rgba(239,124,111,.72); }
     .mwi-profit-card.income { border-top:2px solid rgba(83,201,132,.72); }
-    .mwi-profit-card-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; color:#fff; font-size:11px; font-weight:700; letter-spacing:.04em; }
-    .mwi-profit-card-total { color:var(--color-text-secondary,#aeb4bf); font-size:10px; font-weight:600; }
+    .mwi-profit-card-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:700; letter-spacing:.04em; }
+    .mwi-profit-card-total { color:var(--color-text-secondary,#aeb4bf); font-size:calc(10px * var(--mwi-hover-font-scale,1)); font-weight:600; }
     .mwi-profit-item { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:7px; align-items:center; padding:7px 0; border-top:1px solid rgba(255,255,255,.065); }
     .mwi-profit-item:first-of-type { border-top:0; }
-    .mwi-profit-item-name { min-width:0; color:#edf0f4; font-size:11px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-profit-item-meta { margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
+    .mwi-profit-item-name { min-width:0; color:#edf0f4; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-profit-item-meta { margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-item-value { min-width:64px; text-align:right; }
-    .mwi-profit-item-value strong { display:block; color:#fff; font-size:11px; }
-    .mwi-profit-item-value span { display:block; margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
-    .mwi-profit-kind { display:inline-block; margin-right:4px; padding:0 4px; border-radius:3px; background:rgba(255,255,255,.075); color:#bdc5d1; font-size:8.5px; }
+    .mwi-profit-item-value strong { display:block; color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-item-value span { display:block; margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-kind { display:inline-block; margin-right:4px; padding:0 4px; border-radius:3px; background:rgba(255,255,255,.075); color:#bdc5d1; font-size:calc(8.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-player { display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:9px 7px; border:1px solid rgba(255,255,255,.095); border-radius:8px; background:rgba(255,255,255,.025); text-align:center; }
-    .mwi-profit-player-title { color:#fff; font-size:11px; font-weight:700; }
+    .mwi-profit-player-title { color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:700; }
     .mwi-profit-teas { display:flex; min-height:28px; align-items:center; justify-content:center; gap:4px; }
     .mwi-profit-tea { display:grid; width:27px; height:27px; place-items:center; border-radius:6px; background:rgba(255,255,255,.07); }
-    .mwi-profit-no-tea { color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
+    .mwi-profit-no-tea { color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-effects { display:flex; flex-wrap:wrap; justify-content:center; gap:3px; }
-    .mwi-profit-effect { padding:2px 5px; border-radius:999px; color:#d5dbe4; background:rgba(255,255,255,.07); font-size:9px; }
-    .mwi-profit-flow { color:var(--color-primary,#70a8ff); font-size:24px; line-height:1; }
+    .mwi-profit-effect { padding:2px 5px; border-radius:999px; color:#d5dbe4; background:rgba(255,255,255,.07); font-size:calc(9px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-flow { color:var(--color-primary,#70a8ff); font-size:calc(24px * var(--mwi-hover-font-scale,1)); line-height:1; }
     .mwi-profit-stat-list { width:100%; }
-    .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:9.5px; }
+    .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-stat strong { color:#edf0f4; font-weight:650; }
     .mwi-profit-valuations { display:flex; flex-direction:column; gap:4px; padding:0 12px 10px; }
     .mwi-profit-valuation-row { display:grid; grid-template-columns:126px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:7px; background:rgba(255,255,255,.03); }
@@ -33655,25 +33943,25 @@ ${preview}`
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
-    .mwi-profit-valuation-title { color:#fff; font-size:10.5px; font-weight:750; line-height:1.2; }
-    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:.6875rem; line-height:1.15; }
+    .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:calc(.6875rem * var(--mwi-hover-font-scale,1)); line-height:1.15; }
     .mwi-profit-valuation-metric { min-width:0; padding:5px 4px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
     .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
-    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:.6875rem; line-height:1.1; }
-    .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:10.5px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:calc(.6875rem * var(--mwi-hover-font-scale,1)); line-height:1.1; }
+    .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:700; overflow-wrap:anywhere; }
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
-    .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
-    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
+    .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:calc(10px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); line-height:1.35; }
     #${PANEL_ID3}.mwi-profit-pinned { pointer-events:auto; }
-    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
+    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:calc(14px * var(--mwi-hover-font-scale,1)); line-height:1; cursor:pointer; }
     .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
     .mwi-loot-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
     .mwi-loot-controls.has-key { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .mwi-loot-control { display:grid; min-width:0; min-height:38px; grid-template-columns:minmax(0,1fr) 36px; grid-template-rows:auto 20px; align-items:center; gap:2px 7px; padding:0 7px; border-left:1px solid rgba(255,255,255,.07); }
     .mwi-loot-control:first-child { padding-left:0; border-left:0; }
-    .mwi-loot-control-label { min-width:0; grid-column:1 / 3; color:#edf0f4; font-size:10.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-loot-control-state { min-width:0; color:var(--color-text-secondary,#aeb4bf); font-size:9.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-control-label { min-width:0; grid-column:1 / 3; color:#edf0f4; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-control-state { min-width:0; color:var(--color-text-secondary,#aeb4bf); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-loot-switch { position:relative; width:36px; height:20px; flex:0 0 36px; }
     .mwi-loot-switch input { position:absolute; opacity:0; pointer-events:none; }
     .mwi-loot-switch span { position:absolute; inset:0; border-radius:999px; cursor:pointer; background:#555; transition:.16s; }
@@ -33684,13 +33972,13 @@ ${preview}`
     .mwi-loot-cell { position:relative; display:flex; min-width:0; align-items:center; gap:6px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(255,255,255,.03); }
     .mwi-loot-cell.unpriced { opacity:.6; }
     .mwi-loot-cell.best-redemption { border-color:rgba(255,193,74,.86); background:linear-gradient(135deg,rgba(255,185,55,.16),rgba(255,255,255,.035)); box-shadow:0 0 0 1px rgba(255,184,55,.12),0 0 14px rgba(255,171,42,.12); }
-    .mwi-loot-best-badge { position:absolute; top:-6px; right:-4px; z-index:1; padding:1px 5px; border:1px solid rgba(255,211,112,.72); border-radius:999px; background:#7b5410; color:#fff3cf; font-size:8px; font-weight:750; line-height:1.35; white-space:nowrap; }
+    .mwi-loot-best-badge { position:absolute; top:-6px; right:-4px; z-index:1; padding:1px 5px; border:1px solid rgba(255,211,112,.72); border-radius:999px; background:#7b5410; color:#fff3cf; font-size:calc(8px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.35; white-space:nowrap; }
     .mwi-loot-cell-icon { position:relative; flex:0 0 26px; width:26px; height:26px; }
     .mwi-loot-cell-icon .mwi-profit-icon,.mwi-loot-cell-icon .mwi-profit-icon-fallback { width:26px; height:26px; }
-    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:8px; line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
+    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:calc(8px * var(--mwi-hover-font-scale,1)); line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
     .mwi-loot-cell-main { min-width:0; }
-    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:10.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:10px; font-weight:650; }
+    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:calc(10px * var(--mwi-hover-font-scale,1)); font-weight:650; }
     .mwi-loot-cell.unpriced .mwi-loot-cell-value { color:var(--color-text-secondary,#9ba2ad); }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }
@@ -35717,7 +36005,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   });
 
   // src/core/time-format.js
-  function formatRemainingDuration(seconds, isZH2 = true) {
+  function formatRemainingDuration(seconds, isZH3 = true) {
     if (seconds === Infinity) return "∞";
     if (!Number.isFinite(seconds)) return "—";
     const normalized = Math.max(0, Math.round(seconds));
@@ -35733,14 +36021,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       const value = Math.floor(remainder / size);
       remainder %= size;
       if (value > 0 || size === 1 && parts.length === 0) {
-        parts.push(`${value}${isZH2 ? zh : en}`);
+        parts.push(`${value}${isZH3 ? zh : en}`);
       }
     }
-    return parts.join(isZH2 ? "" : " ");
+    return parts.join(isZH3 ? "" : " ");
   }
-  function format24HourClock(timestamp, isZH2 = true) {
+  function format24HourClock(timestamp, isZH3 = true) {
     if (!Number.isFinite(timestamp)) return "—";
-    return new Intl.DateTimeFormat(isZH2 ? "zh-CN" : "en-US", {
+    return new Intl.DateTimeFormat(isZH3 ? "zh-CN" : "en-US", {
       hour: "2-digit",
       hourCycle: "h23",
       minute: "2-digit",
@@ -35755,14 +36043,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
     return Math.round((toDay - fromDay) / 864e5);
   }
-  function formatRemainingTiming(totalSeconds, finishAt, { isZH: isZH2 = true, now = Date.now() } = {}) {
-    const duration = formatRemainingDuration(totalSeconds, isZH2);
+  function formatRemainingTiming(totalSeconds, finishAt, { isZH: isZH3 = true, now = Date.now() } = {}) {
+    const duration = formatRemainingDuration(totalSeconds, isZH3);
     if (!Number.isFinite(finishAt)) return duration;
-    const clock = format24HourClock(finishAt, isZH2);
+    const clock = format24HourClock(finishAt, isZH3);
     const dayOffset = Math.max(0, calendarDayOffset(now, finishAt));
-    const finish = isZH2 ? `（${clock}）` : ` (${clock})`;
+    const finish = isZH3 ? `（${clock}）` : ` (${clock})`;
     if (dayOffset === 0) return `${duration}${finish}`;
-    const offset = isZH2 ? `（+${dayOffset}天）` : ` (+${dayOffset} ${dayOffset === 1 ? "day" : "days"})`;
+    const offset = isZH3 ? `（+${dayOffset}天）` : ` (+${dayOffset} ${dayOffset === 1 ? "day" : "days"})`;
     return `${duration}${finish}${offset}`;
   }
 
@@ -35791,7 +36079,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
   var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
-  var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-extensions";
+  var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-duration-inline,.mwi-production-extensions";
   var PRODUCTION_MODULE_ORDER = Object.freeze({
     quickInputs: 10,
     summary: 20,
@@ -35799,6 +36087,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     targetLevel: 40
   });
   var productionDataRevision = 0;
+  var enhancementTimingCache = { identity: "", count: null };
   function t7(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -35923,6 +36212,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (document.getElementById(STYLE_ID8)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID8;
+    const productionFont = runtime.config.isZH ? "inherit" : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:var(--mwi-action-dashboard-max-width,calc(100% - var(--mwi-action-dashboard-left,0px))); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:hidden; pointer-events:none; }
@@ -35932,7 +36222,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
     .mwi-action-time { overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
-    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-extensions { display:contents!important; }
     .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
     .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
@@ -35958,6 +36248,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); font-weight:700; line-height:1; white-space:nowrap; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
+    .mwi-production-duration-inline { display:inline-flex; align-items:center; margin-inline-start:7px; padding:0; border:0; background:transparent; color:${runtime.config.SCRIPT_COLOR_MAIN}; font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
     .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-quick-row { display:flex; min-width:0; align-items:flex-start; gap:3px; }
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
@@ -36016,6 +36307,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     document.querySelectorAll(".mwi-action-dashboard-host").forEach(
       (element) => element.classList.remove("mwi-action-dashboard-host")
     );
+    enhancementTimingCache = { identity: "", count: null };
   }
   function nativeActionText(host) {
     return [...host?.childNodes ?? []].filter(
@@ -36094,12 +36386,39 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (left2, right) => Number(left2?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
     );
     const current = actions[0];
-    if (!host || !current || !actionMatchesHeader(current, host)) {
+    if (!host || !current) {
+      clearActionDashboard();
+      return null;
+    }
+    const identity = String(current.id ?? current.actionHrid ?? "");
+    const isEnhancement = String(current.actionHrid ?? "").includes("/enhancing");
+    const existingRoot = host.querySelector("#mwi-action-dashboard");
+    if (!actionMatchesHeader(current, host)) {
+      if (isEnhancement && existingRoot?.dataset.actionIdentity === identity) {
+        return existingRoot;
+      }
       clearActionDashboard();
       return null;
     }
     const timing = getLiveActionTiming(host);
-    const enhancementCount = getNativeEnhancementCount(host, current);
+    let enhancementCount = getNativeEnhancementCount(host, current);
+    if (isEnhancement) {
+      if (enhancementTimingCache.identity !== identity) {
+        enhancementTimingCache = { identity, count: null };
+      }
+      if (enhancementCount !== null) {
+        enhancementTimingCache.count = enhancementCount;
+      } else if (enhancementTimingCache.count !== null) {
+        enhancementCount = enhancementTimingCache.count;
+      } else if (existingRoot?.dataset.actionIdentity === identity) {
+        return existingRoot;
+      } else {
+        clearActionDashboard();
+        return null;
+      }
+    } else {
+      enhancementTimingCache = { identity: "", count: null };
+    }
     const projection = runtime.api.projectAction(
       current,
       enhancementCount ?? void 0,
@@ -36108,7 +36427,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         currentCycleRemainingSeconds: timing.currentCycleRemaining
       }
     );
-    let root = host.querySelector("#mwi-action-dashboard");
+    let root = existingRoot;
     if (!root) {
       root = document.createElement("div");
       root.id = "mwi-action-dashboard";
@@ -36116,6 +36435,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       host.appendChild(root);
     }
     host.classList.add("mwi-action-dashboard-host");
+    root.dataset.actionIdentity = identity;
     root.style.position = "absolute";
     const lastNativeChild = [...host.children].filter(
       (element) => element !== root && element.id !== "script_item_warning"
@@ -36136,17 +36456,25 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       availableWidth > 0 && availableWidth < 420 || availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520
     );
     root.dataset.tight = String(availableWidth > 0 && availableWidth < 180);
-    root.replaceChildren();
     root.removeAttribute("title");
-    const primary = document.createElement("div");
-    primary.className = "mwi-action-line";
-    const currentTime = document.createElement("strong");
-    currentTime.className = "mwi-action-time";
+    let primary = root.querySelector(":scope > .mwi-action-line");
+    if (!primary) {
+      primary = document.createElement("div");
+      primary.className = "mwi-action-line";
+      root.append(primary);
+    }
+    let currentTime = primary.querySelector(":scope > .mwi-action-time");
+    if (!currentTime) {
+      currentTime = document.createElement("strong");
+      currentTime.className = "mwi-action-time";
+      primary.append(currentTime);
+    }
     currentTime.textContent = formatRemainingTiming(
       projection.totalSeconds,
       projection.finishAt,
       { isZH: runtime.config.isZH }
     );
+    currentTime.removeAttribute("title");
     if (projection.materialLimited) {
       currentTime.title = t7(
         "已按当前库存中的可用原料计算",
@@ -36158,8 +36486,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "Based on the amount currently available for enhancement"
       );
     }
-    primary.append(currentTime);
-    root.append(primary);
     return root;
   }
   function mutationElement(node) {
@@ -36486,6 +36812,26 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       `Use inventory maximum: ${maxCraftable}`
     ) : t7("当前没有有限的可生产次数", "No finite production maximum");
   }
+  function syncProductionDuration(panel, input, totalSeconds) {
+    document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => {
+      if (!panel?.contains(element)) element.remove();
+    });
+    const target = input?.closest(
+      'div[class*="SkillActionDetail_maxActionCountInput"],div[class*="SkillActionDetail_actionContainer"]'
+    ) ?? panel?.querySelector('div[class*="SkillActionDetail_actionContainer"]');
+    if (!target) return null;
+    let duration = panel.querySelector(".mwi-production-duration-inline");
+    if (!duration) {
+      duration = document.createElement("span");
+      duration.className = "mwi-production-duration-inline";
+    }
+    duration.textContent = `${t7("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
+    target.append(duration);
+    return duration;
+  }
+  function removeProductionDuration() {
+    document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => element.remove());
+  }
   function resolvePanelAction(panel) {
     const nameElement = panel?.querySelector(
       'div[class*="SkillActionDetail_name"]'
@@ -36536,6 +36882,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!runtime.settings.get("productionSummary") || summaryMode === "off") {
       document.querySelectorAll("#mwi-production-summary").forEach((card2) => card2.remove());
       document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      removeProductionDuration();
       return;
     }
     const context = resolveActiveProductionPanelContext();
@@ -36547,6 +36894,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!panel) {
       existingCards.forEach((card2) => card2.remove());
       document.querySelectorAll(".mwi-max-action-button").forEach((button) => button.remove());
+      removeProductionDuration();
       return;
     }
     existingCards.filter((card2) => !panel.contains(card2)).forEach((card2) => card2.remove());
@@ -36558,6 +36906,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!actionHrid || !isProductionAction(actionHrid)) {
       existingCard?.remove();
       panel.querySelector(".mwi-max-action-button")?.remove();
+      panel.querySelector(".mwi-production-duration-inline")?.remove();
       return;
     }
     const count = context?.count ?? Number.POSITIVE_INFINITY;
@@ -36585,12 +36934,22 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         item.count ?? 0
       ])
     ]);
-    if (existingCard?.dataset.renderSignature === signature) return existingCard;
+    const hasDuration = Boolean(
+      panel.querySelector(".mwi-production-duration-inline")
+    );
+    const needsMaxButton = Boolean(
+      input && findInfinityButton(panel, input) && !panel.querySelector(".mwi-max-action-button")
+    );
+    if (existingCard?.dataset.renderSignature === signature && hasDuration && !needsMaxButton) {
+      return existingCard;
+    }
     const projection = runtime.api.projectAction(actionHrid, count, {
       durationPerAction,
       respectInventoryLimit: !Number.isFinite(count)
     });
     syncMaxButton(panel, input, projection.maxCraftable);
+    syncProductionDuration(panel, input, projection.totalSeconds);
+    if (existingCard?.dataset.renderSignature === signature) return existingCard;
     let card = panel.querySelector("#mwi-production-summary");
     if (!card) {
       card = document.createElement("section");
@@ -36650,10 +37009,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       metric(
         t7("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number2(projection.maxCraftable)
-      ),
-      metric(
-        t7("本次总耗时", "Duration"),
-        formatDuration(projection.totalSeconds)
       )
     );
     if (showProfit) {
@@ -36694,6 +37049,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     document.querySelector("#mwi-production-summary")?.remove();
     document.querySelector(".mwi-max-action-button")?.remove();
+    removeProductionDuration();
     removeProductionQuickInputs();
     document.querySelectorAll(".mwi-production-extensions:empty").forEach((mount) => mount.remove());
   }
@@ -36717,10 +37073,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       render();
       scope.add(() => {
         if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
-        document.querySelector("#mwi-action-dashboard")?.remove();
-        document.querySelectorAll(".mwi-action-dashboard-host").forEach(
-          (element) => element.classList.remove("mwi-action-dashboard-host")
-        );
+        clearActionDashboard();
       });
     }
   });
@@ -36834,6 +37187,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var marketSessionRestoreNavTarget = "";
   var lastProductionSignature = "";
   var activeHoldRepeatStop = null;
+  var activeCartDrag = null;
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
@@ -36906,8 +37260,9 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     (document.head ?? document.documentElement).appendChild(style);
   }
   function shellStyles() {
+    const fontFamily = runtime.config.isZH ? '"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif' : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     return `
-    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif}
+    :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
@@ -36924,13 +37279,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     .tabs{display:flex;flex:0 0 auto;gap:2px;margin:8px 12px 0;padding:2px;border-radius:7px;background:color-mix(in srgb,var(--text) 5%,transparent)}
     .tab{flex:1;min-width:0;padding:7px 0;border-radius:5px;color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}.tab:hover{color:var(--text)}.tab[data-active="true"]{background:var(--accent);color:#fff}
     .body{min-height:100px;flex:1 1 auto;overflow-y:auto;padding:4px 12px 6px}.empty{margin:12px 2px;padding:26px 12px;border-radius:8px;background:color-mix(in srgb,var(--text) 4%,transparent);color:var(--muted);font-size:12.5px;line-height:1.7;text-align:center}
-    .cart-row{display:grid;min-height:56px;grid-template-columns:26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:9px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}
-    .star{grid-column:1;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
-    .item-icon{grid-column:2;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
-    .item-name{grid-column:3;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
-    .row-controls{grid-column:4;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
-    .delete{grid-column:5;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
-    .row-bottom{grid-column:3/6;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
+    .cart-row{display:grid;min-height:56px;grid-template-columns:20px 26px 44px minmax(0,1fr) auto auto;grid-template-rows:auto auto;align-items:center;column-gap:7px;row-gap:2px;padding:7px 2px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.cart-row:hover,.plan-row:hover{background:color-mix(in srgb,var(--text) 4%,transparent)}.cart-row[data-dragging="true"]{z-index:1;border-radius:7px;background:color-mix(in srgb,var(--accent) 24%,var(--panel));box-shadow:0 5px 16px rgba(0,0,0,.28)}
+    .cart-drag{grid-column:1;grid-row:1/span 2;width:20px;height:38px;border-radius:5px;color:color-mix(in srgb,var(--muted) 70%,transparent);font-size:17px;line-height:1;cursor:grab;touch-action:none;user-select:none}.cart-drag:hover{background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text)}.cart-drag:active{cursor:grabbing}
+    .star{grid-column:2;grid-row:1/span 2;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 32%,transparent)}.star:hover{color:color-mix(in srgb,var(--gold) 70%,transparent)}.star[data-active="true"]{color:var(--gold)}.star .icon{width:14px;height:14px;margin:auto}
+    .item-icon{grid-column:3;grid-row:1/span 2;display:flex;width:42px;height:42px;align-items:center;justify-content:center;border-radius:8px;background:var(--card);cursor:pointer}.item-icon:hover{background:color-mix(in srgb,var(--card) 88%,white)}.item-icon svg{width:32px;height:32px}.item-icon-fallback{color:var(--muted);font-size:13px;font-weight:700}
+    .item-name{grid-column:4;grid-row:1;min-width:0;overflow:hidden;color:var(--text);font-size:13.5px;font-weight:600;text-align:left;text-overflow:ellipsis;white-space:nowrap}.item-name:hover{color:var(--gold)}
+    .row-controls{grid-column:5;grid-row:1;display:flex;align-items:stretch;overflow:hidden;border-radius:6px;background:color-mix(in srgb,var(--text) 6%,transparent)}.step{width:27px;color:var(--muted);font-size:15px}.step:hover{background:color-mix(in srgb,var(--text) 9%,transparent);color:var(--text)}.qty{width:56px;height:30px;outline:0;background:transparent;color:var(--gold);font-size:13.5px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}.qty:focus{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+    .delete{grid-column:6;grid-row:1;width:26px;height:32px;border-radius:5px;color:color-mix(in srgb,var(--muted) 55%,transparent);font-size:15px}.delete:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
+    .row-bottom{grid-column:4/7;grid-row:2;display:flex;min-width:0;align-items:center;gap:6px;color:var(--muted);font-size:11px;white-space:nowrap}.owned,.price{color:var(--muted)}.price{color:color-mix(in srgb,var(--gold) 78%,var(--muted))}.threshold-wrap{display:flex;min-width:0;align-items:center;gap:3px}.threshold{width:52px;padding:2px 4px;border-radius:4px;outline:0;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text);font-size:10px;text-align:center}
     .panel-footer{display:flex;flex:0 0 auto;align-items:center;gap:8px;min-height:56px;padding:10px 14px;border-top:1px solid color-mix(in srgb,var(--line) 55%,transparent);color:var(--muted);font-size:11px}.panel-footer:empty{display:none}.footer-total{font-size:10px;line-height:1.35}.footer-total strong{display:block;color:var(--gold);font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.footer-total small{display:block;color:var(--muted);font-size:9px}.clear{margin-left:auto;padding:9px 18px;border-radius:6px;background:color-mix(in srgb,var(--text) 8%,transparent);color:var(--text);font-size:12.5px;font-weight:700}.clear:hover{background:color-mix(in srgb,#e05a64 14%,transparent);color:#ff8d96}
     .plan-row{display:flex;min-height:58px;flex-direction:column;gap:6px;padding:8px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 40%,transparent)}.row-top{display:flex;align-items:center;gap:8px;min-width:0}.plan-title{min-width:0;flex:1;overflow:hidden;color:var(--text);font-size:13px;font-weight:600;text-overflow:ellipsis;white-space:nowrap}.plan-status{color:var(--gold);font-size:10.5px}.progress{height:4px;overflow:hidden;border-radius:2px;background:color-mix(in srgb,var(--text) 7%,transparent)}.progress>span{display:block;height:100%;background:var(--accent)}.plan-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:10.5px}.plan-actions{display:flex;gap:5px}.plan-actions button{padding:6px 9px;border-radius:6px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--muted);font-size:11px;font-weight:600}.plan-actions button:hover{background:color-mix(in srgb,var(--text) 11%,transparent);color:var(--text)}
     .setting-section{margin-top:5px}.setting-section-title{padding:8px 4px 4px;color:var(--muted);font-size:10.5px;font-weight:700;letter-spacing:.4px}.setting-row{display:flex;min-height:48px;align-items:center;gap:10px;padding:5px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 32%,transparent)}.setting-label{min-width:0;flex:1;color:var(--text);font-size:13px;font-weight:600}.setting-label small{display:block;margin-top:2px;color:var(--muted);font-size:10.5px;font-weight:400}.switch-state{min-width:18px;color:var(--muted);font-size:10.5px;text-align:right}.switch-state[data-on="true"]{color:#3edd8b;font-weight:700}.switch{position:relative;width:42px;height:23px;flex:0 0 auto;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);transition:background-color .15s}.switch::after{content:"";position:absolute;top:3px;left:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.5;transition:transform .15s,opacity .15s}.switch[data-on="true"]{background:#29c274}.switch[data-on="true"]::after{transform:translateX(19px);opacity:1}
@@ -37002,15 +37358,208 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
-    shadow.querySelector(".panel-footer").replaceChildren();
     if (activeTab === "plans") renderPlans(body);
     else if (activeTab === "settings") renderProcurementSettings(body);
     else renderCart(body);
   }
+  function prepareFooter(mode) {
+    const footer = shadow.querySelector(".panel-footer");
+    if (footer.dataset.mode !== mode) {
+      footer.replaceChildren();
+      footer.dataset.mode = mode;
+    }
+    return footer;
+  }
+  function latestCartItem(row) {
+    const parsed = procurement3.parseItemKey(row.dataset.cartKey);
+    return procurement3.getCartItem(parsed.itemHrid, parsed.enhancementLevel);
+  }
+  function abandonCartDrag() {
+    const drag = activeCartDrag;
+    if (!drag) return;
+    activeCartDrag = null;
+    drag.row.dataset.dragging = "false";
+    window.removeEventListener("pointermove", moveCartDrag, true);
+    window.removeEventListener("pointerup", stopCartDrag, true);
+    window.removeEventListener("pointercancel", cancelCartDrag, true);
+  }
+  function finishCartDrag(cancelled = false) {
+    const drag = activeCartDrag;
+    if (!drag) return;
+    abandonCartDrag();
+    if (cancelled) {
+      renderCart(shadow.querySelector(".body"));
+      return;
+    }
+    procurement3.setCartOrder(
+      [...shadow.querySelectorAll(".cart-row")].map((row) => row.dataset.cartKey)
+    );
+  }
+  function moveCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    event.preventDefault();
+    const { row, body } = activeCartDrag;
+    const others = [...body.querySelectorAll(".cart-row")].filter(
+      (candidate) => candidate !== row
+    );
+    const before = others.find(
+      (candidate) => event.clientY < candidate.getBoundingClientRect().top + candidate.getBoundingClientRect().height / 2
+    );
+    if (before) body.insertBefore(row, before);
+    else body.append(row);
+  }
+  function stopCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    finishCartDrag(false);
+  }
+  function cancelCartDrag(event) {
+    if (!activeCartDrag || event.pointerId !== activeCartDrag.pointerId) return;
+    finishCartDrag(true);
+  }
+  function createCartRow(key, body) {
+    const row = document.createElement("article");
+    row.className = "cart-row";
+    row.dataset.cartKey = key;
+    row.innerHTML = `
+    <button class="cart-drag" type="button" title="${t8("拖动排序", "Drag to reorder")}" aria-label="${t8("拖动排序", "Drag to reorder")}">⋮⋮</button>
+    <button class="star">${STAR_ICON}</button>
+    <button class="item-icon"></button>
+    <button class="item-name"></button>
+    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t8("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
+    <button class="delete" title="${t8("删除", "Remove")}">×</button>
+    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
+    const setQuantity = (quantity) => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.setCartItemQuantity(
+          item.itemHrid,
+          quantity,
+          item.enhancementLevel
+        );
+    };
+    row.querySelector(".star").addEventListener("click", () => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
+          starred: !item.starred
+        });
+    });
+    for (const target of row.querySelectorAll(".item-name,.item-icon")) {
+      target.addEventListener("click", () => {
+        const item = latestCartItem(row);
+        if (item && !marketFeaturesSuppressed())
+          openMarketplace(item.itemHrid, item.enhancementLevel);
+      });
+    }
+    row.querySelector(".delete").addEventListener("click", () => {
+      stopActiveHoldRepeat();
+      const item = latestCartItem(row);
+      if (item) procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
+    });
+    const quantityInput = row.querySelector(".qty");
+    quantityInput.addEventListener("change", () => {
+      setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
+    });
+    for (const step of row.querySelectorAll(".step")) {
+      const update = () => {
+        const item = latestCartItem(row);
+        if (!item) return stopActiveHoldRepeat();
+        setQuantity(item.quantity + Number(step.dataset.step));
+      };
+      step.addEventListener("click", update);
+      installHoldRepeat(step, update);
+    }
+    row.querySelector(".threshold").addEventListener("change", (event) => {
+      const item = latestCartItem(row);
+      if (item)
+        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
+          threshold: event.target.value ? runtime.api.parseCompactNumber?.(event.target.value) : null
+        });
+    });
+    const dragHandle = row.querySelector(".cart-drag");
+    dragHandle.addEventListener("pointerdown", (event) => {
+      if (activeCartDrag) finishCartDrag(true);
+      event.preventDefault();
+      activeCartDrag = { pointerId: event.pointerId, row, body };
+      row.dataset.dragging = "true";
+      dragHandle.setPointerCapture?.(event.pointerId);
+      window.addEventListener("pointermove", moveCartDrag, true);
+      window.addEventListener("pointerup", stopCartDrag, true);
+      window.addEventListener("pointercancel", cancelCartDrag, true);
+    });
+    return row;
+  }
+  function updateCartRow(row, item, { marketEnabled, pricesEnabled, price }) {
+    row.dataset.cartKey = procurement3.itemKey(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    const star = row.querySelector(".star");
+    star.dataset.active = String(Boolean(item.starred));
+    star.title = t8(
+      "收藏：买齐后保留并监控常备数量",
+      "Favorite: keep and restock"
+    );
+    const icon = row.querySelector(".item-icon");
+    icon.disabled = !marketEnabled;
+    icon.title = marketEnabled ? t8("在市场中打开", "Open in marketplace") : "";
+    icon.innerHTML = renderItemIcon2(item);
+    const name = row.querySelector(".item-name");
+    name.disabled = !marketEnabled;
+    name.title = item.name;
+    name.textContent = `${item.name}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}`;
+    const quantity = row.querySelector(".qty");
+    const activeElement = row.getRootNode()?.activeElement;
+    if (activeElement !== quantity) quantity.value = item.quantity;
+    const owned = procurement3.getInventoryCount(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    const ownedNode = row.querySelector(".owned");
+    ownedNode.title = exactNumber(owned);
+    ownedNode.textContent = `${t8("库存", "Stock")} ${formatNumber4(owned)}`;
+    const priceNode = row.querySelector(".price");
+    priceNode.hidden = !pricesEnabled;
+    priceNode.title = price > 0 ? exactNumber(price * item.quantity) : "—";
+    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
+    const thresholdWrap = row.querySelector(".threshold-wrap");
+    thresholdWrap.hidden = !item.starred;
+    const threshold = row.querySelector(".threshold");
+    if (activeElement !== threshold) threshold.value = item.threshold ?? "";
+  }
+  function renderCartFooter({ marketEnabled, settings: settings2, total, unpriced }) {
+    const footer = prepareFooter("cart");
+    let totalNode = footer.querySelector(".footer-total");
+    let clear = footer.querySelector(".clear");
+    if (!totalNode) {
+      totalNode = document.createElement("span");
+      totalNode.className = "footer-total";
+      totalNode.innerHTML = `<span></span><strong></strong><small></small>`;
+      footer.append(totalNode);
+    }
+    if (!clear) {
+      clear = document.createElement("button");
+      clear.className = "clear";
+      clear.addEventListener("click", () => {
+        stopActiveHoldRepeat();
+        procurement3.clearCart();
+      });
+      footer.append(clear);
+    }
+    totalNode.hidden = !marketEnabled;
+    totalNode.querySelector("span").textContent = t8("补齐合计", "Total");
+    const strong = totalNode.querySelector("strong");
+    strong.title = unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
+    strong.textContent = settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—";
+    const small = totalNode.querySelector("small");
+    small.textContent = unpriced ? `${unpriced} ${t8("项未估价", "unpriced")}` : "";
+    clear.textContent = t8("清空未收藏", "Clear");
+  }
   function renderCart(body) {
     const items = procurement3.getCartItems();
-    body.replaceChildren();
     if (!items.length) {
+      if (activeCartDrag) finishCartDrag(true);
+      body.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = t8(
@@ -37018,94 +37567,41 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
       body.append(empty);
+      prepareFooter("empty");
       return;
     }
+    body.querySelector(".empty")?.remove();
     const settings2 = procurement3.getSettings();
     const marketEnabled = !marketFeaturesSuppressed();
     const pricesEnabled = marketEnabled && settings2.pricesEnabled;
+    const currentRows = new Map(
+      [...body.querySelectorAll(".cart-row")].map((row) => [
+        row.dataset.cartKey,
+        row
+      ])
+    );
+    const wantedKeys = /* @__PURE__ */ new Set();
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
-      const row = document.createElement("article");
-      row.className = "cart-row";
+      const key = procurement3.itemKey(item.itemHrid, item.enhancementLevel);
+      wantedKeys.add(key);
+      const row = currentRows.get(key) ?? createCartRow(key, body);
       const price = pricesEnabled ? runtime.api.getAskPrice?.(item.itemHrid, item.enhancementLevel) || runtime.api.getFairValue?.(item.itemHrid, item.enhancementLevel) || 0 : 0;
       if (pricesEnabled && item.quantity > 0) {
         if (price > 0) total += price * item.quantity;
         else unpriced += 1;
       }
-      row.innerHTML = `
-      <button class="star" data-active="${Boolean(item.starred)}" title="${t8("收藏：买齐后保留并监控常备数量", "Favorite: keep and restock")}">${STAR_ICON}</button>
-      <button class="item-icon" ${marketEnabled ? `title="${t8("在市场中打开", "Open in marketplace")}"` : "disabled"}>${renderItemIcon2(item)}</button>
-      <button class="item-name" title="${escapeHtml5(item.name)}" ${marketEnabled ? "" : "disabled"}>${escapeHtml5(item.name)}${item.enhancementLevel ? ` +${item.enhancementLevel}` : ""}</button>
-      <div class="row-controls">
-        <button class="step" data-step="-1">−</button>
-        <input class="qty" inputmode="numeric" value="${item.quantity}" aria-label="${t8("待购数量", "Quantity")}">
-        <button class="step" data-step="1">＋</button>
-      </div>
-      <button class="delete" title="${t8("删除", "Remove")}">×</button>
-      <div class="row-bottom">
-        <span class="owned" title="${exactNumber(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}">${t8("库存", "Stock")} ${formatNumber4(procurement3.getInventoryCount(item.itemHrid, item.enhancementLevel))}</span>
-        ${pricesEnabled ? `<span class="price" title="${price > 0 ? exactNumber(price * item.quantity) : "—"}">${price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—"}</span>` : ""}
-        <label class="threshold-wrap" ${item.starred ? "" : "hidden"}>${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0" value="${item.threshold ?? ""}"></label>
-      </div>`;
-      const setQuantity = (quantity) => {
-        procurement3.setCartItemQuantity(
-          item.itemHrid,
-          quantity,
-          item.enhancementLevel
-        );
-      };
-      row.querySelector(".star").addEventListener("click", () => {
-        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
-          starred: !item.starred
-        });
-      });
-      for (const target of row.querySelectorAll(".item-name,.item-icon")) {
-        if (marketEnabled) {
-          target.addEventListener("click", () => {
-            openMarketplace(item.itemHrid, item.enhancementLevel);
-          });
-        }
-      }
-      row.querySelector(".delete").addEventListener("click", () => {
-        stopActiveHoldRepeat();
-        procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
-      });
-      const quantityInput = row.querySelector(".qty");
-      quantityInput.addEventListener("change", () => {
-        setQuantity(runtime.api.parseCompactNumber?.(quantityInput.value));
-      });
-      for (const step of row.querySelectorAll(".step")) {
-        step.addEventListener("click", () => {
-          setQuantity(item.quantity + Number(step.dataset.step));
-        });
-        installHoldRepeat(step, () => {
-          const latest = procurement3.getCartItem(
-            item.itemHrid,
-            item.enhancementLevel
-          );
-          if (!latest) {
-            stopActiveHoldRepeat();
-            return;
-          }
-          setQuantity((latest?.quantity ?? 0) + Number(step.dataset.step));
-        });
-      }
-      row.querySelector(".threshold").addEventListener("change", (event) => {
-        procurement3.updateCartItem(item.itemHrid, item.enhancementLevel, {
-          threshold: event.target.value ? runtime.api.parseCompactNumber?.(event.target.value) : null
-        });
-      });
-      body.append(row);
+      updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
+      if (!activeCartDrag) body.append(row);
+      else if (!row.isConnected) body.append(row);
     }
-    const footer = shadow.querySelector(".panel-footer");
-    footer.innerHTML = `
-    ${marketEnabled ? `<span class="footer-total">${t8("补齐合计", "Total")}<strong title="${unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total)}">${settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—"}</strong>${unpriced ? `<small>${unpriced} ${t8("项未估价", "unpriced")}</small>` : ""}</span>` : ""}
-    <button class="clear">${t8("清空未收藏", "Clear")}</button>`;
-    footer.querySelector(".clear").addEventListener("click", () => {
-      stopActiveHoldRepeat();
-      procurement3.clearCart();
-    });
+    for (const [key, row] of currentRows) {
+      if (wantedKeys.has(key)) continue;
+      if (activeCartDrag?.row === row) abandonCartDrag();
+      row.remove();
+    }
+    renderCartFooter({ marketEnabled, settings: settings2, total, unpriced });
   }
   function stopActiveHoldRepeat() {
     activeHoldRepeatStop?.();
@@ -37145,6 +37641,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function renderPlans(body) {
     const plans2 = procurement3.getPlans();
     body.replaceChildren();
+    const footer = prepareFooter("plans");
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -37182,7 +37679,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       });
       body.append(row);
     }
-    const footer = shadow.querySelector(".panel-footer");
     footer.innerHTML = `<span>${t8("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t8("清空项目", "Clear projects")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement3.getPlans()) procurement3.removePlan(plan.id);
@@ -37333,6 +37829,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   };
   function renderProcurementSettings(body) {
     body.replaceChildren();
+    prepareFooter("settings");
     const settings2 = procurement3.getSettings();
     for (const sectionDefinition of SETTING_SECTIONS) {
       const section = document.createElement("section");
@@ -37551,6 +38048,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       renderShell();
     });
     scope.add(() => {
+      abandonCartDrag();
       shell?.remove();
       shell = null;
       shadow = null;
@@ -42684,6 +43182,39 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.10",
+      version: "26.4.10",
+      publishedAt: "2026-08-14",
+      title: Object.freeze({
+        zh: "26.4.10 更新公告",
+        en: "Version 26.4.10 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
+          "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
+          "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；左上角总进度会在自定义流程中显示当前步数，应用配置后自动刷新页面。可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。",
+          "检测到铁牛或旧铁牛角色时，现在会自动开启铁牛模式适配，隐藏该模式不可用的市场价格、交易利润与市场采购操作；切回普通角色时这些功能仍会正常显示。",
+          "库存排序旁恢复“刷新价值”按钮，可在需要时主动生成新资产快照，同时保留当前排序与摘要展开状态；购物清单新增鼠标和触屏拖动排序并按角色、服务器保存，清单行与“清空未收藏”按钮也会在库存和价格更新时保持稳定，不再反复重建闪烁。",
+          "强化行动的剩余时间改为原位更新，并会在原生强化数量文字短暂缺失时沿用同一行动最后一次有效数量，不再闪成无限或消失。本次生产总耗时已移到数量、无限与最大控制右侧，以无边框的“耗时”文字显示；购物车与生产摘要的英文界面也改用更清晰的系统字体。",
+          "行动队列更新现在按行动 ID 合并、去重并按真实序号排序，上下重排后会在已打开的队列内立即刷新耗时。遇到无限行动时保留此前可达的有限总时长并显示“有限时长 + ∞”，无限后的行动不再计算或残留旧时间；队列关闭后会立即停止相关观察与延迟校验。",
+          "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
+          "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。"
+        ]),
+        en: Object.freeze([
+          "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
+          "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
+          "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. An overall progress bar in the upper-left tracks custom steps, and applying the profile now refreshes the page automatically. General settings show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike.",
+          "Detecting an Iron Cow or Legacy Iron Cow character now automatically enables Iron Cow adaptation, hiding marketplace prices, trading profit, and marketplace procurement actions that are unavailable in those modes; these features remain visible after switching back to a standard character.",
+          "A Refresh values button has returned beside Inventory sorting, letting players create a fresh asset snapshot on demand while preserving the selected sort and expanded summary. Shopping-list rows can now be reordered with mouse or touch and persist per character and server; keyed rows and the Clear unfavorited button also stay mounted during inventory and price updates instead of being rebuilt and flickering.",
+          "Enhancement remaining time now updates in place and keeps the last valid native quantity for the same action when that text briefly disappears, preventing the estimate from flashing to infinity or vanishing. Production duration now appears as unboxed Duration text to the right of the quantity, infinity, and Max controls, and English Shopping Cart and Production Summary surfaces use a clearer system UI font stack.",
+          "Action updates now merge and deduplicate by action ID and sort by the authoritative ordinal, so moving actions up or down refreshes an open queue immediately. The queue keeps every reachable finite duration before the first infinite action and displays “finite duration + ∞”; actions after infinity are not calculated and stale timing is removed. Queue observers and transition checks stop as soon as the menu or feature closes.",
+          "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
+          "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.9",
       version: "26.4.9",
       publishedAt: "2026-08-13",
@@ -45413,97 +45944,143 @@ ${locks}` : ""}`;
     if (root && activeActionQueueObserver.menu !== root && !root.contains?.(activeActionQueueObserver.menu)) {
       return false;
     }
+    if (activeActionQueueObserver.frameId !== null) {
+      (globalThis.cancelAnimationFrame ?? clearTimeout)(
+        activeActionQueueObserver.frameId
+      );
+    }
+    clearTimeout(activeActionQueueObserver.retryId);
     activeActionQueueObserver.observer.disconnect();
     activeActionQueueObserver = null;
     return true;
+  }
+  function scheduleActionQueueRefresh(added, { retry = true } = {}) {
+    const active = activeActionQueueObserver;
+    if (!active || active.menu !== added) return;
+    if (active.frameId !== null) {
+      (globalThis.cancelAnimationFrame ?? clearTimeout)(active.frameId);
+    }
+    clearTimeout(active.retryId);
+    const requestFrame = globalThis.requestAnimationFrame ?? ((callback) => setTimeout(callback, 0));
+    active.frameId = requestFrame(() => {
+      if (activeActionQueueObserver !== active) return;
+      active.frameId = null;
+      if (!runtime.settings.get("actionQueue") || !added.isConnected) {
+        disconnectActionQueueObserver(added);
+        return;
+      }
+      handleActionQueueMenueCalculateTime(added);
+      if (retry) {
+        active.retryId = setTimeout(() => {
+          if (activeActionQueueObserver === active && added.isConnected) {
+            handleActionQueueMenueCalculateTime(added);
+          }
+        }, 100);
+      }
+    });
   }
   function disconnectActionQueueObservers() {
     disconnectActionQueueObserver();
   }
   function handleActionQueueMenue(added) {
     if (!runtime.settings.get("actionQueue")) return;
-    handleActionQueueMenueCalculateTime(added);
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
-    if (!listDiv || activeActionQueueObserver?.menu === added) return;
+    if (!listDiv) return;
+    if (activeActionQueueObserver?.menu === added) {
+      scheduleActionQueueRefresh(added);
+      return;
+    }
     disconnectActionQueueObserver();
     const observer = new MutationObserver(() => {
       if (!runtime.settings.get("actionQueue") || !added.isConnected) {
         disconnectActionQueueObserver(added);
         return;
       }
-      handleActionQueueMenueCalculateTime(added);
+      scheduleActionQueueRefresh(added);
     });
-    activeActionQueueObserver = { menu: added, observer };
+    activeActionQueueObserver = {
+      menu: added,
+      observer,
+      frameId: null,
+      retryId: null
+    };
     observer.observe(listDiv, {
       characterData: false,
       subtree: false,
       childList: true
     });
+    handleActionQueueMenueCalculateTime(added);
   }
   function handleActionQueueMenueCalculateTime(added) {
     const actionDivList = added.querySelectorAll(
       "div.QueuedActions_action__r3HlD"
     );
-    if (!actionDivList.length) return;
-    if (actionDivList.length !== runtime.state.currentActionsHridList.length - 1) {
+    const actions = [...runtime.state.currentActionsHridList ?? []].sort(
+      (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0)
+    );
+    if (!actionDivList.length && actions.length > 1) return false;
+    if (actionDivList.length !== Math.max(0, actions.length - 1)) {
       console.error(
         runtime.config.isZH ? "[MWITools] 行动队列提示中的行动数量不一致。" : "[MWITools] Action count mismatch in the action queue tooltip."
       );
-      return;
+      return false;
     }
-    let actionDivListIndex = 0;
-    let hasSkippedFirstAction = false;
-    let accumulatedTimeSec = 0;
-    let isAccumulatedTimeInfinite = false;
+    let finitePrefixSeconds = 0;
+    let reachedInfinite = false;
     const now = Date.now();
-    for (const actionObj of runtime.state.currentActionsHridList) {
-      const actionHrid = actionObj.actionHrid;
+    for (const [index, actionObj] of actions.entries()) {
+      const queuedRow = index > 0 ? actionDivList[index - 1] : null;
+      const target = queuedRow?.querySelector("div");
+      const current = target?.querySelector("div.script_actionTime");
+      if (reachedInfinite) {
+        current?.remove();
+        continue;
+      }
+      const actionHrid = String(actionObj.actionHrid ?? "");
       const count = actionObj.maxCount - actionObj.currentCount;
       const isInfinite = count === 0 || actionHrid.includes("/combat/");
-      if (isInfinite) isAccumulatedTimeInfinite = true;
       const detail = runtime.state.initData_actionDetailMap[actionHrid];
-      if (!detail) continue;
-      const timing = runtime.api.projectActionTiming?.(
+      const timing = detail ? runtime.api.projectActionTiming?.(
         actionHrid,
         isInfinite ? Infinity : count
-      );
+      ) : null;
       const totalTimeSec = timing?.totalSeconds;
-      if (totalTimeSec === null || totalTimeSec === void 0) {
-        isAccumulatedTimeInfinite = true;
-      }
-      let finishAt = null;
-      if (!isAccumulatedTimeInfinite && Number.isFinite(totalTimeSec)) {
-        accumulatedTimeSec += totalTimeSec;
-        finishAt = now + accumulatedTimeSec * 1e3;
-      }
-      if (hasSkippedFirstAction) {
-        const unavailable = !Number.isFinite(totalTimeSec);
-        const target = actionDivList[actionDivListIndex]?.querySelector("div");
-        const current = target?.querySelector("div.script_actionTime");
+      const unavailable = !Number.isFinite(totalTimeSec);
+      const boundary = isInfinite || unavailable;
+      if (boundary) reachedInfinite = true;
+      else finitePrefixSeconds += totalTimeSec;
+      if (queuedRow) {
         const output = current ?? document.createElement("div");
         output.className = "script_actionTime";
         output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
         output.textContent = formatRemainingTiming(
-          isInfinite || unavailable || isAccumulatedTimeInfinite ? Infinity : totalTimeSec,
-          finishAt,
+          boundary ? Infinity : totalTimeSec,
+          boundary ? null : now + finitePrefixSeconds * 1e3,
           { isZH: runtime.config.isZH, now }
         );
         if (!current) target?.append(output);
-        actionDivListIndex += 1;
       }
-      hasSkippedFirstAction = true;
     }
-    const currentTotal = document.querySelector("div#script_queueTotalTime");
+    const currentTotal = added.parentElement?.querySelector(
+      ":scope > div#script_queueTotalTime"
+    );
     const total = currentTotal ?? document.createElement("div");
     total.id = "script_queueTotalTime";
     total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-    total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${formatRemainingTiming(
-      isAccumulatedTimeInfinite ? Infinity : accumulatedTimeSec,
-      isAccumulatedTimeInfinite ? null : now + accumulatedTimeSec * 1e3,
+    const totalText = reachedInfinite ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞` : "∞" : formatRemainingTiming(
+      finitePrefixSeconds,
+      now + finitePrefixSeconds * 1e3,
       { isZH: runtime.config.isZH, now }
-    )}`;
+    );
+    total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
     if (!currentTotal) added.insertAdjacentElement("afterend", total);
+    return true;
   }
+  runtime.onMessage("actions_updated", () => {
+    if (activeActionQueueObserver) {
+      scheduleActionQueueRefresh(activeActionQueueObserver.menu);
+    }
+  });
   function getOriTextFromElement(element) {
     if (!element) {
       console.error(
@@ -45587,6 +46164,9 @@ ${locks}` : ""}`;
     50
   ];
   var EPSILON2 = 1e-9;
+  var ENHANCEMENT_FLOW_CACHE_LIMIT = 4096;
+  var enhancementFlowCache = /* @__PURE__ */ new Map();
+  var enhancementFlowCacheWeight = 0;
   function finitePositive(value) {
     const number3 = Number(value);
     return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
@@ -45687,6 +46267,57 @@ ${locks}` : ""}`;
     const value = Number(table[level] ?? table.at(-1));
     if (!Number.isFinite(value)) return 0;
     return value > 1 ? value / 100 : value;
+  }
+  function enhancementFlowProfileKey({
+    targetLevel,
+    successRates,
+    successBonus,
+    blessedChance
+  }) {
+    const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+    const bonus = Number(successBonus) || 0;
+    const blessed = Number(blessedChance) || 0;
+    const effectiveSuccessRates = Array.from(
+      { length: target },
+      (_, level) => Math.min(1, successRateAt(successRates, level) * (1 + bonus))
+    );
+    return `${target}|${blessed}|${effectiveSuccessRates.join(",")}`;
+  }
+  function freezeEnhancementFlow(flow) {
+    if (!flow) return null;
+    return Object.freeze({
+      ...flow,
+      actionsByLevel: Object.freeze([...flow.actionsByLevel ?? []])
+    });
+  }
+  function cloneEnhancementFlow(flow) {
+    return flow ? { ...flow, actionsByLevel: [...flow.actionsByLevel ?? []] } : null;
+  }
+  function cachedEnhancementValue(key, weight, calculate2) {
+    if (enhancementFlowCache.has(key)) {
+      const cached = enhancementFlowCache.get(key);
+      enhancementFlowCache.delete(key);
+      enhancementFlowCache.set(key, cached);
+      return cached.value;
+    }
+    const normalizedWeight = Math.max(1, Math.floor(Number(weight) || 1));
+    const value = calculate2();
+    enhancementFlowCache.set(key, { value, weight: normalizedWeight });
+    enhancementFlowCacheWeight += normalizedWeight;
+    while (enhancementFlowCacheWeight > ENHANCEMENT_FLOW_CACHE_LIMIT) {
+      const oldestKey = enhancementFlowCache.keys().next().value;
+      const oldest = enhancementFlowCache.get(oldestKey);
+      enhancementFlowCache.delete(oldestKey);
+      enhancementFlowCacheWeight -= oldest?.weight ?? 0;
+    }
+    return value;
+  }
+  function cachedEnhancementFlow(key, calculate2) {
+    return cachedEnhancementValue(
+      key,
+      1,
+      () => freezeEnhancementFlow(calculate2())
+    );
   }
   function solveLinearSystem(matrix, vector) {
     const size = matrix.length;
@@ -45798,7 +46429,7 @@ ${locks}` : ""}`;
     if (rate <= 0 || to >= targetLevel) return;
     matrix[to][from] -= rate;
   }
-  function calculateNormalEnhancementFlow({
+  function calculateNormalEnhancementFlowUncached({
     targetLevel,
     protectLevel,
     successRates = DEFAULT_SUCCESS_RATES,
@@ -45857,6 +46488,27 @@ ${locks}` : ""}`;
       protectionCount
     };
   }
+  function getCachedNormalEnhancementFlow(options, profileKeys = null) {
+    const protectLevel = Math.max(
+      0,
+      Math.floor(Number(options.protectLevel) || 0)
+    );
+    const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+    let profileKey = profileKeys?.get(targetLevel);
+    if (!profileKey) {
+      profileKey = enhancementFlowProfileKey(options);
+      profileKeys?.set(targetLevel, profileKey);
+    }
+    return cachedEnhancementFlow(
+      `normal|${protectLevel}|${profileKey}`,
+      () => calculateNormalEnhancementFlowUncached(options)
+    );
+  }
+  function calculateNormalEnhancementFlow(options) {
+    return cloneEnhancementFlow(
+      getCachedNormalEnhancementFlow(options, /* @__PURE__ */ new Map())
+    );
+  }
   function calculateMirrorRequirements(targetLevel, philosopherStartLevel) {
     const requirements = Array(targetLevel + 1).fill(0);
     const actionsByLevel = Array(targetLevel).fill(0);
@@ -45876,14 +46528,14 @@ ${locks}` : ""}`;
       mirrorCount: aCount + bCount - 1
     };
   }
-  function calculatePhilosopherEnhancementFlow({
+  function calculatePhilosopherEnhancementFlowUncached({
     targetLevel,
     protectLevel,
     philosopherStartLevel,
     successRates = DEFAULT_SUCCESS_RATES,
     successBonus,
     blessedChance
-  }) {
+  }, resolveNormalFlow) {
     if (targetLevel <= 1 || philosopherStartLevel < 1 || philosopherStartLevel >= targetLevel) {
       return null;
     }
@@ -45891,14 +46543,14 @@ ${locks}` : ""}`;
       targetLevel,
       philosopherStartLevel
     );
-    const aFlow = calculateNormalEnhancementFlow({
+    const aFlow = resolveNormalFlow({
       targetLevel: philosopherStartLevel,
       protectLevel,
       successRates,
       successBonus,
       blessedChance
     });
-    const bFlow = philosopherStartLevel > 1 ? calculateNormalEnhancementFlow({
+    const bFlow = philosopherStartLevel > 1 ? resolveNormalFlow({
       targetLevel: philosopherStartLevel - 1,
       protectLevel,
       successRates,
@@ -45921,6 +46573,93 @@ ${locks}` : ""}`;
       aCount: mirror.aCount,
       bCount: mirror.bCount
     };
+  }
+  function getCachedPhilosopherEnhancementFlow(options, profileKeys = null) {
+    const protectLevel = Math.max(
+      0,
+      Math.floor(Number(options.protectLevel) || 0)
+    );
+    const philosopherStartLevel = Math.max(
+      0,
+      Math.floor(Number(options.philosopherStartLevel) || 0)
+    );
+    const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+    let profileKey = profileKeys?.get(targetLevel);
+    if (!profileKey) {
+      profileKey = enhancementFlowProfileKey(options);
+      profileKeys?.set(targetLevel, profileKey);
+    }
+    return cachedEnhancementFlow(
+      `philosopher|${protectLevel}|${philosopherStartLevel}|${profileKey}`,
+      () => calculatePhilosopherEnhancementFlowUncached(
+        options,
+        (normalOptions) => getCachedNormalEnhancementFlow(normalOptions, profileKeys)
+      )
+    );
+  }
+  function calculatePhilosopherEnhancementFlow(options) {
+    return cloneEnhancementFlow(
+      getCachedPhilosopherEnhancementFlow(options, /* @__PURE__ */ new Map())
+    );
+  }
+  function getCachedEnhancementFlowTable({
+    targetLevel,
+    successRates,
+    successBonus,
+    blessedChance
+  }) {
+    const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+    const profileKey = enhancementFlowProfileKey({
+      targetLevel: target,
+      successRates,
+      successBonus,
+      blessedChance
+    });
+    const flowCount = target + target * (target - 1) / 2;
+    return cachedEnhancementValue(`table|${profileKey}`, flowCount, () => {
+      const localNormalFlows = Array.from({ length: target + 1 }, () => []);
+      const resolveNormalFlow = (options) => {
+        const flowTarget = Math.max(
+          0,
+          Math.floor(Number(options.targetLevel) || 0)
+        );
+        const protectLevel = Math.max(
+          0,
+          Math.floor(Number(options.protectLevel) || 0)
+        );
+        if (localNormalFlows[flowTarget][protectLevel] === void 0) {
+          localNormalFlows[flowTarget][protectLevel] = calculateNormalEnhancementFlowUncached(options);
+        }
+        return localNormalFlows[flowTarget][protectLevel];
+      };
+      const normal = Array(target + 1).fill(null);
+      for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
+        normal[protectLevel] = resolveNormalFlow({
+          targetLevel: target,
+          protectLevel,
+          successRates,
+          successBonus,
+          blessedChance
+        });
+      }
+      const philosopher = Array.from({ length: target }, () => []);
+      for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
+        for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
+          philosopher[philosopherStartLevel][protectLevel] = calculatePhilosopherEnhancementFlowUncached(
+            {
+              targetLevel: target,
+              protectLevel,
+              philosopherStartLevel,
+              successRates,
+              successBonus,
+              blessedChance
+            },
+            resolveNormalFlow
+          );
+        }
+      }
+      return { normal, philosopher };
+    });
   }
   function unavailableResult(missingMarketValues = []) {
     return {
@@ -46088,14 +46827,14 @@ ${locks}` : ""}`;
     const blessedTeaCostPerNormalAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * blessedTeaPrice;
     const normalActionCost = materialCostPerAction + ultraTeaCostPerAction + blessedTeaCostPerNormalAction;
     let best = null;
+    const flowTable = getCachedEnhancementFlowTable({
+      targetLevel: target,
+      successRates,
+      successBonus: stats.successBonus,
+      blessedChance: stats.blessedChance
+    });
     for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
-      const flow = calculateNormalEnhancementFlow({
-        targetLevel: target,
-        protectLevel,
-        successRates,
-        successBonus: stats.successBonus,
-        blessedChance: stats.blessedChance
-      });
+      const flow = flowTable.normal[protectLevel];
       if (!flow) continue;
       if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
       const totalCost = basePrice + flow.totalActions * normalActionCost + flow.protectionCount * protectionPrice;
@@ -46116,14 +46855,7 @@ ${locks}` : ""}`;
     if (allowPhilosopherMirror && philosopherMirrorPrice > 0) {
       for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
         for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
-          const flow = calculatePhilosopherEnhancementFlow({
-            targetLevel: target,
-            protectLevel,
-            philosopherStartLevel,
-            successRates,
-            successBonus: stats.successBonus,
-            blessedChance: stats.blessedChance
-          });
+          const flow = flowTable.philosopher[philosopherStartLevel][protectLevel];
           if (!flow || flow.baseItemCount < -EPSILON2) continue;
           if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
           const totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;
@@ -46185,7 +46917,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID17;
     style.textContent = `
-    #${PANEL_ID4} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:11px; line-height:1.25; }
+    #${PANEL_ID4} { position:fixed; z-index:2147483000; width:min(252px,calc(100vw - 24px)); box-sizing:border-box; overflow:hidden; pointer-events:none; color:var(--color-text-primary,#eef1f6); border:1px solid rgba(255,255,255,.16); border-radius:8px; background:linear-gradient(145deg,rgba(34,38,47,.985),rgba(18,21,27,.985)); box-shadow:0 12px 34px rgba(0,0,0,.44),0 2px 7px rgba(0,0,0,.28); font-family:inherit; font-size:calc(11px * var(--mwi-hover-font-scale,1)); line-height:1.25; }
     #${PANEL_ID4}.mwi-enhancement-sticky { pointer-events:auto; }
     #${PANEL_ID4} * { box-sizing:border-box; }
     .mwi-enhancement-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; }
@@ -46669,8 +47401,14 @@ ${locks}` : ""}`;
       "--mwi-ui-font-scale",
       String(scale)
     );
+    const hoverScale = { standard: 1, large: 1.12, largest: 1.25 }[runtime.settings.getPreference("hoverFontScale")] ?? 1;
+    document.documentElement?.style.setProperty(
+      "--mwi-hover-font-scale",
+      String(hoverScale)
+    );
   }
   runtime.settings.onPreferenceChange?.("uiFontScale", applyVisualSettings);
+  runtime.settings.onPreferenceChange?.("hoverFontScale", applyVisualSettings);
   function readSettings() {
     let loadedV2 = false;
     let storedPreferences = null;
@@ -46753,6 +47491,13 @@ ${locks}` : ""}`;
     .mwi-settings-group-title { font-size:1rem; font-weight:700; }
     .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); margin-top:2px; line-height:1.35; }
     .mwi-settings-grid { display:flex; flex-direction:column; padding:0 10px; }
+    .mwi-performance-settings-card { display:flex; min-height:58px; align-items:center; justify-content:space-between; gap:14px; padding:9px 4px; border-bottom:1px solid rgba(255,255,255,.075); }
+    .mwi-performance-settings-copy { min-width:0; }
+    .mwi-performance-settings-title { display:flex; align-items:center; gap:8px; font-size:calc(.84rem * var(--mwi-ui-font-scale,1)); font-weight:700; }
+    .mwi-performance-settings-profile { display:inline-flex; padding:1px 7px; border-radius:999px; background:rgba(238,154,29,.14); color:#ffd084; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); white-space:nowrap; }
+    .mwi-performance-settings-summary { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:calc(.71rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
+    .mwi-performance-settings-open { flex:0 0 auto; border:1px solid rgba(238,154,29,.62); border-radius:4px; padding:6px 10px; background:rgba(238,154,29,.12); color:#ffd084; font:inherit; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); cursor:pointer; }
+    .mwi-performance-settings-open:hover { background:rgba(238,154,29,.2); }
     .mwi-setting-card { min-width:0; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.075); transition:background .15s; }
     .mwi-setting-card:last-child { border-bottom:0; }
     .mwi-setting-card:hover { background:rgba(255,255,255,.025); }
@@ -46783,7 +47528,7 @@ ${locks}` : ""}`;
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
     styleHost.appendChild(style);
   }
@@ -46841,7 +47586,9 @@ ${locks}` : ""}`;
     ];
   }
   function cleanupSettingsRoot(root) {
-    for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+    for (const card of root?.querySelectorAll(
+      ".mwi-setting-card,.mwi-performance-settings-card"
+    ) ?? []) {
       card._mwitoolsCleanup?.();
     }
   }
@@ -47099,6 +47846,61 @@ ${locks}` : ""}`;
     };
     return card;
   }
+  function performanceProfileLabel(state = runtime.api.performanceProfiles?.getState?.()) {
+    const usages = runtime.config.isZH ? { life: "生活", combat: "战斗", balanced: "平衡" } : { life: "Skilling", combat: "Combat", balanced: "Balanced" };
+    const tiers = runtime.config.isZH ? {
+      smooth: "流畅优先",
+      standard: "标准",
+      full: "完整功能",
+      custom: "自定义"
+    } : {
+      smooth: "Smooth",
+      standard: "Standard",
+      full: "Full features",
+      custom: "Custom"
+    };
+    return `${usages[state?.usage] ?? usages.balanced} · ${tiers[state?.tier] ?? tiers.custom}`;
+  }
+  function createPerformanceSettingsCard() {
+    const card = document.createElement("article");
+    card.className = "mwi-performance-settings-card";
+    card.dataset.search = "性能 引导 档位 生活 战斗 平衡 performance guide tier";
+    const copy = document.createElement("div");
+    copy.className = "mwi-performance-settings-copy";
+    const title = document.createElement("div");
+    title.className = "mwi-performance-settings-title";
+    const titleText = document.createElement("span");
+    titleText.textContent = runtime.config.isZH ? "性能与初始化引导" : "Performance setup guide";
+    const profile = document.createElement("span");
+    profile.className = "mwi-performance-settings-profile";
+    const update = () => {
+      profile.textContent = performanceProfileLabel();
+    };
+    update();
+    title.append(titleText, profile);
+    const summary = document.createElement("div");
+    summary.className = "mwi-performance-settings-summary";
+    summary.textContent = runtime.config.isZH ? "重新选择玩法、设备档位，或按功能组自定义。取消不会修改当前设置。" : "Choose your play style and device tier again, or customize each group. Cancelling keeps current settings.";
+    copy.append(title, summary);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-performance-settings-open";
+    button.textContent = runtime.config.isZH ? "重新开始引导" : "Restart guide";
+    button.addEventListener("click", () => {
+      void runtime.api.openPerformanceOnboarding?.({ firstRun: false });
+    });
+    const onProfileChange = () => update();
+    document.addEventListener(
+      "mwitools:performance-profile-change",
+      onProfileChange
+    );
+    card._mwitoolsCleanup = () => document.removeEventListener(
+      "mwitools:performance-profile-change",
+      onProfileChange
+    );
+    card.append(copy, button);
+    return card;
+  }
   function renderSettings(root) {
     if (!root) return;
     cleanupSettingsRoot(root);
@@ -47149,6 +47951,7 @@ ${locks}` : ""}`;
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
+      if (groupId === "general") grid.append(createPerformanceSettingsCard());
       for (const definition of definitions) {
         grid.appendChild(createSettingCard(definition));
       }
@@ -47157,13 +47960,17 @@ ${locks}` : ""}`;
     }
     search.addEventListener("input", () => {
       const query = search.value.trim().toLowerCase();
-      for (const card of root.querySelectorAll(".mwi-setting-card")) {
+      for (const card of root.querySelectorAll(
+        ".mwi-setting-card,.mwi-performance-settings-card"
+      )) {
         card.hidden = Boolean(query) && !card.dataset.search.includes(query);
       }
       for (const group of root.querySelectorAll(".mwi-settings-group")) {
-        group.hidden = ![...group.querySelectorAll(".mwi-setting-card")].some(
-          (card) => !card.hidden
-        );
+        group.hidden = ![
+          ...group.querySelectorAll(
+            ".mwi-setting-card,.mwi-performance-settings-card"
+          )
+        ].some((card) => !card.hidden);
       }
     });
   }
@@ -47715,18 +48522,1026 @@ ${locks}` : ""}`;
     }
   });
 
+  // src/core/performance-profile.js
+  var PERFORMANCE_PROFILE_STORAGE_KEY = "MWITools_performance_profile_v1";
+  var PERFORMANCE_PROFILE_VERSION = 1;
+  var USAGES = Object.freeze(["life", "combat", "balanced"]);
+  var TIERS = Object.freeze(["smooth", "standard", "full", "custom"]);
+  var REFRESH_INTERVALS = Object.freeze([1e3, 2e3]);
+  var EXISTING_SETTINGS_AT_LOAD = Boolean(
+    globalThis.localStorage?.getItem("MWITools_settings_v2") || globalThis.localStorage?.getItem("script_settingsMap")
+  );
+  var GUILD_SETTINGS = Object.freeze([
+    "guildXpTracking",
+    "guildOverview",
+    "guildMemberXp",
+    "guildLeaderboardXp",
+    "guildIdleMembers",
+    "leaderboardOverlay",
+    "leaderboardXpRate"
+  ]);
+  var COMPLEX_CALCULATION_SETTINGS = Object.freeze([
+    "actionBarProfit",
+    "productionProfit",
+    "itemTooltip_profit",
+    "lootChestEstimate",
+    "enhanceSim"
+  ]);
+  var DEFAULT_CHOICES = Object.freeze({
+    dps: true,
+    battleBuffs: true,
+    taskEnhancements: true,
+    taskArt: true,
+    assetHistory: true,
+    totalAssetsAndSort: true,
+    productionSummary: true,
+    complexCalculations: true,
+    guildEnhancements: true,
+    decorativeAnimations: true,
+    dpsGraph: false,
+    refreshIntervalMs: 1e3
+  });
+  function normalizeUsage(value) {
+    return USAGES.includes(value) ? value : "balanced";
+  }
+  function normalizeTier(value) {
+    return TIERS.includes(value) ? value : "standard";
+  }
+  function normalizeRefreshInterval(value) {
+    const interval = Number(value);
+    return REFRESH_INTERVALS.includes(interval) ? interval : 1e3;
+  }
+  function normalizeChoices(value = {}, fallback = DEFAULT_CHOICES) {
+    return {
+      dps: Boolean(value.dps ?? fallback.dps),
+      battleBuffs: Boolean(value.battleBuffs ?? fallback.battleBuffs),
+      taskEnhancements: Boolean(
+        value.taskEnhancements ?? fallback.taskEnhancements
+      ),
+      taskArt: Boolean(value.taskArt ?? fallback.taskArt),
+      assetHistory: Boolean(value.assetHistory ?? fallback.assetHistory),
+      totalAssetsAndSort: Boolean(
+        value.totalAssetsAndSort ?? fallback.totalAssetsAndSort
+      ),
+      productionSummary: Boolean(
+        value.productionSummary ?? fallback.productionSummary
+      ),
+      complexCalculations: Boolean(
+        value.complexCalculations ?? fallback.complexCalculations
+      ),
+      guildEnhancements: Boolean(
+        value.guildEnhancements ?? fallback.guildEnhancements
+      ),
+      decorativeAnimations: Boolean(
+        value.decorativeAnimations ?? fallback.decorativeAnimations
+      ),
+      dpsGraph: Boolean(value.dpsGraph ?? fallback.dpsGraph),
+      refreshIntervalMs: normalizeRefreshInterval(
+        value.refreshIntervalMs ?? fallback.refreshIntervalMs
+      )
+    };
+  }
+  function normalizeStoredProfile(value) {
+    const profile = value && typeof value === "object" ? value : {};
+    return {
+      version: PERFORMANCE_PROFILE_VERSION,
+      completed: profile.version === PERFORMANCE_PROFILE_VERSION && profile.completed === true,
+      usage: normalizeUsage(profile.usage),
+      tier: normalizeTier(profile.tier),
+      choices: normalizeChoices(profile.choices)
+    };
+  }
+  function loadStoredProfile() {
+    try {
+      return normalizeStoredProfile(
+        JSON.parse(
+          globalThis.localStorage?.getItem(PERFORMANCE_PROFILE_STORAGE_KEY) || "null"
+        )
+      );
+    } catch {
+      return normalizeStoredProfile(null);
+    }
+  }
+  var storedProfile = loadStoredProfile();
+  function saveStoredProfile(profile) {
+    storedProfile = normalizeStoredProfile({
+      ...profile,
+      version: PERFORMANCE_PROFILE_VERSION,
+      completed: true
+    });
+    globalThis.localStorage?.setItem(
+      PERFORMANCE_PROFILE_STORAGE_KEY,
+      JSON.stringify(storedProfile)
+    );
+    return storedProfile;
+  }
+  function resolveConditionalRule(rule, usage) {
+    const normalizedUsage = normalizeUsage(usage);
+    if (rule === "all-on") return true;
+    if (rule === "all-off") return false;
+    if (rule === "combat-on") return normalizedUsage !== "life";
+    if (rule === "life-on") return normalizedUsage !== "combat";
+    return Boolean(rule);
+  }
+  function resolvePresetChoices(usage, tier) {
+    const normalizedUsage = normalizeUsage(usage);
+    const normalizedTier = normalizeTier(tier);
+    if (normalizedTier === "custom") return normalizeChoices();
+    return normalizeChoices({
+      dps: resolveConditionalRule(
+        normalizedTier === "smooth" ? "combat-on" : "all-on",
+        normalizedUsage
+      ),
+      battleBuffs: resolveConditionalRule(
+        normalizedTier === "smooth" ? "all-off" : normalizedTier === "standard" ? "combat-on" : "all-on",
+        normalizedUsage
+      ),
+      taskEnhancements: true,
+      taskArt: true,
+      assetHistory: normalizedTier !== "smooth",
+      totalAssetsAndSort: true,
+      productionSummary: true,
+      complexCalculations: true,
+      guildEnhancements: true,
+      decorativeAnimations: normalizedTier !== "smooth",
+      dpsGraph: normalizedTier === "full",
+      refreshIntervalMs: normalizedTier === "smooth" ? 2e3 : 1e3
+    });
+  }
+  function configurationFromChoices(choices) {
+    const normalized = normalizeChoices(choices);
+    const values = {
+      showDamage: normalized.dps,
+      battleBuffs: normalized.battleBuffs,
+      taskInsights: normalized.taskEnhancements,
+      taskIcons: normalized.taskEnhancements && normalized.taskArt,
+      assetHistory: normalized.assetHistory,
+      invWorth: normalized.totalAssetsAndSort,
+      invSort: normalized.totalAssetsAndSort,
+      actionPanel_totalTime: true,
+      productionSummary: normalized.productionSummary,
+      itemTooltip_prices: true,
+      itemTooltip_profitRequireKey: true,
+      leaderboardBadgeGlint: normalized.guildEnhancements && normalized.decorativeAnimations
+    };
+    for (const id of COMPLEX_CALCULATION_SETTINGS) {
+      values[id] = normalized.complexCalculations;
+    }
+    for (const id of GUILD_SETTINGS) {
+      values[id] = normalized.guildEnhancements;
+    }
+    return {
+      values,
+      preferences: {
+        productionSummaryMode: normalized.productionSummary ? "collapsed" : "off"
+      },
+      dps: {
+        showGraph: normalized.dpsGraph,
+        recountShowGraph: normalized.dpsGraph,
+        refreshIntervalMs: normalized.refreshIntervalMs
+      },
+      decorativeAnimations: normalized.decorativeAnimations
+    };
+  }
+  function currentChoices() {
+    const get = (id) => Boolean(runtime.settings.get?.(id));
+    const dps = runtime.api.dpsPerformance?.get?.() ?? {};
+    const decorativeMotion = globalThis.document?.documentElement?.dataset.mwitoolsDecorativeMotion;
+    const summaryMode = runtime.settings.getPreference?.("productionSummaryMode") ?? "collapsed";
+    return normalizeChoices({
+      dps: get("showDamage"),
+      battleBuffs: get("battleBuffs"),
+      taskEnhancements: get("taskInsights"),
+      taskArt: get("taskIcons"),
+      assetHistory: get("assetHistory"),
+      totalAssetsAndSort: get("invWorth") && get("invSort"),
+      productionSummary: get("productionSummary") && summaryMode !== "off",
+      complexCalculations: COMPLEX_CALCULATION_SETTINGS.every(get),
+      guildEnhancements: GUILD_SETTINGS.every(get),
+      decorativeAnimations: decorativeMotion === "on" || decorativeMotion !== "off" && get("leaderboardBadgeGlint"),
+      dpsGraph: Boolean(dps.showGraph && dps.recountShowGraph),
+      refreshIntervalMs: dps.refreshIntervalMs
+    });
+  }
+  function choicesMatch(left, right) {
+    return Object.keys(DEFAULT_CHOICES).every((key) => left[key] === right[key]);
+  }
+  function applyDecorativeMotion(enabled) {
+    const root = globalThis.document?.documentElement;
+    if (root) root.dataset.mwitoolsDecorativeMotion = enabled ? "on" : "off";
+  }
+  function emitProfileChange() {
+    const EventRef = globalThis.CustomEvent ?? globalThis.document?.defaultView?.CustomEvent;
+    if (!EventRef || !globalThis.document?.dispatchEvent) return;
+    globalThis.document.dispatchEvent(
+      new EventRef("mwitools:performance-profile-change", {
+        detail: getProfileState()
+      })
+    );
+  }
+  function getProfileState() {
+    const current = currentChoices();
+    const tier = normalizeTier(storedProfile.tier);
+    const matches = tier !== "custom" && choicesMatch(current, resolvePresetChoices(storedProfile.usage, tier));
+    return {
+      ...storedProfile,
+      tier: matches ? tier : "custom",
+      choices: current
+    };
+  }
+  function shouldRunPerformanceOnboarding() {
+    return !storedProfile.completed;
+  }
+  function recommendPerformanceTier(windowRef = globalThis.window ?? globalThis) {
+    const coarse = Boolean(
+      windowRef.matchMedia?.("(any-pointer: coarse)")?.matches
+    );
+    const narrow = Number(windowRef.innerWidth) > 0 && windowRef.innerWidth <= 760;
+    return coarse || narrow ? "smooth" : "standard";
+  }
+  function hasExistingSettingsAtLoad() {
+    return EXISTING_SETTINGS_AT_LOAD;
+  }
+  async function applyPerformanceProfile({
+    usage = "balanced",
+    tier = "standard",
+    choices = null
+  } = {}) {
+    const normalizedUsage = normalizeUsage(usage);
+    const normalizedTier = normalizeTier(tier);
+    const resolvedChoices = normalizedTier === "custom" ? normalizeChoices(choices, currentChoices()) : resolvePresetChoices(normalizedUsage, normalizedTier);
+    const configuration = configurationFromChoices(resolvedChoices);
+    if (typeof runtime.settings.applyBatch !== "function") {
+      throw new Error(
+        runtime.config.isZH ? "MWITools 批量设置接口不可用" : "MWITools batch settings API is unavailable"
+      );
+    }
+    await runtime.settings.applyBatch({
+      values: configuration.values,
+      preferences: configuration.preferences
+    });
+    runtime.api.dpsPerformance?.set?.(configuration.dps);
+    applyDecorativeMotion(configuration.decorativeAnimations);
+    saveStoredProfile({
+      usage: normalizedUsage,
+      tier: normalizedTier,
+      choices: resolvedChoices
+    });
+    emitProfileChange();
+    return getProfileState();
+  }
+  async function completePerformanceOnboardingWithoutChanges() {
+    if (!EXISTING_SETTINGS_AT_LOAD) {
+      return applyPerformanceProfile({ usage: "balanced", tier: "standard" });
+    }
+    const choices = currentChoices();
+    applyDecorativeMotion(choices.decorativeAnimations);
+    saveStoredProfile({
+      usage: storedProfile.usage,
+      tier: "custom",
+      choices
+    });
+    emitProfileChange();
+    return getProfileState();
+  }
+  function initializePerformancePolicy() {
+    applyDecorativeMotion(storedProfile.choices.decorativeAnimations);
+    return getProfileState();
+  }
+  function resetPerformanceProfileForTests() {
+    storedProfile = loadStoredProfile();
+    initializePerformancePolicy();
+  }
+  Object.assign(runtime.api, {
+    performanceProfiles: {
+      apply: applyPerformanceProfile,
+      completeWithoutChanges: completePerformanceOnboardingWithoutChanges,
+      currentChoices,
+      getState: getProfileState,
+      hasExistingSettingsAtLoad,
+      initializePolicy: initializePerformancePolicy,
+      recommendTier: recommendPerformanceTier,
+      resolveConditionalRule,
+      resolvePresetChoices,
+      shouldRun: shouldRunPerformanceOnboarding
+    }
+  });
+
+  // src/features/performance-onboarding.js
+  var PERFORMANCE_ONBOARDING_ID = "mwitools-performance-onboarding";
+  var PERFORMANCE_STYLE_ID = "mwitools-performance-onboarding-style";
+  var TEXT = Object.freeze({
+    usage: {
+      life: { zh: "生活", en: "Skilling" },
+      combat: { zh: "战斗", en: "Combat" },
+      balanced: { zh: "平衡", en: "Balanced" }
+    },
+    tier: {
+      smooth: { zh: "流畅优先", en: "Smooth" },
+      standard: { zh: "标准", en: "Standard" },
+      full: { zh: "完整功能", en: "Full features" },
+      custom: { zh: "自定义", en: "Custom" }
+    }
+  });
+  var CUSTOM_GROUPS = Object.freeze([
+    {
+      id: "combat",
+      title: { zh: "战斗与刷新", en: "Combat & refresh" },
+      fields: ["dps", "battleBuffs", "dpsGraph", "refreshIntervalMs"]
+    },
+    {
+      id: "tasks-assets",
+      title: { zh: "任务与资产", en: "Tasks & assets" },
+      fields: [
+        "taskEnhancements",
+        "taskArt",
+        "assetHistory",
+        "totalAssetsAndSort"
+      ]
+    },
+    {
+      id: "production",
+      title: { zh: "生产与悬浮计算", en: "Production & tooltip calculations" },
+      fields: ["productionSummary", "complexCalculations"]
+    },
+    {
+      id: "guild-visual",
+      title: { zh: "公会与视觉", en: "Guild & visuals" },
+      fields: ["guildEnhancements", "decorativeAnimations"]
+    }
+  ]);
+  var FIELD_TEXT = Object.freeze({
+    dps: {
+      title: { zh: "DPS / HPS / 承伤", en: "DPS / HPS / damage taken" },
+      summary: {
+        zh: "记录实时战斗、片段和历史统计。",
+        en: "Track live combat, segments, and history."
+      }
+    },
+    battleBuffs: {
+      title: { zh: "战斗 Buff 倒计时", en: "Combat buff countdowns" },
+      summary: {
+        zh: "在战斗单位下显示增益、减益与剩余时间。",
+        en: "Show buffs, debuffs, and remaining time below combat units."
+      }
+    },
+    taskEnhancements: {
+      title: { zh: "任务增强布局", en: "Enhanced task layout" },
+      summary: {
+        zh: "启用任务平铺、整理、筛选与相关增强。",
+        en: "Enable flat tasks, organization, filters, and related enhancements."
+      }
+    },
+    taskArt: {
+      title: { zh: "任务背景图", en: "Task artwork" },
+      summary: {
+        zh: "显示任务物品、怪物与副本的原生图标。",
+        en: "Show native item, monster, and dungeon artwork."
+      }
+    },
+    assetHistory: {
+      title: { zh: "资产历史图表", en: "Asset history charts" },
+      summary: {
+        zh: "保存每日资产快照并显示盈亏趋势。",
+        en: "Store daily asset snapshots and show P/L trends."
+      }
+    },
+    totalAssetsAndSort: {
+      title: { zh: "总资产与库存排序", en: "Total assets & inventory sorting" },
+      summary: {
+        zh: "计算着装评分、总资产并按价值整理库存。",
+        en: "Calculate gear scores and assets and sort inventory by value."
+      }
+    },
+    productionSummary: {
+      title: { zh: "生产摘要", en: "Production summary" },
+      summary: {
+        zh: "开启时默认折叠显示产出、库存与最大次数。",
+        en: "Show output, inventory, and maximum count collapsed by default."
+      }
+    },
+    complexCalculations: {
+      title: {
+        zh: "利润与复杂悬浮计算",
+        en: "Profit & detailed tooltip calculations"
+      },
+      summary: {
+        zh: "开启后仍需按键或移动端长按才显示复杂详情。",
+        en: "Detailed calculations still require a held key or mobile long press."
+      }
+    },
+    guildEnhancements: {
+      title: {
+        zh: "公会趋势与排行榜增强",
+        en: "Guild trends & leaderboard enhancements"
+      },
+      summary: {
+        zh: "显示公会经验趋势、成员速率、名次徽章与排行榜速率。",
+        en: "Show guild trends, member rates, rank badges, and leaderboard rates."
+      }
+    },
+    decorativeAnimations: {
+      title: { zh: "持续装饰动画", en: "Continuous decorative motion" },
+      summary: {
+        zh: "控制徽章扫光、提示脉冲等持续动画。",
+        en: "Control badge glints, notification pulses, and similar motion."
+      }
+    },
+    dpsGraph: {
+      title: { zh: "DPS 趋势图默认显示", en: "Show DPS trend by default" },
+      summary: {
+        zh: "同时控制新版和兼容面板的趋势图初始状态。",
+        en: "Set the initial graph state in both modern and compatible panels."
+      }
+    },
+    refreshIntervalMs: {
+      title: { zh: "可见面板刷新间隔", en: "Visible panel refresh interval" },
+      summary: {
+        zh: "只调整定时刷新的 MWITools 面板；事件驱动功能保持即时。",
+        en: "Adjust timed MWITools panels; event-driven features stay immediate."
+      }
+    }
+  });
+  function isZH2() {
+    return Boolean(runtime.config.isZH);
+  }
+  function t18(value) {
+    if (typeof value === "string") return value;
+    return value?.[isZH2() ? "zh" : "en"] ?? "";
+  }
+  function addStyles16() {
+    if (document.getElementById(PERFORMANCE_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = PERFORMANCE_STYLE_ID;
+    style.textContent = `
+    #${PERFORMANCE_ONBOARDING_ID}{position:fixed;inset:0;z-index:2147483400;display:grid;grid-template:1fr/1fr;opacity:0;transition:opacity .3s linear;color:var(--color-neutral-100,#e7e7e7);font:14px/1.5 Roboto,Helvetica,Arial,sans-serif}
+    #${PERFORMANCE_ONBOARDING_ID}.mwi-performance-open{opacity:1}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-backdrop{grid-area:1/1;background:var(--color-midnight-800-opacity-80,rgba(25,26,36,.82))}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{grid-area:1/1;place-self:center;display:flex;align-items:flex-end;max-width:calc(100vw - 24px);transform:translate(50vw,-50vh) scale(0);transition:transform .3s linear}
+    #${PERFORMANCE_ONBOARDING_ID}.mwi-performance-open .mwi-performance-dialog{transform:none}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot{position:relative;z-index:1;width:130px;flex:0 0 130px;margin:0 -20px 0 -40px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{display:block;width:130px;height:100px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 10px;padding:1px 7px;border-radius:4px;background:var(--color-space-600,#394064);font-size:14px;font-weight:600;white-space:nowrap}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{position:relative;display:grid;width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 32px));overflow:hidden;border:1px solid var(--color-neutral-200,#d0d0d0);border-radius:4px;background:var(--color-midnight-900,#131419);box-shadow:rgba(208,208,208,.28) 0 0 4px 4px;grid-template-rows:auto minmax(0,1fr) auto}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{position:relative;min-height:38px;padding:14px 150px 8px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-title{font-size:17px;font-weight:700}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{position:absolute;left:14px;top:10px;width:120px;color:var(--color-neutral-400,#999);font-size:10px;text-align:left}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-label{display:flex;justify-content:space-between;gap:6px;margin-bottom:3px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-track{height:5px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.13)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress-fill{display:block;height:100%;border-radius:inherit;background:var(--color-primary,#ee9a1d);transition:width .2s ease}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-close{position:absolute;z-index:2;right:8px;top:7px;display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;background:transparent;color:#fff;font-size:25px;line-height:1;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{min-height:180px;overflow:auto;overscroll-behavior:contain;padding:10px 18px 16px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-copy{margin:0 auto 14px;max-width:470px;color:var(--color-neutral-200,#d0d0d0);text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-note{margin:10px 0 0;padding:8px 10px;border-radius:4px;background:var(--color-midnight-700,#292d3e);color:var(--color-neutral-300,#b7b7b7);font-size:12px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{position:relative;min-height:82px;padding:11px;border:1px solid rgba(208,208,208,.24);border-radius:4px;background:var(--color-midnight-700,#292d3e);color:inherit;text-align:left;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option:hover{border-color:rgba(238,154,29,.7)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option[aria-checked="true"]{border-color:var(--color-primary,#ee9a1d);box-shadow:inset 0 0 0 1px var(--color-primary,#ee9a1d);background:rgba(238,154,29,.12)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option-title{font-size:14px;font-weight:700}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option-copy{margin-top:4px;color:var(--color-neutral-300,#b7b7b7);font-size:11px;line-height:1.4}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-recommended{position:absolute;right:7px;top:7px;padding:1px 5px;border-radius:999px;background:var(--color-primary,#ee9a1d);color:#111;font-size:9px;font-weight:800}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-fields{display:flex;flex-direction:column;gap:7px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field{display:grid;min-height:56px;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 10px;border-radius:4px;background:var(--color-midnight-700,#292d3e)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field-title{font-weight:650}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field-copy{margin-top:2px;color:var(--color-neutral-400,#999);font-size:10.5px;line-height:1.35}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch{position:relative;width:42px;height:23px;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input{position:absolute;opacity:0}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch span{position:absolute;inset:0;border-radius:99px;background:#555}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch span::after{content:"";position:absolute;left:3px;top:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.65;transition:transform .15s}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input:checked+span{background:#29c274}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input:checked+span::after{transform:translateX(19px);opacity:1}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-select{min-width:100px;border:1px solid rgba(255,255,255,.2);border-radius:4px;padding:6px 24px 6px 8px;background:var(--color-midnight-900,#131419);color:inherit}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:4px;background:var(--color-midnight-700,#292d3e);font-size:11px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review-row b{color:#8ed9a6;font-weight:700;text-align:right}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 14px;border-top:1px solid rgba(255,255,255,.09)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button{display:flex;min-height:36px;align-items:center;justify-content:center;border:0;border-radius:4px;padding:0 14px;font:600 14px/1 Roboto,Arial,sans-serif;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button:disabled{cursor:wait;opacity:.55}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button-secondary{background:var(--color-midnight-600,#39405a);color:#eee}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button-primary{background:var(--color-primary,#ee9a1d);color:#111}
+    html[data-mwitools-decorative-motion="off"] .mwi-lb-badge--top-five::before,
+    html[data-mwitools-decorative-motion="off"] .mwi-lb-badge--top-five::after,
+    html[data-mwitools-decorative-motion="off"] #script_item_warning,
+    html[data-mwitools-decorative-motion="off"] .mwi-train-shop-target,
+    html[data-mwitools-decorative-motion="off"] .handle-badge::after,
+    html[data-mwitools-decorative-motion="off"] #mwitools-feedback-button[data-unread="true"]{animation:none!important}
+    @media(max-width:700px){
+      #${PERFORMANCE_ONBOARDING_ID}{align-items:end}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{width:calc(100vw - 16px);max-width:none;max-height:calc(100vh - 12px);flex-direction:column;align-items:flex-start;place-self:end center}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot{display:flex;width:auto;height:58px;flex:0 0 58px;align-items:flex-end;margin:0 0 -12px 9px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{width:76px;height:58px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 0 12px -8px;font-size:11px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{width:100%;max-height:calc(100vh - 70px);max-height:calc(100dvh - 70px)}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{min-height:32px;padding:42px 40px 8px 12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{left:12px;right:44px;top:9px;width:auto}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{padding:8px 12px 12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options,#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{grid-template-columns:1fr}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{min-height:68px}
+    }
+    @media(prefers-reduced-motion:reduce){#${PERFORMANCE_ONBOARDING_ID},#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{transition:none}}
+  `;
+    (document.head ?? document.documentElement).append(style);
+  }
+  function findPurpleCowSprite() {
+    const direct = document.querySelector('svg[aria-label="Purple Cow"] use')?.getAttribute("href");
+    if (direct) return direct.replace(/#.*$/, "#purple_cow_hello");
+    const existing = document.querySelector(
+      'use[href*="misc_sprite"],use[xlink\\:href*="misc_sprite"]'
+    );
+    const existingHref = existing?.getAttribute("href") ?? existing?.getAttribute("xlink:href");
+    if (existingHref) {
+      return existingHref.replace(/#.*$/, "#purple_cow_hello");
+    }
+    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
+      if (/\/misc_sprite\.[^/]+\.svg(?:$|\?)/.test(entry.name)) {
+        return `${entry.name.split("?")[0]}#purple_cow_hello`;
+      }
+    }
+    return "";
+  }
+  function createMascot() {
+    const host = document.createElement("div");
+    host.className = "mwi-performance-mascot";
+    const href = findPurpleCowSprite();
+    if (href) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", isZH2() ? "小紫牛" : "Purple Cow");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", href);
+      svg.append(use);
+      host.append(svg);
+    } else {
+      host.dataset.mascotMissing = "true";
+    }
+    const name = document.createElement("div");
+    name.className = "mwi-performance-mascot-name";
+    name.textContent = isZH2() ? "MWITools 小紫牛" : "MWITools Purple";
+    host.append(name);
+    return host;
+  }
+  function optionCopy(kind, id) {
+    const copies = {
+      usage: {
+        life: {
+          zh: "优先生活技能与日常生产；流畅档会关闭实时战斗统计。",
+          en: "Prioritize skilling and production; Smooth disables live combat stats."
+        },
+        combat: {
+          zh: "保留实时战斗统计；按设备性能调整战斗显示。",
+          en: "Keep live combat stats and scale combat visuals to the device."
+        },
+        balanced: {
+          zh: "兼顾生活与战斗；当前战斗条件与战斗模式相同。",
+          en: "Cover both skilling and combat; combat conditions currently match Combat."
+        }
+      },
+      tier: {
+        smooth: {
+          zh: "低性能或旧款手机推荐：2 秒刷新，关闭资产历史与持续动画。",
+          en: "For slower phones: 2-second refresh, no asset history or continuous motion."
+        },
+        standard: {
+          zh: "大多数设备推荐：1 秒刷新，开启常用功能。",
+          en: "Recommended for most devices: 1-second refresh and common features."
+        },
+        full: {
+          zh: "高性能设备：开启全部显示，并默认展示 DPS 趋势图。",
+          en: "For fast devices: all visuals and DPS trends enabled by default."
+        },
+        custom: {
+          zh: "按功能组逐步选择，每项都由你决定。",
+          en: "Choose each feature group step by step."
+        }
+      }
+    };
+    return t18(copies[kind][id]);
+  }
+  function choiceStatus(field, value) {
+    if (field === "refreshIntervalMs") {
+      return `${Number(value) / 1e3} ${isZH2() ? "秒" : "sec"}`;
+    }
+    if (field === "productionSummary" && value) {
+      return isZH2() ? "折叠显示" : "Collapsed";
+    }
+    if (field === "complexCalculations" && value) {
+      return isZH2() ? "按键 / 长按" : "Key / long press";
+    }
+    return value ? isZH2() ? "开启" : "On" : isZH2() ? "关闭" : "Off";
+  }
+  var PerformanceOnboarding = class {
+    constructor({ firstRun = false } = {}) {
+      this.firstRun = firstRun;
+      const current = getProfileState();
+      this.usage = current.completed ? current.usage : "balanced";
+      this.tier = current.completed ? current.tier : recommendPerformanceTier();
+      this.choices = current.completed ? { ...current.choices } : resolvePresetChoices(this.usage, this.tier);
+      this.stage = "welcome";
+      this.history = [];
+      this.previousBodyOverflow = "";
+      this.trigger = document.activeElement;
+      this.resolve = null;
+      this.closing = false;
+      this.promise = new Promise((resolve) => {
+        this.resolve = resolve;
+      });
+      this.handleKeydown = this.handleKeydown.bind(this);
+    }
+    open() {
+      addStyles16();
+      document.getElementById(PERFORMANCE_ONBOARDING_ID)?.remove();
+      this.root = document.createElement("div");
+      this.root.id = PERFORMANCE_ONBOARDING_ID;
+      this.root.setAttribute("role", "dialog");
+      this.root.setAttribute("aria-modal", "true");
+      this.root.setAttribute(
+        "aria-label",
+        isZH2() ? "MWITools 性能引导" : "MWITools performance guide"
+      );
+      const backdrop = document.createElement("div");
+      backdrop.className = "mwi-performance-backdrop";
+      backdrop.addEventListener("click", () => void this.cancel());
+      this.dialog = document.createElement("div");
+      this.dialog.className = "mwi-performance-dialog";
+      const card = document.createElement("section");
+      card.className = "mwi-performance-card";
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "mwi-performance-close";
+      close.setAttribute("aria-label", isZH2() ? "关闭引导" : "Close guide");
+      close.textContent = "×";
+      close.addEventListener("click", () => void this.cancel());
+      this.head = document.createElement("header");
+      this.head.className = "mwi-performance-head";
+      this.body = document.createElement("div");
+      this.body.className = "mwi-performance-body";
+      this.footer = document.createElement("footer");
+      this.footer.className = "mwi-performance-footer";
+      card.append(close, this.head, this.body, this.footer);
+      this.dialog.append(createMascot(), card);
+      this.root.append(backdrop, this.dialog);
+      this.previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      document.body.append(this.root);
+      document.addEventListener("keydown", this.handleKeydown, true);
+      this.render();
+      setTimeout(() => {
+        this.root?.classList.add("mwi-performance-open");
+        this.root?.querySelector(".mwi-performance-button-primary")?.focus();
+      }, 0);
+      return this.promise;
+    }
+    handleKeydown(event) {
+      if (!this.root) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        void this.cancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...this.root.querySelectorAll(
+          'button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]'
+        )
+      ];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    stageInfo() {
+      if (this.stage === "welcome") {
+        return {
+          title: isZH2() ? "欢迎使用 MWITools" : "Welcome to MWITools"
+        };
+      }
+      if (this.stage === "usage") {
+        return {
+          title: isZH2() ? "你主要怎么玩？" : "How do you usually play?"
+        };
+      }
+      if (this.stage === "tier") {
+        return {
+          title: isZH2() ? "选择设备性能档位" : "Choose a performance tier"
+        };
+      }
+      if (this.stage.startsWith("custom:")) {
+        const index = Number(this.stage.split(":")[1]);
+        return {
+          title: t18(CUSTOM_GROUPS[index].title)
+        };
+      }
+      return {
+        title: isZH2() ? "确认性能设置" : "Confirm performance settings"
+      };
+    }
+    overallProgress() {
+      const custom = this.tier === "custom";
+      const total = custom ? CUSTOM_GROUPS.length + 3 : 3;
+      if (this.stage === "welcome") return { current: 0, total };
+      if (this.stage === "usage") return { current: 1, total };
+      if (this.stage === "tier") return { current: 2, total };
+      if (this.stage.startsWith("custom:")) {
+        return {
+          current: Number(this.stage.split(":")[1]) + 3,
+          total
+        };
+      }
+      return { current: total, total };
+    }
+    render() {
+      const info = this.stageInfo();
+      const overall = this.overallProgress();
+      this.head.replaceChildren();
+      const title = document.createElement("div");
+      title.className = "mwi-performance-title";
+      title.textContent = info.title;
+      const progress = document.createElement("div");
+      progress.className = "mwi-performance-progress";
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", String(overall.total));
+      progress.setAttribute("aria-valuenow", String(overall.current));
+      const progressLabel = document.createElement("div");
+      progressLabel.className = "mwi-performance-progress-label";
+      const progressTitle = document.createElement("span");
+      progressTitle.textContent = isZH2() ? "总进度" : "Overall";
+      const progressValue = document.createElement("span");
+      progressValue.textContent = `${overall.current} / ${overall.total}`;
+      progressLabel.append(progressTitle, progressValue);
+      const progressTrack = document.createElement("div");
+      progressTrack.className = "mwi-performance-progress-track";
+      const progressFill = document.createElement("span");
+      progressFill.className = "mwi-performance-progress-fill";
+      progressFill.style.width = `${overall.current / overall.total * 100}%`;
+      progressTrack.append(progressFill);
+      progress.append(progressLabel, progressTrack);
+      this.head.append(title, progress);
+      this.body.replaceChildren();
+      this.footer.replaceChildren();
+      if (this.stage === "welcome") this.renderWelcome();
+      else if (this.stage === "usage") this.renderOptions("usage");
+      else if (this.stage === "tier") this.renderOptions("tier");
+      else if (this.stage.startsWith("custom:")) this.renderCustom();
+      else this.renderReview();
+      this.renderFooter();
+    }
+    renderWelcome() {
+      const copy = document.createElement("p");
+      copy.className = "mwi-performance-copy";
+      copy.textContent = isZH2() ? "根据你的玩法和设备选择合适配置，可以减少设备长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。" : "Choose a setup for your play style and device to reduce heat, power use, and stutter during long unattended sessions. You can restart this guide from Settings at any time.";
+      const note = document.createElement("div");
+      note.className = "mwi-performance-note";
+      note.textContent = isZH2() ? "只会调整性能相关功能，不会修改语言、估值口径、通知或已保存的数据。" : "Only performance-related features change. Language, valuation rules, notifications, and saved data stay untouched.";
+      this.body.append(copy, note);
+    }
+    renderOptions(kind) {
+      const selected = kind === "usage" ? this.usage : this.tier;
+      const ids = kind === "usage" ? ["life", "combat", "balanced"] : ["smooth", "standard", "full", "custom"];
+      const recommended = kind === "tier" ? recommendPerformanceTier() : null;
+      const options = document.createElement("div");
+      options.className = "mwi-performance-options";
+      options.setAttribute("role", "radiogroup");
+      for (const id of ids) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "mwi-performance-option";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", String(selected === id));
+        button.dataset.value = id;
+        const heading = document.createElement("div");
+        heading.className = "mwi-performance-option-title";
+        heading.textContent = t18(TEXT[kind][id]);
+        const copy = document.createElement("div");
+        copy.className = "mwi-performance-option-copy";
+        copy.textContent = optionCopy(kind, id);
+        button.append(heading, copy);
+        if (recommended === id) {
+          const badge = document.createElement("span");
+          badge.className = "mwi-performance-recommended";
+          badge.textContent = isZH2() ? "推荐" : "Recommended";
+          button.append(badge);
+        }
+        button.addEventListener("click", () => {
+          if (kind === "usage") this.usage = id;
+          else {
+            this.tier = id;
+            this.choices = id === "custom" ? { ...getProfileState().choices } : resolvePresetChoices(this.usage, id);
+          }
+          this.render();
+        });
+        options.append(button);
+      }
+      this.body.append(options);
+    }
+    renderCustom() {
+      const index = Number(this.stage.split(":")[1]);
+      const group = CUSTOM_GROUPS[index];
+      const fields = document.createElement("div");
+      fields.className = "mwi-performance-fields";
+      for (const field of group.fields) {
+        const row = document.createElement("div");
+        row.className = "mwi-performance-field";
+        const copy = document.createElement("div");
+        const heading = document.createElement("div");
+        heading.className = "mwi-performance-field-title";
+        heading.textContent = t18(FIELD_TEXT[field].title);
+        const summary = document.createElement("div");
+        summary.className = "mwi-performance-field-copy";
+        summary.textContent = t18(FIELD_TEXT[field].summary);
+        copy.append(heading, summary);
+        if (field === "refreshIntervalMs") {
+          const select = document.createElement("select");
+          select.className = "mwi-performance-select";
+          select.setAttribute("aria-label", heading.textContent);
+          for (const value of [1e3, 2e3]) {
+            const option = document.createElement("option");
+            option.value = String(value);
+            option.textContent = `${value / 1e3} ${isZH2() ? "秒" : "sec"}`;
+            select.append(option);
+          }
+          select.value = String(this.choices[field]);
+          select.addEventListener("change", () => {
+            this.choices[field] = Number(select.value);
+          });
+          row.append(copy, select);
+        } else {
+          const toggle = document.createElement("label");
+          toggle.className = "mwi-performance-switch";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = Boolean(this.choices[field]);
+          input.setAttribute("aria-label", heading.textContent);
+          const track = document.createElement("span");
+          input.addEventListener("change", () => {
+            this.choices[field] = input.checked;
+          });
+          toggle.append(input, track);
+          row.append(copy, toggle);
+        }
+        fields.append(row);
+      }
+      this.body.append(fields);
+    }
+    renderReview() {
+      const copy = document.createElement("p");
+      copy.className = "mwi-performance-copy";
+      copy.textContent = `${t18(TEXT.usage[this.usage])} · ${t18(TEXT.tier[this.tier])}`;
+      const review = document.createElement("div");
+      review.className = "mwi-performance-review";
+      for (const field of Object.keys(FIELD_TEXT)) {
+        const row = document.createElement("div");
+        row.className = "mwi-performance-review-row";
+        const label = document.createElement("span");
+        label.textContent = t18(FIELD_TEXT[field].title);
+        const status = document.createElement("b");
+        status.textContent = choiceStatus(field, this.choices[field]);
+        row.append(label, status);
+        review.append(row);
+      }
+      this.body.append(copy, review);
+    }
+    renderFooter() {
+      if (this.stage !== "welcome") {
+        const back = document.createElement("button");
+        back.type = "button";
+        back.className = "mwi-performance-button mwi-performance-button-secondary";
+        back.textContent = isZH2() ? "返回" : "Back";
+        back.addEventListener("click", () => this.goBack());
+        this.footer.append(back);
+      }
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "mwi-performance-button mwi-performance-button-primary";
+      next.textContent = this.stage === "review" ? isZH2() ? "应用并进入游戏" : "Apply and enter game" : isZH2() ? "下一步" : "Next";
+      next.addEventListener("click", async () => {
+        if (this.stage === "review") {
+          if (this.closing) return;
+          this.closing = true;
+          next.disabled = true;
+          try {
+            await applyPerformanceProfile({
+              usage: this.usage,
+              tier: this.tier,
+              choices: this.tier === "custom" ? this.choices : null
+            });
+            this.finish("applied");
+            this.reloadPage();
+          } catch (error) {
+            this.closing = false;
+            next.disabled = false;
+            const note = document.createElement("div");
+            note.className = "mwi-performance-note";
+            note.setAttribute("role", "alert");
+            note.textContent = isZH2() ? "设置保存失败，请重试。" : "Could not save these settings. Please try again.";
+            this.body.prepend(note);
+            console.error(
+              "[MWITools] Failed to apply performance profile",
+              error
+            );
+          }
+          return;
+        }
+        this.goNext();
+      });
+      this.footer.append(next);
+    }
+    reloadPage() {
+      try {
+        if (typeof runtime.api.reloadPage === "function") {
+          runtime.api.reloadPage();
+          return;
+        }
+        globalThis.location?.reload?.();
+      } catch (error) {
+        console.error(
+          isZH2() ? "[MWITools] 应用性能设置后刷新页面失败" : "[MWITools] Failed to reload after applying performance settings",
+          error
+        );
+      }
+    }
+    goNext() {
+      this.history.push(this.stage);
+      if (this.stage === "welcome") this.stage = "usage";
+      else if (this.stage === "usage") this.stage = "tier";
+      else if (this.stage === "tier") {
+        this.choices = this.tier === "custom" ? { ...this.choices } : resolvePresetChoices(this.usage, this.tier);
+        this.stage = this.tier === "custom" ? "custom:0" : "review";
+      } else if (this.stage.startsWith("custom:")) {
+        const index = Number(this.stage.split(":")[1]);
+        this.stage = index + 1 < CUSTOM_GROUPS.length ? `custom:${index + 1}` : "review";
+      }
+      this.render();
+      this.body.scrollTop = 0;
+    }
+    goBack() {
+      this.stage = this.history.pop() ?? "welcome";
+      this.render();
+      this.body.scrollTop = 0;
+    }
+    async cancel() {
+      if (this.closing) return;
+      this.closing = true;
+      try {
+        if (this.firstRun) await completePerformanceOnboardingWithoutChanges();
+      } finally {
+        this.finish("cancelled");
+      }
+    }
+    finish(result) {
+      if (!this.root) return;
+      const root = this.root;
+      this.root = null;
+      document.removeEventListener("keydown", this.handleKeydown, true);
+      document.body.style.overflow = this.previousBodyOverflow;
+      root.classList.remove("mwi-performance-open");
+      setTimeout(() => root.remove(), 300);
+      this.trigger?.focus?.();
+      this.resolve?.({ result, profile: getProfileState() });
+      this.resolve = null;
+      activeOnboarding = null;
+    }
+  };
+  var activeOnboarding = null;
+  async function openPerformanceOnboarding(options = {}) {
+    if (activeOnboarding) return activeOnboarding.promise;
+    if (!document.body) {
+      await new Promise(
+        (resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true })
+      );
+    }
+    activeOnboarding = new PerformanceOnboarding(options);
+    return activeOnboarding.open();
+  }
+  async function runPerformanceOnboardingIfNeeded() {
+    initializePerformancePolicy();
+    if (!shouldRunPerformanceOnboarding()) return getProfileState();
+    const result = await openPerformanceOnboarding({ firstRun: true });
+    return result.profile;
+  }
+  Object.assign(runtime.api, {
+    openPerformanceOnboarding,
+    runPerformanceOnboardingIfNeeded
+  });
+
   // src/features/update-banner.js
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
   var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID18 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t18(value) {
+  function t19(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.9");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.10");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -47757,7 +49572,7 @@ ${locks}` : ""}`;
       return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
-            t18({
+            t19({
               zh: `更新清单请求失败（HTTP ${response.status}）`,
               en: `Update manifest request failed (HTTP ${response.status})`
             })
@@ -47772,7 +49587,7 @@ ${locks}` : ""}`;
           if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
             reject(
               new Error(
-                t18({
+                t19({
                   zh: `更新清单请求失败（HTTP ${response?.status}）`,
                   en: `Update manifest request failed (HTTP ${response?.status})`
                 })
@@ -47793,7 +49608,7 @@ ${locks}` : ""}`;
           onload: finish,
           onerror: () => reject(
             new Error(
-              t18({
+              t19({
                 zh: "更新清单请求失败。",
                 en: "Update manifest request failed."
               })
@@ -47801,7 +49616,7 @@ ${locks}` : ""}`;
           ),
           ontimeout: () => reject(
             new Error(
-              t18({
+              t19({
                 zh: "更新清单请求超时。",
                 en: "Update manifest request timed out."
               })
@@ -47817,7 +49632,7 @@ ${locks}` : ""}`;
   function validateManifest(manifest) {
     if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
-        t18({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
+        t19({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
     return manifest;
@@ -47834,7 +49649,7 @@ ${locks}` : ""}`;
         lastError = error;
       }
     }
-    throw lastError ?? new Error(t18({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+    throw lastError ?? new Error(t19({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
   }
   var manifestCheck = null;
   function getImportantUpdateManifest() {
@@ -47844,7 +49659,7 @@ ${locks}` : ""}`;
   function updateDownloadUrl() {
     return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
   }
-  function addStyles16() {
+  function addStyles17() {
     if (document.getElementById(STYLE_ID18)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID18;
@@ -47865,7 +49680,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles16();
+    addStyles17();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -47877,8 +49692,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t18(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    const message = t18(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t19(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    const message = t19(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
     banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
@@ -48042,7 +49857,8 @@ ${locks}` : ""}`;
       showGraph: false,
       autoReset: true,
       language: defaultLanguage,
-      panelOpacity: 100
+      panelOpacity: 100,
+      refreshIntervalMs: 1e3
     };
     let state = { ...defaults };
     try {
@@ -48127,6 +49943,29 @@ ${locks}` : ""}`;
         state.recountShowGraph = v;
         save();
       },
+      getRefreshInterval: () => Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3,
+      getPerformance: () => ({
+        showGraph: Boolean(state.showGraph),
+        recountShowGraph: state.recountShowGraph !== false,
+        refreshIntervalMs: Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3
+      }),
+      setPerformance: (patch = {}) => {
+        if (patch.showGraph !== void 0) {
+          state.showGraph = Boolean(patch.showGraph);
+        }
+        if (patch.recountShowGraph !== void 0) {
+          state.recountShowGraph = Boolean(patch.recountShowGraph);
+        }
+        if (patch.refreshIntervalMs !== void 0) {
+          state.refreshIntervalMs = Number(patch.refreshIntervalMs) === 2e3 ? 2e3 : 1e3;
+        }
+        save();
+        return {
+          showGraph: Boolean(state.showGraph),
+          recountShowGraph: state.recountShowGraph !== false,
+          refreshIntervalMs: Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3
+        };
+      },
       getDebugMode: () => state.debugMode || false,
       setDebugMode: (v) => {
         state.debugMode = v;
@@ -48149,6 +49988,10 @@ ${locks}` : ""}`;
       }
     };
   })();
+  runtime.api.dpsPerformance = {
+    get: Settings.getPerformance,
+    set: Settings.setPerformance
+  };
   function formatDamage(n) {
     const value = Number(n) || 0, absolute = Math.abs(value);
     if (absolute >= 1e6) return (value / 1e6).toFixed(1) + "M";
@@ -49999,9 +51842,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t19 = 0;
-        playerKills.forEach((v) => t19 += v);
-        return t19;
+        let t20 = 0;
+        playerKills.forEach((v) => t20 += v);
+        return t20;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -50266,12 +52109,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t19) {
-      const low = t19.toLowerCase();
+    function looksLikeNoise(t20) {
+      const low = t20.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t19)) return true;
-      if (/^\d+%?$/.test(t19)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t19)) return true;
+      if (/^lv\.?\d+$/i.test(t20)) return true;
+      if (/^\d+%?$/.test(t20)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t20)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -50293,14 +52136,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t19) => t19 && !looksLikeNoise(t19) && !/^trial\s/i.test(t19));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t20) => t20 && !looksLikeNoise(t20) && !/^trial\s/i.test(t20));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t19, i) => {
-        resolved.set(String(i + offset), t19);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t20, i) => {
+        resolved.set(String(i + offset), t20);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -50368,7 +52211,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t19) => t19.length > 0)) {
+          if (texts.some((t20) => t20.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -50404,10 +52247,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t19 = c.textContent.trim();
-            if (t19.length >= 2 && t19.length <= 20 && !looksLikeNoise(t19)) {
+            const t20 = c.textContent.trim();
+            if (t20.length >= 2 && t20.length <= 20 && !looksLikeNoise(t20)) {
               nameLikeCount++;
-              texts.push(t19.slice(0, 20));
+              texts.push(t20.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -52203,11 +54046,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t19 = el2.textContent.trim();
-        if (!t19 || t19.length < 2 || t19.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t19);
+        const t20 = el2.textContent.trim();
+        if (!t20 || t20.length < 2 || t20.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t20);
         let cssEllipsis = false;
-        if (!literalEllipsis && t19.length <= 20 && !t19.includes(" ") && !looksLikeNoise(t19)) {
+        if (!literalEllipsis && t20.length <= 20 && !t20.includes(" ") && !looksLikeNoise(t20)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -54712,10 +56555,10 @@ ${locks}` : ""}`;
         getGameTranslation("labyrinthPanel.automation")
       ];
       for (const c of containers) {
-        const t19 = c.textContent;
-        if (combatZones && t19.includes(combatZones) || t19.includes("Combat Zones") || t19.includes("战斗区域") || t19.includes("戰鬥區域"))
+        const t20 = c.textContent;
+        if (combatZones && t20.includes(combatZones) || t20.includes("Combat Zones") || t20.includes("战斗区域") || t20.includes("戰鬥區域"))
           return c;
-        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t19.includes(label)) || t19.includes("Labyrinth") && t19.includes("Room") && t19.includes("Automation") || t19.includes("迷宫") && (t19.includes("房间") || t19.includes("自动化")) || t19.includes("迷宮") && (t19.includes("房間") || t19.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t20.includes(label)) || t20.includes("Labyrinth") && t20.includes("Room") && t20.includes("Automation") || t20.includes("迷宫") && (t20.includes("房间") || t20.includes("自动化")) || t20.includes("迷宮") && (t20.includes("房間") || t20.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -55022,10 +56865,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t19) => {
+      TYPES.forEach((t20) => {
         const btn = document.createElement("button");
-        btn.textContent = t19.label;
-        const active = historyFilter === t19.id;
+        btn.textContent = t20.label;
+        const active = historyFilter === t20.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -55039,7 +56882,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t19.id;
+          historyFilter = t20.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -55163,8 +57006,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t19) => t19.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t19) => t19.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t20) => t20.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t20) => t20.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -55762,11 +57605,19 @@ ${locks}` : ""}`;
         persistActive(true);
       }
     });
-    scope.interval(() => {
+    let refreshTimer2 = null;
+    const refresh = () => {
+      refreshTimer2 = null;
       Session.advanceBuckets();
       persistActive();
       if (KikiMeter.isOpen()) renderSelectedPanels();
-    }, 1e3);
+      refreshTimer2 = setTimeout(refresh, Settings.getRefreshInterval());
+    };
+    refreshTimer2 = setTimeout(refresh, Settings.getRefreshInterval());
+    scope.add(() => {
+      if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
+      refreshTimer2 = null;
+    });
     Object.assign(MWI, {
       enabled: true,
       bus: SocketHook.bus,
@@ -57023,6 +58874,17 @@ ${locks}` : ""}`;
       runtime.api.assetHistory.scheduleRefresh();
     }
   }
+  function enableIronCowAdaptation() {
+    if (!runtime.api.isIronCowCharacter?.() || runtime.settings.settingsMap.adaptIronCowMarketFeatures?.isTrue) {
+      return;
+    }
+    void runtime.settings.set("adaptIronCowMarketFeatures", true).catch((error) => {
+      console.error(
+        runtime.config.isZH ? "[MWITools] 自动开启铁牛模式适配失败。" : "[MWITools] Failed to enable Iron Cow adaptation automatically.",
+        error
+      );
+    });
+  }
   runtime.onMessage("init_client_data", (payload, message) => {
     console.log(payload);
     GM_setValue("init_client_data", message);
@@ -57030,6 +58892,7 @@ ${locks}` : ""}`;
   runtime.onMessage("init_character_data", (payload, message) => {
     console.log(payload);
     GM_setValue("init_character_data", message);
+    enableIronCowAdaptation();
     const settings2 = runtime.settings.settingsMap;
     refreshAssets();
     if (settings2.checkEquipment.isTrue) runtime.api.checkEquipment();
@@ -57125,7 +58988,7 @@ ${locks}` : ""}`;
     }
     return true;
   }
-  function startGame() {
+  async function startGame() {
     const clientDataLoaded = loadCachedClientData();
     if (!clientDataLoaded) {
       runtime.features.register({
@@ -57155,9 +59018,18 @@ ${locks}` : ""}`;
       );
     }
     runtime.api.fetchMarketJSON(true);
-    runtime.start();
+    try {
+      await runtime.api.runPerformanceOnboardingIfNeeded();
+    } catch (error) {
+      console.error(
+        runtime.config.isZH ? "[MWITools] 性能引导启动失败，将继续使用当前设置。" : "[MWITools] Performance setup failed; continuing with current settings.",
+        error
+      );
+    }
+    await runtime.start();
   }
-  function main() {
+  async function main() {
+    runtime.features.pauseInitialization();
     runtime.api.readSettings();
     if (document.URL.includes("amvoidguy.github.io") || document.URL.includes("shykai.github.io/MWICombatSimulatorTest/")) {
       runtime.api.addImportButtonForAmvoidguy();
@@ -57168,7 +59040,7 @@ ${locks}` : ""}`;
       runtime.api.addImportButtonForMooneycalc();
       return;
     }
-    startGame();
+    await startGame();
   }
-  main();
+  void main();
 })();

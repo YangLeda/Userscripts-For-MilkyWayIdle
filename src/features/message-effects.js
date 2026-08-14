@@ -10,6 +10,25 @@ function refreshAssets() {
   }
 }
 
+function enableIronCowAdaptation() {
+  if (
+    !runtime.api.isIronCowCharacter?.() ||
+    runtime.settings.settingsMap.adaptIronCowMarketFeatures?.isTrue
+  ) {
+    return;
+  }
+  void runtime.settings
+    .set("adaptIronCowMarketFeatures", true)
+    .catch((error) => {
+      console.error(
+        runtime.config.isZH
+          ? "[MWITools] 自动开启铁牛模式适配失败。"
+          : "[MWITools] Failed to enable Iron Cow adaptation automatically.",
+        error,
+      );
+    });
+}
+
 runtime.onMessage("init_client_data", (payload, message) => {
   console.log(payload);
   GM_setValue("init_client_data", message);
@@ -18,6 +37,7 @@ runtime.onMessage("init_client_data", (payload, message) => {
 runtime.onMessage("init_character_data", (payload, message) => {
   console.log(payload);
   GM_setValue("init_character_data", message);
+  enableIronCowAdaptation();
   const settings = runtime.settings.settingsMap;
   refreshAssets();
   if (settings.checkEquipment.isTrue) runtime.api.checkEquipment();

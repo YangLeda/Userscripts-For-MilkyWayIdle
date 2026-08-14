@@ -23,6 +23,14 @@ function detectDuplicateScripts(options = {}) {
   ) {
     duplicates.push("Everyday Profit Plus Fixed");
   }
+  if (
+    documentRef?.querySelector("#TaskSort") &&
+    documentRef?.querySelector(
+      "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon",
+    )
+  ) {
+    duplicates.push("MWI TaskManager");
+  }
   return duplicates;
 }
 

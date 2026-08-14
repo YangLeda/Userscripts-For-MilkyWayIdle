@@ -2,6 +2,39 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.10",
+    version: "26.4.10",
+    publishedAt: "2026-08-14",
+    title: Object.freeze({
+      zh: "26.4.10 更新公告",
+      en: "Version 26.4.10 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
+        "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
+        "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；左上角总进度会在自定义流程中显示当前步数，应用配置后自动刷新页面。可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。",
+        "检测到铁牛或旧铁牛角色时，现在会自动开启铁牛模式适配，隐藏该模式不可用的市场价格、交易利润与市场采购操作；切回普通角色时这些功能仍会正常显示。",
+        "库存排序旁恢复“刷新价值”按钮，可在需要时主动生成新资产快照，同时保留当前排序与摘要展开状态；购物清单新增鼠标和触屏拖动排序并按角色、服务器保存，清单行与“清空未收藏”按钮也会在库存和价格更新时保持稳定，不再反复重建闪烁。",
+        "强化行动的剩余时间改为原位更新，并会在原生强化数量文字短暂缺失时沿用同一行动最后一次有效数量，不再闪成无限或消失。本次生产总耗时已移到数量、无限与最大控制右侧，以无边框的“耗时”文字显示；购物车与生产摘要的英文界面也改用更清晰的系统字体。",
+        "行动队列更新现在按行动 ID 合并、去重并按真实序号排序，上下重排后会在已打开的队列内立即刷新耗时。遇到无限行动时保留此前可达的有限总时长并显示“有限时长 + ∞”，无限后的行动不再计算或残留旧时间；队列关闭后会立即停止相关观察与延迟校验。",
+        "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
+        "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
+      ]),
+      en: Object.freeze([
+        "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
+        "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
+        "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. An overall progress bar in the upper-left tracks custom steps, and applying the profile now refreshes the page automatically. General settings show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike.",
+        "Detecting an Iron Cow or Legacy Iron Cow character now automatically enables Iron Cow adaptation, hiding marketplace prices, trading profit, and marketplace procurement actions that are unavailable in those modes; these features remain visible after switching back to a standard character.",
+        "A Refresh values button has returned beside Inventory sorting, letting players create a fresh asset snapshot on demand while preserving the selected sort and expanded summary. Shopping-list rows can now be reordered with mouse or touch and persist per character and server; keyed rows and the Clear unfavorited button also stay mounted during inventory and price updates instead of being rebuilt and flickering.",
+        "Enhancement remaining time now updates in place and keeps the last valid native quantity for the same action when that text briefly disappears, preventing the estimate from flashing to infinity or vanishing. Production duration now appears as unboxed Duration text to the right of the quantity, infinity, and Max controls, and English Shopping Cart and Production Summary surfaces use a clearer system UI font stack.",
+        "Action updates now merge and deduplicate by action ID and sort by the authoritative ordinal, so moving actions up or down refreshes an open queue immediately. The queue keeps every reachable finite duration before the first infinite action and displays “finite duration + ∞”; actions after infinity are not calculated and stale timing is removed. Queue observers and transition checks stop as soon as the menu or feature closes.",
+        "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
+        "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.9",
     version: "26.4.9",
     publishedAt: "2026-08-13",

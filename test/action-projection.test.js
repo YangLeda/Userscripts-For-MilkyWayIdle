@@ -204,6 +204,63 @@ test("production resolver maps gathering drop tables and excludes combat loot", 
   );
 });
 
+test("production resolver indexes one action map scan and rebuilds after replacement", () => {
+  const previousActions = runtime.state.initData_actionDetailMap;
+  try {
+    let sourceScans = 0;
+    const indexedSource = (entries) =>
+      new Proxy(Object.fromEntries(entries), {
+        ownKeys(target) {
+          sourceScans += 1;
+          return Reflect.ownKeys(target);
+        },
+      });
+    runtime.state.initData_actionDetailMap = indexedSource([
+      [
+        "/actions/crafting/indexed-a",
+        {
+          type: "/action_types/crafting",
+          outputItems: [{ itemHrid: "/items/indexed_a", count: 1 }],
+        },
+      ],
+      [
+        "/actions/crafting/indexed-b",
+        {
+          type: "/action_types/crafting",
+          outputItems: [{ itemHrid: "/items/indexed_b", count: 1 }],
+        },
+      ],
+    ]);
+
+    assert.equal(
+      runtime.api.resolveProductionActionByItemHrid("/items/indexed_a"),
+      "/actions/crafting/indexed-a",
+    );
+    assert.equal(
+      runtime.api.resolveProductionActionByItemHrid("/items/indexed_b"),
+      "/actions/crafting/indexed-b",
+    );
+    assert.equal(sourceScans, 1);
+
+    runtime.state.initData_actionDetailMap = indexedSource([
+      [
+        "/actions/crafting/indexed-c",
+        {
+          type: "/action_types/crafting",
+          outputItems: [{ itemHrid: "/items/indexed_c", count: 1 }],
+        },
+      ],
+    ]);
+    assert.equal(
+      runtime.api.resolveProductionActionByItemHrid("/items/indexed_c"),
+      "/actions/crafting/indexed-c",
+    );
+    assert.equal(sourceScans, 2);
+  } finally {
+    runtime.state.initData_actionDetailMap = previousActions;
+  }
+});
+
 test("projection exposes market, high-buy-low-sell, and low-buy-high-sell valuations", () => {
   const originalFairValue = runtime.api.getFairValue;
   runtime.api.getFairValue = (itemHrid) =>

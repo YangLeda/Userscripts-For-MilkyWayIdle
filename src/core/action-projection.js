@@ -678,6 +678,46 @@ const PROFIT_ACTION_TYPES = new Set([
   "/action_types/tailoring",
   "/action_types/woodcutting",
 ]);
+let productionActionIndexSource = null;
+let productionActionIndex = null;
+
+function getProductionActionIndex() {
+  const source = runtime.state.initData_actionDetailMap;
+  if (source === productionActionIndexSource && productionActionIndex) {
+    return productionActionIndex;
+  }
+  const candidatesByItem = new Map();
+  for (const [actionHrid, detail] of Object.entries(source ?? {})) {
+    if (!PROFIT_ACTION_TYPES.has(detail?.type)) continue;
+    for (const output of getExpectedOutputs(detail)) {
+      const itemHrid = String(output?.itemHrid ?? "");
+      if (!itemHrid || !(Number(output.count) > 0)) continue;
+      const candidates = candidatesByItem.get(itemHrid) ?? [];
+      candidates.push([actionHrid, detail]);
+      candidatesByItem.set(itemHrid, candidates);
+    }
+  }
+  const index = new Map();
+  for (const [itemHrid, candidates] of candidatesByItem) {
+    const slug = itemHrid.split("/").at(-1);
+    const exact = candidates.find(([actionHrid]) =>
+      actionHrid.endsWith(`/${slug}`),
+    );
+    if (exact) {
+      index.set(itemHrid, exact[0]);
+      continue;
+    }
+    candidates.sort(
+      ([leftHrid, left], [rightHrid, right]) =>
+        (Number(left?.sortIndex) || 0) - (Number(right?.sortIndex) || 0) ||
+        leftHrid.localeCompare(rightHrid),
+    );
+    index.set(itemHrid, candidates[0][0]);
+  }
+  productionActionIndexSource = source;
+  productionActionIndex = index;
+  return productionActionIndex;
+}
 
 function getDirectPrice(itemHrid, kind, mode) {
   let value = 0;
@@ -783,25 +823,7 @@ function getOptionalOutputs(actionHrid, detail) {
 function resolveProductionActionByItemHrid(itemHrid) {
   const target = String(itemHrid ?? "");
   if (!target) return null;
-  const matches = Object.entries(
-    runtime.state.initData_actionDetailMap ?? {},
-  ).filter(
-    ([, detail]) =>
-      PROFIT_ACTION_TYPES.has(detail?.type) &&
-      getExpectedOutputs(detail).some(
-        (output) => output?.itemHrid === target && Number(output.count) > 0,
-      ),
-  );
-  if (!matches.length) return null;
-  const slug = target.split("/").at(-1);
-  const exact = matches.find(([actionHrid]) => actionHrid.endsWith(`/${slug}`));
-  if (exact) return exact[0];
-  matches.sort(
-    ([leftHrid, left], [rightHrid, right]) =>
-      (Number(left?.sortIndex) || 0) - (Number(right?.sortIndex) || 0) ||
-      leftHrid.localeCompare(rightHrid),
-  );
-  return matches[0][0];
+  return getProductionActionIndex().get(target) ?? null;
 }
 
 function projectAction(actionOrHrid, requestedCount, context = {}) {

@@ -97,6 +97,17 @@ runtime.state.initData_characterItems = [
 runtime.api.getToolsSpeedBuffByActionHrid = () => 0;
 runtime.api.getTotalEffiPercentage = () => 0;
 
+test("craftable targets remain discoverable while player data is still loading", () => {
+  const previousSkills = runtime.state.initData_characterSkills;
+  runtime.state.initData_characterSkills = null;
+  try {
+    assert.equal(planning.isCraftableItem("/items/board"), true);
+    assert.equal(planning.isCraftableItem("/items/log"), false);
+  } finally {
+    runtime.state.initData_characterSkills = previousSkills;
+  }
+});
+
 test("projects aggregate inventory and cart coverage by source", () => {
   procurement.loadCharacterData("planning-ledger");
   const one = procurement.createPlan("/actions/crafting/project-one", 100, [

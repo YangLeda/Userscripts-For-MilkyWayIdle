@@ -25,6 +25,10 @@ const MAX_ACQUISITION_DEPTH = 12;
 const assetValueCache = new Map();
 const assetLiquidationCache = new Map();
 let guildCreditHridCache = null;
+let actionOutputIndexSource = null;
+let actionOutputIndexes = null;
+let shopRewardIndexSources = null;
+let shopRewardIndex = null;
 
 function positiveNumber(value) {
   const number = Number(value);
@@ -48,6 +52,10 @@ function invalidateAssetValueCache() {
   assetValueCache.clear();
   assetLiquidationCache.clear();
   guildCreditHridCache = null;
+  actionOutputIndexSource = null;
+  actionOutputIndexes = null;
+  shopRewardIndexSources = null;
+  shopRewardIndex = null;
   runtime.api.resetAssetValuationMarketSnapshot?.();
 }
 
@@ -241,6 +249,81 @@ function getShopDetails() {
     runtime.state.initData_taskShopItemDetailMap,
     runtime.state.initData_labyrinthShopItemDetailMap,
   ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
+}
+
+function assetItemKey(itemHrid, enhancementLevel = 0) {
+  return `${itemHrid}#${Number(enhancementLevel) || 0}`;
+}
+
+function getActionOutputIndexes() {
+  const source = runtime.state.initData_actionDetailMap;
+  if (source === actionOutputIndexSource && actionOutputIndexes) {
+    return actionOutputIndexes;
+  }
+  const byItemAndLevel = new Map();
+  const upgradesByItem = new Map();
+  for (const [, action] of entriesOfMap(source)) {
+    const countsByKey = new Map();
+    const countsByItem = new Map();
+    for (const output of action?.outputItems ?? []) {
+      const itemHrid = output?.itemHrid ?? output?.hrid;
+      if (!itemHrid) continue;
+      const count = positiveNumber(output.count ?? 1);
+      if (!count) continue;
+      const key = assetItemKey(itemHrid, output.enhancementLevel);
+      countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+      countsByItem.set(itemHrid, (countsByItem.get(itemHrid) ?? 0) + count);
+    }
+    for (const [key, outputCount] of countsByKey) {
+      const candidates = byItemAndLevel.get(key) ?? [];
+      candidates.push({ action, outputCount });
+      byItemAndLevel.set(key, candidates);
+    }
+    if (action?.upgradeItemHrid) {
+      for (const [itemHrid, outputCount] of countsByItem) {
+        const candidates = upgradesByItem.get(itemHrid) ?? [];
+        candidates.push({ action, outputCount });
+        upgradesByItem.set(itemHrid, candidates);
+      }
+    }
+  }
+  actionOutputIndexSource = source;
+  actionOutputIndexes = { byItemAndLevel, upgradesByItem };
+  return actionOutputIndexes;
+}
+
+function getShopRewardIndex() {
+  const sources = [
+    runtime.state.initData_shopItemDetailMap,
+    runtime.state.initData_taskShopItemDetailMap,
+    runtime.state.initData_labyrinthShopItemDetailMap,
+  ];
+  if (
+    shopRewardIndex &&
+    shopRewardIndexSources?.every((source, index) => source === sources[index])
+  ) {
+    return shopRewardIndex;
+  }
+  const index = new Map();
+  for (const detail of getShopDetails()) {
+    const countsByKey = new Map();
+    for (const reward of normalizeRewardRecords(detail)) {
+      const itemHrid = reward?.itemHrid ?? reward?.hrid;
+      if (!itemHrid) continue;
+      const count = positiveNumber(reward.count ?? 1);
+      if (!count) continue;
+      const key = assetItemKey(itemHrid, reward.enhancementLevel);
+      countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+    }
+    for (const [key, rewardCount] of countsByKey) {
+      const candidates = index.get(key) ?? [];
+      candidates.push({ detail, rewardCount });
+      index.set(key, candidates);
+    }
+  }
+  shopRewardIndexSources = sources;
+  shopRewardIndex = index;
+  return shopRewardIndex;
 }
 
 function getLootConfig(overrides = {}) {
@@ -633,17 +716,9 @@ function acquisitionCostValue(itemHrid, enhancementLevel, context) {
 
 function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
   let bestValue = Number.POSITIVE_INFINITY;
-  for (const detail of getShopDetails()) {
-    const rewards = normalizeRewardRecords(detail);
-    const matchingCount = rewards.reduce((total, reward) => {
-      const rewardHrid = reward?.itemHrid ?? reward?.hrid;
-      const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
-      return rewardHrid === itemHrid && rewardLevel === enhancementLevel
-        ? total + positiveNumber(reward.count ?? 1)
-        : total;
-    }, 0);
-    if (!matchingCount) continue;
-
+  const candidates =
+    getShopRewardIndex().get(assetItemKey(itemHrid, enhancementLevel)) ?? [];
+  for (const { detail, rewardCount } of candidates) {
     let totalCost = 0,
       complete = true;
     for (const cost of normalizeCostRecords(detail)) {
@@ -662,7 +737,7 @@ function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
       totalCost += count * unitValue;
     }
     if (complete && totalCost > 0) {
-      bestValue = Math.min(bestValue, totalCost / matchingCount);
+      bestValue = Math.min(bestValue, totalCost / rewardCount);
     }
   }
   return Number.isFinite(bestValue) ? bestValue : 0;
@@ -671,20 +746,11 @@ function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
 function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
   if (!String(itemHrid).endsWith("_refined")) return 0;
   let bestValue = Number.POSITIVE_INFINITY;
-  for (const [, action] of entriesOfMap(
-    runtime.state.initData_actionDetailMap,
-  )) {
-    const outputs = Array.isArray(action?.outputItems)
-      ? action.outputItems
-      : [];
-    const outputCount = outputs.reduce((total, output) => {
-      const outputHrid = output?.itemHrid ?? output?.hrid;
-      return outputHrid === itemHrid
-        ? total + positiveNumber(output.count ?? 1)
-        : total;
-    }, 0);
+  const candidates =
+    getActionOutputIndexes().upgradesByItem.get(itemHrid) ?? [];
+  for (const { action, outputCount } of candidates) {
     const baseItemHrid = action?.upgradeItemHrid;
-    if (!outputCount || !baseItemHrid) continue;
+    if (!baseItemHrid) continue;
 
     const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
     let totalCost = acquisitionCostValue(baseItemHrid, retainedLevel, context),
@@ -713,21 +779,11 @@ function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
 
 function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
   let bestValue = Number.POSITIVE_INFINITY;
-  for (const [, action] of entriesOfMap(
-    runtime.state.initData_actionDetailMap,
-  )) {
-    const outputs = Array.isArray(action?.outputItems)
-      ? action.outputItems
-      : [];
-    const outputCount = outputs.reduce((total, output) => {
-      const outputHrid = output?.itemHrid ?? output?.hrid;
-      const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-      return outputHrid === itemHrid && outputLevel === enhancementLevel
-        ? total + positiveNumber(output.count ?? 1)
-        : total;
-    }, 0);
-    if (!outputCount) continue;
-
+  const candidates =
+    getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel),
+    ) ?? [];
+  for (const { action, outputCount } of candidates) {
     let totalCost = 0;
     let complete = true;
     const inputItems = action?.inputItems ?? [];
@@ -999,21 +1055,11 @@ function mergeLiquidationMissing(results) {
 function getCraftedLiquidationValue(itemHrid, enhancementLevel, mode, context) {
   let bestValue = Number.POSITIVE_INFINITY;
   let missingItemHrids = [];
-  for (const [, action] of entriesOfMap(
-    runtime.state.initData_actionDetailMap,
-  )) {
-    const outputs = Array.isArray(action?.outputItems)
-      ? action.outputItems
-      : [];
-    const outputCount = outputs.reduce((total, output) => {
-      const outputHrid = output?.itemHrid ?? output?.hrid;
-      const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-      return outputHrid === itemHrid && outputLevel === enhancementLevel
-        ? total + positiveNumber(output.count ?? 1)
-        : total;
-    }, 0);
-    if (!outputCount) continue;
-
+  const candidates =
+    getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel),
+    ) ?? [];
+  for (const { action, outputCount } of candidates) {
     const inputItems = [...(action?.inputItems ?? [])];
     const upgradeItemHrid = action?.upgradeItemHrid;
     if (upgradeItemHrid) {

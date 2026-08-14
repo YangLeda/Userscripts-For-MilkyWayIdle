@@ -302,7 +302,10 @@ function recipeFor(itemHrid) {
 }
 
 function isCraftableItem(itemHrid) {
-  return Boolean(findProductionRecipe(procurement.normalizeItemHrid(itemHrid)));
+  const item = procurement.normalizeItemHrid(itemHrid);
+  const actionHrid = runtime.api.resolveProductionActionByItemHrid?.(item);
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  return Boolean(actionHrid && runtime.api.getDirectInputs?.(detail)?.length);
 }
 
 function currentHouseLevel(houseRoomHrid) {

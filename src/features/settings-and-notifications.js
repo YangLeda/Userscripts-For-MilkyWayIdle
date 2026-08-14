@@ -167,9 +167,18 @@ function applyVisualSettings() {
     "--mwi-ui-font-scale",
     String(scale),
   );
+  const hoverScale =
+    { standard: 1, large: 1.12, largest: 1.25 }[
+      runtime.settings.getPreference("hoverFontScale")
+    ] ?? 1;
+  document.documentElement?.style.setProperty(
+    "--mwi-hover-font-scale",
+    String(hoverScale),
+  );
 }
 
 runtime.settings.onPreferenceChange?.("uiFontScale", applyVisualSettings);
+runtime.settings.onPreferenceChange?.("hoverFontScale", applyVisualSettings);
 
 function readSettings() {
   let loadedV2 = false;
@@ -268,6 +277,13 @@ function addSettingsStyles() {
     .mwi-settings-group-title { font-size:1rem; font-weight:700; }
     .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); margin-top:2px; line-height:1.35; }
     .mwi-settings-grid { display:flex; flex-direction:column; padding:0 10px; }
+    .mwi-performance-settings-card { display:flex; min-height:58px; align-items:center; justify-content:space-between; gap:14px; padding:9px 4px; border-bottom:1px solid rgba(255,255,255,.075); }
+    .mwi-performance-settings-copy { min-width:0; }
+    .mwi-performance-settings-title { display:flex; align-items:center; gap:8px; font-size:calc(.84rem * var(--mwi-ui-font-scale,1)); font-weight:700; }
+    .mwi-performance-settings-profile { display:inline-flex; padding:1px 7px; border-radius:999px; background:rgba(238,154,29,.14); color:#ffd084; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); white-space:nowrap; }
+    .mwi-performance-settings-summary { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:calc(.71rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
+    .mwi-performance-settings-open { flex:0 0 auto; border:1px solid rgba(238,154,29,.62); border-radius:4px; padding:6px 10px; background:rgba(238,154,29,.12); color:#ffd084; font:inherit; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); cursor:pointer; }
+    .mwi-performance-settings-open:hover { background:rgba(238,154,29,.2); }
     .mwi-setting-card { min-width:0; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.075); transition:background .15s; }
     .mwi-setting-card:last-child { border-bottom:0; }
     .mwi-setting-card:hover { background:rgba(255,255,255,.025); }
@@ -298,7 +314,7 @@ function addSettingsStyles() {
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
   styleHost.appendChild(style);
 }
@@ -365,7 +381,9 @@ function settingsRoots() {
 }
 
 function cleanupSettingsRoot(root) {
-  for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+  for (const card of root?.querySelectorAll(
+    ".mwi-setting-card,.mwi-performance-settings-card",
+  ) ?? []) {
     card._mwitoolsCleanup?.();
   }
 }
@@ -656,6 +674,74 @@ function createSettingCard(definition, options = {}) {
   return card;
 }
 
+function performanceProfileLabel(
+  state = runtime.api.performanceProfiles?.getState?.(),
+) {
+  const usages = runtime.config.isZH
+    ? { life: "生活", combat: "战斗", balanced: "平衡" }
+    : { life: "Skilling", combat: "Combat", balanced: "Balanced" };
+  const tiers = runtime.config.isZH
+    ? {
+        smooth: "流畅优先",
+        standard: "标准",
+        full: "完整功能",
+        custom: "自定义",
+      }
+    : {
+        smooth: "Smooth",
+        standard: "Standard",
+        full: "Full features",
+        custom: "Custom",
+      };
+  return `${usages[state?.usage] ?? usages.balanced} · ${tiers[state?.tier] ?? tiers.custom}`;
+}
+
+function createPerformanceSettingsCard() {
+  const card = document.createElement("article");
+  card.className = "mwi-performance-settings-card";
+  card.dataset.search = "性能 引导 档位 生活 战斗 平衡 performance guide tier";
+  const copy = document.createElement("div");
+  copy.className = "mwi-performance-settings-copy";
+  const title = document.createElement("div");
+  title.className = "mwi-performance-settings-title";
+  const titleText = document.createElement("span");
+  titleText.textContent = runtime.config.isZH
+    ? "性能与初始化引导"
+    : "Performance setup guide";
+  const profile = document.createElement("span");
+  profile.className = "mwi-performance-settings-profile";
+  const update = () => {
+    profile.textContent = performanceProfileLabel();
+  };
+  update();
+  title.append(titleText, profile);
+  const summary = document.createElement("div");
+  summary.className = "mwi-performance-settings-summary";
+  summary.textContent = runtime.config.isZH
+    ? "重新选择玩法、设备档位，或按功能组自定义。取消不会修改当前设置。"
+    : "Choose your play style and device tier again, or customize each group. Cancelling keeps current settings.";
+  copy.append(title, summary);
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "mwi-performance-settings-open";
+  button.textContent = runtime.config.isZH ? "重新开始引导" : "Restart guide";
+  button.addEventListener("click", () => {
+    void runtime.api.openPerformanceOnboarding?.({ firstRun: false });
+  });
+  const onProfileChange = () => update();
+  document.addEventListener(
+    "mwitools:performance-profile-change",
+    onProfileChange,
+  );
+  card._mwitoolsCleanup = () =>
+    document.removeEventListener(
+      "mwitools:performance-profile-change",
+      onProfileChange,
+    );
+  card.append(copy, button);
+  return card;
+}
+
 function renderSettings(root) {
   if (!root) return;
   cleanupSettingsRoot(root);
@@ -716,6 +802,7 @@ function renderSettings(root) {
     head.append(groupTitle, groupSummary);
     const grid = document.createElement("div");
     grid.className = "mwi-settings-grid";
+    if (groupId === "general") grid.append(createPerformanceSettingsCard());
     for (const definition of definitions) {
       grid.appendChild(createSettingCard(definition));
     }
@@ -725,13 +812,17 @@ function renderSettings(root) {
 
   search.addEventListener("input", () => {
     const query = search.value.trim().toLowerCase();
-    for (const card of root.querySelectorAll(".mwi-setting-card")) {
+    for (const card of root.querySelectorAll(
+      ".mwi-setting-card,.mwi-performance-settings-card",
+    )) {
       card.hidden = Boolean(query) && !card.dataset.search.includes(query);
     }
     for (const group of root.querySelectorAll(".mwi-settings-group")) {
-      group.hidden = ![...group.querySelectorAll(".mwi-setting-card")].some(
-        (card) => !card.hidden,
-      );
+      group.hidden = ![
+        ...group.querySelectorAll(
+          ".mwi-setting-card,.mwi-performance-settings-card",
+        ),
+      ].some((card) => !card.hidden);
     }
   });
 }

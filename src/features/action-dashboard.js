@@ -35,7 +35,7 @@ const QUICK_COUNTS = [10, 100, 300, 500, 1_000, 2_000];
 const ACTION_SURFACE_SELECTOR =
   'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const OWNED_ACTION_UI_SELECTOR =
-  "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-extensions";
+  "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-duration-inline,.mwi-production-extensions";
 const PRODUCTION_MODULE_ORDER = Object.freeze({
   quickInputs: 10,
   summary: 20,
@@ -43,6 +43,7 @@ const PRODUCTION_MODULE_ORDER = Object.freeze({
   targetLevel: 40,
 });
 let productionDataRevision = 0;
+let enhancementTimingCache = { identity: "", count: null };
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -192,6 +193,9 @@ function addStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
+  const productionFont = runtime.config.isZH
+    ? "inherit"
+    : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
   style.textContent = `
     .mwi-action-dashboard-host { position:relative!important; }
     .mwi-action-dashboard { position:absolute; top:50%; right:0; z-index:5; box-sizing:border-box; max-width:var(--mwi-action-dashboard-max-width,calc(100% - var(--mwi-action-dashboard-left,0px))); margin:0; padding:2px 6px; transform:translateY(-50%); border:1px solid rgba(255,255,255,.1); border-radius:4px; background:rgba(0,0,0,.18); font:inherit; font-size:inherit; line-height:1.25; white-space:normal; overflow:hidden; pointer-events:none; }
@@ -201,7 +205,7 @@ function addStyles() {
     .mwi-action-dashboard[data-compact="true"] { right:auto; width:max-content; padding-inline:4px; }
     .mwi-action-dashboard[data-compact="true"] .mwi-action-line { gap:2px 6px; }
     .mwi-action-time { overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
-    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-production-card { width:100%; max-width:100%; min-width:0; box-sizing:border-box; contain:inline-size; margin-top:6px; padding:6px; border:1px solid rgba(255,255,255,.12); border-radius:5px; background:rgba(255,255,255,.025); color:var(--color-text-primary,#eee); font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-extensions { display:contents!important; }
     .mwi-production-extensions > * { flex:0 0 auto!important; align-self:stretch; min-height:0!important; height:auto!important; }
     .mwi-production-card-title { display:flex; width:100%; align-items:center; gap:6px; box-sizing:border-box; padding:0 2px 4px; border:0; background:transparent; color:inherit; font:inherit; font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); font-weight:650; text-align:left; cursor:pointer; }
@@ -227,6 +231,7 @@ function addStyles() {
     .mwi-production-output-count { flex:0 0 auto; min-width:0; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); font-weight:700; line-height:1; white-space:nowrap; }
     .mwi-production-warning { margin:4px 2px 0; color:#d7bb67; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.25; }
     .mwi-max-action-button { margin-inline-start:4px; }
+    .mwi-production-duration-inline { display:inline-flex; align-items:center; margin-inline-start:7px; padding:0; border:0; background:transparent; color:${runtime.config.SCRIPT_COLOR_MAIN}; font-family:${productionFont}; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
     .mwi-production-quick-inputs { position:relative; display:grid; z-index:0; box-sizing:border-box; gap:3px; width:100%; min-width:0; margin:4px 0 1px; color:var(--color-text-secondary,#aaa); font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); }
     .mwi-production-quick-row { display:flex; min-width:0; align-items:flex-start; gap:3px; }
     .mwi-production-quick-label { flex:0 0 3.25em; color:${runtime.config.SCRIPT_COLOR_MAIN}; white-space:nowrap; }
@@ -302,6 +307,7 @@ function clearActionDashboard() {
     .forEach((element) =>
       element.classList.remove("mwi-action-dashboard-host"),
     );
+  enhancementTimingCache = { identity: "", count: null };
 }
 
 function nativeActionText(host) {
@@ -410,12 +416,39 @@ function renderActionDashboard() {
     (left, right) => Number(left?.ordinal ?? 0) - Number(right?.ordinal ?? 0),
   );
   const current = actions[0];
-  if (!host || !current || !actionMatchesHeader(current, host)) {
+  if (!host || !current) {
+    clearActionDashboard();
+    return null;
+  }
+  const identity = String(current.id ?? current.actionHrid ?? "");
+  const isEnhancement = String(current.actionHrid ?? "").includes("/enhancing");
+  const existingRoot = host.querySelector("#mwi-action-dashboard");
+  if (!actionMatchesHeader(current, host)) {
+    if (isEnhancement && existingRoot?.dataset.actionIdentity === identity) {
+      return existingRoot;
+    }
     clearActionDashboard();
     return null;
   }
   const timing = getLiveActionTiming(host);
-  const enhancementCount = getNativeEnhancementCount(host, current);
+  let enhancementCount = getNativeEnhancementCount(host, current);
+  if (isEnhancement) {
+    if (enhancementTimingCache.identity !== identity) {
+      enhancementTimingCache = { identity, count: null };
+    }
+    if (enhancementCount !== null) {
+      enhancementTimingCache.count = enhancementCount;
+    } else if (enhancementTimingCache.count !== null) {
+      enhancementCount = enhancementTimingCache.count;
+    } else if (existingRoot?.dataset.actionIdentity === identity) {
+      return existingRoot;
+    } else {
+      clearActionDashboard();
+      return null;
+    }
+  } else {
+    enhancementTimingCache = { identity: "", count: null };
+  }
   const projection = runtime.api.projectAction(
     current,
     enhancementCount ?? undefined,
@@ -424,7 +457,7 @@ function renderActionDashboard() {
       currentCycleRemainingSeconds: timing.currentCycleRemaining,
     },
   );
-  let root = host.querySelector("#mwi-action-dashboard");
+  let root = existingRoot;
   if (!root) {
     root = document.createElement("div");
     root.id = "mwi-action-dashboard";
@@ -432,6 +465,7 @@ function renderActionDashboard() {
     host.appendChild(root);
   }
   host.classList.add("mwi-action-dashboard-host");
+  root.dataset.actionIdentity = identity;
   root.style.position = "absolute";
   const lastNativeChild = [...host.children]
     .filter(
@@ -456,18 +490,25 @@ function renderActionDashboard() {
       (availableWidth === 0 && viewportWidth > 0 && viewportWidth <= 520),
   );
   root.dataset.tight = String(availableWidth > 0 && availableWidth < 180);
-  root.replaceChildren();
   root.removeAttribute("title");
-
-  const primary = document.createElement("div");
-  primary.className = "mwi-action-line";
-  const currentTime = document.createElement("strong");
-  currentTime.className = "mwi-action-time";
+  let primary = root.querySelector(":scope > .mwi-action-line");
+  if (!primary) {
+    primary = document.createElement("div");
+    primary.className = "mwi-action-line";
+    root.append(primary);
+  }
+  let currentTime = primary.querySelector(":scope > .mwi-action-time");
+  if (!currentTime) {
+    currentTime = document.createElement("strong");
+    currentTime.className = "mwi-action-time";
+    primary.append(currentTime);
+  }
   currentTime.textContent = formatRemainingTiming(
     projection.totalSeconds,
     projection.finishAt,
     { isZH: runtime.config.isZH },
   );
+  currentTime.removeAttribute("title");
   if (projection.materialLimited) {
     currentTime.title = t(
       "已按当前库存中的可用原料计算",
@@ -479,8 +520,6 @@ function renderActionDashboard() {
       "Based on the amount currently available for enhancement",
     );
   }
-  primary.append(currentTime);
-  root.append(primary);
   return root;
 }
 
@@ -879,6 +918,34 @@ function syncMaxButton(panel, input, maxCraftable) {
     : t("当前没有有限的可生产次数", "No finite production maximum");
 }
 
+function syncProductionDuration(panel, input, totalSeconds) {
+  document
+    .querySelectorAll(".mwi-production-duration-inline")
+    .forEach((element) => {
+      if (!panel?.contains(element)) element.remove();
+    });
+  const target =
+    input?.closest(
+      'div[class*="SkillActionDetail_maxActionCountInput"],div[class*="SkillActionDetail_actionContainer"]',
+    ) ??
+    panel?.querySelector('div[class*="SkillActionDetail_actionContainer"]');
+  if (!target) return null;
+  let duration = panel.querySelector(".mwi-production-duration-inline");
+  if (!duration) {
+    duration = document.createElement("span");
+    duration.className = "mwi-production-duration-inline";
+  }
+  duration.textContent = `${t("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
+  target.append(duration);
+  return duration;
+}
+
+function removeProductionDuration() {
+  document
+    .querySelectorAll(".mwi-production-duration-inline")
+    .forEach((element) => element.remove());
+}
+
 function resolvePanelAction(panel) {
   const nameElement = panel?.querySelector(
     'div[class*="SkillActionDetail_name"]',
@@ -945,6 +1012,7 @@ function renderProductionPanel() {
     document
       .querySelectorAll(".mwi-max-action-button")
       .forEach((button) => button.remove());
+    removeProductionDuration();
     return;
   }
   const context = resolveActiveProductionPanelContext();
@@ -958,6 +1026,7 @@ function renderProductionPanel() {
     document
       .querySelectorAll(".mwi-max-action-button")
       .forEach((button) => button.remove());
+    removeProductionDuration();
     return;
   }
   existingCards
@@ -971,6 +1040,7 @@ function renderProductionPanel() {
   if (!actionHrid || !isProductionAction(actionHrid)) {
     existingCard?.remove();
     panel.querySelector(".mwi-max-action-button")?.remove();
+    panel.querySelector(".mwi-production-duration-inline")?.remove();
     return;
   }
   const count = context?.count ?? Number.POSITIVE_INFINITY;
@@ -1003,12 +1073,28 @@ function renderProductionPanel() {
       item.count ?? 0,
     ]),
   ]);
-  if (existingCard?.dataset.renderSignature === signature) return existingCard;
+  const hasDuration = Boolean(
+    panel.querySelector(".mwi-production-duration-inline"),
+  );
+  const needsMaxButton = Boolean(
+    input &&
+    findInfinityButton(panel, input) &&
+    !panel.querySelector(".mwi-max-action-button"),
+  );
+  if (
+    existingCard?.dataset.renderSignature === signature &&
+    hasDuration &&
+    !needsMaxButton
+  ) {
+    return existingCard;
+  }
   const projection = runtime.api.projectAction(actionHrid, count, {
     durationPerAction,
     respectInventoryLimit: !Number.isFinite(count),
   });
   syncMaxButton(panel, input, projection.maxCraftable);
+  syncProductionDuration(panel, input, projection.totalSeconds);
+  if (existingCard?.dataset.renderSignature === signature) return existingCard;
   let card = panel.querySelector("#mwi-production-summary");
   if (!card) {
     card = document.createElement("section");
@@ -1078,10 +1164,6 @@ function renderProductionPanel() {
         ? "∞"
         : number(projection.maxCraftable),
     ),
-    metric(
-      t("本次总耗时", "Duration"),
-      formatDuration(projection.totalSeconds),
-    ),
   );
   if (showProfit) {
     grid.append(
@@ -1130,6 +1212,7 @@ function removeActionUi() {
     );
   document.querySelector("#mwi-production-summary")?.remove();
   document.querySelector(".mwi-max-action-button")?.remove();
+  removeProductionDuration();
   removeProductionQuickInputs();
   document
     .querySelectorAll(".mwi-production-extensions:empty")
@@ -1158,12 +1241,7 @@ runtime.features.register({
     render();
     scope.add(() => {
       if (refreshTimer !== null) clearTimeout(refreshTimer);
-      document.querySelector("#mwi-action-dashboard")?.remove();
-      document
-        .querySelectorAll(".mwi-action-dashboard-host")
-        .forEach((element) =>
-          element.classList.remove("mwi-action-dashboard-host"),
-        );
+      clearActionDashboard();
     });
   },
 });

@@ -61,6 +61,11 @@ test("enhancement UI includes the base cost as a separate row", () => {
   const panel = showEnhancementCostPanel(tooltip, completePlan());
 
   assert.equal(tooltip.innerHTML, original);
+  assert.match(
+    document.getElementById("mwitools-enhancement-cost-panel-style")
+      .textContent,
+    /font-size:calc\(11px \* var\(--mwi-hover-font-scale,1\)\)/,
+  );
   assert.equal(panel.parentElement, tooltip.parentElement);
   assert.equal(tooltip.nextElementSibling, panel);
   assert.equal(panel.querySelectorAll(".mwi-enhancement-metric").length, 8);

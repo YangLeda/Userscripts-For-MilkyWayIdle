@@ -374,11 +374,19 @@ function start(scope) {
     }
   });
 
-  scope.interval(() => {
+  let refreshTimer = null;
+  const refresh = () => {
+    refreshTimer = null;
     Session.advanceBuckets();
     persistActive();
     if (KikiMeter.isOpen()) renderSelectedPanels();
-  }, 1000);
+    refreshTimer = setTimeout(refresh, Settings.getRefreshInterval());
+  };
+  refreshTimer = setTimeout(refresh, Settings.getRefreshInterval());
+  scope.add(() => {
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshTimer = null;
+  });
 
   Object.assign(MWI, {
     enabled: true,

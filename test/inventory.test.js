@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { JSDOM } from "jsdom";
 
@@ -144,10 +145,31 @@ test("derived currency, loot, and equipment categories participate in inventory 
 });
 
 test("inventory asset summaries rerender without restoring the removed header UI", async () => {
-  await runtime.api.calculateNetworth();
-  await Promise.resolve();
-  await runtime.api.calculateNetworth();
-  await Promise.resolve();
+  assert.equal(
+    document.querySelector("#mwitools-inventory-summary-style"),
+    null,
+  );
+  const characterItems = runtime.state.initData_characterItems;
+  runtime.state.initData_characterItems = null;
+  runtime.api.scheduleNetworthRefresh();
+  runtime.state.initData_characterItems = characterItems;
+  assert.ok(document.querySelector("#mwitools-inventory-summary-style"));
+
+  const originalGetComputedStyle = window.getComputedStyle;
+  let computedStyleReadCount = 0;
+  window.getComputedStyle = (...args) => {
+    computedStyleReadCount += 1;
+    return originalGetComputedStyle.apply(window, args);
+  };
+  try {
+    await runtime.api.calculateNetworth();
+    await Promise.resolve();
+    await runtime.api.calculateNetworth();
+    await Promise.resolve();
+  } finally {
+    window.getComputedStyle = originalGetComputedStyle;
+  }
+  assert.equal(computedStyleReadCount, 0);
 
   assert.equal(document.querySelectorAll("#script_current_assets").length, 0);
   assert.equal(
@@ -179,7 +201,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   assert.equal(document.querySelectorAll(".mwi-summary-icon").length, 0);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    0,
+    1,
   );
   const summaryStyles = document.querySelector(
     "#mwitools-inventory-summary-style",
@@ -251,13 +273,15 @@ test("inventory asset summaries rerender without restoring the removed header UI
   const summary = document.querySelector("#script_inventory_summary");
   assert.equal(sortControls.nextElementSibling, summary);
   const noneButton = document.querySelector("#script_sortByNone_btn");
-  assert.equal(noneButton.style.fontWeight, "700");
+  assert.equal(sortControls.dataset.sortOrder, "none");
+  assert.equal(noneButton.style.fontWeight, "");
   document.querySelector("#script_sortByFair_btn").click();
+  assert.equal(sortControls.dataset.sortOrder, "fair");
   assert.equal(
     document.querySelector("#script_sortByFair_btn").style.fontWeight,
-    "700",
+    "",
   );
-  assert.equal(noneButton.style.fontWeight, "500");
+  assert.equal(noneButton.style.fontWeight, "");
 
   summary.style.display = "none";
   sortControls.style.display = "none";
@@ -268,13 +292,13 @@ test("inventory asset summaries rerender without restoring the removed header UI
     document
       .querySelector("#script_inventory_summary")
       .style.getPropertyValue("--mwi-inventory-heading-font-size"),
-    "14px",
+    "",
   );
   assert.equal(
     document
       .querySelector("#script_inventory_summary")
       .style.getPropertyValue("--mwi-inventory-heading-line-height"),
-    "20px",
+    "",
   );
   assert.match(summaryStyles, /\.mwi-summary-stats::before/);
   assert.match(summaryStyles, /\.mwi-summary-stat::before/);
@@ -395,7 +419,7 @@ test("inventory asset summaries rerender without restoring the removed header UI
   );
 });
 
-test("inventory scores and total assets stay frozen for the page session", async () => {
+test("inventory values stay frozen until an explicit forced refresh", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   const originalRefresh = runtime.api.refreshAssetSnapshot;
   let refreshCount = 0;
@@ -412,18 +436,38 @@ test("inventory scores and total assets stay frozen for the page session", async
 
   runtime.state.marketItemValues["/items/milk"][0] = 2_000;
   runtime.api.invalidateAssetValueCache();
-  document.querySelector("#script_inventory_summary").remove();
-  await runtime.api.calculateNetworth({ force: true });
+  await runtime.api.calculateNetworth();
 
   assert.equal(
     document.querySelector("#script_inventory_summary").textContent,
     before,
   );
   assert.equal(refreshCount, 1);
+
+  await runtime.api.calculateNetworth({ force: true });
+  assert.notEqual(
+    document.querySelector("#script_inventory_summary").textContent,
+    before,
+  );
+  assert.equal(refreshCount, 2);
   assert.equal(
     document.querySelectorAll("#script_refresh_inventory_btn").length,
-    0,
+    1,
   );
+
+  document.querySelector("#toggleNetWorth").click();
+  const refreshButton = document.querySelector("#script_refresh_inventory_btn");
+  const controls = document.querySelector("#script_inv_sort_controls");
+  controls.dataset.sortOrder = "fair";
+  refreshButton.click();
+  assert.equal(refreshButton.disabled, true);
+  assert.match(refreshButton.textContent, /刷新中/);
+  await delay(0);
+  assert.equal(refreshButton.disabled, false);
+  assert.equal(refreshButton.textContent, "刷新价值");
+  assert.equal(controls.dataset.sortOrder, "fair");
+  assert.equal(document.querySelector("#netWorthDetails").hidden, false);
+  assert.equal(refreshCount, 3);
 
   runtime.state.marketItemValues["/items/milk"][0] = 1_000;
   runtime.api.invalidateAssetValueCache();

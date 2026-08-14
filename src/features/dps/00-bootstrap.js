@@ -168,6 +168,7 @@ const Settings = (() => {
     autoReset: true,
     language: defaultLanguage,
     panelOpacity: 100,
+    refreshIntervalMs: 1000,
   };
   let state = { ...defaults };
   try {
@@ -253,6 +254,32 @@ const Settings = (() => {
       state.recountShowGraph = v;
       save();
     },
+    getRefreshInterval: () =>
+      Number(state.refreshIntervalMs) === 2000 ? 2000 : 1000,
+    getPerformance: () => ({
+      showGraph: Boolean(state.showGraph),
+      recountShowGraph: state.recountShowGraph !== false,
+      refreshIntervalMs: Number(state.refreshIntervalMs) === 2000 ? 2000 : 1000,
+    }),
+    setPerformance: (patch = {}) => {
+      if (patch.showGraph !== undefined) {
+        state.showGraph = Boolean(patch.showGraph);
+      }
+      if (patch.recountShowGraph !== undefined) {
+        state.recountShowGraph = Boolean(patch.recountShowGraph);
+      }
+      if (patch.refreshIntervalMs !== undefined) {
+        state.refreshIntervalMs =
+          Number(patch.refreshIntervalMs) === 2000 ? 2000 : 1000;
+      }
+      save();
+      return {
+        showGraph: Boolean(state.showGraph),
+        recountShowGraph: state.recountShowGraph !== false,
+        refreshIntervalMs:
+          Number(state.refreshIntervalMs) === 2000 ? 2000 : 1000,
+      };
+    },
     getDebugMode: () => state.debugMode || false,
     setDebugMode: (v) => {
       state.debugMode = v;
@@ -276,6 +303,11 @@ const Settings = (() => {
     },
   };
 })();
+
+runtime.api.dpsPerformance = {
+  get: Settings.getPerformance,
+  set: Settings.setPerformance,
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatDamage(n) {

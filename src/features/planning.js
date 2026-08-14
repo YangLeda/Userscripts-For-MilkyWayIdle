@@ -1292,6 +1292,11 @@ export function createPlanningUi({ scope }) {
       );
     }
   };
+  const ensurePanel = () => {
+    if (panel || !host?.isConnected) return false;
+    panel = new PlanningPanel(host);
+    return true;
+  };
   const syncViewport = () => {
     if (!host) return;
     if (!isCompactViewport() || !active) {
@@ -1335,6 +1340,7 @@ export function createPlanningUi({ scope }) {
       return;
     }
     navigationBranch.dataset.mwitoolsPlanningActive = "true";
+    const panelCreated = ensurePanel();
     for (const node of [...(shell?.children ?? [])]) {
       if (
         node === navigationBranch ||
@@ -1353,7 +1359,7 @@ export function createPlanningUi({ scope }) {
       node.style.display = "none";
     }
     syncViewport();
-    if (activating || panel?.updatePending) panel?.update();
+    if (!panelCreated && (activating || panel?.updatePending)) panel?.update();
   };
   const teardown = () => {
     setActive(false);
@@ -1398,7 +1404,6 @@ export function createPlanningUi({ scope }) {
     host.id = PANEL_ID;
     host.hidden = true;
     shell.appendChild(host);
-    panel = new PlanningPanel(host);
   };
   const ensureMounted = () => {
     const loadout = findCharacterManagementLoadoutTab();
@@ -1503,7 +1508,10 @@ export function createPlanningUi({ scope }) {
       document.getElementById(STYLE_ID)?.remove();
     },
     getDiagnostics() {
-      return { updateCount: panel?.updateCount ?? 0 };
+      return {
+        panelMounted: Boolean(panel),
+        updateCount: panel?.updateCount ?? 0,
+      };
     },
   };
 }
