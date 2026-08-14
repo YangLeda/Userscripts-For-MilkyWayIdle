@@ -15,6 +15,7 @@ import { createFrameScheduler } from "../core/frame-scheduler.js";
 import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import {
   getGameSpriteHref,
+  loadGameSpriteManifest,
   scanGameSpriteSources,
 } from "../core/game-assets.js";
 
@@ -1790,6 +1791,10 @@ runtime.features.register({
     const scheduleRender = () => renderScheduler.schedule();
     scanGameSpriteSources({ force: true });
     render();
+    void loadGameSpriteManifest().then(() => {
+      lastTaskRenderSignature = "";
+      scheduleRender();
+    });
     subscribeMutationChannel(
       {
         name: "task-surface",

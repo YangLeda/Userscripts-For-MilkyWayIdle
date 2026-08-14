@@ -30,6 +30,7 @@ Object.defineProperty(globalThis, "performance", {
 
 const {
   getGameSpriteHref,
+  loadGameSpriteManifest,
   registerGameSpriteSource,
   resetGameSpriteSources,
   scanGameSpriteSources,
@@ -61,4 +62,35 @@ test("missing sprite kinds stay empty and accept later runtime discovery", () =>
     "/static/media/skills_sprite.svg#attack",
   );
   assert.equal(fetchCalls, 0);
+});
+
+test("asset manifest restores sprite kinds not loaded by the current page", async () => {
+  resetGameSpriteSources();
+  const previousFetch = globalThis.fetch;
+  const requested = [];
+  globalThis.fetch = async (url) => {
+    requested.push(url);
+    return {
+      ok: true,
+      json: async () => ({
+        files: {
+          "actions.svg": "/static/media/actions_sprite.manifest.svg",
+          "skills.svg": "/static/media/skills_sprite.manifest.svg",
+        },
+      }),
+    };
+  };
+  try {
+    await loadGameSpriteManifest();
+    await loadGameSpriteManifest();
+    assert.deepEqual(requested, [
+      "https://www.milkywayidle.com/asset-manifest.json",
+    ]);
+    assert.equal(
+      getGameSpriteHref("actions", "/actions/combat/chimerical_den"),
+      "/static/media/actions_sprite.manifest.svg#chimerical_den",
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });

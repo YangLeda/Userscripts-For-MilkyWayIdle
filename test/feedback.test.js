@@ -415,7 +415,11 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 17);
+  assert.equal(current.body.zh.length, 18);
+  assert.match(
+    current.body.zh.join("\n"),
+    /恢复任务页地牢筛选按钮的官方图标.*菱形占位符/,
+  );
   assert.match(
     current.body.zh.join("\n"),
     /盈亏.*单核 CPU.*共享重复的页面观察/,

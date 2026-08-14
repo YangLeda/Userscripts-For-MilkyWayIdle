@@ -4,6 +4,7 @@ const SPRITE_PATTERN =
   /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
 const spriteBases = new Map();
 let lastScanAt = Number.NEGATIVE_INFINITY;
+let spriteManifestPromise = null;
 
 function normalizeKind(kind) {
   const value = String(kind ?? "").toLowerCase();
@@ -55,6 +56,34 @@ export function scanGameSpriteSources({ force = false } = {}) {
   return spriteBases.size;
 }
 
+export function loadGameSpriteManifest() {
+  if (spriteManifestPromise) return spriteManifestPromise;
+  spriteManifestPromise = (async () => {
+    scanGameSpriteSources({ force: true });
+    try {
+      const origin =
+        globalThis.location?.origin ??
+        globalThis.document?.location?.origin ??
+        "";
+      if (!origin || typeof globalThis.fetch !== "function") {
+        return spriteBases.size;
+      }
+      const response = await globalThis.fetch(
+        new URL("/asset-manifest.json", origin).href,
+      );
+      if (!response.ok) return spriteBases.size;
+      const manifest = await response.json();
+      for (const value of Object.values(manifest?.files ?? {})) {
+        registerGameSpriteSource(value);
+      }
+    } catch {
+      // Already loaded DOM and performance entries remain usable as fallbacks.
+    }
+    return spriteBases.size;
+  })();
+  return spriteManifestPromise;
+}
+
 export function getGameSpriteBase(kind) {
   scanGameSpriteSources();
   return spriteBases.get(normalizeKind(kind)) ?? "";
@@ -71,6 +100,7 @@ export function getGameSpriteHref(kind, hrid) {
 export function resetGameSpriteSources() {
   spriteBases.clear();
   lastScanAt = Number.NEGATIVE_INFINITY;
+  spriteManifestPromise = null;
 }
 
 Object.assign(runtime.api, {

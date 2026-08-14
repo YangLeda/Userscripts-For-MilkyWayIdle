@@ -972,6 +972,7 @@
   var SPRITE_PATTERN = /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
   var spriteBases = /* @__PURE__ */ new Map();
   var lastScanAt = Number.NEGATIVE_INFINITY;
+  var spriteManifestPromise = null;
   function normalizeKind(kind) {
     const value = String(kind ?? "").toLowerCase();
     if (value === "ability") return "abilities";
@@ -1013,6 +1014,29 @@
     }
     return spriteBases.size;
   }
+  function loadGameSpriteManifest() {
+    if (spriteManifestPromise) return spriteManifestPromise;
+    spriteManifestPromise = (async () => {
+      scanGameSpriteSources({ force: true });
+      try {
+        const origin = globalThis.location?.origin ?? globalThis.document?.location?.origin ?? "";
+        if (!origin || typeof globalThis.fetch !== "function") {
+          return spriteBases.size;
+        }
+        const response = await globalThis.fetch(
+          new URL("/asset-manifest.json", origin).href
+        );
+        if (!response.ok) return spriteBases.size;
+        const manifest = await response.json();
+        for (const value of Object.values(manifest?.files ?? {})) {
+          registerGameSpriteSource(value);
+        }
+      } catch {
+      }
+      return spriteBases.size;
+    })();
+    return spriteManifestPromise;
+  }
   function getGameSpriteBase(kind) {
     scanGameSpriteSources();
     return spriteBases.get(normalizeKind(kind)) ?? "";
@@ -1025,6 +1049,7 @@
   function resetGameSpriteSources() {
     spriteBases.clear();
     lastScanAt = Number.NEGATIVE_INFINITY;
+    spriteManifestPromise = null;
   }
   Object.assign(runtime.api, {
     getGameSpriteBase,
@@ -25881,6 +25906,10 @@ ${locks}` : ""}`;
       const scheduleRender = () => renderScheduler.schedule();
       scanGameSpriteSources({ force: true });
       render();
+      void loadGameSpriteManifest().then(() => {
+        lastTaskRenderSignature = "";
+        scheduleRender();
+      });
       subscribeMutationChannel(
         {
           name: "task-surface",
@@ -27174,7 +27203,8 @@ ${locks}` : ""}`;
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
           "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
-          "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。"
+          "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
+          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27193,7 +27223,8 @@ ${locks}` : ""}`;
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
           "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
-          "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead."
+          "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
+          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders."
         ])
       })
     }),
