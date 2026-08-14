@@ -659,7 +659,10 @@ class AssetHistoryPanel {
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
     this.center?.update(this.snapshot);
-    if (!this.visible || this.center?.isOpen()) return;
+    if (!this.visible || !this.host.isConnected || this.center?.isOpen()) {
+      if (!this.host.isConnected) this.chart.destroy();
+      return;
+    }
     const dayKey = getUtc8DayKey();
     const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
     const current = this.snapshot?.values ?? todayRecord?.values ?? {};

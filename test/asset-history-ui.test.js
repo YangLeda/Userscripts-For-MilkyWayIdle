@@ -909,6 +909,14 @@ test("asset charts only stay alive while their mobile surface is visible", () =>
     const createdBeforeHiddenUpdate = chartInstances.length;
     ui.update({ values: { total: 2_000 } });
     assert.equal(chartInstances.length, createdBeforeHiddenUpdate);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+    const createdBeforeDetach = chartInstances.length;
+    shell.remove();
+    ui.update({ values: { total: 3_000 } });
+    assert.equal(activeCharts().length, 0);
+    assert.equal(chartInstances.length, createdBeforeDetach);
   } finally {
     ui.destroy();
     scope.cleanup();

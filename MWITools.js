@@ -11461,6 +11461,30 @@
     resetZoom() {
       this.instance?.resetZoom?.();
     }
+    prepareCanvas() {
+      if (!this.canvas || this.canvas.isConnected === false) return null;
+      if (this.canvas.style) {
+        this.canvas.style.display = "block";
+        this.canvas.style.width = "100%";
+        this.canvas.style.height = "100%";
+      }
+      const bounds = this.canvas.getBoundingClientRect?.() ?? {};
+      const width = Math.max(
+        1,
+        Math.round(
+          Number(bounds.width) || Number(this.canvas.clientWidth) || Number(this.canvas.width) || 300
+        )
+      );
+      const height = Math.max(
+        1,
+        Math.round(
+          Number(bounds.height) || Number(this.canvas.clientHeight) || Number(this.canvas.height) || 150
+        )
+      );
+      this.canvas.width = width;
+      this.canvas.height = height;
+      return this.canvas.getContext?.("2d") ?? null;
+    }
     render(entries, { mode = "total", range = null } = {}) {
       return this.renderWithOptions(entries, { mode, range });
     }
@@ -11480,10 +11504,8 @@
           "图表依赖未加载；资产数据与明细仍可正常使用。",
           "Chart dependencies did not load; asset data is still available."
         );
-        return;
+        return false;
       }
-      this.canvas.hidden = false;
-      this.fallback.hidden = true;
       const filtered = filterEntries(entries, range);
       const labels = filtered.map(([date]) => date);
       let datasets;
@@ -11549,6 +11571,10 @@
         dataset.hidden = this.hiddenDatasets.has(key);
       }
       this.destroy();
+      const context = this.prepareCanvas();
+      if (!context) return false;
+      this.canvas.hidden = false;
+      this.fallback.hidden = true;
       const crosshairPlugin = {
         id: "mwitoolsAssetCrosshair",
         afterDraw(chart) {
@@ -11607,11 +11633,14 @@
           ctx.restore();
         }
       };
-      this.instance = new Chart(this.canvas.getContext("2d"), {
+      this.instance = new Chart(context, {
         data: { labels, datasets },
         plugins: [crosshairPlugin, tagPlugin],
         options: {
-          responsive: true,
+          // Chart.js responsive mode observes DOM attachment with Node.contains().
+          // Firefox userscript sandboxes can reject that cross-context access when
+          // the game replaces a React subtree, so MWITools sizes the canvas above.
+          responsive: false,
           maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
           animation: false,
@@ -11634,9 +11663,9 @@
             },
             tooltip: {
               callbacks: {
-                label(context) {
-                  const value = context.raw;
-                  return `${context.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
+                label(context2) {
+                  const value = context2.raw;
+                  return `${context2.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
                 }
               }
             },
@@ -11674,6 +11703,7 @@
           }
         }
       });
+      return true;
     }
   };
 
@@ -12974,7 +13004,10 @@ ${preview}`
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
       this.center?.update(this.snapshot);
-      if (!this.visible || this.center?.isOpen()) return;
+      if (!this.visible || !this.host.isConnected || this.center?.isOpen()) {
+        if (!this.host.isConnected) this.chart.destroy();
+        return;
+      }
       const dayKey = getUtc8DayKey();
       const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
       const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -27077,7 +27110,8 @@ ${locks}` : ""}`;
           "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
-          "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。"
+          "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
+          "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27094,7 +27128,8 @@ ${locks}` : ""}`;
           "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
-          "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests."
+          "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
+          "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds."
         ])
       })
     }),
