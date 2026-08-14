@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import {
+  getLocalizedEntityName,
   resolveEntityFromElement,
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
@@ -183,65 +184,37 @@ function productionCostTooltipRows(itemHrid) {
   `;
 }
 
-/* 显示当前动作总时间 */
-const showTotalActionTime = () => {
-  const targetNode = document.querySelector("div.Header_actionName__31-L2");
-  if (targetNode) {
-    console.log(
-      runtime.config.isZH
-        ? "[MWITools] 开始监听行动进度栏。"
-        : "[MWITools] Started observing the action progress bar.",
-    );
-    calculateTotalTime(targetNode);
-    new MutationObserver((mutationsList) =>
-      mutationsList.forEach((mutation) => {
-        calculateTotalTime();
-      }),
-    ).observe(targetNode, {
-      characterData: true,
-      subtree: true,
-      childList: true,
-    });
-  } else {
-    setTimeout(showTotalActionTime, 200);
-  }
-};
+function consumableEfficiencyTooltipRow(itemHrid, marketValue) {
+  if (!runtime.settings.settingsMap.showConsumTips?.isTrue) return "";
+  const detail =
+    runtime.state.initData_itemDetailMap?.[itemHrid]?.consumableDetail;
+  const restores = [
+    {
+      amount: Number(detail?.hitpointRestore),
+      unit: runtime.config.isZH ? "血" : "hp",
+    },
+    {
+      amount: Number(detail?.manapointRestore),
+      unit: runtime.config.isZH ? "蓝" : "mp",
+    },
+  ].filter(({ amount }) => Number.isFinite(amount) && amount > 0);
+  if (!restores.length) return "";
 
-function calculateTotalTime() {
-  const targetNode = document.querySelector(
-    "div.Header_actionName__31-L2 > div.Header_displayName__1hN09",
-  );
-  if (targetNode.textContent.includes("[")) {
-    return;
-  }
-
-  let totalTimeStr = "Error";
-  const content = targetNode.innerText;
-  const match = content.match(/\((\d+)\)/);
-  if (match) {
-    const numOfTimes = +match[1];
-    const timePerActionSec = +runtime.api
-      .getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn"))
-      .match(/[\d\.]+/)[0];
-    const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
-    let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
-    if (actionHrid.includes("enhanc")) {
-      effBuff = 1;
-    }
-    const actualNumberOfTimes = Math.round(numOfTimes / effBuff);
-    const totalTimeSeconds = actualNumberOfTimes * timePerActionSec;
-    totalTimeStr = " [" + timeReadable(totalTimeSeconds) + "]";
-
-    const currentTime = new Date();
-    currentTime.setSeconds(currentTime.getSeconds() + totalTimeSeconds);
-    totalTimeStr += ` ${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(
-      currentTime.getSeconds(),
-    ).padStart(2, "0")}`;
-  } else {
-    totalTimeStr = " [∞]";
-  }
-
-  targetNode.textContent += totalTimeStr;
+  const value = Number(marketValue);
+  const efficiency =
+    Number.isFinite(value) && value > 0
+      ? restores
+          .map(({ amount, unit }) =>
+            runtime.config.isZH
+              ? `${numberFormatter((value * 100) / amount, 0)}金/100${unit}`
+              : `${numberFormatter((value * 100) / amount, 0)} coins/100${unit}`,
+          )
+          .join(runtime.config.isZH ? "，" : ", ")
+      : "-";
+  const label = runtime.config.isZH
+    ? "消耗品性价比："
+    : "Consumable efficiency: ";
+  return `<div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${efficiency}</div>`;
 }
 
 function timeReadable(sec) {
@@ -414,7 +387,7 @@ export function resolveGatheringActionFromElement(element) {
   const matches = Object.values(runtime.state.initData_actionDetailMap ?? {})
     .filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type))
     .filter((detail) => {
-      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]]
+      const names = [detail.name, getLocalizedEntityName("action", detail.hrid)]
         .map((name) => String(name ?? "").trim())
         .filter(Boolean);
       return texts.some((text) => names.includes(text));
@@ -673,6 +646,7 @@ async function handleTooltipItem(tooltip) {
       ask && ask > 0 ? numberFormatter(ask * amount) : ""
     } / ${bid && bid > 0 ? numberFormatter(bid * amount) : ""})</div>
     `;
+    appendHTMLStr += consumableEfficiencyTooltipRow(itemHrid, fairValue);
   }
   if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
 
@@ -744,8 +718,6 @@ function getActionHridFromItemName(name) {
 }
 
 Object.assign(runtime.api, {
-  showTotalActionTime,
-  calculateTotalTime,
   timeReadable,
   getToolsSpeedBuffByActionHrid,
   getItemEffiBuffByActionHrid,

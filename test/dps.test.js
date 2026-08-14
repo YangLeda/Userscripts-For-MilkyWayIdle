@@ -66,11 +66,32 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+const zhGameResources = {
+  itemNames: { "/items/sundering_crossbow": "裂空之弩" },
+  actionNames: { "/actions/combat/rat": "鼠患" },
+  monsterNames: { "/monsters/trial_firefly": "试炼萤火虫" },
+  abilityNames: {
+    "/abilities/firestorm": "火焰风暴",
+    "/abilities/sweep": "重扫",
+    "/abilities/stunning_blow": "重锤",
+    "/abilities/fireball": "火球",
+    "/abilities/mana_spring": "法力喷泉",
+    "/abilities/natures_veil": "自然菌幕",
+  },
+};
+registerGameLocaleResources("zh", zhGameResources);
+localStorage.setItem("i18nextLng", "zh-CN");
+document.body.innerHTML = `
+  <svg><use href="/static/media/abilities_sprite.test.svg#firestorm"></use></svg>
+  <svg><use href="/static/media/skills_sprite.test.svg#attack"></use></svg>
+  <svg><use href="/static/media/items_sprite.test.svg#sundering_crossbow"></use></svg>
+  <svg><use href="/static/media/misc_sprite.test.svg#settings"></use></svg>
+  <svg><use href="/static/media/avatars_sprite.test.svg#unknown"></use></svg>`;
 GameAssets.scan();
 const originalQuerySelectorAll = document.querySelectorAll.bind(document);
 let assetDomScans = 0;
 document.querySelectorAll = (selector) => {
-  if (selector === "svg use,img") assetDomScans += 1;
+  if (selector === "svg use,img[src],link[href]") assetDomScans += 1;
   return originalQuerySelectorAll(selector);
 };
 GameAssets.item("/items/cheese");
@@ -112,7 +133,7 @@ assert(
 );
 assert(
   String(DamageSources.icon("/abilities/firestorm")).endsWith(
-    "/abilities_sprite.fdd1b4de.svg#firestorm",
+    "/abilities_sprite.test.svg#firestorm",
   ),
   "技能没有直接引用游戏 ability Sprite",
 );
@@ -143,7 +164,7 @@ const genericCombatIcon = DamageSources.icon("auto");
 for (const abilityHrid of supplementalAbilityHrids) {
   assert(
     String(DamageSources.icon(abilityHrid)).endsWith(
-      "/abilities_sprite.fdd1b4de.svg#" + abilityHrid.split("/").pop(),
+      "/abilities_sprite.test.svg#" + abilityHrid.split("/").pop(),
     ),
     abilityHrid + " 没有引用游戏技能图标",
   );
@@ -153,14 +174,13 @@ for (const abilityHrid of supplementalAbilityHrids) {
   );
 }
 assert(
-  genericCombatIcon.endsWith("/skills_sprite.3bb4d936.svg#attack"),
+  genericCombatIcon.endsWith("/skills_sprite.test.svg#attack"),
   "普通攻击没有直接引用游戏 skill Sprite",
 );
 assert(
   GameAssets.misc("loot_tracker").endsWith(
-    "/misc_sprite.6560b17a.svg#loot_tracker",
-  ) &&
-    GameAssets.misc("settings").endsWith("/misc_sprite.6560b17a.svg#settings"),
+    "/misc_sprite.test.svg#loot_tracker",
+  ) && GameAssets.misc("settings").endsWith("/misc_sprite.test.svg#settings"),
   "历史或设置没有直接引用游戏 misc Sprite",
 );
 for (const [classId, definition] of Object.entries(ClassSystem.definitions)) {
@@ -196,8 +216,8 @@ assert(
   "DPS 技能名没有使用游戏官方汉化",
 );
 for (const [abilityHrid, officialName] of Object.entries(
-  runtime.data.ZHOthersDic,
-).filter(([hrid]) => hrid.startsWith("/abilities/")))
+  zhGameResources.abilityNames,
+))
   assert(
     DamageSources.label(abilityHrid) === officialName,
     `${abilityHrid} 没有显示官方中文名 ${officialName}`,
@@ -577,6 +597,31 @@ assert(
   ClassSystem.classFor("列表装备") === "crossbow",
   "装备确认的弩职业被修正后攻速重新覆盖为弓",
 );
+ClassSystem.setDetected("旧剑缓存", "sword");
+ClassSystem.setDetected("旧弩缓存", "crossbow");
+const correctedBattleClasses = ClassSystem.registerPlayers([
+  player("旧剑缓存", "stab", "physical", "attack", 2555611941),
+  player("旧弩缓存", "stab", "physical", "attack", 2536856906),
+]);
+assert(
+  correctedBattleClasses["旧剑缓存"] === "spear" &&
+    ClassSystem.classFor("旧剑缓存") === "spear",
+  "本场明确的枪属性没有纠正旧剑缓存",
+);
+assert(
+  correctedBattleClasses["旧弩缓存"] === "spear" &&
+    ClassSystem.classFor("旧弩缓存") === "spear",
+  "本场明确的枪属性没有纠正旧弩缓存",
+);
+ClassSystem.setDetected("手动职业优先", "crossbow");
+ClassSystem.setOverride("手动职业优先", "sword");
+ClassSystem.registerPlayers([
+  player("手动职业优先", "stab", "physical", "attack", 2555611941),
+]);
+assert(
+  ClassSystem.classFor("手动职业优先") === "sword",
+  "本场自动识别覆盖了手动指定职业",
+);
 ClassSystem.setDetected("Ting", "spear");
 const swordEvidence = ClassSystem.learnAbility("Ting", "/abilities/maim");
 assert(
@@ -592,6 +637,7 @@ assert(
 const emitted = [];
 const typedTeamDamage = [];
 const takenEvents = [];
+const accuracyEvents = [];
 SocketHook.bus.addEventListener("playerDamage", (e) =>
   emitted.push(["damage", e.detail.name, e.detail.amount, e.detail.source]),
 );
@@ -603,6 +649,9 @@ SocketHook.bus.addEventListener("damage", (e) =>
 );
 SocketHook.bus.addEventListener("playerDamageTaken", (e) =>
   takenEvents.push({ ...e.detail }),
+);
+SocketHook.bus.addEventListener("attackResolved", (e) =>
+  accuracyEvents.push({ ...e.detail }),
 );
 const send = (o) => SocketHook.testHandleMessage(JSON.stringify(o));
 const newBattle = (key) =>
@@ -686,12 +735,21 @@ const autoA = player("普攻甲", "slash"),
   autoB = player("旁观乙", "magic", "water", "magic", 3500000000);
 autoA.attackAttemptCounter = 50;
 autoB.attackAttemptCounter = 80;
+autoA.isPreparingAutoAttack = true;
 send({
   type: "new_battle",
   combatStartTime: "counter-no-mp",
   players: [autoA, autoB],
-  monsters: [{ currentHitpoints: 100, enrageTimerDuration: 180000000000 }],
+  monsters: [
+    {
+      name: "训练鼠",
+      hrid: "/monsters/training_rat",
+      currentHitpoints: 100,
+      enrageTimerDuration: 180000000000,
+    },
+  ],
 });
+accuracyEvents.length = 0;
 send({
   type: "battle_updated",
   pMap: {
@@ -707,6 +765,163 @@ assert(
   ),
   "不消耗 MP 的普通攻击没有通过 atkCounter 正确归属",
 );
+assert(
+  accuracyEvents.length === 1 &&
+    accuracyEvents[0].name === "普攻甲" &&
+    accuracyEvents[0].hit === true &&
+    accuracyEvents[0].targets.length === 1 &&
+    accuracyEvents[0].targets[0].monsterHrid === "/monsters/training_rat" &&
+    accuracyEvents[0].targets[0].hit === true,
+  "唯一普通攻击命中没有生成玩家与怪物命中结算",
+);
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 100, cHP: 100, atkCounter: 52, isAutoAtk: true },
+    1: { cMP: 100, cHP: 100, atkCounter: 80 },
+  },
+  mMap: { 0: { cHP: 65 } },
+});
+assert(
+  accuracyEvents.length === 2 &&
+    accuracyEvents[1].hit === false &&
+    accuracyEvents[1].targets.length === 1 &&
+    accuracyEvents[1].targets[0].hit === false,
+  "单怪物未命中没有记入总命中率和可判定怪物明细",
+);
+
+const ambiguousTarget = player("歧义目标", "slash");
+ambiguousTarget.attackAttemptCounter = 0;
+ambiguousTarget.isPreparingAutoAttack = true;
+send({
+  type: "new_battle",
+  combatStartTime: "accuracy-ambiguous-target",
+  players: [ambiguousTarget],
+  monsters: [
+    { name: "怪物甲", hrid: "/monsters/a", currentHitpoints: 100 },
+    { name: "怪物乙", hrid: "/monsters/b", currentHitpoints: 100 },
+  ],
+});
+accuracyEvents.length = 0;
+send({
+  type: "battle_updated",
+  pMap: { 0: { cMP: 100, cHP: 100, atkCounter: 1, isAutoAtk: true } },
+  mMap: { 0: { cHP: 100 }, 1: { cHP: 100 } },
+});
+assert(
+  accuracyEvents.length === 1 &&
+    accuracyEvents[0].hit === false &&
+    accuracyEvents[0].targets.length === 0,
+  "多怪物未命中被错误硬分配到具体目标",
+);
+send({
+  type: "battle_updated",
+  pMap: { 0: { cMP: 100, cHP: 100, atkCounter: 3, isAutoAtk: true } },
+  mMap: { 0: { cHP: 90 }, 1: { cHP: 100 } },
+});
+assert(
+  accuracyEvents.length === 1,
+  "攻击计数跨越多次时仍生成了不可靠的命中结算",
+);
+
+const supportUser = player("辅助甲", "magic", "water", "magic");
+supportUser.attackAttemptCounter = 0;
+supportUser.preparingAbilityHrid = "/abilities/heal";
+send({
+  type: "new_battle",
+  combatStartTime: "accuracy-support-excluded",
+  players: [supportUser],
+  monsters: [{ currentHitpoints: 100 }],
+});
+accuracyEvents.length = 0;
+send({
+  type: "battle_updated",
+  pMap: {
+    0: {
+      cMP: 80,
+      cHP: 100,
+      atkCounter: 1,
+      abilityHrid: "/abilities/heal",
+    },
+  },
+  mMap: { 0: { cHP: 100 } },
+});
+assert(accuracyEvents.length === 0, "治疗或纯辅助动作错误进入命中率分母");
+
+send({
+  type: "init_client_data",
+  abilityDetailMap: {
+    "/abilities/sweep": {
+      hrid: "/abilities/sweep",
+      abilityEffects: [
+        {
+          effectType: "/ability_effect_types/damage",
+          targetType: "allEnemies",
+        },
+      ],
+    },
+  },
+});
+const areaUser = player("范围甲", "slash");
+areaUser.attackAttemptCounter = 0;
+areaUser.preparingAbilityHrid = "/abilities/sweep";
+send({
+  type: "new_battle",
+  combatStartTime: "accuracy-area",
+  players: [areaUser],
+  monsters: [
+    { name: "飞虫", hrid: "/monsters/fly", currentHitpoints: 100 },
+    { name: "老鼠", hrid: "/monsters/rat", currentHitpoints: 100 },
+  ],
+});
+accuracyEvents.length = 0;
+send({
+  type: "battle_updated",
+  pMap: {
+    0: {
+      cMP: 80,
+      cHP: 100,
+      atkCounter: 1,
+      abilityHrid: "/abilities/sweep",
+    },
+  },
+  mMap: { 0: { cHP: 80 }, 1: { cHP: 100 } },
+});
+assert(
+  accuracyEvents.length === 1 &&
+    accuracyEvents[0].hit === true &&
+    accuracyEvents[0].targets.length === 2 &&
+    accuracyEvents[0].targets.find(
+      (target) => target.monsterHrid === "/monsters/fly",
+    ).hit === true &&
+    accuracyEvents[0].targets.find(
+      (target) => target.monsterHrid === "/monsters/rat",
+    ).hit === false,
+  "范围攻击没有按存活怪物记录逐目标命中结果",
+);
+
+const simultaneousA = player("同帧甲", "slash"),
+  simultaneousB = player("同帧乙", "slash");
+[simultaneousA, simultaneousB].forEach((value) => {
+  value.attackAttemptCounter = 0;
+  value.isPreparingAutoAttack = true;
+});
+send({
+  type: "new_battle",
+  combatStartTime: "accuracy-simultaneous",
+  players: [simultaneousA, simultaneousB],
+  monsters: [{ currentHitpoints: 100 }],
+});
+accuracyEvents.length = 0;
+send({
+  type: "battle_updated",
+  pMap: {
+    0: { cMP: 100, cHP: 100, atkCounter: 1, isAutoAtk: true },
+    1: { cMP: 100, cHP: 100, atkCounter: 1, isAutoAtk: true },
+  },
+  mMap: { 0: { cHP: 60 } },
+});
+assert(accuracyEvents.length === 0, "多玩家同帧结算被错误当作可靠个人命中数据");
 
 emitted.length = 0;
 const abilityA = player("技能甲", "magic", "fire", "magic", 3500000000);
@@ -1360,13 +1575,25 @@ send({
   battleId: "guild-two",
   tier: 1,
   players: [
-    player("公会甲", "magic", "water", "magic", 3500000000),
-    player("公会乙", "slash"),
+    Object.assign(player("公会甲", "magic", "water", "magic", 3500000000), {
+      attackAttemptCounter: 0,
+      isPreparingAutoAttack: true,
+    }),
+    Object.assign(player("公会乙", "slash"), {
+      attackAttemptCounter: 0,
+    }),
   ],
   monsters: [
-    { currentHitpoints: 100, maxHitpoints: 100, damageSplatCounter: 0 },
+    {
+      name: "试炼鼠",
+      hrid: "/monsters/trial_rat",
+      currentHitpoints: 100,
+      maxHitpoints: 100,
+      damageSplatCounter: 0,
+    },
   ],
 });
+accuracyEvents.length = 0;
 send({
   type: "guild_battle_updated",
   battleId: "guild-two",
@@ -1381,6 +1608,13 @@ assert(
   emitted.some((x) => x[0] === "damage" && x[1] === "公会甲" && x[2] === 35) &&
     !emitted.some((x) => x[1] === "公会乙"),
   "公会双人消息没有按唯一 atkCounter 增长者归属，或仍受 MP 变化干扰",
+);
+assert(
+  accuracyEvents.length === 1 &&
+    accuracyEvents[0].name === "公会甲" &&
+    accuracyEvents[0].hit === true &&
+    accuracyEvents[0].targets[0].monsterHrid === "/monsters/trial_rat",
+  "公会试炼的唯一直伤结算没有生成命中率数据",
 );
 
 emitted.length = 0;
@@ -1974,12 +2208,26 @@ assert(
 Session.reset({ combatKey: "resume", characterId: "A" });
 Session.addTeamDamage(10, performance.now());
 Session.addPlayerDamage("甲", 10, "auto");
+Session.addPlayerAccuracy("甲", true, [
+  {
+    monsterName: "训练鼠",
+    monsterHrid: "/monsters/training_rat",
+    hit: true,
+  },
+]);
 Session.pause("断线");
 const cached = Session.serialize();
 Session.restore(cached);
 Session.resume("续传");
 Session.addTeamDamage(20, performance.now());
 Session.addPlayerDamage("甲", 20, "/abilities/fireball");
+Session.addPlayerAccuracy("甲", false, [
+  {
+    monsterName: "训练鼠",
+    monsterHrid: "/monsters/training_rat",
+    hit: false,
+  },
+]);
 const resumed = Session.serialize();
 assert(resumed.teamDamage === 30, "续传后总伤害未合并");
 assert(resumed.fragments.length === 2, "续传没有保留两个片段");
@@ -1987,6 +2235,15 @@ assert(
   resumed.players.sources.甲.auto === 10 &&
     resumed.players.sources.甲["/abilities/fireball"] === 20,
   "断线缓存没有保存普通攻击和技能伤害构成",
+);
+assert(
+  resumed.players.accuracy.甲.attempts === 2 &&
+    resumed.players.accuracy.甲.hits === 1 &&
+    resumed.players.accuracy.甲.monsters["/monsters/training_rat"].attempts ===
+      2 &&
+    resumed.fragments[0].players.accuracy.甲.attempts === 1 &&
+    resumed.fragments[1].players.accuracy.甲.attempts === 1,
+  "命中率没有随活动缓存恢复或断线片段保存",
 );
 const sourceView = ViewData.get().players.find(
   (player) => player.name === "甲",
@@ -1996,6 +2253,19 @@ assert(
     sourceView.breakdown.length === 2 &&
     sourceView.breakdown.reduce((sum, item) => sum + item.value, 0) === 30,
   "实时排行没有生成带总量、DPS 和百分比的伤害构成",
+);
+assert(
+  sourceView.accuracy &&
+    sourceView.accuracy.pct === 50 &&
+    sourceView.accuracy.monsters.length === 1 &&
+    sourceView.accuracy.monsters[0].pct === 50,
+  "实时 ViewData 没有生成玩家和分怪物命中率",
+);
+Session.renamePlayer("甲", "改名甲");
+assert(
+  Session.getPlayerAccuracy("改名甲").attempts === 2 &&
+    Session.getPlayerAccuracy("甲") === null,
+  "公会槽位改名时没有合并命中率记录",
 );
 Session.addTeamDamage(10, performance.now());
 const unattributedCurrent = ViewData.get().players.find(
@@ -2022,15 +2292,19 @@ assert(
 Session.reset({ combatKey: "trial-day", characterId: "A", type: "trial" });
 Session.addTeamDamage(12, performance.now());
 Session.addPlayerDamage("甲", 12);
+Session.addPlayerAccuracy("甲", true);
 Session.freeze("公会试炼阶段结束");
 Session.resumeTrialTier("进入下一层");
 Session.addTeamDamage(18, performance.now());
 Session.addPlayerDamage("甲", 18);
+Session.addPlayerAccuracy("甲", false);
 const tierContinued = Session.serialize();
 assert(
   tierContinued.teamDamage === 30 &&
     tierContinued.fragments.length === 1 &&
-    tierContinued.fragments[0].teamDamage === 30,
+    tierContinued.fragments[0].teamDamage === 30 &&
+    tierContinued.fragments[0].players.accuracy.甲.attempts === 2 &&
+    tierContinued.fragments[0].players.accuracy.甲.hits === 1,
   "同日试炼 tier 升级没有继续原累计，或错误新增了重连片段",
 );
 
@@ -2141,6 +2415,18 @@ HistoryStore.push({
       healing: 0,
       hps: 0,
       taken: 4,
+      accuracy: {
+        attempts: 10,
+        hits: 8,
+        monsters: {
+          "/monsters/trial_firefly": {
+            monsterName: "Trial Firefly",
+            monsterHrid: "/monsters/trial_firefly",
+            attempts: 10,
+            hits: 8,
+          },
+        },
+      },
     },
     {
       name: "乙",
@@ -2172,6 +2458,20 @@ HistoryStore.push({
         healing: {},
         taken: { 甲: 2, 乙: 6 },
         kills: {},
+        accuracy: {
+          乙: {
+            attempts: 4,
+            hits: 3,
+            monsters: {
+              "/monsters/trial_firefly": {
+                monsterName: "Trial Firefly",
+                monsterHrid: "/monsters/trial_firefly",
+                attempts: 4,
+                hits: 3,
+              },
+            },
+          },
+        },
       },
     },
   ],
@@ -2196,7 +2496,11 @@ assert(
       (player) =>
         player.synthetic === "unattributed-damage" && player.damage === 10,
     ) &&
-    selectedView.players[0].damage === 70,
+    selectedView.players[0].damage === 70 &&
+    selectedView.players[0].accuracy.pct === 80 &&
+    selectedView.players[0].accuracy.monsters[0].monsterName === "试炼萤火虫" &&
+    selectedView.players.find((player) => player.name === "乙").accuracy ===
+      null,
   "历史片段没有替换当前排行数据或试炼标记丢失",
 );
 const reconnectOption = segmentOptions.find(
@@ -2207,6 +2511,9 @@ selectedView = ViewData.get();
 assert(
   selectedView.teamDamage === 65 &&
     selectedView.players.some((x) => x.name === "乙" && x.dps === 5) &&
+    selectedView.players.some(
+      (x) => x.name === "乙" && x.accuracy && x.accuracy.pct === 75,
+    ) &&
     selectedView.players.some(
       (player) =>
         player.synthetic === "unattributed-damage" && player.damage === 5,

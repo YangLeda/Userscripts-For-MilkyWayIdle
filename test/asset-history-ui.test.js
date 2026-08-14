@@ -11,6 +11,7 @@ globalThis.Element = dom.window.Element;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.location = dom.window.location;
 globalThis.window = dom.window;
+localStorage.setItem("i18nextLng", "zh-CN");
 const intervals = new Map();
 let nextInterval = 1;
 globalThis.setInterval = (callback) => {
@@ -23,12 +24,21 @@ const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 await import("../src/core/planning.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/nail": "钉子" },
+  actionNames: { "/actions/crafting/nail": "制作钉子" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+  houseRoomNames: { "/house_rooms/workshop": "工作室" },
+});
 runtime.config.isZH = true;
 runtime.api.numberFormatter = (value) => {
   const number = Number(value);
@@ -186,7 +196,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     /items_sprite/,
   );
   assert.equal(results.querySelectorAll(".planning-option").length, 1);
-  assert.match(results.textContent, /Nail/);
+  assert.match(results.textContent, /钉子/);
   assert.doesNotMatch(results.textContent, /Board/);
 
   runtime.api.procurement.emit("inventory:change", {});
@@ -331,7 +341,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   const englishPanel = document.querySelector("#mwitools-planning-panel");
   assert.match(
     englishPanel.querySelector(".planning-picker-copy").textContent,
-    /Workshop/,
+    /工作室/,
   );
   assert.deepEqual(
     [...englishPanel.querySelectorAll(".planning-policy-switch button")]
@@ -517,6 +527,87 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-asset-history-tab"), null);
   assert.equal(document.querySelector("#mwitools-asset-history-panel"), null);
+});
+
+test("盈亏 settles after activation and does not rebuild its chart every frame", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const nativeContent = shell.querySelector("section");
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const frames = [];
+  const previousAnimationFrame = globalThis.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  let chartCreates = 0;
+  let chartDestroys = 0;
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      chartCreates += 1;
+    }
+    destroy() {
+      chartDestroys += 1;
+    }
+  };
+  let ui = null;
+  const flushMutations = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const runFrame = async () => {
+    await flushMutations();
+    const queued = frames.splice(0);
+    queued.forEach((callback) => callback(performance.now()));
+    return queued.length;
+  };
+
+  try {
+    ui = createAssetHistoryUi({
+      scope,
+      store,
+      scopeKey: "production:quiescence",
+    });
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(chartCreates, 1);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+
+    nativeContent.hidden = false;
+    assert.equal(await runFrame(), 1);
+    assert.equal(nativeContent.hidden, true);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+  } finally {
+    ui?.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousAnimationFrame === undefined) {
+      delete globalThis.requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = previousAnimationFrame;
+    }
+    if (previousCancelAnimationFrame === undefined) {
+      delete globalThis.cancelAnimationFrame;
+    } else {
+      globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
+    }
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
 });
 
 test("mobile mounts P/L beside the visible character-management tabs", () => {
@@ -847,6 +938,73 @@ test("asset center opens from the native P/L tab and cleans up its modal", () =>
   scope.cleanup();
   assert.equal(document.querySelector("#mwitools-asset-center-modal"), null);
   shell.remove();
+});
+
+test("asset charts only stay alive while their mobile surface is visible", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  const chartInstances = [];
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      this.destroyed = false;
+      chartInstances.push(this);
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  };
+
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+  const activeCharts = () =>
+    chartInstances.filter((instance) => !instance.destroyed);
+
+  try {
+    ui.update({ values: { total: 1_000 } });
+    assert.equal(chartInstances.length, 0);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+
+    document.querySelector("#mwi-asset-open-center").click();
+    assert.equal(activeCharts().length, 1);
+    assert.equal(
+      document.querySelector("#mwitools-asset-center-modal").hidden,
+      false,
+    );
+
+    document.querySelector("#mwitools-asset-center-modal [data-close]").click();
+    assert.equal(activeCharts().length, 1);
+
+    shell.querySelector("#house").click();
+    assert.equal(activeCharts().length, 0);
+    const createdBeforeHiddenUpdate = chartInstances.length;
+    ui.update({ values: { total: 2_000 } });
+    assert.equal(chartInstances.length, createdBeforeHiddenUpdate);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+    const createdBeforeDetach = chartInstances.length;
+    shell.remove();
+    ui.update({ values: { total: 3_000 } });
+    assert.equal(activeCharts().length, 0);
+    assert.equal(chartInstances.length, createdBeforeDetach);
+  } finally {
+    ui.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
 });
 
 test("asset center keeps hidden component lines through live refreshes until close", () => {

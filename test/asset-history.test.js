@@ -488,6 +488,46 @@ test("history charts retain zoom gestures and calendar-normalized 7-day averages
   assert.equal(options.options.plugins.zoom.zoom.wheel.enabled, true);
   assert.equal(options.options.plugins.zoom.zoom.pinch.enabled, true);
   assert.equal(options.options.plugins.zoom.pan.enabled, true);
+  assert.equal(options.options.responsive, false);
+});
+
+test("history charts size connected canvases without Chart.js DOM observers", () => {
+  let created = 0;
+  let received;
+  globalThis.Chart = class {
+    constructor(context, options) {
+      created += 1;
+      received = { context, options };
+    }
+    destroy() {}
+  };
+  const context = {};
+  const canvas = {
+    hidden: false,
+    isConnected: true,
+    style: {},
+    width: 300,
+    height: 150,
+    getBoundingClientRect: () => ({ width: 640, height: 280 }),
+    getContext: () => context,
+  };
+  const chart = new AssetHistoryChart(canvas, {
+    hidden: true,
+    textContent: "",
+  });
+
+  assert.equal(chart.render([], { mode: "total" }), true);
+  assert.equal(created, 1);
+  assert.equal(received.context, context);
+  assert.equal(received.options.options.responsive, false);
+  assert.equal(canvas.width, 640);
+  assert.equal(canvas.height, 280);
+  assert.equal(canvas.style.width, "100%");
+  assert.equal(canvas.style.height, "100%");
+
+  canvas.isConnected = false;
+  assert.equal(chart.render([], { mode: "total" }), false);
+  assert.equal(created, 1);
 });
 
 test("component charts use absolute holdings, compact tooltips, and persistent legend toggles", () => {

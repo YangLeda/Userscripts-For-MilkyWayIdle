@@ -83,6 +83,37 @@ export class AssetHistoryChart {
     this.instance?.resetZoom?.();
   }
 
+  prepareCanvas() {
+    if (!this.canvas || this.canvas.isConnected === false) return null;
+    if (this.canvas.style) {
+      this.canvas.style.display = "block";
+      this.canvas.style.width = "100%";
+      this.canvas.style.height = "100%";
+    }
+    const bounds = this.canvas.getBoundingClientRect?.() ?? {};
+    const width = Math.max(
+      1,
+      Math.round(
+        Number(bounds.width) ||
+          Number(this.canvas.clientWidth) ||
+          Number(this.canvas.width) ||
+          300,
+      ),
+    );
+    const height = Math.max(
+      1,
+      Math.round(
+        Number(bounds.height) ||
+          Number(this.canvas.clientHeight) ||
+          Number(this.canvas.height) ||
+          150,
+      ),
+    );
+    this.canvas.width = width;
+    this.canvas.height = height;
+    return this.canvas.getContext?.("2d") ?? null;
+  }
+
   render(entries, { mode = "total", range = null } = {}) {
     return this.renderWithOptions(entries, { mode, range });
   }
@@ -106,10 +137,8 @@ export class AssetHistoryChart {
         "图表依赖未加载；资产数据与明细仍可正常使用。",
         "Chart dependencies did not load; asset data is still available.",
       );
-      return;
+      return false;
     }
-    this.canvas.hidden = false;
-    this.fallback.hidden = true;
 
     const filtered = filterEntries(entries, range);
     const labels = filtered.map(([date]) => date);
@@ -178,6 +207,10 @@ export class AssetHistoryChart {
     }
 
     this.destroy();
+    const context = this.prepareCanvas();
+    if (!context) return false;
+    this.canvas.hidden = false;
+    this.fallback.hidden = true;
     const crosshairPlugin = {
       id: "mwitoolsAssetCrosshair",
       afterDraw(chart) {
@@ -236,11 +269,14 @@ export class AssetHistoryChart {
         ctx.restore();
       },
     };
-    this.instance = new Chart(this.canvas.getContext("2d"), {
+    this.instance = new Chart(context, {
       data: { labels, datasets },
       plugins: [crosshairPlugin, tagPlugin],
       options: {
-        responsive: true,
+        // Chart.js responsive mode observes DOM attachment with Node.contains().
+        // Firefox userscript sandboxes can reject that cross-context access when
+        // the game replaces a React subtree, so MWITools sizes the canvas above.
+        responsive: false,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         animation: false,
@@ -303,5 +339,6 @@ export class AssetHistoryChart {
         },
       },
     });
+    return true;
   }
 }

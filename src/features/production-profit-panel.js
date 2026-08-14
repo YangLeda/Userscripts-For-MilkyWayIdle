@@ -4,6 +4,7 @@ import {
   itemName as localizedItemName,
   localize,
 } from "../core/localization.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const PANEL_ID = "mwitools-production-profit-panel";
 const STYLE_ID = "mwitools-production-profit-panel-style";
@@ -67,38 +68,15 @@ function actionName(actionHrid, detail) {
   return localizedActionName(actionHrid, { detail });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function renderItemIcon(itemHrid, name) {
-  const bare = String(itemHrid ?? "")
-    .split("/")
-    .at(-1);
-  const sprite = findItemsSpriteBase();
-  if (!bare || !sprite) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="mwi-profit-icon-fallback">${escapeHtml(
       String(name || "?")
         .trim()
         .charAt(0) || "?",
     )}</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 

@@ -4,6 +4,7 @@ import {
   matchesGameTranslation,
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import {
   ensureHeaderToolsHost,
   HEADER_TOOLS_ID,
@@ -1283,34 +1284,6 @@ function notificate() {
 }
 
 /* 市场价格自动输入最小压价 */
-const waitForMarketOrders = () => {
-  const element = document.querySelector(
-    ".MarketplacePanel_marketListings__1GCyQ",
-  );
-  if (element) {
-    console.log(
-      runtime.config.isZH
-        ? "[MWITools] 开始监听市场订单窗口。"
-        : "[MWITools] Started observing market order dialogs.",
-    );
-    new MutationObserver((mutationsList) => {
-      mutationsList.forEach((mutation) => {
-        mutation.addedNodes.forEach((node) => {
-          if (node.classList.contains("Modal_modalContainer__3B80m")) {
-            handleMarketNewOrder(node);
-          }
-        });
-      });
-    }).observe(element, {
-      characterData: false,
-      subtree: false,
-      childList: true,
-    });
-  } else {
-    setTimeout(waitForMarketOrders, 500);
-  }
-};
-
 function handleMarketNewOrder(node) {
   const title = runtime.api.getOriTextFromElement(
     node.querySelector(".MarketplacePanel_header__yahJo"),
@@ -1417,7 +1390,6 @@ Object.assign(runtime.api, {
   checkEquipment,
   hasItemHridInInv,
   notificate,
-  waitForMarketOrders,
   handleMarketNewOrder,
 });
 
@@ -1434,41 +1406,43 @@ runtime.features.register({
       ensureSettingsLauncher();
     };
     const scheduler = createFrameScheduler(render);
-    const MutationObserverRef =
-      globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target =
-          record.target?.nodeType === 1
-            ? record.target
-            : record.target?.parentElement;
-        if (
-          target?.closest?.(
-            `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`,
-          )
-        ) {
-          return false;
-        }
-        if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
-          return true;
-        }
-        return [...record.addedNodes, ...record.removedNodes].some(
-          (node) =>
-            node?.nodeType === 1 &&
-            (node.matches?.(
-              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]',
-            ) ||
-              node.querySelector?.(
+    subscribeMutationChannel(
+      {
+        name: "header-mount",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope,
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target =
+            record.target?.nodeType === 1
+              ? record.target
+              : record.target?.parentElement;
+          if (
+            target?.closest?.(
+              `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`,
+            )
+          ) {
+            return false;
+          }
+          if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+            return true;
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) =>
+              node?.nodeType === 1 &&
+              (node.matches?.(
                 '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]',
-              )),
-        );
-      });
-      if (relevant) scheduler.schedule();
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+              ) ||
+                node.querySelector?.(
+                  '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]',
+                )),
+          );
+        });
+        if (relevant) scheduler.schedule();
+      },
+    );
     scope.event(document, "click", (event) => {
       const popover = document.getElementById(SETTINGS_POPOVER_ID);
       if (

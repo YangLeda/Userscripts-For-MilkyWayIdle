@@ -394,7 +394,7 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.10", () => {
+test("announcement history preserves each release separately through 26.4.11", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
   const older = ANNOUNCEMENTS[2];
@@ -402,10 +402,12 @@ test("announcement history preserves each release separately through 26.4.10", (
   const earliest = ANNOUNCEMENTS[4];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.10", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.10");
+  assert.equal(current.version, "26.4.11");
   assert.equal(current.publishedAt, "2026-08-14");
+  assert.match(current.title.zh, /26\.4\.11 重要更新公告/);
+  assert.match(current.title.en, /Important version 26\.4\.11 update/);
   assert.equal(previous.version, "26.4.9");
   assert.equal(previous.publishedAt, "2026-08-13");
   assert.equal(older.version, "26.4.8");
@@ -413,12 +415,45 @@ test("announcement history preserves each release separately through 26.4.10", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 12);
+  assert.equal(current.body.zh.length, 23);
+  assert.match(
+    current.body.zh.join("\n"),
+    /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /DPS 标题栏.*永久缺失大部分图标.*资源就绪后自动补回.*图集路径/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /盈亏.*单核 CPU.*共享重复的页面观察/,
+  );
   assert.match(current.body.zh.join("\n"), /悬浮窗口字号.*标准、较大和最大/);
   assert.match(current.body.zh.join("\n"), /角色初始化或重新连接.*旧库存/);
   assert.match(
     current.body.zh.join("\n"),
     /压缩内置备用行情数据.*不增加外部 CDN/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /全部九种游戏语言.*不会新增游戏数据网络请求/,
+  );
+  assert.match(current.body.zh.join("\n"), /contains 权限错误.*界面重建/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /恢复食物与饮品的回复性价比.*回复 100 血或蓝所需金币/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /优化任务页打开速度.*复用.*避免每张任务卡重复扫描/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /DPS 命中率悬浮明细.*官方怪物图标.*快速区分/,
   );
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);

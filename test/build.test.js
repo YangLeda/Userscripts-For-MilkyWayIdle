@@ -21,7 +21,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.10$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.11$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -73,6 +73,9 @@ test("generated userscript has a single valid metadata block", () => {
   );
   assert.match(output, /["']1\.0\.51["']/);
   assert.match(output, /__MWI_DPS/);
+  assert.doesNotMatch(output, /ZHItemNames|ZHActionNames|ZHOthersDic/);
+  assert.doesNotMatch(output, /KNOWN_DUNGEON_ROSTERS/);
+  assert.match(output, /["']\/asset-manifest\.json["']/);
 });
 
 test("generated userscript is standalone JavaScript", () => {

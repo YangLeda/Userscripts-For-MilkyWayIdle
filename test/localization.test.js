@@ -14,10 +14,19 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { abilityName, actionName, entityName, itemName, localize, monsterName } =
   await import("../src/core/localization.js");
+
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/coin": "金币" },
+  actionNames: { "/actions/milking/cow": "奶牛" },
+  monsterNames: { "/monsters/abyssal_imp": "深渊小鬼" },
+  abilityNames: { "/abilities/firestorm": "火焰风暴" },
+});
 
 test("the localization entry switches static copy with the MWITools language", () => {
   const original = runtime.config.isZH;
@@ -28,7 +37,7 @@ test("the localization entry switches static copy with the MWITools language", (
   runtime.config.isZH = original;
 });
 
-test("official entity dictionaries take priority over plug-in fallbacks", () => {
+test("official entity names follow the game locale independently of plug-in copy", () => {
   const originalLanguage = runtime.config.isZH;
   const originalItems = runtime.state.initData_itemDetailMap;
   const originalActions = runtime.state.initData_actionDetailMap;
@@ -47,7 +56,7 @@ test("official entity dictionaries take priority over plug-in fallbacks", () => 
   assert.equal(itemName("/items/coin", { fallbackZh: "插件金币" }), "金币");
   assert.equal(
     actionName("/actions/milking/cow", { fallbackZh: "插件奶牛" }),
-    runtime.data.ZHActionNames["/actions/milking/cow"],
+    "奶牛",
   );
   assert.equal(
     abilityName("/abilities/firestorm", { fallbackZh: "插件火雨" }),
@@ -59,14 +68,14 @@ test("official entity dictionaries take priority over plug-in fallbacks", () => 
   );
 
   runtime.config.isZH = false;
-  assert.equal(itemName("/items/coin", { fallbackEn: "Plug-in Coin" }), "Coin");
+  assert.equal(itemName("/items/coin", { fallbackEn: "Plug-in Coin" }), "金币");
   assert.equal(
     actionName("/actions/milking/cow", { fallbackEn: "Plug-in Cow" }),
-    "Cow",
+    "奶牛",
   );
   assert.equal(
     abilityName("/abilities/firestorm", { fallbackEn: "Plug-in Storm" }),
-    "Firestorm",
+    "火焰风暴",
   );
 
   runtime.config.isZH = originalLanguage;

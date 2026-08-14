@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 
 const STYLE_ID = "mwitools-guild-xp-style";
 const rateCache = new Map();
@@ -13,38 +14,43 @@ const OWNED_GUILD_SELECTOR =
 
 function observeGuildSurface(scope, render) {
   const scheduler = createFrameScheduler(render);
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const observer = new MutationObserverRef((records) => {
-    const relevant = records.some((record) => {
-      const target =
-        record.target?.nodeType === 1
-          ? record.target
-          : record.target?.parentElement;
-      const changed = [...record.addedNodes, ...record.removedNodes].filter(
-        (node) => node?.nodeType === 1,
-      );
-      if (
-        target?.closest?.(OWNED_GUILD_SELECTOR) ||
-        (changed.length &&
-          changed.every(
-            (node) =>
-              node.matches?.(OWNED_GUILD_SELECTOR) ||
-              node.closest?.(OWNED_GUILD_SELECTOR),
-          ))
-      ) {
-        return false;
-      }
-      if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
-      return changed.some(
-        (node) =>
-          node.matches?.(GUILD_SURFACE_SELECTOR) ||
-          node.querySelector?.(GUILD_SURFACE_SELECTOR),
-      );
-    });
-    if (relevant) scheduler.schedule();
-  });
-  scope.observer(observer, document.body, { childList: true, subtree: true });
+  subscribeMutationChannel(
+    {
+      name: "guild-surface",
+      target: document.body,
+      options: { childList: true, subtree: true },
+      scope,
+    },
+    (records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        const changed = [...record.addedNodes, ...record.removedNodes].filter(
+          (node) => node?.nodeType === 1,
+        );
+        if (
+          target?.closest?.(OWNED_GUILD_SELECTOR) ||
+          (changed.length &&
+            changed.every(
+              (node) =>
+                node.matches?.(OWNED_GUILD_SELECTOR) ||
+                node.closest?.(OWNED_GUILD_SELECTOR),
+            ))
+        ) {
+          return false;
+        }
+        if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
+        return changed.some(
+          (node) =>
+            node.matches?.(GUILD_SURFACE_SELECTOR) ||
+            node.querySelector?.(GUILD_SURFACE_SELECTOR),
+        );
+      });
+      if (relevant) scheduler.schedule();
+    },
+  );
   scope.add(() => scheduler.cancel());
 }
 

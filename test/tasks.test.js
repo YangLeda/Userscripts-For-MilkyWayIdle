@@ -35,9 +35,10 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
+const { resetGameSpriteSources } = await import("../src/core/game-assets.js");
 await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
@@ -48,6 +49,35 @@ const {
 } = await import("../src/features/tasks.js");
 const { taskNewStorageKey, writeTaskNewState } =
   await import("../src/features/task-new-badge.js");
+
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/lumber": "木板" },
+  actionNames: {
+    "/actions/crafting/done": "已完成木板",
+    "/actions/crafting/lumber": "木板",
+    "/actions/milking/cow": "奶牛",
+    "/actions/combat/fly": "苍蝇",
+    "/actions/combat/aquahorse": "水马",
+    "/actions/combat/chimerical_den": "奇幻洞穴",
+    "/actions/combat/sinister_circus": "邪恶马戏团",
+    "/actions/combat/enchanted_fortress": "魔法城堡",
+    "/actions/combat/pirate_cove": "海盗湾",
+    "/actions/combat/rat": "杰瑞",
+    "/actions/combat/eye": "独眼",
+    "/actions/cheesesmithing/burble_brush": "深紫刷子",
+    "/actions/cheesesmithing/crimson_brush": "绛红刷子",
+    "/actions/cheesesmithing/rainbow_brush": "彩虹刷子",
+    "/actions/cheesesmithing/unrelated_tool": "无关工具",
+  },
+  monsterNames: {
+    "/monsters/fly": "苍蝇",
+    "/monsters/aquahorse": "水马",
+    "/monsters/rat": "杰瑞",
+    "/monsters/eye": "独眼",
+    "/monsters/frost_sniper": "霜冻狙击手",
+  },
+  abilityNames: { "/abilities/strike": "猛击" },
+});
 
 runtime.api.getOriTextFromElement = (element) => element?.textContent ?? "";
 runtime.settings.settingsMap.taskIcons.isTrue = false;
@@ -86,7 +116,10 @@ runtime.state.initData_actionDetailMap = {
     name: "Fly",
     type: "/action_types/combat",
     category: "/action_categories/combat/smelly_planet",
-    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+    combatZoneInfo: {
+      isDungeon: false,
+      fightInfo: { battlesPerBoss: 0, monsterHrid: "/monsters/fly" },
+    },
   },
   "/actions/combat/smelly_planet": {
     hrid: "/actions/combat/smelly_planet",
@@ -100,7 +133,10 @@ runtime.state.initData_actionDetailMap = {
     name: "Aquahorse",
     type: "/action_types/combat",
     category: "/action_categories/combat/aqua_planet",
-    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 0 } },
+    combatZoneInfo: {
+      isDungeon: false,
+      fightInfo: { battlesPerBoss: 0, monsterHrid: "/monsters/aquahorse" },
+    },
   },
   "/actions/combat/aqua_planet": {
     hrid: "/actions/combat/aqua_planet",
@@ -115,9 +151,78 @@ runtime.state.initData_actionDetailMap = {
     type: "/action_types/combat",
     category: "/action_categories/combat/dungeons",
     sortIndex: 56,
-    combatZoneInfo: { isDungeon: true, fightInfo: { battlesPerBoss: 0 } },
+    combatZoneInfo: {
+      isDungeon: true,
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+          horse: { combatMonsterHrid: "/monsters/aquahorse" },
+        },
+        fixedSpawnsMap: {},
+      },
+    },
+  },
+  "/actions/combat/sinister_circus": {
+    hrid: "/actions/combat/sinister_circus",
+    name: "Sinister Circus",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 57,
+    combatZoneInfo: {
+      isDungeon: true,
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+        },
+        fixedSpawnsMap: {},
+      },
+    },
+  },
+  "/actions/combat/enchanted_fortress": {
+    hrid: "/actions/combat/enchanted_fortress",
+    name: "Enchanted Fortress",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 58,
+    combatZoneInfo: {
+      isDungeon: true,
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          horse: { combatMonsterHrid: "/monsters/aquahorse" },
+        },
+        fixedSpawnsMap: {},
+      },
+    },
+  },
+  "/actions/combat/pirate_cove": {
+    hrid: "/actions/combat/pirate_cove",
+    name: "Pirate Cove",
+    type: "/action_types/combat",
+    category: "/action_categories/combat/dungeons",
+    sortIndex: 59,
+    combatZoneInfo: {
+      isDungeon: true,
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+        },
+        fixedSpawnsMap: {},
+      },
+    },
   },
 };
+runtime.state.initData_combatMonsterDetailMap = {
+  "/monsters/fly": { hrid: "/monsters/fly", name: "Fly" },
+  "/monsters/aquahorse": { hrid: "/monsters/aquahorse", name: "Aquahorse" },
+  "/monsters/rat": { hrid: "/monsters/rat", name: "Rat" },
+  "/monsters/eye": { hrid: "/monsters/eye", name: "Eye" },
+  "/monsters/frost_sniper": {
+    hrid: "/monsters/frost_sniper",
+    name: "Frost Sniper",
+  },
+};
+runtime.state.initData_monsterDetailMap =
+  runtime.state.initData_combatMonsterDetailMap;
 runtime.state.characterQuests = [
   { actionHrid: "/actions/crafting/done" },
   { actionHrid: "/actions/crafting/lumber" },
@@ -160,7 +265,11 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.match(
     styles,
-    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*left:68%[^}]*width:24%[^}]*height:88%/,
+    /\.mwi-task-bg\s*\{[^}]*top:6%[^}]*right:8%[^}]*left:0[^}]*display:flex[^}]*height:88%[^}]*flex-direction:row-reverse/,
+  );
+  assert.match(
+    styles,
+    /\.mwi-task-bg svg\s*\{[^}]*width:24%[^}]*height:100%[^}]*flex:0 0 24%/,
   );
   assert.match(
     styles,
@@ -352,10 +461,11 @@ test("task artwork resolves target items and monsters as translucent sprite art"
     `<svg style="display:none"><use href="/static/media/items_sprite.test.svg#coin"></use></svg>
      <svg style="display:none"><use href="/static/media/combat_monsters_sprite.test.svg#fly"></use></svg>`,
   );
+  resetGameSpriteSources();
   const originalQuerySelectorAll = document.querySelectorAll.bind(document);
   let spriteSourceScans = 0;
   document.querySelectorAll = function querySelectorAll(selector) {
-    if (selector === "svg use") spriteSourceScans += 1;
+    if (selector === "svg use,img[src],link[href]") spriteSourceScans += 1;
     return originalQuerySelectorAll(selector);
   };
   runtime.settings.settingsMap.taskIcons.isTrue = true;
@@ -376,7 +486,7 @@ test("task artwork resolves target items and monsters as translucent sprite art"
 
 test("combat action indexes are reused for repeated dungeon classification", () => {
   const originalMap = runtime.state.initData_actionDetailMap;
-  let fightInfoReads = 0;
+  let dungeonInfoReads = 0;
   const fightInfo = { monsterHrid: "/monsters/cached_beast" };
   runtime.state.initData_actionDetailMap = {
     "/actions/combat/cached_beast": {
@@ -392,9 +502,12 @@ test("combat action indexes are reused for repeated dungeon classification", () 
       type: "/action_types/combat",
       combatZoneInfo: {
         isDungeon: true,
-        get fightInfo() {
-          fightInfoReads += 1;
-          return fightInfo;
+        get dungeonInfo() {
+          dungeonInfoReads += 1;
+          return {
+            randomSpawnInfoMap: { cached: fightInfo },
+            fixedSpawnsMap: {},
+          };
         },
       },
     },
@@ -407,10 +520,10 @@ test("combat action indexes are reused for repeated dungeon classification", () 
     dungeonLocationsForCard(taskCard, {}, context)[0].isDungeon,
     true,
   );
-  const readsAfterBuild = fightInfoReads;
+  const readsAfterBuild = dungeonInfoReads;
   dungeonLocationsForCard(taskCard, {}, context);
   dungeonLocationsForCard(taskCard, {}, context);
-  assert.equal(fightInfoReads, readsAfterBuild);
+  assert.equal(dungeonInfoReads, readsAfterBuild);
   runtime.state.initData_actionDetailMap = originalMap;
 });
 
@@ -832,8 +945,12 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
     ...runtime.state.initData_actionDetailMap["/actions/combat/chimerical_den"],
     combatZoneInfo: {
       isDungeon: true,
-      fightInfo: {
-        monsters: ["/monsters/fly", "/monsters/aquahorse"],
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+          horse: { combatMonsterHrid: "/monsters/aquahorse" },
+        },
+        fixedSpawnsMap: {},
       },
     },
   };
@@ -845,7 +962,12 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
     sortIndex: 57,
     combatZoneInfo: {
       isDungeon: true,
-      fightInfo: { monsters: ["/monsters/fly"] },
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+        },
+        fixedSpawnsMap: {},
+      },
     },
   };
   runtime.state.initData_actionDetailMap["/actions/combat/enchanted_fortress"] =
@@ -857,7 +979,12 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       sortIndex: 58,
       combatZoneInfo: {
         isDungeon: true,
-        fightInfo: { monsters: ["/monsters/aquahorse"] },
+        dungeonInfo: {
+          randomSpawnInfoMap: {
+            horse: { combatMonsterHrid: "/monsters/aquahorse" },
+          },
+          fixedSpawnsMap: {},
+        },
       },
     };
   runtime.state.initData_actionDetailMap["/actions/combat/pirate_cove"] = {
@@ -868,7 +995,12 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
     sortIndex: 59,
     combatZoneInfo: {
       isDungeon: true,
-      fightInfo: { monsters: ["/monsters/fly"] },
+      dungeonInfo: {
+        randomSpawnInfoMap: {
+          fly: { combatMonsterHrid: "/monsters/fly" },
+        },
+        fixedSpawnsMap: {},
+      },
     },
   };
   runtime.state.initData_actionDetailMap["/actions/combat/frost_sniper"] = {
@@ -910,6 +1042,7 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       <use href="/static/media/combat_monsters_sprite.test.svg#fly"></use>
     </svg>`,
   );
+  resetGameSpriteSources();
   runtime.api.renderTasks();
 
   const list = document.querySelector(".TasksPanel_taskList__dungeons");
@@ -950,6 +1083,30 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       runtime.state.characterQuests[0],
     ).length,
     3,
+  );
+  assert.deepEqual(
+    [
+      ...document
+        .querySelector(TASK_SELECTOR)
+        .querySelectorAll(":scope > .mwi-task-bg use"),
+    ].map((use) => use.getAttribute("href")),
+    [
+      "/static/media/combat_monsters_sprite.test.svg#fly",
+      "/static/media/actions_sprite.test.svg#chimerical_den",
+      "/static/media/actions_sprite.test.svg#sinister_circus",
+      "/static/media/actions_sprite.test.svg#pirate_cove",
+    ],
+  );
+  const firstTaskCard = document.querySelector(TASK_SELECTOR);
+  assert.equal(firstTaskCard.dataset.mwitoolsMapIndex, "1");
+  assert.equal(
+    firstTaskCard.dataset.mwitoolsTaskIconSignature,
+    [
+      "/static/media/combat_monsters_sprite.test.svg#fly",
+      "/static/media/actions_sprite.test.svg#chimerical_den",
+      "/static/media/actions_sprite.test.svg#sinister_circus",
+      "/static/media/actions_sprite.test.svg#pirate_cove",
+    ].join("\n"),
   );
 
   toolbar
@@ -994,7 +1151,10 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
   runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 
-test("known dungeon roster recognizes Eye when live dungeon fight info is empty", () => {
+test("official dungeon spawn maps recognize Eye in every matching dungeon", () => {
+  runtime.state.initData_actionDetailMap = {
+    ...runtime.state.initData_actionDetailMap,
+  };
   runtime.state.initData_actionDetailMap["/actions/combat/eye"] = {
     hrid: "/actions/combat/eye",
     name: "Eye",
@@ -1034,14 +1194,13 @@ test("known dungeon roster recognizes Eye when live dungeon fight info is empty"
       sortIndex,
       combatZoneInfo: {
         isDungeon: true,
-        fightInfo: {
-          randomSpawnInfo: {
-            maxSpawnCount: 0,
-            maxTotalStrength: 0,
-            spawns: null,
-          },
-          bossSpawns: null,
-          battlesPerBoss: 0,
+        dungeonInfo: {
+          randomSpawnInfoMap:
+            actionHrid === "/actions/combat/chimerical_den" ||
+            actionHrid === "/actions/combat/pirate_cove"
+              ? { eye: { combatMonsterHrid: "/monsters/eye" } }
+              : {},
+          fixedSpawnsMap: {},
         },
       },
     };

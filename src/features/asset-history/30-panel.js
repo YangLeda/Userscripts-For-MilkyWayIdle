@@ -1,5 +1,6 @@
 import { runtime } from "../../core/runtime.js";
 import { createFrameScheduler } from "../../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../../core/mutation-channel.js";
 import { ASSET_COMPONENT_KEYS } from "./00-snapshot.js";
 import { getUtc8DayKey } from "./10-store.js";
 import { AssetHistoryChart } from "./20-chart.js";
@@ -7,6 +8,7 @@ import { createAssetCenter } from "./25-center.js";
 
 const TAB_ID = "mwitools-asset-history-tab";
 const PANEL_ID = "mwitools-asset-history-panel";
+const CENTER_ID = "mwitools-asset-center-modal";
 const STYLE_ID = "mwitools-asset-history-style";
 
 export const ASSET_SHARE_TEMPLATE_COUNT = 12;
@@ -420,11 +422,16 @@ class AssetHistoryPanel {
     this.snapshot = null;
     this.mode = "total";
     this.range = 30;
+    this.visible = false;
     this.build();
     this.center = createAssetCenter({
       store: this.store,
       scopeKey: this.scopeKey,
       onChange: () => this.update(this.snapshot),
+      onVisibilityChange: (open) => {
+        if (open) this.chart.destroy();
+        else if (this.visible) this.update(this.snapshot);
+      },
     });
   }
 
@@ -653,6 +660,10 @@ class AssetHistoryPanel {
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
     this.center?.update(this.snapshot);
+    if (!this.visible || !this.host.isConnected || this.center?.isOpen()) {
+      if (!this.host.isConnected) this.chart.destroy();
+      return;
+    }
     const dayKey = getUtc8DayKey();
     const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
     const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -790,7 +801,15 @@ class AssetHistoryPanel {
     });
   }
 
+  setVisible(visible) {
+    this.visible = Boolean(visible);
+    if (this.visible) return;
+    this.chart.destroy();
+    this.center?.close();
+  }
+
   destroy() {
+    this.visible = false;
     this.chart.destroy();
     this.center?.destroy();
   }
@@ -878,8 +897,35 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
     host.style.maxHeight = available;
   };
 
+  const syncNativeVisibility = () => {
+    for (const node of [...(shell?.children ?? [])]) {
+      if (
+        node === navigationBranch ||
+        node === host ||
+        node.tagName === "STYLE"
+      ) {
+        continue;
+      }
+      if (!hiddenNodes.has(node)) {
+        hiddenNodes.set(node, {
+          hidden: node.hidden,
+          styleDisplay: node.style.display || null,
+        });
+      }
+      if (!node.hidden) node.hidden = true;
+      if (node.style.display !== "none") node.style.display = "none";
+    }
+  };
+
   const setActive = (next) => {
     const nextActive = Boolean(next);
+    if (nextActive === active) {
+      if (active) {
+        syncNativeVisibility();
+        syncHostViewport();
+      }
+      return;
+    }
     if (mountMode === "native" && nextActive && !active) {
       captureIdleTabStyle();
     }
@@ -903,6 +949,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       if (currentSelected) lastActiveNativeTab = currentSelected;
     }
     if (host) host.hidden = !active;
+    panel?.setVisible(active);
     if (!active) {
       restoreNative();
       clearNativeTabOverride();
@@ -910,22 +957,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       return;
     }
     navigationBranch.dataset.mwitoolsAssetActive = "true";
-    for (const node of [...(shell?.children ?? [])]) {
-      if (
-        node === navigationBranch ||
-        node === host ||
-        node.tagName === "STYLE"
-      )
-        continue;
-      if (!hiddenNodes.has(node)) {
-        hiddenNodes.set(node, {
-          hidden: node.hidden,
-          styleDisplay: node.style.display || null,
-        });
-      }
-      node.hidden = true;
-      node.style.display = "none";
-    }
+    syncNativeVisibility();
     syncHostViewport();
     panel?.update(runtime.api.getLatestAssetSnapshot?.());
   };
@@ -1007,7 +1039,10 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
           if (active) setActive(false);
           return;
         }
-        if (active) setActive(true);
+        if (active) {
+          syncNativeVisibility();
+          syncHostViewport();
+        }
         return;
       }
       teardownMount();
@@ -1020,47 +1055,59 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
   addStyles();
   ensureMounted();
   const mountScheduler = createFrameScheduler(ensureMounted);
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const mountObserver = new MutationObserverRef((records) => {
-    const relevant = records.some((record) => {
-      const target =
-        record.target?.nodeType === 1
-          ? record.target
-          : record.target?.parentElement;
-      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
-        return false;
-      }
-      if (record.type === "attributes") {
-        return Boolean(
+  subscribeMutationChannel(
+    {
+      name: "character-management-mount",
+      target: document.body,
+      options: {
+        attributes: true,
+        attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+        childList: true,
+        subtree: true,
+      },
+      scope,
+    },
+    (records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
+          return false;
+        }
+        if (record.type === "attributes") {
+          return Boolean(
+            target?.closest?.(
+              '[class*="CharacterManagement_characterManagement"]',
+            ),
+          );
+        }
+        if (
           target?.closest?.(
             '[class*="CharacterManagement_characterManagement"]',
-          ),
-        );
-      }
-      return [...record.addedNodes, ...record.removedNodes].some(
-        (node) =>
-          node?.nodeType === 1 &&
-          !(
-            node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) ||
-            node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)
-          ) &&
-          (node.matches?.(
-            '[class*="CharacterManagement_characterManagement"]',
-          ) ||
-            node.querySelector?.(
+          )
+        ) {
+          return true;
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            !(
+              node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) ||
+              node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)
+            ) &&
+            (node.matches?.(
               '[class*="CharacterManagement_characterManagement"]',
-            )),
-      );
-    });
-    if (relevant) mountScheduler.schedule();
-  });
-  scope.observer(mountObserver, document.body, {
-    attributes: true,
-    attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-    childList: true,
-    subtree: true,
-  });
+            ) ||
+              node.querySelector?.(
+                '[class*="CharacterManagement_characterManagement"]',
+              )),
+        );
+      });
+      if (relevant) mountScheduler.schedule();
+    },
+  );
   scope.add(() => mountScheduler.cancel());
   const handleTabBranchClick = (event) => {
     if (

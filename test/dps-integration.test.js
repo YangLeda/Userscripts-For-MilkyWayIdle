@@ -47,14 +47,36 @@ function installBrowserGlobals(dom) {
   if (!globalThis.CSS) globalThis.CSS = { escape: (value) => String(value) };
 }
 
-test("DPS feature reuses settings and cleans repeated enable-disable cycles", async () => {
+test("DPS feature reuses settings and cleans repeated enable-disable cycles", async (t) => {
   const dom = new JSDOM(
-    '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div></body></html>',
+    '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div><svg><use href="/static/media/abilities_sprite.test.svg#steady_shot"></use></svg><svg><use href="/static/media/combat_monsters_sprite.test.svg#training_rat"></use></svg></body></html>',
     {
       url: "https://www.milkywayidle.com/",
     },
   );
   installBrowserGlobals(dom);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+  });
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    writable: true,
+    value: async () => ({
+      ok: true,
+      json: async () => ({
+        files: {
+          skills:
+            "https://cdn.example.test/assets/skills_sprite.runtime.svg?v=1",
+          misc: "https://cdn.example.test/assets/misc_sprite.runtime.svg?v=1",
+        },
+      }),
+    }),
+  });
   Object.defineProperties(window, {
     innerWidth: { configurable: true, value: 390 },
     innerHeight: { configurable: true, value: 844 },
@@ -105,6 +127,29 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(document.querySelectorAll("#kikimeter-tab-btn").length, 1);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  const dpsPanel = document.querySelector("#kikimeter-panel");
+  const expectedToolbarIcons = [
+    ["Damage Done (DPS)", "attack"],
+    ["Healing (HPS)", "stamina"],
+    ["Damage Taken (DTPS)", "defense"],
+    ["Live Accuracy", "steady_shot"],
+    ["Settings", "settings"],
+  ];
+  for (const [title, symbol] of expectedToolbarIcons) {
+    const button = dpsPanel.querySelector(`button[title="${title}"]`);
+    assert.ok(button, `${title} toolbar button must exist`);
+    assert.match(
+      button.querySelector("use")?.getAttribute("href") || "",
+      new RegExp(`#${symbol}$`),
+      `${title} must recover its official icon after the sprite manifest loads`,
+    );
+  }
+  assert.match(
+    dpsPanel.querySelector("[data-segment-picker] use")?.getAttribute("href") ||
+      "",
+    /#loot_tracker$/,
+  );
+
   const originalParse = JSON.parse;
   let parseCount = 0;
   JSON.parse = (...args) => {
@@ -152,7 +197,6 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(launcher.style.left, "102px");
   assert.equal(launcher.style.top, "10px");
 
-  const dpsPanel = document.querySelector("#kikimeter-panel");
   installBoxMetrics(dpsPanel, 330, 212);
   let hiddenPanelMutations = 0;
   const hiddenPanelObserver = new dom.window.MutationObserver(
@@ -196,6 +240,8 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     name: "集成甲",
     currentManapoints: 100,
     currentHitpoints: 100,
+    attackAttemptCounter: 0,
+    isPreparingAutoAttack: true,
     combatDetails: {
       combatStats: {
         combatStyleHrids: ["/combat_styles/magic"],
@@ -210,17 +256,63 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
       type: "new_battle",
       combatStartTime: "integration",
       players: [player],
-      monsters: [{ currentHitpoints: 100 }],
+      monsters: [
+        {
+          name: "Training Rat",
+          hrid: "/monsters/training_rat",
+          currentHitpoints: 100,
+        },
+      ],
     },
     {
       type: "battle_updated",
-      pMap: { 0: { cMP: 80, cHP: 100 } },
+      pMap: { 0: { cMP: 80, cHP: 100, atkCounter: 1, isAutoAtk: true } },
       mMap: { 0: { cHP: 72 } },
     },
   ]) {
     runtime.dispatchMessage(payload, JSON.stringify(payload));
   }
   assert.equal(window.__MWI_DPS.getSessionDamage(), 28);
+  window.__MWI_DPS.selectSegment("current");
+  const accuracyButton = dpsPanel.querySelector(
+    'button[title="Live Accuracy"]',
+  );
+  assert.ok(accuracyButton, "the main DPS toolbar must expose live accuracy");
+  assert.match(
+    accuracyButton.querySelector("use")?.getAttribute("href") || "",
+    /#steady_shot$/,
+  );
+  accuracyButton.click();
+  let accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-row]");
+  assert.ok(accuracyRow);
+  assert.match(accuracyRow.textContent, /100\.0% \(1\/1\)/);
+  accuracyRow.dispatchEvent(new dom.window.MouseEvent("mouseenter"));
+  let accuracyTooltip = document.querySelector(
+    "[data-kikimeter-accuracy-tooltip]",
+  );
+  assert.ok(accuracyTooltip);
+  assert.match(accuracyTooltip.textContent, /Training Rat/);
+  assert.match(accuracyTooltip.textContent, /100\.0% \(1\/1\)/);
+  const monsterLine = accuracyTooltip.querySelector(
+    '[data-monster-hrid="/monsters/training_rat"]',
+  );
+  assert.ok(monsterLine, "accuracy details must keep the monster identity");
+  assert.match(
+    monsterLine.querySelector("svg use")?.getAttribute("href") || "",
+    /combat_monsters_sprite\.test\.svg#training_rat$/,
+  );
+
+  const missPayload = {
+    type: "battle_updated",
+    pMap: { 0: { cMP: 80, cHP: 100, atkCounter: 2, isAutoAtk: true } },
+    mMap: { 0: { cHP: 72 } },
+  };
+  runtime.dispatchMessage(missPayload, JSON.stringify(missPayload));
+  window.__MWI_DPS.selectSegment("current");
+  accuracyRow = dpsPanel.querySelector("[data-kikimeter-accuracy-row]");
+  assert.match(accuracyRow.textContent, /50\.0% \(1\/2\)/);
+  accuracyTooltip = document.querySelector("[data-kikimeter-accuracy-tooltip]");
+  assert.match(accuracyTooltip.textContent, /50\.0% \(1\/2\)/);
 
   await runtime.features.disable("dps");
   assert.equal(window.__MWI_DPS.enabled, false);

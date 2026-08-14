@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.10
+// @version      26.4.11
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -876,6 +876,189 @@
     }
   };
 
+  // src/core/game-data.js
+  var CLIENT_DATA_STATE_FIELDS = Object.freeze({
+    actionDetailMap: "initData_actionDetailMap",
+    levelExperienceTable: "initData_levelExperienceTable",
+    enhancementLevelSuccessRateTable: "initData_enhancementLevelSuccessRateTable",
+    enhancementLevelTotalBonusMultiplierTable: "initData_enhancementLevelTotalBonusMultiplierTable",
+    itemDetailMap: "initData_itemDetailMap",
+    itemLocationDetailMap: "initData_itemLocationDetailMap",
+    houseRoomDetailMap: "initData_houseRoomDetailMap",
+    actionCategoryDetailMap: "initData_actionCategoryDetailMap",
+    abilityDetailMap: "initData_abilityDetailMap",
+    shopItemDetailMap: "initData_shopItemDetailMap",
+    taskShopItemDetailMap: "initData_taskShopItemDetailMap",
+    labyrinthShopItemDetailMap: "initData_labyrinthShopItemDetailMap",
+    openableLootDropMap: "initData_openableLootDropMap",
+    guildBuffDetailMap: "initData_guildBuffDetailMap",
+    skillDetailMap: "initData_skillDetailMap",
+    buffTypeDetailMap: "initData_buffTypeDetailMap",
+    combatMonsterDetailMap: "initData_combatMonsterDetailMap"
+  });
+  var clientData = null;
+  var readyResolve;
+  var warnedReadFailure = false;
+  runtime.state.itemEnNameToHridMap ??= {};
+  var readyPromise = new Promise((resolve) => {
+    readyResolve = resolve;
+  });
+  function pageGlobal() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function validClientData(value) {
+    return Boolean(value?.actionDetailMap && value?.itemDetailMap);
+  }
+  function rebuildEnglishItemIndex(data) {
+    const index = {};
+    for (const [hrid, detail] of Object.entries(data?.itemDetailMap ?? {})) {
+      const name = String(detail?.name ?? "").trim();
+      if (name) index[name] = hrid;
+    }
+    runtime.state.itemEnNameToHridMap = index;
+  }
+  function publishClientData(data) {
+    clientData = data;
+    runtime.state.clientData = data;
+    for (const [sourceKey, stateKey] of Object.entries(
+      CLIENT_DATA_STATE_FIELDS
+    )) {
+      runtime.state[stateKey] = data[sourceKey] ?? null;
+    }
+    runtime.state.initData_monsterDetailMap = data.combatMonsterDetailMap ?? null;
+    rebuildEnglishItemIndex(data);
+    runtime.api.invalidateAssetValueCache?.();
+    runtime.api.resetGameLocalizationCache?.();
+    if (typeof globalThis.GM_setValue === "function") {
+      globalThis.GM_setValue("init_client_data", JSON.stringify(data));
+    }
+    readyResolve?.(data);
+    readyResolve = null;
+    return data;
+  }
+  function refreshGameClientData() {
+    const localStorageUtil = pageGlobal().localStorageUtil;
+    if (typeof localStorageUtil?.getInitClientData !== "function") {
+      return null;
+    }
+    let next;
+    try {
+      next = localStorageUtil.getInitClientData();
+    } catch (error) {
+      if (!warnedReadFailure) {
+        warnedReadFailure = true;
+        console.warn(
+          "[MWITools] Could not read the game's client data cache.",
+          error
+        );
+      }
+      return null;
+    }
+    return validClientData(next) ? publishClientData(next) : null;
+  }
+  function getGameClientData() {
+    return clientData;
+  }
+  function whenGameClientDataReady() {
+    return clientData ? Promise.resolve(clientData) : readyPromise;
+  }
+  Object.assign(runtime.api, {
+    getGameClientData,
+    refreshGameClientData,
+    whenGameClientDataReady
+  });
+
+  // src/core/game-assets.js
+  var SPRITE_PATTERN = /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
+  var spriteBases = /* @__PURE__ */ new Map();
+  var lastScanAt = Number.NEGATIVE_INFINITY;
+  var spriteManifestPromise = null;
+  function normalizeKind(kind) {
+    const value = String(kind ?? "").toLowerCase();
+    if (value === "ability") return "abilities";
+    if (value === "action") return "actions";
+    if (value === "avatar") return "avatars";
+    if (value === "monster" || value === "monsters") return "combat_monsters";
+    if (value === "item") return "items";
+    if (value === "skill") return "skills";
+    return value;
+  }
+  function registerGameSpriteSource(rawValue) {
+    const value = String(rawValue ?? "").split("#")[0];
+    const match = value.match(SPRITE_PATTERN);
+    if (!match) return false;
+    spriteBases.set(normalizeKind(match[2]), match[1]);
+    return true;
+  }
+  function scanGameSpriteSources({ force = false } = {}) {
+    const now = globalThis.performance?.now?.() ?? Date.now();
+    if (!force && now - lastScanAt < 2e3) return spriteBases.size;
+    lastScanAt = now;
+    try {
+      for (const entry of globalThis.performance?.getEntriesByType?.(
+        "resource"
+      ) ?? []) {
+        registerGameSpriteSource(entry?.name);
+      }
+    } catch {
+    }
+    try {
+      for (const node of globalThis.document?.querySelectorAll?.(
+        "svg use,img[src],link[href]"
+      ) ?? []) {
+        registerGameSpriteSource(
+          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src
+        );
+      }
+    } catch {
+    }
+    return spriteBases.size;
+  }
+  function loadGameSpriteManifest() {
+    if (spriteManifestPromise) return spriteManifestPromise;
+    spriteManifestPromise = (async () => {
+      scanGameSpriteSources({ force: true });
+      try {
+        const origin = globalThis.location?.origin ?? globalThis.document?.location?.origin ?? "";
+        if (!origin || typeof globalThis.fetch !== "function") {
+          return spriteBases.size;
+        }
+        const response = await globalThis.fetch(
+          new URL("/asset-manifest.json", origin).href
+        );
+        if (!response.ok) return spriteBases.size;
+        const manifest = await response.json();
+        for (const value of Object.values(manifest?.files ?? {})) {
+          registerGameSpriteSource(value);
+        }
+      } catch {
+      }
+      return spriteBases.size;
+    })();
+    return spriteManifestPromise;
+  }
+  function getGameSpriteBase(kind) {
+    const normalizedKind = normalizeKind(kind);
+    if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
+    return spriteBases.get(normalizedKind) ?? "";
+  }
+  function getGameSpriteHref(kind, hrid) {
+    const base = getGameSpriteBase(kind);
+    const symbol = String(hrid ?? "").split("/").at(-1);
+    return base && symbol ? `${base}#${symbol}` : "";
+  }
+  function resetGameSpriteSources() {
+    spriteBases.clear();
+    lastScanAt = Number.NEGATIVE_INFINITY;
+    spriteManifestPromise = null;
+  }
+  Object.assign(runtime.api, {
+    getGameSpriteBase,
+    getGameSpriteHref,
+    registerGameSpriteSource,
+    scanGameSpriteSources
+  });
+
   // src/core/config.js
   function getGameLanguage() {
     const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
@@ -984,6 +1167,11 @@
     itemTooltip_prices: {
       id: "itemTooltip_prices",
       desc: isZH ? "物品悬浮窗显示：市场价值和订单簿价格" : "Item tooltip: Market value and order book prices.",
+      isTrue: true
+    },
+    showConsumTips: {
+      id: "showConsumTips",
+      desc: isZH ? "物品悬浮窗显示：按市场价值计算消耗品回复性价比" : "Item tooltip: Consumable recovery efficiency based on market value.",
       isTrue: true
     },
     itemTooltip_profit: {
@@ -1569,6 +1757,14 @@
       "Show server value and current ask and bid prices in item tooltips."
     ],
     [
+      "showConsumTips",
+      "market",
+      "消耗品性价比",
+      "Consumable efficiency",
+      "按市场价值显示回复 100 血或蓝所需的金币。",
+      "Show the market-value cost to restore 100 HP or MP."
+    ],
+    [
       "itemTooltip_profit",
       "market",
       "悬浮生产利润",
@@ -1928,6 +2124,7 @@
     productionProfit: "actionPanel_totalTime",
     hideReadyProductionShortage: "procurementAssistant",
     showsKeyInfoInIcon: "itemIconLevel",
+    showConsumTips: "itemTooltip_prices",
     itemTooltip_profit: "itemTooltip_prices",
     itemTooltip_profitRequireKey: "itemTooltip_prices",
     lootChestEstimate: "itemTooltip_prices",
@@ -2230,2413 +2427,6 @@
   });
   runtime.registerStart("core/config.js", () => {
     console.log(window.location.href);
-  });
-
-  // src/core/game-localization.js
-  var SUPPORTED_GAME_LOCALES = Object.freeze([
-    "en",
-    "es",
-    "fr",
-    "pt",
-    "zh",
-    "zh-TW",
-    "ja",
-    "ko",
-    "ru"
-  ]);
-  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
-  var ENTITY_TYPES = Object.freeze({
-    item: {
-      resourceKey: "itemNames",
-      stateKey: "initData_itemDetailMap",
-      prefix: "/items/",
-      sprite: "items_sprite"
-    },
-    action: {
-      resourceKey: "actionNames",
-      stateKey: "initData_actionDetailMap",
-      prefix: "/actions/",
-      sprite: "actions_sprite"
-    },
-    monster: {
-      resourceKey: "monsterNames",
-      stateKey: "initData_monsterDetailMap",
-      prefix: "/monsters/",
-      sprite: "combat_monsters_sprite"
-    },
-    ability: {
-      resourceKey: "abilityNames",
-      stateKey: "initData_abilityDetailMap",
-      prefix: "/abilities/",
-      sprite: "abilities_sprite"
-    }
-  });
-  var TYPE_ALIASES = Object.freeze({
-    items: "item",
-    actions: "action",
-    monsters: "monster",
-    abilities: "ability"
-  });
-  var localeResources = /* @__PURE__ */ new Map();
-  var reverseIndexes = /* @__PURE__ */ new WeakMap();
-  var warnedLocales = /* @__PURE__ */ new Set();
-  function pageGlobal() {
-    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
-  }
-  function normalizeGameLocale(value) {
-    const raw = String(value ?? "").trim().replaceAll("_", "-");
-    if (!raw) return "en";
-    const lower = raw.toLowerCase();
-    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
-      return "zh-TW";
-    }
-    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
-    const base = lower.split("-")[0];
-    return LOCALE_SET.has(base) ? base : "en";
-  }
-  function getGameLocale() {
-    return normalizeGameLocale(
-      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
-    );
-  }
-  function webpackQueues(target = pageGlobal()) {
-    const queues = [];
-    for (const key of Object.getOwnPropertyNames(target ?? {})) {
-      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
-      let value;
-      try {
-        value = target[key];
-      } catch {
-        continue;
-      }
-      if (Array.isArray(value)) queues.push(value);
-    }
-    return queues;
-  }
-  function chunkEntries(target) {
-    return webpackQueues(target).flatMap(
-      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
-    );
-  }
-  function localeModuleMap(entries) {
-    const result = /* @__PURE__ */ new Map();
-    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
-    for (const entry of entries) {
-      for (const factory of Object.values(entry[1])) {
-        if (typeof factory !== "function") continue;
-        const source = Function.prototype.toString.call(factory);
-        if (!source.includes("./zh-TW/index.js")) continue;
-        for (const match of source.matchAll(pattern)) {
-          result.set(normalizeGameLocale(match[1]), String(match[2]));
-        }
-      }
-    }
-    return result;
-  }
-  function runLocaleFactory(factory) {
-    const module = { exports: {} };
-    const exports = module.exports;
-    const webpackRequire = () => {
-      throw new Error(
-        runtime.config.isZH ? "游戏语言模块意外引用了其他模块" : "The game locale unexpectedly imported another module"
-      );
-    };
-    webpackRequire.r = (target) => {
-      Object.defineProperty(target, "__esModule", { value: true });
-    };
-    webpackRequire.d = (target, nameOrDefinition, getter) => {
-      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
-      for (const [name, get] of Object.entries(definition)) {
-        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
-        Object.defineProperty(target, name, {
-          enumerable: true,
-          get
-        });
-      }
-    };
-    factory.call(exports, module, exports, webpackRequire);
-    return module.exports?.default ?? exports.default ?? module.exports;
-  }
-  function validResourceMap(value, prefix) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    return Object.keys(value).some((key) => key.startsWith(prefix));
-  }
-  function validateGameLocaleResources(value) {
-    return Boolean(
-      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
-    );
-  }
-  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal()) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en") return null;
-    const entries = chunkEntries(target);
-    const moduleMap = localeModuleMap(entries);
-    const expectedModuleId = moduleMap.get(normalizedLocale);
-    const candidates = [];
-    for (const entry of entries) {
-      for (const [moduleId, factory] of Object.entries(entry[1])) {
-        if (typeof factory !== "function") continue;
-        if (expectedModuleId && moduleId !== expectedModuleId) continue;
-        const source = Function.prototype.toString.call(factory);
-        if (!expectedModuleId && (!source.includes("itemNames") || !source.includes("actionNames") || !source.includes("monsterNames") || !source.includes("abilityNames"))) {
-          continue;
-        }
-        candidates.push(factory);
-      }
-    }
-    for (const factory of candidates) {
-      try {
-        const resources = runLocaleFactory(factory);
-        if (validateGameLocaleResources(resources)) return resources;
-      } catch {
-      }
-    }
-    return null;
-  }
-  function englishResourceMap(type) {
-    const definition = ENTITY_TYPES[type];
-    const details = runtime.state[definition.stateKey];
-    if (!details || typeof details !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(details).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
-    );
-  }
-  function englishResources() {
-    const resources = {
-      itemNames: englishResourceMap("item"),
-      actionNames: englishResourceMap("action"),
-      monsterNames: englishResourceMap("monster"),
-      abilityNames: englishResourceMap("ability")
-    };
-    for (const [hrid, name] of Object.entries(resources.actionNames)) {
-      if (!hrid.startsWith("/actions/combat/")) continue;
-      const monsterHrid = hrid.replace("/actions/combat/", "/monsters/");
-      if (!resources.monsterNames[monsterHrid]) {
-        resources.monsterNames[monsterHrid] = name;
-      }
-    }
-    return resources;
-  }
-  function simplifiedResources() {
-    const others = runtime.data.ZHOthersDic ?? {};
-    return {
-      itemNames: runtime.data.ZHItemNames ?? {},
-      actionNames: runtime.data.ZHActionNames ?? {},
-      monsterNames: Object.fromEntries(
-        Object.entries(others).filter(([hrid]) => hrid.startsWith("/monsters/"))
-      ),
-      abilityNames: Object.fromEntries(
-        Object.entries(others).filter(([hrid]) => hrid.startsWith("/abilities/"))
-      )
-    };
-  }
-  function getGameLocaleResources(locale = getGameLocale()) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en") return englishResources();
-    if (localeResources.has(normalizedLocale)) {
-      return localeResources.get(normalizedLocale);
-    }
-    const extracted = extractGameLocaleResources(normalizedLocale);
-    if (extracted) {
-      localeResources.set(normalizedLocale, extracted);
-      return extracted;
-    }
-    if (normalizedLocale === "zh") return simplifiedResources();
-    if (!warnedLocales.has(normalizedLocale)) {
-      warnedLocales.add(normalizedLocale);
-      console.warn(
-        `[MWITools] The official ${normalizedLocale} game language resources are not available yet. Locale-dependent fallbacks will stay disabled.`
-      );
-    }
-    return null;
-  }
-  function registerGameLocaleResources(locale, resources) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en" || !validateGameLocaleResources(resources)) {
-      return false;
-    }
-    localeResources.set(normalizedLocale, resources);
-    return true;
-  }
-  function entityType(kind) {
-    const normalized = TYPE_ALIASES[kind] ?? kind;
-    return ENTITY_TYPES[normalized] ? normalized : null;
-  }
-  function normalizedName(value, type = "") {
-    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
-    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
-    return result;
-  }
-  function reverseIndex(resources, type) {
-    let indexes = reverseIndexes.get(resources);
-    if (!indexes) {
-      indexes = /* @__PURE__ */ new Map();
-      reverseIndexes.set(resources, indexes);
-    }
-    if (indexes.has(type)) return indexes.get(type);
-    const definition = ENTITY_TYPES[type];
-    const index = /* @__PURE__ */ new Map();
-    for (const [hrid, name] of Object.entries(
-      resources?.[definition.resourceKey] ?? {}
-    )) {
-      const key = normalizedName(name, type);
-      if (!key) continue;
-      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
-      else index.set(key, hrid);
-    }
-    indexes.set(type, index);
-    return index;
-  }
-  function directHrid(type, value) {
-    const definition = ENTITY_TYPES[type];
-    const candidate = String(value ?? "").trim();
-    return candidate.startsWith(definition.prefix) ? candidate : "";
-  }
-  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
-    const type = entityType(kind);
-    if (!type) return "";
-    const direct = directHrid(type, name);
-    if (direct) return direct;
-    const key = normalizedName(name, type);
-    if (!key) return "";
-    if (type === "item") {
-      const directEnglish = runtime.state.itemEnNameToHridMap?.[name];
-      if (directEnglish) return directEnglish;
-      for (const [englishName, hrid] of Object.entries(
-        runtime.state.itemEnNameToHridMap ?? {}
-      )) {
-        if (normalizedName(englishName, type) === key) return hrid;
-      }
-    }
-    const sources = [getGameLocaleResources(locale), englishResources()];
-    if (normalizeGameLocale(locale) !== "zh") sources.push(simplifiedResources());
-    for (const resources of sources) {
-      if (!resources) continue;
-      const match = reverseIndex(resources, type).get(key);
-      if (match) return match;
-    }
-    return "";
-  }
-  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
-    const type = entityType(kind);
-    if (!type) return fallback;
-    const definition = ENTITY_TYPES[type];
-    const resources = getGameLocaleResources(locale);
-    return resources?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
-  }
-  function elementCandidates(element) {
-    const result = [];
-    for (let current = element; current && result.length < 24; ) {
-      result.push(current);
-      current = current.parentElement;
-    }
-    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
-      if (!result.includes(child)) result.push(child);
-    }
-    return result;
-  }
-  function datasetHrid(type, element) {
-    const names = [
-      `${type}Hrid`,
-      "hrid",
-      "itemHrid",
-      "actionHrid",
-      "monsterHrid",
-      "abilityHrid"
-    ];
-    for (const name of names) {
-      const value = element?.dataset?.[name];
-      const direct = directHrid(type, value);
-      if (direct) return direct;
-    }
-    return "";
-  }
-  function spriteHrid(type, element) {
-    const definition = ENTITY_TYPES[type];
-    const href = String(
-      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
-    );
-    const [base, fragment = ""] = href.split("#");
-    if (!fragment || !base.includes(definition.sprite)) return "";
-    return `${definition.prefix}${fragment}`;
-  }
-  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
-    const type = entityType(kind);
-    if (!type || !element) return "";
-    const candidates = elementCandidates(element);
-    for (const candidate of candidates) {
-      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
-      if (hrid) return hrid;
-    }
-    for (const candidate of candidates) {
-      for (const value of [
-        candidate?.getAttribute?.("aria-label"),
-        candidate?.getAttribute?.("title"),
-        candidate?.textContent
-      ]) {
-        const hrid = resolveLocalizedEntity(type, value, { locale });
-        if (hrid) return hrid;
-      }
-    }
-    return "";
-  }
-  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
-    let value = getGameLocaleResources(locale);
-    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
-      if (!key || !value || typeof value !== "object") return "";
-      value = value[key];
-    }
-    return typeof value === "string" ? value : "";
-  }
-  function escapeRegularExpression(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
-    const template = getGameTranslation(path, { locale });
-    if (!template) return false;
-    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
-    const pattern = parts.map(
-      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
-    ).join("");
-    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
-  }
-  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
-    const value = String(text ?? "").trim();
-    if ([...Array.isArray(paths) ? paths : [paths]].some(
-      (path) => matchesGameTranslation(path, value, { locale })
-    )) {
-      return true;
-    }
-    return fallbackPatterns.some((pattern) => {
-      if (pattern instanceof RegExp) return pattern.test(value);
-      return String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase();
-    });
-  }
-  function resetGameLocalizationCache() {
-    localeResources.clear();
-    warnedLocales.clear();
-  }
-  Object.assign(runtime.api, {
-    getGameLocale,
-    getGameLocaleResources,
-    registerGameLocaleResources,
-    getGameTranslation,
-    matchesGameTranslation,
-    resolveLocalizedEntity,
-    resolveEntityFromElement,
-    getLocalizedEntityName
-  });
-
-  // src/data/translations.js
-  var ZHItemNames = {
-    "/items/coin": "金币",
-    "/items/task_token": "任务代币",
-    "/items/labyrinth_token": "迷宫代币",
-    "/items/chimerical_token": "奇幻代币",
-    "/items/sinister_token": "阴森代币",
-    "/items/enchanted_token": "秘法代币",
-    "/items/pirate_token": "海盗代币",
-    "/items/guild_token": "公会代币",
-    "/items/green_guild_credit": "绿色公会信用点",
-    "/items/brown_guild_credit": "棕色公会信用点",
-    "/items/white_guild_credit": "白色公会信用点",
-    "/items/blue_guild_credit": "蓝色公会信用点",
-    "/items/purple_guild_credit": "紫色公会信用点",
-    "/items/red_guild_credit": "红色公会信用点",
-    "/items/silver_guild_credit": "银色公会信用点",
-    "/items/gold_guild_credit": "金色公会信用点",
-    "/items/cowbell": "牛铃",
-    "/items/bag_of_10_cowbells": "牛铃袋 (10个)",
-    "/items/purples_gift": "小紫牛的礼物",
-    "/items/small_meteorite_cache": "小陨石舱",
-    "/items/medium_meteorite_cache": "中陨石舱",
-    "/items/large_meteorite_cache": "大陨石舱",
-    "/items/small_artisans_crate": "小工匠匣",
-    "/items/medium_artisans_crate": "中工匠匣",
-    "/items/large_artisans_crate": "大工匠匣",
-    "/items/small_treasure_chest": "小宝箱",
-    "/items/medium_treasure_chest": "中宝箱",
-    "/items/large_treasure_chest": "大宝箱",
-    "/items/chimerical_chest": "奇幻宝箱",
-    "/items/chimerical_refinement_chest": "奇幻精炼宝箱",
-    "/items/sinister_chest": "阴森宝箱",
-    "/items/sinister_refinement_chest": "阴森精炼宝箱",
-    "/items/enchanted_chest": "秘法宝箱",
-    "/items/enchanted_refinement_chest": "秘法精炼宝箱",
-    "/items/pirate_chest": "海盗宝箱",
-    "/items/pirate_refinement_chest": "海盗精炼宝箱",
-    "/items/purdoras_box_skilling": "紫多拉之盒（生活）",
-    "/items/purdoras_box_combat": "紫多拉之盒（战斗）",
-    "/items/labyrinth_refinement_chest": "迷宫精炼宝箱",
-    "/items/seal_of_gathering": "采集卷轴",
-    "/items/seal_of_gourmet": "美食卷轴",
-    "/items/seal_of_processing": "加工卷轴",
-    "/items/seal_of_efficiency": "效率卷轴",
-    "/items/seal_of_action_speed": "行动速度卷轴",
-    "/items/seal_of_combat_drop": "战斗掉落卷轴",
-    "/items/seal_of_attack_speed": "攻击速度卷轴",
-    "/items/seal_of_cast_speed": "施法速度卷轴",
-    "/items/seal_of_damage": "伤害卷轴",
-    "/items/seal_of_critical_rate": "暴击率卷轴",
-    "/items/seal_of_wisdom": "经验卷轴",
-    "/items/seal_of_rare_find": "稀有发现卷轴",
-    "/items/blue_key_fragment": "蓝色钥匙碎片",
-    "/items/green_key_fragment": "绿色钥匙碎片",
-    "/items/purple_key_fragment": "紫色钥匙碎片",
-    "/items/white_key_fragment": "白色钥匙碎片",
-    "/items/orange_key_fragment": "橙色钥匙碎片",
-    "/items/brown_key_fragment": "棕色钥匙碎片",
-    "/items/stone_key_fragment": "石头钥匙碎片",
-    "/items/dark_key_fragment": "黑暗钥匙碎片",
-    "/items/burning_key_fragment": "燃烧钥匙碎片",
-    "/items/chimerical_entry_key": "奇幻钥匙",
-    "/items/chimerical_chest_key": "奇幻宝箱钥匙",
-    "/items/sinister_entry_key": "阴森钥匙",
-    "/items/sinister_chest_key": "阴森宝箱钥匙",
-    "/items/enchanted_entry_key": "秘法钥匙",
-    "/items/enchanted_chest_key": "秘法宝箱钥匙",
-    "/items/pirate_entry_key": "海盗钥匙",
-    "/items/pirate_chest_key": "海盗宝箱钥匙",
-    "/items/donut": "甜甜圈",
-    "/items/blueberry_donut": "蓝莓甜甜圈",
-    "/items/blackberry_donut": "黑莓甜甜圈",
-    "/items/strawberry_donut": "草莓甜甜圈",
-    "/items/mooberry_donut": "哞莓甜甜圈",
-    "/items/marsberry_donut": "火星莓甜甜圈",
-    "/items/spaceberry_donut": "太空莓甜甜圈",
-    "/items/cupcake": "纸杯蛋糕",
-    "/items/blueberry_cake": "蓝莓蛋糕",
-    "/items/blackberry_cake": "黑莓蛋糕",
-    "/items/strawberry_cake": "草莓蛋糕",
-    "/items/mooberry_cake": "哞莓蛋糕",
-    "/items/marsberry_cake": "火星莓蛋糕",
-    "/items/spaceberry_cake": "太空莓蛋糕",
-    "/items/gummy": "软糖",
-    "/items/apple_gummy": "苹果软糖",
-    "/items/orange_gummy": "橙子软糖",
-    "/items/plum_gummy": "李子软糖",
-    "/items/peach_gummy": "桃子软糖",
-    "/items/dragon_fruit_gummy": "火龙果软糖",
-    "/items/star_fruit_gummy": "杨桃软糖",
-    "/items/yogurt": "酸奶",
-    "/items/apple_yogurt": "苹果酸奶",
-    "/items/orange_yogurt": "橙子酸奶",
-    "/items/plum_yogurt": "李子酸奶",
-    "/items/peach_yogurt": "桃子酸奶",
-    "/items/dragon_fruit_yogurt": "火龙果酸奶",
-    "/items/star_fruit_yogurt": "杨桃酸奶",
-    "/items/milking_tea": "挤奶茶",
-    "/items/foraging_tea": "采摘茶",
-    "/items/woodcutting_tea": "伐木茶",
-    "/items/cooking_tea": "烹饪茶",
-    "/items/brewing_tea": "冲泡茶",
-    "/items/alchemy_tea": "炼金茶",
-    "/items/enhancing_tea": "强化茶",
-    "/items/cheesesmithing_tea": "奶酪锻造茶",
-    "/items/crafting_tea": "制作茶",
-    "/items/tailoring_tea": "缝纫茶",
-    "/items/super_milking_tea": "超级挤奶茶",
-    "/items/super_foraging_tea": "超级采摘茶",
-    "/items/super_woodcutting_tea": "超级伐木茶",
-    "/items/super_cooking_tea": "超级烹饪茶",
-    "/items/super_brewing_tea": "超级冲泡茶",
-    "/items/super_alchemy_tea": "超级炼金茶",
-    "/items/super_enhancing_tea": "超级强化茶",
-    "/items/super_cheesesmithing_tea": "超级奶酪锻造茶",
-    "/items/super_crafting_tea": "超级制作茶",
-    "/items/super_tailoring_tea": "超级缝纫茶",
-    "/items/ultra_milking_tea": "究极挤奶茶",
-    "/items/ultra_foraging_tea": "究极采摘茶",
-    "/items/ultra_woodcutting_tea": "究极伐木茶",
-    "/items/ultra_cooking_tea": "究极烹饪茶",
-    "/items/ultra_brewing_tea": "究极冲泡茶",
-    "/items/ultra_alchemy_tea": "究极炼金茶",
-    "/items/ultra_enhancing_tea": "究极强化茶",
-    "/items/ultra_cheesesmithing_tea": "究极奶酪锻造茶",
-    "/items/ultra_crafting_tea": "究极制作茶",
-    "/items/ultra_tailoring_tea": "究极缝纫茶",
-    "/items/gathering_tea": "采集茶",
-    "/items/gourmet_tea": "美食茶",
-    "/items/wisdom_tea": "经验茶",
-    "/items/processing_tea": "加工茶",
-    "/items/efficiency_tea": "效率茶",
-    "/items/artisan_tea": "工匠茶",
-    "/items/catalytic_tea": "催化茶",
-    "/items/blessed_tea": "福气茶",
-    "/items/stamina_coffee": "耐力咖啡",
-    "/items/intelligence_coffee": "智力咖啡",
-    "/items/defense_coffee": "防御咖啡",
-    "/items/attack_coffee": "攻击咖啡",
-    "/items/melee_coffee": "近战咖啡",
-    "/items/ranged_coffee": "远程咖啡",
-    "/items/magic_coffee": "魔法咖啡",
-    "/items/super_stamina_coffee": "超级耐力咖啡",
-    "/items/super_intelligence_coffee": "超级智力咖啡",
-    "/items/super_defense_coffee": "超级防御咖啡",
-    "/items/super_attack_coffee": "超级攻击咖啡",
-    "/items/super_melee_coffee": "超级近战咖啡",
-    "/items/super_ranged_coffee": "超级远程咖啡",
-    "/items/super_magic_coffee": "超级魔法咖啡",
-    "/items/ultra_stamina_coffee": "究极耐力咖啡",
-    "/items/ultra_intelligence_coffee": "究极智力咖啡",
-    "/items/ultra_defense_coffee": "究极防御咖啡",
-    "/items/ultra_attack_coffee": "究极攻击咖啡",
-    "/items/ultra_melee_coffee": "究极近战咖啡",
-    "/items/ultra_ranged_coffee": "究极远程咖啡",
-    "/items/ultra_magic_coffee": "究极魔法咖啡",
-    "/items/wisdom_coffee": "经验咖啡",
-    "/items/lucky_coffee": "幸运咖啡",
-    "/items/swiftness_coffee": "迅捷咖啡",
-    "/items/channeling_coffee": "吟唱咖啡",
-    "/items/critical_coffee": "暴击咖啡",
-    "/items/poke": "破胆之刺",
-    "/items/impale": "透骨之刺",
-    "/items/puncture": "破甲之刺",
-    "/items/penetrating_strike": "贯心之刺",
-    "/items/scratch": "爪影斩",
-    "/items/cleave": "分裂斩",
-    "/items/maim": "血刃斩",
-    "/items/crippling_slash": "致残斩",
-    "/items/smack": "重碾",
-    "/items/sweep": "重扫",
-    "/items/stunning_blow": "重锤",
-    "/items/fracturing_impact": "碎裂冲击",
-    "/items/shield_bash": "盾击",
-    "/items/quick_shot": "快速射击",
-    "/items/aqua_arrow": "流水箭",
-    "/items/flame_arrow": "烈焰箭",
-    "/items/rain_of_arrows": "箭雨",
-    "/items/silencing_shot": "沉默之箭",
-    "/items/steady_shot": "稳定射击",
-    "/items/pestilent_shot": "疫病射击",
-    "/items/penetrating_shot": "贯穿射击",
-    "/items/water_strike": "流水冲击",
-    "/items/ice_spear": "冰枪术",
-    "/items/frost_surge": "冰霜爆裂",
-    "/items/mana_spring": "法力喷泉",
-    "/items/entangle": "缠绕",
-    "/items/toxic_pollen": "剧毒粉尘",
-    "/items/natures_veil": "自然菌幕",
-    "/items/life_drain": "生命吸取",
-    "/items/fireball": "火球",
-    "/items/flame_blast": "熔岩爆裂",
-    "/items/firestorm": "火焰风暴",
-    "/items/smoke_burst": "烟爆灭影",
-    "/items/minor_heal": "初级自愈术",
-    "/items/heal": "自愈术",
-    "/items/quick_aid": "快速治疗术",
-    "/items/rejuvenate": "群体治疗术",
-    "/items/taunt": "嘲讽",
-    "/items/provoke": "挑衅",
-    "/items/toughness": "坚韧",
-    "/items/elusiveness": "闪避",
-    "/items/precision": "精确",
-    "/items/berserk": "狂暴",
-    "/items/elemental_affinity": "元素增幅",
-    "/items/frenzy": "狂速",
-    "/items/spike_shell": "尖刺防护",
-    "/items/retribution": "惩戒",
-    "/items/vampirism": "吸血",
-    "/items/revive": "复活",
-    "/items/insanity": "疯狂",
-    "/items/invincible": "无敌",
-    "/items/speed_aura": "速度光环",
-    "/items/guardian_aura": "守护光环",
-    "/items/fierce_aura": "物理光环",
-    "/items/critical_aura": "暴击光环",
-    "/items/mystic_aura": "元素光环",
-    "/items/gobo_stabber": "哥布林长剑",
-    "/items/gobo_slasher": "哥布林关刀",
-    "/items/gobo_smasher": "哥布林狼牙棒",
-    "/items/spiked_bulwark": "尖刺重盾",
-    "/items/werewolf_slasher": "狼人关刀",
-    "/items/griffin_bulwark": "狮鹫重盾",
-    "/items/griffin_bulwark_refined": "狮鹫重盾 ★",
-    "/items/gobo_shooter": "哥布林弹弓",
-    "/items/vampiric_bow": "吸血弓",
-    "/items/cursed_bow": "咒怨之弓",
-    "/items/cursed_bow_refined": "咒怨之弓 ★",
-    "/items/gobo_boomstick": "哥布林火棍",
-    "/items/cheese_bulwark": "奶酪重盾",
-    "/items/verdant_bulwark": "翠绿重盾",
-    "/items/azure_bulwark": "蔚蓝重盾",
-    "/items/burble_bulwark": "深紫重盾",
-    "/items/crimson_bulwark": "绛红重盾",
-    "/items/rainbow_bulwark": "彩虹重盾",
-    "/items/holy_bulwark": "神圣重盾",
-    "/items/wooden_bow": "木弓",
-    "/items/birch_bow": "桦木弓",
-    "/items/cedar_bow": "雪松弓",
-    "/items/purpleheart_bow": "紫心弓",
-    "/items/ginkgo_bow": "银杏弓",
-    "/items/redwood_bow": "红杉弓",
-    "/items/arcane_bow": "神秘弓",
-    "/items/stalactite_spear": "石钟长枪",
-    "/items/granite_bludgeon": "花岗岩大棒",
-    "/items/furious_spear": "狂怒长枪",
-    "/items/furious_spear_refined": "狂怒长枪 ★",
-    "/items/regal_sword": "君王之剑",
-    "/items/regal_sword_refined": "君王之剑 ★",
-    "/items/chaotic_flail": "混沌连枷",
-    "/items/chaotic_flail_refined": "混沌连枷 ★",
-    "/items/soul_hunter_crossbow": "灵魂猎手弩",
-    "/items/sundering_crossbow": "裂空之弩",
-    "/items/sundering_crossbow_refined": "裂空之弩 ★",
-    "/items/frost_staff": "冰霜法杖",
-    "/items/infernal_battlestaff": "炼狱法杖",
-    "/items/jackalope_staff": "鹿角兔之杖",
-    "/items/rippling_trident": "涟漪三叉戟",
-    "/items/rippling_trident_refined": "涟漪三叉戟 ★",
-    "/items/blooming_trident": "绽放三叉戟",
-    "/items/blooming_trident_refined": "绽放三叉戟 ★",
-    "/items/blazing_trident": "炽焰三叉戟",
-    "/items/blazing_trident_refined": "炽焰三叉戟 ★",
-    "/items/cheese_sword": "奶酪剑",
-    "/items/verdant_sword": "翠绿剑",
-    "/items/azure_sword": "蔚蓝剑",
-    "/items/burble_sword": "深紫剑",
-    "/items/crimson_sword": "绛红剑",
-    "/items/rainbow_sword": "彩虹剑",
-    "/items/holy_sword": "神圣剑",
-    "/items/cheese_spear": "奶酪长枪",
-    "/items/verdant_spear": "翠绿长枪",
-    "/items/azure_spear": "蔚蓝长枪",
-    "/items/burble_spear": "深紫长枪",
-    "/items/crimson_spear": "绛红长枪",
-    "/items/rainbow_spear": "彩虹长枪",
-    "/items/holy_spear": "神圣长枪",
-    "/items/cheese_mace": "奶酪钉头锤",
-    "/items/verdant_mace": "翠绿钉头锤",
-    "/items/azure_mace": "蔚蓝钉头锤",
-    "/items/burble_mace": "深紫钉头锤",
-    "/items/crimson_mace": "绛红钉头锤",
-    "/items/rainbow_mace": "彩虹钉头锤",
-    "/items/holy_mace": "神圣钉头锤",
-    "/items/wooden_crossbow": "木弩",
-    "/items/birch_crossbow": "桦木弩",
-    "/items/cedar_crossbow": "雪松弩",
-    "/items/purpleheart_crossbow": "紫心弩",
-    "/items/ginkgo_crossbow": "银杏弩",
-    "/items/redwood_crossbow": "红杉弩",
-    "/items/arcane_crossbow": "神秘弩",
-    "/items/wooden_water_staff": "木制水法杖",
-    "/items/birch_water_staff": "桦木水法杖",
-    "/items/cedar_water_staff": "雪松水法杖",
-    "/items/purpleheart_water_staff": "紫心水法杖",
-    "/items/ginkgo_water_staff": "银杏水法杖",
-    "/items/redwood_water_staff": "红杉水法杖",
-    "/items/arcane_water_staff": "神秘水法杖",
-    "/items/wooden_nature_staff": "木制自然法杖",
-    "/items/birch_nature_staff": "桦木自然法杖",
-    "/items/cedar_nature_staff": "雪松自然法杖",
-    "/items/purpleheart_nature_staff": "紫心自然法杖",
-    "/items/ginkgo_nature_staff": "银杏自然法杖",
-    "/items/redwood_nature_staff": "红杉自然法杖",
-    "/items/arcane_nature_staff": "神秘自然法杖",
-    "/items/wooden_fire_staff": "木制火法杖",
-    "/items/birch_fire_staff": "桦木火法杖",
-    "/items/cedar_fire_staff": "雪松火法杖",
-    "/items/purpleheart_fire_staff": "紫心火法杖",
-    "/items/ginkgo_fire_staff": "银杏火法杖",
-    "/items/redwood_fire_staff": "红杉火法杖",
-    "/items/arcane_fire_staff": "神秘火法杖",
-    "/items/eye_watch": "掌上监工",
-    "/items/snake_fang_dirk": "蛇牙短剑",
-    "/items/vision_shield": "视觉盾",
-    "/items/gobo_defender": "哥布林防御者",
-    "/items/vampire_fang_dirk": "吸血鬼短剑",
-    "/items/knights_aegis": "骑士盾",
-    "/items/knights_aegis_refined": "骑士盾 ★",
-    "/items/treant_shield": "树人盾",
-    "/items/manticore_shield": "蝎狮盾",
-    "/items/tome_of_healing": "治疗之书",
-    "/items/tome_of_the_elements": "元素之书",
-    "/items/watchful_relic": "警戒遗物",
-    "/items/bishops_codex": "主教法典",
-    "/items/bishops_codex_refined": "主教法典 ★",
-    "/items/cheese_buckler": "奶酪圆盾",
-    "/items/verdant_buckler": "翠绿圆盾",
-    "/items/azure_buckler": "蔚蓝圆盾",
-    "/items/burble_buckler": "深紫圆盾",
-    "/items/crimson_buckler": "绛红圆盾",
-    "/items/rainbow_buckler": "彩虹圆盾",
-    "/items/holy_buckler": "神圣圆盾",
-    "/items/wooden_shield": "木盾",
-    "/items/birch_shield": "桦木盾",
-    "/items/cedar_shield": "雪松盾",
-    "/items/purpleheart_shield": "紫心盾",
-    "/items/ginkgo_shield": "银杏盾",
-    "/items/redwood_shield": "红杉盾",
-    "/items/arcane_shield": "神秘盾",
-    "/items/gatherer_cape": "采集者披风",
-    "/items/gatherer_cape_refined": "采集者披风 ★",
-    "/items/artificer_cape": "工匠披风",
-    "/items/artificer_cape_refined": "工匠披风 ★",
-    "/items/culinary_cape": "厨师披风",
-    "/items/culinary_cape_refined": "厨师披风 ★",
-    "/items/chance_cape": "机缘披风",
-    "/items/chance_cape_refined": "机缘披风 ★",
-    "/items/sinister_cape": "阴森披风",
-    "/items/sinister_cape_refined": "阴森披风 ★",
-    "/items/chimerical_quiver": "奇幻箭袋",
-    "/items/chimerical_quiver_refined": "奇幻箭袋 ★",
-    "/items/enchanted_cloak": "秘法披风",
-    "/items/enchanted_cloak_refined": "秘法披风 ★",
-    "/items/red_culinary_hat": "红色厨师帽",
-    "/items/snail_shell_helmet": "蜗牛壳头盔",
-    "/items/vision_helmet": "视觉头盔",
-    "/items/fluffy_red_hat": "蓬松红帽子",
-    "/items/corsair_helmet": "掠夺者头盔",
-    "/items/corsair_helmet_refined": "掠夺者头盔 ★",
-    "/items/acrobatic_hood": "杂技师兜帽",
-    "/items/acrobatic_hood_refined": "杂技师兜帽 ★",
-    "/items/magicians_hat": "魔术师帽",
-    "/items/magicians_hat_refined": "魔术师帽 ★",
-    "/items/cheese_helmet": "奶酪头盔",
-    "/items/verdant_helmet": "翠绿头盔",
-    "/items/azure_helmet": "蔚蓝头盔",
-    "/items/burble_helmet": "深紫头盔",
-    "/items/crimson_helmet": "绛红头盔",
-    "/items/rainbow_helmet": "彩虹头盔",
-    "/items/holy_helmet": "神圣头盔",
-    "/items/rough_hood": "粗糙兜帽",
-    "/items/reptile_hood": "爬行动物兜帽",
-    "/items/gobo_hood": "哥布林兜帽",
-    "/items/beast_hood": "野兽兜帽",
-    "/items/umbral_hood": "暗影兜帽",
-    "/items/cotton_hat": "棉帽",
-    "/items/linen_hat": "亚麻帽",
-    "/items/bamboo_hat": "竹帽",
-    "/items/silk_hat": "丝帽",
-    "/items/radiant_hat": "光辉帽",
-    "/items/dairyhands_top": "挤奶工上衣",
-    "/items/foragers_top": "采摘者上衣",
-    "/items/lumberjacks_top": "伐木工上衣",
-    "/items/cheesemakers_top": "奶酪师上衣",
-    "/items/crafters_top": "工匠上衣",
-    "/items/tailors_top": "裁缝上衣",
-    "/items/chefs_top": "厨师上衣",
-    "/items/brewers_top": "饮品师上衣",
-    "/items/alchemists_top": "炼金师上衣",
-    "/items/enhancers_top": "强化师上衣",
-    "/items/gator_vest": "鳄鱼马甲",
-    "/items/turtle_shell_body": "龟壳胸甲",
-    "/items/colossus_plate_body": "巨像胸甲",
-    "/items/demonic_plate_body": "恶魔胸甲",
-    "/items/anchorbound_plate_body": "锚定胸甲",
-    "/items/anchorbound_plate_body_refined": "锚定胸甲 ★",
-    "/items/maelstrom_plate_body": "怒涛胸甲",
-    "/items/maelstrom_plate_body_refined": "怒涛胸甲 ★",
-    "/items/marine_tunic": "海洋皮衣",
-    "/items/revenant_tunic": "亡灵皮衣",
-    "/items/griffin_tunic": "狮鹫皮衣",
-    "/items/kraken_tunic": "克拉肯皮衣",
-    "/items/kraken_tunic_refined": "克拉肯皮衣 ★",
-    "/items/icy_robe_top": "冰霜袍服",
-    "/items/flaming_robe_top": "烈焰袍服",
-    "/items/luna_robe_top": "月神袍服",
-    "/items/royal_water_robe_top": "皇家水系袍服",
-    "/items/royal_water_robe_top_refined": "皇家水系袍服 ★",
-    "/items/royal_nature_robe_top": "皇家自然系袍服",
-    "/items/royal_nature_robe_top_refined": "皇家自然系袍服 ★",
-    "/items/royal_fire_robe_top": "皇家火系袍服",
-    "/items/royal_fire_robe_top_refined": "皇家火系袍服 ★",
-    "/items/cheese_plate_body": "奶酪胸甲",
-    "/items/verdant_plate_body": "翠绿胸甲",
-    "/items/azure_plate_body": "蔚蓝胸甲",
-    "/items/burble_plate_body": "深紫胸甲",
-    "/items/crimson_plate_body": "绛红胸甲",
-    "/items/rainbow_plate_body": "彩虹胸甲",
-    "/items/holy_plate_body": "神圣胸甲",
-    "/items/rough_tunic": "粗糙皮衣",
-    "/items/reptile_tunic": "爬行动物皮衣",
-    "/items/gobo_tunic": "哥布林皮衣",
-    "/items/beast_tunic": "野兽皮衣",
-    "/items/umbral_tunic": "暗影皮衣",
-    "/items/cotton_robe_top": "棉袍服",
-    "/items/linen_robe_top": "亚麻袍服",
-    "/items/bamboo_robe_top": "竹袍服",
-    "/items/silk_robe_top": "丝绸袍服",
-    "/items/radiant_robe_top": "光辉袍服",
-    "/items/dairyhands_bottoms": "挤奶工下装",
-    "/items/foragers_bottoms": "采摘者下装",
-    "/items/lumberjacks_bottoms": "伐木工下装",
-    "/items/cheesemakers_bottoms": "奶酪师下装",
-    "/items/crafters_bottoms": "工匠下装",
-    "/items/tailors_bottoms": "裁缝下装",
-    "/items/chefs_bottoms": "厨师下装",
-    "/items/brewers_bottoms": "饮品师下装",
-    "/items/alchemists_bottoms": "炼金师下装",
-    "/items/enhancers_bottoms": "强化师下装",
-    "/items/turtle_shell_legs": "龟壳腿甲",
-    "/items/colossus_plate_legs": "巨像腿甲",
-    "/items/demonic_plate_legs": "恶魔腿甲",
-    "/items/anchorbound_plate_legs": "锚定腿甲",
-    "/items/anchorbound_plate_legs_refined": "锚定腿甲 ★",
-    "/items/maelstrom_plate_legs": "怒涛腿甲",
-    "/items/maelstrom_plate_legs_refined": "怒涛腿甲 ★",
-    "/items/marine_chaps": "航海皮裤",
-    "/items/revenant_chaps": "亡灵皮裤",
-    "/items/griffin_chaps": "狮鹫皮裤",
-    "/items/kraken_chaps": "克拉肯皮裤",
-    "/items/kraken_chaps_refined": "克拉肯皮裤 ★",
-    "/items/icy_robe_bottoms": "冰霜袍裙",
-    "/items/flaming_robe_bottoms": "烈焰袍裙",
-    "/items/luna_robe_bottoms": "月神袍裙",
-    "/items/royal_water_robe_bottoms": "皇家水系袍裙",
-    "/items/royal_water_robe_bottoms_refined": "皇家水系袍裙 ★",
-    "/items/royal_nature_robe_bottoms": "皇家自然系袍裙",
-    "/items/royal_nature_robe_bottoms_refined": "皇家自然系袍裙 ★",
-    "/items/royal_fire_robe_bottoms": "皇家火系袍裙",
-    "/items/royal_fire_robe_bottoms_refined": "皇家火系袍裙 ★",
-    "/items/cheese_plate_legs": "奶酪腿甲",
-    "/items/verdant_plate_legs": "翠绿腿甲",
-    "/items/azure_plate_legs": "蔚蓝腿甲",
-    "/items/burble_plate_legs": "深紫腿甲",
-    "/items/crimson_plate_legs": "绛红腿甲",
-    "/items/rainbow_plate_legs": "彩虹腿甲",
-    "/items/holy_plate_legs": "神圣腿甲",
-    "/items/rough_chaps": "粗糙皮裤",
-    "/items/reptile_chaps": "爬行动物皮裤",
-    "/items/gobo_chaps": "哥布林皮裤",
-    "/items/beast_chaps": "野兽皮裤",
-    "/items/umbral_chaps": "暗影皮裤",
-    "/items/cotton_robe_bottoms": "棉袍裙",
-    "/items/linen_robe_bottoms": "亚麻袍裙",
-    "/items/bamboo_robe_bottoms": "竹袍裙",
-    "/items/silk_robe_bottoms": "丝绸袍裙",
-    "/items/radiant_robe_bottoms": "光辉袍裙",
-    "/items/enchanted_gloves": "附魔手套",
-    "/items/pincer_gloves": "蟹钳手套",
-    "/items/panda_gloves": "熊猫手套",
-    "/items/magnetic_gloves": "磁力手套",
-    "/items/dodocamel_gauntlets": "渡渡驼护手",
-    "/items/dodocamel_gauntlets_refined": "渡渡驼护手 ★",
-    "/items/sighted_bracers": "瞄准护腕",
-    "/items/marksman_bracers": "神射护腕",
-    "/items/marksman_bracers_refined": "神射护腕 ★",
-    "/items/chrono_gloves": "时空手套",
-    "/items/cheese_gauntlets": "奶酪护手",
-    "/items/verdant_gauntlets": "翠绿护手",
-    "/items/azure_gauntlets": "蔚蓝护手",
-    "/items/burble_gauntlets": "深紫护手",
-    "/items/crimson_gauntlets": "绛红护手",
-    "/items/rainbow_gauntlets": "彩虹护手",
-    "/items/holy_gauntlets": "神圣护手",
-    "/items/rough_bracers": "粗糙护腕",
-    "/items/reptile_bracers": "爬行动物护腕",
-    "/items/gobo_bracers": "哥布林护腕",
-    "/items/beast_bracers": "野兽护腕",
-    "/items/umbral_bracers": "暗影护腕",
-    "/items/cotton_gloves": "棉手套",
-    "/items/linen_gloves": "亚麻手套",
-    "/items/bamboo_gloves": "竹手套",
-    "/items/silk_gloves": "丝手套",
-    "/items/radiant_gloves": "光辉手套",
-    "/items/collectors_boots": "收藏家靴",
-    "/items/shoebill_shoes": "鲸头鹳鞋",
-    "/items/black_bear_shoes": "黑熊鞋",
-    "/items/grizzly_bear_shoes": "棕熊鞋",
-    "/items/polar_bear_shoes": "北极熊鞋",
-    "/items/pathbreaker_boots": "开路者靴",
-    "/items/pathbreaker_boots_refined": "开路者靴 ★",
-    "/items/centaur_boots": "半人马靴",
-    "/items/pathfinder_boots": "探路者靴",
-    "/items/pathfinder_boots_refined": "探路者靴 ★",
-    "/items/sorcerer_boots": "巫师靴",
-    "/items/pathseeker_boots": "寻路者靴",
-    "/items/pathseeker_boots_refined": "寻路者靴 ★",
-    "/items/cheese_boots": "奶酪靴",
-    "/items/verdant_boots": "翠绿靴",
-    "/items/azure_boots": "蔚蓝靴",
-    "/items/burble_boots": "深紫靴",
-    "/items/crimson_boots": "绛红靴",
-    "/items/rainbow_boots": "彩虹靴",
-    "/items/holy_boots": "神圣靴",
-    "/items/rough_boots": "粗糙靴",
-    "/items/reptile_boots": "爬行动物靴",
-    "/items/gobo_boots": "哥布林靴",
-    "/items/beast_boots": "野兽靴",
-    "/items/umbral_boots": "暗影靴",
-    "/items/cotton_boots": "棉靴",
-    "/items/linen_boots": "亚麻靴",
-    "/items/bamboo_boots": "竹靴",
-    "/items/silk_boots": "丝靴",
-    "/items/radiant_boots": "光辉靴",
-    "/items/small_pouch": "小袋子",
-    "/items/medium_pouch": "中袋子",
-    "/items/large_pouch": "大袋子",
-    "/items/giant_pouch": "巨大袋子",
-    "/items/gluttonous_pouch": "贪食之袋",
-    "/items/guzzling_pouch": "暴饮之囊",
-    "/items/necklace_of_efficiency": "效率项链",
-    "/items/fighter_necklace": "战士项链",
-    "/items/ranger_necklace": "射手项链",
-    "/items/wizard_necklace": "巫师项链",
-    "/items/necklace_of_wisdom": "经验项链",
-    "/items/necklace_of_speed": "速度项链",
-    "/items/philosophers_necklace": "贤者项链",
-    "/items/earrings_of_gathering": "采集耳环",
-    "/items/earrings_of_essence_find": "精华发现耳环",
-    "/items/earrings_of_armor": "护甲耳环",
-    "/items/earrings_of_regeneration": "恢复耳环",
-    "/items/earrings_of_resistance": "抗性耳环",
-    "/items/earrings_of_rare_find": "稀有发现耳环",
-    "/items/earrings_of_critical_strike": "暴击耳环",
-    "/items/philosophers_earrings": "贤者耳环",
-    "/items/ring_of_gathering": "采集戒指",
-    "/items/ring_of_essence_find": "精华发现戒指",
-    "/items/ring_of_armor": "护甲戒指",
-    "/items/ring_of_regeneration": "恢复戒指",
-    "/items/ring_of_resistance": "抗性戒指",
-    "/items/ring_of_rare_find": "稀有发现戒指",
-    "/items/ring_of_critical_strike": "暴击戒指",
-    "/items/philosophers_ring": "贤者戒指",
-    "/items/trainee_milking_charm": "实习挤奶护符",
-    "/items/basic_milking_charm": "基础挤奶护符",
-    "/items/advanced_milking_charm": "高级挤奶护符",
-    "/items/expert_milking_charm": "专家挤奶护符",
-    "/items/master_milking_charm": "大师挤奶护符",
-    "/items/grandmaster_milking_charm": "宗师挤奶护符",
-    "/items/trainee_foraging_charm": "实习采摘护符",
-    "/items/basic_foraging_charm": "基础采摘护符",
-    "/items/advanced_foraging_charm": "高级采摘护符",
-    "/items/expert_foraging_charm": "专家采摘护符",
-    "/items/master_foraging_charm": "大师采摘护符",
-    "/items/grandmaster_foraging_charm": "宗师采摘护符",
-    "/items/trainee_woodcutting_charm": "实习伐木护符",
-    "/items/basic_woodcutting_charm": "基础伐木护符",
-    "/items/advanced_woodcutting_charm": "高级伐木护符",
-    "/items/expert_woodcutting_charm": "专家伐木护符",
-    "/items/master_woodcutting_charm": "大师伐木护符",
-    "/items/grandmaster_woodcutting_charm": "宗师伐木护符",
-    "/items/trainee_cheesesmithing_charm": "实习奶酪锻造护符",
-    "/items/basic_cheesesmithing_charm": "基础奶酪锻造护符",
-    "/items/advanced_cheesesmithing_charm": "高级奶酪锻造护符",
-    "/items/expert_cheesesmithing_charm": "专家奶酪锻造护符",
-    "/items/master_cheesesmithing_charm": "大师奶酪锻造护符",
-    "/items/grandmaster_cheesesmithing_charm": "宗师奶酪锻造护符",
-    "/items/trainee_crafting_charm": "实习制作护符",
-    "/items/basic_crafting_charm": "基础制作护符",
-    "/items/advanced_crafting_charm": "高级制作护符",
-    "/items/expert_crafting_charm": "专家制作护符",
-    "/items/master_crafting_charm": "大师制作护符",
-    "/items/grandmaster_crafting_charm": "宗师制作护符",
-    "/items/trainee_tailoring_charm": "实习缝纫护符",
-    "/items/basic_tailoring_charm": "基础缝纫护符",
-    "/items/advanced_tailoring_charm": "高级缝纫护符",
-    "/items/expert_tailoring_charm": "专家缝纫护符",
-    "/items/master_tailoring_charm": "大师缝纫护符",
-    "/items/grandmaster_tailoring_charm": "宗师缝纫护符",
-    "/items/trainee_cooking_charm": "实习烹饪护符",
-    "/items/basic_cooking_charm": "基础烹饪护符",
-    "/items/advanced_cooking_charm": "高级烹饪护符",
-    "/items/expert_cooking_charm": "专家烹饪护符",
-    "/items/master_cooking_charm": "大师烹饪护符",
-    "/items/grandmaster_cooking_charm": "宗师烹饪护符",
-    "/items/trainee_brewing_charm": "实习冲泡护符",
-    "/items/basic_brewing_charm": "基础冲泡护符",
-    "/items/advanced_brewing_charm": "高级冲泡护符",
-    "/items/expert_brewing_charm": "专家冲泡护符",
-    "/items/master_brewing_charm": "大师冲泡护符",
-    "/items/grandmaster_brewing_charm": "宗师冲泡护符",
-    "/items/trainee_alchemy_charm": "实习炼金护符",
-    "/items/basic_alchemy_charm": "基础炼金护符",
-    "/items/advanced_alchemy_charm": "高级炼金护符",
-    "/items/expert_alchemy_charm": "专家炼金护符",
-    "/items/master_alchemy_charm": "大师炼金护符",
-    "/items/grandmaster_alchemy_charm": "宗师炼金护符",
-    "/items/trainee_enhancing_charm": "实习强化护符",
-    "/items/basic_enhancing_charm": "基础强化护符",
-    "/items/advanced_enhancing_charm": "高级强化护符",
-    "/items/expert_enhancing_charm": "专家强化护符",
-    "/items/master_enhancing_charm": "大师强化护符",
-    "/items/grandmaster_enhancing_charm": "宗师强化护符",
-    "/items/trainee_stamina_charm": "实习耐力护符",
-    "/items/basic_stamina_charm": "基础耐力护符",
-    "/items/advanced_stamina_charm": "高级耐力护符",
-    "/items/expert_stamina_charm": "专家耐力护符",
-    "/items/master_stamina_charm": "大师耐力护符",
-    "/items/grandmaster_stamina_charm": "宗师耐力护符",
-    "/items/trainee_intelligence_charm": "实习智力护符",
-    "/items/basic_intelligence_charm": "基础智力护符",
-    "/items/advanced_intelligence_charm": "高级智力护符",
-    "/items/expert_intelligence_charm": "专家智力护符",
-    "/items/master_intelligence_charm": "大师智力护符",
-    "/items/grandmaster_intelligence_charm": "宗师智力护符",
-    "/items/trainee_attack_charm": "实习攻击护符",
-    "/items/basic_attack_charm": "基础攻击护符",
-    "/items/advanced_attack_charm": "高级攻击护符",
-    "/items/expert_attack_charm": "专家攻击护符",
-    "/items/master_attack_charm": "大师攻击护符",
-    "/items/grandmaster_attack_charm": "宗师攻击护符",
-    "/items/trainee_defense_charm": "实习防御护符",
-    "/items/basic_defense_charm": "基础防御护符",
-    "/items/advanced_defense_charm": "高级防御护符",
-    "/items/expert_defense_charm": "专家防御护符",
-    "/items/master_defense_charm": "大师防御护符",
-    "/items/grandmaster_defense_charm": "宗师防御护符",
-    "/items/trainee_melee_charm": "实习近战护符",
-    "/items/basic_melee_charm": "基础近战护符",
-    "/items/advanced_melee_charm": "高级近战护符",
-    "/items/expert_melee_charm": "专家近战护符",
-    "/items/master_melee_charm": "大师近战护符",
-    "/items/grandmaster_melee_charm": "宗师近战护符",
-    "/items/trainee_ranged_charm": "实习远程护符",
-    "/items/basic_ranged_charm": "基础远程护符",
-    "/items/advanced_ranged_charm": "高级远程护符",
-    "/items/expert_ranged_charm": "专家远程护符",
-    "/items/master_ranged_charm": "大师远程护符",
-    "/items/grandmaster_ranged_charm": "宗师远程护符",
-    "/items/trainee_magic_charm": "实习魔法护符",
-    "/items/basic_magic_charm": "基础魔法护符",
-    "/items/advanced_magic_charm": "高级魔法护符",
-    "/items/expert_magic_charm": "专家魔法护符",
-    "/items/master_magic_charm": "大师魔法护符",
-    "/items/grandmaster_magic_charm": "宗师魔法护符",
-    "/items/basic_task_badge": "基础任务徽章",
-    "/items/advanced_task_badge": "高级任务徽章",
-    "/items/expert_task_badge": "专家任务徽章",
-    "/items/celestial_brush": "星空刷子",
-    "/items/cheese_brush": "奶酪刷子",
-    "/items/verdant_brush": "翠绿刷子",
-    "/items/azure_brush": "蔚蓝刷子",
-    "/items/burble_brush": "深紫刷子",
-    "/items/crimson_brush": "绛红刷子",
-    "/items/rainbow_brush": "彩虹刷子",
-    "/items/holy_brush": "神圣刷子",
-    "/items/celestial_shears": "星空剪刀",
-    "/items/cheese_shears": "奶酪剪刀",
-    "/items/verdant_shears": "翠绿剪刀",
-    "/items/azure_shears": "蔚蓝剪刀",
-    "/items/burble_shears": "深紫剪刀",
-    "/items/crimson_shears": "绛红剪刀",
-    "/items/rainbow_shears": "彩虹剪刀",
-    "/items/holy_shears": "神圣剪刀",
-    "/items/celestial_hatchet": "星空斧头",
-    "/items/cheese_hatchet": "奶酪斧头",
-    "/items/verdant_hatchet": "翠绿斧头",
-    "/items/azure_hatchet": "蔚蓝斧头",
-    "/items/burble_hatchet": "深紫斧头",
-    "/items/crimson_hatchet": "绛红斧头",
-    "/items/rainbow_hatchet": "彩虹斧头",
-    "/items/holy_hatchet": "神圣斧头",
-    "/items/celestial_hammer": "星空锤子",
-    "/items/cheese_hammer": "奶酪锤子",
-    "/items/verdant_hammer": "翠绿锤子",
-    "/items/azure_hammer": "蔚蓝锤子",
-    "/items/burble_hammer": "深紫锤子",
-    "/items/crimson_hammer": "绛红锤子",
-    "/items/rainbow_hammer": "彩虹锤子",
-    "/items/holy_hammer": "神圣锤子",
-    "/items/celestial_chisel": "星空凿子",
-    "/items/cheese_chisel": "奶酪凿子",
-    "/items/verdant_chisel": "翠绿凿子",
-    "/items/azure_chisel": "蔚蓝凿子",
-    "/items/burble_chisel": "深紫凿子",
-    "/items/crimson_chisel": "绛红凿子",
-    "/items/rainbow_chisel": "彩虹凿子",
-    "/items/holy_chisel": "神圣凿子",
-    "/items/celestial_needle": "星空针",
-    "/items/cheese_needle": "奶酪针",
-    "/items/verdant_needle": "翠绿针",
-    "/items/azure_needle": "蔚蓝针",
-    "/items/burble_needle": "深紫针",
-    "/items/crimson_needle": "绛红针",
-    "/items/rainbow_needle": "彩虹针",
-    "/items/holy_needle": "神圣针",
-    "/items/celestial_spatula": "星空锅铲",
-    "/items/cheese_spatula": "奶酪锅铲",
-    "/items/verdant_spatula": "翠绿锅铲",
-    "/items/azure_spatula": "蔚蓝锅铲",
-    "/items/burble_spatula": "深紫锅铲",
-    "/items/crimson_spatula": "绛红锅铲",
-    "/items/rainbow_spatula": "彩虹锅铲",
-    "/items/holy_spatula": "神圣锅铲",
-    "/items/celestial_pot": "星空壶",
-    "/items/cheese_pot": "奶酪壶",
-    "/items/verdant_pot": "翠绿壶",
-    "/items/azure_pot": "蔚蓝壶",
-    "/items/burble_pot": "深紫壶",
-    "/items/crimson_pot": "绛红壶",
-    "/items/rainbow_pot": "彩虹壶",
-    "/items/holy_pot": "神圣壶",
-    "/items/celestial_alembic": "星空蒸馏器",
-    "/items/cheese_alembic": "奶酪蒸馏器",
-    "/items/verdant_alembic": "翠绿蒸馏器",
-    "/items/azure_alembic": "蔚蓝蒸馏器",
-    "/items/burble_alembic": "深紫蒸馏器",
-    "/items/crimson_alembic": "绛红蒸馏器",
-    "/items/rainbow_alembic": "彩虹蒸馏器",
-    "/items/holy_alembic": "神圣蒸馏器",
-    "/items/celestial_enhancer": "星空强化器",
-    "/items/cheese_enhancer": "奶酪强化器",
-    "/items/verdant_enhancer": "翠绿强化器",
-    "/items/azure_enhancer": "蔚蓝强化器",
-    "/items/burble_enhancer": "深紫强化器",
-    "/items/crimson_enhancer": "绛红强化器",
-    "/items/rainbow_enhancer": "彩虹强化器",
-    "/items/holy_enhancer": "神圣强化器",
-    "/items/milk": "牛奶",
-    "/items/verdant_milk": "翠绿牛奶",
-    "/items/azure_milk": "蔚蓝牛奶",
-    "/items/burble_milk": "深紫牛奶",
-    "/items/crimson_milk": "绛红牛奶",
-    "/items/rainbow_milk": "彩虹牛奶",
-    "/items/holy_milk": "神圣牛奶",
-    "/items/cheese": "奶酪",
-    "/items/verdant_cheese": "翠绿奶酪",
-    "/items/azure_cheese": "蔚蓝奶酪",
-    "/items/burble_cheese": "深紫奶酪",
-    "/items/crimson_cheese": "绛红奶酪",
-    "/items/rainbow_cheese": "彩虹奶酪",
-    "/items/holy_cheese": "神圣奶酪",
-    "/items/log": "原木",
-    "/items/birch_log": "白桦原木",
-    "/items/cedar_log": "雪松原木",
-    "/items/purpleheart_log": "紫心原木",
-    "/items/ginkgo_log": "银杏原木",
-    "/items/redwood_log": "红杉原木",
-    "/items/arcane_log": "神秘原木",
-    "/items/lumber": "木板",
-    "/items/birch_lumber": "白桦木板",
-    "/items/cedar_lumber": "雪松木板",
-    "/items/purpleheart_lumber": "紫心木板",
-    "/items/ginkgo_lumber": "银杏木板",
-    "/items/redwood_lumber": "红杉木板",
-    "/items/arcane_lumber": "神秘木板",
-    "/items/rough_hide": "粗糙兽皮",
-    "/items/reptile_hide": "爬行动物皮",
-    "/items/gobo_hide": "哥布林皮",
-    "/items/beast_hide": "野兽皮",
-    "/items/umbral_hide": "暗影皮",
-    "/items/rough_leather": "粗糙皮革",
-    "/items/reptile_leather": "爬行动物皮革",
-    "/items/gobo_leather": "哥布林皮革",
-    "/items/beast_leather": "野兽皮革",
-    "/items/umbral_leather": "暗影皮革",
-    "/items/cotton": "棉花",
-    "/items/flax": "亚麻",
-    "/items/bamboo_branch": "竹子",
-    "/items/cocoon": "蚕茧",
-    "/items/radiant_fiber": "光辉纤维",
-    "/items/cotton_fabric": "棉花布料",
-    "/items/linen_fabric": "亚麻布料",
-    "/items/bamboo_fabric": "竹子布料",
-    "/items/silk_fabric": "丝绸",
-    "/items/radiant_fabric": "光辉布料",
-    "/items/egg": "鸡蛋",
-    "/items/wheat": "小麦",
-    "/items/sugar": "糖",
-    "/items/blueberry": "蓝莓",
-    "/items/blackberry": "黑莓",
-    "/items/strawberry": "草莓",
-    "/items/mooberry": "哞莓",
-    "/items/marsberry": "火星莓",
-    "/items/spaceberry": "太空莓",
-    "/items/apple": "苹果",
-    "/items/orange": "橙子",
-    "/items/plum": "李子",
-    "/items/peach": "桃子",
-    "/items/dragon_fruit": "火龙果",
-    "/items/star_fruit": "杨桃",
-    "/items/arabica_coffee_bean": "低级咖啡豆",
-    "/items/robusta_coffee_bean": "中级咖啡豆",
-    "/items/liberica_coffee_bean": "高级咖啡豆",
-    "/items/excelsa_coffee_bean": "特级咖啡豆",
-    "/items/fieriosa_coffee_bean": "火山咖啡豆",
-    "/items/spacia_coffee_bean": "太空咖啡豆",
-    "/items/green_tea_leaf": "绿茶叶",
-    "/items/black_tea_leaf": "黑茶叶",
-    "/items/burble_tea_leaf": "紫茶叶",
-    "/items/moolong_tea_leaf": "哞龙茶叶",
-    "/items/red_tea_leaf": "红茶叶",
-    "/items/emp_tea_leaf": "虚空茶叶",
-    "/items/catalyst_of_coinification": "点金催化剂",
-    "/items/catalyst_of_decomposition": "分解催化剂",
-    "/items/catalyst_of_transmutation": "转化催化剂",
-    "/items/prime_catalyst": "至高催化剂",
-    "/items/snake_fang": "蛇牙",
-    "/items/shoebill_feather": "鲸头鹳羽毛",
-    "/items/snail_shell": "蜗牛壳",
-    "/items/crab_pincer": "蟹钳",
-    "/items/turtle_shell": "乌龟壳",
-    "/items/marine_scale": "海洋鳞片",
-    "/items/treant_bark": "树皮",
-    "/items/centaur_hoof": "半人马蹄",
-    "/items/luna_wing": "月神翼",
-    "/items/gobo_rag": "哥布林抹布",
-    "/items/goggles": "护目镜",
-    "/items/magnifying_glass": "放大镜",
-    "/items/eye_of_the_watcher": "观察者之眼",
-    "/items/icy_cloth": "冰霜织物",
-    "/items/flaming_cloth": "烈焰织物",
-    "/items/sorcerers_sole": "魔法师鞋底",
-    "/items/chrono_sphere": "时空球",
-    "/items/frost_sphere": "冰霜球",
-    "/items/panda_fluff": "熊猫绒",
-    "/items/black_bear_fluff": "黑熊绒",
-    "/items/grizzly_bear_fluff": "棕熊绒",
-    "/items/polar_bear_fluff": "北极熊绒",
-    "/items/red_panda_fluff": "小熊猫绒",
-    "/items/magnet": "磁铁",
-    "/items/stalactite_shard": "钟乳石碎片",
-    "/items/living_granite": "花岗岩",
-    "/items/colossus_core": "巨像核心",
-    "/items/vampire_fang": "吸血鬼之牙",
-    "/items/werewolf_claw": "狼人之爪",
-    "/items/revenant_anima": "亡者之魂",
-    "/items/soul_fragment": "灵魂碎片",
-    "/items/infernal_ember": "地狱余烬",
-    "/items/demonic_core": "恶魔核心",
-    "/items/griffin_leather": "狮鹫之皮",
-    "/items/manticore_sting": "蝎狮之刺",
-    "/items/jackalope_antler": "鹿角兔之角",
-    "/items/dodocamel_plume": "渡渡驼之翎",
-    "/items/griffin_talon": "狮鹫之爪",
-    "/items/chimerical_refinement_shard": "奇幻精炼碎片",
-    "/items/acrobats_ribbon": "杂技师彩带",
-    "/items/magicians_cloth": "魔术师织物",
-    "/items/chaotic_chain": "混沌锁链",
-    "/items/cursed_ball": "诅咒之球",
-    "/items/sinister_refinement_shard": "阴森精炼碎片",
-    "/items/royal_cloth": "皇家织物",
-    "/items/knights_ingot": "骑士之锭",
-    "/items/bishops_scroll": "主教卷轴",
-    "/items/regal_jewel": "君王宝石",
-    "/items/sundering_jewel": "裂空宝石",
-    "/items/enchanted_refinement_shard": "秘法精炼碎片",
-    "/items/marksman_brooch": "神射胸针",
-    "/items/corsair_crest": "掠夺者徽章",
-    "/items/damaged_anchor": "破损船锚",
-    "/items/maelstrom_plating": "怒涛甲片",
-    "/items/kraken_leather": "克拉肯皮革",
-    "/items/kraken_fang": "克拉肯之牙",
-    "/items/pirate_refinement_shard": "海盗精炼碎片",
-    "/items/pathbreaker_lodestone": "开路者磁石",
-    "/items/pathfinder_lodestone": "探路者磁石",
-    "/items/pathseeker_lodestone": "寻路者磁石",
-    "/items/labyrinth_refinement_shard": "迷宫精炼碎片",
-    "/items/butter_of_proficiency": "精通之油",
-    "/items/thread_of_expertise": "专精之线",
-    "/items/branch_of_insight": "洞察之枝",
-    "/items/gluttonous_energy": "贪食能量",
-    "/items/guzzling_energy": "暴饮能量",
-    "/items/milking_essence": "挤奶精华",
-    "/items/foraging_essence": "采摘精华",
-    "/items/woodcutting_essence": "伐木精华",
-    "/items/cheesesmithing_essence": "奶酪锻造精华",
-    "/items/crafting_essence": "制作精华",
-    "/items/tailoring_essence": "缝纫精华",
-    "/items/cooking_essence": "烹饪精华",
-    "/items/brewing_essence": "冲泡精华",
-    "/items/alchemy_essence": "炼金精华",
-    "/items/enhancing_essence": "强化精华",
-    "/items/swamp_essence": "沼泽精华",
-    "/items/aqua_essence": "海洋精华",
-    "/items/jungle_essence": "丛林精华",
-    "/items/gobo_essence": "哥布林精华",
-    "/items/eyessence": "眼精华",
-    "/items/sorcerer_essence": "法师精华",
-    "/items/bear_essence": "熊熊精华",
-    "/items/golem_essence": "魔像精华",
-    "/items/twilight_essence": "暮光精华",
-    "/items/abyssal_essence": "地狱精华",
-    "/items/chimerical_essence": "奇幻精华",
-    "/items/sinister_essence": "阴森精华",
-    "/items/enchanted_essence": "秘法精华",
-    "/items/pirate_essence": "海盗精华",
-    "/items/labyrinth_essence": "迷宫精华",
-    "/items/task_crystal": "任务水晶",
-    "/items/star_fragment": "星光碎片",
-    "/items/pearl": "珍珠",
-    "/items/amber": "琥珀",
-    "/items/garnet": "石榴石",
-    "/items/jade": "翡翠",
-    "/items/amethyst": "紫水晶",
-    "/items/moonstone": "月亮石",
-    "/items/sunstone": "太阳石",
-    "/items/philosophers_stone": "贤者之石",
-    "/items/crushed_pearl": "珍珠碎片",
-    "/items/crushed_amber": "琥珀碎片",
-    "/items/crushed_garnet": "石榴石碎片",
-    "/items/crushed_jade": "翡翠碎片",
-    "/items/crushed_amethyst": "紫水晶碎片",
-    "/items/crushed_moonstone": "月亮石碎片",
-    "/items/crushed_sunstone": "太阳石碎片",
-    "/items/crushed_philosophers_stone": "贤者之石碎片",
-    "/items/shard_of_protection": "保护碎片",
-    "/items/mirror_of_protection": "保护之镜",
-    "/items/philosophers_mirror": "贤者之镜",
-    "/items/basic_torch": "基础火把",
-    "/items/advanced_torch": "进阶火把",
-    "/items/expert_torch": "专家火把",
-    "/items/basic_shroud": "基础斗篷",
-    "/items/advanced_shroud": "进阶斗篷",
-    "/items/expert_shroud": "专家斗篷",
-    "/items/basic_beacon": "基础探照灯",
-    "/items/advanced_beacon": "进阶探照灯",
-    "/items/expert_beacon": "专家探照灯",
-    "/items/basic_food_crate": "基础食物箱",
-    "/items/advanced_food_crate": "进阶食物箱",
-    "/items/expert_food_crate": "专家食物箱",
-    "/items/basic_tea_crate": "基础茶叶箱",
-    "/items/advanced_tea_crate": "进阶茶叶箱",
-    "/items/expert_tea_crate": "专家茶叶箱",
-    "/items/basic_coffee_crate": "基础咖啡箱",
-    "/items/advanced_coffee_crate": "进阶咖啡箱",
-    "/items/expert_coffee_crate": "专家咖啡箱"
-  };
-  var ZHActionNames = {
-    "/actions/milking/cow": "奶牛",
-    "/actions/milking/verdant_cow": "翠绿奶牛",
-    "/actions/milking/azure_cow": "蔚蓝奶牛",
-    "/actions/milking/burble_cow": "深紫奶牛",
-    "/actions/milking/crimson_cow": "绛红奶牛",
-    "/actions/milking/unicow": "彩虹奶牛",
-    "/actions/milking/holy_cow": "神圣奶牛",
-    "/actions/foraging/egg": "鸡蛋",
-    "/actions/foraging/wheat": "小麦",
-    "/actions/foraging/sugar": "糖",
-    "/actions/foraging/cotton": "棉花",
-    "/actions/foraging/farmland": "翠野农场",
-    "/actions/foraging/blueberry": "蓝莓",
-    "/actions/foraging/apple": "苹果",
-    "/actions/foraging/arabica_coffee_bean": "低级咖啡豆",
-    "/actions/foraging/flax": "亚麻",
-    "/actions/foraging/shimmering_lake": "波光湖泊",
-    "/actions/foraging/blackberry": "黑莓",
-    "/actions/foraging/orange": "橙子",
-    "/actions/foraging/robusta_coffee_bean": "中级咖啡豆",
-    "/actions/foraging/misty_forest": "迷雾森林",
-    "/actions/foraging/strawberry": "草莓",
-    "/actions/foraging/plum": "李子",
-    "/actions/foraging/liberica_coffee_bean": "高级咖啡豆",
-    "/actions/foraging/bamboo_branch": "竹子",
-    "/actions/foraging/burble_beach": "深紫沙滩",
-    "/actions/foraging/mooberry": "哞莓",
-    "/actions/foraging/peach": "桃子",
-    "/actions/foraging/excelsa_coffee_bean": "特级咖啡豆",
-    "/actions/foraging/cocoon": "蚕茧",
-    "/actions/foraging/silly_cow_valley": "傻牛山谷",
-    "/actions/foraging/marsberry": "火星莓",
-    "/actions/foraging/dragon_fruit": "火龙果",
-    "/actions/foraging/fieriosa_coffee_bean": "火山咖啡豆",
-    "/actions/foraging/olympus_mons": "奥林匹斯山",
-    "/actions/foraging/spaceberry": "太空莓",
-    "/actions/foraging/star_fruit": "杨桃",
-    "/actions/foraging/spacia_coffee_bean": "太空咖啡豆",
-    "/actions/foraging/radiant_fiber": "光辉纤维",
-    "/actions/foraging/asteroid_belt": "小行星带",
-    "/actions/woodcutting/tree": "树",
-    "/actions/woodcutting/birch_tree": "桦树",
-    "/actions/woodcutting/cedar_tree": "雪松树",
-    "/actions/woodcutting/purpleheart_tree": "紫心树",
-    "/actions/woodcutting/ginkgo_tree": "银杏树",
-    "/actions/woodcutting/redwood_tree": "红杉树",
-    "/actions/woodcutting/arcane_tree": "奥秘树",
-    "/actions/cheesesmithing/cheese": "奶酪",
-    "/actions/cheesesmithing/cheese_boots": "奶酪靴",
-    "/actions/cheesesmithing/cheese_gauntlets": "奶酪护手",
-    "/actions/cheesesmithing/cheese_sword": "奶酪剑",
-    "/actions/cheesesmithing/cheese_brush": "奶酪刷子",
-    "/actions/cheesesmithing/cheese_shears": "奶酪剪刀",
-    "/actions/cheesesmithing/cheese_hatchet": "奶酪斧头",
-    "/actions/cheesesmithing/cheese_spear": "奶酪长枪",
-    "/actions/cheesesmithing/cheese_hammer": "奶酪锤子",
-    "/actions/cheesesmithing/cheese_chisel": "奶酪凿子",
-    "/actions/cheesesmithing/cheese_needle": "奶酪针",
-    "/actions/cheesesmithing/cheese_spatula": "奶酪锅铲",
-    "/actions/cheesesmithing/cheese_pot": "奶酪壶",
-    "/actions/cheesesmithing/cheese_mace": "奶酪钉头锤",
-    "/actions/cheesesmithing/cheese_alembic": "奶酪蒸馏器",
-    "/actions/cheesesmithing/cheese_enhancer": "奶酪强化器",
-    "/actions/cheesesmithing/cheese_helmet": "奶酪头盔",
-    "/actions/cheesesmithing/cheese_buckler": "奶酪圆盾",
-    "/actions/cheesesmithing/cheese_bulwark": "奶酪重盾",
-    "/actions/cheesesmithing/cheese_plate_legs": "奶酪腿甲",
-    "/actions/cheesesmithing/cheese_plate_body": "奶酪胸甲",
-    "/actions/cheesesmithing/verdant_cheese": "翠绿奶酪",
-    "/actions/cheesesmithing/verdant_boots": "翠绿靴",
-    "/actions/cheesesmithing/verdant_gauntlets": "翠绿护手",
-    "/actions/cheesesmithing/verdant_sword": "翠绿剑",
-    "/actions/cheesesmithing/verdant_brush": "翠绿刷子",
-    "/actions/cheesesmithing/verdant_shears": "翠绿剪刀",
-    "/actions/cheesesmithing/verdant_hatchet": "翠绿斧头",
-    "/actions/cheesesmithing/verdant_spear": "翠绿长枪",
-    "/actions/cheesesmithing/verdant_hammer": "翠绿锤子",
-    "/actions/cheesesmithing/verdant_chisel": "翠绿凿子",
-    "/actions/cheesesmithing/verdant_needle": "翠绿针",
-    "/actions/cheesesmithing/verdant_spatula": "翠绿锅铲",
-    "/actions/cheesesmithing/verdant_pot": "翠绿壶",
-    "/actions/cheesesmithing/verdant_mace": "翠绿钉头锤",
-    "/actions/cheesesmithing/snake_fang_dirk": "蛇牙短剑",
-    "/actions/cheesesmithing/verdant_alembic": "翠绿蒸馏器",
-    "/actions/cheesesmithing/verdant_enhancer": "翠绿强化器",
-    "/actions/cheesesmithing/verdant_helmet": "翠绿头盔",
-    "/actions/cheesesmithing/verdant_buckler": "翠绿圆盾",
-    "/actions/cheesesmithing/verdant_bulwark": "翠绿重盾",
-    "/actions/cheesesmithing/verdant_plate_legs": "翠绿腿甲",
-    "/actions/cheesesmithing/verdant_plate_body": "翠绿胸甲",
-    "/actions/cheesesmithing/azure_cheese": "蔚蓝奶酪",
-    "/actions/cheesesmithing/azure_boots": "蔚蓝靴",
-    "/actions/cheesesmithing/basic_beacon": "基础探照灯",
-    "/actions/cheesesmithing/azure_gauntlets": "蔚蓝护手",
-    "/actions/cheesesmithing/azure_sword": "蔚蓝剑",
-    "/actions/cheesesmithing/azure_brush": "蔚蓝刷子",
-    "/actions/cheesesmithing/azure_shears": "蔚蓝剪刀",
-    "/actions/cheesesmithing/azure_hatchet": "蔚蓝斧头",
-    "/actions/cheesesmithing/azure_spear": "蔚蓝长枪",
-    "/actions/cheesesmithing/azure_hammer": "蔚蓝锤子",
-    "/actions/cheesesmithing/azure_chisel": "蔚蓝凿子",
-    "/actions/cheesesmithing/azure_needle": "蔚蓝针",
-    "/actions/cheesesmithing/azure_spatula": "蔚蓝锅铲",
-    "/actions/cheesesmithing/azure_pot": "蔚蓝壶",
-    "/actions/cheesesmithing/azure_mace": "蔚蓝钉头锤",
-    "/actions/cheesesmithing/pincer_gloves": "蟹钳手套",
-    "/actions/cheesesmithing/azure_alembic": "蔚蓝蒸馏器",
-    "/actions/cheesesmithing/azure_enhancer": "蔚蓝强化器",
-    "/actions/cheesesmithing/azure_helmet": "蔚蓝头盔",
-    "/actions/cheesesmithing/azure_buckler": "蔚蓝圆盾",
-    "/actions/cheesesmithing/azure_bulwark": "蔚蓝重盾",
-    "/actions/cheesesmithing/azure_plate_legs": "蔚蓝腿甲",
-    "/actions/cheesesmithing/snail_shell_helmet": "蜗牛壳头盔",
-    "/actions/cheesesmithing/azure_plate_body": "蔚蓝胸甲",
-    "/actions/cheesesmithing/turtle_shell_legs": "龟壳腿甲",
-    "/actions/cheesesmithing/turtle_shell_body": "龟壳胸甲",
-    "/actions/cheesesmithing/burble_cheese": "深紫奶酪",
-    "/actions/cheesesmithing/burble_boots": "深紫靴",
-    "/actions/cheesesmithing/burble_gauntlets": "深紫护手",
-    "/actions/cheesesmithing/burble_sword": "深紫剑",
-    "/actions/cheesesmithing/burble_brush": "深紫刷子",
-    "/actions/cheesesmithing/burble_shears": "深紫剪刀",
-    "/actions/cheesesmithing/burble_hatchet": "深紫斧头",
-    "/actions/cheesesmithing/burble_spear": "深紫长枪",
-    "/actions/cheesesmithing/burble_hammer": "深紫锤子",
-    "/actions/cheesesmithing/burble_chisel": "深紫凿子",
-    "/actions/cheesesmithing/burble_needle": "深紫针",
-    "/actions/cheesesmithing/burble_spatula": "深紫锅铲",
-    "/actions/cheesesmithing/burble_pot": "深紫壶",
-    "/actions/cheesesmithing/burble_mace": "深紫钉头锤",
-    "/actions/cheesesmithing/burble_alembic": "深紫蒸馏器",
-    "/actions/cheesesmithing/burble_enhancer": "深紫强化器",
-    "/actions/cheesesmithing/burble_helmet": "深紫头盔",
-    "/actions/cheesesmithing/burble_buckler": "深紫圆盾",
-    "/actions/cheesesmithing/burble_bulwark": "深紫重盾",
-    "/actions/cheesesmithing/burble_plate_legs": "深紫腿甲",
-    "/actions/cheesesmithing/burble_plate_body": "深紫胸甲",
-    "/actions/cheesesmithing/crimson_cheese": "绛红奶酪",
-    "/actions/cheesesmithing/crimson_boots": "绛红靴",
-    "/actions/cheesesmithing/advanced_beacon": "进阶探照灯",
-    "/actions/cheesesmithing/crimson_gauntlets": "绛红护手",
-    "/actions/cheesesmithing/crimson_sword": "绛红剑",
-    "/actions/cheesesmithing/crimson_brush": "绛红刷子",
-    "/actions/cheesesmithing/crimson_shears": "绛红剪刀",
-    "/actions/cheesesmithing/crimson_hatchet": "绛红斧头",
-    "/actions/cheesesmithing/crimson_spear": "绛红长枪",
-    "/actions/cheesesmithing/crimson_hammer": "绛红锤子",
-    "/actions/cheesesmithing/crimson_chisel": "绛红凿子",
-    "/actions/cheesesmithing/crimson_needle": "绛红针",
-    "/actions/cheesesmithing/crimson_spatula": "绛红锅铲",
-    "/actions/cheesesmithing/crimson_pot": "绛红壶",
-    "/actions/cheesesmithing/crimson_mace": "绛红钉头锤",
-    "/actions/cheesesmithing/crimson_alembic": "绛红蒸馏器",
-    "/actions/cheesesmithing/crimson_enhancer": "绛红强化器",
-    "/actions/cheesesmithing/crimson_helmet": "绛红头盔",
-    "/actions/cheesesmithing/crimson_buckler": "绛红圆盾",
-    "/actions/cheesesmithing/crimson_bulwark": "绛红重盾",
-    "/actions/cheesesmithing/crimson_plate_legs": "绛红腿甲",
-    "/actions/cheesesmithing/vision_helmet": "视觉头盔",
-    "/actions/cheesesmithing/vision_shield": "视觉盾",
-    "/actions/cheesesmithing/crimson_plate_body": "绛红胸甲",
-    "/actions/cheesesmithing/rainbow_cheese": "彩虹奶酪",
-    "/actions/cheesesmithing/rainbow_boots": "彩虹靴",
-    "/actions/cheesesmithing/black_bear_shoes": "黑熊鞋",
-    "/actions/cheesesmithing/grizzly_bear_shoes": "棕熊鞋",
-    "/actions/cheesesmithing/polar_bear_shoes": "北极熊鞋",
-    "/actions/cheesesmithing/rainbow_gauntlets": "彩虹护手",
-    "/actions/cheesesmithing/rainbow_sword": "彩虹剑",
-    "/actions/cheesesmithing/panda_gloves": "熊猫手套",
-    "/actions/cheesesmithing/rainbow_brush": "彩虹刷子",
-    "/actions/cheesesmithing/rainbow_shears": "彩虹剪刀",
-    "/actions/cheesesmithing/rainbow_hatchet": "彩虹斧头",
-    "/actions/cheesesmithing/rainbow_spear": "彩虹长枪",
-    "/actions/cheesesmithing/rainbow_hammer": "彩虹锤子",
-    "/actions/cheesesmithing/rainbow_chisel": "彩虹凿子",
-    "/actions/cheesesmithing/rainbow_needle": "彩虹针",
-    "/actions/cheesesmithing/rainbow_spatula": "彩虹锅铲",
-    "/actions/cheesesmithing/rainbow_pot": "彩虹壶",
-    "/actions/cheesesmithing/rainbow_mace": "彩虹钉头锤",
-    "/actions/cheesesmithing/rainbow_alembic": "彩虹蒸馏器",
-    "/actions/cheesesmithing/rainbow_enhancer": "彩虹强化器",
-    "/actions/cheesesmithing/rainbow_helmet": "彩虹头盔",
-    "/actions/cheesesmithing/rainbow_buckler": "彩虹圆盾",
-    "/actions/cheesesmithing/rainbow_bulwark": "彩虹重盾",
-    "/actions/cheesesmithing/rainbow_plate_legs": "彩虹腿甲",
-    "/actions/cheesesmithing/rainbow_plate_body": "彩虹胸甲",
-    "/actions/cheesesmithing/holy_cheese": "神圣奶酪",
-    "/actions/cheesesmithing/holy_boots": "神圣靴",
-    "/actions/cheesesmithing/expert_beacon": "专家探照灯",
-    "/actions/cheesesmithing/holy_gauntlets": "神圣护手",
-    "/actions/cheesesmithing/holy_sword": "神圣剑",
-    "/actions/cheesesmithing/holy_brush": "神圣刷子",
-    "/actions/cheesesmithing/holy_shears": "神圣剪刀",
-    "/actions/cheesesmithing/holy_hatchet": "神圣斧头",
-    "/actions/cheesesmithing/holy_spear": "神圣长枪",
-    "/actions/cheesesmithing/holy_hammer": "神圣锤子",
-    "/actions/cheesesmithing/holy_chisel": "神圣凿子",
-    "/actions/cheesesmithing/holy_needle": "神圣针",
-    "/actions/cheesesmithing/holy_spatula": "神圣锅铲",
-    "/actions/cheesesmithing/holy_pot": "神圣壶",
-    "/actions/cheesesmithing/holy_mace": "神圣钉头锤",
-    "/actions/cheesesmithing/magnetic_gloves": "磁力手套",
-    "/actions/cheesesmithing/stalactite_spear": "石钟长枪",
-    "/actions/cheesesmithing/granite_bludgeon": "花岗岩大棒",
-    "/actions/cheesesmithing/vampire_fang_dirk": "吸血鬼短剑",
-    "/actions/cheesesmithing/werewolf_slasher": "狼人关刀",
-    "/actions/cheesesmithing/holy_alembic": "神圣蒸馏器",
-    "/actions/cheesesmithing/holy_enhancer": "神圣强化器",
-    "/actions/cheesesmithing/holy_helmet": "神圣头盔",
-    "/actions/cheesesmithing/holy_buckler": "神圣圆盾",
-    "/actions/cheesesmithing/holy_bulwark": "神圣重盾",
-    "/actions/cheesesmithing/holy_plate_legs": "神圣腿甲",
-    "/actions/cheesesmithing/holy_plate_body": "神圣胸甲",
-    "/actions/cheesesmithing/celestial_brush": "星空刷子",
-    "/actions/cheesesmithing/celestial_shears": "星空剪刀",
-    "/actions/cheesesmithing/celestial_hatchet": "星空斧头",
-    "/actions/cheesesmithing/celestial_hammer": "星空锤子",
-    "/actions/cheesesmithing/celestial_chisel": "星空凿子",
-    "/actions/cheesesmithing/celestial_needle": "星空针",
-    "/actions/cheesesmithing/celestial_spatula": "星空锅铲",
-    "/actions/cheesesmithing/celestial_pot": "星空壶",
-    "/actions/cheesesmithing/celestial_alembic": "星空蒸馏器",
-    "/actions/cheesesmithing/celestial_enhancer": "星空强化器",
-    "/actions/cheesesmithing/colossus_plate_body": "巨像胸甲",
-    "/actions/cheesesmithing/colossus_plate_legs": "巨像腿甲",
-    "/actions/cheesesmithing/demonic_plate_body": "恶魔胸甲",
-    "/actions/cheesesmithing/demonic_plate_legs": "恶魔腿甲",
-    "/actions/cheesesmithing/spiked_bulwark": "尖刺重盾",
-    "/actions/cheesesmithing/pathbreaker_boots": "开路者靴",
-    "/actions/cheesesmithing/dodocamel_gauntlets": "渡渡驼护手",
-    "/actions/cheesesmithing/corsair_helmet": "掠夺者头盔",
-    "/actions/cheesesmithing/knights_aegis": "骑士盾",
-    "/actions/cheesesmithing/anchorbound_plate_legs": "锚定腿甲",
-    "/actions/cheesesmithing/maelstrom_plate_legs": "怒涛腿甲",
-    "/actions/cheesesmithing/griffin_bulwark": "狮鹫重盾",
-    "/actions/cheesesmithing/furious_spear": "狂怒长枪",
-    "/actions/cheesesmithing/chaotic_flail": "混沌连枷",
-    "/actions/cheesesmithing/regal_sword": "君王之剑",
-    "/actions/cheesesmithing/anchorbound_plate_body": "锚定胸甲",
-    "/actions/cheesesmithing/maelstrom_plate_body": "怒涛胸甲",
-    "/actions/cheesesmithing/pathbreaker_boots_refined": "开路者靴 ★",
-    "/actions/cheesesmithing/dodocamel_gauntlets_refined": "渡渡驼护手 ★",
-    "/actions/cheesesmithing/corsair_helmet_refined": "掠夺者头盔 ★",
-    "/actions/cheesesmithing/knights_aegis_refined": "骑士盾 ★",
-    "/actions/cheesesmithing/anchorbound_plate_legs_refined": "锚定腿甲 ★",
-    "/actions/cheesesmithing/maelstrom_plate_legs_refined": "怒涛腿甲 ★",
-    "/actions/cheesesmithing/griffin_bulwark_refined": "狮鹫重盾 ★",
-    "/actions/cheesesmithing/furious_spear_refined": "狂怒长枪 ★",
-    "/actions/cheesesmithing/chaotic_flail_refined": "混沌连枷 ★",
-    "/actions/cheesesmithing/regal_sword_refined": "君王之剑 ★",
-    "/actions/cheesesmithing/anchorbound_plate_body_refined": "锚定胸甲 ★",
-    "/actions/cheesesmithing/maelstrom_plate_body_refined": "怒涛胸甲 ★",
-    "/actions/crafting/lumber": "木板",
-    "/actions/crafting/wooden_crossbow": "木弩",
-    "/actions/crafting/wooden_water_staff": "木制水法杖",
-    "/actions/crafting/basic_task_badge": "基础任务徽章",
-    "/actions/crafting/advanced_task_badge": "高级任务徽章",
-    "/actions/crafting/expert_task_badge": "专家任务徽章",
-    "/actions/crafting/wooden_shield": "木盾",
-    "/actions/crafting/wooden_nature_staff": "木制自然法杖",
-    "/actions/crafting/wooden_bow": "木弓",
-    "/actions/crafting/wooden_fire_staff": "木制火法杖",
-    "/actions/crafting/birch_lumber": "白桦木板",
-    "/actions/crafting/birch_crossbow": "桦木弩",
-    "/actions/crafting/birch_water_staff": "桦木水法杖",
-    "/actions/crafting/crushed_pearl": "珍珠碎片",
-    "/actions/crafting/birch_shield": "桦木盾",
-    "/actions/crafting/birch_nature_staff": "桦木自然法杖",
-    "/actions/crafting/birch_bow": "桦木弓",
-    "/actions/crafting/ring_of_gathering": "采集戒指",
-    "/actions/crafting/birch_fire_staff": "桦木火法杖",
-    "/actions/crafting/earrings_of_gathering": "采集耳环",
-    "/actions/crafting/cedar_lumber": "雪松木板",
-    "/actions/crafting/cedar_crossbow": "雪松弩",
-    "/actions/crafting/cedar_water_staff": "雪松水法杖",
-    "/actions/crafting/basic_milking_charm": "基础挤奶护符",
-    "/actions/crafting/basic_foraging_charm": "基础采摘护符",
-    "/actions/crafting/basic_woodcutting_charm": "基础伐木护符",
-    "/actions/crafting/basic_cheesesmithing_charm": "基础奶酪锻造护符",
-    "/actions/crafting/basic_crafting_charm": "基础制作护符",
-    "/actions/crafting/basic_tailoring_charm": "基础缝纫护符",
-    "/actions/crafting/basic_cooking_charm": "基础烹饪护符",
-    "/actions/crafting/basic_brewing_charm": "基础冲泡护符",
-    "/actions/crafting/basic_alchemy_charm": "基础炼金护符",
-    "/actions/crafting/basic_enhancing_charm": "基础强化护符",
-    "/actions/crafting/basic_torch": "基础火把",
-    "/actions/crafting/cedar_shield": "雪松盾",
-    "/actions/crafting/cedar_nature_staff": "雪松自然法杖",
-    "/actions/crafting/cedar_bow": "雪松弓",
-    "/actions/crafting/crushed_amber": "琥珀碎片",
-    "/actions/crafting/cedar_fire_staff": "雪松火法杖",
-    "/actions/crafting/ring_of_essence_find": "精华发现戒指",
-    "/actions/crafting/earrings_of_essence_find": "精华发现耳环",
-    "/actions/crafting/necklace_of_efficiency": "效率项链",
-    "/actions/crafting/purpleheart_lumber": "紫心木板",
-    "/actions/crafting/purpleheart_crossbow": "紫心弩",
-    "/actions/crafting/purpleheart_water_staff": "紫心水法杖",
-    "/actions/crafting/purpleheart_shield": "紫心盾",
-    "/actions/crafting/purpleheart_nature_staff": "紫心自然法杖",
-    "/actions/crafting/purpleheart_bow": "紫心弓",
-    "/actions/crafting/advanced_milking_charm": "高级挤奶护符",
-    "/actions/crafting/advanced_foraging_charm": "高级采摘护符",
-    "/actions/crafting/advanced_woodcutting_charm": "高级伐木护符",
-    "/actions/crafting/advanced_cheesesmithing_charm": "高级奶酪锻造护符",
-    "/actions/crafting/advanced_crafting_charm": "高级制作护符",
-    "/actions/crafting/advanced_tailoring_charm": "高级缝纫护符",
-    "/actions/crafting/advanced_cooking_charm": "高级烹饪护符",
-    "/actions/crafting/advanced_brewing_charm": "高级冲泡护符",
-    "/actions/crafting/advanced_alchemy_charm": "高级炼金护符",
-    "/actions/crafting/advanced_enhancing_charm": "高级强化护符",
-    "/actions/crafting/advanced_stamina_charm": "高级耐力护符",
-    "/actions/crafting/advanced_intelligence_charm": "高级智力护符",
-    "/actions/crafting/advanced_attack_charm": "高级攻击护符",
-    "/actions/crafting/advanced_defense_charm": "高级防御护符",
-    "/actions/crafting/advanced_melee_charm": "高级近战护符",
-    "/actions/crafting/advanced_ranged_charm": "高级远程护符",
-    "/actions/crafting/advanced_magic_charm": "高级魔法护符",
-    "/actions/crafting/crushed_garnet": "石榴石碎片",
-    "/actions/crafting/crushed_jade": "翡翠碎片",
-    "/actions/crafting/crushed_amethyst": "紫水晶碎片",
-    "/actions/crafting/catalyst_of_coinification": "点金催化剂",
-    "/actions/crafting/treant_shield": "树人盾",
-    "/actions/crafting/purpleheart_fire_staff": "紫心火法杖",
-    "/actions/crafting/ring_of_regeneration": "恢复戒指",
-    "/actions/crafting/earrings_of_regeneration": "恢复耳环",
-    "/actions/crafting/fighter_necklace": "战士项链",
-    "/actions/crafting/ginkgo_lumber": "银杏木板",
-    "/actions/crafting/ginkgo_crossbow": "银杏弩",
-    "/actions/crafting/ginkgo_water_staff": "银杏水法杖",
-    "/actions/crafting/ring_of_armor": "护甲戒指",
-    "/actions/crafting/catalyst_of_decomposition": "分解催化剂",
-    "/actions/crafting/advanced_torch": "进阶火把",
-    "/actions/crafting/ginkgo_shield": "银杏盾",
-    "/actions/crafting/earrings_of_armor": "护甲耳环",
-    "/actions/crafting/ginkgo_nature_staff": "银杏自然法杖",
-    "/actions/crafting/ranger_necklace": "射手项链",
-    "/actions/crafting/ginkgo_bow": "银杏弓",
-    "/actions/crafting/ring_of_resistance": "抗性戒指",
-    "/actions/crafting/crushed_moonstone": "月亮石碎片",
-    "/actions/crafting/ginkgo_fire_staff": "银杏火法杖",
-    "/actions/crafting/earrings_of_resistance": "抗性耳环",
-    "/actions/crafting/wizard_necklace": "巫师项链",
-    "/actions/crafting/ring_of_rare_find": "稀有发现戒指",
-    "/actions/crafting/expert_milking_charm": "专家挤奶护符",
-    "/actions/crafting/expert_foraging_charm": "专家采摘护符",
-    "/actions/crafting/expert_woodcutting_charm": "专家伐木护符",
-    "/actions/crafting/expert_cheesesmithing_charm": "专家奶酪锻造护符",
-    "/actions/crafting/expert_crafting_charm": "专家制作护符",
-    "/actions/crafting/expert_tailoring_charm": "专家缝纫护符",
-    "/actions/crafting/expert_cooking_charm": "专家烹饪护符",
-    "/actions/crafting/expert_brewing_charm": "专家冲泡护符",
-    "/actions/crafting/expert_alchemy_charm": "专家炼金护符",
-    "/actions/crafting/expert_enhancing_charm": "专家强化护符",
-    "/actions/crafting/expert_stamina_charm": "专家耐力护符",
-    "/actions/crafting/expert_intelligence_charm": "专家智力护符",
-    "/actions/crafting/expert_attack_charm": "专家攻击护符",
-    "/actions/crafting/expert_defense_charm": "专家防御护符",
-    "/actions/crafting/expert_melee_charm": "专家近战护符",
-    "/actions/crafting/expert_ranged_charm": "专家远程护符",
-    "/actions/crafting/expert_magic_charm": "专家魔法护符",
-    "/actions/crafting/catalyst_of_transmutation": "转化催化剂",
-    "/actions/crafting/earrings_of_rare_find": "稀有发现耳环",
-    "/actions/crafting/necklace_of_wisdom": "经验项链",
-    "/actions/crafting/redwood_lumber": "红杉木板",
-    "/actions/crafting/redwood_crossbow": "红杉弩",
-    "/actions/crafting/redwood_water_staff": "红杉水法杖",
-    "/actions/crafting/redwood_shield": "红杉盾",
-    "/actions/crafting/redwood_nature_staff": "红杉自然法杖",
-    "/actions/crafting/redwood_bow": "红杉弓",
-    "/actions/crafting/crushed_sunstone": "太阳石碎片",
-    "/actions/crafting/chimerical_entry_key": "奇幻钥匙",
-    "/actions/crafting/chimerical_chest_key": "奇幻宝箱钥匙",
-    "/actions/crafting/eye_watch": "掌上监工",
-    "/actions/crafting/watchful_relic": "警戒遗物",
-    "/actions/crafting/redwood_fire_staff": "红杉火法杖",
-    "/actions/crafting/ring_of_critical_strike": "暴击戒指",
-    "/actions/crafting/mirror_of_protection": "保护之镜",
-    "/actions/crafting/earrings_of_critical_strike": "暴击耳环",
-    "/actions/crafting/necklace_of_speed": "速度项链",
-    "/actions/crafting/arcane_lumber": "神秘木板",
-    "/actions/crafting/arcane_crossbow": "神秘弩",
-    "/actions/crafting/arcane_water_staff": "神秘水法杖",
-    "/actions/crafting/master_milking_charm": "大师挤奶护符",
-    "/actions/crafting/master_foraging_charm": "大师采摘护符",
-    "/actions/crafting/master_woodcutting_charm": "大师伐木护符",
-    "/actions/crafting/master_cheesesmithing_charm": "大师奶酪锻造护符",
-    "/actions/crafting/master_crafting_charm": "大师制作护符",
-    "/actions/crafting/master_tailoring_charm": "大师缝纫护符",
-    "/actions/crafting/master_cooking_charm": "大师烹饪护符",
-    "/actions/crafting/master_brewing_charm": "大师冲泡护符",
-    "/actions/crafting/master_alchemy_charm": "大师炼金护符",
-    "/actions/crafting/master_enhancing_charm": "大师强化护符",
-    "/actions/crafting/master_stamina_charm": "大师耐力护符",
-    "/actions/crafting/master_intelligence_charm": "大师智力护符",
-    "/actions/crafting/master_attack_charm": "大师攻击护符",
-    "/actions/crafting/master_defense_charm": "大师防御护符",
-    "/actions/crafting/master_melee_charm": "大师近战护符",
-    "/actions/crafting/master_ranged_charm": "大师远程护符",
-    "/actions/crafting/master_magic_charm": "大师魔法护符",
-    "/actions/crafting/sinister_entry_key": "阴森钥匙",
-    "/actions/crafting/sinister_chest_key": "阴森宝箱钥匙",
-    "/actions/crafting/expert_torch": "专家火把",
-    "/actions/crafting/arcane_shield": "神秘盾",
-    "/actions/crafting/arcane_nature_staff": "神秘自然法杖",
-    "/actions/crafting/manticore_shield": "蝎狮盾",
-    "/actions/crafting/arcane_bow": "神秘弓",
-    "/actions/crafting/enchanted_entry_key": "秘法钥匙",
-    "/actions/crafting/enchanted_chest_key": "秘法宝箱钥匙",
-    "/actions/crafting/pirate_entry_key": "海盗钥匙",
-    "/actions/crafting/pirate_chest_key": "海盗宝箱钥匙",
-    "/actions/crafting/arcane_fire_staff": "神秘火法杖",
-    "/actions/crafting/vampiric_bow": "吸血弓",
-    "/actions/crafting/soul_hunter_crossbow": "灵魂猎手弩",
-    "/actions/crafting/frost_staff": "冰霜法杖",
-    "/actions/crafting/infernal_battlestaff": "炼狱法杖",
-    "/actions/crafting/jackalope_staff": "鹿角兔之杖",
-    "/actions/crafting/philosophers_ring": "贤者戒指",
-    "/actions/crafting/crushed_philosophers_stone": "贤者之石碎片",
-    "/actions/crafting/philosophers_earrings": "贤者耳环",
-    "/actions/crafting/philosophers_necklace": "贤者项链",
-    "/actions/crafting/bishops_codex": "主教法典",
-    "/actions/crafting/cursed_bow": "咒怨之弓",
-    "/actions/crafting/sundering_crossbow": "裂空之弩",
-    "/actions/crafting/rippling_trident": "涟漪三叉戟",
-    "/actions/crafting/blooming_trident": "绽放三叉戟",
-    "/actions/crafting/blazing_trident": "炽焰三叉戟",
-    "/actions/crafting/grandmaster_milking_charm": "宗师挤奶护符",
-    "/actions/crafting/grandmaster_foraging_charm": "宗师采摘护符",
-    "/actions/crafting/grandmaster_woodcutting_charm": "宗师伐木护符",
-    "/actions/crafting/grandmaster_cheesesmithing_charm": "宗师奶酪锻造护符",
-    "/actions/crafting/grandmaster_crafting_charm": "宗师制作护符",
-    "/actions/crafting/grandmaster_tailoring_charm": "宗师缝纫护符",
-    "/actions/crafting/grandmaster_cooking_charm": "宗师烹饪护符",
-    "/actions/crafting/grandmaster_brewing_charm": "宗师冲泡护符",
-    "/actions/crafting/grandmaster_alchemy_charm": "宗师炼金护符",
-    "/actions/crafting/grandmaster_enhancing_charm": "宗师强化护符",
-    "/actions/crafting/grandmaster_stamina_charm": "宗师耐力护符",
-    "/actions/crafting/grandmaster_intelligence_charm": "宗师智力护符",
-    "/actions/crafting/grandmaster_attack_charm": "宗师攻击护符",
-    "/actions/crafting/grandmaster_defense_charm": "宗师防御护符",
-    "/actions/crafting/grandmaster_melee_charm": "宗师近战护符",
-    "/actions/crafting/grandmaster_ranged_charm": "宗师远程护符",
-    "/actions/crafting/grandmaster_magic_charm": "宗师魔法护符",
-    "/actions/crafting/philosophers_mirror": "贤者之镜",
-    "/actions/crafting/bishops_codex_refined": "主教法典 ★",
-    "/actions/crafting/cursed_bow_refined": "咒怨之弓 ★",
-    "/actions/crafting/sundering_crossbow_refined": "裂空之弩 ★",
-    "/actions/crafting/rippling_trident_refined": "涟漪三叉戟 ★",
-    "/actions/crafting/blooming_trident_refined": "绽放三叉戟 ★",
-    "/actions/crafting/blazing_trident_refined": "炽焰三叉戟 ★",
-    "/actions/tailoring/rough_leather": "粗糙皮革",
-    "/actions/tailoring/cotton_fabric": "棉花布料",
-    "/actions/tailoring/rough_boots": "粗糙靴",
-    "/actions/tailoring/cotton_boots": "棉靴",
-    "/actions/tailoring/rough_bracers": "粗糙护腕",
-    "/actions/tailoring/cotton_gloves": "棉手套",
-    "/actions/tailoring/small_pouch": "小袋子",
-    "/actions/tailoring/rough_hood": "粗糙兜帽",
-    "/actions/tailoring/cotton_hat": "棉帽",
-    "/actions/tailoring/rough_chaps": "粗糙皮裤",
-    "/actions/tailoring/cotton_robe_bottoms": "棉袍裙",
-    "/actions/tailoring/rough_tunic": "粗糙皮衣",
-    "/actions/tailoring/cotton_robe_top": "棉袍服",
-    "/actions/tailoring/reptile_leather": "爬行动物皮革",
-    "/actions/tailoring/linen_fabric": "亚麻布料",
-    "/actions/tailoring/reptile_boots": "爬行动物靴",
-    "/actions/tailoring/linen_boots": "亚麻靴",
-    "/actions/tailoring/reptile_bracers": "爬行动物护腕",
-    "/actions/tailoring/linen_gloves": "亚麻手套",
-    "/actions/tailoring/basic_shroud": "基础斗篷",
-    "/actions/tailoring/reptile_hood": "爬行动物兜帽",
-    "/actions/tailoring/linen_hat": "亚麻帽",
-    "/actions/tailoring/reptile_chaps": "爬行动物皮裤",
-    "/actions/tailoring/linen_robe_bottoms": "亚麻袍裙",
-    "/actions/tailoring/medium_pouch": "中袋子",
-    "/actions/tailoring/reptile_tunic": "爬行动物皮衣",
-    "/actions/tailoring/linen_robe_top": "亚麻袍服",
-    "/actions/tailoring/shoebill_shoes": "鲸头鹳鞋",
-    "/actions/tailoring/gobo_leather": "哥布林皮革",
-    "/actions/tailoring/bamboo_fabric": "竹子布料",
-    "/actions/tailoring/gobo_boots": "哥布林靴",
-    "/actions/tailoring/bamboo_boots": "竹靴",
-    "/actions/tailoring/gobo_bracers": "哥布林护腕",
-    "/actions/tailoring/bamboo_gloves": "竹手套",
-    "/actions/tailoring/gobo_hood": "哥布林兜帽",
-    "/actions/tailoring/bamboo_hat": "竹帽",
-    "/actions/tailoring/gobo_chaps": "哥布林皮裤",
-    "/actions/tailoring/bamboo_robe_bottoms": "竹袍裙",
-    "/actions/tailoring/large_pouch": "大袋子",
-    "/actions/tailoring/gobo_tunic": "哥布林皮衣",
-    "/actions/tailoring/bamboo_robe_top": "竹袍服",
-    "/actions/tailoring/marine_tunic": "海洋皮衣",
-    "/actions/tailoring/marine_chaps": "航海皮裤",
-    "/actions/tailoring/icy_robe_top": "冰霜袍服",
-    "/actions/tailoring/icy_robe_bottoms": "冰霜袍裙",
-    "/actions/tailoring/flaming_robe_top": "烈焰袍服",
-    "/actions/tailoring/flaming_robe_bottoms": "烈焰袍裙",
-    "/actions/tailoring/advanced_shroud": "进阶斗篷",
-    "/actions/tailoring/beast_leather": "野兽皮革",
-    "/actions/tailoring/silk_fabric": "丝绸",
-    "/actions/tailoring/beast_boots": "野兽靴",
-    "/actions/tailoring/silk_boots": "丝靴",
-    "/actions/tailoring/beast_bracers": "野兽护腕",
-    "/actions/tailoring/silk_gloves": "丝手套",
-    "/actions/tailoring/collectors_boots": "收藏家靴",
-    "/actions/tailoring/sighted_bracers": "瞄准护腕",
-    "/actions/tailoring/beast_hood": "野兽兜帽",
-    "/actions/tailoring/silk_hat": "丝帽",
-    "/actions/tailoring/beast_chaps": "野兽皮裤",
-    "/actions/tailoring/silk_robe_bottoms": "丝绸袍裙",
-    "/actions/tailoring/centaur_boots": "半人马靴",
-    "/actions/tailoring/sorcerer_boots": "巫师靴",
-    "/actions/tailoring/giant_pouch": "巨大袋子",
-    "/actions/tailoring/beast_tunic": "野兽皮衣",
-    "/actions/tailoring/silk_robe_top": "丝绸袍服",
-    "/actions/tailoring/red_culinary_hat": "红色厨师帽",
-    "/actions/tailoring/luna_robe_top": "月神袍服",
-    "/actions/tailoring/luna_robe_bottoms": "月神袍裙",
-    "/actions/tailoring/umbral_leather": "暗影皮革",
-    "/actions/tailoring/radiant_fabric": "光辉布料",
-    "/actions/tailoring/umbral_boots": "暗影靴",
-    "/actions/tailoring/radiant_boots": "光辉靴",
-    "/actions/tailoring/umbral_bracers": "暗影护腕",
-    "/actions/tailoring/radiant_gloves": "光辉手套",
-    "/actions/tailoring/enchanted_gloves": "附魔手套",
-    "/actions/tailoring/fluffy_red_hat": "蓬松红帽子",
-    "/actions/tailoring/chrono_gloves": "时空手套",
-    "/actions/tailoring/expert_shroud": "专家斗篷",
-    "/actions/tailoring/umbral_hood": "暗影兜帽",
-    "/actions/tailoring/radiant_hat": "光辉帽",
-    "/actions/tailoring/umbral_chaps": "暗影皮裤",
-    "/actions/tailoring/radiant_robe_bottoms": "光辉袍裙",
-    "/actions/tailoring/umbral_tunic": "暗影皮衣",
-    "/actions/tailoring/radiant_robe_top": "光辉袍服",
-    "/actions/tailoring/revenant_chaps": "亡灵皮裤",
-    "/actions/tailoring/griffin_chaps": "狮鹫皮裤",
-    "/actions/tailoring/dairyhands_top": "挤奶工上衣",
-    "/actions/tailoring/dairyhands_bottoms": "挤奶工下装",
-    "/actions/tailoring/foragers_top": "采摘者上衣",
-    "/actions/tailoring/foragers_bottoms": "采摘者下装",
-    "/actions/tailoring/lumberjacks_top": "伐木工上衣",
-    "/actions/tailoring/lumberjacks_bottoms": "伐木工下装",
-    "/actions/tailoring/cheesemakers_top": "奶酪师上衣",
-    "/actions/tailoring/cheesemakers_bottoms": "奶酪师下装",
-    "/actions/tailoring/crafters_top": "工匠上衣",
-    "/actions/tailoring/crafters_bottoms": "工匠下装",
-    "/actions/tailoring/tailors_top": "裁缝上衣",
-    "/actions/tailoring/tailors_bottoms": "裁缝下装",
-    "/actions/tailoring/chefs_top": "厨师上衣",
-    "/actions/tailoring/chefs_bottoms": "厨师下装",
-    "/actions/tailoring/brewers_top": "饮品师上衣",
-    "/actions/tailoring/brewers_bottoms": "饮品师下装",
-    "/actions/tailoring/alchemists_top": "炼金师上衣",
-    "/actions/tailoring/alchemists_bottoms": "炼金师下装",
-    "/actions/tailoring/enhancers_top": "强化师上衣",
-    "/actions/tailoring/enhancers_bottoms": "强化师下装",
-    "/actions/tailoring/revenant_tunic": "亡灵皮衣",
-    "/actions/tailoring/griffin_tunic": "狮鹫皮衣",
-    "/actions/tailoring/gluttonous_pouch": "贪食之袋",
-    "/actions/tailoring/guzzling_pouch": "暴饮之囊",
-    "/actions/tailoring/pathfinder_boots": "探路者靴",
-    "/actions/tailoring/pathseeker_boots": "寻路者靴",
-    "/actions/tailoring/marksman_bracers": "神射护腕",
-    "/actions/tailoring/acrobatic_hood": "杂技师兜帽",
-    "/actions/tailoring/magicians_hat": "魔术师帽",
-    "/actions/tailoring/kraken_chaps": "克拉肯皮裤",
-    "/actions/tailoring/royal_water_robe_bottoms": "皇家水系袍裙",
-    "/actions/tailoring/royal_nature_robe_bottoms": "皇家自然系袍裙",
-    "/actions/tailoring/royal_fire_robe_bottoms": "皇家火系袍裙",
-    "/actions/tailoring/kraken_tunic": "克拉肯皮衣",
-    "/actions/tailoring/royal_water_robe_top": "皇家水系袍服",
-    "/actions/tailoring/royal_nature_robe_top": "皇家自然系袍服",
-    "/actions/tailoring/royal_fire_robe_top": "皇家火系袍服",
-    "/actions/tailoring/gatherer_cape_refined": "采集者披风 ★",
-    "/actions/tailoring/artificer_cape_refined": "工匠披风 ★",
-    "/actions/tailoring/culinary_cape_refined": "厨师披风 ★",
-    "/actions/tailoring/chance_cape_refined": "机缘披风 ★",
-    "/actions/tailoring/chimerical_quiver_refined": "奇幻箭袋 ★",
-    "/actions/tailoring/sinister_cape_refined": "阴森披风 ★",
-    "/actions/tailoring/enchanted_cloak_refined": "秘法披风 ★",
-    "/actions/tailoring/pathfinder_boots_refined": "探路者靴 ★",
-    "/actions/tailoring/pathseeker_boots_refined": "寻路者靴 ★",
-    "/actions/tailoring/marksman_bracers_refined": "神射护腕 ★",
-    "/actions/tailoring/acrobatic_hood_refined": "杂技师兜帽 ★",
-    "/actions/tailoring/magicians_hat_refined": "魔术师帽 ★",
-    "/actions/tailoring/kraken_chaps_refined": "克拉肯皮裤 ★",
-    "/actions/tailoring/royal_water_robe_bottoms_refined": "皇家水系袍裙 ★",
-    "/actions/tailoring/royal_nature_robe_bottoms_refined": "皇家自然系袍裙 ★",
-    "/actions/tailoring/royal_fire_robe_bottoms_refined": "皇家火系袍裙 ★",
-    "/actions/tailoring/kraken_tunic_refined": "克拉肯皮衣 ★",
-    "/actions/tailoring/royal_water_robe_top_refined": "皇家水系袍服 ★",
-    "/actions/tailoring/royal_nature_robe_top_refined": "皇家自然系袍服 ★",
-    "/actions/tailoring/royal_fire_robe_top_refined": "皇家火系袍服 ★",
-    "/actions/cooking/donut": "甜甜圈",
-    "/actions/cooking/cupcake": "纸杯蛋糕",
-    "/actions/cooking/gummy": "软糖",
-    "/actions/cooking/yogurt": "酸奶",
-    "/actions/cooking/blueberry_donut": "蓝莓甜甜圈",
-    "/actions/cooking/blueberry_cake": "蓝莓蛋糕",
-    "/actions/cooking/apple_gummy": "苹果软糖",
-    "/actions/cooking/apple_yogurt": "苹果酸奶",
-    "/actions/cooking/blackberry_donut": "黑莓甜甜圈",
-    "/actions/cooking/blackberry_cake": "黑莓蛋糕",
-    "/actions/cooking/orange_gummy": "橙子软糖",
-    "/actions/cooking/orange_yogurt": "橙子酸奶",
-    "/actions/cooking/basic_food_crate": "基础食物箱",
-    "/actions/cooking/strawberry_donut": "草莓甜甜圈",
-    "/actions/cooking/strawberry_cake": "草莓蛋糕",
-    "/actions/cooking/plum_gummy": "李子软糖",
-    "/actions/cooking/plum_yogurt": "李子酸奶",
-    "/actions/cooking/mooberry_donut": "哞莓甜甜圈",
-    "/actions/cooking/mooberry_cake": "哞莓蛋糕",
-    "/actions/cooking/peach_gummy": "桃子软糖",
-    "/actions/cooking/peach_yogurt": "桃子酸奶",
-    "/actions/cooking/advanced_food_crate": "进阶食物箱",
-    "/actions/cooking/marsberry_donut": "火星莓甜甜圈",
-    "/actions/cooking/marsberry_cake": "火星莓蛋糕",
-    "/actions/cooking/dragon_fruit_gummy": "火龙果软糖",
-    "/actions/cooking/dragon_fruit_yogurt": "火龙果酸奶",
-    "/actions/cooking/spaceberry_donut": "太空莓甜甜圈",
-    "/actions/cooking/spaceberry_cake": "太空莓蛋糕",
-    "/actions/cooking/star_fruit_gummy": "杨桃软糖",
-    "/actions/cooking/star_fruit_yogurt": "杨桃酸奶",
-    "/actions/cooking/expert_food_crate": "专家食物箱",
-    "/actions/brewing/milking_tea": "挤奶茶",
-    "/actions/brewing/stamina_coffee": "耐力咖啡",
-    "/actions/brewing/foraging_tea": "采摘茶",
-    "/actions/brewing/intelligence_coffee": "智力咖啡",
-    "/actions/brewing/gathering_tea": "采集茶",
-    "/actions/brewing/woodcutting_tea": "伐木茶",
-    "/actions/brewing/cooking_tea": "烹饪茶",
-    "/actions/brewing/defense_coffee": "防御咖啡",
-    "/actions/brewing/brewing_tea": "冲泡茶",
-    "/actions/brewing/attack_coffee": "攻击咖啡",
-    "/actions/brewing/gourmet_tea": "美食茶",
-    "/actions/brewing/alchemy_tea": "炼金茶",
-    "/actions/brewing/enhancing_tea": "强化茶",
-    "/actions/brewing/cheesesmithing_tea": "奶酪锻造茶",
-    "/actions/brewing/melee_coffee": "近战咖啡",
-    "/actions/brewing/basic_tea_crate": "基础茶叶箱",
-    "/actions/brewing/basic_coffee_crate": "基础咖啡箱",
-    "/actions/brewing/crafting_tea": "制作茶",
-    "/actions/brewing/ranged_coffee": "远程咖啡",
-    "/actions/brewing/wisdom_tea": "经验茶",
-    "/actions/brewing/wisdom_coffee": "经验咖啡",
-    "/actions/brewing/tailoring_tea": "缝纫茶",
-    "/actions/brewing/magic_coffee": "魔法咖啡",
-    "/actions/brewing/super_milking_tea": "超级挤奶茶",
-    "/actions/brewing/super_stamina_coffee": "超级耐力咖啡",
-    "/actions/brewing/super_foraging_tea": "超级采摘茶",
-    "/actions/brewing/super_intelligence_coffee": "超级智力咖啡",
-    "/actions/brewing/processing_tea": "加工茶",
-    "/actions/brewing/lucky_coffee": "幸运咖啡",
-    "/actions/brewing/super_woodcutting_tea": "超级伐木茶",
-    "/actions/brewing/super_cooking_tea": "超级烹饪茶",
-    "/actions/brewing/super_defense_coffee": "超级防御咖啡",
-    "/actions/brewing/advanced_tea_crate": "进阶茶叶箱",
-    "/actions/brewing/advanced_coffee_crate": "进阶咖啡箱",
-    "/actions/brewing/super_brewing_tea": "超级冲泡茶",
-    "/actions/brewing/ultra_milking_tea": "究极挤奶茶",
-    "/actions/brewing/super_attack_coffee": "超级攻击咖啡",
-    "/actions/brewing/ultra_stamina_coffee": "究极耐力咖啡",
-    "/actions/brewing/efficiency_tea": "效率茶",
-    "/actions/brewing/swiftness_coffee": "迅捷咖啡",
-    "/actions/brewing/super_alchemy_tea": "超级炼金茶",
-    "/actions/brewing/super_enhancing_tea": "超级强化茶",
-    "/actions/brewing/ultra_foraging_tea": "究极采摘茶",
-    "/actions/brewing/ultra_intelligence_coffee": "究极智力咖啡",
-    "/actions/brewing/channeling_coffee": "吟唱咖啡",
-    "/actions/brewing/super_cheesesmithing_tea": "超级奶酪锻造茶",
-    "/actions/brewing/ultra_woodcutting_tea": "究极伐木茶",
-    "/actions/brewing/super_melee_coffee": "超级近战咖啡",
-    "/actions/brewing/artisan_tea": "工匠茶",
-    "/actions/brewing/super_crafting_tea": "超级制作茶",
-    "/actions/brewing/ultra_cooking_tea": "究极烹饪茶",
-    "/actions/brewing/super_ranged_coffee": "超级远程咖啡",
-    "/actions/brewing/ultra_defense_coffee": "究极防御咖啡",
-    "/actions/brewing/catalytic_tea": "催化茶",
-    "/actions/brewing/critical_coffee": "暴击咖啡",
-    "/actions/brewing/super_tailoring_tea": "超级缝纫茶",
-    "/actions/brewing/ultra_brewing_tea": "究极冲泡茶",
-    "/actions/brewing/super_magic_coffee": "超级魔法咖啡",
-    "/actions/brewing/ultra_attack_coffee": "究极攻击咖啡",
-    "/actions/brewing/blessed_tea": "福气茶",
-    "/actions/brewing/ultra_alchemy_tea": "究极炼金茶",
-    "/actions/brewing/ultra_enhancing_tea": "究极强化茶",
-    "/actions/brewing/expert_tea_crate": "专家茶叶箱",
-    "/actions/brewing/expert_coffee_crate": "专家咖啡箱",
-    "/actions/brewing/ultra_cheesesmithing_tea": "究极奶酪锻造茶",
-    "/actions/brewing/ultra_melee_coffee": "究极近战咖啡",
-    "/actions/brewing/ultra_crafting_tea": "究极制作茶",
-    "/actions/brewing/ultra_ranged_coffee": "究极远程咖啡",
-    "/actions/brewing/ultra_tailoring_tea": "究极缝纫茶",
-    "/actions/brewing/ultra_magic_coffee": "究极魔法咖啡",
-    "/actions/alchemy/coinify": "点金",
-    "/actions/alchemy/transmute": "转化",
-    "/actions/alchemy/decompose": "分解",
-    "/actions/alchemy/unrefine": "解精炼",
-    "/actions/enhancing/enhance": "强化",
-    "/actions/combat/fly": "苍蝇",
-    "/actions/combat/rat": "杰瑞",
-    "/actions/combat/skunk": "臭鼬",
-    "/actions/combat/porcupine": "豪猪",
-    "/actions/combat/slimy": "史莱姆",
-    "/actions/combat/smelly_planet": "臭臭星球",
-    "/actions/combat/frog": "青蛙",
-    "/actions/combat/snake": "蛇",
-    "/actions/combat/swampy": "沼泽虫",
-    "/actions/combat/alligator": "夏洛克",
-    "/actions/combat/swamp_planet": "沼泽星球",
-    "/actions/combat/sea_snail": "蜗牛",
-    "/actions/combat/crab": "螃蟹",
-    "/actions/combat/aquahorse": "水马",
-    "/actions/combat/nom_nom": "咬咬鱼",
-    "/actions/combat/turtle": "忍者龟",
-    "/actions/combat/aqua_planet": "海洋星球",
-    "/actions/combat/jungle_sprite": "丛林精灵",
-    "/actions/combat/myconid": "蘑菇人",
-    "/actions/combat/treant": "树人",
-    "/actions/combat/centaur_archer": "半人马弓箭手",
-    "/actions/combat/jungle_planet": "丛林星球",
-    "/actions/combat/gobo_stabby": "刺刺",
-    "/actions/combat/gobo_slashy": "砍砍",
-    "/actions/combat/gobo_smashy": "锤锤",
-    "/actions/combat/gobo_shooty": "咻咻",
-    "/actions/combat/gobo_boomy": "轰轰",
-    "/actions/combat/gobo_planet": "哥布林星球",
-    "/actions/combat/eye": "独眼",
-    "/actions/combat/eyes": "叠眼",
-    "/actions/combat/veyes": "复眼",
-    "/actions/combat/planet_of_the_eyes": "眼球星球",
-    "/actions/combat/novice_sorcerer": "新手巫师",
-    "/actions/combat/ice_sorcerer": "冰霜巫师",
-    "/actions/combat/flame_sorcerer": "火焰巫师",
-    "/actions/combat/elementalist": "元素法师",
-    "/actions/combat/sorcerers_tower": "巫师之塔",
-    "/actions/combat/gummy_bear": "软糖熊",
-    "/actions/combat/panda": "熊猫",
-    "/actions/combat/black_bear": "黑熊",
-    "/actions/combat/grizzly_bear": "棕熊",
-    "/actions/combat/polar_bear": "北极熊",
-    "/actions/combat/bear_with_it": "熊熊星球",
-    "/actions/combat/magnetic_golem": "磁力魔像",
-    "/actions/combat/stalactite_golem": "钟乳石魔像",
-    "/actions/combat/granite_golem": "花岗岩魔像",
-    "/actions/combat/golem_cave": "魔像洞穴",
-    "/actions/combat/zombie": "僵尸",
-    "/actions/combat/vampire": "吸血鬼",
-    "/actions/combat/werewolf": "狼人",
-    "/actions/combat/twilight_zone": "暮光之地",
-    "/actions/combat/abyssal_imp": "深渊小鬼",
-    "/actions/combat/soul_hunter": "灵魂猎手",
-    "/actions/combat/infernal_warlock": "地狱术士",
-    "/actions/combat/infernal_abyss": "地狱深渊",
-    "/actions/combat/chimerical_den": "奇幻洞穴",
-    "/actions/combat/sinister_circus": "阴森马戏团",
-    "/actions/combat/enchanted_fortress": "秘法要塞",
-    "/actions/combat/pirate_cove": "海盗基地",
-    "/actions/labyrinth/explore": "探索迷宫",
-    "/actions/special/party_ready": "队伍准备就绪"
-  };
-  var ZHOthersDic = {
-    // houseRoomNames
-    "/house_rooms/dairy_barn": "奶牛棚",
-    "/house_rooms/garden": "花园",
-    "/house_rooms/log_shed": "原木棚",
-    "/house_rooms/forge": "锻造间",
-    "/house_rooms/workshop": "工作室",
-    "/house_rooms/sewing_parlor": "缝纫室",
-    "/house_rooms/kitchen": "厨房",
-    "/house_rooms/brewery": "冲泡室",
-    "/house_rooms/laboratory": "实验室",
-    "/house_rooms/observatory": "天文台",
-    "/house_rooms/dining_room": "餐厅",
-    "/house_rooms/library": "图书馆",
-    "/house_rooms/dojo": "道场",
-    "/house_rooms/gym": "健身房",
-    "/house_rooms/armory": "军械库",
-    "/house_rooms/archery_range": "射箭场",
-    "/house_rooms/mystical_study": "神秘书房",
-    // monsterNames
-    "/monsters/abyssal_imp": "深渊小鬼",
-    "/monsters/acrobat": "杂技师",
-    "/monsters/trial_hedgehog": "试炼刺猬",
-    "/monsters/anchor_shark": "持锚鲨",
-    "/monsters/aquahorse": "水马",
-    "/monsters/trial_jellyfish": "试炼水母",
-    "/monsters/black_bear": "黑熊",
-    "/monsters/gobo_boomy": "轰轰",
-    "/monsters/brine_marksman": "海盐射手",
-    "/monsters/butterjerry": "蝶鼠",
-    "/monsters/captain_fishhook": "鱼钩船长",
-    "/monsters/centaur_archer": "半人马弓箭手",
-    "/monsters/cyclops": "独眼巨人",
-    "/monsters/chronofrost_sorcerer": "霜时巫师",
-    "/monsters/dryad": "树精",
-    "/monsters/crystal_colossus": "水晶巨像",
-    "/monsters/frost_sniper": "霜冻狙击手",
-    "/monsters/demonic_overlord": "恶魔霸主",
-    "/monsters/deranged_jester": "小丑皇",
-    "/monsters/dodocamel": "渡渡驼",
-    "/monsters/dusk_revenant": "黄昏亡灵",
-    "/monsters/trial_chameleon": "试炼变色龙",
-    "/monsters/elementalist": "元素法师",
-    "/monsters/enchanted_bishop": "秘法主教",
-    "/monsters/enchanted_king": "秘法国王",
-    "/monsters/enchanted_knight": "秘法骑士",
-    "/monsters/enchanted_pawn": "秘法士兵",
-    "/monsters/enchanted_queen": "秘法王后",
-    "/monsters/enchanted_rook": "秘法堡垒",
-    "/monsters/eye": "独眼",
-    "/monsters/eyes": "叠眼",
-    "/monsters/flame_sorcerer": "火焰巫师",
-    "/monsters/fly": "苍蝇",
-    "/monsters/trial_beetle": "试炼甲虫",
-    "/monsters/trial_dragonfly": "试炼蜻蜓",
-    "/monsters/trial_wasp": "试炼黄蜂",
-    "/monsters/trial_firefly": "试炼萤火虫",
-    "/monsters/frog": "青蛙",
-    "/monsters/sea_snail": "蜗牛",
-    "/monsters/giant_shoebill": "鲸头鹳",
-    "/monsters/gobo_chieftain": "哥布林酋长",
-    "/monsters/granite_golem": "花岗魔像",
-    "/monsters/griffin": "狮鹫",
-    "/monsters/grizzly_bear": "棕熊",
-    "/monsters/gummy_bear": "软糖熊",
-    "/monsters/crab": "螃蟹",
-    "/monsters/ice_sorcerer": "冰霜巫师",
-    "/monsters/infernal_warlock": "地狱术士",
-    "/monsters/trial_badger": "试炼獾",
-    "/monsters/jackalope": "鹿角兔",
-    "/monsters/rat": "杰瑞",
-    "/monsters/juggler": "杂耍者",
-    "/monsters/jungle_sprite": "丛林精灵",
-    "/monsters/giant_mantis": "巨螳螂",
-    "/monsters/luna_empress": "月神之蝶",
-    "/monsters/magician": "魔术师",
-    "/monsters/magnetic_golem": "磁力魔像",
-    "/monsters/manticore": "狮蝎兽",
-    "/monsters/marine_huntress": "海洋猎手",
-    "/monsters/giant_scorpion": "巨蝎",
-    "/monsters/mimic": "宝箱怪",
-    "/monsters/myconid": "蘑菇人",
-    "/monsters/nom_nom": "咬咬鱼",
-    "/monsters/novice_sorcerer": "新手巫师",
-    "/monsters/panda": "熊猫",
-    "/monsters/polar_bear": "北极熊",
-    "/monsters/porcupine": "豪猪",
-    "/monsters/rabid_rabbit": "疯魔兔",
-    "/monsters/red_panda": "小熊猫",
-    "/monsters/alligator": "夏洛克",
-    "/monsters/gobo_shooty": "咻咻",
-    "/monsters/skunk": "臭鼬",
-    "/monsters/gobo_slashy": "砍砍",
-    "/monsters/slimy": "史莱姆",
-    "/monsters/gobo_smashy": "锤锤",
-    "/monsters/soul_hunter": "灵魂猎手",
-    "/monsters/squawker": "鹦鹉",
-    "/monsters/gobo_stabby": "刺刺",
-    "/monsters/stalactite_golem": "钟乳石魔像",
-    "/monsters/pyre_hunter": "火焰猎手",
-    "/monsters/swampy": "沼泽虫",
-    "/monsters/the_kraken": "克拉肯",
-    "/monsters/the_watcher": "观察者",
-    "/monsters/snake": "蛇",
-    "/monsters/tidal_conjuror": "潮汐召唤师",
-    "/monsters/salamander": "火蜥蜴",
-    "/monsters/shadow_archer": "暗影弓手",
-    "/monsters/treant": "树人",
-    "/monsters/turtle": "忍者龟",
-    "/monsters/vampire": "吸血鬼",
-    "/monsters/veyes": "复眼",
-    "/monsters/siren": "海妖",
-    "/monsters/werewolf": "狼人",
-    "/monsters/zombie": "僵尸",
-    "/monsters/zombie_bear": "僵尸熊",
-    // abilityNames
-    "/abilities/poke": "破胆之刺",
-    "/abilities/impale": "透骨之刺",
-    "/abilities/puncture": "破甲之刺",
-    "/abilities/penetrating_strike": "贯心之刺",
-    "/abilities/scratch": "爪影斩",
-    "/abilities/cleave": "分裂斩",
-    "/abilities/maim": "血刃斩",
-    "/abilities/crippling_slash": "致残斩",
-    "/abilities/smack": "重碾",
-    "/abilities/sweep": "重扫",
-    "/abilities/stunning_blow": "重锤",
-    "/abilities/fracturing_impact": "碎裂冲击",
-    "/abilities/shield_bash": "盾击",
-    "/abilities/quick_shot": "快速射击",
-    "/abilities/aqua_arrow": "流水箭",
-    "/abilities/flame_arrow": "烈焰箭",
-    "/abilities/rain_of_arrows": "箭雨",
-    "/abilities/silencing_shot": "沉默之箭",
-    "/abilities/steady_shot": "稳定射击",
-    "/abilities/pestilent_shot": "疫病射击",
-    "/abilities/penetrating_shot": "贯穿射击",
-    "/abilities/water_strike": "流水冲击",
-    "/abilities/ice_spear": "冰枪术",
-    "/abilities/frost_surge": "冰霜爆裂",
-    "/abilities/mana_spring": "法力喷泉",
-    "/abilities/entangle": "缠绕",
-    "/abilities/toxic_pollen": "剧毒粉尘",
-    "/abilities/natures_veil": "自然菌幕",
-    "/abilities/life_drain": "生命吸取",
-    "/abilities/fireball": "火球",
-    "/abilities/flame_blast": "熔岩爆裂",
-    "/abilities/firestorm": "火焰风暴",
-    "/abilities/smoke_burst": "烟爆灭影",
-    "/abilities/minor_heal": "初级自愈术",
-    "/abilities/heal": "自愈术",
-    "/abilities/quick_aid": "快速治疗术",
-    "/abilities/rejuvenate": "群体治疗术",
-    "/abilities/taunt": "嘲讽",
-    "/abilities/provoke": "挑衅",
-    "/abilities/toughness": "坚韧",
-    "/abilities/elusiveness": "闪避",
-    "/abilities/precision": "精确",
-    "/abilities/berserk": "狂暴",
-    "/abilities/frenzy": "狂速",
-    "/abilities/elemental_affinity": "元素增幅",
-    "/abilities/spike_shell": "尖刺防护",
-    "/abilities/retribution": "惩戒",
-    "/abilities/vampirism": "吸血",
-    "/abilities/revive": "复活",
-    "/abilities/insanity": "疯狂",
-    "/abilities/invincible": "无敌",
-    "/abilities/speed_aura": "速度光环",
-    "/abilities/guardian_aura": "守护光环",
-    "/abilities/fierce_aura": "物理光环",
-    "/abilities/critical_aura": "暴击光环",
-    "/abilities/mystic_aura": "元素光环",
-    "/abilities/promote": "晋升"
-  };
-  function inverseKV(obj) {
-    const retobj = {};
-    for (const key in obj) {
-      retobj[obj[key]] = key;
-    }
-    return retobj;
-  }
-  var ZHToItemHridMap = inverseKV(ZHItemNames);
-  var ZHToActionHridMap = inverseKV(ZHActionNames);
-  var ZHToOthersMap = inverseKV(ZHOthersDic);
-  function getItemEnNameFromZhName(zhName) {
-    const itemHrid = resolveLocalizedEntity("item", zhName) || ZHToItemHridMap[zhName];
-    if (!itemHrid) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到物品“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English item name for “${zhName}”.`
-      );
-      return "";
-    }
-    let enName;
-    try {
-      enName = runtime.state.initData_itemDetailMap?.[itemHrid]?.name;
-    } catch {
-      return "";
-    }
-    if (!enName) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到物品 ${itemHrid} 的英文名称。` : `[MWITools] Cannot find the English item name for ${itemHrid}.`
-      );
-      return "";
-    }
-    return enName;
-  }
-  function getActionEnNameFromZhName(zhName) {
-    const actionHrid = resolveLocalizedEntity("action", zhName) || ZHToActionHridMap[zhName];
-    if (!actionHrid) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到行动“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English action name for “${zhName}”.`
-      );
-      return "";
-    }
-    let enName;
-    try {
-      enName = runtime.state.initData_actionDetailMap?.[actionHrid]?.name;
-    } catch {
-      return "";
-    }
-    if (!enName) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到行动 ${actionHrid} 的英文名称。` : `[MWITools] Cannot find the English action name for ${actionHrid}.`
-      );
-      return "";
-    }
-    return enName;
-  }
-  function getOthersFromZhName(zhName) {
-    const key = resolveLocalizedEntity("monster", zhName) || resolveLocalizedEntity("ability", zhName) || ZHToOthersMap[zhName];
-    if (!key) {
-      return "";
-    }
-    return key;
-  }
-  var itemEnNameToHridMap = {};
-  Object.assign(runtime.api, {
-    inverseKV,
-    getItemEnNameFromZhName,
-    getActionEnNameFromZhName,
-    getOthersFromZhName,
-    getLocalizedEntityName
-  });
-  Object.defineProperties(runtime.data, {
-    ZHItemNames: {
-      enumerable: true,
-      get() {
-        return ZHItemNames;
-      }
-    },
-    ZHActionNames: {
-      enumerable: true,
-      get() {
-        return ZHActionNames;
-      }
-    },
-    ZHOthersDic: {
-      enumerable: true,
-      get() {
-        return ZHOthersDic;
-      }
-    },
-    ZHToItemHridMap: {
-      enumerable: true,
-      get() {
-        return ZHToItemHridMap;
-      }
-    },
-    ZHToActionHridMap: {
-      enumerable: true,
-      get() {
-        return ZHToActionHridMap;
-      }
-    },
-    ZHToOthersMap: {
-      enumerable: true,
-      get() {
-        return ZHToOthersMap;
-      }
-    }
-  });
-  Object.defineProperties(runtime.state, {
-    itemEnNameToHridMap: {
-      enumerable: true,
-      get() {
-        return itemEnNameToHridMap;
-      }
-    }
   });
 
   // src/data/market-backup.json
@@ -5066,6 +2856,556 @@
     }
   });
 
+  // src/core/game-localization.js
+  var SUPPORTED_GAME_LOCALES = Object.freeze([
+    "en",
+    "es",
+    "fr",
+    "pt",
+    "zh",
+    "zh-TW",
+    "ja",
+    "ko",
+    "ru"
+  ]);
+  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
+  var LOCALE_CACHE_SCHEMA = 1;
+  var LOCALE_CACHE_PREFIX = "MWITools_game_locale_v1";
+  var ENTITY_TYPES = Object.freeze({
+    item: {
+      resourceKey: "itemNames",
+      clientDataKey: "itemDetailMap",
+      stateKey: "initData_itemDetailMap",
+      prefix: "/items/",
+      sprite: "items_sprite"
+    },
+    action: {
+      resourceKey: "actionNames",
+      clientDataKey: "actionDetailMap",
+      stateKey: "initData_actionDetailMap",
+      prefix: "/actions/",
+      sprite: "actions_sprite"
+    },
+    monster: {
+      resourceKey: "monsterNames",
+      clientDataKey: "combatMonsterDetailMap",
+      stateKey: "initData_combatMonsterDetailMap",
+      prefix: "/monsters/",
+      sprite: "combat_monsters_sprite"
+    },
+    ability: {
+      resourceKey: "abilityNames",
+      clientDataKey: "abilityDetailMap",
+      stateKey: "initData_abilityDetailMap",
+      prefix: "/abilities/",
+      sprite: "abilities_sprite"
+    },
+    skill: {
+      resourceKey: "skillNames",
+      clientDataKey: "skillDetailMap",
+      stateKey: "initData_skillDetailMap",
+      prefix: "/skills/",
+      sprite: "skills_sprite"
+    },
+    houseRoom: {
+      resourceKey: "houseRoomNames",
+      clientDataKey: "houseRoomDetailMap",
+      stateKey: "initData_houseRoomDetailMap",
+      prefix: "/house_rooms/"
+    },
+    buffType: {
+      resourceKey: "buffTypeNames",
+      clientDataKey: "buffTypeDetailMap",
+      stateKey: "initData_buffTypeDetailMap",
+      prefix: "/buff_types/"
+    },
+    itemCategory: {
+      resourceKey: "itemCategoryNames",
+      clientDataKey: "itemCategoryDetailMap",
+      stateKey: "initData_itemCategoryDetailMap",
+      prefix: "/item_categories/"
+    },
+    actionCategory: {
+      resourceKey: "actionCategoryNames",
+      clientDataKey: "actionCategoryDetailMap",
+      stateKey: "initData_actionCategoryDetailMap",
+      prefix: "/action_categories/"
+    },
+    shopCategory: {
+      resourceKey: "shopCategoryNames",
+      clientDataKey: "shopCategoryDetailMap",
+      stateKey: "initData_shopCategoryDetailMap",
+      prefix: "/shop_categories/"
+    },
+    achievement: {
+      resourceKey: "achievementNames",
+      clientDataKey: "achievementDetailMap",
+      stateKey: "initData_achievementDetailMap",
+      prefix: "/achievements/"
+    }
+  });
+  var TYPE_ALIASES = Object.freeze({
+    items: "item",
+    actions: "action",
+    monsters: "monster",
+    abilities: "ability",
+    skills: "skill",
+    houseRooms: "houseRoom",
+    buffTypes: "buffType",
+    itemCategories: "itemCategory",
+    actionCategories: "actionCategory",
+    shopCategories: "shopCategory",
+    achievements: "achievement"
+  });
+  var localeResources = /* @__PURE__ */ new Map();
+  var reverseIndexes = /* @__PURE__ */ new WeakMap();
+  var warnedLocales = /* @__PURE__ */ new Set();
+  var englishResourceCache = null;
+  var englishResourceSignature = [];
+  function localizedText(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function pageGlobal2() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function normalizeGameLocale(value) {
+    const raw = String(value ?? "").trim().replaceAll("_", "-");
+    if (!raw) return "en";
+    const lower = raw.toLowerCase();
+    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
+      return "zh-TW";
+    }
+    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
+    const base = lower.split("-")[0];
+    return LOCALE_SET.has(base) ? base : "en";
+  }
+  function getGameLocale() {
+    return normalizeGameLocale(
+      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
+    );
+  }
+  function webpackQueues(target = pageGlobal2()) {
+    const queues = [];
+    for (const key of Object.getOwnPropertyNames(target ?? {})) {
+      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
+      try {
+        if (Array.isArray(target[key])) queues.push(target[key]);
+      } catch {
+      }
+    }
+    return queues;
+  }
+  function chunkEntries(target) {
+    return webpackQueues(target).flatMap(
+      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
+    );
+  }
+  function localeModuleMap(entries) {
+    const result = /* @__PURE__ */ new Map();
+    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+    for (const entry of entries) {
+      for (const factory of Object.values(entry[1])) {
+        if (typeof factory !== "function") continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!source.includes("./zh-TW/index.js")) continue;
+        for (const match of source.matchAll(pattern)) {
+          result.set(normalizeGameLocale(match[1]), String(match[2]));
+        }
+      }
+    }
+    return result;
+  }
+  function runLocaleFactory(factory) {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const webpackRequire = () => {
+      throw new Error();
+    };
+    webpackRequire.r = (target) => {
+      Object.defineProperty(target, "__esModule", { value: true });
+    };
+    webpackRequire.d = (target, nameOrDefinition, getter) => {
+      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
+      for (const [name, get] of Object.entries(definition)) {
+        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
+        Object.defineProperty(target, name, { enumerable: true, get });
+      }
+    };
+    factory.call(exports, module, exports, webpackRequire);
+    return module.exports?.default ?? exports.default ?? module.exports;
+  }
+  function validResourceMap(value, prefix) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value).some((key) => key.startsWith(prefix));
+  }
+  function validateGameLocaleResources(value) {
+    return Boolean(
+      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
+    );
+  }
+  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal2()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    const entries = chunkEntries(target);
+    const expectedModuleId = localeModuleMap(entries).get(normalizedLocale);
+    if (!expectedModuleId) return null;
+    const candidates = [];
+    for (const entry of entries) {
+      for (const [moduleId, factory] of Object.entries(entry[1])) {
+        if (typeof factory !== "function") continue;
+        if (moduleId !== expectedModuleId) continue;
+        candidates.push(factory);
+      }
+    }
+    for (const factory of candidates) {
+      try {
+        const resources = runLocaleFactory(factory);
+        if (validateGameLocaleResources(resources)) return resources;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function i18nFromFiber(element) {
+    const fiberKey2 = Reflect.ownKeys(element ?? {}).find(
+      (key) => String(key).startsWith("__reactFiber$")
+    );
+    for (let fiber = fiberKey2 ? element[fiberKey2] : null, depth = 0; fiber && depth < 80; fiber = fiber.return, depth += 1) {
+      for (const candidate of [
+        fiber.memoizedProps?.i18n,
+        fiber.pendingProps?.i18n,
+        fiber.stateNode?.props?.i18n,
+        fiber.stateNode?.i18n
+      ]) {
+        if (candidate?.options?.resources) return candidate;
+      }
+    }
+    return null;
+  }
+  function translationForLocale(i18n, locale) {
+    const normalized = normalizeGameLocale(locale);
+    const match = Object.entries(i18n?.options?.resources ?? {}).find(
+      ([key]) => normalizeGameLocale(key) === normalized
+    );
+    return match?.[1]?.translation ?? null;
+  }
+  function extractReactGameLocaleResources(locale = getGameLocale(), documentTarget = globalThis.document) {
+    if (!documentTarget?.querySelector) return null;
+    const candidates = /* @__PURE__ */ new Set([
+      documentTarget.querySelector("#root"),
+      documentTarget.querySelector('[class^="GamePage"]'),
+      documentTarget.body
+    ]);
+    if (![...candidates].some((element) => i18nFromFiber(element))) {
+      let inspected = 0;
+      for (const element of documentTarget.querySelectorAll("*")) {
+        if (inspected >= 300) break;
+        if (Reflect.ownKeys(element).some(
+          (key) => String(key).startsWith("__reactFiber$")
+        )) {
+          candidates.add(element);
+          inspected += 1;
+        }
+      }
+    }
+    for (const element of candidates) {
+      const resources = translationForLocale(i18nFromFiber(element), locale);
+      if (validateGameLocaleResources(resources)) return resources;
+    }
+    return null;
+  }
+  function clientData2() {
+    return runtime.state.clientData ?? runtime.api.getGameClientData?.() ?? null;
+  }
+  function englishResourceDetails(type) {
+    const definition = ENTITY_TYPES[type];
+    return clientData2()?.[definition.clientDataKey] ?? runtime.state[definition.stateKey] ?? (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+  }
+  function englishResourceMap(type, details = englishResourceDetails(type)) {
+    const result = Object.fromEntries(
+      Object.entries(details ?? {}).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
+    );
+    if (type === "item") {
+      for (const [name, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (!result[hrid] && name) result[hrid] = name;
+      }
+    }
+    return result;
+  }
+  function englishResourceName(type, hrid) {
+    const details = englishResourceDetails(type);
+    const detail = details instanceof Map ? details.get(hrid) : details?.[hrid];
+    return String(detail?.name ?? "").trim();
+  }
+  function englishResources() {
+    const entries = Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+      type,
+      definition,
+      englishResourceDetails(type)
+    ]);
+    const signature = [
+      gameVersionKey(),
+      clientData2(),
+      runtime.state.itemEnNameToHridMap,
+      ...entries.map(([, , details]) => details)
+    ];
+    if (englishResourceCache && signature.length === englishResourceSignature.length && signature.every((value, index) => value === englishResourceSignature[index])) {
+      return englishResourceCache;
+    }
+    englishResourceSignature = signature;
+    englishResourceCache = Object.fromEntries(
+      entries.map(([type, definition, details]) => [
+        definition.resourceKey,
+        englishResourceMap(type, details)
+      ])
+    );
+    return englishResourceCache;
+  }
+  function gameVersionKey() {
+    const data = clientData2();
+    return String(data?.versionTimestamp ?? data?.gameVersion ?? "").trim();
+  }
+  function localeCacheKey(locale) {
+    const version = gameVersionKey();
+    return version ? `${LOCALE_CACHE_PREFIX}:${encodeURIComponent(version)}:${normalizeGameLocale(locale)}` : "";
+  }
+  function readCachedResources(locale) {
+    const key = localeCacheKey(locale);
+    if (!key) return null;
+    try {
+      const cached = JSON.parse(
+        globalThis.localStorage?.getItem?.(key) || "null"
+      );
+      return cached?.schemaVersion === LOCALE_CACHE_SCHEMA && validateGameLocaleResources(cached.resources) ? cached.resources : null;
+    } catch {
+      return null;
+    }
+  }
+  function writeCachedResources(locale, resources) {
+    const key = localeCacheKey(locale);
+    if (!key || !validateGameLocaleResources(resources)) return;
+    try {
+      globalThis.localStorage?.setItem?.(
+        key,
+        JSON.stringify({ schemaVersion: LOCALE_CACHE_SCHEMA, resources })
+      );
+    } catch {
+    }
+  }
+  function getGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (localeResources.has(normalizedLocale)) {
+      return localeResources.get(normalizedLocale);
+    }
+    const official = extractReactGameLocaleResources(normalizedLocale) ?? extractGameLocaleResources(normalizedLocale) ?? readCachedResources(normalizedLocale);
+    if (official) {
+      localeResources.set(normalizedLocale, official);
+      writeCachedResources(normalizedLocale, official);
+      return official;
+    }
+    if (normalizedLocale === "en") return englishResources();
+    if (!warnedLocales.has(normalizedLocale)) {
+      warnedLocales.add(normalizedLocale);
+      console.warn(
+        localizedText(
+          `[MWITools] 官方 ${normalizedLocale} 语言资源尚未就绪，将暂时使用英文名称。`,
+          `[MWITools] Official ${normalizedLocale} resources are not ready; English names will be used temporarily.`
+        )
+      );
+    }
+    return null;
+  }
+  function registerGameLocaleResources(locale, resources) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (!validateGameLocaleResources(resources)) return false;
+    localeResources.set(normalizedLocale, resources);
+    writeCachedResources(normalizedLocale, resources);
+    return true;
+  }
+  function refreshGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    localeResources.delete(normalizedLocale);
+    warnedLocales.delete(normalizedLocale);
+    if (normalizedLocale === "en") {
+      englishResourceCache = null;
+      englishResourceSignature = [];
+    }
+    return getGameLocaleResources(normalizedLocale);
+  }
+  function entityType(kind) {
+    const normalized = TYPE_ALIASES[kind] ?? kind;
+    return ENTITY_TYPES[normalized] ? normalized : null;
+  }
+  function normalizedName(value, type = "") {
+    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
+    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
+    return result;
+  }
+  function reverseIndex(resources, type) {
+    let indexes = reverseIndexes.get(resources);
+    if (!indexes) {
+      indexes = /* @__PURE__ */ new Map();
+      reverseIndexes.set(resources, indexes);
+    }
+    if (indexes.has(type)) return indexes.get(type);
+    const definition = ENTITY_TYPES[type];
+    const index = /* @__PURE__ */ new Map();
+    for (const [hrid, name] of Object.entries(
+      resources?.[definition.resourceKey] ?? {}
+    )) {
+      const key = normalizedName(name, type);
+      if (!key) continue;
+      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
+      else index.set(key, hrid);
+    }
+    indexes.set(type, index);
+    return index;
+  }
+  function directHrid(type, value) {
+    const candidate = String(value ?? "").trim();
+    return candidate.startsWith(ENTITY_TYPES[type].prefix) ? candidate : "";
+  }
+  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type) return "";
+    const direct = directHrid(type, name);
+    if (direct) return direct;
+    const key = normalizedName(name, type);
+    if (!key) return "";
+    const localizedResources = getGameLocaleResources(locale);
+    if (localizedResources) {
+      const match = reverseIndex(localizedResources, type).get(key);
+      if (match) return match;
+    }
+    const fallbackResources = englishResources();
+    if (fallbackResources !== localizedResources) {
+      const match = reverseIndex(fallbackResources, type).get(key);
+      if (match) return match;
+    }
+    if (type === "item") {
+      for (const [englishName, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (normalizedName(englishName, type) === key) return hrid;
+      }
+    }
+    return "";
+  }
+  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
+    const type = entityType(kind);
+    if (!type) return fallback;
+    const definition = ENTITY_TYPES[type];
+    const localizedName = getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid];
+    return localizedName ?? (englishResourceName(type, hrid) || englishResources()[definition.resourceKey]?.[hrid] || fallback);
+  }
+  function elementCandidates(element) {
+    const result = [];
+    for (let current = element; current && result.length < 24; ) {
+      result.push(current);
+      current = current.parentElement;
+    }
+    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
+      if (!result.includes(child)) result.push(child);
+    }
+    return result;
+  }
+  function datasetHrid(type, element) {
+    const names = [
+      `${type}Hrid`,
+      "hrid",
+      "itemHrid",
+      "actionHrid",
+      "monsterHrid",
+      "abilityHrid",
+      "skillHrid"
+    ];
+    for (const name of names) {
+      const value = element?.dataset?.[name];
+      const direct = directHrid(type, value);
+      if (direct) return direct;
+    }
+    return "";
+  }
+  function spriteHrid(type, element) {
+    const definition = ENTITY_TYPES[type];
+    if (!definition.sprite) return "";
+    const href = String(
+      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
+    );
+    const [base, fragment = ""] = href.split("#");
+    return fragment && base.includes(definition.sprite) ? `${definition.prefix}${fragment}` : "";
+  }
+  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type || !element) return "";
+    const candidates = elementCandidates(element);
+    for (const candidate of candidates) {
+      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
+      if (hrid) return hrid;
+    }
+    for (const candidate of candidates) {
+      for (const value of [
+        candidate?.getAttribute?.("aria-label"),
+        candidate?.getAttribute?.("title"),
+        candidate?.textContent
+      ]) {
+        const hrid = resolveLocalizedEntity(type, value, { locale });
+        if (hrid) return hrid;
+      }
+    }
+    return "";
+  }
+  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
+    let value = getGameLocaleResources(locale);
+    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
+      if (!key || !value || typeof value !== "object") return "";
+      value = value[key];
+    }
+    return typeof value === "string" ? value : "";
+  }
+  function escapeRegularExpression(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
+    const template = getGameTranslation(path, { locale });
+    if (!template) return false;
+    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
+    const pattern = parts.map(
+      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
+    ).join("");
+    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
+  }
+  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
+    const value = String(text ?? "").trim();
+    if ([...Array.isArray(paths) ? paths : [paths]].some(
+      (path) => matchesGameTranslation(path, value, { locale })
+    )) {
+      return true;
+    }
+    return fallbackPatterns.some(
+      (pattern) => pattern instanceof RegExp ? pattern.test(value) : String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase()
+    );
+  }
+  function resetGameLocalizationCache() {
+    localeResources.clear();
+    warnedLocales.clear();
+    englishResourceCache = null;
+    englishResourceSignature = [];
+  }
+  Object.assign(runtime.api, {
+    getGameLocale,
+    getGameLocaleResources,
+    registerGameLocaleResources,
+    refreshGameLocaleResources,
+    resetGameLocalizationCache,
+    getGameTranslation,
+    matchesGameTranslation,
+    resolveLocalizedEntity,
+    resolveEntityFromElement,
+    getLocalizedEntityName
+  });
+
   // src/core/localization.js
   function localize(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -5073,35 +3413,11 @@
   function tailLabel(hrid) {
     return String(hrid ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "";
   }
-  function detailFrom(map, hrid, explicitDetail) {
-    if (explicitDetail) return explicitDetail;
-    return map instanceof Map ? map.get(hrid) : map?.[hrid];
-  }
-  var ENTITY_SOURCES = {
-    item: {
-      zh: () => runtime.data.ZHItemNames,
-      en: () => runtime.state.initData_itemDetailMap
-    },
-    action: {
-      zh: () => runtime.data.ZHActionNames,
-      en: () => runtime.state.initData_actionDetailMap
-    },
-    ability: {
-      zh: () => runtime.data.ZHOthersDic,
-      en: () => runtime.state.initData_abilityDetailMap
-    },
-    monster: {
-      zh: () => runtime.data.ZHOthersDic,
-      en: () => null
-    }
-  };
   function entityName(kind, hrid, { fallbackZh = "", fallbackEn = "", detail = null, fallback = "" } = {}) {
-    const source = ENTITY_SOURCES[kind];
-    const officialZh = source?.zh?.()?.[hrid];
-    const englishDetail = detailFrom(source?.en?.(), hrid, detail);
-    const officialEn = String(englishDetail?.name ?? "").trim();
+    const official = getLocalizedEntityName(kind, hrid);
+    const detailName = String(detail?.name ?? "").trim();
     const diagnostic = fallback || tailLabel(hrid) || "—";
-    return runtime.config.isZH ? officialZh || fallbackZh || officialEn || fallbackEn || diagnostic : officialEn || fallbackEn || fallbackZh || officialZh || diagnostic;
+    return official || (runtime.config.isZH ? fallbackZh : fallbackEn) || detailName || (runtime.config.isZH ? fallbackEn : fallbackZh) || diagnostic;
   }
   var itemName = (hrid, options) => entityName("item", hrid, options);
   var actionName = (hrid, options) => entityName("action", hrid, options);
@@ -5380,8 +3696,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal4.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal5 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal5.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error(
         runtime.config.isZH ? "[MWITools] 无法从游戏缓存读取市场价值" : "[MWITools] Unable to read market values from the game cache",
@@ -13149,6 +11465,90 @@
     };
   }
 
+  // src/core/mutation-channel.js
+  var channels = /* @__PURE__ */ new Map();
+  var OPTION_KEYS = [
+    "attributes",
+    "attributeOldValue",
+    "characterData",
+    "characterDataOldValue",
+    "childList",
+    "subtree"
+  ];
+  function optionSignature(options = {}) {
+    const normalized = Object.fromEntries(
+      OPTION_KEYS.map((key) => [key, Boolean(options[key])])
+    );
+    normalized.attributeFilter = [...options.attributeFilter ?? []].sort();
+    return JSON.stringify(normalized);
+  }
+  function observerConstructor(target) {
+    return globalThis.MutationObserver ?? target?.ownerDocument?.defaultView?.MutationObserver ?? globalThis.document?.defaultView?.MutationObserver;
+  }
+  function t(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function reportSubscriberError(name, error) {
+    console.error(
+      `[MWITools] Mutation channel subscriber failed (${name})`,
+      error
+    );
+  }
+  function subscribeMutationChannel({ name, target, options, scope }, callback) {
+    if (!name || !target || typeof callback !== "function") {
+      throw new TypeError(
+        "Mutation channel subscriptions need a name, target, and callback"
+      );
+    }
+    const signature = optionSignature(options);
+    let channel = channels.get(name);
+    if (channel) {
+      if (channel.target !== target || channel.signature !== signature) {
+        throw new Error(
+          t(
+            `页面观察通道 ${name} 使用了不同的根节点或配置`,
+            `Mutation channel ${name} was reused with a different target or options`
+          )
+        );
+      }
+    } else {
+      const Observer = observerConstructor(target);
+      if (typeof Observer !== "function") {
+        throw new Error(
+          t(
+            `页面观察通道 ${name} 无法使用 MutationObserver`,
+            `MutationObserver is unavailable for channel ${name}`
+          )
+        );
+      }
+      const subscribers = /* @__PURE__ */ new Set();
+      const observer = new Observer((records, source) => {
+        for (const subscriber of [...subscribers]) {
+          try {
+            subscriber(records, source);
+          } catch (error) {
+            reportSubscriberError(name, error);
+          }
+        }
+      });
+      channel = { name, observer, signature, subscribers, target };
+      observer.observe(target, options);
+      channels.set(name, channel);
+    }
+    channel.subscribers.add(callback);
+    let active = true;
+    const unsubscribe = () => {
+      if (!active) return;
+      active = false;
+      channel.subscribers.delete(callback);
+      if (channel.subscribers.size) return;
+      channel.observer.disconnect();
+      if (channels.get(name) === channel) channels.delete(name);
+    };
+    scope?.add?.(unsubscribe);
+    return unsubscribe;
+  }
+
   // src/features/asset-history/20-chart.js
   var COLORS = {
     equipment: "#5bc0eb",
@@ -13168,7 +11568,7 @@
     nonTradableTokens: ["不可交易代币", "Non-tradable tokens"],
     shrine: ["神龛", "Shrine"]
   };
-  function t(zh, en) {
+  function t2(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function filterEntries(entries, range) {
@@ -13219,6 +11619,30 @@
     resetZoom() {
       this.instance?.resetZoom?.();
     }
+    prepareCanvas() {
+      if (!this.canvas || this.canvas.isConnected === false) return null;
+      if (this.canvas.style) {
+        this.canvas.style.display = "block";
+        this.canvas.style.width = "100%";
+        this.canvas.style.height = "100%";
+      }
+      const bounds = this.canvas.getBoundingClientRect?.() ?? {};
+      const width = Math.max(
+        1,
+        Math.round(
+          Number(bounds.width) || Number(this.canvas.clientWidth) || Number(this.canvas.width) || 300
+        )
+      );
+      const height = Math.max(
+        1,
+        Math.round(
+          Number(bounds.height) || Number(this.canvas.clientHeight) || Number(this.canvas.height) || 150
+        )
+      );
+      this.canvas.width = width;
+      this.canvas.height = height;
+      return this.canvas.getContext?.("2d") ?? null;
+    }
     render(entries, { mode = "total", range = null } = {}) {
       return this.renderWithOptions(entries, { mode, range });
     }
@@ -13234,14 +11658,12 @@
         this.destroy();
         this.canvas.hidden = true;
         this.fallback.hidden = false;
-        this.fallback.textContent = t(
+        this.fallback.textContent = t2(
           "图表依赖未加载；资产数据与明细仍可正常使用。",
           "Chart dependencies did not load; asset data is still available."
         );
-        return;
+        return false;
       }
-      this.canvas.hidden = false;
-      this.fallback.hidden = true;
       const filtered = filterEntries(entries, range);
       const labels = filtered.map(([date]) => date);
       let datasets;
@@ -13251,7 +11673,7 @@
         datasets = [
           {
             type: "bar",
-            label: t("每日盈亏", "Daily P/L"),
+            label: t2("每日盈亏", "Daily P/L"),
             data: profit,
             backgroundColor: profit.map(
               (value) => value >= 0 ? "rgba(65,190,115,.58)" : "rgba(235,90,90,.58)"
@@ -13260,7 +11682,7 @@
           },
           {
             type: "line",
-            label: t(`${maWindow} 日均线`, `${maWindow}-day average`),
+            label: t2(`${maWindow} 日均线`, `${maWindow}-day average`),
             data: calendarAverage(filtered, "total", maWindow),
             borderColor: "#ffd369",
             backgroundColor: "transparent",
@@ -13270,11 +11692,11 @@
             spanGaps: true
           }
         ];
-        title = t("每日资产盈亏", "Daily asset P/L");
+        title = t2("每日资产盈亏", "Daily asset P/L");
       } else if (mode === "breakdown") {
         datasets = ASSET_COMPONENT_KEYS.map((key) => ({
           type: "line",
-          label: t(...LABELS[key]),
+          label: t2(...LABELS[key]),
           data: filtered.map(([, record]) => record?.values?.[key] ?? null),
           mwitoolsVisibilityKey: key,
           borderColor: COLORS[key],
@@ -13284,12 +11706,12 @@
           tension: lineTension,
           spanGaps: true
         }));
-        title = t("分项资产", "Component assets");
+        title = t2("分项资产", "Component assets");
       } else {
         datasets = [
           {
             type: "line",
-            label: t("总资产", "Total assets"),
+            label: t2("总资产", "Total assets"),
             data: filtered.map(([, record]) => record?.values?.total ?? null),
             borderColor: "#4cc9f0",
             backgroundColor: "rgba(76,201,240,.14)",
@@ -13300,13 +11722,17 @@
             spanGaps: true
           }
         ];
-        title = t("总资产历史", "Total asset history");
+        title = t2("总资产历史", "Total asset history");
       }
       for (const dataset of datasets) {
         const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
         dataset.hidden = this.hiddenDatasets.has(key);
       }
       this.destroy();
+      const context = this.prepareCanvas();
+      if (!context) return false;
+      this.canvas.hidden = false;
+      this.fallback.hidden = true;
       const crosshairPlugin = {
         id: "mwitoolsAssetCrosshair",
         afterDraw(chart) {
@@ -13365,11 +11791,14 @@
           ctx.restore();
         }
       };
-      this.instance = new Chart(this.canvas.getContext("2d"), {
+      this.instance = new Chart(context, {
         data: { labels, datasets },
         plugins: [crosshairPlugin, tagPlugin],
         options: {
-          responsive: true,
+          // Chart.js responsive mode observes DOM attachment with Node.contains().
+          // Firefox userscript sandboxes can reject that cross-context access when
+          // the game replaces a React subtree, so MWITools sizes the canvas above.
+          responsive: false,
           maintainAspectRatio: false,
           interaction: { mode: "index", intersect: false },
           animation: false,
@@ -13392,9 +11821,9 @@
             },
             tooltip: {
               callbacks: {
-                label(context) {
-                  const value = context.raw;
-                  return `${context.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
+                label(context2) {
+                  const value = context2.raw;
+                  return `${context2.dataset.label}: ${Number.isFinite(value) ? formatTooltip(value) : "—"}`;
                 }
               }
             },
@@ -13432,6 +11861,7 @@
           }
         }
       });
+      return true;
     }
   };
 
@@ -13532,10 +11962,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     document.head.append(style);
   }
   var AssetCenter = class {
-    constructor({ store, scopeKey, onChange = null }) {
+    constructor({ store, scopeKey, onChange = null, onVisibilityChange = null }) {
       this.store = store;
       this.scopeKey = scopeKey;
       this.onChange = onChange;
+      this.onVisibilityChange = onVisibilityChange;
       this.route = "chart";
       this.chartMode = this.store.getPreferences().chart.defaultView;
       if (this.chartMode === "statsReport") this.chartMode = "networth";
@@ -13609,7 +12040,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       }
       this.bind();
       this.applyTheme();
-      this.render();
     }
     nav(route, icon, label) {
       return `<button class="ep-nav-item" data-route="${route}"><span class="ep-nav-icon">${icon}</span><span class="ep-nav-text">${label}</span></button>`;
@@ -13646,10 +12076,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       this.root.hidden = false;
       document.body.dataset.mwitoolsAssetCenterOpen = "true";
       document.body.style.overflow = "hidden";
+      this.onVisibilityChange?.(true);
       this.root.querySelector("[data-close]").focus();
       this.render();
     }
     close() {
+      const wasOpen = !this.root.hidden;
       this.root.hidden = true;
       delete document.body.dataset.mwitoolsAssetCenterOpen;
       document.body.style.overflow = "";
@@ -13661,6 +12093,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         this.pendingWindowSize = null;
       }
       this.previousFocus?.focus?.();
+      if (wasOpen) this.onVisibilityChange?.(false);
+    }
+    isOpen() {
+      return !this.root.hidden;
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
@@ -14197,6 +12633,7 @@ ${values.map((item) => item.date).join("\n")}`
   // src/features/asset-history/30-panel.js
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
+  var CENTER_ID = "mwitools-asset-center-modal";
   var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
@@ -14209,7 +12646,7 @@ ${values.map((item) => item.date).join("\n")}`
     ["nonTradableTokens", "不可交易代币", "Non-tradable tokens"],
     ["shrine", "神龛", "Shrine"]
   ];
-  function t2(zh, en) {
+  function t3(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatNumber(value, signed = false) {
@@ -14518,59 +12955,64 @@ ${values.map((item) => item.date).join("\n")}`
       this.snapshot = null;
       this.mode = "total";
       this.range = 30;
+      this.visible = false;
       this.build();
       this.center = createAssetCenter({
         store: this.store,
         scopeKey: this.scopeKey,
-        onChange: () => this.update(this.snapshot)
+        onChange: () => this.update(this.snapshot),
+        onVisibilityChange: (open) => {
+          if (open) this.chart.destroy();
+          else if (this.visible) this.update(this.snapshot);
+        }
       });
     }
     build() {
       this.host.innerHTML = `
-      <p class="mwi-asset-disclaimer">${t2("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t2("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t2("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t2("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <p class="mwi-asset-disclaimer">${t3("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t3("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t3("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t3("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
       <div class="mwi-asset-summary">
-        ${createCard(t2("当前总资产", "Current total assets"), "mwi-asset-current-total")}
-        ${createCard(t2("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
-        ${createCard(t2("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
-        ${createCard(t2("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
+        ${createCard(t3("当前总资产", "Current total assets"), "mwi-asset-current-total")}
+        ${createCard(t3("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t3("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
+        ${createCard(t3("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
       </div>
       <section class="mwi-asset-section">
-        <div class="mwi-asset-section-title">${t2("分项资产变化", "Asset changes by component")}</div>
-        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table"><thead><tr><th>${t2("项目", "Component")}</th><th>${t2("当前", "Current")}</th><th id="mwi-asset-change-heading">${t2("变化", "Change")}</th><th>${t2("比例", "Percentage")}</th></tr></thead><tbody id="mwi-asset-breakdown"></tbody></table></div>
+        <div class="mwi-asset-section-title">${t3("分项资产变化", "Asset changes by component")}</div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table"><thead><tr><th>${t3("项目", "Component")}</th><th>${t3("当前", "Current")}</th><th id="mwi-asset-change-heading">${t3("变化", "Change")}</th><th>${t3("比例", "Percentage")}</th></tr></thead><tbody id="mwi-asset-breakdown"></tbody></table></div>
       </section>
       <section class="mwi-asset-section">
         <div class="mwi-asset-chart-controls">
-          <button type="button" data-mode="total">${t2("总资产", "Total assets")}</button>
-          <button type="button" data-mode="profit">${t2("每日盈亏", "Daily P/L")}</button>
-          <button type="button" data-mode="breakdown">${t2("分项资产", "Component assets")}</button>
+          <button type="button" data-mode="total">${t3("总资产", "Total assets")}</button>
+          <button type="button" data-mode="profit">${t3("每日盈亏", "Daily P/L")}</button>
+          <button type="button" data-mode="breakdown">${t3("分项资产", "Component assets")}</button>
           <span style="flex:1"></span>
-          <button type="button" data-range="7">7${t2("天", "d")}</button>
-          <button type="button" data-range="15">15${t2("天", "d")}</button>
-          <button type="button" data-range="30">30${t2("天", "d")}</button>
-          <button type="button" data-range="all">${t2("全部", "All")}</button>
-          <button type="button" id="mwi-asset-reset-zoom">${t2("重置缩放", "Reset zoom")}</button>
+          <button type="button" data-range="7">7${t3("天", "d")}</button>
+          <button type="button" data-range="15">15${t3("天", "d")}</button>
+          <button type="button" data-range="30">30${t3("天", "d")}</button>
+          <button type="button" data-range="all">${t3("全部", "All")}</button>
+          <button type="button" id="mwi-asset-reset-zoom">${t3("重置缩放", "Reset zoom")}</button>
         </div>
         <div class="mwi-asset-chart-box"><canvas id="mwi-asset-chart"></canvas><div class="mwi-asset-chart-fallback" hidden></div></div>
       </section>
-      <section class="mwi-asset-section"><details class="mwi-asset-manager"><summary>${t2("数据管理与备份", "Data management & backup")}</summary>
+      <section class="mwi-asset-section"><details class="mwi-asset-manager"><summary>${t3("数据管理与备份", "Data management & backup")}</summary>
         <div class="mwi-asset-manager-actions">
-          <button type="button" class="mwi-asset-action" id="mwi-asset-export">${t2("导出备份", "Export backup")}</button>
-          <button type="button" class="mwi-asset-action" id="mwi-asset-import">${t2("导入备份", "Import backup")}</button>
-          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-cleanup">${t2("清理无效记录", "Clean invalid records")}</button>
-          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-anomalies">${t2("检测并删除异常", "Detect & delete anomalies")}</button>
+          <button type="button" class="mwi-asset-action" id="mwi-asset-export">${t3("导出备份", "Export backup")}</button>
+          <button type="button" class="mwi-asset-action" id="mwi-asset-import">${t3("导入备份", "Import backup")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-cleanup">${t3("清理无效记录", "Clean invalid records")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-anomalies">${t3("检测并删除异常", "Detect & delete anomalies")}</button>
           <input type="file" id="mwi-asset-import-file" accept="application/json" hidden>
         </div>
-        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table mwi-asset-history-table"><thead><tr><th>${t2("日期", "Date")}</th><th>${t2("总资产", "Total")}</th><th>${t2("操作", "Actions")}</th></tr></thead><tbody id="mwi-asset-history-rows"></tbody></table></div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table mwi-asset-history-table"><thead><tr><th>${t3("日期", "Date")}</th><th>${t3("总资产", "Total")}</th><th>${t3("操作", "Actions")}</th></tr></thead><tbody id="mwi-asset-history-rows"></tbody></table></div>
       </details></section>
-      <dialog class="mwi-asset-edit-dialog" id="mwi-asset-edit-dialog"><h3>${t2("编辑分项资产", "Edit asset components")}</h3><div class="mwi-asset-edit-grid">${ASSET_COMPONENT_KEYS.map(
+      <dialog class="mwi-asset-edit-dialog" id="mwi-asset-edit-dialog"><h3>${t3("编辑分项资产", "Edit asset components")}</h3><div class="mwi-asset-edit-grid">${ASSET_COMPONENT_KEYS.map(
         (key) => {
           const row = ROWS.find(([candidate]) => candidate === key);
-          return `<label>${t2(row[1], row[2])}<input type="number" min="0" step="any" data-component="${key}"></label>`;
+          return `<label>${t3(row[1], row[2])}<input type="number" min="0" step="any" data-component="${key}"></label>`;
         }
       ).join(
         ""
-      )}</div><div class="mwi-asset-edit-actions"><button type="button" class="mwi-asset-action" data-edit-cancel>${t2("取消", "Cancel")}</button><button type="button" class="mwi-asset-action" data-edit-save>${t2("保存", "Save")}</button></div></dialog>
+      )}</div><div class="mwi-asset-edit-actions"><button type="button" class="mwi-asset-action" data-edit-cancel>${t3("取消", "Cancel")}</button><button type="button" class="mwi-asset-action" data-edit-save>${t3("保存", "Save")}</button></div></dialog>
     `;
       this.chart = new AssetHistoryChart(
         this.host.querySelector("#mwi-asset-chart"),
@@ -14606,7 +13048,7 @@ ${values.map((item) => item.date).join("\n")}`
         try {
           const backup = JSON.parse(await file.text());
           const replace = globalThis.confirm?.(
-            t2(
+            t3(
               "确定：替换当前角色历史；取消：合并导入。",
               "OK: replace this character's history; Cancel: merge it."
             )
@@ -14618,7 +13060,7 @@ ${values.map((item) => item.date).join("\n")}`
           this.update(this.snapshot);
         } catch (error) {
           globalThis.alert?.(
-            `${t2("导入失败", "Import failed")}: ${error.message}`
+            `${t3("导入失败", "Import failed")}: ${error.message}`
           );
         } finally {
           fileInput.value = "";
@@ -14627,7 +13069,7 @@ ${values.map((item) => item.date).join("\n")}`
       this.host.querySelector("#mwi-asset-cleanup").addEventListener("click", () => {
         const removed = this.store.cleanupInvalid(this.scopeKey);
         globalThis.alert?.(
-          t2(
+          t3(
             `已删除 ${removed} 条无效记录。`,
             `Removed ${removed} invalid records.`
           )
@@ -14638,13 +13080,13 @@ ${values.map((item) => item.date).join("\n")}`
         const anomalies = this.store.detectAnomalies(this.scopeKey);
         if (!anomalies.length) {
           globalThis.alert?.(
-            t2("未发现明显异常。", "No clear anomalies found.")
+            t3("未发现明显异常。", "No clear anomalies found.")
           );
           return;
         }
         const preview = anomalies.map(({ date, zScore }) => `${date} (Z=${zScore.toFixed(1)})`).join("\n");
         if (!globalThis.confirm?.(
-          t2(
+          t3(
             `确认删除以下异常日期？
 ${preview}`,
             `Delete these anomalous dates?
@@ -14665,7 +13107,7 @@ ${preview}`
       const status = this.host.querySelector(".mwi-asset-share-status");
       const message = buildAssetShareMessage(this.shareStats ?? {});
       if (!message) {
-        status.textContent = t2(
+        status.textContent = t3(
           "暂无可对比的盈亏数据",
           "No comparable P/L data yet"
         );
@@ -14673,7 +13115,7 @@ ${preview}`
       }
       const input = pasteAssetShareToChat(message);
       status.dataset.pasted = String(Boolean(input));
-      status.textContent = input ? t2("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t2(
+      status.textContent = input ? t3("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t3(
         "未找到聊天框，请先展开聊天",
         "Chat input not found; open chat first"
       );
@@ -14706,7 +13148,7 @@ ${preview}`
         (key) => Number.isFinite(values[key]) && values[key] >= 0
       )) {
         globalThis.alert?.(
-          t2(
+          t3(
             "请为全部七个分项填写不小于零的数字。",
             "Enter a non-negative number for all seven components."
           )
@@ -14720,6 +13162,10 @@ ${preview}`
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
       this.center?.update(this.snapshot);
+      if (!this.visible || !this.host.isConnected || this.center?.isOpen()) {
+        if (!this.host.isConnected) this.chart.destroy();
+        return;
+      }
       const dayKey = getUtc8DayKey();
       const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
       const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -14736,20 +13182,20 @@ ${preview}`
       const shareStatus = this.host.querySelector(".mwi-asset-share-status");
       shareButton.disabled = !this.shareStats;
       if (!this.shareStats) {
-        shareStatus.textContent = t2(
+        shareStatus.textContent = t3(
           "需要至少两天的资产记录",
           "At least two asset records are required"
         );
       } else if (shareStatus.dataset.pasted !== "true") {
-        shareStatus.textContent = t2(
+        shareStatus.textContent = t3(
           "随机生成今日战报并放入聊天框",
           "Generate a random report and paste it into chat"
         );
       }
-      const compareText = comparison ? comparison.gapDays === 1 ? t2(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t2(
+      const compareText = comparison ? comparison.gapDays === 1 ? t3(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t3(
         `较 ${comparison.gapDays} 天前（${comparison.date}）`,
         `vs ${comparison.gapDays} days ago (${comparison.date})`
-      ) : t2("暂无历史对比", "No prior record");
+      ) : t3("暂无历史对比", "No prior record");
       const setNumber = (selector, value, { signed = false, className = "" } = {}) => {
         const node = this.host.querySelector(selector);
         node.textContent = formatNumber(value, signed);
@@ -14771,7 +13217,7 @@ ${preview}`
         signed: true,
         className: valueClass(average)
       });
-      this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t2(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t2("变化", "Change");
+      this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t3(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t3("变化", "Change");
       const body = this.host.querySelector("#mwi-asset-breakdown");
       body.replaceChildren(
         ...ROWS.map(([key, zh, en]) => {
@@ -14780,7 +13226,7 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          row.innerHTML = `<td>${t3(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -14794,10 +13240,10 @@ ${preview}`
         ...entries.map(([dayKey, record]) => {
           const row = document.createElement("tr");
           const total = record?.values?.total;
-          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t3("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t3("删除", "Delete")}</button></td>`;
           row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
           row.querySelector("[data-delete]").addEventListener("click", () => {
-            if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
+            if (globalThis.confirm?.(t3(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
               this.store.deleteDay(dayKey, this.scopeKey);
               this.update(this.snapshot);
             }
@@ -14819,7 +13265,14 @@ ${preview}`
         range: this.range
       });
     }
+    setVisible(visible2) {
+      this.visible = Boolean(visible2);
+      if (this.visible) return;
+      this.chart.destroy();
+      this.center?.close();
+    }
     destroy() {
+      this.visible = false;
       this.chart.destroy();
       this.center?.destroy();
     }
@@ -14896,8 +13349,30 @@ ${preview}`
       host.style.height = available;
       host.style.maxHeight = available;
     };
+    const syncNativeVisibility = () => {
+      for (const node of [...shell2?.children ?? []]) {
+        if (node === navigationBranch || node === host || node.tagName === "STYLE") {
+          continue;
+        }
+        if (!hiddenNodes.has(node)) {
+          hiddenNodes.set(node, {
+            hidden: node.hidden,
+            styleDisplay: node.style.display || null
+          });
+        }
+        if (!node.hidden) node.hidden = true;
+        if (node.style.display !== "none") node.style.display = "none";
+      }
+    };
     const setActive = (next) => {
       const nextActive = Boolean(next);
+      if (nextActive === active) {
+        if (active) {
+          syncNativeVisibility();
+          syncHostViewport();
+        }
+        return;
+      }
       if (mountMode === "native" && nextActive && !active) {
         captureIdleTabStyle();
       }
@@ -14921,6 +13396,7 @@ ${preview}`
         if (currentSelected) lastActiveNativeTab = currentSelected;
       }
       if (host) host.hidden = !active;
+      panel?.setVisible(active);
       if (!active) {
         restoreNative();
         clearNativeTabOverride();
@@ -14928,18 +13404,7 @@ ${preview}`
         return;
       }
       navigationBranch.dataset.mwitoolsAssetActive = "true";
-      for (const node of [...shell2?.children ?? []]) {
-        if (node === navigationBranch || node === host || node.tagName === "STYLE")
-          continue;
-        if (!hiddenNodes.has(node)) {
-          hiddenNodes.set(node, {
-            hidden: node.hidden,
-            styleDisplay: node.style.display || null
-          });
-        }
-        node.hidden = true;
-        node.style.display = "none";
-      }
+      syncNativeVisibility();
       syncHostViewport();
       panel?.update(runtime.api.getLatestAssetSnapshot?.());
     };
@@ -14967,9 +13432,9 @@ ${preview}`
         ".TabsComponent_badge__1Du26, .MuiBadge-root"
       );
       if (badgeText) {
-        badgeText.textContent = t2("盈亏", "P/L");
+        badgeText.textContent = t3("盈亏", "P/L");
       } else {
-        tab.textContent = t2("盈亏", "P/L");
+        tab.textContent = t3("盈亏", "P/L");
       }
       for (const className of [...tab.classList]) {
         if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
@@ -15007,7 +13472,10 @@ ${preview}`
             if (active) setActive(false);
             return;
           }
-          if (active) setActive(true);
+          if (active) {
+            syncNativeVisibility();
+            syncHostViewport();
+          }
           return;
         }
         teardownMount();
@@ -15019,36 +13487,47 @@ ${preview}`
     addStyles3();
     ensureMounted();
     const mountScheduler = createFrameScheduler(ensureMounted);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const mountObserver = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
-          return false;
-        }
-        if (record.type === "attributes") {
-          return Boolean(
-            target?.closest?.(
+    subscribeMutationChannel(
+      {
+        name: "character-management-mount",
+        target: document.body,
+        options: {
+          attributes: true,
+          attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+          childList: true,
+          subtree: true
+        },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
+            return false;
+          }
+          if (record.type === "attributes") {
+            return Boolean(
+              target?.closest?.(
+                '[class*="CharacterManagement_characterManagement"]'
+              )
+            );
+          }
+          if (target?.closest?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          )) {
+            return true;
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) && (node.matches?.(
               '[class*="CharacterManagement_characterManagement"]'
-            )
+            ) || node.querySelector?.(
+              '[class*="CharacterManagement_characterManagement"]'
+            ))
           );
-        }
-        return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) && (node.matches?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ) || node.querySelector?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ))
-        );
-      });
-      if (relevant) mountScheduler.schedule();
-    });
-    scope.observer(mountObserver, document.body, {
-      attributes: true,
-      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-      childList: true,
-      subtree: true
-    });
+        });
+        if (relevant) mountScheduler.schedule();
+      }
+    );
     scope.add(() => mountScheduler.cancel());
     const handleTabBranchClick = (event) => {
       if (!active || event.target.closest(`#${TAB_ID}`) || event.target.closest(`#${PANEL_ID}`)) {
@@ -15219,7 +13698,7 @@ ${preview}`
   var procurement2 = runtime.api.procurement;
   var planning = runtime.api.planning;
   var spriteBaseCache = /* @__PURE__ */ new Map();
-  function t3(zh, en) {
+  function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function number(value) {
@@ -15239,9 +13718,10 @@ ${preview}`
     return String(value ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "—";
   }
   function houseName(hrid) {
-    const chinese = runtime.data?.ZHOthersDic?.[hrid];
     const english = runtime.state.initData_houseRoomDetailMap?.[hrid]?.name;
-    return runtime.config.isZH ? chinese || english || tail(hrid) : english || chinese || tail(hrid);
+    return getLocalizedEntityName("houseRoom", hrid, {
+      fallback: english || tail(hrid)
+    });
   }
   function currentHouseLevel2(hrid) {
     const map = runtime.state.initData_characterHouseRoomMap ?? {};
@@ -15349,7 +13829,7 @@ ${preview}`
   }
   function goalSources(ids, goals) {
     const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
-    return ids.map((id) => byId.get(id) ?? id).join(t3("、", ", "));
+    return ids.map((id) => byId.get(id) ?? id).join(t4("、", ", "));
   }
   var POLICY_OPTIONS = Object.freeze([
     ["chain", "全链条制作", "Full chain"],
@@ -15357,16 +13837,16 @@ ${preview}`
     ["buy", "直接购买", "Buy"]
   ]);
   function policyLabel(policy) {
-    if (policy === "mixed") return t3("混合", "Mixed");
+    if (policy === "mixed") return t4("混合", "Mixed");
     const option = POLICY_OPTIONS.find(([value]) => value === policy);
-    return option ? t3(option[1], option[2]) : t3("全链条制作", "Full chain");
+    return option ? t4(option[1], option[2]) : t4("全链条制作", "Full chain");
   }
   function createPolicyControl(value, onChange, { disabled = false } = {}) {
     if (value === "mixed") {
       const mixed = document.createElement("span");
       mixed.className = "planning-policy-mixed";
       mixed.textContent = policyLabel("mixed");
-      mixed.title = t3(
+      mixed.title = t4(
         "来源目标策略不同，请展开后分别调整。",
         "Source goals use different policies; expand to edit them separately."
       );
@@ -15387,7 +13867,7 @@ ${preview}`
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.policy = policy;
-      button.textContent = t3(zh, en);
+      button.textContent = t4(zh, en);
       button.disabled = disabled;
       button.addEventListener("click", (event) => {
         event.preventDefault();
@@ -15440,7 +13920,7 @@ ${preview}`
     button.type = "button";
     button.className = "planning-option";
     const icon = kind === "item" ? itemIcon(candidate.hrid, candidate.name) : houseIcon(candidate);
-    const meta = kind === "item" ? candidate.hrid : `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+    const meta = kind === "item" ? candidate.hrid : `${t4("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t4("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
     const iconHost = document.createElement("span");
     iconHost.className = "planning-option-icon";
     iconHost.innerHTML = icon;
@@ -15461,8 +13941,8 @@ ${preview}`
     const input = document.createElement("input");
     input.type = "search";
     input.className = "planning-search-input";
-    input.placeholder = t3("搜索物品名称、英文名或 HRID", "Search name or HRID");
-    input.setAttribute("aria-label", t3("选择规划物品", "Choose planning item"));
+    input.placeholder = t4("搜索物品名称、英文名或 HRID", "Search name or HRID");
+    input.setAttribute("aria-label", t4("选择规划物品", "Choose planning item"));
     const results = document.createElement("div");
     results.className = "planning-results";
     let selected = null;
@@ -15547,7 +14027,7 @@ ${preview}`
     const button = document.createElement("button");
     button.type = "button";
     button.className = "planning-picker-button";
-    button.setAttribute("aria-label", t3("选择房屋", "Choose house"));
+    button.setAttribute("aria-label", t4("选择房屋", "Choose house"));
     const results = document.createElement("div");
     results.className = "planning-results";
     let selected = candidates[0] ?? null;
@@ -15556,7 +14036,7 @@ ${preview}`
       const copy = document.createElement("span");
       copy.className = "planning-picker-copy";
       if (!selected) {
-        copy.textContent = t3("暂无房屋", "No houses");
+        copy.textContent = t4("暂无房屋", "No houses");
         button.append(copy);
         return;
       }
@@ -15606,7 +14086,7 @@ ${preview}`
         paintButton();
         results.querySelectorAll(".planning-option-copy small").forEach((meta, index) => {
           const candidate = candidates[index];
-          meta.textContent = `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+          meta.textContent = `${t4("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t4("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
         });
       }
     };
@@ -15618,7 +14098,7 @@ ${preview}`
       const heading = document.createElement("div");
       heading.className = "planning-add-title";
       const copy = document.createElement("span");
-      copy.textContent = t3(zh, en);
+      copy.textContent = t4(zh, en);
       let defaultPolicy = planning.getDefaultPolicy(kind);
       const policy = createPolicyControl(defaultPolicy, (next) => {
         defaultPolicy = next;
@@ -15649,16 +14129,16 @@ ${preview}`
     itemCount.step = "1";
     itemCount.value = "1";
     itemCount.className = "planning-count-input";
-    itemCount.setAttribute("aria-label", t3("最终持有量", "Final quantity"));
+    itemCount.setAttribute("aria-label", t4("最终持有量", "Final quantity"));
     const itemAdd = document.createElement("button");
     itemAdd.type = "button";
     itemAdd.className = "planning-primary";
-    itemAdd.textContent = t3("添加", "Add");
+    itemAdd.textContent = t4("添加", "Add");
     const submitItem = () => {
       const candidate = chosenItem ?? itemPicker.getSelected();
       if (!candidate) {
         itemPicker.input.setCustomValidity?.(
-          t3("请先选择有效物品", "Choose a valid item")
+          t4("请先选择有效物品", "Choose a valid item")
         );
         itemPicker.input.reportValidity?.();
         return;
@@ -15690,7 +14170,7 @@ ${preview}`
     houseWrap.className = "planning-house-wrap";
     const level = document.createElement("select");
     level.className = "planning-level-select";
-    level.setAttribute("aria-label", t3("房屋目标等级", "House target level"));
+    level.setAttribute("aria-label", t4("房屋目标等级", "House target level"));
     let levelSignature = "";
     let levelHouseHrid = "";
     const refreshLevels = (candidate) => {
@@ -15708,7 +14188,7 @@ ${preview}`
       for (let targetLevel = current + 1; targetLevel <= maxHouseLevel2(candidate.hrid); targetLevel += 1) {
         const option = document.createElement("option");
         option.value = String(targetLevel);
-        option.textContent = `${t3("等级", "Level")} ${targetLevel}`;
+        option.textContent = `${t4("等级", "Level")} ${targetLevel}`;
         level.append(option);
       }
       level.disabled = level.options.length === 0;
@@ -15721,7 +14201,7 @@ ${preview}`
     const houseAdd = document.createElement("button");
     houseAdd.type = "button";
     houseAdd.className = "planning-primary";
-    houseAdd.textContent = t3("添加", "Add");
+    houseAdd.textContent = t4("添加", "Add");
     houseAdd.addEventListener("click", () => {
       const candidate = housePicker.getSelected();
       if (!candidate || !level.value) return;
@@ -15748,12 +14228,12 @@ ${preview}`
     const section = document.createElement("section");
     section.className = "planning-section";
     const heading = document.createElement("h3");
-    heading.textContent = `${t3("规划目标", "Planning goals")} · ${goals.length}`;
+    heading.textContent = `${t4("规划目标", "Planning goals")} · ${goals.length}`;
     section.append(heading);
     if (!goals.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3(
+      empty.textContent = t4(
         "从上方选择物品或房屋开始规划。",
         "Choose an item or house above to begin."
       );
@@ -15766,7 +14246,7 @@ ${preview}`
       const toggle = document.createElement("input");
       toggle.type = "checkbox";
       toggle.checked = goal.enabled;
-      toggle.title = t3("启用目标", "Enable goal");
+      toggle.title = t4("启用目标", "Enable goal");
       toggle.addEventListener("change", () => {
         planning.updateGoal(goal.id, { enabled: toggle.checked });
       });
@@ -15781,7 +14261,7 @@ ${preview}`
       const current = document.createElement("span");
       current.className = "planning-goal-current";
       current.dataset.goalId = goal.id;
-      current.textContent = `${t3("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0))}`;
+      current.textContent = `${t4("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0))}`;
       const arrow = document.createElement("span");
       arrow.className = "planning-goal-arrow";
       arrow.textContent = "→";
@@ -15791,7 +14271,7 @@ ${preview}`
       target.max = goal.kind === "house" ? String(maxHouseLevel2(goal.targetHrid)) : "";
       target.step = "1";
       target.value = String(goal.target);
-      target.title = goal.kind === "house" ? t3("目标等级", "Target level") : t3("最终持有量", "Final quantity");
+      target.title = goal.kind === "house" ? t4("目标等级", "Target level") : t4("最终持有量", "Final quantity");
       target.addEventListener("change", () => {
         planning.updateGoal(goal.id, { target: target.value });
       });
@@ -15803,7 +14283,7 @@ ${preview}`
       remove.type = "button";
       remove.className = "planning-remove";
       remove.textContent = "×";
-      remove.title = t3("删除", "Remove");
+      remove.title = t4("删除", "Remove");
       remove.addEventListener("click", () => planning.removeGoal(goal.id));
       row.append(toggle, icon, values, policy, remove);
       section.append(row);
@@ -15821,7 +14301,7 @@ ${preview}`
       const node = nodes.get(goal.id);
       if (!node) continue;
       const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
-      node.textContent = `${t3("当前", "Current")} ${number(current)}`;
+      node.textContent = `${t4("当前", "Current")} ${number(current)}`;
     }
   }
   function renderSteps(host, result) {
@@ -15829,12 +14309,12 @@ ${preview}`
     const section = document.createElement("section");
     section.className = "planning-section";
     const heading = document.createElement("h3");
-    heading.textContent = `${t3("第 2 步：选择制作方式", "Step 2: Choose production methods")} · ${result.nodes.length}`;
+    heading.textContent = `${t4("第 2 步：选择制作方式", "Step 2: Choose production methods")} · ${result.nodes.length}`;
     section.append(heading);
     if (!result.nodes.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3("当前没有需要制作的物品。", "Nothing to produce.");
+      empty.textContent = t4("当前没有需要制作的物品。", "Nothing to produce.");
       section.append(empty);
     }
     for (const node of result.nodes) {
@@ -15849,7 +14329,7 @@ ${preview}`
       label.textContent = node.name;
       const required = document.createElement("span");
       required.className = "planning-step-count";
-      required.textContent = `${t3("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
+      required.textContent = `${t4("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
       const policy = createPolicyControl(node.policy, (next) => {
         for (const goalId of new Set(
           node.branches.map((branch) => branch.goalId)
@@ -15875,7 +14355,7 @@ ${preview}`
         name.title = name.textContent;
         sourceCopy.append(sourceIcon, name);
         const count = document.createElement("span");
-        count.textContent = `${t3("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
+        count.textContent = `${t4("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
         const branchPolicy = createPolicyControl(branch.policy, (next) => {
           planning.setNodePolicy(branch.goalId, node.itemHrid, next);
         });
@@ -15894,11 +14374,11 @@ ${preview}`
     const heading = document.createElement("div");
     heading.className = "planning-section-heading";
     const title = document.createElement("h3");
-    title.textContent = `${t3("基础材料", "Base materials")} · ${result.materials.length}`;
+    title.textContent = `${t4("基础材料", "Base materials")} · ${result.materials.length}`;
     const addAll = document.createElement("button");
     addAll.type = "button";
     addAll.className = "planning-primary";
-    addAll.textContent = t3("一键补齐", "Add all");
+    addAll.textContent = t4("一键补齐", "Add all");
     addAll.disabled = !result.materials.some(
       (material) => material.purchasable && material.addableShortage > 0
     );
@@ -15910,7 +14390,7 @@ ${preview}`
     if (!result.materials.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3(
+      empty.textContent = t4(
         "当前没有基础材料需求。",
         "No base materials needed."
       );
@@ -15929,7 +14409,7 @@ ${preview}`
       name.textContent = material.name;
       name.title = material.itemHrid;
       const missing = document.createElement("strong");
-      missing.textContent = material.remainingShortage ? `${t3("还需", "Need")} ${wholeNumber(material.remainingShortage)}` : t3("已覆盖", "Covered");
+      missing.textContent = material.remainingShortage ? `${t4("还需", "Need")} ${wholeNumber(material.remainingShortage)}` : t4("已覆盖", "Covered");
       summary.append(icon, name, missing);
       const grid = document.createElement("div");
       grid.className = "planning-material-grid";
@@ -15939,19 +14419,19 @@ ${preview}`
         return cell;
       };
       grid.append(
-        metric4(t3("规划需求", "Required"), wholeNumber(material.required)),
+        metric4(t4("规划需求", "Required"), wholeNumber(material.required)),
         metric4(
-          t3("库存", "Inventory"),
+          t4("库存", "Inventory"),
           wholeNumber(material.owned),
-          `${t3("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t3("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`
+          `${t4("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t4("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`
         ),
         metric4(
-          t3("购物车", "Cart"),
+          t4("购物车", "Cart"),
           wholeNumber(material.cart.total),
-          `${t3("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t3("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t3("手工", "Manual")} ${wholeNumber(material.cart.manual)}`
+          `${t4("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t4("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t4("手工", "Manual")} ${wholeNumber(material.cart.manual)}`
         ),
         metric4(
-          t3("材料缺口", "Shortage"),
+          t4("材料缺口", "Shortage"),
           wholeNumber(material.remainingShortage)
         )
       );
@@ -15959,14 +14439,14 @@ ${preview}`
       actions.className = "planning-material-actions";
       const add = document.createElement("button");
       add.type = "button";
-      add.textContent = material.purchasable ? t3("加入购物车", "Add to cart") : t3("不可购买", "Not tradable");
+      add.textContent = material.purchasable ? t4("加入购物车", "Add to cart") : t4("不可购买", "Not tradable");
       add.disabled = !material.purchasable || !material.addableShortage;
       add.addEventListener(
         "click",
         () => planning.addShortagesToCart([material])
       );
       const source = document.createElement("span");
-      source.textContent = `${t3("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
+      source.textContent = `${t4("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
       actions.append(add, source);
       row.append(summary, grid, actions);
       section.append(row);
@@ -16003,11 +14483,11 @@ ${preview}`
       const targetTab = document.createElement("button");
       targetTab.type = "button";
       targetTab.dataset.route = "targets";
-      targetTab.textContent = t3("目标", "Targets");
+      targetTab.textContent = t4("目标", "Targets");
       const listTab = document.createElement("button");
       listTab.type = "button";
       listTab.dataset.route = "list";
-      listTab.textContent = t3("清单", "List");
+      listTab.textContent = t4("清单", "List");
       targetTab.addEventListener("click", () => this.setRoute("targets"));
       listTab.addEventListener("click", () => this.setRoute("list"));
       tabs.append(targetTab, listTab);
@@ -16016,13 +14496,13 @@ ${preview}`
       this.targetPage.dataset.page = "targets";
       const stageOneTitle = document.createElement("h2");
       stageOneTitle.className = "planning-stage-title";
-      stageOneTitle.textContent = t3(
+      stageOneTitle.textContent = t4(
         "第 1 步：选择目标",
         "Step 1: Choose targets"
       );
       const intro = document.createElement("p");
       intro.className = "planning-intro";
-      intro.textContent = t3(
+      intro.textContent = t4(
         "设置目标不会自动重算。房屋成本固定；计算第 2 步时，制作链才会读取当前茶饮、装备、社区 Buff、暴饮之囊、库存和安全余量。",
         "Editing targets does not recalculate automatically. House costs stay fixed; calculating Step 2 reads current buffs, inventory, and safety margins."
       );
@@ -16032,7 +14512,7 @@ ${preview}`
       this.targetCalculate = document.createElement("button");
       this.targetCalculate.type = "button";
       this.targetCalculate.className = "planning-primary";
-      this.targetCalculate.textContent = t3("计算第 2 步", "Calculate Step 2");
+      this.targetCalculate.textContent = t4("计算第 2 步", "Calculate Step 2");
       this.targetCalculate.addEventListener(
         "click",
         () => this.calculateDecisions()
@@ -16049,7 +14529,7 @@ ${preview}`
       this.materialCalculate = document.createElement("button");
       this.materialCalculate.type = "button";
       this.materialCalculate.className = "planning-primary";
-      this.materialCalculate.textContent = t3("计算第 3 步", "Calculate Step 3");
+      this.materialCalculate.textContent = t4("计算第 3 步", "Calculate Step 3");
       this.materialCalculate.addEventListener(
         "click",
         () => this.calculateMaterials()
@@ -16070,7 +14550,7 @@ ${preview}`
       const listBar = document.createElement("div");
       listBar.className = "planning-calculate-bar";
       const stageThreeTitle = document.createElement("strong");
-      stageThreeTitle.textContent = t3(
+      stageThreeTitle.textContent = t4(
         "第 3 步：基础材料清单",
         "Step 3: Base-material list"
       );
@@ -16187,14 +14667,14 @@ ${preview}`
     updateStatus() {
       const dirty = planning.isDirty();
       const diagnostics = planning.getDiagnostics();
-      const listCopy = dirty ? t3("目标已更改，等待计算", "Targets changed; calculation pending") : diagnostics.lastCalculatedAt ? t3("当前清单已计算", "List is up to date") : t3("尚未计算", "Not calculated yet");
+      const listCopy = dirty ? t4("目标已更改，等待计算", "Targets changed; calculation pending") : diagnostics.lastCalculatedAt ? t4("当前清单已计算", "List is up to date") : t4("尚未计算", "Not calculated yet");
       this.listStatus.className = dirty ? "planning-dirty" : "planning-clean";
       this.listStatus.textContent = listCopy;
       const decisionReady = Boolean(this.decisionResult);
       this.targetStatus.className = decisionReady ? "planning-clean" : "planning-dirty";
-      this.targetStatus.textContent = decisionReady ? t3("第 2 步已生成", "Step 2 is ready") : t3("等待计算第 2 步", "Step 2 is pending");
+      this.targetStatus.textContent = decisionReady ? t4("第 2 步已生成", "Step 2 is ready") : t4("等待计算第 2 步", "Step 2 is pending");
       this.decisionStatus.className = "planning-dirty";
-      this.decisionStatus.textContent = t3(
+      this.decisionStatus.textContent = t4(
         "调整策略不会自动计算材料",
         "Policy edits do not calculate materials automatically"
       );
@@ -16220,7 +14700,7 @@ ${preview}`
         this.materialsHost.replaceChildren();
         const empty = document.createElement("div");
         empty.className = "planning-empty planning-section";
-        empty.textContent = t3(
+        empty.textContent = t4(
           "请在“目标”页点击开始计算。",
           "Choose Start calculation on the Targets tab."
         );
@@ -16240,13 +14720,13 @@ ${preview}`
       if (result.warnings.length) {
         const warning = document.createElement("div");
         warning.className = "planning-warning";
-        warning.textContent = t3(
+        warning.textContent = t4(
           `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
           `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`
         );
         this.warningHost.append(warning);
       }
-      this.footer.textContent = t3(
+      this.footer.textContent = t4(
         `规划 ${result.goals.length} 项 · 基础材料 ${result.materials.length} 种`,
         `${result.goals.length} goals · ${result.materials.length} base materials`
       );
@@ -16434,8 +14914,8 @@ ${preview}`
       const badge = tab.querySelector(
         ".TabsComponent_badge__1Du26,.MuiBadge-root"
       );
-      if (badge) badge.textContent = t3("规划", "Planning");
-      else tab.textContent = t3("规划", "Planning");
+      if (badge) badge.textContent = t4("规划", "Planning");
+      else tab.textContent = t4("规划", "Planning");
       for (const className of [...tab.classList]) {
         if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
           tab.classList.remove(className);
@@ -16484,26 +14964,32 @@ ${preview}`
     addStyles4();
     ensureMounted();
     const mountScheduler = createFrameScheduler(ensureMounted);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
-        if (record.type === "attributes") {
-          return isRelevantPlanningMountAttribute(target, navigationBranch);
-        }
-        return [...record.addedNodes, ...record.removedNodes].some(
-          isRelevantPlanningMountNode
-        );
-      });
-      if (relevant) mountScheduler.schedule();
-    });
-    scope.observer(observer, document.body, {
-      attributes: true,
-      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-      childList: true,
-      subtree: true
-    });
+    subscribeMutationChannel(
+      {
+        name: "character-management-mount",
+        target: document.body,
+        options: {
+          attributes: true,
+          attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+          childList: true,
+          subtree: true
+        },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
+          if (record.type === "attributes") {
+            return isRelevantPlanningMountAttribute(target, navigationBranch);
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            isRelevantPlanningMountNode
+          );
+        });
+        if (relevant) mountScheduler.schedule();
+      }
+    );
     const closeFromOtherTab = (event) => {
       if (active && !event.target.closest(`#${TAB_ID2}`) && !event.target.closest(`#${PANEL_ID2}`) && navigationBranch?.contains(event.target)) {
         setActive(false);
@@ -16564,7 +15050,7 @@ ${preview}`
   var PUBLIC_API_VERSION = 1;
   var SCORE_SCHEMA_VERSION = 1;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
-  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
     const number3 = Number(value);
@@ -16573,7 +15059,7 @@ ${preview}`
   function cloneForConsumer(value) {
     if (value === null || value === void 0) return value ?? null;
     const serialized = JSON.stringify(value);
-    return pageGlobal2.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
+    return pageGlobal3.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
   }
   function createPublicScoreSnapshot(assetSnapshot) {
     const scores = assetSnapshot?.scores;
@@ -16600,10 +15086,10 @@ ${preview}`
     };
   }
   function dispatchScoresUpdated() {
-    if (!latestScores || typeof pageGlobal2.dispatchEvent !== "function") return;
-    const EventConstructor = pageGlobal2.CustomEvent ?? globalThis.CustomEvent;
+    if (!latestScores || typeof pageGlobal3.dispatchEvent !== "function") return;
+    const EventConstructor = pageGlobal3.CustomEvent ?? globalThis.CustomEvent;
     if (typeof EventConstructor !== "function") return;
-    pageGlobal2.dispatchEvent(
+    pageGlobal3.dispatchEvent(
       new EventConstructor(SCORES_UPDATED_EVENT, {
         detail: cloneForConsumer(latestScores)
       })
@@ -16638,13 +15124,13 @@ ${preview}`
     refreshScores
   };
   try {
-    Object.defineProperty(pageGlobal2, "MWIToolsAPI", {
+    Object.defineProperty(pageGlobal3, "MWIToolsAPI", {
       configurable: true,
       enumerable: true,
       value: publicApi2
     });
   } catch {
-    pageGlobal2.MWIToolsAPI = publicApi2;
+    pageGlobal3.MWIToolsAPI = publicApi2;
   }
   runtime.api.onAssetSnapshot?.(publishScoreSnapshot);
   var existingSnapshot = runtime.api.getLatestAssetSnapshot?.();
@@ -16713,15 +15199,10 @@ ${preview}`
     labyrinth_depth: "labyrinth",
     fame_points: "experience"
   });
-  var NATIVE_SPRITE_FALLBACKS = Object.freeze({
-    misc: "/static/media/misc_sprite.6560b17a.svg",
-    skills: "/static/media/skills_sprite.3bb4d936.svg"
-  });
-  var nativeSpriteBasesByDocument = /* @__PURE__ */ new WeakMap();
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
-  function t4(zh, en) {
+  function t5(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function categoryLabel(value, fallback) {
@@ -16803,16 +15284,13 @@ ${preview}`
   `;
     mount.append(style);
   }
-  function nativeSpriteBase(documentRef, kind) {
-    let bases = nativeSpriteBasesByDocument.get(documentRef);
-    if (!bases) {
-      bases = /* @__PURE__ */ new Map();
-      nativeSpriteBasesByDocument.set(documentRef, bases);
+  function nativeSpriteHref(documentRef, kind, symbol) {
+    for (const use of documentRef.querySelectorAll("use")) {
+      registerGameSpriteSource(
+        use.getAttribute("href") ?? use.getAttribute("xlink:href")
+      );
     }
-    if (bases.has(kind)) return bases.get(kind);
-    const base = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes(`${kind}_sprite`))?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
-    bases.set(kind, base);
-    return base;
+    return getGameSpriteHref(kind, symbol);
   }
   function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
     const miscSymbol = MISC_CATEGORY_SYMBOLS[category];
@@ -16831,11 +15309,11 @@ ${preview}`
     icon.setAttribute("viewBox", "0 0 40 40");
     icon.setAttribute("aria-hidden", "true");
     const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute(
-      "href",
-      `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`
-    );
-    icon.append(use);
+    const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+    if (href) {
+      use.setAttribute("href", href);
+      icon.append(use);
+    }
     return icon;
   }
   function createOverlay(options = {}) {
@@ -16999,7 +15477,7 @@ ${preview}`
         header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
         headingRow.append(header);
       }
-      const headerCopy = t4("经验/小时", "XP/hour");
+      const headerCopy = t5("经验/小时", "XP/hour");
       if (header.textContent !== headerCopy) header.textContent = headerCopy;
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
@@ -17013,7 +15491,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t4("经验/小时", "XP/hour")}` : t4("缺少可比较的历史快照", "No comparable historical snapshot");
+        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t5("经验/小时", "XP/hour")}` : t5("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -17306,15 +15784,15 @@ ${preview}`
       }
     });
   }
-  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal4 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   try {
-    Object.defineProperty(pageGlobal3, "MWILeaderboardOverlay", {
+    Object.defineProperty(pageGlobal4, "MWILeaderboardOverlay", {
       configurable: true,
       enumerable: true,
       value: leaderboardOverlayApi
     });
   } catch {
-    pageGlobal3.MWILeaderboardOverlay = leaderboardOverlayApi;
+    pageGlobal4.MWILeaderboardOverlay = leaderboardOverlayApi;
   }
   var integratedModes = /* @__PURE__ */ new Set();
   var integratedService = null;
@@ -17441,57 +15919,61 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
-  var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
-  var BUFFS = /* @__PURE__ */ new Map([
-    ["/abilities/mana_spring", 10],
-    ["/abilities/taunt", 65],
-    ["/abilities/provoke", 65],
-    ["/abilities/toughness", 20],
-    ["/abilities/elusiveness", 20],
-    ["/abilities/precision", 20],
-    ["/abilities/berserk", 20],
-    ["/abilities/elemental_affinity", 20],
-    ["/abilities/frenzy", 20],
-    ["/abilities/spike_shell", 30],
-    ["/abilities/retribution", 30],
-    ["/abilities/vampirism", 20],
-    ["/abilities/insanity", 12],
-    ["/abilities/invincible", 12],
-    ["/abilities/fierce_aura", 120],
-    ["/abilities/guardian_aura", 120],
-    ["/abilities/mystic_aura", 120],
-    ["/abilities/speed_aura", 120],
-    ["/abilities/critical_aura", 120]
-  ]);
-  var DEBUFFS = /* @__PURE__ */ new Map([
-    ["/abilities/puncture", 10],
-    ["/abilities/maim", 12],
-    ["/abilities/crippling_slash", 12],
-    ["/abilities/fracturing_impact", 12],
-    ["/abilities/pestilent_shot", 12],
-    ["/abilities/ice_spear", 8],
-    ["/abilities/frost_surge", 9],
-    ["/abilities/toxic_pollen", 10],
-    ["/abilities/smoke_burst", 8]
-  ]);
-  var SINGLE_TARGET_DEBUFFS = /* @__PURE__ */ new Set([
-    "/abilities/puncture",
-    "/abilities/maim",
-    "/abilities/pestilent_shot",
-    "/abilities/smoke_burst"
-  ]);
-  var TEAM_BUFFS = /* @__PURE__ */ new Set([
-    "/abilities/mana_spring",
-    "/abilities/fierce_aura",
-    "/abilities/guardian_aura",
-    "/abilities/mystic_aura",
-    "/abilities/speed_aura",
-    "/abilities/critical_aura"
-  ]);
-  function abilityId(hrid) {
-    const parts = hrid.split("/");
-    return parts[parts.length - 1] || hrid;
+  var abilityEffectIndexSource = null;
+  var abilityEffectIndex = null;
+  function buildAbilityEffectIndex() {
+    const source = runtime.state.initData_abilityDetailMap ?? {};
+    if (source === abilityEffectIndexSource && abilityEffectIndex) {
+      return abilityEffectIndex;
+    }
+    const index = {
+      buffs: /* @__PURE__ */ new Map(),
+      debuffs: /* @__PURE__ */ new Map(),
+      teamBuffs: /* @__PURE__ */ new Set(),
+      singleTargetDebuffs: /* @__PURE__ */ new Set()
+    };
+    const entries = source instanceof Map ? source.entries() : Object.entries(source);
+    for (const [abilityHrid, detail] of entries) {
+      for (const effect of detail?.abilityEffects ?? []) {
+        const durations = (effect?.buffs ?? []).map((buff) => Number(buff?.duration) / 1e9).filter((duration2) => Number.isFinite(duration2) && duration2 > 0);
+        if (!durations.length) continue;
+        const duration = Math.max(...durations);
+        const targetType = String(effect?.targetType ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
+        const targetsEnemy = targetType.includes("enemy");
+        const durationsByAbility = targetsEnemy ? index.debuffs : index.buffs;
+        durationsByAbility.set(
+          abilityHrid,
+          Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0)
+        );
+        if (!targetsEnemy && targetType.includes("allallies")) {
+          index.teamBuffs.add(abilityHrid);
+        }
+        if (targetsEnemy && !targetType.includes("allenemies")) {
+          index.singleTargetDebuffs.add(abilityHrid);
+        }
+      }
+    }
+    abilityEffectIndexSource = source;
+    abilityEffectIndex = index;
+    return index;
   }
+  function dynamicCollection(key) {
+    return Object.freeze({
+      has(value) {
+        return buildAbilityEffectIndex()[key].has(value);
+      },
+      get(value) {
+        return buildAbilityEffectIndex()[key].get(value);
+      },
+      [Symbol.iterator]() {
+        return buildAbilityEffectIndex()[key][Symbol.iterator]();
+      }
+    });
+  }
+  var BUFFS = dynamicCollection("buffs");
+  var DEBUFFS = dynamicCollection("debuffs");
+  var TEAM_BUFFS = dynamicCollection("teamBuffs");
+  var SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
   function ensureBuffStyles(scope) {
     if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
@@ -17515,27 +15997,6 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
-    let abilitySpriteBase = null;
-    function getAbilitySpriteBase() {
-      if (abilitySpriteBase) return abilitySpriteBase;
-      const selectors = [
-        'use[href*="abilities_sprite"]',
-        'use[xlink\\:href*="abilities_sprite"]',
-        'img[src*="abilities_sprite"]',
-        'link[href*="abilities_sprite"]'
-      ];
-      for (const selector of selectors) {
-        const node = document.querySelector(selector);
-        if (!node) continue;
-        const href = node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src");
-        if (typeof href === "string" && href.includes("abilities_sprite")) {
-          abilitySpriteBase = href.split("#")[0];
-          return abilitySpriteBase;
-        }
-      }
-      abilitySpriteBase = FALLBACK_SPRITE_URL;
-      return abilitySpriteBase;
-    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -17739,11 +16200,15 @@ ${preview}`
         icon.setAttribute("width", "100%");
         icon.setAttribute("height", "100%");
         const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-        const spriteBase = getAbilitySpriteBase();
-        const spriteRef = `${spriteBase}#${abilityId(effect.abilityHrid)}`;
-        use.setAttribute("href", spriteRef);
-        use.setAttribute("xlink:href", spriteRef);
-        icon.appendChild(use);
+        const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+        if (spriteRef) {
+          use.setAttribute("href", spriteRef);
+          use.setAttribute("xlink:href", spriteRef);
+          icon.appendChild(use);
+          iconWrap.appendChild(icon);
+        } else {
+          iconWrap.textContent = "?";
+        }
         const total = Math.max(1, effect.durationSec);
         const elapsed = Math.max(
           0,
@@ -17751,7 +16216,6 @@ ${preview}`
         );
         const progress = Math.min(1, Math.max(0, elapsed / total));
         const degrees = progress * 360;
-        iconWrap.appendChild(icon);
         chip.appendChild(iconWrap);
         const ring = document.createElement("span");
         ring.className = "mwi-progress-ring";
@@ -18914,7 +17378,7 @@ ${preview}`
   };
   var advisorPositionState = null;
   var advisorPositionFrame = null;
-  function t5(zh, en) {
+  function t6(zh, en) {
     return localize(zh, en);
   }
   function escapeHtml3(value) {
@@ -19184,29 +17648,11 @@ ${preview}`
   function itemName2(itemHrid) {
     return itemName(itemHrid, { fallback: itemHrid });
   }
-  function findItemsSpriteBase() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function itemIconMarkup(itemHrid, name) {
-    const sprite = findItemsSpriteBase();
-    const bare = String(itemHrid ?? "").split("/").at(-1);
-    if (!sprite || !bare) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="icon-fallback" aria-label="${escapeHtml3(name)}">?</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
   function creditColor(creditItemHrid) {
@@ -19288,43 +17734,43 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t5("当前", "Current"))}</span>` : ""}</span></span>
-    <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t5("每信用点", "per credit"))}</small></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t6("每信用点", "per credit"))}</small></span>
   </div>`;
   }
   function replacementSummaryMarkup(result, best) {
     if (!result) {
-      return `<div class="summary">${escapeHtml3(t5("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
+      return `<div class="summary">${escapeHtml3(t6("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
     }
     if (result.status === "already_optimal") {
-      return `<div class="summary"><strong>${escapeHtml3(t5("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
+      return `<div class="summary"><strong>${escapeHtml3(t6("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
     }
     if (result.status === "no_sell_quote") {
-      return `<div class="summary warning"><strong>${escapeHtml3(t5("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml3(t5("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t6("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml3(t6("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
     }
     if (result.status === "unaffordable") {
-      return `<div class="summary warning"><strong>${escapeHtml3(t5("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t6("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
     }
     const name = itemName2(best.itemHrid);
     const difference = Number(result.difference) || 0;
     let conclusion;
     if (difference > 0) {
-      conclusion = t5(
+      conclusion = t6(
         `卖出当前物品并改买${name}，可多兑换 ${formatExact(difference)} 点信用。`,
         `Sell the selected items and buy ${name} to gain ${formatExact(difference)} more credits.`
       );
     } else if (difference < 0) {
-      conclusion = t5(
+      conclusion = t6(
         `直接兑换更划算；改买${name}会少 ${formatExact(-difference)} 点信用。`,
         `Direct exchange is better; switching to ${name} yields ${formatExact(-difference)} fewer credits.`
       );
     } else {
-      conclusion = t5(
+      conclusion = t6(
         `直接兑换与改买${name}获得的信用点相同。`,
         `Direct exchange and switching to ${name} yield the same credits.`
       );
     }
-    return `<div class="summary"><strong>${escapeHtml3(conclusion)}</strong><br>${escapeHtml3(t5(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
+    return `<div class="summary"><strong>${escapeHtml3(conclusion)}</strong><br>${escapeHtml3(t6(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
   }
   function advisorMarkup({
     context,
@@ -19347,10 +17793,10 @@ ${preview}`
         current: option.itemHrid === context.selectedItemHrid
       })
     ).join("");
-    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml3(t5("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
+    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml3(t6("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
     const estimated = ranked.some(({ estimated: value }) => value) || replacement?.estimated;
-    return `<header class="head"><span class="title">${escapeHtml3(t5("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml3(creditName)}</span></span><span class="basis">${escapeHtml3(t5("按订单深度", "Order-book depth"))}</span></header>
-    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml3(t5("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml3(t5("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
+    return `<header class="head"><span class="title">${escapeHtml3(t6("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml3(creditName)}</span></span><span class="basis">${escapeHtml3(t6("按订单深度", "Order-book depth"))}</span></header>
+    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml3(t6("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml3(t6("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
   }
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -19582,7 +18028,7 @@ ${preview}`
     const advisor = host.shadowRoot.querySelector(".advisor");
     advisor.setAttribute(
       "aria-label",
-      t5("公会信用兑换推荐", "Guild Credit Exchange")
+      t6("公会信用兑换推荐", "Guild Credit Exchange")
     );
     advisor.innerHTML = advisorMarkup({
       context,
@@ -19712,7 +18158,7 @@ ${preview}`
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
-  function t6(zh, en) {
+  function t7(zh, en) {
     return localize(zh, en);
   }
   function escapeHtml4(value) {
@@ -19751,31 +18197,13 @@ ${preview}`
   function actionName2(actionHrid, detail) {
     return actionName(actionHrid, { detail });
   }
-  function findItemsSpriteBase2() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function renderItemIcon(itemHrid, name) {
-    const bare = String(itemHrid ?? "").split("/").at(-1);
-    const sprite = findItemsSpriteBase2();
-    if (!bare || !sprite) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="mwi-profit-icon-fallback">${escapeHtml4(
         String(name || "?").trim().charAt(0) || "?"
       )}</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml4(name)}"><use href="${escapeHtml4(href)}" xlink:href="${escapeHtml4(href)}"></use></svg>`;
   }
   function addStyles5() {
@@ -19884,10 +18312,10 @@ ${preview}`
       quantity = `${formatNumber3(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t6("前置", "Base");
-    if (item.kind === "essence") kind = t6("精华", "Essence");
-    if (item.kind === "rare") kind = t6("稀有", "Rare");
-    const priceLabel = isInput ? t6("市价", "Market value") : item.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : t6("税后市价", "Net market value");
+    if (item.isUpgradeItem) kind = t7("前置", "Base");
+    if (item.kind === "essence") kind = t7("精华", "Essence");
+    if (item.kind === "rare") kind = t7("稀有", "Rare");
+    const priceLabel = isInput ? t7("市价", "Market value") : item.valueSource === "derived" ? t7("派生期望值", "Derived expected value") : t7("税后市价", "Net market value");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml4(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -19897,7 +18325,7 @@ ${preview}`
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t6("每动作", "per action")}</span>
+        <span>${t7("每动作", "per action")}</span>
       </div>
     </div>`;
   }
@@ -19942,19 +18370,19 @@ ${preview}`
       <div class="mwi-profit-valuation-title">${escapeHtml4(valuationText(definition.title))}</div>
       <div class="mwi-profit-valuation-state">${escapeHtml4(valuationText(definition.explanation))}</div>
     </div>
-    ${renderValuationMetric(t6("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
-    ${renderValuationMetric(t6("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t6("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
-    ${renderValuationMetric(t6("总成本/动作", "Total cost/action"), totalCost)}
-    ${renderValuationMetric(t6("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
-    ${renderValuationMetric(t6("净利润/天", "Net profit/day"), profitPerDay, true)}
+    ${renderValuationMetric(t7("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t7("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t7("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t7("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t7("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t7("净利润/天", "Net profit/day"), profitPerDay, true)}
   </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t6("玩家数据未就绪", "Player data pending")
+        label: t7("玩家数据未就绪", "Player data pending")
       };
     }
     const valuations = VALUATION_ROWS.map(
@@ -19964,20 +18392,20 @@ ${preview}`
       (valuation) => valuation?.complete
     ).length;
     if (completeCount === 0) {
-      return { className: "incomplete", label: t6("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t7("无法计算", "Unavailable") };
     }
     if (completeCount < valuations.length) {
       return {
         className: "partial",
-        label: t6("部分口径缺价", "Some prices missing")
+        label: t7("部分口径缺价", "Some prices missing")
       };
     }
     if (valuations.some(
       (valuation) => valuation?.fallbackItemHrids?.length > 0 || valuation?.unpricedByproducts?.length > 0 || valuation?.derivedMissingPrices?.length > 0
     )) {
-      return { className: "partial", label: t6("部分计价", "Partial pricing") };
+      return { className: "partial", label: t7("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t6("完整计价", "Fully priced") };
+    return { className: "complete", label: t7("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection, options = {}) {
     const productName = itemName3(itemHrid);
@@ -19985,7 +18413,7 @@ ${preview}`
     const detail = projection.detail;
     const directAction = Boolean(options.directAction);
     const title = directAction ? actionName2(projection.actionHrid, detail) : productName;
-    const subtitle = directAction ? `${t6("全部期望产物", "All expected outputs")} · ${t6("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t6("当前玩家实时配置", "Current player configuration")}`;
+    const subtitle = directAction ? `${t7("全部期望产物", "All expected outputs")} · ${t7("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t7("当前玩家实时配置", "Current player configuration")}`;
     panel.dataset.status = status.className;
     panel.innerHTML = `
     <header class="mwi-profit-header">
@@ -19999,7 +18427,7 @@ ${preview}`
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t6("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t7("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -20012,41 +18440,41 @@ ${preview}`
     const teaIcons = teas.length ? teas.map((tea) => {
       const name = itemName3(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t6("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t7("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t6("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t7("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t6("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t7("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t6("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t6("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t6("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t7("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t7("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t7("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t6("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t7("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t6("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t6("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t6("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t7("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t7("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t7("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
@@ -20066,7 +18494,7 @@ ${preview}`
         return `${valuationText(definition.title)}：${names || "—"}`;
       }).join(runtime.config.isZH ? "；" : "; ");
       warningParts.push(
-        `${t6("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
+        `${t7("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
       );
     }
     const unpricedByproducts = [
@@ -20078,7 +18506,7 @@ ${preview}`
     ];
     if (unpricedByproducts.length) {
       warningParts.push(
-        `${t6("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const derivedMissingPrices = [
@@ -20090,7 +18518,7 @@ ${preview}`
     ];
     if (derivedMissingPrices.length) {
       warningParts.push(
-        `${t6("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const fallbackItemHrids = [
@@ -20102,7 +18530,7 @@ ${preview}`
     ];
     if (fallbackItemHrids.length) {
       warningParts.push(
-        `${t6("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     if (!warningParts.length) return;
@@ -20113,24 +18541,24 @@ ${preview}`
   }
   function renderLootChestDropCell(drop) {
     const name = itemName3(drop.itemHrid);
-    const chance = drop.dropRate >= 1 ? t6("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+    const chance = drop.dropRate >= 1 ? t7("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
     const countRange = drop.minCount === drop.maxCount ? formatNumber3(drop.minCount, 0) : `${formatNumber3(drop.minCount, 0)}–${formatNumber3(drop.maxCount, 0)}`;
     const redemptions = drop.redemptions ?? [];
     const redemptionLines = redemptions.map((route) => {
       const tokenName = itemName3(route.tokenItemHrid);
-      return `${t6("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t6("代币", "token")}`;
+      return `${t7("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t7("代币", "token")}`;
     });
-    const sourceLabel = drop.valueSource === "redemption" ? t6("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t6("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t6("封印计为 0", "Seal valued at 0") : drop.nested ? t6("开箱期望", "Opening EV") : t6("单价", "Unit");
+    const sourceLabel = drop.valueSource === "redemption" ? t7("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t7("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t7("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t7("封印计为 0", "Seal valued at 0") : drop.nested ? t7("开箱期望", "Opening EV") : t7("单价", "Unit");
     const title = [
       `${name}
-${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} · ${t6("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
-      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t6("无价", "No price")} · ${t6("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t6("无价", "No price")}`,
+${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} · ${t7("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
+      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t7("无价", "No price")} · ${t7("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t7("无价", "No price")}`,
       ...redemptionLines
     ].join("\n");
-    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t6("无价", "No price");
+    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t7("无价", "No price");
     return `
     <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml4(drop.itemHrid)}" title="${escapeHtml4(title)}">
-      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t6("最佳兑换", "Best Exchange")}</span>` : ""}
+      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t7("最佳兑换", "Best Exchange")}</span>` : ""}
       <div class="mwi-loot-cell-icon">
         ${renderItemIcon(drop.itemHrid, name)}
         <span class="mwi-loot-cell-chance">${escapeHtml4(chance)}</span>
@@ -20155,14 +18583,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const controls = [
       renderLootSwitch(
         "lootSellAtAsk",
-        t6("产物卖出", "Sell drops"),
-        config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now"),
+        t7("产物卖出", "Sell drops"),
+        config.sellAtAsk ? t7("挂卖单", "List at ask") : t7("立即卖出", "Sell now"),
         config.sellAtAsk
       ),
       renderLootSwitch(
         "lootIgnoreCowbells",
-        t6("牛铃价值", "Cowbell value"),
-        config.ignoreCowbells ? t6("忽略", "Ignored") : t6("计入", "Included"),
+        t7("牛铃价值", "Cowbell value"),
+        config.ignoreCowbells ? t7("忽略", "Ignored") : t7("计入", "Included"),
         config.ignoreCowbells
       )
     ];
@@ -20170,14 +18598,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       controls.push(
         renderLootSwitch(
           "lootBuyAtAsk",
-          t6("钥匙或碎片", "Key or fragments"),
-          config.buyAtAsk ? t6("立即买入", "Buy now") : t6("挂买单", "Place bid"),
+          t7("钥匙或碎片", "Key or fragments"),
+          config.buyAtAsk ? t7("立即买入", "Buy now") : t7("挂买单", "Place bid"),
           config.buyAtAsk
         ),
         renderLootSwitch(
           "lootKeyFromFragments",
-          t6("钥匙来源", "Key source"),
-          config.fromFragments ? t6("碎片自制", "Craft fragments") : t6("购买成品", "Buy finished"),
+          t7("钥匙来源", "Key source"),
+          config.fromFragments ? t7("碎片自制", "Craft fragments") : t7("购买成品", "Buy finished"),
           config.fromFragments
         )
       );
@@ -20189,7 +18617,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const productName = itemName3(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
     const statusClass = chest.complete ? "complete" : "partial";
-    const statusLabel3 = chest.complete ? t6("完整计价", "Fully priced") : t6("部分计价", "Partial pricing");
+    const statusLabel3 = chest.complete ? t7("完整计价", "Fully priced") : t7("部分计价", "Partial pricing");
     panel.dataset.status = statusClass;
     panel.classList.toggle("mwi-profit-pinned", pinned);
     panel.innerHTML = `
@@ -20197,10 +18625,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml4(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t6("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t6("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
-      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t6("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
+      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t7("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
     </header>`;
     if (pinned) {
       panel.insertAdjacentHTML(
@@ -20212,29 +18640,29 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     panel.insertAdjacentHTML(
       "beforeend",
       `<section class="mwi-profit-card income" style="margin:12px;">
-      <div class="mwi-profit-card-title"><span>${t6("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
-      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced drops")}</div>`}
+      <div class="mwi-profit-card-title"><span>${t7("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t7("无可计价产出", "No priced drops")}</div>`}
     </section>`
     );
-    const sellLabel = chest.config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now");
-    const keyLabel = !hasKey ? t6("无需钥匙", "No key") : chest.config.fromFragments ? t6("碎片自制", "Crafted from fragments") : t6("购买成品", "Buy finished");
+    const sellLabel = chest.config.sellAtAsk ? t7("挂卖单", "List at ask") : t7("立即卖出", "Sell now");
+    const keyLabel = !hasKey ? t7("无需钥匙", "No key") : chest.config.fromFragments ? t7("碎片自制", "Crafted from fragments") : t7("购买成品", "Buy finished");
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-valuations">
       <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
-          <div class="mwi-profit-valuation-title">${t6("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-title">${t7("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml4(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
-        ${renderValuationMetric(t6("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t6("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
-        ${renderValuationMetric(t6("净期望价值", "Net value"), chest.netValue, true)}
+        ${renderValuationMetric(t7("毛期望价值", "Gross value"), chest.grossValue)}
+        ${renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${renderValuationMetric(t7("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`
     );
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-hint">${t6(
+      `<div class="mwi-profit-hint">${t7(
         pinned ? "开关会立即重算并保存；高亮卡片是每枚代币回报最高的兑换物品。" : "双击固定面板后可调整买卖方向和钥匙来源；高亮卡片是每枚代币回报最高的兑换物品。",
         pinned ? "Switches recalculate and save immediately; highlighted cards are the best return per token." : "Double-click to pin and adjust pricing; highlighted cards are the best return per token."
       )}</div>`
@@ -20243,7 +18671,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       panel.insertAdjacentHTML(
         "beforeend",
         `<div class="mwi-profit-warning">${escapeHtml4(
-          `${t6("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+          `${t7("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
         )}</div>`
       );
     }
@@ -20680,56 +19108,26 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: var(--color-text-secondary,#777); font-size: calc(.6875rem * var(--mwi-ui-font-scale,1));">${hint}</div>
   `;
   }
-  var showTotalActionTime = () => {
-    const targetNode = document.querySelector("div.Header_actionName__31-L2");
-    if (targetNode) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听行动进度栏。" : "[MWITools] Started observing the action progress bar."
-      );
-      calculateTotalTime(targetNode);
-      new MutationObserver(
-        (mutationsList) => mutationsList.forEach((mutation) => {
-          calculateTotalTime();
-        })
-      ).observe(targetNode, {
-        characterData: true,
-        subtree: true,
-        childList: true
-      });
-    } else {
-      setTimeout(showTotalActionTime, 200);
-    }
-  };
-  function calculateTotalTime() {
-    const targetNode = document.querySelector(
-      "div.Header_actionName__31-L2 > div.Header_displayName__1hN09"
-    );
-    if (targetNode.textContent.includes("[")) {
-      return;
-    }
-    let totalTimeStr = "Error";
-    const content = targetNode.innerText;
-    const match = content.match(/\((\d+)\)/);
-    if (match) {
-      const numOfTimes = +match[1];
-      const timePerActionSec = +runtime.api.getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn")).match(/[\d\.]+/)[0];
-      const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
-      let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
-      if (actionHrid.includes("enhanc")) {
-        effBuff = 1;
+  function consumableEfficiencyTooltipRow(itemHrid, marketValue) {
+    if (!runtime.settings.settingsMap.showConsumTips?.isTrue) return "";
+    const detail = runtime.state.initData_itemDetailMap?.[itemHrid]?.consumableDetail;
+    const restores = [
+      {
+        amount: Number(detail?.hitpointRestore),
+        unit: runtime.config.isZH ? "血" : "hp"
+      },
+      {
+        amount: Number(detail?.manapointRestore),
+        unit: runtime.config.isZH ? "蓝" : "mp"
       }
-      const actualNumberOfTimes = Math.round(numOfTimes / effBuff);
-      const totalTimeSeconds = actualNumberOfTimes * timePerActionSec;
-      totalTimeStr = " [" + timeReadable(totalTimeSeconds) + "]";
-      const currentTime = /* @__PURE__ */ new Date();
-      currentTime.setSeconds(currentTime.getSeconds() + totalTimeSeconds);
-      totalTimeStr += ` ${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(
-        currentTime.getSeconds()
-      ).padStart(2, "0")}`;
-    } else {
-      totalTimeStr = " [∞]";
-    }
-    targetNode.textContent += totalTimeStr;
+    ].filter(({ amount }) => Number.isFinite(amount) && amount > 0);
+    if (!restores.length) return "";
+    const value = Number(marketValue);
+    const efficiency = Number.isFinite(value) && value > 0 ? restores.map(
+      ({ amount, unit }) => runtime.config.isZH ? `${numberFormatter2(value * 100 / amount, 0)}金/100${unit}` : `${numberFormatter2(value * 100 / amount, 0)} coins/100${unit}`
+    ).join(runtime.config.isZH ? "，" : ", ") : "-";
+    const label = runtime.config.isZH ? "消耗品性价比：" : "Consumable efficiency: ";
+    return `<div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${label}${efficiency}</div>`;
   }
   function timeReadable(sec) {
     if (!Number.isFinite(sec) || sec < 0) return "—";
@@ -20868,7 +19266,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (text) => String(text ?? "").replaceAll(/\s+/g, " ").trim()
     ).filter(Boolean);
     const matches = Object.values(runtime.state.initData_actionDetailMap ?? {}).filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type)).filter((detail) => {
-      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]].map((name) => String(name ?? "").trim()).filter(Boolean);
+      const names = [detail.name, getLocalizedEntityName("action", detail.hrid)].map((name) => String(name ?? "").trim()).filter(Boolean);
       return texts.some((text) => names.includes(text));
     }).sort(
       (left, right) => Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0) || String(left.hrid).localeCompare(String(right.hrid))
@@ -21066,6 +19464,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "市场价值：" : "Market value: "}${fairValue > 0 ? numberFormatter2(fairValue) : "-"}${fairValue > 0 && amount > 0 ? ` (${numberFormatter2(fairValue * amount)})` : ""}</div>
     <div data-mwitools-tooltip-market="true" style="color: ${runtime.config.SCRIPT_COLOR_TOOLTIP};">${runtime.config.isZH ? "价格: " : "Price: "}${numberFormatter2(ask)} / ${numberFormatter2(bid)} (${ask && ask > 0 ? numberFormatter2(ask * amount) : ""} / ${bid && bid > 0 ? numberFormatter2(bid * amount) : ""})</div>
     `;
+      appendHTMLStr += consumableEfficiencyTooltipRow(itemHrid, fairValue);
     }
     if (!suppressMarket) appendHTMLStr += productionCostTooltipRows(itemHrid);
     insertAfterElem.insertAdjacentHTML("afterend", appendHTMLStr);
@@ -21122,8 +19521,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     return null;
   }
   Object.assign(runtime.api, {
-    showTotalActionTime,
-    calculateTotalTime,
     timeReadable,
     getToolsSpeedBuffByActionHrid,
     getItemEffiBuffByActionHrid,
@@ -21377,7 +19774,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
   var EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
   var ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
-  var MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
   var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
   var actionPanelRetryStates = /* @__PURE__ */ new Map();
@@ -21397,29 +19793,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
-  var waitForActionPanelParent = () => {
-    const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
-    if (targetNode) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听行动面板。" : "[MWITools] Started observing the action panel."
-      );
-      const actionPanelObserver = new MutationObserver(async function(mutations) {
-        for (const mutation of mutations) {
-          for (const added of mutation.addedNodes) {
-            const panel = added?.matches?.(ACTION_PANEL_SELECTOR) ? added : added?.querySelector?.(ACTION_PANEL_SELECTOR);
-            if (panel) scheduleActionPanel(panel);
-          }
-        }
-      });
-      actionPanelObserver.observe(targetNode, {
-        attributes: false,
-        childList: true,
-        subtree: true
-      });
-    } else {
-      setTimeout(waitForActionPanelParent, 200);
-    }
-  };
   async function handleActionPanel(panel) {
     if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
     if (panel.dataset.mwitoolsActionPanel === "true" && panel.querySelector("#mwi-level-progress") && panel.querySelectorAll(".mwi-native-level-stat").length === 4)
@@ -21771,7 +20144,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   };
   var removeInsertedDivs = () => document.querySelectorAll("span.insertedSpan").forEach((div) => div.parentNode.removeChild(div));
   Object.assign(runtime.api, {
-    waitForActionPanelParent,
     handleActionPanel,
     getTotalEffiPercentage,
     getActionEfficiencyDetails,
@@ -21973,7 +20345,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   });
   var productionDataRevision = 0;
   var enhancementTimingCache = { identity: "", count: null };
-  function t7(zh, en) {
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -21986,29 +20358,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const days = Math.floor(normalized / 86400);
     const hours = Math.floor(normalized % 86400 / 3600);
     const minutes = Math.floor(normalized % 3600 / 60);
-    const parts = [t7(`${days}天`, `${days}d`)];
-    if (hours > 0) parts.push(t7(`${hours}小时`, `${hours}h`));
-    if (minutes > 0) parts.push(t7(`${minutes}分`, `${minutes}m`));
+    const parts = [t8(`${days}天`, `${days}d`)];
+    if (hours > 0) parts.push(t8(`${hours}小时`, `${hours}h`));
+    if (minutes > 0) parts.push(t8(`${minutes}分`, `${minutes}m`));
     return parts.join(runtime.config.isZH ? "" : " ");
   }
   function number2(value) {
     return runtime.api.createFormattedNumber(value);
-  }
-  function findItemsSpriteBase3() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
   }
   function outputItemName(itemHrid) {
     return itemName(itemHrid, { fallback: "?" });
@@ -22025,8 +20381,8 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       )
     );
     const prototype = candidates.find((candidate) => {
-      const href = candidate.querySelector("use")?.getAttribute("href") ?? candidate.querySelector("use")?.getAttribute("xlink:href") ?? "";
-      return bare && href.endsWith(`#${bare}`);
+      const href2 = candidate.querySelector("use")?.getAttribute("href") ?? candidate.querySelector("use")?.getAttribute("xlink:href") ?? "";
+      return bare && href2.endsWith(`#${bare}`);
     }) ?? candidates[0];
     if (!prototype) return null;
     const item = prototype.cloneNode(true);
@@ -22034,10 +20390,9 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     for (const className of [...item.classList]) {
       if (className.includes("Item_clickable")) item.classList.remove(className);
     }
-    const sprite = findItemsSpriteBase3();
+    const href = getGameSpriteHref("items", itemHrid);
     const use = item.querySelector("use");
-    if (use && sprite && bare) {
-      const href = `${sprite}#${bare}`;
+    if (use && href && bare) {
       use.setAttribute("href", href);
       use.setAttribute("xlink:href", href);
     }
@@ -22051,14 +20406,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const item = document.createElement("span");
     item.className = "mwi-production-native-fallback";
     const bare = String(itemHrid ?? "").split("/").at(-1);
-    const sprite = findItemsSpriteBase3();
-    if (bare && sprite) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (bare && href) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.classList.add("mwi-production-output-icon");
       svg.setAttribute("viewBox", "0 0 32 32");
       svg.setAttribute("aria-label", name);
       const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      const href = `${sprite}#${bare}`;
       use.setAttribute("href", href);
       use.setAttribute("xlink:href", href);
       svg.append(use);
@@ -22205,12 +20559,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function actionHeaderNames(actionHrid, detail) {
     const names = /* @__PURE__ */ new Set([
       detail?.name,
-      runtime.data.ZHActionNames?.[actionHrid],
       getLocalizedEntityName("action", actionHrid)
     ]);
     for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
       names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
-      names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
       names.add(getLocalizedEntityName("item", output.itemHrid));
     }
     return [...names].map(normalizedActionText).filter(Boolean);
@@ -22361,12 +20713,12 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     currentTime.removeAttribute("title");
     if (projection.materialLimited) {
-      currentTime.title = t7(
+      currentTime.title = t8(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     } else if (enhancementCount !== null) {
-      currentTime.title = t7(
+      currentTime.title = t8(
         "已按强化栏当前可处理数量计算",
         "Based on the amount currently available for enhancement"
       );
@@ -22407,11 +20759,17 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function bindActionUiRenderer(scope, render, messages = []) {
     const scheduler = createFrameScheduler(render);
     const schedule = () => scheduler.schedule();
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      if (shouldScheduleActionUi(records)) schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "action-ui",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        if (shouldScheduleActionUi(records)) schedule();
+      }
+    );
     const scheduleFromInput = (event) => {
       if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
     };
@@ -22625,7 +20983,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputHourButtons",
-        label: t7("时长", "Hours"),
+        label: t8("时长", "Hours"),
         values: QUICK_HOURS,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
@@ -22640,7 +20998,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputCountButtons",
-        label: t7("次数", "Count"),
+        label: t8("次数", "Count"),
         values: QUICK_COUNTS,
         resolveCount: (count) => count
       });
@@ -22653,7 +21011,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const normalizedEfficiency = Number.isFinite(efficiencyPercent) && efficiencyPercent > -100 ? efficiencyPercent : 0;
     host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
       button.disabled = !Number.isFinite(duration) || duration <= 0;
-      button.title = button.disabled ? t7("无法读取当前单次耗时", "Current action duration unavailable") : t7(
+      button.title = button.disabled ? t8("无法读取当前单次耗时", "Current action duration unavailable") : t8(
         `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
         `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`
       );
@@ -22671,7 +21029,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       button = infinityButton.cloneNode(false);
       button.type = "button";
       button.classList.add("mwi-max-action-button");
-      button.textContent = t7("最大", "Max");
+      button.textContent = t8("最大", "Max");
       button.addEventListener("click", () => {
         const count = Number(button.dataset.maxCraftable);
         if (!Number.isSafeInteger(count) || count <= 0) return;
@@ -22692,10 +21050,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const enabled = Number.isSafeInteger(maxCraftable) && maxCraftable > 0;
     button.disabled = !enabled;
     button.dataset.maxCraftable = enabled ? String(maxCraftable) : "";
-    button.title = enabled ? t7(
+    button.title = enabled ? t8(
       `填入库存最多可做 ${maxCraftable} 次`,
       `Use inventory maximum: ${maxCraftable}`
-    ) : t7("当前没有有限的可生产次数", "No finite production maximum");
+    ) : t8("当前没有有限的可生产次数", "No finite production maximum");
   }
   function syncProductionDuration(panel, input, totalSeconds) {
     document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => {
@@ -22710,7 +21068,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       duration = document.createElement("span");
       duration.className = "mwi-production-duration-inline";
     }
-    duration.textContent = `${t7("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
+    duration.textContent = `${t8("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
     target.append(duration);
     return duration;
   }
@@ -22859,7 +21217,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const title = document.createElement("button");
     title.type = "button";
     title.className = "mwi-production-card-title";
-    title.textContent = t7("本次生产摘要", "Production summary");
+    title.textContent = t8("本次生产摘要", "Production summary");
     title.setAttribute("aria-expanded", String(expanded));
     const body = document.createElement("div");
     body.className = "mwi-production-card-body";
@@ -22881,36 +21239,36 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (output) => outputs.append(createProductionOutput(output, panel))
     );
     const outputMetric = metric(
-      projection.effectivelyInfinite ? t7("预期单次产出", "Output per action") : t7("预期总产出", "Total output"),
+      projection.effectivelyInfinite ? t8("预期单次产出", "Output per action") : t8("预期总产出", "Total output"),
       outputs
     );
     outputMetric.classList.add("mwi-production-output-metric");
     grid.append(
       outputMetric,
       metric(
-        t7("当前拥有", "Owned"),
+        t8("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t7("库存最多可做", "Max craftable"),
+        t8("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number2(projection.maxCraftable)
       )
     );
     if (showProfit) {
       grid.append(
         metric(
-          t7("每次净利润", "Per action"),
+          t8("每次净利润", "Per action"),
           number2(projection.netProfitPerAction)
         ),
-        metric(t7("每小时净利润", "Per hour"), number2(projection.profitPerHour)),
+        metric(t8("每小时净利润", "Per hour"), number2(projection.profitPerHour)),
         metric(
-          t7("每天净利润", "Per day"),
+          t8("每天净利润", "Per day"),
           number2(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
         metric(
-          t7("本次总净利润", "Total profit"),
+          t8("本次总净利润", "Total profit"),
           projection.netProfitPerAction === null ? number2(null) : projection.effectivelyInfinite ? "∞" : number2(projection.totalProfit)
         )
       );
@@ -22919,7 +21277,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (showProfit && projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t7(
+      warning.textContent = t8(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -23076,7 +21434,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function marketFeaturesSuppressed() {
@@ -23199,29 +21557,12 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
   }
-  function findItemsSpriteBase4() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function renderItemIcon2(item) {
-    const bare = procurement3.normalizeItemHrid(item.itemHrid).split("/").at(-1);
-    const sprite = findItemsSpriteBase4();
-    if (!bare || !sprite) {
+    const itemHrid = procurement3.normalizeItemHrid(item.itemHrid);
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="item-icon-fallback">${escapeHtml5((item.name || "?").trim().charAt(0) || "?")}</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml5(item.name)}"><use href="${escapeHtml5(href)}" xlink:href="${escapeHtml5(href)}"></use></svg>`;
   }
   function renderShell() {
@@ -23238,7 +21579,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t8(`缺 ${activeCount} 项`, `${activeCount} missing`) : t8("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t9(`缺 ${activeCount} 项`, `${activeCount} missing`) : t9("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
@@ -23306,13 +21647,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     row.className = "cart-row";
     row.dataset.cartKey = key;
     row.innerHTML = `
-    <button class="cart-drag" type="button" title="${t8("拖动排序", "Drag to reorder")}" aria-label="${t8("拖动排序", "Drag to reorder")}">⋮⋮</button>
+    <button class="cart-drag" type="button" title="${t9("拖动排序", "Drag to reorder")}" aria-label="${t9("拖动排序", "Drag to reorder")}">⋮⋮</button>
     <button class="star">${STAR_ICON}</button>
     <button class="item-icon"></button>
     <button class="item-name"></button>
-    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t8("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
-    <button class="delete" title="${t8("删除", "Remove")}">×</button>
-    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
+    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t9("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
+    <button class="delete" title="${t9("删除", "Remove")}">×</button>
+    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t9("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
     const setQuantity = (quantity) => {
       const item = latestCartItem(row);
       if (item)
@@ -23381,13 +21722,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     const star = row.querySelector(".star");
     star.dataset.active = String(Boolean(item.starred));
-    star.title = t8(
+    star.title = t9(
       "收藏：买齐后保留并监控常备数量",
       "Favorite: keep and restock"
     );
     const icon = row.querySelector(".item-icon");
     icon.disabled = !marketEnabled;
-    icon.title = marketEnabled ? t8("在市场中打开", "Open in marketplace") : "";
+    icon.title = marketEnabled ? t9("在市场中打开", "Open in marketplace") : "";
     icon.innerHTML = renderItemIcon2(item);
     const name = row.querySelector(".item-name");
     name.disabled = !marketEnabled;
@@ -23402,11 +21743,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     const ownedNode = row.querySelector(".owned");
     ownedNode.title = exactNumber(owned);
-    ownedNode.textContent = `${t8("库存", "Stock")} ${formatNumber4(owned)}`;
+    ownedNode.textContent = `${t9("库存", "Stock")} ${formatNumber4(owned)}`;
     const priceNode = row.querySelector(".price");
     priceNode.hidden = !pricesEnabled;
     priceNode.title = price > 0 ? exactNumber(price * item.quantity) : "—";
-    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
+    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t9("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
     const thresholdWrap = row.querySelector(".threshold-wrap");
     thresholdWrap.hidden = !item.starred;
     const threshold = row.querySelector(".threshold");
@@ -23432,13 +21773,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       footer.append(clear);
     }
     totalNode.hidden = !marketEnabled;
-    totalNode.querySelector("span").textContent = t8("补齐合计", "Total");
+    totalNode.querySelector("span").textContent = t9("补齐合计", "Total");
     const strong = totalNode.querySelector("strong");
-    strong.title = unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
+    strong.title = unpriced ? t9("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
     strong.textContent = settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—";
     const small = totalNode.querySelector("small");
-    small.textContent = unpriced ? `${unpriced} ${t8("项未估价", "unpriced")}` : "";
-    clear.textContent = t8("清空未收藏", "Clear");
+    small.textContent = unpriced ? `${unpriced} ${t9("项未估价", "unpriced")}` : "";
+    clear.textContent = t9("清空未收藏", "Clear");
   }
   function renderCart(body) {
     const items = procurement3.getCartItems();
@@ -23447,7 +21788,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       body.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t8(
+      empty.textContent = t9(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
@@ -23530,7 +21871,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t8(
+      empty.textContent = t9(
         "还没有生产项目。把生产缺料加入购物车时可以同时创建。",
         "No production projects yet. Create one when adding production materials."
       );
@@ -23542,13 +21883,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml5(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t8("已完成", "Completed") : t8("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml5(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t9("已完成", "Completed") : t9("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber4(plan.progress)} / ${formatNumber4(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t8("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t8("重新打开", "Reopen") : t8("完成", "Complete")}</button><button data-action="remove">${t8("删除", "Delete")}</button></div>`;
+      <div class="plan-actions"><button data-action="count">${t9("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t9("重新打开", "Reopen") : t9("完成", "Complete")}</button><button data-action="remove">${t9("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t8("输入新的目标次数", "Enter a new target count"),
+          t9("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
@@ -23564,7 +21905,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       });
       body.append(row);
     }
-    footer.innerHTML = `<span>${t8("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t8("清空项目", "Clear projects")}</button>`;
+    footer.innerHTML = `<span>${t9("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t9("清空项目", "Clear projects")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement3.getPlans()) procurement3.removePlan(plan.id);
     });
@@ -23721,7 +22062,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t8(...sectionDefinition.title);
+      heading.textContent = t9(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -23729,14 +22070,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml5(t8(zh, en))}${description ? `<small>${escapeHtml5(t8(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml5(t9(zh, en))}${description ? `<small>${escapeHtml5(t9(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t8("开", "On") : t8("关", "Off");
+          state.textContent = settings2[id] ? t9("开", "On") : t9("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -23744,7 +22085,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t8(zh, en));
+          control.setAttribute("aria-label", t9(zh, en));
           control.addEventListener(
             "click",
             () => procurement3.setSetting(id, !settings2[id])
@@ -23752,10 +22093,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t8("关闭", "Off")],
-            ["95", t8("标准 95%", "Standard 95%")],
-            ["99", t8("充足 99%", "Ample 99%")],
-            ["99.9", t8("极高 99.9%", "Full 99.9%")]
+            ["off", t9("关闭", "Off")],
+            ["95", t9("标准 95%", "Standard 95%")],
+            ["99", t9("充足 99%", "Ample 99%")],
+            ["99.9", t9("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -23771,7 +22112,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t8("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t9("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -23781,7 +22122,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t8("重置", "Reset");
+          control.textContent = t9("重置", "Reset");
           control.addEventListener("click", () => {
             procurement3.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
@@ -23816,7 +22157,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t8("请按快捷键…", "Press shortcut…");
+    button.textContent = t9("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -23852,11 +22193,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t8("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t8("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t9("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t9("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t8("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t8("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t8("清单", "Cart")}</button><button class="tab" data-tab="plans">${t8("项目", "Projects")}</button><button class="tab" data-tab="settings">${t8("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t9("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t9("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t9("清单", "Cart")}</button><button class="tab" data-tab="plans">${t9("项目", "Projects")}</button><button class="tab" data-tab="settings">${t9("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -24119,10 +22460,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "enhancing"
       );
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
     });
     root.append(input, add);
@@ -24202,7 +22543,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       summary2.className = "mwi-procurement-summary-line";
       const state = document.createElement("span");
       state.className = "mwi-procurement-summary-state";
-      state.textContent = t8("请选择生产数量", "Enter a production quantity");
+      state.textContent = t9("请选择生产数量", "Enter a production quantity");
       summary2.append(state);
       root2.append(summary2);
       if (runtime.api.mountProductionModule) {
@@ -24251,11 +22592,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t8("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t8("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t9("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t9("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t8("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t8("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t8("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t9("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t9("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t9("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
         layoutMaterialBadge(context.panel, host, badge);
@@ -24280,9 +22621,9 @@ ${locks}` : ""}`;
       chainModeInput = document.createElement("input");
       chainModeInput.type = "checkbox";
       chainModeInput.setAttribute("role", "switch");
-      chainModeInput.setAttribute("aria-label", t8("所选链条", "Selected chain"));
+      chainModeInput.setAttribute("aria-label", t9("所选链条", "Selected chain"));
       const chainModeLabel = document.createElement("span");
-      chainModeLabel.textContent = t8("所选链条", "Selected chain");
+      chainModeLabel.textContent = t9("所选链条", "Selected chain");
       chainMode.append(chainModeInput, chainModeLabel);
       summary.append(summaryState, chainMode);
     } else {
@@ -24308,12 +22649,12 @@ ${locks}` : ""}`;
       const addable = scopedMaterials.filter(
         (material) => material.purchasable && material.addableShortage > 0
       );
-      summaryState.innerHTML = missing.length ? `${t8("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t8("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t8("材料充足", "Materials ready");
+      summaryState.innerHTML = missing.length ? `${t9("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t9("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t9("材料充足", "Materials ready");
       root.hidden = Boolean(
         !missing.length && runtime.settings.get("hideReadyProductionShortage")
       );
       add.disabled = addable.length === 0;
-      add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
+      add.textContent = addable.length ? t9("加入购物清单", "Add to shopping list") : t9("已在清单中", "Already listed");
     };
     chainModeInput?.addEventListener("change", updateSummary);
     add.addEventListener("click", () => {
@@ -24328,10 +22669,10 @@ ${locks}` : ""}`;
         isEnhancing ? "enhancing" : "production"
       );
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -24341,7 +22682,7 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t8("升级链", "Upgrade chain")} · ${chain.stages.length} ${t8("阶段", "stages")}${chain.cycle ? ` · ${t8("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t8("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t9("升级链", "Upgrade chain")} · ${chain.stages.length} ${t9("阶段", "stages")}${chain.cycle ? ` · ${t9("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t9("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
@@ -24355,7 +22696,7 @@ ${locks}` : ""}`;
       const allButton = document.createElement("button");
       allButton.type = "button";
       allButton.className = "mwi-procurement-chain-preset";
-      allButton.textContent = t8("全链条", "Full chain");
+      allButton.textContent = t9("全链条", "Full chain");
       stageInputs = [...list.querySelectorAll("input[type=checkbox]")];
       const updatePresetState = () => {
         const checked = stageInputs.map((input) => input.checked);
@@ -24530,22 +22871,22 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t8("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t9("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     const addable = materials.filter(
       (material) => material.purchasable && material.addableShortage > 0
     );
-    add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
+    add.textContent = addable.length ? t9("加入购物清单", "Add to shopping list") : t9("已在清单中", "Already listed");
     add.disabled = addable.length === 0;
     add.addEventListener("click", () => {
       const result = procurement3.addRequirementsToCart(materials, "housing");
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
       lastProductionSignature = "";
       globalThis.queueMicrotask(() => renderHouseProcurement(modal));
@@ -24594,7 +22935,7 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t8(
+        t9(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
@@ -24681,7 +23022,7 @@ ${locks}` : ""}`;
       runtime.config.isZH ? "[MWITools] 无法在市场中打开购物清单物品。" : "[MWITools] Failed to open the shopping-list item in the marketplace.",
       lastError
     );
-    showToast(t8("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t9("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -24801,7 +23142,7 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t8(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t9(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
     for (const item of rows2) {
@@ -24810,7 +23151,7 @@ ${locks}` : ""}`;
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
       const itemName4 = procurement3.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t8("已完成", "Completed") : exactNumber(item.quantity);
+      const quantity = item.done ? t9("已完成", "Completed") : exactNumber(item.quantity);
       chip.title = `${itemName4} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
       chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName4 })}</span><b>${item.done ? "✓" : formatNumber4(item.quantity)}</b>`;
@@ -24825,7 +23166,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t8("下一项 ›", "Next ›");
+    nextButton.textContent = t9("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -24922,10 +23263,10 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t8(
+          next ? t9(
             `${procurement3.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
             `${procurement3.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t8("购物清单已全部补齐", "Shopping list fulfilled")
+          ) : t9("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
@@ -25072,7 +23413,7 @@ ${locks}` : ""}`;
       );
     });
   }
-  function t9(zh, en) {
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function visible(element) {
@@ -25142,12 +23483,12 @@ ${locks}` : ""}`;
   function localizeStep(step, index) {
     const output = localizedItem(step.outputHrid);
     if (step.kind === "shop") {
-      return `${index + 1}. ${t9("商店购买", "Buy from shop")}「${output}」`;
+      return `${index + 1}. ${t10("商店购买", "Buy from shop")}「${output}」`;
     }
     if (step.kind === "craft") {
-      return `${index + 1}. ${t9("制造", "Craft")}「${output}」`;
+      return `${index + 1}. ${t10("制造", "Craft")}「${output}」`;
     }
-    return `${index + 1}. ${t9("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
+    return `${index + 1}. ${t10("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
   }
   function createButton(text, kind, handler) {
     const button = document.createElement("button");
@@ -25188,13 +23529,13 @@ ${locks}` : ""}`;
       indicator.type = "button";
       indicator.addEventListener(
         "click",
-        () => cancelTrain(t9("用户取消", "Cancelled by user"))
+        () => cancelTrain(t10("用户取消", "Cancelled by user"))
       );
       document.body.appendChild(indicator);
     }
     const copy = runtime.config.isZH ? `🚂 正在进行火车 (${activeTrain.index + 1}/${activeTrain.steps.length}) · 点击退出` : `🚂 Train in progress (${activeTrain.index + 1}/${activeTrain.steps.length}) · Click to cancel`;
     if (indicator.textContent !== copy) indicator.textContent = copy;
-    indicator.title = t9("点击退出当前火车", "Click to cancel the current train");
+    indicator.title = t10("点击退出当前火车", "Click to cancel the current train");
   }
   function showTrainDetail(plan, currentIndex = null) {
     closeDetail();
@@ -25205,7 +23546,7 @@ ${locks}` : ""}`;
     box.setAttribute("aria-modal", "true");
     const title = document.createElement("div");
     title.className = "mwi-train-detail-title";
-    title.textContent = t9("🚂 火车详情", "🚂 Train details");
+    title.textContent = t10("🚂 火车详情", "🚂 Train details");
     box.appendChild(title);
     plan.steps.forEach((step, index) => {
       const row = document.createElement("div");
@@ -25215,17 +23556,17 @@ ${locks}` : ""}`;
       label.textContent = `${index === currentIndex ? "▶ " : "　"}${localizeStep(step, index)}`;
       const count = document.createElement("span");
       count.className = "mwi-train-detail-count";
-      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t9("保持当前次数", "Keep current count");
+      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t10("保持当前次数", "Keep current count");
       row.append(label, count);
       if (index === plan.steps.length - 1) {
         const terminal = document.createElement("span");
         terminal.className = "mwi-train-detail-terminal";
-        terminal.textContent = t9("终点", "Final");
+        terminal.textContent = t10("终点", "Final");
         row.appendChild(terminal);
       }
       box.appendChild(row);
     });
-    const close = createButton(t9("关闭", "Close"), "detail", closeDetail);
+    const close = createButton(t10("关闭", "Close"), "detail", closeDetail);
     close.classList.add("mwi-train-detail-close");
     box.appendChild(close);
     modal.appendChild(box);
@@ -25241,9 +23582,9 @@ ${locks}` : ""}`;
     );
   }
   function gameInstances() {
-    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+    const pageGlobal5 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
-    if (pageGlobal4.mwi?.game) instances.push(pageGlobal4.mwi.game);
+    if (pageGlobal5.mwi?.game) instances.push(pageGlobal5.mwi.game);
     const fibers = [];
     const rootElement = document.getElementById("root");
     for (const root of [
@@ -25299,11 +23640,7 @@ ${locks}` : ""}`;
     const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
     const bare = String(outputHrid ?? "").split("/").at(-1);
     const names = new Set(
-      [
-        detail?.name,
-        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
-        getLocalizedEntityName("action", actionHrid)
-      ].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
+      [detail?.name, getLocalizedEntityName("action", actionHrid)].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
     );
     const card = [
       ...document.querySelectorAll('[class*="SkillAction_skillAction"]')
@@ -25506,7 +23843,7 @@ ${locks}` : ""}`;
       return;
     }
     activeTrain.timeout = setTimeout(
-      () => cancelTrain(t9("等待下一站超时", "Timed out waiting for the next stop")),
+      () => cancelTrain(t10("等待下一站超时", "Timed out waiting for the next stop")),
       TRAIN_TIMEOUT_MS
     );
   }
@@ -25549,13 +23886,13 @@ ${locks}` : ""}`;
     const current = activeTrain.steps[currentIndex];
     if (current.kind === "shop") {
       showToast2(
-        t9("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
+        t10("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
       );
       return { ok: false, added: 0, skipped: 0 };
     }
     const count = usePlannedCount ? plannedStepCount() ?? activeStepCount(context) : activeStepCount(context);
     if (!count) {
-      showToast2(t9("请先填写本步次数", "Enter the action count first"));
+      showToast2(t10("请先填写本步次数", "Enter the action count first"));
       return { ok: false, added: 0, skipped: 0 };
     }
     current.count = count;
@@ -25577,10 +23914,10 @@ ${locks}` : ""}`;
       "train"
     );
     showToast2(
-      result.added ? t9(
+      result.added ? t10(
         `本步缺料已加入购物车（${result.added} 种）`,
         `Added this stop's shortages (${result.added})`
-      ) : t9("本步没有新的缺料", "No new shortages for this stop")
+      ) : t10("本步没有新的缺料", "No new shortages for this stop")
     );
     scheduleScan();
     return result;
@@ -25651,7 +23988,7 @@ ${locks}` : ""}`;
       if (activeTrain.index === activeTrain.steps.length - 1 && !activeTrain.arrivalShown) {
         activeTrain.arrivalShown = true;
         showToast2(
-          t9(
+          t10(
             "火车已到终点，请手动加入队列",
             "Final stop reached; add it to the queue manually"
           )
@@ -25691,7 +24028,7 @@ ${locks}` : ""}`;
       }
     );
     showToast2(
-      t9(
+      t10(
         `购买 ${step.count} 个「${localizedItem(step.outputHrid)}」后自动续站`,
         `Buy ${step.count} ${localizedItem(step.outputHrid)} to continue automatically`
       )
@@ -25703,7 +24040,7 @@ ${locks}` : ""}`;
     const step = activeTrain.steps[activeTrain.index];
     const navigated = step.kind === "shop" ? (activeTrain.navigateShop ?? navigateToTrainShop)(step) : (activeTrain.navigateAction ?? navigateToTrainAction)(step.actionHrid);
     if (!navigated) {
-      cancelTrain(t9("无法打开下一站", "Could not open the next stop"));
+      cancelTrain(t10("无法打开下一站", "Could not open the next stop"));
       return;
     }
     if (step.kind === "shop") watchShopStep(step);
@@ -25714,7 +24051,7 @@ ${locks}` : ""}`;
     cancelTrain("");
     if (plan?.unavailableOutputs?.length) {
       showToast2(
-        t9(
+        t10(
           "当前茶饮使火车所需产物无法产出，请调整茶饮后重新规划",
           "Current drinks prevent a required train output; change drinks and replan"
         )
@@ -25723,10 +24060,10 @@ ${locks}` : ""}`;
     }
     if (plan?.cycle || plan?.truncated) {
       showToast2(
-        plan.cycle ? t9(
+        plan.cycle ? t10(
           "升级链存在循环，无法启动火车",
           "The upgrade chain contains a cycle"
-        ) : t9(
+        ) : t10(
           "升级链过长，无法安全启动火车",
           "The upgrade chain is too long to start safely"
         )
@@ -25737,7 +24074,7 @@ ${locks}` : ""}`;
     const finalCount = Number(allSteps.at(-1)?.count);
     if (!Number.isFinite(finalCount) || finalCount <= 0) {
       showToast2(
-        t9(
+        t10(
           "请先填写生产数量，再开始火车",
           "Enter a production count before starting the train"
         )
@@ -25751,7 +24088,7 @@ ${locks}` : ""}`;
     const steps = hasPlannedCounts ? allSteps.slice(firstNeeded < 0 ? allSteps.length : firstNeeded) : allSteps;
     if (!steps.length) {
       showToast2(
-        t9("库存已经足够，无需开火车", "Inventory already covers this train")
+        t10("库存已经足够，无需开火车", "Inventory already covers this train")
       );
       return false;
     }
@@ -25785,7 +24122,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    if (reason) showToast2(`${t9("火车已停止：", "Train stopped: ")}${reason}`);
+    if (reason) showToast2(`${t10("火车已停止：", "Train stopped: ")}${reason}`);
     return true;
   }
   function finishTrain() {
@@ -25797,7 +24134,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    showToast2(t9("火车已完成", "Train completed"));
+    showToast2(t10("火车已完成", "Train completed"));
     return true;
   }
   function getTrainState() {
@@ -25861,7 +24198,7 @@ ${locks}` : ""}`;
     controls.dataset.signature = signature;
     controls.appendChild(
       createButton(
-        t9("📋 详情", "📋 Details"),
+        t10("📋 详情", "📋 Details"),
         "detail",
         () => showTrainDetail(plan, activeTrain?.index ?? null)
       )
@@ -25871,8 +24208,8 @@ ${locks}` : ""}`;
       mode.type = "button";
       mode.className = "mwi-train-cart-mode";
       mode.setAttribute("aria-pressed", String(activeTrain.autoCartEnabled));
-      mode.textContent = activeTrain.autoCartEnabled ? t9("自动加购", "Auto cart") : t9("手动加购", "Manual cart");
-      mode.title = t9(
+      mode.textContent = activeTrain.autoCartEnabled ? t10("自动加购", "Auto cart") : t10("手动加购", "Manual cart");
+      mode.title = t10(
         "切换本步材料的自动或手动加购",
         "Toggle automatic or manual step shopping"
       );
@@ -25883,7 +24220,7 @@ ${locks}` : ""}`;
       });
       controls.appendChild(mode);
       const cart2 = createButton(
-        runningStep.kind === "shop" ? t9("本步无需加购", "No cart items") : t9("🛒 本步加购", "🛒 Add step shortages"),
+        runningStep.kind === "shop" ? t10("本步无需加购", "No cart items") : t10("🛒 本步加购", "🛒 Add step shortages"),
         "cart",
         () => addCurrentTrainStepToCart(context)
       );
@@ -25891,20 +24228,20 @@ ${locks}` : ""}`;
       controls.appendChild(cart2);
       controls.appendChild(
         createButton(
-          `🛑 ${t9("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
+          `🛑 ${t10("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
           "cancel",
-          () => cancelTrain(t9("用户取消", "Cancelled by user"))
+          () => cancelTrain(t10("用户取消", "Cancelled by user"))
         )
       );
     } else {
       const start2 = createButton(
-        `🚂 ${t9("开始火车", "Start train")} (${plan.steps.length}${t9("步", " stops")})`,
+        `🚂 ${t10("开始火车", "Start train")} (${plan.steps.length}${t10("步", " stops")})`,
         "start",
         () => startTrain(idlePlan(context))
       );
       start2.disabled = plan.hasExplicitCount === false;
       if (start2.disabled) {
-        start2.title = t9("请先填写生产数量", "Enter a production count first");
+        start2.title = t10("请先填写生产数量", "Enter a production count first");
       }
       controls.appendChild(start2);
     }
@@ -25989,8 +24326,6 @@ ${locks}` : ""}`;
   // src/core/task-card-resolution.js
   var NAME_SELECTOR = '[class*="RandomTask_name"]';
   var cachedActionMap2 = null;
-  var cachedZhActionNames = null;
-  var cachedZhMonsterNames = null;
   var cachedLocale = "";
   var cachedActionLabels = /* @__PURE__ */ new Map();
   function normalize(value) {
@@ -26036,13 +24371,9 @@ ${locks}` : ""}`;
   }
   function candidateLabels(task, actionHrid) {
     const actionMap = runtime.state.initData_actionDetailMap;
-    const zhActionNames = runtime.data.ZHActionNames;
-    const zhMonsterNames = runtime.data.ZHMonsterNames;
     const locale = getGameLocale();
-    if (actionMap !== cachedActionMap2 || zhActionNames !== cachedZhActionNames || zhMonsterNames !== cachedZhMonsterNames || locale !== cachedLocale) {
+    if (actionMap !== cachedActionMap2 || locale !== cachedLocale) {
       cachedActionMap2 = actionMap;
-      cachedZhActionNames = zhActionNames;
-      cachedZhMonsterNames = zhMonsterNames;
       cachedLocale = locale;
       cachedActionLabels = /* @__PURE__ */ new Map();
     }
@@ -26055,9 +24386,7 @@ ${locks}` : ""}`;
     const labels = new Set(
       [
         detail?.name,
-        zhActionNames?.[actionHrid],
         getLocalizedEntityName("action", actionHrid, { locale }),
-        monsterHrid && zhMonsterNames?.[monsterHrid],
         monsterHrid && getLocalizedEntityName("monster", monsterHrid, { locale }),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " "),
         monsterHrid.split("/").at(-1)?.replaceAll("_", " ")
@@ -26201,133 +24530,16 @@ ${locks}` : ""}`;
   var lastTaskRenderSignature = "";
   var lastActionDetails = null;
   var lastActionCategories = null;
-  var taskSpriteManifestPromise = null;
-  var taskSpriteBases = /* @__PURE__ */ new Map();
-  var spriteScanDocument = null;
-  var spriteSourcesScanned = false;
   var cachedTaskActionIndex = null;
   var cachedTaskActionIndexMap = null;
   var cachedTaskActionIndexLocale = "";
+  var warnedMissingDungeonData = false;
   var taskActionCache = /* @__PURE__ */ new WeakMap();
   var taskRemainingCache = /* @__PURE__ */ new WeakMap();
   var pageOrderBySlot = /* @__PURE__ */ new Map();
   var activeProfessionFilters = /* @__PURE__ */ new Set();
   var combatFilterEnabled = false;
   var activeDungeonFilters = /* @__PURE__ */ new Set();
-  var KNOWN_DUNGEON_ROSTERS = [
-    {
-      actionHrid: "/actions/combat/chimerical_den",
-      sortIndex: 56,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/alligator",
-        "/monsters/aquahorse",
-        "/monsters/butterjerry",
-        "/monsters/centaur_archer",
-        "/monsters/crab",
-        "/monsters/dodocamel",
-        "/monsters/eye",
-        "/monsters/eyes",
-        "/monsters/frog",
-        "/monsters/gobo_boomy",
-        "/monsters/gobo_shooty",
-        "/monsters/gobo_slashy",
-        "/monsters/gobo_smashy",
-        "/monsters/gobo_stabby",
-        "/monsters/griffin",
-        "/monsters/jackalope",
-        "/monsters/jungle_sprite",
-        "/monsters/manticore",
-        "/monsters/myconid",
-        "/monsters/nom_nom",
-        "/monsters/porcupine",
-        "/monsters/rat",
-        "/monsters/sea_snail",
-        "/monsters/skunk",
-        "/monsters/slimy",
-        "/monsters/snake",
-        "/monsters/swampy",
-        "/monsters/turtle",
-        "/monsters/veyes"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/sinister_circus",
-      sortIndex: 57,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/acrobat",
-        "/monsters/black_bear",
-        "/monsters/deranged_jester",
-        "/monsters/elementalist",
-        "/monsters/flame_sorcerer",
-        "/monsters/gobo_boomy",
-        "/monsters/gobo_shooty",
-        "/monsters/gobo_slashy",
-        "/monsters/gobo_smashy",
-        "/monsters/gobo_stabby",
-        "/monsters/grizzly_bear",
-        "/monsters/gummy_bear",
-        "/monsters/ice_sorcerer",
-        "/monsters/juggler",
-        "/monsters/magician",
-        "/monsters/novice_sorcerer",
-        "/monsters/panda",
-        "/monsters/polar_bear",
-        "/monsters/rabid_rabbit",
-        "/monsters/vampire",
-        "/monsters/werewolf",
-        "/monsters/zombie",
-        "/monsters/zombie_bear"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/enchanted_fortress",
-      sortIndex: 58,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/abyssal_imp",
-        "/monsters/black_bear",
-        "/monsters/elementalist",
-        "/monsters/enchanted_bishop",
-        "/monsters/enchanted_king",
-        "/monsters/enchanted_knight",
-        "/monsters/enchanted_pawn",
-        "/monsters/enchanted_queen",
-        "/monsters/enchanted_rook",
-        "/monsters/flame_sorcerer",
-        "/monsters/grizzly_bear",
-        "/monsters/ice_sorcerer",
-        "/monsters/magnetic_golem",
-        "/monsters/novice_sorcerer",
-        "/monsters/panda",
-        "/monsters/polar_bear",
-        "/monsters/soul_hunter",
-        "/monsters/stalactite_golem"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/pirate_cove",
-      sortIndex: 59,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/abyssal_imp",
-        "/monsters/anchor_shark",
-        "/monsters/brine_marksman",
-        "/monsters/captain_fishhook",
-        "/monsters/eye",
-        "/monsters/eyes",
-        "/monsters/granite_golem",
-        "/monsters/infernal_warlock",
-        "/monsters/magnetic_golem",
-        "/monsters/soul_hunter",
-        "/monsters/squawker",
-        "/monsters/stalactite_golem",
-        "/monsters/the_kraken",
-        "/monsters/tidal_conjuror",
-        "/monsters/vampire",
-        "/monsters/veyes",
-        "/monsters/werewolf",
-        "/monsters/zombie"
-      ])
-    }
-  ];
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -26340,13 +24552,17 @@ ${locks}` : ""}`;
     ["combat", "战斗", "Combat"]
   ].map(([key, zh, en], order) => ({ key, zh, en, order }));
   var LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
-  var DUNGEON_FILTERS = [
-    ["/actions/combat/chimerical_den", "奇幻洞穴", "Chimerical Den"],
-    ["/actions/combat/sinister_circus", "邪恶马戏团", "Sinister Circus"],
-    ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
-    ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"]
-  ].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
-  function t10(zh, en) {
+  function dungeonFilters() {
+    return Object.values(runtime.state.initData_actionDetailMap ?? {}).filter((detail) => detail?.combatZoneInfo?.isDungeon).sort(
+      (left, right) => Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0)
+    ).map((detail) => ({
+      actionHrid: detail.hrid,
+      label: getLocalizedEntityName("action", detail.hrid, {
+        fallback: detail.name
+      })
+    }));
+  }
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function taskId(task) {
@@ -26389,67 +24605,6 @@ ${locks}` : ""}`;
   function hasActiveTaskFilters() {
     return activeProfessionFilters.size > 0 || combatFilterEnabled || activeDungeonFilters.size > 0;
   }
-  function rememberSpriteBase(kind, value) {
-    const base = String(value ?? "").split("#")[0];
-    if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
-      taskSpriteBases.set(kind, base);
-    }
-  }
-  function scanTaskSpriteBases({ force = false } = {}) {
-    if (spriteScanDocument !== document) {
-      spriteScanDocument = document;
-      spriteSourcesScanned = false;
-    }
-    if (spriteSourcesScanned && !force) return;
-    spriteSourcesScanned = true;
-    try {
-      document.querySelectorAll("svg use").forEach(
-        (use) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) => rememberSpriteBase(
-            kind,
-            use.getAttribute("href") ?? use.getAttribute("xlink:href")
-          )
-        )
-      );
-      globalThis.performance?.getEntriesByType?.("resource")?.forEach(
-        (entry) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) => rememberSpriteBase(kind, entry.name)
-        )
-      );
-    } catch {
-    }
-  }
-  async function loadTaskSpriteManifest() {
-    if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
-    taskSpriteManifestPromise = (async () => {
-      scanTaskSpriteBases({ force: true });
-      try {
-        const response = await globalThis.fetch(
-          new URL("/asset-manifest.json", globalThis.location?.origin).href
-        );
-        if (!response.ok) return;
-        const manifest = await response.json();
-        for (const value of Object.values(manifest?.files ?? {})) {
-          for (const kind of [
-            "items",
-            "actions",
-            "combat_monsters",
-            "skills",
-            "misc"
-          ]) {
-            rememberSpriteBase(kind, value);
-          }
-        }
-      } catch {
-      }
-    })();
-    return taskSpriteManifestPromise;
-  }
-  function taskSpriteHref(kind, hrid) {
-    const base = taskSpriteBases.get(kind);
-    const symbol = String(hrid ?? "").split("/").at(-1);
-    return base && symbol ? `${base}#${symbol}` : "";
-  }
   function addStyles9() {
     if (document.getElementById(STYLE_ID11)) return;
     const style = document.createElement("style");
@@ -26480,8 +24635,8 @@ ${locks}` : ""}`;
     .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
     .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
-    .mwi-task-bg { position:absolute; z-index:0; top:6%; left:68%; width:24%; height:88%; opacity:.3; pointer-events:none; }
-    .mwi-task-bg svg { width:100%; height:100%; }
+    .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
+    .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
@@ -26531,7 +24686,6 @@ ${locks}` : ""}`;
       if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
       for (const name of [
         detail.name,
-        runtime.data.ZHActionNames?.[detail.hrid],
         getLocalizedEntityName("action", detail.hrid, { locale })
       ]) {
         const normalized = normalizeTaskLookupName(name);
@@ -26542,7 +24696,25 @@ ${locks}` : ""}`;
       if (detail?.category && detail?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10 && !zoneActionByCategory.has(detail.category)) {
         zoneActionByCategory.set(detail.category, detail);
       }
-      const monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+      const dungeonInfo = detail?.combatZoneInfo?.dungeonInfo;
+      let monsters;
+      if (detail?.combatZoneInfo?.isDungeon) {
+        const hasDungeonSpawns = Boolean(
+          dungeonInfo?.randomSpawnInfoMap || dungeonInfo?.fixedSpawnsMap
+        );
+        if (!hasDungeonSpawns && !warnedMissingDungeonData) {
+          warnedMissingDungeonData = true;
+          console.warn(
+            "[MWITools] Official dungeon spawn data is unavailable; dungeon task inference is disabled."
+          );
+        }
+        monsters = hasDungeonSpawns ? fightMonsterHrids([
+          dungeonInfo.randomSpawnInfoMap,
+          dungeonInfo.fixedSpawnsMap
+        ]) : /* @__PURE__ */ new Set();
+      } else {
+        monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+      }
       for (const monsterHrid of monsters) {
         if (!combatByMonster.has(monsterHrid)) {
           combatByMonster.set(monsterHrid, detail);
@@ -26650,7 +24822,7 @@ ${locks}` : ""}`;
     if (value.startsWith("/monsters/")) return value;
     if (!value.startsWith("/actions/combat/")) return "";
     const candidate = value.replace("/actions/combat/", "/monsters/");
-    return Object.hasOwn(runtime.data.ZHOthersDic ?? {}, candidate) ? candidate : "";
+    return runtime.state.initData_monsterDetailMap?.[candidate] ? candidate : "";
   }
   function fightMonsterHrids(value, result = /* @__PURE__ */ new Set(), visited = /* @__PURE__ */ new Set()) {
     if (!value || visited.has(value)) return result;
@@ -26704,40 +24876,62 @@ ${locks}` : ""}`;
     if (outputItemHrid) return { kind: "items", hrid: outputItemHrid };
     return actionHrid ? { kind: "actions", hrid: actionHrid } : null;
   }
-  function decorateCard(card, task, artwork = null) {
+  function taskArtworksForCard(card, task, context = {}) {
+    const primary = taskArtworkForCard(card, task, context);
+    if (!primary) return [];
+    if (primary.kind !== "combat_monsters") return [primary];
+    const dungeonLocations = context.dungeonLocations ?? dungeonLocationsForCard(card, task, context);
+    const seen = /* @__PURE__ */ new Set();
+    const dungeons = dungeonLocations.filter(({ isDungeon, actionHrid }) => isDungeon && actionHrid).filter(({ actionHrid }) => {
+      if (seen.has(actionHrid)) return false;
+      seen.add(actionHrid);
+      return true;
+    }).map(({ actionHrid }) => ({ kind: "actions", hrid: actionHrid }));
+    return [primary, ...dungeons];
+  }
+  function artworkHrefs(artworks) {
+    return artworks.map(({ kind, hrid }) => getGameSpriteHref(kind, hrid)).filter(Boolean);
+  }
+  function decorateCard(card, task, artworks = null) {
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
       card.querySelector(":scope > .mwi-task-bg")?.remove();
+      delete card.dataset.mwitoolsTaskIconSignature;
       return;
     }
-    const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+    const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
+    const signature = hrefs.join("\n");
     const existing = card.querySelector(":scope > .mwi-task-bg");
-    if (!href) {
+    if (!hrefs.length) {
       existing?.remove();
+      card.dataset.mwitoolsTaskIconSignature = "";
       return;
     }
-    if (existing?.dataset.spriteHref === href) return;
+    card.dataset.mwitoolsTaskIconSignature = signature;
+    if (existing?.dataset.spriteHref === signature) return;
     existing?.remove();
     const background = document.createElement("div");
     background.className = "mwi-task-bg";
-    background.dataset.spriteHref = href;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "100%");
-    svg.setAttribute("height", "100%");
-    svg.setAttribute("aria-hidden", "true");
-    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute("href", href);
-    svg.appendChild(use);
-    background.appendChild(svg);
+    background.dataset.spriteHref = signature;
+    for (const href of hrefs) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "100%");
+      svg.setAttribute("aria-hidden", "true");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", href);
+      svg.appendChild(use);
+      background.appendChild(svg);
+    }
     card.style.position = "relative";
     card.appendChild(background);
   }
-  function taskIconMatches(card, task) {
+  function taskIconMatches(card) {
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!runtime.settings.get("taskIcons")) return !existing;
-    const artwork = taskArtworkForCard(card, task);
-    const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
-    return href ? existing?.dataset.spriteHref === href : existing === null;
+    if (!("mwitoolsTaskIconSignature" in card.dataset)) return false;
+    const signature = card.dataset.mwitoolsTaskIconSignature;
+    return signature ? existing?.dataset.spriteHref === signature : existing === null;
   }
   function visibleTaskTitle(card) {
     const name = card.querySelector('div[class*="RandomTask_name"]');
@@ -26778,7 +24972,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t10("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t11("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -26839,10 +25033,12 @@ ${locks}` : ""}`;
   } = {}) {
     const categories = runtime.state.initData_actionCategoryDetailMap ?? {};
     if (detail?.combatZoneInfo?.isDungeon) {
-      const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
+      const name = getLocalizedEntityName("action", detail.hrid, {
+        fallback: detail.name
+      });
       return {
         key: `dungeon-${detail.hrid}`,
-        label: name ? `${t10("地牢", "Dungeon")} · ${name}` : t10("地牢", "Dungeon"),
+        label: name ? `${t11("地牢", "Dungeon")} · ${name}` : t11("地牢", "Dungeon"),
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -26851,11 +25047,13 @@ ${locks}` : ""}`;
       const zoneAction = getTaskActionIndex().zoneActionByCategory.get(
         detail.category
       );
-      const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[zoneAction?.hrid] : zoneAction?.name) ?? category?.name;
+      const name = getLocalizedEntityName("action", zoneAction?.hrid, {
+        fallback: zoneAction?.name ?? category?.name
+      });
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t10("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t11("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -26863,23 +25061,25 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t10("地图", "Zone")} ${mapIndex}`,
+        label: `${t11("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "non-dungeon-monsters",
-      label: t10("非地牢怪物", "Non-dungeon monsters"),
+      label: t11("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
   function dungeonLocation(detail) {
-    const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail?.hrid] : detail?.name) ?? detail?.name;
+    const name = getLocalizedEntityName("action", detail?.hrid, {
+      fallback: detail?.name
+    });
     return {
       key: `dungeon-${detail?.hrid}`,
       actionHrid: detail?.hrid ?? "",
       isDungeon: true,
-      label: name || t10("地牢", "Dungeon"),
+      label: name || t11("地牢", "Dungeon"),
       order: Number(detail?.sortIndex ?? 9999)
     };
   }
@@ -26888,7 +25088,7 @@ ${locks}` : ""}`;
       key: "non-dungeon-monsters",
       actionHrid: "",
       isDungeon: false,
-      label: t10("非地牢怪物", "Non-dungeon monsters"),
+      label: t11("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
@@ -26906,21 +25106,7 @@ ${locks}` : ""}`;
         (detail) => detail.hrid
       )
     );
-    for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
-      if (dungeon.monsters.has(monsterHrid)) {
-        matchingDungeonHrids.add(dungeon.actionHrid);
-      }
-    }
-    const matches = [...matchingDungeonHrids].map((dungeonActionHrid) => {
-      const known = KNOWN_DUNGEON_ROSTERS.find(
-        (dungeon) => dungeon.actionHrid === dungeonActionHrid
-      );
-      return actionDetails[dungeonActionHrid] ?? {
-        hrid: dungeonActionHrid,
-        sortIndex: known?.sortIndex,
-        combatZoneInfo: { isDungeon: true }
-      };
-    }).map(dungeonLocation).sort(
+    const matches = [...matchingDungeonHrids].map((dungeonActionHrid) => actionDetails[dungeonActionHrid]).filter(Boolean).map(dungeonLocation).sort(
       (left, right) => left.order - right.order || left.label.localeCompare(right.label)
     );
     return matches.length ? matches : [nonDungeonLocation()];
@@ -27073,6 +25259,8 @@ ${locks}` : ""}`;
       delete card.dataset.mwitoolsFiltered;
       delete card.dataset.mwitoolsLocation;
       delete card.dataset.mwitoolsDungeonSource;
+      delete card.dataset.mwitoolsMapIndex;
+      delete card.dataset.mwitoolsTaskIconSignature;
     });
   }
   function taskCardSnapshot(card, task) {
@@ -27111,16 +25299,21 @@ ${locks}` : ""}`;
         detail: combatDetail,
         title: snapshot.title
       }) : null;
+      const mapIndex = profession.key === "combat" ? Number(
+        runtime.state.initData_actionCategoryDetailMap?.[combatDetail?.category]?.sortIndex
+      ) || 0 : 0;
       const dungeonLocations = profession.key === "combat" ? dungeonLocationsForCard(card, task, {
         title: snapshot.title,
         monsterHrid
       }) : [];
       const monsterGroupKey = profession.key === "combat" ? monsterHrid || snapshot.actionHrid || `combat-slot-${slot}` : "";
-      const artwork = runtime.settings.get("taskIcons") ? taskArtworkForCard(card, task, {
+      const artworks = runtime.settings.get("taskIcons") ? taskArtworksForCard(card, task, {
         title: snapshot.title,
         profession,
-        monsterHrid
-      }) : null;
+        monsterHrid,
+        dungeonLocations
+      }) : [];
+      const artwork = artworks[0] ?? null;
       pageClassifications.set(slot, {
         completed,
         state,
@@ -27128,7 +25321,9 @@ ${locks}` : ""}`;
         location: location2,
         dungeonLocations,
         monsterGroupKey,
-        artwork
+        artwork,
+        artworks,
+        mapIndex
       });
       const taskState = state;
       if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -27141,6 +25336,10 @@ ${locks}` : ""}`;
       if (card.dataset.mwitoolsDungeonHrids !== dungeonHrids) {
         card.dataset.mwitoolsDungeonHrids = dungeonHrids;
       }
+      const mapIndexValue = mapIndex > 0 ? String(mapIndex) : "";
+      if (card.dataset.mwitoolsMapIndex !== mapIndexValue) {
+        card.dataset.mwitoolsMapIndex = mapIndexValue;
+      }
       return {
         card,
         task,
@@ -27151,6 +25350,8 @@ ${locks}` : ""}`;
         dungeonLocations,
         monsterGroupKey,
         artwork,
+        artworks,
+        mapIndex,
         info: actionSortInfo(task, slot),
         depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
         chain: chains?.get(taskActionHrid(task))?.group ?? index
@@ -27237,7 +25438,7 @@ ${locks}` : ""}`;
   function updateTaskFilterIcon(button) {
     const icon = button.querySelector(".mwi-task-filter-icon");
     if (!icon) return;
-    const href = button.dataset.iconKind ? taskSpriteHref(button.dataset.iconKind, button.dataset.iconHrid) : "";
+    const href = button.dataset.iconKind ? getGameSpriteHref(button.dataset.iconKind, button.dataset.iconHrid) : "";
     const signature = href || `fallback:${button.dataset.iconFallback}`;
     if (icon.dataset.signature === signature) return;
     icon.dataset.signature = signature;
@@ -27299,7 +25500,7 @@ ${locks}` : ""}`;
       toolbar.setAttribute("role", "toolbar");
       toolbar.setAttribute(
         "aria-label",
-        t10("任务排序与筛选", "Task sorting and filters")
+        t11("任务排序与筛选", "Task sorting and filters")
       );
       if (statisticsEnabled) {
         const controls2 = document.createElement("div");
@@ -27308,7 +25509,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "reset",
             value: "reset",
-            label: t10("重置筛选", "Reset filters"),
+            label: t11("重置筛选", "Reset filters"),
             fallback: "↺",
             showLabel: true,
             showCount: false,
@@ -27352,7 +25553,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "combat",
             value: "combat",
-            label: t10("战斗", "Combat"),
+            label: t11("战斗", "Combat"),
             iconKind: "misc",
             iconHrid: "combat",
             fallback: "⚔",
@@ -27365,12 +25566,12 @@ ${locks}` : ""}`;
         );
         const dungeons = document.createElement("div");
         dungeons.className = "mwi-task-dungeon-filters";
-        for (const dungeon of DUNGEON_FILTERS) {
+        for (const dungeon of dungeonFilters()) {
           dungeons.append(
             createTaskFilterButton({
               kind: "dungeon",
               value: dungeon.actionHrid,
-              label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+              label: dungeon.label,
               iconKind: "actions",
               iconHrid: dungeon.actionHrid,
               fallback: "◆",
@@ -27393,14 +25594,14 @@ ${locks}` : ""}`;
       const sortButton = document.createElement("button");
       sortButton.type = "button";
       sortButton.className = "mwi-task-sort-button";
-      sortButton.title = t10("重新排序任务", "Sort tasks again");
+      sortButton.title = t11("重新排序任务", "Sort tasks again");
       sortButton.setAttribute("aria-label", sortButton.title);
       const sortIcon = document.createElement("span");
       sortIcon.className = "mwi-task-filter-icon";
       sortIcon.textContent = "↕";
       const sortLabel = document.createElement("span");
       sortLabel.className = "mwi-task-filter-label";
-      sortLabel.textContent = t10("任务排序", "Sort tasks");
+      sortLabel.textContent = t11("任务排序", "Sort tasks");
       sortButton.append(sortIcon, sortLabel);
       sortButton.addEventListener("click", () => sortTasks());
       const controls = toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
@@ -27409,8 +25610,9 @@ ${locks}` : ""}`;
     }
     if (!statisticsEnabled) return;
     const professionCounts = new Map(LIFE_PROFESSIONS.map(({ key }) => [key, 0]));
+    const currentDungeonFilters = dungeonFilters();
     const dungeonCounts = new Map(
-      DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0])
+      currentDungeonFilters.map(({ actionHrid }) => [actionHrid, 0])
     );
     let combatCount = 0;
     for (const row of rows2) {
@@ -27430,7 +25632,7 @@ ${locks}` : ""}`;
     }
     const resetButton = toolbar.querySelector('[data-filter-kind="reset"]');
     resetButton.disabled = !hasActiveTaskFilters();
-    resetButton.title = t10("清除全部任务筛选", "Clear all task filters");
+    resetButton.title = t11("清除全部任务筛选", "Clear all task filters");
     resetButton.setAttribute("aria-label", resetButton.title);
     for (const profession of LIFE_PROFESSIONS) {
       const button = toolbar.querySelector(
@@ -27443,16 +25645,16 @@ ${locks}` : ""}`;
       });
     }
     updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
-      label: t10("战斗", "Combat"),
+      label: t11("战斗", "Combat"),
       count: combatCount,
       pressed: combatFilterEnabled
     });
-    for (const dungeon of DUNGEON_FILTERS) {
+    for (const dungeon of currentDungeonFilters) {
       const button = toolbar.querySelector(
         `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`
       );
       updateTaskFilterButton(button, {
-        label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+        label: dungeon.label,
         count: dungeonCounts.get(dungeon.actionHrid),
         pressed: activeDungeonFilters.has(dungeon.actionHrid)
       });
@@ -27585,7 +25787,7 @@ ${locks}` : ""}`;
     const toast = document.createElement("div");
     toast.className = "mwi-task-merge-toast";
     toast.setAttribute("role", "status");
-    toast.textContent = t10(
+    toast.textContent = t11(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -27723,7 +25925,7 @@ ${locks}` : ""}`;
     const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
     const actionDetails = runtime.state.initData_actionDetailMap;
     const actionCategories = runtime.state.initData_actionCategoryDetailMap;
-    if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature && cardEntries.every(({ card, task }) => taskIconMatches(card, task))) {
+    if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature && cardEntries.every(({ card }) => taskIconMatches(card))) {
       applyPendingMerge();
       return true;
     }
@@ -27739,9 +25941,8 @@ ${locks}` : ""}`;
         delete card.dataset.mwitoolsLocation;
       }
     });
-    if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
     const rows2 = orderedRows(cards, cardTasks, snapshots);
-    rows2.forEach((row) => decorateCard(row.card, row.task, row.artwork));
+    rows2.forEach((row) => decorateCard(row.card, row.task, row.artworks));
     wireMergeButtons(cards);
     wireResetButtons(cards);
     renderFlatTaskList(rows2, {
@@ -27795,7 +25996,6 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope }) {
       addStyles9();
-      let active = true;
       let settleRetries = 0;
       let renderScheduler = null;
       const render = () => {
@@ -27811,19 +26011,23 @@ ${locks}` : ""}`;
       };
       renderScheduler = createFrameScheduler(render);
       const scheduleRender = () => renderScheduler.schedule();
+      const spriteManifest = loadGameSpriteManifest();
       render();
-      void loadTaskSpriteManifest().then(() => {
-        if (!active) return;
+      void spriteManifest.then(() => {
         lastTaskRenderSignature = "";
         scheduleRender();
       });
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskMutations(records)) scheduleRender();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskMutations(records)) scheduleRender();
+        }
+      );
       scope.add(
         runtime.onMessage("quests_updated", () => {
           nativeResetChoiceUntil = 0;
@@ -27831,7 +26035,6 @@ ${locks}` : ""}`;
         })
       );
       scope.add(() => {
-        active = false;
         renderScheduler.cancel();
         cleanupTasks();
       });
@@ -27875,7 +26078,7 @@ ${locks}` : ""}`;
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles10() {
@@ -27975,8 +26178,8 @@ ${locks}` : ""}`;
     button.type = "button";
     button.className = CONTROL_CLASS2;
     button.dataset.signature = signature;
-    button.textContent = t11("🚂 规划火车", "🚂 Plan train");
-    button.title = t11(
+    button.textContent = t12("🚂 规划火车", "🚂 Plan train");
+    button.title = t12(
       "合并同一升级链全部未完成任务并按最新库存重新规划",
       "Combine all unfinished tasks in this upgrade chain and recalculate from current inventory"
     );
@@ -28034,8 +26237,8 @@ ${locks}` : ""}`;
         insertBeforeTaskNavigation(
           card,
           plannerLabel(
-            t11("已被规划", "Included in plan"),
-            t11(
+            t12("已被规划", "Included in plan"),
+            t12(
               "已由同一升级链的最高级任务统一规划",
               "Included by the highest-level task in this upgrade chain"
             ),
@@ -28104,13 +26307,17 @@ ${locks}` : ""}`;
       renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
       render();
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskTrainMutations(records)) schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskTrainMutations(records)) schedule();
+        }
+      );
       scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(() => {
         renderScheduler.cancel();
@@ -28299,13 +26506,17 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskNewMutations(records)) schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskNewMutations(records)) schedule();
+        }
+      );
       render();
       scope.add(() => {
         renderScheduler.cancel();
@@ -28598,8 +26809,15 @@ ${locks}` : ""}`;
         },
         true
       );
-      const observer = new MutationObserver(observeAction);
-      scope.observer(observer, document.body, { childList: true, subtree: true });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        observeAction
+      );
       scope.add(clearPending);
     }
   });
@@ -28608,7 +26826,7 @@ ${locks}` : ""}`;
   var STYLE_ID14 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
-  function t12(zh, en) {
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function finite(value) {
@@ -28805,7 +27023,7 @@ ${locks}` : ""}`;
     button.dataset.quantity = "0";
     if (!cartEnabled) return;
     if (!requirement || requirement.status === "invalid") {
-      button.textContent = t12("加入购物车", "Add to cart");
+      button.textContent = t13("加入购物车", "Add to cart");
       return;
     }
     const totalBooks = Math.max(0, Math.ceil(requirement.totalBooks || 0));
@@ -28819,12 +27037,12 @@ ${locks}` : ""}`;
     );
     const shortage = Math.max(0, Math.ceil(totalBooks - owned - listed));
     if (shortage <= 0) {
-      button.textContent = t12("已备齐", "Covered");
+      button.textContent = t13("已备齐", "Covered");
       return;
     }
     button.dataset.quantity = String(shortage);
     button.disabled = false;
-    button.textContent = t12(
+    button.textContent = t13(
       `加入购物车（${shortage}）`,
       `Add to cart (${shortage})`
     );
@@ -28834,12 +27052,12 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-title",
-      t12("技能书计算器", "Ability book calculator")
+      t13("技能书计算器", "Ability book calculator")
     );
     const data = calculatorData(itemHrid);
     const input = panel.querySelector("input");
     const targetLabel = panel.querySelector(".mwi-book-target span");
-    targetLabel.textContent = t12("目标等级", "Target level");
+    targetLabel.textContent = t13("目标等级", "Target level");
     input.setAttribute("aria-label", targetLabel.textContent);
     if (!data.ready || !data.experienceGain || !data.maximumLevel) {
       panel.dataset.status = "waiting";
@@ -28847,7 +27065,7 @@ ${locks}` : ""}`;
       setPanelText(
         panel,
         ".mwi-book-state",
-        t12("等待角色与技能书数据", "Waiting for character and ability-book data")
+        t13("等待角色与技能书数据", "Waiting for character and ability-book data")
       );
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
@@ -28870,15 +27088,15 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-state",
-      data.isLearned ? t12(
+      data.isLearned ? t13(
         `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
         `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`
-      ) : t12("当前：未学习", "Current: not learned")
+      ) : t13("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
-      t12(
+      t13(
         `每本增加 ${exact(data.experienceGain, 0)} 经验`,
         `${exact(data.experienceGain, 0)} XP per book`
       )
@@ -28894,19 +27112,19 @@ ${locks}` : ""}`;
     panel.dataset.status = requirement.status;
     let resultText;
     if (requirement.status === "invalid") {
-      resultText = t12(
+      resultText = t13(
         `目标等级必须为 1–${data.maximumLevel} 的整数`,
         `Target level must be an integer from 1 to ${data.maximumLevel}`
       );
     } else if (requirement.status === "reached") {
-      resultText = t12("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+      resultText = t13("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
     } else if (requirement.unlockBooks) {
-      resultText = t12(
+      resultText = t13(
         `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
         `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
       );
     } else {
-      resultText = t12(
+      resultText = t13(
         `升级还需 ${requirement.totalBooks} 本`,
         `${requirement.totalBooks} books needed to level`
       );
@@ -28916,10 +27134,10 @@ ${locks}` : ""}`;
     const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
     let costText = "";
     if (requirement.status !== "invalid") {
-      costText = books === 0 ? t12("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t12(
+      costText = books === 0 ? t13("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t13(
         `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低出售价 ${runtime.api.numberFormatter(ask)}/本）`,
         `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
-      ) : t12(
+      ) : t13(
         "参考购买成本：暂无出售价",
         "Reference purchase cost: no ask price"
       );
@@ -29067,12 +27285,12 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
-      id: "26.4.10",
-      version: "26.4.10",
+      id: "26.4.11",
+      version: "26.4.11",
       publishedAt: "2026-08-14",
       title: Object.freeze({
-        zh: "26.4.10 更新公告",
-        en: "Version 26.4.10 update"
+        zh: "26.4.11 重要更新公告",
+        en: "Important version 26.4.11 update"
       }),
       body: Object.freeze({
         zh: Object.freeze([
@@ -29086,8 +27304,19 @@ ${locks}` : ""}`;
           "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
           "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
           "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。",
+          "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
+          "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
+          "DPS 面板新增使用“稳定射击”图标的实时命中率排行，可查看每位玩家的可靠直伤命中数与出手数；悬停玩家行可查看对各怪物的命中率。统计会保存到新战斗历史，并排除辅助、持续伤害、反伤与无法归属的同帧结算，避免显示误导数字。",
+          "修复 DPS 标题栏在游戏图集尚未加载时永久缺失大部分图标的问题；伤害、恢复、承伤、命中率、历史与设置的官方图标会在资源就绪后自动补回，并兼容游戏调整后的图集路径。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
-          "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。"
+          "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
+          "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
+          "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
+          "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
+          "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
+          "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
+          "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。",
+          "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -29100,8 +27329,19 @@ ${locks}` : ""}`;
           "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
           "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
           "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place.",
+          "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
+          "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
+          "Added a live accuracy ranking to the DPS panel with the Steady Shot icon, showing each player's reliably resolved direct hits and attempts; hovering a player shows accuracy against each monster. New combat history retains these statistics, while support actions, damage-over-time ticks, reflected damage, and ambiguous simultaneous resolutions are excluded to avoid misleading results.",
+          "Fixed most DPS title-bar icons remaining permanently missing when the game sprites had not loaded yet. The official damage, healing, damage-taken, accuracy, history, and settings icons now appear automatically once resources are ready and remain compatible with changed sprite paths.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
-          "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added."
+          "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
+          "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
+          "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
+          "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
+          "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
+          "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
+          "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons.",
+          "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance."
         ])
       })
     }),
@@ -29370,7 +27610,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t13(zh, en) {
+  function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -29427,10 +27667,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t13(...labels);
+    if (labels) return t14(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t13(
+      return t14(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -29494,7 +27734,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t13("意见反馈服务请求超时", "Feedback service request timed out")
+            t14("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -29511,7 +27751,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t13(
+            localizeErrorDetail(payload?.detail) || t14(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -29529,7 +27769,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t14("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -29543,9 +27783,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t13("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t14("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t14("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -29558,21 +27798,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t13("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t14("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t13("图片链接过长", "The image link is too long"));
+        throw new Error(t14("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t13("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t14("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t13("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t14("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -29710,7 +27950,7 @@ ${locks}` : ""}`;
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID15 = "mwitools-feedback-style";
-  function t14(zh, en) {
+  function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -29719,7 +27959,7 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t14(...labels[status]) : status;
+    return labels[status] ? t15(...labels[status]) : status;
   }
   function addStyles13() {
     if (document.getElementById(STYLE_ID15)) return;
@@ -29777,19 +28017,19 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t14("MWITools 意见中心", "MWITools Feedback Center")}">
-        <header class="mwi-feedback-head"><h2>${t14("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t14("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t14("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t14("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t14("我的反馈", "My feedback")}</button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t15("MWITools 意见中心", "MWITools Feedback Center")}">
+        <header class="mwi-feedback-head"><h2>${t15("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t15("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t15("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t15("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t15("我的反馈", "My feedback")}</button></nav>
         <div class="mwi-feedback-body">
           <section class="mwi-feedback-view" data-view="announcements" hidden><div class="mwi-announcement-list"></div></section>
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t14("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t15("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t14("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t14("功能建议", "Feature request")}</option><option value="other">${t14("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t14("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t14("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t14("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t14("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t14("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t14("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t14("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t14("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t14("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t15("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t15("功能建议", "Feature request")}</option><option value="other">${t15("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t15("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t15("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t15("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t15("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t15("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t15("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t15("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t15("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t15("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -29862,10 +28102,10 @@ ${locks}` : ""}`;
       if (dot) dot.hidden = !hasUnread;
       button.setAttribute(
         "aria-label",
-        hasUnread ? t14(
+        hasUnread ? t15(
           "MWITools 意见中心，有新内容",
           "MWITools Feedback Center, new activity"
-        ) : t14("MWITools 意见中心", "MWITools Feedback Center")
+        ) : t15("MWITools 意见中心", "MWITools Feedback Center")
       );
     }
     async open() {
@@ -29930,12 +28170,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t14("正在提交…", "Submitting…");
+      error.textContent = t15("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t14("请填写标题和详细说明。", "Enter a title and details.")
+            t15("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -29955,7 +28195,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t14("已保存反馈。", "Feedback saved.");
+        error.textContent = t15("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -29968,7 +28208,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t15(
         "提交",
         "Submit"
       );
@@ -30045,7 +28285,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t14("目前还没有公告。", "There are no announcements yet.")
+            t15("目前还没有公告。", "There are no announcements yet.")
           )
         );
         return;
@@ -30086,13 +28326,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t14(
+      node.textContent = errorMessage ? t15(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t14(
+      ) : this.quota ? t15(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t14("额度暂时不可用", "Quota unavailable");
+      ) : t15("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -30107,7 +28347,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t14("还没有提交过反馈。", "No feedback yet.")
+            t15("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -30141,7 +28381,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t14("返回列表", "Back")}`
+          `← ${t15("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -30155,29 +28395,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t14("详细说明", "Details"), item.detail)
+          this.textSection(t15("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t14("复现步骤", "Steps to reproduce"),
+              t15("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t14("预期结果", "Expected result"),
+              t15("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t14("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t15("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t14("图片", "Image")} ${index + 1}：${url}`
+              `${t15("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -30188,7 +28428,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t14("留言", "Messages")));
+        messages.append(makeElement("h4", "", t15("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -30196,7 +28436,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t14("管理员", "Admin") : t14("我", "Me")
+              message.actor === "admin" ? t15("管理员", "Admin") : t15("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -30208,7 +28448,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t14("暂无留言", "No messages")
+              t15("暂无留言", "No messages")
             )
           );
         }
@@ -30216,7 +28456,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t14("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t15("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -30225,9 +28465,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t14("补充留言…", "Add a message…");
+          input.placeholder = t15("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t14("发送", "Send"));
+          const send = makeElement("button", "", t15("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -30248,7 +28488,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t14(
+              t15(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -30285,7 +28525,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t15(
         "保存修改",
         "Save changes"
       );
@@ -30336,25 +28576,28 @@ ${locks}` : ""}`;
       const ensure = () => panel.ensureButton();
       ensure();
       const ensureScheduler = createFrameScheduler(ensure);
-      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-      const observer = new MutationObserverRef((records) => {
-        const relevant = records.some(
-          (record) => [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && !node.matches?.(
-              "#mwitools-feedback-root,#mwitools-feedback-button"
-            ) && (node.matches?.(
-              '[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ) || node.querySelector?.(
-              '[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ))
-          )
-        );
-        if (relevant) ensureScheduler.schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "header-mount",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          const relevant = records.some(
+            (record) => [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node?.nodeType === 1 && !node.matches?.(
+                "#mwitools-feedback-root,#mwitools-feedback-button"
+              ) && (node.matches?.(
+                '[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ) || node.querySelector?.(
+                '[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ))
+            )
+          );
+          if (relevant) ensureScheduler.schedule();
+        }
+      );
       schedule(1500);
       scope.add(() => {
         ensureScheduler.cancel();
@@ -30385,29 +28628,35 @@ ${locks}` : ""}`;
   var OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
   function observeGuildSurface(scope, render) {
     const scheduler = createFrameScheduler(render);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        const changed = [...record.addedNodes, ...record.removedNodes].filter(
-          (node) => node?.nodeType === 1
-        );
-        if (target?.closest?.(OWNED_GUILD_SELECTOR) || changed.length && changed.every(
-          (node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)
-        )) {
-          return false;
-        }
-        if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
-        return changed.some(
-          (node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR)
-        );
-      });
-      if (relevant) scheduler.schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "guild-surface",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const changed = [...record.addedNodes, ...record.removedNodes].filter(
+            (node) => node?.nodeType === 1
+          );
+          if (target?.closest?.(OWNED_GUILD_SELECTOR) || changed.length && changed.every(
+            (node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)
+          )) {
+            return false;
+          }
+          if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
+          return changed.some(
+            (node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR)
+          );
+        });
+        if (relevant) scheduler.schedule();
+      }
+    );
     scope.add(() => scheduler.cancel());
   }
-  function t15(zh, en) {
+  function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -30586,7 +28835,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t15("待再次采样", "Awaiting another sample") : t15("样本不足", "Not enough data");
+      return waiting ? t16("待再次采样", "Awaiting another sample") : t16("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -30652,7 +28901,7 @@ ${locks}` : ""}`;
     svg.classList.add("mwi-guild-trend");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    const label = t15(
+    const label = t16(
       "公会经验获取速度（6 小时滚动平均，XP/小时）",
       "Guild XP gain rate (6-hour rolling average, XP/hour)"
     );
@@ -30666,7 +28915,7 @@ ${locks}` : ""}`;
       const empty = svgElement("text", "mwi-guild-trend-empty");
       empty.setAttribute("x", String(width / 2));
       empty.setAttribute("y", String(height / 2));
-      empty.textContent = t15("样本不足", "Not enough data");
+      empty.textContent = t16("样本不足", "Not enough data");
       svg.append(empty);
       return svg;
     }
@@ -30782,10 +29031,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t15("公会经验进度", "Guild XP progress");
+    title.textContent = t16("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t15("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t15("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t16("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t16("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -30799,14 +29048,14 @@ ${locks}` : ""}`;
     const etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
     grid.append(
       metric2(
-        t15("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t15("样本不足", "Not enough data")
+        t16("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t16("样本不足", "Not enough data")
       ),
-      metric2(t15("24 小时平均", "24-hour average"), rateText(rates?.day))
+      metric2(t16("24 小时平均", "24-hour average"), rateText(rates?.day))
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t15(
+    trendLabel.textContent = t16(
       "最近 7 天经验获取速度（6 小时滚动平均）",
       "XP gain rate over the last 7 days (6-hour rolling average)"
     );
@@ -30818,7 +29067,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t15("当前闲置", "Idle now")} (${idle.length}) · ${t15(
+      label.textContent = `${t16("当前闲置", "Idle now")} (${idle.length}) · ${t16(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -30841,9 +29090,9 @@ ${locks}` : ""}`;
     if (!header.querySelector(".mwi-guild-recent-head")) {
       const sortable = kind === "member";
       const columns = [
-        ["mwi-guild-recent-head", t15("近 6 小时 XP/h", "6h XP/h")],
-        ["mwi-guild-day-head", t15("24 小时 XP/h", "24h XP/h")],
-        ...kind === "member" ? [["mwi-guild-week-head", t15("本周平均 XP/h", "This-week avg XP/h")]] : []
+        ["mwi-guild-recent-head", t16("近 6 小时 XP/h", "6h XP/h")],
+        ["mwi-guild-day-head", t16("24 小时 XP/h", "24h XP/h")],
+        ...kind === "member" ? [["mwi-guild-week-head", t16("本周平均 XP/h", "This-week avg XP/h")]] : []
       ];
       for (const [rateIndex, [className, label]] of columns.entries()) {
         const cell = document.createElement("th");
@@ -30861,7 +29110,7 @@ ${locks}` : ""}`;
         cell.append(sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t15("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t16("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -30980,10 +29229,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t15("近 6 小时 XP/h", "6h XP/h")
+          textContent: t16("近 6 小时 XP/h", "6h XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t15("24 小时 XP/h", "24h XP/h")
+          textContent: t16("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -31115,7 +29364,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t16(zh, en) {
+  function t17(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var lastBattleSummaryMessage = null;
@@ -31427,7 +29676,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t16("全部", "All")}</option>
+            <option value="1">${t17("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31448,7 +29697,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t16("全部", "All")}</option>
+            <option value="1000">${t17("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -31469,33 +29718,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t16("全部", "All")}</option>
-                <option value="attack">${t16("攻击", "Attack")}</option>
-                <option value="melee">${t16("近战", "Melee")}</option>
-                <option value="defense">${t16("防御", "Defense")}</option>
-                <option value="ranged">${t16("远程", "Ranged")}</option>
-                <option value="magic">${t16("魔法", "Magic")}</option>
-                <option value="others">${t16("其他", "Others")}</option>
+                <option value="all">${t17("全部", "All")}</option>
+                <option value="attack">${t17("攻击", "Attack")}</option>
+                <option value="melee">${t17("近战", "Melee")}</option>
+                <option value="defense">${t17("防御", "Defense")}</option>
+                <option value="ranged">${t17("远程", "Ranged")}</option>
+                <option value="magic">${t17("魔法", "Magic")}</option>
+                <option value="others">${t17("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t16("全部", "All")}</option>
-                <option value="main_hand">${t16("主手", "Main Hand")}</option>
-                <option value="off_hand">${t16("副手", "Off Hand")}</option>
-                <option value="two_hand">${t16("双手", "Two Hand")}</option>
-                <option value="head">${t16("头部", "Head")}</option>
-                <option value="body">${t16("身体", "Body")}</option>
-                <option value="hands">${t16("手部", "Hands")}</option>
-                <option value="legs">${t16("腿部", "Legs")}</option>
-                <option value="feet">${t16("脚部", "Feet")}</option>
-                <option value="neck">${t16("项链", "Neck")}</option>
-                <option value="earrings">${t16("耳饰", "Earrings")}</option>
-                <option value="ring">${t16("戒指", "Ring")}</option>
-                <option value="pouch">${t16("袋子", "Pouch")}</option>
-                <option value="back">${t16("背部", "Back")}</option>
+                <option value="all">${t17("全部", "All")}</option>
+                <option value="main_hand">${t17("主手", "Main Hand")}</option>
+                <option value="off_hand">${t17("副手", "Off Hand")}</option>
+                <option value="two_hand">${t17("双手", "Two Hand")}</option>
+                <option value="head">${t17("头部", "Head")}</option>
+                <option value="body">${t17("身体", "Body")}</option>
+                <option value="hands">${t17("手部", "Hands")}</option>
+                <option value="legs">${t17("腿部", "Legs")}</option>
+                <option value="feet">${t17("脚部", "Feet")}</option>
+                <option value="neck">${t17("项链", "Neck")}</option>
+                <option value="earrings">${t17("耳饰", "Earrings")}</option>
+                <option value="ring">${t17("戒指", "Ring")}</option>
+                <option value="pouch">${t17("袋子", "Pouch")}</option>
+                <option value="back">${t17("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -31571,6 +29820,17 @@ ${locks}` : ""}`;
     );
     for (const div of taskNameDivs) {
       if (div.querySelector("span.script_taskMapIndex")) {
+        continue;
+      }
+      const card = div.closest('div[class*="RandomTask_randomTask"]');
+      if (card && "mwitoolsMapIndex" in card.dataset) {
+        const cachedIndex = Number(card.dataset.mwitoolsMapIndex);
+        if (cachedIndex > 0) {
+          div.insertAdjacentHTML(
+            "beforeend",
+            `<span class="script_taskMapIndex" style="text-align: right; color: ${runtime.config.SCRIPT_COLOR_MAIN};"> ${runtime.config.isZH ? "图" : "Z"}${cachedIndex}</span>`
+          );
+        }
         continue;
       }
       const taskStr = runtime.api.getOriTextFromElement(div);
@@ -32800,7 +31060,7 @@ ${locks}` : ""}`;
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
-  function t17(zh, en) {
+  function t18(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles15() {
@@ -32841,7 +31101,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number3)) return "—";
     const rounded = Math.round(number3);
     const digits = Math.abs(number3 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number3, digits)} ${t17("个", "pcs")}`;
+    return `${compactNumber(number3, digits)} ${t18("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -32864,11 +31124,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t17(
+      text: t18(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t17(
+      title: t18(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -32877,40 +31137,40 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t17("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t17("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t17(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t17("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t17(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t17("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t18("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t18("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t18(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t18("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t18(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t18("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t17("总成本", "Total cost"),
+        t18("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t17("底子成本", "Base cost"),
+        t18("底子成本", "Base cost"),
         complete ? compactNumber(plan.baseCost, 1) : "—",
         plan?.baseCost
       ),
       ...complete && Number(plan.refinementCost) > 0 ? [
         metric3(
-          t17("其中精炼", "Includes refining"),
+          t18("其中精炼", "Includes refining"),
           compactNumber(plan.refinementCost, 1),
           plan.refinementCost
         )
       ] : [],
       metric3(
-        t17("耗时", "Time"),
+        t18("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t17("开始保护", "Protect from"), normalStart),
+      metric3(t18("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t17("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t18("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -33423,7 +31683,7 @@ ${locks}` : ""}`;
   `;
     styleHost.appendChild(style);
   }
-  function localizedText(value) {
+  function localizedText2(value) {
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
   }
   function featureStatusForSetting(id) {
@@ -33507,11 +31767,11 @@ ${locks}` : ""}`;
     titleLine.className = "mwi-setting-title-line";
     const title = document.createElement("div");
     title.className = "mwi-setting-title";
-    title.textContent = localizedText(definition.title);
+    title.textContent = localizedText2(definition.title);
     titleLine.append(title);
     const summary = document.createElement("div");
     summary.className = "mwi-setting-summary";
-    summary.textContent = localizedText(definition.summary);
+    summary.textContent = localizedText2(definition.summary);
     copy.append(titleLine, summary);
     if (definition.details) {
       const details = document.createElement("details");
@@ -33519,17 +31779,17 @@ ${locks}` : ""}`;
       const heading = document.createElement("summary");
       heading.textContent = runtime.config.isZH ? "详细说明" : "Details";
       const detailsCopy = document.createElement("p");
-      detailsCopy.textContent = localizedText(definition.details);
+      detailsCopy.textContent = localizedText2(definition.details);
       details.append(heading, detailsCopy);
       copy.append(details);
     }
     const select = document.createElement("select");
     select.className = "mwi-setting-select mwi-setting-primary-select";
-    select.setAttribute("aria-label", localizedText(definition.title));
+    select.setAttribute("aria-label", localizedText2(definition.title));
     for (const [value, label] of definition.control.options) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = localizedText(label);
+      option.textContent = localizedText2(label);
       select.append(option);
     }
     const preferenceId = definition.control.preference;
@@ -33587,10 +31847,10 @@ ${locks}` : ""}`;
     copy.className = "mwi-setting-copy";
     const title = document.createElement("div");
     title.className = "mwi-setting-title";
-    title.textContent = localizedText(definition.title);
+    title.textContent = localizedText2(definition.title);
     const summary = document.createElement("div");
     summary.className = "mwi-setting-summary";
-    summary.textContent = localizedText(definition.summary);
+    summary.textContent = localizedText2(definition.summary);
     const status = document.createElement("span");
     status.className = "mwi-setting-status";
     const setStatus = () => {
@@ -33625,7 +31885,7 @@ ${locks}` : ""}`;
     if (definition.parent) {
       checkbox.disabled = !areSettingParentsEnabled(definition);
     }
-    checkbox.setAttribute("aria-label", localizedText(definition.title));
+    checkbox.setAttribute("aria-label", localizedText2(definition.title));
     const track = document.createElement("span");
     toggle.append(checkbox, track);
     if (definition.details) {
@@ -33635,7 +31895,7 @@ ${locks}` : ""}`;
       detailsSummary.textContent = runtime.config.isZH ? "详细说明" : "Details";
       details.append(detailsSummary);
       const detailsCopy = document.createElement("p");
-      detailsCopy.textContent = localizedText(definition.details);
+      detailsCopy.textContent = localizedText2(definition.details);
       details.append(detailsCopy);
       copy.append(details);
     }
@@ -33835,10 +32095,10 @@ ${locks}` : ""}`;
       head.className = "mwi-settings-group-head";
       const groupTitle = document.createElement("div");
       groupTitle.className = "mwi-settings-group-title";
-      groupTitle.textContent = localizedText(group.title);
+      groupTitle.textContent = localizedText2(group.title);
       const groupSummary = document.createElement("div");
       groupSummary.className = "mwi-settings-group-summary";
-      groupSummary.textContent = localizedText(group.summary);
+      groupSummary.textContent = localizedText2(group.summary);
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
@@ -34238,31 +32498,6 @@ ${locks}` : ""}`;
       title: "MWITools"
     });
   }
-  var waitForMarketOrders = () => {
-    const element = document.querySelector(
-      ".MarketplacePanel_marketListings__1GCyQ"
-    );
-    if (element) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听市场订单窗口。" : "[MWITools] Started observing market order dialogs."
-      );
-      new MutationObserver((mutationsList) => {
-        mutationsList.forEach((mutation) => {
-          mutation.addedNodes.forEach((node) => {
-            if (node.classList.contains("Modal_modalContainer__3B80m")) {
-              handleMarketNewOrder(node);
-            }
-          });
-        });
-      }).observe(element, {
-        characterData: false,
-        subtree: false,
-        childList: true
-      });
-    } else {
-      setTimeout(waitForMarketOrders, 500);
-    }
-  };
   function handleMarketNewOrder(node) {
     const title = runtime.api.getOriTextFromElement(
       node.querySelector(".MarketplacePanel_header__yahJo")
@@ -34337,7 +32572,6 @@ ${locks}` : ""}`;
     checkEquipment,
     hasItemHridInInv,
     notificate,
-    waitForMarketOrders,
     handleMarketNewOrder
   });
   runtime.features.register({
@@ -34353,32 +32587,35 @@ ${locks}` : ""}`;
         ensureSettingsLauncher();
       };
       const scheduler = createFrameScheduler(render);
-      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-      const observer = new MutationObserverRef((records) => {
-        const relevant = records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(
-            `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`
-          )) {
-            return false;
-          }
-          if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
-            return true;
-          }
-          return [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && (node.matches?.(
-              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ) || node.querySelector?.(
-              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ))
-          );
-        });
-        if (relevant) scheduler.schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "header-mount",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          const relevant = records.some((record) => {
+            const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+            if (target?.closest?.(
+              `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`
+            )) {
+              return false;
+            }
+            if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+              return true;
+            }
+            return [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node?.nodeType === 1 && (node.matches?.(
+                '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ) || node.querySelector?.(
+                '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ))
+            );
+          });
+          if (relevant) scheduler.schedule();
+        }
+      );
       scope.event(document, "click", (event) => {
         const popover = document.getElementById(SETTINGS_POPOVER_ID);
         if (!popover || popover.hidden || popover.contains(event.target) || event.target.closest?.(`#${SETTINGS_BUTTON_ID}`)) {
@@ -34856,7 +33093,7 @@ ${locks}` : ""}`;
   function isZH2() {
     return Boolean(runtime.config.isZH);
   }
-  function t18(value) {
+  function t19(value) {
     if (typeof value === "string") return value;
     return value?.[isZH2() ? "zh" : "en"] ?? "";
   }
@@ -35006,7 +33243,7 @@ ${locks}` : ""}`;
         }
       }
     };
-    return t18(copies[kind][id]);
+    return t19(copies[kind][id]);
   }
   function choiceStatus(field, value) {
     if (field === "refreshIntervalMs") {
@@ -35125,7 +33362,7 @@ ${locks}` : ""}`;
       if (this.stage.startsWith("custom:")) {
         const index = Number(this.stage.split(":")[1]);
         return {
-          title: t18(CUSTOM_GROUPS[index].title)
+          title: t19(CUSTOM_GROUPS[index].title)
         };
       }
       return {
@@ -35208,7 +33445,7 @@ ${locks}` : ""}`;
         button.dataset.value = id;
         const heading = document.createElement("div");
         heading.className = "mwi-performance-option-title";
-        heading.textContent = t18(TEXT[kind][id]);
+        heading.textContent = t19(TEXT[kind][id]);
         const copy = document.createElement("div");
         copy.className = "mwi-performance-option-copy";
         copy.textContent = optionCopy(kind, id);
@@ -35242,10 +33479,10 @@ ${locks}` : ""}`;
         const copy = document.createElement("div");
         const heading = document.createElement("div");
         heading.className = "mwi-performance-field-title";
-        heading.textContent = t18(FIELD_TEXT[field].title);
+        heading.textContent = t19(FIELD_TEXT[field].title);
         const summary = document.createElement("div");
         summary.className = "mwi-performance-field-copy";
-        summary.textContent = t18(FIELD_TEXT[field].summary);
+        summary.textContent = t19(FIELD_TEXT[field].summary);
         copy.append(heading, summary);
         if (field === "refreshIntervalMs") {
           const select = document.createElement("select");
@@ -35283,14 +33520,14 @@ ${locks}` : ""}`;
     renderReview() {
       const copy = document.createElement("p");
       copy.className = "mwi-performance-copy";
-      copy.textContent = `${t18(TEXT.usage[this.usage])} · ${t18(TEXT.tier[this.tier])}`;
+      copy.textContent = `${t19(TEXT.usage[this.usage])} · ${t19(TEXT.tier[this.tier])}`;
       const review = document.createElement("div");
       review.className = "mwi-performance-review";
       for (const field of Object.keys(FIELD_TEXT)) {
         const row = document.createElement("div");
         row.className = "mwi-performance-review-row";
         const label = document.createElement("span");
-        label.textContent = t18(FIELD_TEXT[field].title);
+        label.textContent = t19(FIELD_TEXT[field].title);
         const status = document.createElement("b");
         status.textContent = choiceStatus(field, this.choices[field]);
         row.append(label, status);
@@ -35427,12 +33664,12 @@ ${locks}` : ""}`;
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID18 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t19(value) {
+  function t20(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.10");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.11");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -35463,7 +33700,7 @@ ${locks}` : ""}`;
       return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
-            t19({
+            t20({
               zh: `更新清单请求失败（HTTP ${response.status}）`,
               en: `Update manifest request failed (HTTP ${response.status})`
             })
@@ -35478,7 +33715,7 @@ ${locks}` : ""}`;
           if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
             reject(
               new Error(
-                t19({
+                t20({
                   zh: `更新清单请求失败（HTTP ${response?.status}）`,
                   en: `Update manifest request failed (HTTP ${response?.status})`
                 })
@@ -35499,7 +33736,7 @@ ${locks}` : ""}`;
           onload: finish,
           onerror: () => reject(
             new Error(
-              t19({
+              t20({
                 zh: "更新清单请求失败。",
                 en: "Update manifest request failed."
               })
@@ -35507,7 +33744,7 @@ ${locks}` : ""}`;
           ),
           ontimeout: () => reject(
             new Error(
-              t19({
+              t20({
                 zh: "更新清单请求超时。",
                 en: "Update manifest request timed out."
               })
@@ -35523,7 +33760,7 @@ ${locks}` : ""}`;
   function validateManifest(manifest) {
     if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
-        t19({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
+        t20({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
     return manifest;
@@ -35540,7 +33777,7 @@ ${locks}` : ""}`;
         lastError = error;
       }
     }
-    throw lastError ?? new Error(t19({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+    throw lastError ?? new Error(t20({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
   }
   var manifestCheck = null;
   function getImportantUpdateManifest() {
@@ -35583,8 +33820,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t19(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    const message = t19(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t20(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    const message = t20(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
     banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
@@ -35648,57 +33885,16 @@ ${locks}` : ""}`;
   var VERSION = "1.0.51";
   var TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";
   var ACCENT = "#d4af37";
-  var GameAssets = (() => {
-    const fallback = {
-      abilities: "fdd1b4de",
-      skills: "3bb4d936",
-      items: "f58c9476",
-      misc: "6560b17a",
-      avatars: "75a98d25"
-    }, bases = /* @__PURE__ */ new Map();
-    let lastScanAt = Number.NEGATIVE_INFINITY;
-    const SCAN_INTERVAL_MS = 5e3;
-    function remember(raw) {
-      const value = String(raw || ""), match = value.match(
-        /(?:https?:\/\/[^/]+)?(\/static\/media\/(abilities|skills|items|misc|avatars)_sprite\.[^/#]+\.svg)/i
-      );
-      if (match) bases.set(match[2].toLowerCase(), match[1]);
-    }
-    function scan2(force = true) {
-      const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-      if (!force && (bases.size >= Object.keys(fallback).length || now - lastScanAt < SCAN_INTERVAL_MS)) {
-        return;
-      }
-      lastScanAt = now;
-      try {
-        if (typeof performance !== "undefined" && typeof performance.getEntriesByType === "function")
-          performance.getEntriesByType("resource").forEach((entry) => remember(entry.name));
-      } catch (ignore) {
-      }
-      try {
-        if (typeof document !== "undefined" && typeof document.querySelectorAll === "function")
-          document.querySelectorAll("svg use,img").forEach(
-            (node) => remember(
-              node.getAttribute && (node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src")) || node.currentSrc || node.src
-            )
-          );
-      } catch (ignore) {
-      }
-    }
-    function sprite(kind, id) {
-      scan2(false);
-      const base = bases.get(kind) || "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
-      return base + "#" + String(id || "").split("/").pop();
-    }
-    return {
-      ability: (id) => sprite("abilities", id),
-      skill: (id) => sprite("skills", id),
-      item: (id) => sprite("items", id),
-      misc: (id) => sprite("misc", id),
-      avatar: (id) => sprite("avatars", id),
-      scan: () => scan2(true)
-    };
-  })();
+  var GameAssets = Object.freeze({
+    ability: (id) => getGameSpriteHref("abilities", id),
+    skill: (id) => getGameSpriteHref("skills", id),
+    item: (id) => getGameSpriteHref("items", id),
+    monster: (id) => getGameSpriteHref("combat_monsters", id),
+    misc: (id) => getGameSpriteHref("misc", id),
+    avatar: (id) => getGameSpriteHref("avatars", id),
+    ready: () => loadGameSpriteManifest(),
+    scan: () => scanGameSpriteSources({ force: true })
+  });
   var SKILL_MODE_ICONS = {
     get attack() {
       return GameAssets.skill("attack");
@@ -35708,6 +33904,9 @@ ${locks}` : ""}`;
     },
     get stamina() {
       return GameAssets.skill("stamina");
+    },
+    get steadyShot() {
+      return GameAssets.ability("/abilities/steady_shot");
     }
   };
   var TOOLBAR_ICONS = {
@@ -35799,9 +33998,9 @@ ${locks}` : ""}`;
         state.showGraph = v;
         save();
       },
-      getMainMode: () => ["dps", "hps", "taken", "debug"].includes(state.mainMode) ? state.mainMode : "dps",
+      getMainMode: () => ["dps", "hps", "taken", "accuracy", "debug"].includes(state.mainMode) ? state.mainMode : "dps",
       setMainMode: (v) => {
-        state.mainMode = ["dps", "hps", "taken", "debug"].includes(v) ? v : "dps";
+        state.mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(v) ? v : "dps";
         save();
       },
       getAutoReset: () => state.autoReset,
@@ -35905,7 +34104,7 @@ ${locks}` : ""}`;
   }
   function iconElement(source, label = "") {
     const value = String(source || "");
-    if (value.includes("/static/media/") && value.includes(".svg#")) {
+    if (/\.svg(?:\?[^#]*)?#[^#]+$/i.test(value)) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("role", "img");
       svg.setAttribute("aria-label", label);
@@ -36254,18 +34453,25 @@ ${locks}` : ""}`;
     function setOverride(name, classId) {
       Settings.setClassOverride(name, classId === "auto" ? null : classId);
     }
+    function resolveBattleClass(name, player, source) {
+      const override = name ? Settings.getClassOverride(name) : null;
+      if (override) return override;
+      const known = name ? detected.get(name) || Settings.getCachedClass(name) || UNKNOWN : UNKNOWN;
+      const live = identify(player);
+      if (live === UNKNOWN) return known;
+      const ranged = /* @__PURE__ */ new Set(["bow", "crossbow"]);
+      const onlyRangedIntervalChanged = !weaponHridFromPlayer(player) && ranged.has(known) && ranged.has(live);
+      const classId = onlyRangedIntervalChanged ? known : live;
+      if (name && classId !== known) setDetected(name, classId, source);
+      return classId;
+    }
     function registerPlayers(players) {
       const out = {};
       (players || []).forEach((p) => {
         const name = p.character && p.character.name || p.name;
         syncWeaponCache(name, p);
-        const known = name ? classFor(name) : UNKNOWN;
-        const classId = known !== UNKNOWN ? known : identify(p);
-        if (name) {
-          if (known === UNKNOWN && classId !== UNKNOWN)
-            setDetected(name, classId);
-          out[name] = classId;
-        }
+        const classId = resolveBattleClass(name, p, "本场战斗人物属性");
+        if (name) out[name] = classId;
       });
       return out;
     }
@@ -36275,12 +34481,12 @@ ${locks}` : ""}`;
       const name = unit.character && unit.character.name || unit.characterName || unit.name || payload && payload.characterName || "";
       syncWeaponCache(name, unit);
       const known = name ? classFor(name) : UNKNOWN;
-      const classId = known !== UNKNOWN ? known : identify(unit);
+      const classId = resolveBattleClass(name, unit, "战斗人物属性");
       if (!name || classId === UNKNOWN) return { name, classId, updated: false };
       return {
         name,
         classId,
-        updated: known === UNKNOWN && setDetected(name, classId, "战斗人物属性"),
+        updated: known !== classId,
         source: "combatDetails.combatStats"
       };
     }
@@ -37218,7 +35424,7 @@ ${locks}` : ""}`;
     function abilityLabel(value, english) {
       if (english)
         return clientAbilityName(value) || (value === "/abilities/natures_veil" ? "Nature's Veil" : "") || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-      return runtime.data.ZHOthersDic?.[value] || clientAbilityName(value) || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+      return getLocalizedEntityName("ability", value) || clientAbilityName(value) || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
     }
     function canonical(source, playerName = "") {
       const value = normalize2(source);
@@ -37249,8 +35455,8 @@ ${locks}` : ""}`;
         const itemDetailMap = runtime.state.initData_itemDetailMap;
         const itemDetail = itemDetailMap instanceof Map ? itemDetailMap.get(value) : itemDetailMap?.[value];
         const englishName = String(itemDetail?.name || "").trim() || itemLabels[value]?.[1] || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-        const chineseName = runtime.data.ZHItemNames?.[value] || itemLabels[value]?.[0] || englishName;
-        return english ? englishName + " Effect" : "武器特效：" + chineseName;
+        const localizedName = getLocalizedEntityName("item", value) || itemLabels[value]?.[0] || englishName;
+        return english ? englishName + " Effect" : "武器特效：" + localizedName;
       }
       const tail2 = value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
       return tail2 || labels.unknown[english ? 1 : 0];
@@ -37300,7 +35506,10 @@ ${locks}` : ""}`;
     }
     function monsterLabel(detail) {
       if (Settings.getLanguage() !== "en") {
-        const officialName = runtime.data.ZHOthersDic?.[detail.monsterHrid];
+        const officialName = getLocalizedEntityName(
+          "monster",
+          detail.monsterHrid
+        );
         if (officialName) return officialName;
       }
       if (detail.monsterName) return detail.monsterName;
@@ -37334,7 +35543,8 @@ ${locks}` : ""}`;
       healing: {},
       taken: {},
       takenSources: {},
-      kills: {}
+      kills: {},
+      accuracy: {}
     };
     let fragmentPrefix = null;
     const playerDamage = /* @__PURE__ */ new Map();
@@ -37343,6 +35553,7 @@ ${locks}` : ""}`;
     const playerKills = /* @__PURE__ */ new Map();
     const playerTaken = /* @__PURE__ */ new Map();
     const playerTakenSources = /* @__PURE__ */ new Map();
+    const playerAccuracy = /* @__PURE__ */ new Map();
     const BUCKETS = 150, BUCKET_MS = 2e3;
     const dmgBuckets = new Array(BUCKETS).fill(0);
     const bossBuckets = new Array(BUCKETS).fill(false);
@@ -37371,6 +35582,99 @@ ${locks}` : ""}`;
         );
         target.set(name, map);
       });
+    };
+    const accuracyObject = (map) => Object.fromEntries(
+      Array.from(map, ([name, value]) => [
+        name,
+        {
+          attempts: Number(value.attempts) || 0,
+          hits: Number(value.hits) || 0,
+          monsters: Object.fromEntries(value.monsters || [])
+        }
+      ])
+    );
+    const restoreAccuracy = (target, raw) => {
+      target.clear();
+      Object.entries(raw || {}).forEach(([name, value]) => {
+        const monsters = /* @__PURE__ */ new Map();
+        Object.entries(value && value.monsters || {}).forEach(
+          ([key, monster]) => {
+            const attempts2 = Number(monster && monster.attempts) || 0;
+            if (!(attempts2 > 0)) return;
+            monsters.set(key, {
+              monsterName: String(monster && monster.monsterName || ""),
+              monsterHrid: String(monster && monster.monsterHrid || ""),
+              attempts: attempts2,
+              hits: Math.max(
+                0,
+                Math.min(attempts2, Number(monster && monster.hits) || 0)
+              )
+            });
+          }
+        );
+        const attempts = Number(value && value.attempts) || 0;
+        if (!(attempts > 0) && !monsters.size) return;
+        target.set(name, {
+          attempts,
+          hits: Math.max(0, Math.min(attempts, Number(value && value.hits) || 0)),
+          monsters
+        });
+      });
+    };
+    const accuracyDelta = (map, base = {}) => Object.fromEntries(
+      Array.from(map, ([name, value]) => {
+        const previous = base[name] || {}, previousMonsters = previous.monsters || {};
+        const monsters = Object.fromEntries(
+          Array.from(value.monsters || [], ([key, monster]) => {
+            const old = previousMonsters[key] || {}, attempts2 = (Number(monster.attempts) || 0) - (Number(old.attempts) || 0), hits2 = (Number(monster.hits) || 0) - (Number(old.hits) || 0);
+            return [
+              key,
+              {
+                monsterName: monster.monsterName || old.monsterName || "",
+                monsterHrid: monster.monsterHrid || old.monsterHrid || "",
+                attempts: attempts2,
+                hits: hits2
+              }
+            ];
+          }).filter(([, monster]) => monster.attempts > 0)
+        );
+        const attempts = (Number(value.attempts) || 0) - (Number(previous.attempts) || 0), hits = (Number(value.hits) || 0) - (Number(previous.hits) || 0);
+        return [name, { attempts, hits, monsters }];
+      }).filter(
+        ([, value]) => value.attempts > 0 || Object.keys(value.monsters).length
+      )
+    );
+    const accuracyBaseFromDelta = (map, delta = {}) => {
+      const base = accuracyObject(map);
+      Object.entries(delta || {}).forEach(([name, value]) => {
+        if (!base[name]) return;
+        base[name].attempts = Math.max(
+          0,
+          (Number(base[name].attempts) || 0) - (Number(value && value.attempts) || 0)
+        );
+        base[name].hits = Math.max(
+          0,
+          (Number(base[name].hits) || 0) - (Number(value && value.hits) || 0)
+        );
+        Object.entries(value && value.monsters || {}).forEach(
+          ([key, monster]) => {
+            if (!base[name].monsters[key]) return;
+            base[name].monsters[key].attempts = Math.max(
+              0,
+              (Number(base[name].monsters[key].attempts) || 0) - (Number(monster && monster.attempts) || 0)
+            );
+            base[name].monsters[key].hits = Math.max(
+              0,
+              (Number(base[name].monsters[key].hits) || 0) - (Number(monster && monster.hits) || 0)
+            );
+            if (!(base[name].monsters[key].attempts > 0))
+              delete base[name].monsters[key];
+          }
+        );
+        if (!(base[name].attempts > 0) && !Object.keys(base[name].monsters).length)
+          delete base[name];
+      });
+      return base;
     };
     const nestedDelta = (map, base = {}) => Object.fromEntries(
       Array.from(map, ([name, sources]) => {
@@ -37410,7 +35714,8 @@ ${locks}` : ""}`;
             playerTakenSources,
             fragmentBase.takenSources
           ),
-          kills: mapDelta(playerKills, fragmentBase.kills)
+          kills: mapDelta(playerKills, fragmentBase.kills),
+          accuracy: accuracyDelta(playerAccuracy, fragmentBase.accuracy)
         }
       };
     }
@@ -37424,7 +35729,8 @@ ${locks}` : ""}`;
         healing: mapObject(playerHealing),
         taken: mapObject(playerTaken),
         takenSources: nestedMapObject(playerTakenSources),
-        kills: mapObject(playerKills)
+        kills: mapObject(playerKills),
+        accuracy: accuracyObject(playerAccuracy)
       };
       fragmentPrefix = null;
     }
@@ -37481,6 +35787,7 @@ ${locks}` : ""}`;
         playerKills.clear();
         playerTaken.clear();
         playerTakenSources.clear();
+        playerAccuracy.clear();
         dmgBuckets.fill(0);
         bossBuckets.fill(false);
         curBucket = 0;
@@ -37501,7 +35808,8 @@ ${locks}` : ""}`;
           healing: {},
           taken: {},
           takenSources: {},
-          kills: {}
+          kills: {},
+          accuracy: {}
         };
         fragmentPrefix = null;
       },
@@ -37570,7 +35878,8 @@ ${locks}` : ""}`;
           healing: baseFrom(playerHealing, deltas.healing),
           taken: baseFrom(playerTaken, deltas.taken),
           takenSources: takenSourceBase,
-          kills: baseFrom(playerKills, deltas.kills)
+          kills: baseFrom(playerKills, deltas.kills),
+          accuracy: accuracyBaseFromDelta(playerAccuracy, deltas.accuracy)
         };
         fragmentPrefix = {
           startedAt: previous.startedAt,
@@ -37606,7 +35915,8 @@ ${locks}` : ""}`;
             healing: mapObject(playerHealing),
             taken: mapObject(playerTaken),
             takenSources: nestedMapObject(playerTakenSources),
-            kills: mapObject(playerKills)
+            kills: mapObject(playerKills),
+            accuracy: accuracyObject(playerAccuracy)
           },
           classes: Object.fromEntries(
             this.getAllPlayerNames().map((n) => [n, ClassSystem.classFor(n)])
@@ -37634,6 +35944,7 @@ ${locks}` : ""}`;
         restoreMap(playerTaken, s.players && s.players.taken);
         restoreNestedMap(playerTakenSources, s.players && s.players.takenSources);
         restoreMap(playerKills, s.players && s.players.kills);
+        restoreAccuracy(playerAccuracy, s.players && s.players.accuracy);
         ClassSystem.applyClasses(s.classes);
         fragments = Array.isArray(s.fragments) ? s.fragments : [];
         fragmentStart = null;
@@ -37693,6 +36004,34 @@ ${locks}` : ""}`;
       addPlayerKill(n) {
         playerKills.set(n, (playerKills.get(n) || 0) + 1);
       },
+      addPlayerAccuracy(n, hit, targets = []) {
+        if (!n) return;
+        const value = playerAccuracy.get(n) || {
+          attempts: 0,
+          hits: 0,
+          monsters: /* @__PURE__ */ new Map()
+        };
+        value.attempts++;
+        if (hit) value.hits++;
+        const seen = /* @__PURE__ */ new Set();
+        (Array.isArray(targets) ? targets : []).forEach((target) => {
+          const monsterName2 = String(target && target.monsterName || ""), monsterHrid = String(target && target.monsterHrid || ""), key = monsterHrid || "name:" + monsterName2;
+          if (!key || key === "name:" || seen.has(key)) return;
+          seen.add(key);
+          const monster = value.monsters.get(key) || {
+            monsterName: monsterName2,
+            monsterHrid,
+            attempts: 0,
+            hits: 0
+          };
+          monster.monsterName = monster.monsterName || monsterName2;
+          monster.monsterHrid = monster.monsterHrid || monsterHrid;
+          monster.attempts++;
+          if (target.hit) monster.hits++;
+          value.monsters.set(key, monster);
+        });
+        playerAccuracy.set(n, value);
+      },
       // Fusionne les stats d'un ancien label (ex: fallback "Joueur6") vers le
       // nom réel confirmé, au lieu de laisser deux lignes distinctes pour la
       // même personne. Utilisé quand la résolution de noms du Trial de guilde
@@ -37724,6 +36063,28 @@ ${locks}` : ""}`;
           playerTakenSources.set(newName, target);
           playerTakenSources.delete(oldName);
         }
+        if (playerAccuracy.has(oldName)) {
+          const source = playerAccuracy.get(oldName), target = playerAccuracy.get(newName) || {
+            attempts: 0,
+            hits: 0,
+            monsters: /* @__PURE__ */ new Map()
+          };
+          target.attempts += Number(source.attempts) || 0;
+          target.hits += Number(source.hits) || 0;
+          source.monsters.forEach((monster, key) => {
+            const current = target.monsters.get(key) || {
+              monsterName: monster.monsterName || "",
+              monsterHrid: monster.monsterHrid || "",
+              attempts: 0,
+              hits: 0
+            };
+            current.attempts += Number(monster.attempts) || 0;
+            current.hits += Number(monster.hits) || 0;
+            target.monsters.set(key, current);
+          });
+          playerAccuracy.set(newName, target);
+          playerAccuracy.delete(oldName);
+        }
       },
       getTeamDps() {
         const e = elapsed();
@@ -37733,9 +36094,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t20 = 0;
-        playerKills.forEach((v) => t20 += v);
-        return t20;
+        let t21 = 0;
+        playerKills.forEach((v) => t21 += v);
+        return t21;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -37767,6 +36128,15 @@ ${locks}` : ""}`;
       getPlayerKills(n) {
         return playerKills.get(n) || 0;
       },
+      getPlayerAccuracy(n) {
+        const value = playerAccuracy.get(n);
+        if (!value) return null;
+        return {
+          attempts: Number(value.attempts) || 0,
+          hits: Number(value.hits) || 0,
+          monsters: Object.fromEntries(value.monsters || [])
+        };
+      },
       getElapsedSeconds() {
         return elapsed();
       },
@@ -37776,7 +36146,8 @@ ${locks}` : ""}`;
             ...playerDamage.keys(),
             ...playerKills.keys(),
             ...playerHealing.keys(),
-            ...playerTaken.keys()
+            ...playerTaken.keys(),
+            ...playerAccuracy.keys()
           ])
         );
       },
@@ -38000,12 +36371,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t20) {
-      const low = t20.toLowerCase();
+    function looksLikeNoise(t21) {
+      const low = t21.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t20)) return true;
-      if (/^\d+%?$/.test(t20)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t20)) return true;
+      if (/^lv\.?\d+$/i.test(t21)) return true;
+      if (/^\d+%?$/.test(t21)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t21)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -38027,14 +36398,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t20) => t20 && !looksLikeNoise(t20) && !/^trial\s/i.test(t20));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t21) => t21 && !looksLikeNoise(t21) && !/^trial\s/i.test(t21));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t20, i) => {
-        resolved.set(String(i + offset), t20);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t21, i) => {
+        resolved.set(String(i + offset), t21);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -38102,7 +36473,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t20) => t20.length > 0)) {
+          if (texts.some((t21) => t21.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -38138,10 +36509,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t20 = c.textContent.trim();
-            if (t20.length >= 2 && t20.length <= 20 && !looksLikeNoise(t20)) {
+            const t21 = c.textContent.trim();
+            if (t21.length >= 2 && t21.length <= 20 && !looksLikeNoise(t21)) {
               nameLikeCount++;
-              texts.push(t20.slice(0, 20));
+              texts.push(t21.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -38420,6 +36791,27 @@ ${locks}` : ""}`;
       const rule = abilityDamageRules.get(value);
       if (!rule) return "unknown";
       return rule.direct ? "direct" : "support";
+    }
+    function targetsAllEnemies(action) {
+      const rule = abilityDamageRules.get(String(action || ""));
+      return !!(rule && Array.isArray(rule.targetTypes) && rule.targetTypes.some((type) => /allEnemies|all_enemies/i.test(type)));
+    }
+    function accuracyTargets(action, hits, aliveKeys, names, hrids) {
+      const hitKeys = new Set((hits || []).map((hit) => String(hit.key))), living = [...new Set((aliveKeys || []).map(String))];
+      let keys;
+      if (targetsAllEnemies(action)) keys = living;
+      else if (hitKeys.size) keys = [...hitKeys];
+      else keys = living.length === 1 ? living : [];
+      return keys.map((key) => {
+        const monsterHrid = String(hrids && hrids[key] || ""), fallback = monsterHrid.split("/").pop().replace(/_/g, " "), monsterName2 = String(
+          names && names[key] || fallback || "怪物" + (+key + 1)
+        );
+        return {
+          monsterName: monsterName2,
+          monsterHrid,
+          hit: hitKeys.has(key)
+        };
+      });
     }
     function activateDot(activeContainer, dotContainer, key, abilityHrid, ts, timeline = null) {
       const hrid = String(abilityHrid || ""), rule = abilityDamageRules.get(hrid);
@@ -39049,7 +37441,7 @@ ${locks}` : ""}`;
         guildCombatWasActive = true;
         return;
       }
-      const counterActors = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
+      const counterActors = [], counterDeltas = {}, completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
         const unit = pMap[k], counter = playerAttackCounter(unit), previous = guildPlayersAtkCounter[k];
         rememberAbilityKnowledge(
@@ -39065,6 +37457,7 @@ ${locks}` : ""}`;
           if (previous !== void 0 && counter > previous) {
             const completed = guildCurrentAction[k] || (unit.isAutoAtk || unit.isAutoAttack ? "auto" : "unknown");
             counterActors.push(k);
+            counterDeltas[k] = counter - previous;
             completedActions[k] = completed;
             activateGuildReflection(k, completed, ts);
             activateDot(guildDotUntil, guildKnownDotAbilities, k, completed, ts);
@@ -39103,6 +37496,9 @@ ${locks}` : ""}`;
           guildMonsterCurrentAction[mk]
         );
       }
+      const soleAccuracyActor = counterActors.length === 1 && counterDeltas[counterActors[0]] === 1 && monsterActors.length === 0 && Object.keys(mMap).length > 0 && actionDamageKind(completedActions[counterActors[0]]) === "direct" ? counterActors[0] : null, accuracyAction = soleAccuracyActor === null ? "" : completedActions[soleAccuracyActor] || "", accuracyAliveMonsterKeys = Object.keys(guildMonstersHP).filter(
+        (key) => mMap[key] && Number(guildMonstersHP[key]) > 0
+      );
       let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
       if (monsterActors.length === 1) {
         const mk = monsterActors[0];
@@ -39334,6 +37730,24 @@ ${locks}` : ""}`;
           Diagnostics.recordOrphan(tickDmg);
         }
       }
+      if (soleAccuracyActor !== null) {
+        bus.dispatchEvent(
+          new CustomEvent("attackResolved", {
+            detail: {
+              name: guildSlotLabel(soleAccuracyActor),
+              hit: guildMonsterHits.length > 0,
+              targets: accuracyTargets(
+                accuracyAction,
+                guildMonsterHits,
+                accuracyAliveMonsterKeys,
+                guildMonsterNames,
+                guildMonsterHrids
+              ),
+              battleType: "trial"
+            }
+          })
+        );
+      }
     }
     function resetBattleState() {
       monstersHP = [];
@@ -39499,7 +37913,7 @@ ${locks}` : ""}`;
       const idx = Object.keys(pMap);
       const ts = clockNow();
       const battleType = isInLabyrinth ? "labyrinth" : "combat";
-      const counterActors = [], mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
+      const counterActors = [], counterDeltas = {}, mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
         const i = +k, mp = pMap[k].cMP || 0;
         rememberAbilityKnowledge(
@@ -39519,6 +37933,7 @@ ${locks}` : ""}`;
           if (previousCounter !== void 0 && nextCounter > previousCounter) {
             const completed = currentAction[i] || (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
             counterActors.push(k);
+            counterDeltas[k] = nextCounter - previousCounter;
             completedActions[k] = completed;
             activatePlayerReflection(k, completed, ts);
             activateDot(
@@ -39564,6 +37979,7 @@ ${locks}` : ""}`;
           monstersAtkCounter[i] = counter;
         }
       }
+      const soleAccuracyActor = counterActors.length === 1 && counterDeltas[counterActors[0]] === 1 && monsterActors.length === 0 && Object.keys(mMap).length > 0 && actionDamageKind(completedActions[counterActors[0]]) === "direct" ? counterActors[0] : null, accuracyAction = soleAccuracyActor === null ? "" : completedActions[soleAccuracyActor] || "", accuracyAliveMonsterKeys = monstersAlive.map((alive, index) => alive ? String(index) : null).filter((key) => key !== null && mMap[key]);
       let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
       if (monsterActors.length === 1) {
         const mk = monsterActors[0];
@@ -39803,6 +38219,26 @@ ${locks}` : ""}`;
               new CustomEvent("kill", { detail: { name, battleType } })
             );
       }
+      if (soleAccuracyActor !== null) {
+        const name = keyToName.get(soleAccuracyActor);
+        if (name)
+          bus.dispatchEvent(
+            new CustomEvent("attackResolved", {
+              detail: {
+                name,
+                hit: monsterHits.length > 0,
+                targets: accuracyTargets(
+                  accuracyAction,
+                  monsterHits,
+                  accuracyAliveMonsterKeys,
+                  monsterNames,
+                  monsterHrids
+                ),
+                battleType
+              }
+            })
+          );
+      }
       for (const k of idx) {
         const i = +k, pv = pMap[k];
         currentAction[i] = pv.abilityHrid ? pv.abilityHrid : pv.isAutoAtk ? "auto" : "idle";
@@ -39937,11 +38373,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t20 = el2.textContent.trim();
-        if (!t20 || t20.length < 2 || t20.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t20);
+        const t21 = el2.textContent.trim();
+        if (!t21 || t21.length < 2 || t21.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t21);
         let cssEllipsis = false;
-        if (!literalEllipsis && t20.length <= 20 && !t20.includes(" ") && !looksLikeNoise(t20)) {
+        if (!literalEllipsis && t21.length <= 20 && !t21.includes(" ") && !looksLikeNoise(t21)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -40072,6 +38508,7 @@ ${locks}` : ""}`;
         taken: 0,
         takenPs: 0,
         kills: 0,
+        accuracy: null,
         breakdown: null,
         takenBreakdown: null
       }
@@ -40645,14 +39082,20 @@ ${locks}` : ""}`;
         background: "transparent",
         borderColor: "transparent"
       });
-      const historyIcon = iconElement(TOOLBAR_ICONS.history, "");
-      Object.assign(historyIcon.style, {
-        width: "17px",
-        height: "17px",
-        objectFit: "contain",
-        pointerEvents: "none"
-      });
-      textEl.appendChild(historyIcon);
+      picker._refreshIcon = () => {
+        const source = TOOLBAR_ICONS.history;
+        if (!source) return false;
+        const historyIcon = iconElement(source, "");
+        Object.assign(historyIcon.style, {
+          width: "17px",
+          height: "17px",
+          objectFit: "contain",
+          pointerEvents: "none"
+        });
+        textEl.replaceChildren(historyIcon);
+        return true;
+      };
+      picker._refreshIcon();
       button.appendChild(textEl);
     } else button.append(textEl, arrow);
     picker.appendChild(button);
@@ -40740,6 +39183,27 @@ ${locks}` : ""}`;
         pct: total > 0 ? item.value * 100 / total : 0
       }));
     }
+    function accuracyBreakdown(raw) {
+      const attempts = Number(raw && raw.attempts) || 0;
+      if (!(attempts > 0)) return null;
+      const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+      const monsters = Object.values(raw && raw.monsters || {}).map((monster) => {
+        const monsterAttempts = Number(monster && monster.attempts) || 0, monsterHits = Math.max(
+          0,
+          Math.min(monsterAttempts, Number(monster && monster.hits) || 0)
+        ), monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "";
+        return {
+          monsterName: localized || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterHrid,
+          attempts: monsterAttempts,
+          hits: monsterHits,
+          pct: monsterAttempts > 0 ? monsterHits * 100 / monsterAttempts : 0
+        };
+      }).filter((monster) => monster.attempts > 0).sort(
+        (a, b) => b.attempts - a.attempts || b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
+      );
+      return { attempts, hits, pct: hits * 100 / attempts, monsters };
+    }
     function current() {
       const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), players = names.map((name) => ({
         name,
@@ -40751,6 +39215,7 @@ ${locks}` : ""}`;
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
+        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -40782,13 +39247,14 @@ ${locks}` : ""}`;
       const elapsed = fragment ? (Number(fragment.durationMs) || 0) / 1e3 : Number(entry.durationSeconds) || (Number(entry.durationMs) || 0) / 1e3;
       let players;
       if (fragment) {
-        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {};
+        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {}, accuracy = maps.accuracy || {};
         const names = [
           .../* @__PURE__ */ new Set([
             ...Object.keys(damage),
             ...Object.keys(healing),
             ...Object.keys(taken),
-            ...Object.keys(kills)
+            ...Object.keys(kills),
+            ...Object.keys(accuracy)
           ])
         ];
         const sources = maps.sources || {}, takenSources = maps.takenSources || {};
@@ -40799,6 +39265,7 @@ ${locks}` : ""}`;
           healing: Number(healing[name]) || 0,
           taken: Number(taken[name]) || 0,
           kills: Number(kills[name]) || 0,
+          accuracy: accuracyBreakdown(accuracy[name]),
           dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
           hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
           takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -40817,6 +39284,7 @@ ${locks}` : ""}`;
       } else {
         players = (entry.players || []).map((p) => ({
           ...p,
+          accuracy: accuracyBreakdown(p.accuracy),
           takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
           breakdown: damageBreakdown(
             p.sources,
@@ -41402,6 +39870,286 @@ ${locks}` : ""}`;
     }
     return { show, update, isOpenFor, scheduleClose, cancelClose, close };
   })();
+  var AccuracyBreakdownTooltip = /* @__PURE__ */ (() => {
+    let popup = null, closeTimer = null, container = null, playerName = "", lastAnchor = null;
+    function cancelClose() {
+      if (closeTimer !== null) clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    function close() {
+      cancelClose();
+      popup?.remove();
+      popup = null;
+      container = null;
+      playerName = "";
+      lastAnchor = null;
+    }
+    function scheduleClose() {
+      cancelClose();
+      closeTimer = setTimeout(close, 140);
+    }
+    function position(anchor) {
+      if (!popup || !anchor) return;
+      const rect = anchor.getBoundingClientRect(), width = Math.min(340, window.innerWidth - 12), left = rect.right + 6 + width <= window.innerWidth ? rect.right + 6 : Math.max(6, rect.left - width - 6), height = popup.offsetHeight || 180, top = Math.max(6, Math.min(rect.top, window.innerHeight - height - 6));
+      Object.assign(popup.style, {
+        width: width + "px",
+        left: left + "px",
+        top: top + "px"
+      });
+    }
+    function render(row) {
+      if (!popup || !row) return;
+      const scrollTop = popup.scrollTop, cls = ClassSystem.get(row.name), header = el("div", {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 8px",
+        fontWeight: "700",
+        borderBottom: "1px solid rgba(255,255,255,.13)"
+      });
+      popup.replaceChildren();
+      const classIcon = iconElement(cls.icon, cls.label);
+      Object.assign(classIcon.style, {
+        width: "20px",
+        height: "20px",
+        objectFit: "contain"
+      });
+      const title = document.createElement("span");
+      title.textContent = `${row.name} · ${langText2("对怪物命中率", "Accuracy by monster")}`;
+      header.append(classIcon, title);
+      popup.appendChild(header);
+      const monsters = Array.isArray(row.monsters) ? row.monsters : [];
+      monsters.forEach((monster) => {
+        const line = el("div", {
+          position: "relative",
+          height: "27px",
+          margin: "3px 5px",
+          overflow: "hidden",
+          borderRadius: "2px",
+          background: "rgba(0,0,0,.46)",
+          border: "1px solid rgba(255,255,255,.06)"
+        }), bar = el("div", {
+          position: "absolute",
+          inset: "0 auto 0 0",
+          width: Math.max(0, Math.min(100, Number(monster.pct) || 0)) + "%",
+          background: `linear-gradient(90deg,${cls.color}c9,${cls.color}55)`
+        }), content = el("div", {
+          position: "absolute",
+          inset: "0",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "1px 6px",
+          textShadow: "0 1px 2px #000"
+        }), label = el("span", {
+          flex: "1",
+          minWidth: "40px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontWeight: "600"
+        }), stats = el("span", {
+          fontSize: "10px",
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap"
+        });
+        line.dataset.monsterHrid = monster.monsterHrid || "";
+        const monsterIconSource = monster.monsterHrid ? GameAssets.monster(monster.monsterHrid) : "";
+        const monsterIcon = monsterIconSource ? iconElement(monsterIconSource, monster.monsterName) : null;
+        if (monsterIcon) {
+          Object.assign(monsterIcon.style, {
+            width: "20px",
+            height: "20px",
+            objectFit: "contain",
+            flexShrink: "0",
+            filter: "drop-shadow(0 1px 1px #000)"
+          });
+        }
+        label.textContent = monster.monsterName;
+        label.title = monster.monsterName;
+        stats.textContent = `${(Number(monster.pct) || 0).toFixed(1)}% (${Number(monster.hits) || 0}/${Number(monster.attempts) || 0})`;
+        if (monsterIcon) content.appendChild(monsterIcon);
+        content.append(label, stats);
+        line.append(bar, content);
+        popup.appendChild(line);
+      });
+      if (!monsters.length) {
+        const empty = el("div", {
+          padding: "12px 10px 7px",
+          textAlign: "center",
+          opacity: ".58"
+        });
+        empty.textContent = langText2(
+          "暂无可判定的怪物目标",
+          "No resolved monster targets"
+        );
+        popup.appendChild(empty);
+      }
+      const note = el("div", {
+        padding: "5px 8px 7px",
+        borderTop: "1px solid rgba(255,255,255,.08)",
+        color: "rgba(255,255,255,.58)",
+        fontSize: "9px",
+        lineHeight: "1.4"
+      });
+      note.textContent = langText2(
+        "仅包含可判定目标；多怪物时无法确定目标的未命中不会硬性分配。",
+        "Resolved targets only; ambiguous misses with multiple monsters are not assigned."
+      );
+      popup.appendChild(note);
+      position(lastAnchor);
+      popup.scrollTop = scrollTop;
+    }
+    function show(anchor, row, owner) {
+      cancelClose();
+      lastAnchor = anchor;
+      container = owner;
+      playerName = row.name;
+      if (!popup) {
+        popup = el("div", {
+          position: "fixed",
+          zIndex: "10004",
+          maxHeight: "min(420px,calc(100vh - 12px))",
+          overflowY: "auto",
+          boxSizing: "border-box",
+          background: "linear-gradient(180deg,rgba(25,25,25,.99),rgba(7,7,7,.99))",
+          border: "1px solid rgba(212,175,55,.72)",
+          borderRadius: "5px",
+          boxShadow: "0 8px 30px rgba(0,0,0,.9)",
+          color: "#f2f2f2",
+          fontSize: "11px"
+        });
+        popup.dataset.kikimeter = "true";
+        popup.dataset.kikimeterAccuracyTooltip = "true";
+        popup.addEventListener("mouseenter", cancelClose);
+        popup.addEventListener("mouseleave", scheduleClose);
+        document.body.appendChild(popup);
+      }
+      render(row);
+    }
+    function update(rows2) {
+      if (!popup) return false;
+      const row = (rows2 || []).find((item) => item.name === playerName);
+      if (row) render(row);
+      else close();
+      return !!popup;
+    }
+    function isOpenFor(owner) {
+      return !!popup && container === owner;
+    }
+    return { show, update, isOpenFor, scheduleClose, cancelClose, close };
+  })();
+  function renderAccuracyRows(container, rows2, rerender, emptyText) {
+    if (AccuracyBreakdownTooltip.isOpenFor(container)) {
+      AccuracyBreakdownTooltip.update(rows2);
+      const existing = new Map(
+        [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
+          (line) => [line.dataset.player, line]
+        )
+      );
+      if (existing.size === rows2.length && rows2.every((row) => existing.has(row.name))) {
+        rows2.forEach((row, index) => {
+          const line = existing.get(row.name);
+          line._accuracyRow = row;
+          line._accuracyRank.textContent = String(index + 1) + ".";
+          line._accuracyBar.style.width = Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
+          line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+        });
+        rows2.forEach((row) => container.appendChild(existing.get(row.name)));
+        return;
+      }
+      AccuracyBreakdownTooltip.close();
+    }
+    container.replaceChildren();
+    rows2.forEach((row, index) => {
+      const cls = ClassSystem.get(row.name), line = el("div", {
+        position: "relative",
+        height: "24px",
+        margin: "2px 0",
+        overflow: "hidden",
+        minHeight: "24px",
+        flexShrink: "0",
+        boxSizing: "border-box",
+        borderRadius: "2px",
+        background: "rgba(0,0,0,.42)",
+        border: "1px solid rgba(255,255,255,.06)",
+        color: "#fff"
+      }), bar = el("div", {
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
+        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
+        boxShadow: `inset 0 0 5px ${cls.color}`
+      }), content = el("div", {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "1px 5px",
+        whiteSpace: "nowrap",
+        textShadow: "0 1px 2px #000"
+      }), rank = el("span", {
+        width: "18px",
+        textAlign: "right",
+        opacity: ".85",
+        fontSize: "11px"
+      }), icon = iconElement(cls.icon, cls.label), name = el("span", {
+        fontWeight: "600",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        flex: "1",
+        minWidth: "30px"
+      }), stats = el("span", {
+        fontSize: "11px",
+        fontVariantNumeric: "tabular-nums",
+        textAlign: "right"
+      });
+      line.dataset.kikimeterAccuracyRow = "true";
+      line.dataset.player = row.name;
+      line._accuracyRow = row;
+      line._accuracyRank = rank;
+      line._accuracyBar = bar;
+      line._accuracyStats = stats;
+      rank.textContent = String(index + 1) + ".";
+      Object.assign(icon.style, {
+        width: "19px",
+        height: "19px",
+        objectFit: "contain",
+        flexShrink: "0",
+        cursor: "pointer",
+        filter: "drop-shadow(0 1px 1px #000)"
+      });
+      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
+      icon.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openClassPicker(row.name, icon, rerender);
+      });
+      name.textContent = row.name;
+      stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+      line.title = langText2(
+        "悬停查看对各怪物的命中率",
+        "Hover to view accuracy by monster"
+      );
+      line.addEventListener(
+        "mouseenter",
+        () => AccuracyBreakdownTooltip.show(line, line._accuracyRow, container)
+      );
+      line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
+      content.append(rank, icon, name, stats);
+      line.append(bar, content);
+      container.appendChild(line);
+    });
+    if (!rows2.length) {
+      const empty = el("div", {
+        padding: "14px",
+        textAlign: "center",
+        opacity: ".5"
+      });
+      empty.textContent = emptyText || langText2("暂无命中率数据", "No accuracy data");
+      container.appendChild(empty);
+    }
+  }
   function renderDetailsRows(container, rows2, rerender) {
     if (DamageBreakdownTooltip.isOpenFor(container) && DamageBreakdownTooltip.update(rows2))
       return;
@@ -41546,7 +40294,7 @@ ${locks}` : ""}`;
     let panelOpen = false, tabBtn = null, panel = null;
     let reinjector = null, throttleTimer = null, viewportHandler = null;
     let historyFilter = "combat";
-    let titleEl, playersListEl, segmentSelect, dpsTab, hpsTab, takenTab, debugTab, graphTab, settingsTab, settingsMenu, langTab, resetTab, copyTab, closeTab, trialClassNotice;
+    let titleEl, playersListEl, segmentSelect, dpsTab, hpsTab, takenTab, accuracyTab, debugTab, graphTab, settingsTab, settingsMenu, langTab, resetTab, copyTab, closeTab, trialClassNotice;
     let mainGraphObj = null, mainGraphWrap = null;
     let mainMode = Settings.getMainMode();
     if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
@@ -41589,6 +40337,7 @@ ${locks}` : ""}`;
         [dpsTab, "dps"],
         [hpsTab, "hps"],
         [takenTab, "taken"],
+        [accuracyTab, "accuracy"],
         [debugTab, "debug"]
       ].forEach(([button, mode]) => {
         if (!button) return;
@@ -41612,7 +40361,9 @@ ${locks}` : ""}`;
         debugTab.style.display = Settings.getDebugMode() ? "" : "none";
     }
     function setMainMode(mode) {
-      mainMode = ["dps", "hps", "taken", "debug"].includes(mode) ? mode : "dps";
+      DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
+      mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(mode) ? mode : "dps";
       if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
       Settings.setMainMode(mainMode);
       refreshModeTabs();
@@ -41645,6 +40396,7 @@ ${locks}` : ""}`;
         [dpsTab, "伤害输出（DPS）", "Damage Done (DPS)"],
         [hpsTab, "恢复量（HPS）", "Healing (HPS)"],
         [takenTab, "承受伤害（DTPS）", "Damage Taken (DTPS)"],
+        [accuracyTab, "实时命中率", "Live Accuracy"],
         [graphTab, "显示或隐藏 DPS 趋势", "Show or hide DPS trend"],
         [debugTab, "职业调试", "Class Debug"],
         [settingsTab, "设置", "Settings"],
@@ -41660,6 +40412,7 @@ ${locks}` : ""}`;
     }
     function toggleLanguage() {
       DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
       closeSettingsMenu();
       Settings.setLanguage(Settings.getLanguage() === "zh" ? "en" : "zh");
       refreshLanguageSwitch();
@@ -41899,7 +40652,7 @@ ${locks}` : ""}`;
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       });
-      titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "debug" ? "职业调试" : "伤害输出";
+      titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "accuracy" ? "Accuracy" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "accuracy" ? "命中率" : mainMode === "debug" ? "职业调试" : "伤害输出";
       const titleTools = el("div", {
         display: "flex",
         alignItems: "center",
@@ -41926,8 +40679,16 @@ ${locks}` : ""}`;
           alignItems: "center",
           justifyContent: "center"
         });
-        if (String(content || "").startsWith("data:image/") || String(content || "").includes("/static/media/")) {
-          const icon = iconElement(content, "");
+        button._setContent = (nextContent) => {
+          const source = String(nextContent || "");
+          if (!source) return false;
+          const isIcon = source.startsWith("data:image/") || /\.svg(?:\?[^#]*)?#[^#]+$/i.test(source);
+          if (!isIcon) {
+            button.textContent = source;
+            button._icon = null;
+            return true;
+          }
+          const icon = iconElement(source, "");
           Object.assign(icon.style, {
             width: "17px",
             height: "17px",
@@ -41935,8 +40696,10 @@ ${locks}` : ""}`;
             pointerEvents: "none"
           });
           button._icon = icon;
-          button.appendChild(icon);
-        } else button.textContent = content;
+          button.replaceChildren(icon);
+          return true;
+        };
+        button._setContent(content);
         button.addEventListener("mousedown", (event) => event.stopPropagation());
         button.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -41962,6 +40725,11 @@ ${locks}` : ""}`;
         "承受伤害（DTPS）",
         () => setMainMode("taken")
       );
+      accuracyTab = iconButton(
+        SKILL_MODE_ICONS.steadyShot,
+        "实时命中率",
+        () => setMainMode("accuracy")
+      );
       graphTab = iconButton(
         TOOLBAR_ICONS.trend,
         "显示或隐藏 DPS 趋势",
@@ -41985,11 +40753,23 @@ ${locks}` : ""}`;
         if (callbacks.onCopy) callbacks.onCopy(copyTab);
       });
       closeTab = iconButton(TOOLBAR_ICONS.close, "隐藏面板", close);
+      const refreshGameAssetIcons = () => {
+        dpsTab?._setContent(SKILL_MODE_ICONS.attack);
+        hpsTab?._setContent(SKILL_MODE_ICONS.stamina);
+        takenTab?._setContent(SKILL_MODE_ICONS.defense);
+        accuracyTab?._setContent(SKILL_MODE_ICONS.steadyShot);
+        settingsTab?._setContent(TOOLBAR_ICONS.settings);
+        segmentSelect?._refreshIcon?.();
+      };
+      void GameAssets.ready().then(() => {
+        if (p.isConnected) refreshGameAssetIcons();
+      });
       titleTools.append(
         segmentSelect,
         dpsTab,
         hpsTab,
         takenTab,
+        accuracyTab,
         graphTab,
         debugTab,
         settingsTab,
@@ -42179,6 +40959,7 @@ ${locks}` : ""}`;
       panelOpen = false;
       closeSettingsMenu();
       DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
       if (panel) panel.style.display = "none";
       if (tabBtn) tabBtn.style.filter = "none";
     }
@@ -42446,10 +41227,10 @@ ${locks}` : ""}`;
         getGameTranslation("labyrinthPanel.automation")
       ];
       for (const c of containers) {
-        const t20 = c.textContent;
-        if (combatZones && t20.includes(combatZones) || t20.includes("Combat Zones") || t20.includes("战斗区域") || t20.includes("戰鬥區域"))
+        const t21 = c.textContent;
+        if (combatZones && t21.includes(combatZones) || t21.includes("Combat Zones") || t21.includes("战斗区域") || t21.includes("戰鬥區域"))
           return c;
-        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t20.includes(label)) || t20.includes("Labyrinth") && t20.includes("Room") && t20.includes("Automation") || t20.includes("迷宫") && (t20.includes("房间") || t20.includes("自动化")) || t20.includes("迷宮") && (t20.includes("房間") || t20.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t21.includes(label)) || t21.includes("Labyrinth") && t21.includes("Room") && t21.includes("Automation") || t21.includes("迷宫") && (t21.includes("房间") || t21.includes("自动化")) || t21.includes("迷宮") && (t21.includes("房間") || t21.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -42555,7 +41336,7 @@ ${locks}` : ""}`;
       refreshModeTabs();
       refreshToolbarLanguage();
       if (titleEl)
-        titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "debug" ? "职业调试" : "伤害输出";
+        titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "accuracy" ? "Accuracy" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "accuracy" ? "命中率" : mainMode === "debug" ? "职业调试" : "伤害输出";
       if (mainGraphObj) mainGraphObj.render(view.graphPoints || []);
       if (trialClassNotice)
         trialClassNotice.style.display = mainMode !== "debug" && view.type === "trial" ? "block" : "none";
@@ -42685,6 +41466,30 @@ ${locks}` : ""}`;
         playersListEl.append(hint, probeButtons, report, buttons);
         return;
       }
+      if (mainMode === "accuracy") {
+        const rows3 = (view.players || []).filter((player) => player.accuracy && player.accuracy.attempts > 0).map((player) => ({
+          name: player.name,
+          attempts: player.accuracy.attempts,
+          hits: player.accuracy.hits,
+          pct: player.accuracy.pct,
+          monsters: player.accuracy.monsters
+        })).sort(
+          (a, b) => b.pct - a.pct || b.attempts - a.attempts || a.name.localeCompare(b.name)
+        );
+        renderAccuracyRows(
+          playersListEl,
+          rows3,
+          () => renderView(ViewData.get()),
+          view.current ? langText4(
+            "暂无可靠判定的直接攻击",
+            "No reliably resolved direct attacks yet"
+          ) : langText4(
+            "该历史记录暂无命中率数据",
+            "No accuracy data for this combat record"
+          )
+        );
+        return;
+      }
       const total = mainMode === "hps" ? (view.players || []).reduce(
         (sum, p) => sum + (Number(p.healing) || 0),
         0
@@ -42756,10 +41561,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t20) => {
+      TYPES.forEach((t21) => {
         const btn = document.createElement("button");
-        btn.textContent = t20.label;
-        const active = historyFilter === t20.id;
+        btn.textContent = t21.label;
+        const active = historyFilter === t21.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -42773,7 +41578,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t20.id;
+          historyFilter = t21.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -42897,8 +41702,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t20) => t20.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t20) => t20.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t21) => t21.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t21) => t21.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -43250,7 +42055,8 @@ ${locks}` : ""}`;
           healing: Session.getPlayerHealing(n),
           taken: Session.getPlayerTaken(n),
           sources: Session.getPlayerDamageSources(n),
-          takenSources: Session.getPlayerTakenSources(n)
+          takenSources: Session.getPlayerTakenSources(n),
+          accuracy: Session.getPlayerAccuracy(n)
         }))
       };
     }
@@ -43436,6 +42242,14 @@ ${locks}` : ""}`;
           ev.detail.name,
           ev.detail.amount,
           ev.detail.source
+        );
+    });
+    scope.event(SocketHook.bus, "attackResolved", (ev) => {
+      if (acceptsCombatEvent(ev.detail))
+        Session.addPlayerAccuracy(
+          ev.detail.name,
+          ev.detail.hit,
+          ev.detail.targets
         );
     });
     scope.event(SocketHook.bus, "healing", (ev) => {
@@ -44575,18 +43389,24 @@ ${locks}` : ""}`;
   }
   function observeRelevantDom(scope, selector, callback) {
     const scheduler = createFrameScheduler(callback);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(selector)) return true;
-        return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector))
-        );
-      });
-      if (relevant) scheduler.schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "legacy-dom",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(selector)) return true;
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector))
+          );
+        });
+        if (relevant) scheduler.schedule();
+      }
+    );
     scope.add(() => scheduler.cancel());
     return scheduler;
   }
@@ -44848,45 +43668,14 @@ ${locks}` : ""}`;
   });
 
   // src/main.js
-  function loadCachedClientData() {
-    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal4.localStorageUtil;
-    if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
-      return false;
-    }
-    const clientData = localStorageUtil.getInitClientData();
-    if (!clientData?.actionDetailMap || !clientData?.itemDetailMap) return false;
-    GM_setValue("init_client_data", JSON.stringify(clientData));
-    runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
-    runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
-    runtime.state.initData_enhancementLevelSuccessRateTable = clientData.enhancementLevelSuccessRateTable;
-    runtime.state.initData_enhancementLevelTotalBonusMultiplierTable = clientData.enhancementLevelTotalBonusMultiplierTable;
-    runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
-    runtime.state.initData_itemLocationDetailMap = clientData.itemLocationDetailMap;
-    runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
-    runtime.state.initData_actionCategoryDetailMap = clientData.actionCategoryDetailMap;
-    runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
-    runtime.state.initData_shopItemDetailMap = clientData.shopItemDetailMap;
-    runtime.state.initData_taskShopItemDetailMap = clientData.taskShopItemDetailMap;
-    runtime.state.initData_labyrinthShopItemDetailMap = clientData.labyrinthShopItemDetailMap;
-    runtime.state.initData_openableLootDropMap = clientData.openableLootDropMap;
-    runtime.state.initData_guildBuffDetailMap = clientData.guildBuffDetailMap;
-    runtime.api.invalidateAssetValueCache();
-    for (const [key, value] of Object.entries(
-      runtime.state.initData_itemDetailMap
-    )) {
-      runtime.state.itemEnNameToHridMap[value.name] = key;
-    }
-    return true;
-  }
   async function startGame() {
-    const clientDataLoaded = loadCachedClientData();
+    const clientDataLoaded = runtime.api.refreshGameClientData();
     if (!clientDataLoaded) {
       runtime.features.register({
         id: "clientDataCache",
         initialize({ scope }) {
           const interval = scope.interval(() => {
-            if (loadCachedClientData()) clearInterval(interval);
+            if (runtime.api.refreshGameClientData()) clearInterval(interval);
           }, 250);
         }
       });

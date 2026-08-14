@@ -122,9 +122,13 @@ test("task title decorations do not change semantic identity", () => {
   runtime.state.initData_actionDetailMap = {
     "/actions/combat/gloomy_forest": { name: "Gloomy Forest" },
   };
-  runtime.data.ZHMonsterNames = {
-    [quest.monsterHrid]: "狼人",
-  };
+  registerGameLocaleResources("zh", {
+    itemNames: { "/items/coin": "金币" },
+    actionNames: { "/actions/combat/gloomy_forest": "幽暗森林" },
+    monsterNames: { [quest.monsterHrid]: "狼人" },
+    abilityNames: { "/abilities/strike": "猛击" },
+  });
+  localStorage.setItem("i18nextLng", "zh-CN");
   const decorated = card("狼人", "0 / 185");
   const name = decorated.querySelector('[class*="RandomTask_name"]');
   const mapIndex = document.createElement("span");
@@ -140,6 +144,7 @@ test("task title decorations do not change semantic identity", () => {
   assert.equal(resolved.resolved, true);
   assert.equal(resolved.matchSource, "semantic");
   assert.equal(resolved.taskId, "decorated-combat");
+  localStorage.setItem("i18nextLng", "en-US");
 });
 
 test("transitional cards stay unresolved instead of receiving positional tasks", () => {

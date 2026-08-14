@@ -1,4 +1,8 @@
 import { runtime } from "../core/runtime.js";
+import {
+  getGameSpriteHref,
+  registerGameSpriteSource,
+} from "../core/game-assets.js";
 import { localize } from "../core/localization.js";
 
 const OVERLAY_VERSION = "1.3.0";
@@ -60,12 +64,6 @@ const MISC_CATEGORY_SYMBOLS = Object.freeze({
   labyrinth_depth: "labyrinth",
   fame_points: "experience",
 });
-const NATIVE_SPRITE_FALLBACKS = Object.freeze({
-  misc: "/static/media/misc_sprite.6560b17a.svg",
-  skills: "/static/media/skills_sprite.3bb4d936.svg",
-});
-const nativeSpriteBasesByDocument = new WeakMap();
-
 let activeInstances = 0;
 let featureEnabled = false;
 const controllers = new Set();
@@ -165,20 +163,13 @@ function ensureStyles(documentRef) {
   mount.append(style);
 }
 
-function nativeSpriteBase(documentRef, kind) {
-  let bases = nativeSpriteBasesByDocument.get(documentRef);
-  if (!bases) {
-    bases = new Map();
-    nativeSpriteBasesByDocument.set(documentRef, bases);
+function nativeSpriteHref(documentRef, kind, symbol) {
+  for (const use of documentRef.querySelectorAll("use")) {
+    registerGameSpriteSource(
+      use.getAttribute("href") ?? use.getAttribute("xlink:href"),
+    );
   }
-  if (bases.has(kind)) return bases.get(kind);
-  const base =
-    [...documentRef.querySelectorAll("use")]
-      .map((element) => element.getAttribute("href") || "")
-      .find((href) => href.includes(`${kind}_sprite`))
-      ?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
-  bases.set(kind, base);
-  return base;
+  return getGameSpriteHref(kind, symbol);
 }
 
 function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
@@ -199,11 +190,11 @@ function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
   icon.setAttribute("viewBox", "0 0 40 40");
   icon.setAttribute("aria-hidden", "true");
   const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute(
-    "href",
-    `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`,
-  );
-  icon.append(use);
+  const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+  if (href) {
+    use.setAttribute("href", href);
+    icon.append(use);
+  }
   return icon;
 }
 

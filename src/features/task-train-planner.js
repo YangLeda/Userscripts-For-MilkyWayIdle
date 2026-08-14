@@ -2,6 +2,7 @@ import { runtime } from "../core/runtime.js";
 import { matchesGameTranslations } from "../core/game-localization.js";
 import { resolveTaskCards } from "../core/task-card-resolution.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 
 const STYLE_ID = "mwitools-task-train-planner-style";
 const CONTROL_CLASS = "mwi-task-train-planner";
@@ -289,13 +290,17 @@ runtime.features.register({
     renderScheduler = createFrameScheduler(render);
     const schedule = () => renderScheduler.schedule();
     render();
-    const observer = new MutationObserver((records) => {
-      if (shouldRenderTaskTrainMutations(records)) schedule();
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+    subscribeMutationChannel(
+      {
+        name: "task-surface",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope,
+      },
+      (records) => {
+        if (shouldRenderTaskTrainMutations(records)) schedule();
+      },
+    );
     scope.add(runtime.onMessage("quests_updated", schedule));
     scope.add(() => {
       renderScheduler.cancel();

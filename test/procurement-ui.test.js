@@ -19,7 +19,7 @@ localStorage.setItem("i18nextLng", "en-US");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
@@ -27,6 +27,19 @@ await import("../src/core/procurement.js");
 await import("../src/core/planning.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/procurement.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+registerGameLocaleResources("zh", {
+  itemNames: {
+    "/items/cotton": "棉花",
+    "/items/cotton_fabric": "棉布",
+  },
+  actionNames: {
+    "/actions/tailoring/cotton_fabric": "棉花布料",
+  },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+});
 
 // The shopping module follows the MWITools-wide language flag.
 runtime.config.isZH = false;
@@ -887,7 +900,7 @@ test("shopping item clicks prefer and force the game's floating market modal", (
 });
 
 test("shopping data follows the MWITools language at render time", () => {
-  localStorage.setItem("i18nextLng", "en-US");
+  localStorage.setItem("i18nextLng", "zh-CN");
   runtime.config.isZH = true;
   runtime.state.initData_itemDetailMap["/items/cotton"] = { name: "Cotton" };
   runtime.state.initData_actionDetailMap["/actions/tailoring/cotton_fabric"] = {
@@ -955,6 +968,7 @@ test("market shopping navigation renders item icons instead of name pills", () =
   });
   modal.append(panel);
   document.body.append(modal);
+  runtime.api.scanGameSpriteSources({ force: true });
 
   runtime.api.updateProcurementMarketUi();
   const chip = document.querySelector(

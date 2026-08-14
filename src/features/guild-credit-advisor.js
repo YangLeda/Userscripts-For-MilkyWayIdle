@@ -4,6 +4,7 @@ import {
   itemName as localizedItemName,
   localize,
 } from "../core/localization.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const CARD_ID = "mwitools-guild-credit-advisor";
 const LEGACY_STYLE_ID = "mwitools-guild-credit-advisor-style";
@@ -367,34 +368,11 @@ function itemName(itemHrid) {
   return localizedItemName(itemHrid, { fallback: itemHrid });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function itemIconMarkup(itemHrid, name) {
-  const sprite = findItemsSpriteBase();
-  const bare = String(itemHrid ?? "")
-    .split("/")
-    .at(-1);
-  if (!sprite || !bare) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="icon-fallback" aria-label="${escapeHtml(name)}">?</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml(name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 

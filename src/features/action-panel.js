@@ -4,7 +4,6 @@ import { createFrameScheduler } from "../core/frame-scheduler.js";
 const ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
 const EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
 const ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
-const MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
 const ACTION_PANEL_SELECTOR =
   'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1000];
@@ -26,37 +25,6 @@ function addActionPanelStyles() {
   `;
   (document.head ?? document.documentElement).appendChild(style);
 }
-
-/* 动作面板 */
-const waitForActionPanelParent = () => {
-  const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
-  if (targetNode) {
-    console.log(
-      runtime.config.isZH
-        ? "[MWITools] 开始监听行动面板。"
-        : "[MWITools] Started observing the action panel.",
-    );
-    const actionPanelObserver = new MutationObserver(async function (
-      mutations,
-    ) {
-      for (const mutation of mutations) {
-        for (const added of mutation.addedNodes) {
-          const panel = added?.matches?.(ACTION_PANEL_SELECTOR)
-            ? added
-            : added?.querySelector?.(ACTION_PANEL_SELECTOR);
-          if (panel) scheduleActionPanel(panel);
-        }
-      }
-    });
-    actionPanelObserver.observe(targetNode, {
-      attributes: false,
-      childList: true,
-      subtree: true,
-    });
-  } else {
-    setTimeout(waitForActionPanelParent, 200);
-  }
-};
 
 async function handleActionPanel(panel) {
   if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
@@ -516,7 +484,6 @@ const removeInsertedDivs = () =>
     .forEach((div) => div.parentNode.removeChild(div));
 
 Object.assign(runtime.api, {
-  waitForActionPanelParent,
   handleActionPanel,
   getTotalEffiPercentage,
   getActionEfficiencyDetails,

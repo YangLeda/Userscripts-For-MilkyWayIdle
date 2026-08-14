@@ -22,13 +22,23 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/features/production-profit-panel.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
 const { resolveGatheringActionFromElement } =
   await import("../src/features/item-tooltips.js");
+
+const zhGameResources = {
+  itemNames: { "/items/rainbow_milk": "彩虹牛奶" },
+  actionNames: { "/actions/crafting/panel-output": "面板产物" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+};
+registerGameLocaleResources("zh", zhGameResources);
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/panel-output": {
@@ -242,7 +252,7 @@ test("direct gathering actions show every probability-weighted map output", () =
       { itemHrid: "/items/rare_seed", dropRate: 0.1, minCount: 1, maxCount: 1 },
     ],
   };
-  runtime.data.ZHActionNames[actionHrid] = "混合花园";
+  zhGameResources.actionNames[actionHrid] = "混合花园";
   for (const [itemHrid, name] of [
     ["/items/berry", "Berry"],
     ["/items/flower", "Flower"],
@@ -250,7 +260,7 @@ test("direct gathering actions show every probability-weighted map output", () =
     ["/items/rare_seed", "Rare Seed"],
   ]) {
     runtime.state.initData_itemDetailMap[itemHrid] = { name };
-    runtime.data.ZHItemNames[itemHrid] = name;
+    zhGameResources.itemNames[itemHrid] = name;
   }
   runtime.state.initData_actionTypeDrinkSlotsMap["/action_types/foraging"] = [];
   const oldNetSell = runtime.api.getNetSellPrice;

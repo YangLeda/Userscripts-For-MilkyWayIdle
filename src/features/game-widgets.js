@@ -534,6 +534,18 @@ function handleTaskCard() {
       continue;
     }
 
+    const card = div.closest('div[class*="RandomTask_randomTask"]');
+    if (card && "mwitoolsMapIndex" in card.dataset) {
+      const cachedIndex = Number(card.dataset.mwitoolsMapIndex);
+      if (cachedIndex > 0) {
+        div.insertAdjacentHTML(
+          "beforeend",
+          `<span class="script_taskMapIndex" style="text-align: right; color: ${runtime.config.SCRIPT_COLOR_MAIN};"> ${runtime.config.isZH ? "图" : "Z"}${cachedIndex}</span>`,
+        );
+      }
+      continue;
+    }
+
     const taskStr = runtime.api.getOriTextFromElement(div);
     const monsterName = taskStr
       .split(/\s[-–]\s/)
