@@ -34,6 +34,7 @@ const GameAssets = Object.freeze({
   ability: (id) => getGameSpriteHref("abilities", id),
   skill: (id) => getGameSpriteHref("skills", id),
   item: (id) => getGameSpriteHref("items", id),
+  monster: (id) => getGameSpriteHref("combat_monsters", id),
   misc: (id) => getGameSpriteHref("misc", id),
   avatar: (id) => getGameSpriteHref("avatars", id),
   ready: () => loadGameSpriteManifest(),

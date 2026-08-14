@@ -49,7 +49,7 @@ function installBrowserGlobals(dom) {
 
 test("DPS feature reuses settings and cleans repeated enable-disable cycles", async (t) => {
   const dom = new JSDOM(
-    '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div><svg><use href="/static/media/abilities_sprite.test.svg#steady_shot"></use></svg></body></html>',
+    '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div><svg><use href="/static/media/abilities_sprite.test.svg#steady_shot"></use></svg><svg><use href="/static/media/combat_monsters_sprite.test.svg#training_rat"></use></svg></body></html>',
     {
       url: "https://www.milkywayidle.com/",
     },
@@ -293,6 +293,14 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.ok(accuracyTooltip);
   assert.match(accuracyTooltip.textContent, /Training Rat/);
   assert.match(accuracyTooltip.textContent, /100\.0% \(1\/1\)/);
+  const monsterLine = accuracyTooltip.querySelector(
+    '[data-monster-hrid="/monsters/training_rat"]',
+  );
+  assert.ok(monsterLine, "accuracy details must keep the monster identity");
+  assert.match(
+    monsterLine.querySelector("svg use")?.getAttribute("href") || "",
+    /combat_monsters_sprite\.test\.svg#training_rat$/,
+  );
 
   const missPayload = {
     type: "battle_updated",

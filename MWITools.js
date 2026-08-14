@@ -27315,7 +27315,8 @@ ${locks}` : ""}`;
           "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
           "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
           "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
-          "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。"
+          "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。",
+          "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27339,7 +27340,8 @@ ${locks}` : ""}`;
           "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
           "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
           "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
-          "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons."
+          "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons.",
+          "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance."
         ])
       })
     }),
@@ -33887,6 +33889,7 @@ ${locks}` : ""}`;
     ability: (id) => getGameSpriteHref("abilities", id),
     skill: (id) => getGameSpriteHref("skills", id),
     item: (id) => getGameSpriteHref("items", id),
+    monster: (id) => getGameSpriteHref("combat_monsters", id),
     misc: (id) => getGameSpriteHref("misc", id),
     avatar: (id) => getGameSpriteHref("avatars", id),
     ready: () => loadGameSpriteManifest(),
@@ -39950,9 +39953,22 @@ ${locks}` : ""}`;
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap"
         });
+        line.dataset.monsterHrid = monster.monsterHrid || "";
+        const monsterIconSource = monster.monsterHrid ? GameAssets.monster(monster.monsterHrid) : "";
+        const monsterIcon = monsterIconSource ? iconElement(monsterIconSource, monster.monsterName) : null;
+        if (monsterIcon) {
+          Object.assign(monsterIcon.style, {
+            width: "20px",
+            height: "20px",
+            objectFit: "contain",
+            flexShrink: "0",
+            filter: "drop-shadow(0 1px 1px #000)"
+          });
+        }
         label.textContent = monster.monsterName;
         label.title = monster.monsterName;
         stats.textContent = `${(Number(monster.pct) || 0).toFixed(1)}% (${Number(monster.hits) || 0}/${Number(monster.attempts) || 0})`;
+        if (monsterIcon) content.appendChild(monsterIcon);
         content.append(label, stats);
         line.append(bar, content);
         popup.appendChild(line);

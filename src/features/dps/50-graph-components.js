@@ -1,5 +1,6 @@
 import {
   ACCENT,
+  GameAssets,
   Settings,
   el,
   formatDamage,
@@ -769,9 +770,26 @@ const AccuracyBreakdownTooltip = (() => {
           fontVariantNumeric: "tabular-nums",
           whiteSpace: "nowrap",
         });
+      line.dataset.monsterHrid = monster.monsterHrid || "";
+      const monsterIconSource = monster.monsterHrid
+        ? GameAssets.monster(monster.monsterHrid)
+        : "";
+      const monsterIcon = monsterIconSource
+        ? iconElement(monsterIconSource, monster.monsterName)
+        : null;
+      if (monsterIcon) {
+        Object.assign(monsterIcon.style, {
+          width: "20px",
+          height: "20px",
+          objectFit: "contain",
+          flexShrink: "0",
+          filter: "drop-shadow(0 1px 1px #000)",
+        });
+      }
       label.textContent = monster.monsterName;
       label.title = monster.monsterName;
       stats.textContent = `${(Number(monster.pct) || 0).toFixed(1)}% (${Number(monster.hits) || 0}/${Number(monster.attempts) || 0})`;
+      if (monsterIcon) content.appendChild(monsterIcon);
       content.append(label, stats);
       line.append(bar, content);
       popup.appendChild(line);

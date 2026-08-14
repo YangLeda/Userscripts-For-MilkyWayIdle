@@ -415,7 +415,7 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 22);
+  assert.equal(current.body.zh.length, 23);
   assert.match(
     current.body.zh.join("\n"),
     /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
@@ -450,6 +450,10 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.match(
     current.body.zh.join("\n"),
     /优化任务页打开速度.*复用.*避免每张任务卡重复扫描/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /DPS 命中率悬浮明细.*官方怪物图标.*快速区分/,
   );
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);
