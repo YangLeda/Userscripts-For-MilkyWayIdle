@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
@@ -12,6 +13,7 @@ const output = await readFile(
   new URL("../MWITools.js", import.meta.url),
   "utf8",
 );
+const GREASY_FORK_SOURCE_LIMIT = 2_097_152;
 test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
@@ -75,9 +77,25 @@ test("generated userscript is standalone JavaScript", () => {
   assert.doesNotThrow(() => new vm.Script(output));
 });
 
-test("production userscript stays readable and unminified", () => {
+test("production userscript stays readable without identifier or whitespace minification", () => {
   assert.match(output, /function getEffectiveInputCount\(/);
   assert.ok(output.split("\n").length > 10_000);
+});
+
+test("production userscript stays within the Greasy Fork source limit", () => {
+  assert.ok(
+    output.length <= GREASY_FORK_SOURCE_LIMIT,
+    `userscript has ${output.length} characters; limit is ${GREASY_FORK_SOURCE_LIMIT}`,
+  );
+  assert.ok(
+    Buffer.byteLength(output, "utf8") <= GREASY_FORK_SOURCE_LIMIT,
+    `userscript has ${Buffer.byteLength(output, "utf8")} UTF-8 bytes; limit is ${GREASY_FORK_SOURCE_LIMIT}`,
+  );
+  assert.match(
+    output,
+    /Asset-center interface adapted from Everyday Profit Pro/,
+  );
+  assert.match(output, /Permission is hereby granted/);
 });
 
 test("development metadata only changes the userscript identity", async () => {

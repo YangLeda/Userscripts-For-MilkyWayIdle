@@ -21,6 +21,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
         "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
         "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。",
+        "精简发布脚本的冗余语法与未使用代码，在保持变量名、换行可读性和第三方许可证声明的同时降至 Greasy Fork 大小上限以内；构建检查会同时限制字符数和 UTF-8 字节数，防止后续版本再次超限。",
       ]),
       en: Object.freeze([
         "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -33,6 +34,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
         "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
         "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place.",
+        "Reduced redundant syntax and unused code in the published userscript so it fits within Greasy Fork's size limit while keeping readable names, line breaks, and required third-party license notices. Build checks now enforce both character and UTF-8 byte limits to prevent future overflows.",
       ]),
     }),
   }),
