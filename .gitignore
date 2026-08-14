@@ -129,3 +129,6 @@ dist
 # VS Code configs
 .editorconfig
 .vscode/
+
+# Local readable userscript build
+MWITools.dev.user.js
