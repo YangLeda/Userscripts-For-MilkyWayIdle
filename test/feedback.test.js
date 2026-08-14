@@ -413,7 +413,7 @@ test("announcement history preserves each release separately through 26.4.10", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 12);
+  assert.equal(current.body.zh.length, 13);
   assert.match(current.body.zh.join("\n"), /悬浮窗口字号.*标准、较大和最大/);
   assert.match(current.body.zh.join("\n"), /角色初始化或重新连接.*旧库存/);
   assert.match(

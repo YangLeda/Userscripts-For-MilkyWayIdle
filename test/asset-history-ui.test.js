@@ -849,6 +849,65 @@ test("asset center opens from the native P/L tab and cleans up its modal", () =>
   shell.remove();
 });
 
+test("asset charts only stay alive while their mobile surface is visible", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  const chartInstances = [];
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      this.destroyed = false;
+      chartInstances.push(this);
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  };
+
+  const shell = gameShell();
+  const scope = runtime.createCleanupScope();
+  const ui = createAssetHistoryUi({
+    scope,
+    store: new AssetHistoryStore(localStorage),
+    scopeKey: "production:7",
+  });
+  const activeCharts = () =>
+    chartInstances.filter((instance) => !instance.destroyed);
+
+  try {
+    ui.update({ values: { total: 1_000 } });
+    assert.equal(chartInstances.length, 0);
+
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(activeCharts().length, 1);
+
+    document.querySelector("#mwi-asset-open-center").click();
+    assert.equal(activeCharts().length, 1);
+    assert.equal(
+      document.querySelector("#mwitools-asset-center-modal").hidden,
+      false,
+    );
+
+    document.querySelector("#mwitools-asset-center-modal [data-close]").click();
+    assert.equal(activeCharts().length, 1);
+
+    shell.querySelector("#house").click();
+    assert.equal(activeCharts().length, 0);
+    const createdBeforeHiddenUpdate = chartInstances.length;
+    ui.update({ values: { total: 2_000 } });
+    assert.equal(chartInstances.length, createdBeforeHiddenUpdate);
+  } finally {
+    ui.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
+});
+
 test("asset center keeps hidden component lines through live refreshes until close", () => {
   document.body.replaceChildren();
   localStorage.clear();

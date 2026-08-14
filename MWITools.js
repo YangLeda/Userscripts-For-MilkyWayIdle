@@ -13532,10 +13532,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     document.head.append(style);
   }
   var AssetCenter = class {
-    constructor({ store, scopeKey, onChange = null }) {
+    constructor({ store, scopeKey, onChange = null, onVisibilityChange = null }) {
       this.store = store;
       this.scopeKey = scopeKey;
       this.onChange = onChange;
+      this.onVisibilityChange = onVisibilityChange;
       this.route = "chart";
       this.chartMode = this.store.getPreferences().chart.defaultView;
       if (this.chartMode === "statsReport") this.chartMode = "networth";
@@ -13609,7 +13610,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       }
       this.bind();
       this.applyTheme();
-      this.render();
     }
     nav(route, icon, label) {
       return `<button class="ep-nav-item" data-route="${route}"><span class="ep-nav-icon">${icon}</span><span class="ep-nav-text">${label}</span></button>`;
@@ -13646,10 +13646,12 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       this.root.hidden = false;
       document.body.dataset.mwitoolsAssetCenterOpen = "true";
       document.body.style.overflow = "hidden";
+      this.onVisibilityChange?.(true);
       this.root.querySelector("[data-close]").focus();
       this.render();
     }
     close() {
+      const wasOpen = !this.root.hidden;
       this.root.hidden = true;
       delete document.body.dataset.mwitoolsAssetCenterOpen;
       document.body.style.overflow = "";
@@ -13661,6 +13663,10 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
         this.pendingWindowSize = null;
       }
       this.previousFocus?.focus?.();
+      if (wasOpen) this.onVisibilityChange?.(false);
+    }
+    isOpen() {
+      return !this.root.hidden;
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
@@ -14197,6 +14203,7 @@ ${values.map((item) => item.date).join("\n")}`
   // src/features/asset-history/30-panel.js
   var TAB_ID = "mwitools-asset-history-tab";
   var PANEL_ID = "mwitools-asset-history-panel";
+  var CENTER_ID = "mwitools-asset-center-modal";
   var STYLE_ID3 = "mwitools-asset-history-style";
   var ASSET_SHARE_TEMPLATE_COUNT = 12;
   var ROWS = [
@@ -14518,11 +14525,16 @@ ${values.map((item) => item.date).join("\n")}`
       this.snapshot = null;
       this.mode = "total";
       this.range = 30;
+      this.visible = false;
       this.build();
       this.center = createAssetCenter({
         store: this.store,
         scopeKey: this.scopeKey,
-        onChange: () => this.update(this.snapshot)
+        onChange: () => this.update(this.snapshot),
+        onVisibilityChange: (open) => {
+          if (open) this.chart.destroy();
+          else if (this.visible) this.update(this.snapshot);
+        }
       });
     }
     build() {
@@ -14720,6 +14732,7 @@ ${preview}`
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
       this.center?.update(this.snapshot);
+      if (!this.visible || this.center?.isOpen()) return;
       const dayKey = getUtc8DayKey();
       const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
       const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -14819,7 +14832,14 @@ ${preview}`
         range: this.range
       });
     }
+    setVisible(visible2) {
+      this.visible = Boolean(visible2);
+      if (this.visible) return;
+      this.chart.destroy();
+      this.center?.close();
+    }
     destroy() {
+      this.visible = false;
       this.chart.destroy();
       this.center?.destroy();
     }
@@ -14921,6 +14941,7 @@ ${preview}`
         if (currentSelected) lastActiveNativeTab = currentSelected;
       }
       if (host) host.hidden = !active;
+      panel?.setVisible(active);
       if (!active) {
         restoreNative();
         clearNativeTabOverride();
@@ -15023,7 +15044,7 @@ ${preview}`
     const mountObserver = new MutationObserverRef((records) => {
       const relevant = records.some((record) => {
         const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
+        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
           return false;
         }
         if (record.type === "attributes") {
@@ -15034,7 +15055,7 @@ ${preview}`
           );
         }
         return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) && (node.matches?.(
+          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) && (node.matches?.(
             '[class*="CharacterManagement_characterManagement"]'
           ) || node.querySelector?.(
             '[class*="CharacterManagement_characterManagement"]'
@@ -29086,6 +29107,7 @@ ${locks}` : ""}`;
           "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
           "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
           "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。",
+          "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。"
         ]),
@@ -29100,6 +29122,7 @@ ${locks}` : ""}`;
           "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
           "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
           "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place.",
+          "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added."
         ])

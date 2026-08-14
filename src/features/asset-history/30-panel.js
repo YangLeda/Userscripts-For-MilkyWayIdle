@@ -7,6 +7,7 @@ import { createAssetCenter } from "./25-center.js";
 
 const TAB_ID = "mwitools-asset-history-tab";
 const PANEL_ID = "mwitools-asset-history-panel";
+const CENTER_ID = "mwitools-asset-center-modal";
 const STYLE_ID = "mwitools-asset-history-style";
 
 export const ASSET_SHARE_TEMPLATE_COUNT = 12;
@@ -420,11 +421,16 @@ class AssetHistoryPanel {
     this.snapshot = null;
     this.mode = "total";
     this.range = 30;
+    this.visible = false;
     this.build();
     this.center = createAssetCenter({
       store: this.store,
       scopeKey: this.scopeKey,
       onChange: () => this.update(this.snapshot),
+      onVisibilityChange: (open) => {
+        if (open) this.chart.destroy();
+        else if (this.visible) this.update(this.snapshot);
+      },
     });
   }
 
@@ -653,6 +659,7 @@ class AssetHistoryPanel {
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
     this.center?.update(this.snapshot);
+    if (!this.visible || this.center?.isOpen()) return;
     const dayKey = getUtc8DayKey();
     const todayRecord = this.store.getRole(this.scopeKey).days[dayKey];
     const current = this.snapshot?.values ?? todayRecord?.values ?? {};
@@ -790,7 +797,15 @@ class AssetHistoryPanel {
     });
   }
 
+  setVisible(visible) {
+    this.visible = Boolean(visible);
+    if (this.visible) return;
+    this.chart.destroy();
+    this.center?.close();
+  }
+
   destroy() {
+    this.visible = false;
     this.chart.destroy();
     this.center?.destroy();
   }
@@ -903,6 +918,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
       if (currentSelected) lastActiveNativeTab = currentSelected;
     }
     if (host) host.hidden = !active;
+    panel?.setVisible(active);
     if (!active) {
       restoreNative();
       clearNativeTabOverride();
@@ -1028,7 +1044,7 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
         record.target?.nodeType === 1
           ? record.target
           : record.target?.parentElement;
-      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)) {
+      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
         return false;
       }
       if (record.type === "attributes") {
@@ -1042,8 +1058,8 @@ export function createAssetHistoryUi({ scope, store, scopeKey }) {
         (node) =>
           node?.nodeType === 1 &&
           !(
-            node.matches?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`) ||
-            node.closest?.(`#${TAB_ID},#${PANEL_ID},#ep-asset-center`)
+            node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) ||
+            node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)
           ) &&
           (node.matches?.(
             '[class*="CharacterManagement_characterManagement"]',
