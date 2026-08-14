@@ -622,6 +622,55 @@ test("mobile remounts P/L when a different character-management panel becomes vi
   });
 });
 
+test("mobile Planning defers its editor through responsive layout churn", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: 390,
+  });
+  const shell = gameShell();
+  const navigation = shell.querySelector("nav");
+  const originalIsCraftableItem = runtime.api.planning.isCraftableItem;
+  let craftableChecks = 0;
+  runtime.api.planning.isCraftableItem = (...args) => {
+    craftableChecks += 1;
+    return originalIsCraftableItem(...args);
+  };
+  const planningScope = runtime.createCleanupScope();
+  let planningUi = null;
+  try {
+    planningUi = createPlanningUi({ scope: planningScope });
+    const planningTab = document.querySelector("#mwitools-planning-tab");
+    const planningPanel = document.querySelector("#mwitools-planning-panel");
+    assert.ok(planningTab);
+    assert.equal(planningUi.getDiagnostics().panelMounted, false);
+    assert.equal(planningPanel.childElementCount, 0);
+    assert.equal(craftableChecks, 0);
+
+    for (let index = 0; index < 50; index += 1) {
+      navigation.classList.toggle("responsive-pass", index % 2 === 0);
+    }
+    await settleDom();
+    assert.equal(document.querySelectorAll("#mwitools-planning-tab").length, 1);
+    assert.equal(planningUi.getDiagnostics().panelMounted, false);
+    assert.equal(craftableChecks, 0);
+
+    planningTab.click();
+    assert.equal(planningUi.getDiagnostics().panelMounted, true);
+    assert.ok(planningPanel.childElementCount > 0);
+    assert.ok(craftableChecks > 0);
+  } finally {
+    planningUi?.destroy();
+    planningScope.cleanup();
+    runtime.api.planning.isCraftableItem = originalIsCraftableItem;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+  }
+});
+
 test("mobile remounts Planning when responsive character branches switch visibility", async () => {
   document.body.replaceChildren();
   intervals.clear();
