@@ -678,14 +678,20 @@ function buildSegmentPicker(onChanged, compact = false) {
       background: "transparent",
       borderColor: "transparent",
     });
-    const historyIcon = iconElement(TOOLBAR_ICONS.history, "");
-    Object.assign(historyIcon.style, {
-      width: "17px",
-      height: "17px",
-      objectFit: "contain",
-      pointerEvents: "none",
-    });
-    textEl.appendChild(historyIcon);
+    picker._refreshIcon = () => {
+      const source = TOOLBAR_ICONS.history;
+      if (!source) return false;
+      const historyIcon = iconElement(source, "");
+      Object.assign(historyIcon.style, {
+        width: "17px",
+        height: "17px",
+        objectFit: "contain",
+        pointerEvents: "none",
+      });
+      textEl.replaceChildren(historyIcon);
+      return true;
+    };
+    picker._refreshIcon();
     button.appendChild(textEl);
   } else button.append(textEl, arrow);
   picker.appendChild(button);

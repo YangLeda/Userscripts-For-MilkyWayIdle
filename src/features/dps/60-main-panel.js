@@ -1,5 +1,6 @@
 import {
   ACCENT,
+  GameAssets,
   SKILL_MODE_ICONS,
   Settings,
   TAB_CONTAINER_CLASS,
@@ -534,11 +535,18 @@ const KikiMeter = (() => {
         alignItems: "center",
         justifyContent: "center",
       });
-      if (
-        String(content || "").startsWith("data:image/") ||
-        String(content || "").includes("/static/media/")
-      ) {
-        const icon = iconElement(content, "");
+      button._setContent = (nextContent) => {
+        const source = String(nextContent || "");
+        if (!source) return false;
+        const isIcon =
+          source.startsWith("data:image/") ||
+          /\.svg(?:\?[^#]*)?#[^#]+$/i.test(source);
+        if (!isIcon) {
+          button.textContent = source;
+          button._icon = null;
+          return true;
+        }
+        const icon = iconElement(source, "");
         Object.assign(icon.style, {
           width: "17px",
           height: "17px",
@@ -546,8 +554,10 @@ const KikiMeter = (() => {
           pointerEvents: "none",
         });
         button._icon = icon;
-        button.appendChild(icon);
-      } else button.textContent = content;
+        button.replaceChildren(icon);
+        return true;
+      };
+      button._setContent(content);
       button.addEventListener("mousedown", (event) => event.stopPropagation());
       button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -589,6 +599,19 @@ const KikiMeter = (() => {
       if (callbacks.onCopy) callbacks.onCopy(copyTab);
     });
     closeTab = iconButton(TOOLBAR_ICONS.close, "隐藏面板", close);
+    const refreshGameAssetIcons = () => {
+      dpsTab?._setContent(SKILL_MODE_ICONS.attack);
+      hpsTab?._setContent(SKILL_MODE_ICONS.stamina);
+      takenTab?._setContent(SKILL_MODE_ICONS.defense);
+      accuracyTab?._setContent(SKILL_MODE_ICONS.steadyShot);
+      settingsTab?._setContent(TOOLBAR_ICONS.settings);
+      segmentSelect?._refreshIcon?.();
+    };
+    // DPS 可能早于游戏图集出现在页面上。资源清单完成后原位回填，避免
+    // 首次扫描为空时整排按钮永久保持空白。
+    void GameAssets.ready().then(() => {
+      if (p.isConnected) refreshGameAssetIcons();
+    });
     titleTools.append(
       segmentSelect,
       dpsTab,

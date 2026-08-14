@@ -1097,6 +1097,17 @@ test("dungeon counts overlap and filters keep native combat cards", () => {
       "/static/media/actions_sprite.test.svg#pirate_cove",
     ],
   );
+  const firstTaskCard = document.querySelector(TASK_SELECTOR);
+  assert.equal(firstTaskCard.dataset.mwitoolsMapIndex, "1");
+  assert.equal(
+    firstTaskCard.dataset.mwitoolsTaskIconSignature,
+    [
+      "/static/media/combat_monsters_sprite.test.svg#fly",
+      "/static/media/actions_sprite.test.svg#chimerical_den",
+      "/static/media/actions_sprite.test.svg#sinister_circus",
+      "/static/media/actions_sprite.test.svg#pirate_cove",
+    ].join("\n"),
+  );
 
   toolbar
     .querySelector(

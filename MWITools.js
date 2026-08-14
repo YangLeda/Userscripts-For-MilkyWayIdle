@@ -1038,8 +1038,9 @@
     return spriteManifestPromise;
   }
   function getGameSpriteBase(kind) {
-    scanGameSpriteSources();
-    return spriteBases.get(normalizeKind(kind)) ?? "";
+    const normalizedKind = normalizeKind(kind);
+    if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
+    return spriteBases.get(normalizedKind) ?? "";
   }
   function getGameSpriteHref(kind, hrid) {
     const base = getGameSpriteBase(kind);
@@ -2959,6 +2960,8 @@
   var localeResources = /* @__PURE__ */ new Map();
   var reverseIndexes = /* @__PURE__ */ new WeakMap();
   var warnedLocales = /* @__PURE__ */ new Set();
+  var englishResourceCache = null;
+  var englishResourceSignature = [];
   function localizedText(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -3113,9 +3116,11 @@
   function clientData2() {
     return runtime.state.clientData ?? runtime.api.getGameClientData?.() ?? null;
   }
-  function englishResourceMap(type) {
+  function englishResourceDetails(type) {
     const definition = ENTITY_TYPES[type];
-    const details = clientData2()?.[definition.clientDataKey] ?? runtime.state[definition.stateKey] ?? (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+    return clientData2()?.[definition.clientDataKey] ?? runtime.state[definition.stateKey] ?? (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+  }
+  function englishResourceMap(type, details = englishResourceDetails(type)) {
     const result = Object.fromEntries(
       Object.entries(details ?? {}).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
     );
@@ -3128,13 +3133,34 @@
     }
     return result;
   }
+  function englishResourceName(type, hrid) {
+    const details = englishResourceDetails(type);
+    const detail = details instanceof Map ? details.get(hrid) : details?.[hrid];
+    return String(detail?.name ?? "").trim();
+  }
   function englishResources() {
-    return Object.fromEntries(
-      Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+    const entries = Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+      type,
+      definition,
+      englishResourceDetails(type)
+    ]);
+    const signature = [
+      gameVersionKey(),
+      clientData2(),
+      runtime.state.itemEnNameToHridMap,
+      ...entries.map(([, , details]) => details)
+    ];
+    if (englishResourceCache && signature.length === englishResourceSignature.length && signature.every((value, index) => value === englishResourceSignature[index])) {
+      return englishResourceCache;
+    }
+    englishResourceSignature = signature;
+    englishResourceCache = Object.fromEntries(
+      entries.map(([type, definition, details]) => [
         definition.resourceKey,
-        englishResourceMap(type)
+        englishResourceMap(type, details)
       ])
     );
+    return englishResourceCache;
   }
   function gameVersionKey() {
     const data = clientData2();
@@ -3201,6 +3227,10 @@
     const normalizedLocale = normalizeGameLocale(locale);
     localeResources.delete(normalizedLocale);
     warnedLocales.delete(normalizedLocale);
+    if (normalizedLocale === "en") {
+      englishResourceCache = null;
+      englishResourceSignature = [];
+    }
     return getGameLocaleResources(normalizedLocale);
   }
   function entityType(kind) {
@@ -3243,12 +3273,14 @@
     if (direct) return direct;
     const key = normalizedName(name, type);
     if (!key) return "";
-    for (const resources of [
-      getGameLocaleResources(locale),
-      englishResources()
-    ]) {
-      if (!resources) continue;
-      const match = reverseIndex(resources, type).get(key);
+    const localizedResources = getGameLocaleResources(locale);
+    if (localizedResources) {
+      const match = reverseIndex(localizedResources, type).get(key);
+      if (match) return match;
+    }
+    const fallbackResources = englishResources();
+    if (fallbackResources !== localizedResources) {
+      const match = reverseIndex(fallbackResources, type).get(key);
       if (match) return match;
     }
     if (type === "item") {
@@ -3264,7 +3296,8 @@
     const type = entityType(kind);
     if (!type) return fallback;
     const definition = ENTITY_TYPES[type];
-    return getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
+    const localizedName = getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid];
+    return localizedName ?? (englishResourceName(type, hrid) || englishResources()[definition.resourceKey]?.[hrid] || fallback);
   }
   function elementCandidates(element) {
     const result = [];
@@ -3357,6 +3390,8 @@
   function resetGameLocalizationCache() {
     localeResources.clear();
     warnedLocales.clear();
+    englishResourceCache = null;
+    englishResourceSignature = [];
   }
   Object.assign(runtime.api, {
     getGameLocale,
@@ -24861,6 +24896,7 @@ ${locks}` : ""}`;
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
       card.querySelector(":scope > .mwi-task-bg")?.remove();
+      delete card.dataset.mwitoolsTaskIconSignature;
       return;
     }
     const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
@@ -24868,8 +24904,10 @@ ${locks}` : ""}`;
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!hrefs.length) {
       existing?.remove();
+      card.dataset.mwitoolsTaskIconSignature = "";
       return;
     }
+    card.dataset.mwitoolsTaskIconSignature = signature;
     if (existing?.dataset.spriteHref === signature) return;
     existing?.remove();
     const background = document.createElement("div");
@@ -24888,10 +24926,11 @@ ${locks}` : ""}`;
     card.style.position = "relative";
     card.appendChild(background);
   }
-  function taskIconMatches(card, task) {
+  function taskIconMatches(card) {
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!runtime.settings.get("taskIcons")) return !existing;
-    const signature = artworkHrefs(taskArtworksForCard(card, task)).join("\n");
+    if (!("mwitoolsTaskIconSignature" in card.dataset)) return false;
+    const signature = card.dataset.mwitoolsTaskIconSignature;
     return signature ? existing?.dataset.spriteHref === signature : existing === null;
   }
   function visibleTaskTitle(card) {
@@ -25220,6 +25259,8 @@ ${locks}` : ""}`;
       delete card.dataset.mwitoolsFiltered;
       delete card.dataset.mwitoolsLocation;
       delete card.dataset.mwitoolsDungeonSource;
+      delete card.dataset.mwitoolsMapIndex;
+      delete card.dataset.mwitoolsTaskIconSignature;
     });
   }
   function taskCardSnapshot(card, task) {
@@ -25258,6 +25299,9 @@ ${locks}` : ""}`;
         detail: combatDetail,
         title: snapshot.title
       }) : null;
+      const mapIndex = profession.key === "combat" ? Number(
+        runtime.state.initData_actionCategoryDetailMap?.[combatDetail?.category]?.sortIndex
+      ) || 0 : 0;
       const dungeonLocations = profession.key === "combat" ? dungeonLocationsForCard(card, task, {
         title: snapshot.title,
         monsterHrid
@@ -25278,7 +25322,8 @@ ${locks}` : ""}`;
         dungeonLocations,
         monsterGroupKey,
         artwork,
-        artworks
+        artworks,
+        mapIndex
       });
       const taskState = state;
       if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -25291,6 +25336,10 @@ ${locks}` : ""}`;
       if (card.dataset.mwitoolsDungeonHrids !== dungeonHrids) {
         card.dataset.mwitoolsDungeonHrids = dungeonHrids;
       }
+      const mapIndexValue = mapIndex > 0 ? String(mapIndex) : "";
+      if (card.dataset.mwitoolsMapIndex !== mapIndexValue) {
+        card.dataset.mwitoolsMapIndex = mapIndexValue;
+      }
       return {
         card,
         task,
@@ -25302,6 +25351,7 @@ ${locks}` : ""}`;
         monsterGroupKey,
         artwork,
         artworks,
+        mapIndex,
         info: actionSortInfo(task, slot),
         depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
         chain: chains?.get(taskActionHrid(task))?.group ?? index
@@ -25875,7 +25925,7 @@ ${locks}` : ""}`;
     const sameCards = cards.length === lastRenderedCards.length && cards.every((card, index) => card === lastRenderedCards[index]);
     const actionDetails = runtime.state.initData_actionDetailMap;
     const actionCategories = runtime.state.initData_actionCategoryDetailMap;
-    if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature && cardEntries.every(({ card, task }) => taskIconMatches(card, task))) {
+    if (!enteredNewTaskPage && !forceSort && sameCards && actionDetails === lastActionDetails && actionCategories === lastActionCategories && signature === lastTaskRenderSignature && cardEntries.every(({ card }) => taskIconMatches(card))) {
       applyPendingMerge();
       return true;
     }
@@ -25891,7 +25941,6 @@ ${locks}` : ""}`;
         delete card.dataset.mwitoolsLocation;
       }
     });
-    if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
     const rows2 = orderedRows(cards, cardTasks, snapshots);
     rows2.forEach((row) => decorateCard(row.card, row.task, row.artworks));
     wireMergeButtons(cards);
@@ -25962,9 +26011,9 @@ ${locks}` : ""}`;
       };
       renderScheduler = createFrameScheduler(render);
       const scheduleRender = () => renderScheduler.schedule();
-      scanGameSpriteSources({ force: true });
+      const spriteManifest = loadGameSpriteManifest();
       render();
-      void loadGameSpriteManifest().then(() => {
+      void spriteManifest.then(() => {
         lastTaskRenderSignature = "";
         scheduleRender();
       });
@@ -27258,13 +27307,15 @@ ${locks}` : ""}`;
           "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
           "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
           "DPS 面板新增使用“稳定射击”图标的实时命中率排行，可查看每位玩家的可靠直伤命中数与出手数；悬停玩家行可查看对各怪物的命中率。统计会保存到新战斗历史，并排除辅助、持续伤害、反伤与无法归属的同帧结算，避免显示误导数字。",
+          "修复 DPS 标题栏在游戏图集尚未加载时永久缺失大部分图标的问题；伤害、恢复、承伤、命中率、历史与设置的官方图标会在资源就绪后自动补回，并兼容游戏调整后的图集路径。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
           "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
           "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
           "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
-          "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。"
+          "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
+          "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27280,13 +27331,15 @@ ${locks}` : ""}`;
           "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
           "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
           "Added a live accuracy ranking to the DPS panel with the Steady Shot icon, showing each player's reliably resolved direct hits and attempts; hovering a player shows accuracy against each monster. New combat history retains these statistics, while support actions, damage-over-time ticks, reflected damage, and ambiguous simultaneous resolutions are excluded to avoid misleading results.",
+          "Fixed most DPS title-bar icons remaining permanently missing when the game sprites had not loaded yet. The official damage, healing, damage-taken, accuracy, history, and settings icons now appear automatically once resources are ready and remain compatible with changed sprite paths.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
           "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
           "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
           "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
-          "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures."
+          "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
+          "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons."
         ])
       })
     }),
@@ -29765,6 +29818,17 @@ ${locks}` : ""}`;
     );
     for (const div of taskNameDivs) {
       if (div.querySelector("span.script_taskMapIndex")) {
+        continue;
+      }
+      const card = div.closest('div[class*="RandomTask_randomTask"]');
+      if (card && "mwitoolsMapIndex" in card.dataset) {
+        const cachedIndex = Number(card.dataset.mwitoolsMapIndex);
+        if (cachedIndex > 0) {
+          div.insertAdjacentHTML(
+            "beforeend",
+            `<span class="script_taskMapIndex" style="text-align: right; color: ${runtime.config.SCRIPT_COLOR_MAIN};"> ${runtime.config.isZH ? "图" : "Z"}${cachedIndex}</span>`
+          );
+        }
         continue;
       }
       const taskStr = runtime.api.getOriTextFromElement(div);
@@ -33825,6 +33889,7 @@ ${locks}` : ""}`;
     item: (id) => getGameSpriteHref("items", id),
     misc: (id) => getGameSpriteHref("misc", id),
     avatar: (id) => getGameSpriteHref("avatars", id),
+    ready: () => loadGameSpriteManifest(),
     scan: () => scanGameSpriteSources({ force: true })
   });
   var SKILL_MODE_ICONS = {
@@ -34036,7 +34101,7 @@ ${locks}` : ""}`;
   }
   function iconElement(source, label = "") {
     const value = String(source || "");
-    if (value.includes("/static/media/") && value.includes(".svg#")) {
+    if (/\.svg(?:\?[^#]*)?#[^#]+$/i.test(value)) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("role", "img");
       svg.setAttribute("aria-label", label);
@@ -39014,14 +39079,20 @@ ${locks}` : ""}`;
         background: "transparent",
         borderColor: "transparent"
       });
-      const historyIcon = iconElement(TOOLBAR_ICONS.history, "");
-      Object.assign(historyIcon.style, {
-        width: "17px",
-        height: "17px",
-        objectFit: "contain",
-        pointerEvents: "none"
-      });
-      textEl.appendChild(historyIcon);
+      picker._refreshIcon = () => {
+        const source = TOOLBAR_ICONS.history;
+        if (!source) return false;
+        const historyIcon = iconElement(source, "");
+        Object.assign(historyIcon.style, {
+          width: "17px",
+          height: "17px",
+          objectFit: "contain",
+          pointerEvents: "none"
+        });
+        textEl.replaceChildren(historyIcon);
+        return true;
+      };
+      picker._refreshIcon();
       button.appendChild(textEl);
     } else button.append(textEl, arrow);
     picker.appendChild(button);
@@ -40592,8 +40663,16 @@ ${locks}` : ""}`;
           alignItems: "center",
           justifyContent: "center"
         });
-        if (String(content || "").startsWith("data:image/") || String(content || "").includes("/static/media/")) {
-          const icon = iconElement(content, "");
+        button._setContent = (nextContent) => {
+          const source = String(nextContent || "");
+          if (!source) return false;
+          const isIcon = source.startsWith("data:image/") || /\.svg(?:\?[^#]*)?#[^#]+$/i.test(source);
+          if (!isIcon) {
+            button.textContent = source;
+            button._icon = null;
+            return true;
+          }
+          const icon = iconElement(source, "");
           Object.assign(icon.style, {
             width: "17px",
             height: "17px",
@@ -40601,8 +40680,10 @@ ${locks}` : ""}`;
             pointerEvents: "none"
           });
           button._icon = icon;
-          button.appendChild(icon);
-        } else button.textContent = content;
+          button.replaceChildren(icon);
+          return true;
+        };
+        button._setContent(content);
         button.addEventListener("mousedown", (event) => event.stopPropagation());
         button.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -40656,6 +40737,17 @@ ${locks}` : ""}`;
         if (callbacks.onCopy) callbacks.onCopy(copyTab);
       });
       closeTab = iconButton(TOOLBAR_ICONS.close, "隐藏面板", close);
+      const refreshGameAssetIcons = () => {
+        dpsTab?._setContent(SKILL_MODE_ICONS.attack);
+        hpsTab?._setContent(SKILL_MODE_ICONS.stamina);
+        takenTab?._setContent(SKILL_MODE_ICONS.defense);
+        accuracyTab?._setContent(SKILL_MODE_ICONS.steadyShot);
+        settingsTab?._setContent(TOOLBAR_ICONS.settings);
+        segmentSelect?._refreshIcon?.();
+      };
+      void GameAssets.ready().then(() => {
+        if (p.isConnected) refreshGameAssetIcons();
+      });
       titleTools.append(
         segmentSelect,
         dpsTab,

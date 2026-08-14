@@ -47,7 +47,7 @@ function installBrowserGlobals(dom) {
   if (!globalThis.CSS) globalThis.CSS = { escape: (value) => String(value) };
 }
 
-test("DPS feature reuses settings and cleans repeated enable-disable cycles", async () => {
+test("DPS feature reuses settings and cleans repeated enable-disable cycles", async (t) => {
   const dom = new JSDOM(
     '<!doctype html><html><head></head><body><div class="Header_communityBuffs__test"></div><svg><use href="/static/media/abilities_sprite.test.svg#steady_shot"></use></svg></body></html>',
     {
@@ -55,6 +55,28 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
     },
   );
   installBrowserGlobals(dom);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    Object.defineProperty(globalThis, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+  });
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    writable: true,
+    value: async () => ({
+      ok: true,
+      json: async () => ({
+        files: {
+          skills:
+            "https://cdn.example.test/assets/skills_sprite.runtime.svg?v=1",
+          misc: "https://cdn.example.test/assets/misc_sprite.runtime.svg?v=1",
+        },
+      }),
+    }),
+  });
   Object.defineProperties(window, {
     innerWidth: { configurable: true, value: 390 },
     innerHeight: { configurable: true, value: 844 },
@@ -105,6 +127,29 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(document.querySelectorAll("#kikimeter-tab-btn").length, 1);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
+  const dpsPanel = document.querySelector("#kikimeter-panel");
+  const expectedToolbarIcons = [
+    ["Damage Done (DPS)", "attack"],
+    ["Healing (HPS)", "stamina"],
+    ["Damage Taken (DTPS)", "defense"],
+    ["Live Accuracy", "steady_shot"],
+    ["Settings", "settings"],
+  ];
+  for (const [title, symbol] of expectedToolbarIcons) {
+    const button = dpsPanel.querySelector(`button[title="${title}"]`);
+    assert.ok(button, `${title} toolbar button must exist`);
+    assert.match(
+      button.querySelector("use")?.getAttribute("href") || "",
+      new RegExp(`#${symbol}$`),
+      `${title} must recover its official icon after the sprite manifest loads`,
+    );
+  }
+  assert.match(
+    dpsPanel.querySelector("[data-segment-picker] use")?.getAttribute("href") ||
+      "",
+    /#loot_tracker$/,
+  );
+
   const originalParse = JSON.parse;
   let parseCount = 0;
   JSON.parse = (...args) => {
@@ -152,7 +197,6 @@ test("DPS feature reuses settings and cleans repeated enable-disable cycles", as
   assert.equal(launcher.style.left, "102px");
   assert.equal(launcher.style.top, "10px");
 
-  const dpsPanel = document.querySelector("#kikimeter-panel");
   installBoxMetrics(dpsPanel, 330, 212);
   let hiddenPanelMutations = 0;
   const hiddenPanelObserver = new dom.window.MutationObserver(

@@ -415,10 +415,14 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 20);
+  assert.equal(current.body.zh.length, 22);
   assert.match(
     current.body.zh.join("\n"),
     /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /DPS 标题栏.*永久缺失大部分图标.*资源就绪后自动补回.*图集路径/,
   );
   assert.match(
     current.body.zh.join("\n"),
@@ -442,6 +446,10 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.match(
     current.body.zh.join("\n"),
     /恢复食物与饮品的回复性价比.*回复 100 血或蓝所需金币/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /优化任务页打开速度.*复用.*避免每张任务卡重复扫描/,
   );
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);

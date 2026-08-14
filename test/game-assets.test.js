@@ -19,7 +19,7 @@ globalThis.fetch = () => {
 Object.defineProperty(globalThis, "performance", {
   configurable: true,
   value: {
-    now: () => 1,
+    now: () => currentTime,
     getEntriesByType: () => [
       {
         name: "https://cdn.example.test/assets/abilities_sprite.live.svg",
@@ -27,6 +27,8 @@ Object.defineProperty(globalThis, "performance", {
     ],
   },
 });
+
+let currentTime = 1;
 
 const {
   getGameSpriteHref,
@@ -48,6 +50,28 @@ test("sprite registry discovers DOM and resource entries without network request
     "https://cdn.example.test/assets/abilities_sprite.live.svg#puncture",
   );
   assert.equal(fetchCalls, 0);
+});
+
+test("known sprite kinds do not rescan the full document after the throttle expires", () => {
+  resetGameSpriteSources();
+  currentTime = 1;
+  scanGameSpriteSources({ force: true });
+  const originalQuerySelectorAll = document.querySelectorAll.bind(document);
+  let scans = 0;
+  document.querySelectorAll = (...args) => {
+    scans += 1;
+    return originalQuerySelectorAll(...args);
+  };
+  try {
+    currentTime = 5_000;
+    assert.equal(
+      getGameSpriteHref("item", "/items/coin"),
+      "/static/media/items_sprite.dom.svg#coin",
+    );
+    assert.equal(scans, 0);
+  } finally {
+    document.querySelectorAll = originalQuerySelectorAll;
+  }
 });
 
 test("missing sprite kinds stay empty and accept later runtime discovery", () => {

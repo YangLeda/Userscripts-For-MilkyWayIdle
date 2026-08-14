@@ -6,6 +6,7 @@ import trendIcon from "./assets/trend.png";
 import { runtime } from "../../core/runtime.js";
 import {
   getGameSpriteHref,
+  loadGameSpriteManifest,
   scanGameSpriteSources,
 } from "../../core/game-assets.js";
 import { getGameTranslation } from "../../core/game-localization.js";
@@ -35,6 +36,7 @@ const GameAssets = Object.freeze({
   item: (id) => getGameSpriteHref("items", id),
   misc: (id) => getGameSpriteHref("misc", id),
   avatar: (id) => getGameSpriteHref("avatars", id),
+  ready: () => loadGameSpriteManifest(),
   scan: () => scanGameSpriteSources({ force: true }),
 });
 const SKILL_MODE_ICONS = {
@@ -271,7 +273,7 @@ function el(tag, styles) {
 }
 function iconElement(source, label = "") {
   const value = String(source || "");
-  if (value.includes("/static/media/") && value.includes(".svg#")) {
+  if (/\.svg(?:\?[^#]*)?#[^#]+$/i.test(value)) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", label);

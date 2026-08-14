@@ -104,6 +104,8 @@ const TYPE_ALIASES = Object.freeze({
 const localeResources = new Map();
 const reverseIndexes = new WeakMap();
 const warnedLocales = new Set();
+let englishResourceCache = null;
+let englishResourceSignature = [];
 
 function localizedText(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -308,12 +310,16 @@ function clientData() {
   return runtime.state.clientData ?? runtime.api.getGameClientData?.() ?? null;
 }
 
-function englishResourceMap(type) {
+function englishResourceDetails(type) {
   const definition = ENTITY_TYPES[type];
-  const details =
+  return (
     clientData()?.[definition.clientDataKey] ??
     runtime.state[definition.stateKey] ??
-    (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+    (type === "monster" ? runtime.state.initData_monsterDetailMap : null)
+  );
+}
+
+function englishResourceMap(type, details = englishResourceDetails(type)) {
   const result = Object.fromEntries(
     Object.entries(details ?? {})
       .map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()])
@@ -329,13 +335,39 @@ function englishResourceMap(type) {
   return result;
 }
 
+function englishResourceName(type, hrid) {
+  const details = englishResourceDetails(type);
+  const detail = details instanceof Map ? details.get(hrid) : details?.[hrid];
+  return String(detail?.name ?? "").trim();
+}
+
 function englishResources() {
-  return Object.fromEntries(
-    Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+  const entries = Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+    type,
+    definition,
+    englishResourceDetails(type),
+  ]);
+  const signature = [
+    gameVersionKey(),
+    clientData(),
+    runtime.state.itemEnNameToHridMap,
+    ...entries.map(([, , details]) => details),
+  ];
+  if (
+    englishResourceCache &&
+    signature.length === englishResourceSignature.length &&
+    signature.every((value, index) => value === englishResourceSignature[index])
+  ) {
+    return englishResourceCache;
+  }
+  englishResourceSignature = signature;
+  englishResourceCache = Object.fromEntries(
+    entries.map(([type, definition, details]) => [
       definition.resourceKey,
-      englishResourceMap(type),
+      englishResourceMap(type, details),
     ]),
   );
+  return englishResourceCache;
 }
 
 function gameVersionKey() {
@@ -418,6 +450,10 @@ export function refreshGameLocaleResources(locale = getGameLocale()) {
   const normalizedLocale = normalizeGameLocale(locale);
   localeResources.delete(normalizedLocale);
   warnedLocales.delete(normalizedLocale);
+  if (normalizedLocale === "en") {
+    englishResourceCache = null;
+    englishResourceSignature = [];
+  }
   return getGameLocaleResources(normalizedLocale);
 }
 
@@ -472,12 +508,14 @@ export function resolveLocalizedEntity(
   if (direct) return direct;
   const key = normalizedName(name, type);
   if (!key) return "";
-  for (const resources of [
-    getGameLocaleResources(locale),
-    englishResources(),
-  ]) {
-    if (!resources) continue;
-    const match = reverseIndex(resources, type).get(key);
+  const localizedResources = getGameLocaleResources(locale);
+  if (localizedResources) {
+    const match = reverseIndex(localizedResources, type).get(key);
+    if (match) return match;
+  }
+  const fallbackResources = englishResources();
+  if (fallbackResources !== localizedResources) {
+    const match = reverseIndex(fallbackResources, type).get(key);
     if (match) return match;
   }
   if (type === "item") {
@@ -498,10 +536,13 @@ export function getLocalizedEntityName(
   const type = entityType(kind);
   if (!type) return fallback;
   const definition = ENTITY_TYPES[type];
+  const localizedName =
+    getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid];
   return (
-    getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid] ??
-    englishResources()[definition.resourceKey]?.[hrid] ??
-    fallback
+    localizedName ??
+    (englishResourceName(type, hrid) ||
+      englishResources()[definition.resourceKey]?.[hrid] ||
+      fallback)
   );
 }
 
@@ -632,6 +673,8 @@ export function matchesGameTranslations(
 export function resetGameLocalizationCache() {
   localeResources.clear();
   warnedLocales.clear();
+  englishResourceCache = null;
+  englishResourceSignature = [];
 }
 
 Object.assign(runtime.api, {

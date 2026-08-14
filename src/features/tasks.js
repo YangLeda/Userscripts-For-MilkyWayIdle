@@ -16,7 +16,6 @@ import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import {
   getGameSpriteHref,
   loadGameSpriteManifest,
-  scanGameSpriteSources,
 } from "../core/game-assets.js";
 
 const STYLE_ID = "mwitools-task-style";
@@ -502,6 +501,7 @@ function decorateCard(card, task, artworks = null) {
   card.querySelector(".mwi-task-insight")?.remove();
   if (!runtime.settings.get("taskIcons")) {
     card.querySelector(":scope > .mwi-task-bg")?.remove();
+    delete card.dataset.mwitoolsTaskIconSignature;
     return;
   }
   const hrefs = artworkHrefs(artworks ?? taskArtworksForCard(card, task));
@@ -509,8 +509,10 @@ function decorateCard(card, task, artworks = null) {
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!hrefs.length) {
     existing?.remove();
+    card.dataset.mwitoolsTaskIconSignature = "";
     return;
   }
+  card.dataset.mwitoolsTaskIconSignature = signature;
   if (existing?.dataset.spriteHref === signature) return;
   existing?.remove();
   const background = document.createElement("div");
@@ -530,10 +532,11 @@ function decorateCard(card, task, artworks = null) {
   card.appendChild(background);
 }
 
-function taskIconMatches(card, task) {
+function taskIconMatches(card) {
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!runtime.settings.get("taskIcons")) return !existing;
-  const signature = artworkHrefs(taskArtworksForCard(card, task)).join("\n");
+  if (!("mwitoolsTaskIconSignature" in card.dataset)) return false;
+  const signature = card.dataset.mwitoolsTaskIconSignature;
   return signature
     ? existing?.dataset.spriteHref === signature
     : existing === null;
@@ -944,6 +947,8 @@ function cleanupListDecorations({ restoreOrder = true } = {}) {
       delete card.dataset.mwitoolsFiltered;
       delete card.dataset.mwitoolsLocation;
       delete card.dataset.mwitoolsDungeonSource;
+      delete card.dataset.mwitoolsMapIndex;
+      delete card.dataset.mwitoolsTaskIconSignature;
     });
 }
 
@@ -994,6 +999,14 @@ function orderedRows(cards, tasks, snapshots = null) {
             title: snapshot.title,
           })
         : null;
+    const mapIndex =
+      profession.key === "combat"
+        ? Number(
+            runtime.state.initData_actionCategoryDetailMap?.[
+              combatDetail?.category
+            ]?.sortIndex,
+          ) || 0
+        : 0;
     const dungeonLocations =
       profession.key === "combat"
         ? dungeonLocationsForCard(card, task, {
@@ -1023,6 +1036,7 @@ function orderedRows(cards, tasks, snapshots = null) {
       monsterGroupKey,
       artwork,
       artworks,
+      mapIndex,
     });
     const taskState = state;
     if (card.dataset.mwitoolsTaskState !== taskState) {
@@ -1038,6 +1052,10 @@ function orderedRows(cards, tasks, snapshots = null) {
     if (card.dataset.mwitoolsDungeonHrids !== dungeonHrids) {
       card.dataset.mwitoolsDungeonHrids = dungeonHrids;
     }
+    const mapIndexValue = mapIndex > 0 ? String(mapIndex) : "";
+    if (card.dataset.mwitoolsMapIndex !== mapIndexValue) {
+      card.dataset.mwitoolsMapIndex = mapIndexValue;
+    }
     return {
       card,
       task,
@@ -1049,6 +1067,7 @@ function orderedRows(cards, tasks, snapshots = null) {
       monsterGroupKey,
       artwork,
       artworks,
+      mapIndex,
       info: actionSortInfo(task, slot),
       depth: chains?.get(taskActionHrid(task))?.depth ?? 0,
       chain: chains?.get(taskActionHrid(task))?.group ?? index,
@@ -1727,7 +1746,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
     actionDetails === lastActionDetails &&
     actionCategories === lastActionCategories &&
     signature === lastTaskRenderSignature &&
-    cardEntries.every(({ card, task }) => taskIconMatches(card, task))
+    cardEntries.every(({ card }) => taskIconMatches(card))
   ) {
     applyPendingMerge();
     return true;
@@ -1745,7 +1764,6 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
       delete card.dataset.mwitoolsLocation;
     }
   });
-  if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
   const rows = orderedRows(cards, cardTasks, snapshots);
   rows.forEach((row) => decorateCard(row.card, row.task, row.artworks));
   wireMergeButtons(cards);
@@ -1821,9 +1839,9 @@ runtime.features.register({
     };
     renderScheduler = createFrameScheduler(render);
     const scheduleRender = () => renderScheduler.schedule();
-    scanGameSpriteSources({ force: true });
+    const spriteManifest = loadGameSpriteManifest();
     render();
-    void loadGameSpriteManifest().then(() => {
+    void spriteManifest.then(() => {
       lastTaskRenderSignature = "";
       scheduleRender();
     });

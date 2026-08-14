@@ -85,8 +85,9 @@ export function loadGameSpriteManifest() {
 }
 
 export function getGameSpriteBase(kind) {
-  scanGameSpriteSources();
-  return spriteBases.get(normalizeKind(kind)) ?? "";
+  const normalizedKind = normalizeKind(kind);
+  if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
+  return spriteBases.get(normalizedKind) ?? "";
 }
 
 export function getGameSpriteHref(kind, hrid) {
