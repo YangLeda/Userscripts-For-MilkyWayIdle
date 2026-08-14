@@ -897,6 +897,8 @@ test("asset center keeps hidden component lines through live refreshes until clo
     center.open();
     center.chartMode = "breakdown";
     center.drawCenterChart();
+    const chartButton = center.root.querySelector('[data-chart-mode="total"]');
+    const chartCanvas = center.root.querySelector("[data-center-chart]");
     let activeChart = chartInstances.at(-1);
     activeChart.options.plugins.legend.onClick(
       null,
@@ -906,8 +908,25 @@ test("asset center keeps hidden component lines through live refreshes until clo
     assert.equal(activeChart.isDatasetVisible(0), false);
 
     center.update({ values: { ...values(750), total: 3_450 } });
-    activeChart = chartInstances.at(-1);
+    assert.equal(
+      center.root.querySelector('[data-chart-mode="total"]'),
+      chartButton,
+    );
+    assert.equal(center.root.querySelector("[data-center-chart]"), chartCanvas);
+    assert.equal(chartInstances.at(-1), activeChart);
     assert.equal(activeChart.data.datasets[0].hidden, true);
+    assert.equal(
+      center.root.querySelector('[data-live-metric="current"]').textContent,
+      "3,450",
+    );
+    const currentMetricText = center.root.querySelector(
+      '[data-live-metric="current"]',
+    ).firstChild;
+    center.update({ values: { ...values(750), total: 3_450 } });
+    assert.equal(
+      center.root.querySelector('[data-live-metric="current"]').firstChild,
+      currentMetricText,
+    );
 
     center.close();
     center.open();
@@ -963,6 +982,29 @@ test("asset center preserves management controls during live snapshot updates", 
     assert.equal(center.root.querySelector("[data-import-mode]"), importMode);
     assert.equal(importMode.value, "replace");
     assert.equal(document.activeElement, importMode);
+  } finally {
+    center.destroy();
+  }
+});
+
+test("asset center keeps analysis controls mounted during live snapshot updates", () => {
+  document.body.replaceChildren();
+  localStorage.clear();
+  const store = new AssetHistoryStore(localStorage);
+  const center = new AssetCenter({ store, scopeKey: "production:7" });
+
+  try {
+    center.open();
+    for (const route of ["analysis", "stats", "achievements"]) {
+      center.root.querySelector(`[data-route="${route}"]`).click();
+      const page = center.root.querySelector(".ep-page");
+      const content = page.firstElementChild;
+      const firstControl = page.querySelector("button");
+      center.update({ values: { total: 12_345 } });
+      assert.equal(center.root.querySelector(".ep-page"), page);
+      assert.equal(page.firstElementChild, content);
+      assert.equal(page.querySelector("button"), firstControl);
+    }
   } finally {
     center.destroy();
   }

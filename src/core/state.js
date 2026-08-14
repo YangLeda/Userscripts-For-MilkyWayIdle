@@ -1,7 +1,11 @@
 import marketBackup from "../data/market-backup.json" with { type: "json" };
 import { runtime } from "./runtime.js";
 
-const MARKET_JSON_LOCAL_BACKUP = JSON.stringify(marketBackup);
+const MARKET_JSON_LOCAL_BACKUP =
+  typeof marketBackup === "string"
+    ? marketBackup
+    : JSON.stringify(marketBackup);
+const MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED = typeof marketBackup === "string";
 
 let initData_characterSkills = null;
 
@@ -90,6 +94,12 @@ Object.defineProperties(runtime.data, {
     enumerable: true,
     get() {
       return MARKET_JSON_LOCAL_BACKUP;
+    },
+  },
+  MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED: {
+    enumerable: true,
+    get() {
+      return MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED;
     },
   },
 });

@@ -263,12 +263,7 @@ export class AssetCenter {
 
   update(snapshot) {
     this.snapshot = snapshot ?? this.snapshot;
-    if (
-      !this.root.hidden &&
-      ["chart", "analysis", "stats", "achievements"].includes(this.route)
-    ) {
-      this.render();
-    }
+    if (!this.root.hidden && this.route === "chart") this.updateChartSummary();
   }
 
   applyTheme() {
@@ -346,16 +341,41 @@ export class AssetCenter {
     return { entries, current, previous, change };
   }
 
-  metric(label, value, className = "") {
-    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+  metric(label, value, className = "", liveKey = "") {
+    return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}"${liveKey ? ` data-live-metric="${liveKey}"` : ""} title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+  }
+
+  chartSummaryValues() {
+    const { current, previous, change } = this.summaryValues();
+    return [
+      ["current", current.total, ""],
+      ["change", change, change >= 0 ? "pos" : "neg"],
+      ["percent", previous.total ? (change / previous.total) * 100 : null, ""],
+      ["average", this.store.sevenDayAverage(undefined, this.scopeKey), "pos"],
+    ];
+  }
+
+  updateChartSummary() {
+    for (const [key, value, className] of this.chartSummaryValues()) {
+      const metric = this.root.querySelector(`[data-live-metric="${key}"]`);
+      if (!metric) continue;
+      metric.classList.toggle("pos", className === "pos");
+      metric.classList.toggle("neg", className === "neg");
+      const title = Number.isFinite(value)
+        ? String(runtime.api.formatExactNumber?.(value, 0) ?? value)
+        : "";
+      const text = this.format(value, className !== "");
+      if (metric.title !== title) metric.title = title;
+      if (metric.textContent !== text) metric.textContent = text;
+    }
   }
 
   renderChartPage(page) {
-    const { entries, current, previous, change } = this.summaryValues();
-    const percent = previous.total ? (change / previous.total) * 100 : null;
+    const { entries } = this.summaryValues();
+    const [current, change, percent, average] = this.chartSummaryValues();
     const prefs = this.store.getPreferences();
     const target = this.store.getGoalTarget(this.scopeKey);
-    page.innerHTML = `<div class="ep-grid">${this.metric(this.t("当前净资产", "Current net worth"), current.total)}${this.metric(this.t("本期盈亏", "Current P/L"), change, change >= 0 ? "pos" : "neg")}${this.metric(this.t("盈亏比例", "P/L percentage"), percent)}${this.metric(this.t("近 7 日平均", "7-day average"), this.store.sevenDayAverage(undefined, this.scopeKey), "pos")}</div>
+    page.innerHTML = `<div class="ep-grid">${this.metric(this.t("当前净资产", "Current net worth"), current[1], current[2], current[0])}${this.metric(this.t("本期盈亏", "Current P/L"), change[1], change[2], change[0])}${this.metric(this.t("盈亏比例", "P/L percentage"), percent[1], percent[2], percent[0])}${this.metric(this.t("近 7 日平均", "7-day average"), average[1], average[2], average[0])}</div>
       <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
       <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
       <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;

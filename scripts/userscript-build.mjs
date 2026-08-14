@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 import { build } from "esbuild";
+import LZString from "lz-string";
 
 export const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -24,6 +25,30 @@ export async function getDevelopmentBanner() {
     );
 }
 
+export function compressMarketBackup(source) {
+  const normalized = JSON.stringify(JSON.parse(source));
+  const compressed = LZString.compressToBase64(normalized);
+  if (!compressed) throw new Error("Failed to compress the market backup");
+  return compressed;
+}
+
+function compressedMarketBackupPlugin() {
+  return {
+    name: "compressed-market-backup",
+    setup(buildContext) {
+      buildContext.onLoad(
+        { filter: /[\\/]market-backup\.json$/ },
+        async ({ path: filePath }) => ({
+          contents: `export default ${JSON.stringify(
+            compressMarketBackup(await readFile(filePath, "utf8")),
+          )};`,
+          loader: "js",
+        }),
+      );
+    },
+  };
+}
+
 export async function buildUserscript({ banner, outfile }) {
   await build({
     absWorkingDir: projectRoot,
@@ -38,6 +63,7 @@ export async function buildUserscript({ banner, outfile }) {
     sourcemap: false,
     legalComments: "inline",
     treeShaking: false,
+    plugins: [compressedMarketBackupPlugin()],
     loader: { ".png": "dataurl" },
     banner: { js: banner },
   });
