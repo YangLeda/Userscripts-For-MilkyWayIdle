@@ -394,7 +394,7 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.10", () => {
+test("announcement history preserves each release separately through 26.4.11", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
   const older = ANNOUNCEMENTS[2];
@@ -402,10 +402,12 @@ test("announcement history preserves each release separately through 26.4.10", (
   const earliest = ANNOUNCEMENTS[4];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.10", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.10");
+  assert.equal(current.version, "26.4.11");
   assert.equal(current.publishedAt, "2026-08-14");
+  assert.match(current.title.zh, /26\.4\.11 重要更新公告/);
+  assert.match(current.title.en, /Important version 26\.4\.11 update/);
   assert.equal(previous.version, "26.4.9");
   assert.equal(previous.publishedAt, "2026-08-13");
   assert.equal(older.version, "26.4.8");

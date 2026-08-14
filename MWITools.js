@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.10
+// @version      26.4.11
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -27054,12 +27054,12 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
-      id: "26.4.10",
-      version: "26.4.10",
+      id: "26.4.11",
+      version: "26.4.11",
       publishedAt: "2026-08-14",
       title: Object.freeze({
-        zh: "26.4.10 更新公告",
-        en: "Version 26.4.10 update"
+        zh: "26.4.11 重要更新公告",
+        en: "Important version 26.4.11 update"
       }),
       body: Object.freeze({
         zh: Object.freeze([
@@ -33425,7 +33425,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.10");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.11");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

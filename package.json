@@ -1,6 +1,6 @@
 {
   "name": "mwitools-userscript",
-  "version": "26.4.10",
+  "version": "26.4.11",
   "private": true,
   "type": "module",
   "scripts": {
