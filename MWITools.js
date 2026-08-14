@@ -595,6 +595,7 @@
   var featureStates = /* @__PURE__ */ new Map();
   var featureStatusListeners = /* @__PURE__ */ new Set();
   var runtimeStarted = false;
+  var featureInitializationPaused = false;
   var activeCharacterId = "";
   function emitFeatureStatus(id) {
     const snapshot = runtime.features.getStatus(id);
@@ -721,6 +722,7 @@
       this.starts.push({ name, start: start2 });
     },
     start() {
+      featureInitializationPaused = false;
       for (const feature of this.starts) {
         try {
           const result = feature.start();
@@ -784,7 +786,9 @@
             error: null
           });
         }
-        if (runtimeStarted) void initializeFeature(definition.id);
+        if (runtimeStarted && !featureInitializationPaused) {
+          void initializeFeature(definition.id);
+        }
         return definition.id;
       },
       async initializeAll(scope = null) {
@@ -800,20 +804,36 @@
         return initializeFeature(id);
       },
       async syncSetting(settingId) {
-        const touched = [];
+        return this.syncSettings([settingId]);
+      },
+      async syncSettings(settingIds) {
+        const changed = new Set(settingIds ?? []);
+        const affected = /* @__PURE__ */ new Set();
         for (const [id, definition] of featureDefinitions) {
-          if (definition.setting !== settingId) continue;
-          touched.push(id);
-          if (isFeatureEnabled(definition)) await initializeFeature(id);
-          else await disableFeature(id);
+          if (changed.has(definition.setting)) affected.add(id);
         }
-        for (const parentId of touched) {
+        let expanded = true;
+        while (expanded) {
+          expanded = false;
           for (const [id, definition] of featureDefinitions) {
-            if (!definition.dependsOn?.includes(parentId)) continue;
-            if (isFeatureEnabled(definition)) await initializeFeature(id);
-            else await disableFeature(id);
+            if (!affected.has(id) && definition.dependsOn?.some(
+              (dependencyId) => affected.has(dependencyId)
+            )) {
+              affected.add(id);
+              expanded = true;
+            }
           }
         }
+        if (featureInitializationPaused) return [...affected];
+        for (const [id, definition] of [...featureDefinitions].reverse()) {
+          if (!affected.has(id) || isFeatureEnabled(definition)) continue;
+          await disableFeature(id);
+        }
+        for (const [id, definition] of featureDefinitions) {
+          if (!affected.has(id) || !isFeatureEnabled(definition)) continue;
+          await initializeFeature(id);
+        }
+        return [...affected];
       },
       async handleCharacterData(payload) {
         const nextCharacterId = resolveCharacterId(payload);
@@ -825,7 +845,15 @@
         }
         const changed = activeCharacterId !== nextCharacterId;
         activeCharacterId = nextCharacterId;
-        if (changed) await this.initializeAll("character");
+        if (changed && !featureInitializationPaused) {
+          await this.initializeAll("character");
+        }
+      },
+      pauseInitialization() {
+        featureInitializationPaused = true;
+      },
+      resumeInitialization() {
+        featureInitializationPaused = false;
       },
       getStatus(id) {
         const state = featureStates.get(id) ?? {
@@ -1992,6 +2020,80 @@
     await runtime.features.syncSetting(id);
     return true;
   }
+  async function applySettingsBatch({ values = {}, preferences = {} } = {}, options = {}) {
+    const settingChanges = [];
+    const preferenceChanges = [];
+    const nextValues = { ...values };
+    if (Object.hasOwn(preferences, "productionSummaryMode") && !Object.hasOwn(nextValues, "productionSummary")) {
+      nextValues.productionSummary = normalizePreference(
+        "productionSummaryMode",
+        preferences.productionSummaryMode
+      ) !== "off";
+    }
+    for (const [id, value] of Object.entries(nextValues)) {
+      if (!settingsMap[id]) {
+        throw new TypeError(`Unknown MWITools setting: ${id}`);
+      }
+      if (typeof value !== "boolean") {
+        throw new TypeError(`MWITools setting ${id} must be boolean`);
+      }
+    }
+    for (const [id, value] of Object.entries(preferences)) {
+      if (!preferenceDefinitions[id]) {
+        throw new TypeError(`Unknown MWITools preference: ${id}`);
+      }
+      if (!preferenceDefinitions[id].values.includes(value)) {
+        throw new TypeError(`Invalid MWITools preference value for ${id}`);
+      }
+    }
+    for (const [id, value] of Object.entries(nextValues)) {
+      const normalized = value;
+      const previous = settingsMap[id].isTrue;
+      settingsMap[id].isTrue = normalized;
+      if (previous !== normalized || options.force) {
+        settingChanges.push({ id, value: normalized, previous });
+      }
+    }
+    for (const [id, value] of Object.entries(preferences)) {
+      const normalized = normalizePreference(id, value);
+      if (normalized === void 0) continue;
+      const previous = preferenceValues[id];
+      preferenceValues[id] = normalized;
+      if (previous !== normalized || options.force) {
+        preferenceChanges.push({ id, value: normalized, previous });
+      }
+    }
+    if (options.persist !== false) runtime.api.persistSettings?.();
+    for (const change of preferenceChanges) {
+      for (const listener of preferenceListeners.get(change.id) ?? []) {
+        try {
+          listener(change.value, change.previous);
+        } catch (error) {
+          console.error(
+            isZH ? `[MWITools] 偏好设置 ${change.id} 的监听器执行失败` : `[MWITools] Preference listener failed for ${change.id}`,
+            error
+          );
+        }
+      }
+    }
+    for (const change of settingChanges) {
+      for (const listener of settingListeners.get(change.id) ?? []) {
+        try {
+          listener(change.value, change.previous);
+        } catch (error) {
+          console.error(
+            isZH ? `[MWITools] 设置 ${change.id} 的监听器执行失败` : `[MWITools] Setting listener failed for ${change.id}`,
+            error
+          );
+        }
+      }
+    }
+    await runtime.features.syncSettings(settingChanges.map(({ id }) => id));
+    return {
+      settings: settingChanges.map(({ id }) => id),
+      preferences: preferenceChanges.map(({ id }) => id)
+    };
+  }
   function onSettingChange(id, listener) {
     const listeners2 = settingListeners.get(id) ?? /* @__PURE__ */ new Set();
     listeners2.add(listener);
@@ -2095,6 +2197,7 @@
   Object.assign(runtime.settings, {
     get: getSetting,
     set: setSetting,
+    applyBatch: applySettingsBatch,
     onChange: onSettingChange,
     getPreference,
     setPreference,
@@ -25426,7 +25529,7 @@
   }
   function showDuplicateWarning(duplicates, {
     documentRef = globalThis.document,
-    isZH: isZH2 = runtime.config.isZH,
+    isZH: isZH3 = runtime.config.isZH,
     onDismiss = null
   } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
@@ -25440,7 +25543,7 @@
       const close = documentRef.createElement("button");
       close.type = "button";
       close.textContent = "×";
-      close.setAttribute("aria-label", isZH2 ? "关闭提醒" : "Close warning");
+      close.setAttribute("aria-label", isZH3 ? "关闭提醒" : "Close warning");
       close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
       close.addEventListener("click", () => {
         onDismiss?.();
@@ -25450,8 +25553,8 @@
       documentRef.body.append(warning);
     }
     const content = warning.lastElementChild;
-    const names = duplicates.join(isZH2 ? "、" : ", ");
-    const message = isZH2 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
+    const names = duplicates.join(isZH3 ? "、" : ", ");
+    const message = isZH3 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
     if (content.textContent !== message) content.textContent = message;
     return warning;
   }
@@ -35785,7 +35888,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   });
 
   // src/core/time-format.js
-  function formatRemainingDuration(seconds, isZH2 = true) {
+  function formatRemainingDuration(seconds, isZH3 = true) {
     if (seconds === Infinity) return "∞";
     if (!Number.isFinite(seconds)) return "—";
     const normalized = Math.max(0, Math.round(seconds));
@@ -35801,14 +35904,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       const value = Math.floor(remainder / size);
       remainder %= size;
       if (value > 0 || size === 1 && parts.length === 0) {
-        parts.push(`${value}${isZH2 ? zh : en}`);
+        parts.push(`${value}${isZH3 ? zh : en}`);
       }
     }
-    return parts.join(isZH2 ? "" : " ");
+    return parts.join(isZH3 ? "" : " ");
   }
-  function format24HourClock(timestamp, isZH2 = true) {
+  function format24HourClock(timestamp, isZH3 = true) {
     if (!Number.isFinite(timestamp)) return "—";
-    return new Intl.DateTimeFormat(isZH2 ? "zh-CN" : "en-US", {
+    return new Intl.DateTimeFormat(isZH3 ? "zh-CN" : "en-US", {
       hour: "2-digit",
       hourCycle: "h23",
       minute: "2-digit",
@@ -35823,14 +35926,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const toDay = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
     return Math.round((toDay - fromDay) / 864e5);
   }
-  function formatRemainingTiming(totalSeconds, finishAt, { isZH: isZH2 = true, now = Date.now() } = {}) {
-    const duration = formatRemainingDuration(totalSeconds, isZH2);
+  function formatRemainingTiming(totalSeconds, finishAt, { isZH: isZH3 = true, now = Date.now() } = {}) {
+    const duration = formatRemainingDuration(totalSeconds, isZH3);
     if (!Number.isFinite(finishAt)) return duration;
-    const clock = format24HourClock(finishAt, isZH2);
+    const clock = format24HourClock(finishAt, isZH3);
     const dayOffset = Math.max(0, calendarDayOffset(now, finishAt));
-    const finish = isZH2 ? `（${clock}）` : ` (${clock})`;
+    const finish = isZH3 ? `（${clock}）` : ` (${clock})`;
     if (dayOffset === 0) return `${duration}${finish}`;
-    const offset = isZH2 ? `（+${dayOffset}天）` : ` (+${dayOffset} ${dayOffset === 1 ? "day" : "days"})`;
+    const offset = isZH3 ? `（+${dayOffset}天）` : ` (+${dayOffset} ${dayOffset === 1 ? "day" : "days"})`;
     return `${duration}${finish}${offset}`;
   }
 
@@ -42754,7 +42857,7 @@ ${locks}` : ""}`;
     Object.freeze({
       id: "26.4.9",
       version: "26.4.9",
-      publishedAt: "2026-08-13",
+      publishedAt: "2026-08-14",
       title: Object.freeze({
         zh: "26.4.9 更新公告",
         en: "Version 26.4.9 update"
@@ -42778,7 +42881,8 @@ ${locks}` : ""}`;
           "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。",
           "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。",
           "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
-          "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。"
+          "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
+          "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42798,7 +42902,8 @@ ${locks}` : ""}`;
           "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure.",
           "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned.",
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
-          "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading."
+          "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
+          "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. General settings now show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike."
         ])
       })
     }),
@@ -46980,6 +47085,13 @@ ${locks}` : ""}`;
     .mwi-settings-group-title { font-size:1rem; font-weight:700; }
     .mwi-settings-group-summary { color:var(--color-text-secondary,#aaa); font-size:calc(.75rem * var(--mwi-ui-font-scale,1)); margin-top:2px; line-height:1.35; }
     .mwi-settings-grid { display:flex; flex-direction:column; padding:0 10px; }
+    .mwi-performance-settings-card { display:flex; min-height:58px; align-items:center; justify-content:space-between; gap:14px; padding:9px 4px; border-bottom:1px solid rgba(255,255,255,.075); }
+    .mwi-performance-settings-copy { min-width:0; }
+    .mwi-performance-settings-title { display:flex; align-items:center; gap:8px; font-size:calc(.84rem * var(--mwi-ui-font-scale,1)); font-weight:700; }
+    .mwi-performance-settings-profile { display:inline-flex; padding:1px 7px; border-radius:999px; background:rgba(238,154,29,.14); color:#ffd084; font-size:calc(.6875rem * var(--mwi-ui-font-scale,1)); white-space:nowrap; }
+    .mwi-performance-settings-summary { margin-top:3px; color:var(--color-text-secondary,#aaa); font-size:calc(.71rem * var(--mwi-ui-font-scale,1)); line-height:1.35; }
+    .mwi-performance-settings-open { flex:0 0 auto; border:1px solid rgba(238,154,29,.62); border-radius:4px; padding:6px 10px; background:rgba(238,154,29,.12); color:#ffd084; font:inherit; font-size:calc(.72rem * var(--mwi-ui-font-scale,1)); cursor:pointer; }
+    .mwi-performance-settings-open:hover { background:rgba(238,154,29,.2); }
     .mwi-setting-card { min-width:0; padding:7px 4px; border-bottom:1px solid rgba(255,255,255,.075); transition:background .15s; }
     .mwi-setting-card:last-child { border-bottom:0; }
     .mwi-setting-card:hover { background:rgba(255,255,255,.025); }
@@ -47010,7 +47122,7 @@ ${locks}` : ""}`;
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
   `;
     styleHost.appendChild(style);
   }
@@ -47068,7 +47180,9 @@ ${locks}` : ""}`;
     ];
   }
   function cleanupSettingsRoot(root) {
-    for (const card of root?.querySelectorAll(".mwi-setting-card") ?? []) {
+    for (const card of root?.querySelectorAll(
+      ".mwi-setting-card,.mwi-performance-settings-card"
+    ) ?? []) {
       card._mwitoolsCleanup?.();
     }
   }
@@ -47326,6 +47440,61 @@ ${locks}` : ""}`;
     };
     return card;
   }
+  function performanceProfileLabel(state = runtime.api.performanceProfiles?.getState?.()) {
+    const usages = runtime.config.isZH ? { life: "生活", combat: "战斗", balanced: "平衡" } : { life: "Skilling", combat: "Combat", balanced: "Balanced" };
+    const tiers = runtime.config.isZH ? {
+      smooth: "流畅优先",
+      standard: "标准",
+      full: "完整功能",
+      custom: "自定义"
+    } : {
+      smooth: "Smooth",
+      standard: "Standard",
+      full: "Full features",
+      custom: "Custom"
+    };
+    return `${usages[state?.usage] ?? usages.balanced} · ${tiers[state?.tier] ?? tiers.custom}`;
+  }
+  function createPerformanceSettingsCard() {
+    const card = document.createElement("article");
+    card.className = "mwi-performance-settings-card";
+    card.dataset.search = "性能 引导 档位 生活 战斗 平衡 performance guide tier";
+    const copy = document.createElement("div");
+    copy.className = "mwi-performance-settings-copy";
+    const title = document.createElement("div");
+    title.className = "mwi-performance-settings-title";
+    const titleText = document.createElement("span");
+    titleText.textContent = runtime.config.isZH ? "性能与初始化引导" : "Performance setup guide";
+    const profile = document.createElement("span");
+    profile.className = "mwi-performance-settings-profile";
+    const update = () => {
+      profile.textContent = performanceProfileLabel();
+    };
+    update();
+    title.append(titleText, profile);
+    const summary = document.createElement("div");
+    summary.className = "mwi-performance-settings-summary";
+    summary.textContent = runtime.config.isZH ? "重新选择玩法、设备档位，或按功能组自定义。取消不会修改当前设置。" : "Choose your play style and device tier again, or customize each group. Cancelling keeps current settings.";
+    copy.append(title, summary);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-performance-settings-open";
+    button.textContent = runtime.config.isZH ? "重新开始引导" : "Restart guide";
+    button.addEventListener("click", () => {
+      void runtime.api.openPerformanceOnboarding?.({ firstRun: false });
+    });
+    const onProfileChange = () => update();
+    document.addEventListener(
+      "mwitools:performance-profile-change",
+      onProfileChange
+    );
+    card._mwitoolsCleanup = () => document.removeEventListener(
+      "mwitools:performance-profile-change",
+      onProfileChange
+    );
+    card.append(copy, button);
+    return card;
+  }
   function renderSettings(root) {
     if (!root) return;
     cleanupSettingsRoot(root);
@@ -47376,6 +47545,7 @@ ${locks}` : ""}`;
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
+      if (groupId === "general") grid.append(createPerformanceSettingsCard());
       for (const definition of definitions) {
         grid.appendChild(createSettingCard(definition));
       }
@@ -47384,13 +47554,17 @@ ${locks}` : ""}`;
     }
     search.addEventListener("input", () => {
       const query = search.value.trim().toLowerCase();
-      for (const card of root.querySelectorAll(".mwi-setting-card")) {
+      for (const card of root.querySelectorAll(
+        ".mwi-setting-card,.mwi-performance-settings-card"
+      )) {
         card.hidden = Boolean(query) && !card.dataset.search.includes(query);
       }
       for (const group of root.querySelectorAll(".mwi-settings-group")) {
-        group.hidden = ![...group.querySelectorAll(".mwi-setting-card")].some(
-          (card) => !card.hidden
-        );
+        group.hidden = ![
+          ...group.querySelectorAll(
+            ".mwi-setting-card,.mwi-performance-settings-card"
+          )
+        ].some((card) => !card.hidden);
       }
     });
   }
@@ -47942,13 +48116,981 @@ ${locks}` : ""}`;
     }
   });
 
+  // src/core/performance-profile.js
+  var PERFORMANCE_PROFILE_STORAGE_KEY = "MWITools_performance_profile_v1";
+  var PERFORMANCE_PROFILE_VERSION = 1;
+  var USAGES = Object.freeze(["life", "combat", "balanced"]);
+  var TIERS = Object.freeze(["smooth", "standard", "full", "custom"]);
+  var REFRESH_INTERVALS = Object.freeze([1e3, 2e3]);
+  var EXISTING_SETTINGS_AT_LOAD = Boolean(
+    globalThis.localStorage?.getItem("MWITools_settings_v2") || globalThis.localStorage?.getItem("script_settingsMap")
+  );
+  var GUILD_SETTINGS = Object.freeze([
+    "guildXpTracking",
+    "guildOverview",
+    "guildMemberXp",
+    "guildLeaderboardXp",
+    "guildIdleMembers",
+    "leaderboardOverlay",
+    "leaderboardXpRate"
+  ]);
+  var COMPLEX_CALCULATION_SETTINGS = Object.freeze([
+    "actionBarProfit",
+    "productionProfit",
+    "itemTooltip_profit",
+    "lootChestEstimate",
+    "enhanceSim"
+  ]);
+  var DEFAULT_CHOICES = Object.freeze({
+    dps: true,
+    battleBuffs: true,
+    taskEnhancements: true,
+    taskArt: true,
+    assetHistory: true,
+    totalAssetsAndSort: true,
+    productionSummary: true,
+    complexCalculations: true,
+    guildEnhancements: true,
+    decorativeAnimations: true,
+    dpsGraph: false,
+    refreshIntervalMs: 1e3
+  });
+  function normalizeUsage(value) {
+    return USAGES.includes(value) ? value : "balanced";
+  }
+  function normalizeTier(value) {
+    return TIERS.includes(value) ? value : "standard";
+  }
+  function normalizeRefreshInterval(value) {
+    const interval = Number(value);
+    return REFRESH_INTERVALS.includes(interval) ? interval : 1e3;
+  }
+  function normalizeChoices(value = {}, fallback = DEFAULT_CHOICES) {
+    return {
+      dps: Boolean(value.dps ?? fallback.dps),
+      battleBuffs: Boolean(value.battleBuffs ?? fallback.battleBuffs),
+      taskEnhancements: Boolean(
+        value.taskEnhancements ?? fallback.taskEnhancements
+      ),
+      taskArt: Boolean(value.taskArt ?? fallback.taskArt),
+      assetHistory: Boolean(value.assetHistory ?? fallback.assetHistory),
+      totalAssetsAndSort: Boolean(
+        value.totalAssetsAndSort ?? fallback.totalAssetsAndSort
+      ),
+      productionSummary: Boolean(
+        value.productionSummary ?? fallback.productionSummary
+      ),
+      complexCalculations: Boolean(
+        value.complexCalculations ?? fallback.complexCalculations
+      ),
+      guildEnhancements: Boolean(
+        value.guildEnhancements ?? fallback.guildEnhancements
+      ),
+      decorativeAnimations: Boolean(
+        value.decorativeAnimations ?? fallback.decorativeAnimations
+      ),
+      dpsGraph: Boolean(value.dpsGraph ?? fallback.dpsGraph),
+      refreshIntervalMs: normalizeRefreshInterval(
+        value.refreshIntervalMs ?? fallback.refreshIntervalMs
+      )
+    };
+  }
+  function normalizeStoredProfile(value) {
+    const profile = value && typeof value === "object" ? value : {};
+    return {
+      version: PERFORMANCE_PROFILE_VERSION,
+      completed: profile.version === PERFORMANCE_PROFILE_VERSION && profile.completed === true,
+      usage: normalizeUsage(profile.usage),
+      tier: normalizeTier(profile.tier),
+      choices: normalizeChoices(profile.choices)
+    };
+  }
+  function loadStoredProfile() {
+    try {
+      return normalizeStoredProfile(
+        JSON.parse(
+          globalThis.localStorage?.getItem(PERFORMANCE_PROFILE_STORAGE_KEY) || "null"
+        )
+      );
+    } catch {
+      return normalizeStoredProfile(null);
+    }
+  }
+  var storedProfile = loadStoredProfile();
+  function saveStoredProfile(profile) {
+    storedProfile = normalizeStoredProfile({
+      ...profile,
+      version: PERFORMANCE_PROFILE_VERSION,
+      completed: true
+    });
+    globalThis.localStorage?.setItem(
+      PERFORMANCE_PROFILE_STORAGE_KEY,
+      JSON.stringify(storedProfile)
+    );
+    return storedProfile;
+  }
+  function resolveConditionalRule(rule, usage) {
+    const normalizedUsage = normalizeUsage(usage);
+    if (rule === "all-on") return true;
+    if (rule === "all-off") return false;
+    if (rule === "combat-on") return normalizedUsage !== "life";
+    if (rule === "life-on") return normalizedUsage !== "combat";
+    return Boolean(rule);
+  }
+  function resolvePresetChoices(usage, tier) {
+    const normalizedUsage = normalizeUsage(usage);
+    const normalizedTier = normalizeTier(tier);
+    if (normalizedTier === "custom") return normalizeChoices();
+    return normalizeChoices({
+      dps: resolveConditionalRule(
+        normalizedTier === "smooth" ? "combat-on" : "all-on",
+        normalizedUsage
+      ),
+      battleBuffs: resolveConditionalRule(
+        normalizedTier === "smooth" ? "all-off" : normalizedTier === "standard" ? "combat-on" : "all-on",
+        normalizedUsage
+      ),
+      taskEnhancements: true,
+      taskArt: true,
+      assetHistory: normalizedTier !== "smooth",
+      totalAssetsAndSort: true,
+      productionSummary: true,
+      complexCalculations: true,
+      guildEnhancements: true,
+      decorativeAnimations: normalizedTier !== "smooth",
+      dpsGraph: normalizedTier === "full",
+      refreshIntervalMs: normalizedTier === "smooth" ? 2e3 : 1e3
+    });
+  }
+  function configurationFromChoices(choices) {
+    const normalized = normalizeChoices(choices);
+    const values = {
+      showDamage: normalized.dps,
+      battleBuffs: normalized.battleBuffs,
+      taskInsights: normalized.taskEnhancements,
+      taskIcons: normalized.taskEnhancements && normalized.taskArt,
+      assetHistory: normalized.assetHistory,
+      invWorth: normalized.totalAssetsAndSort,
+      invSort: normalized.totalAssetsAndSort,
+      actionPanel_totalTime: true,
+      productionSummary: normalized.productionSummary,
+      itemTooltip_prices: true,
+      itemTooltip_profitRequireKey: true,
+      leaderboardBadgeGlint: normalized.guildEnhancements && normalized.decorativeAnimations
+    };
+    for (const id of COMPLEX_CALCULATION_SETTINGS) {
+      values[id] = normalized.complexCalculations;
+    }
+    for (const id of GUILD_SETTINGS) {
+      values[id] = normalized.guildEnhancements;
+    }
+    return {
+      values,
+      preferences: {
+        productionSummaryMode: normalized.productionSummary ? "collapsed" : "off"
+      },
+      dps: {
+        showGraph: normalized.dpsGraph,
+        recountShowGraph: normalized.dpsGraph,
+        refreshIntervalMs: normalized.refreshIntervalMs
+      },
+      decorativeAnimations: normalized.decorativeAnimations
+    };
+  }
+  function currentChoices() {
+    const get = (id) => Boolean(runtime.settings.get?.(id));
+    const dps = runtime.api.dpsPerformance?.get?.() ?? {};
+    const decorativeMotion = globalThis.document?.documentElement?.dataset.mwitoolsDecorativeMotion;
+    const summaryMode = runtime.settings.getPreference?.("productionSummaryMode") ?? "collapsed";
+    return normalizeChoices({
+      dps: get("showDamage"),
+      battleBuffs: get("battleBuffs"),
+      taskEnhancements: get("taskInsights"),
+      taskArt: get("taskIcons"),
+      assetHistory: get("assetHistory"),
+      totalAssetsAndSort: get("invWorth") && get("invSort"),
+      productionSummary: get("productionSummary") && summaryMode !== "off",
+      complexCalculations: COMPLEX_CALCULATION_SETTINGS.every(get),
+      guildEnhancements: GUILD_SETTINGS.every(get),
+      decorativeAnimations: decorativeMotion === "on" || decorativeMotion !== "off" && get("leaderboardBadgeGlint"),
+      dpsGraph: Boolean(dps.showGraph && dps.recountShowGraph),
+      refreshIntervalMs: dps.refreshIntervalMs
+    });
+  }
+  function choicesMatch(left, right) {
+    return Object.keys(DEFAULT_CHOICES).every((key) => left[key] === right[key]);
+  }
+  function applyDecorativeMotion(enabled) {
+    const root = globalThis.document?.documentElement;
+    if (root) root.dataset.mwitoolsDecorativeMotion = enabled ? "on" : "off";
+  }
+  function emitProfileChange() {
+    const EventRef = globalThis.CustomEvent ?? globalThis.document?.defaultView?.CustomEvent;
+    if (!EventRef || !globalThis.document?.dispatchEvent) return;
+    globalThis.document.dispatchEvent(
+      new EventRef("mwitools:performance-profile-change", {
+        detail: getProfileState()
+      })
+    );
+  }
+  function getProfileState() {
+    const current = currentChoices();
+    const tier = normalizeTier(storedProfile.tier);
+    const matches = tier !== "custom" && choicesMatch(current, resolvePresetChoices(storedProfile.usage, tier));
+    return {
+      ...storedProfile,
+      tier: matches ? tier : "custom",
+      choices: current
+    };
+  }
+  function shouldRunPerformanceOnboarding() {
+    return !storedProfile.completed;
+  }
+  function recommendPerformanceTier(windowRef = globalThis.window ?? globalThis) {
+    const coarse = Boolean(
+      windowRef.matchMedia?.("(any-pointer: coarse)")?.matches
+    );
+    const narrow = Number(windowRef.innerWidth) > 0 && windowRef.innerWidth <= 760;
+    return coarse || narrow ? "smooth" : "standard";
+  }
+  function hasExistingSettingsAtLoad() {
+    return EXISTING_SETTINGS_AT_LOAD;
+  }
+  async function applyPerformanceProfile({
+    usage = "balanced",
+    tier = "standard",
+    choices = null
+  } = {}) {
+    const normalizedUsage = normalizeUsage(usage);
+    const normalizedTier = normalizeTier(tier);
+    const resolvedChoices = normalizedTier === "custom" ? normalizeChoices(choices, currentChoices()) : resolvePresetChoices(normalizedUsage, normalizedTier);
+    const configuration = configurationFromChoices(resolvedChoices);
+    if (typeof runtime.settings.applyBatch !== "function") {
+      throw new Error(
+        runtime.config.isZH ? "MWITools 批量设置接口不可用" : "MWITools batch settings API is unavailable"
+      );
+    }
+    await runtime.settings.applyBatch({
+      values: configuration.values,
+      preferences: configuration.preferences
+    });
+    runtime.api.dpsPerformance?.set?.(configuration.dps);
+    applyDecorativeMotion(configuration.decorativeAnimations);
+    saveStoredProfile({
+      usage: normalizedUsage,
+      tier: normalizedTier,
+      choices: resolvedChoices
+    });
+    emitProfileChange();
+    return getProfileState();
+  }
+  async function completePerformanceOnboardingWithoutChanges() {
+    if (!EXISTING_SETTINGS_AT_LOAD) {
+      return applyPerformanceProfile({ usage: "balanced", tier: "standard" });
+    }
+    const choices = currentChoices();
+    applyDecorativeMotion(choices.decorativeAnimations);
+    saveStoredProfile({
+      usage: storedProfile.usage,
+      tier: "custom",
+      choices
+    });
+    emitProfileChange();
+    return getProfileState();
+  }
+  function initializePerformancePolicy() {
+    applyDecorativeMotion(storedProfile.choices.decorativeAnimations);
+    return getProfileState();
+  }
+  function resetPerformanceProfileForTests() {
+    storedProfile = loadStoredProfile();
+    initializePerformancePolicy();
+  }
+  Object.assign(runtime.api, {
+    performanceProfiles: {
+      apply: applyPerformanceProfile,
+      completeWithoutChanges: completePerformanceOnboardingWithoutChanges,
+      currentChoices,
+      getState: getProfileState,
+      hasExistingSettingsAtLoad,
+      initializePolicy: initializePerformancePolicy,
+      recommendTier: recommendPerformanceTier,
+      resolveConditionalRule,
+      resolvePresetChoices,
+      shouldRun: shouldRunPerformanceOnboarding
+    }
+  });
+
+  // src/features/performance-onboarding.js
+  var PERFORMANCE_ONBOARDING_ID = "mwitools-performance-onboarding";
+  var PERFORMANCE_STYLE_ID = "mwitools-performance-onboarding-style";
+  var TEXT = Object.freeze({
+    usage: {
+      life: { zh: "生活", en: "Skilling" },
+      combat: { zh: "战斗", en: "Combat" },
+      balanced: { zh: "平衡", en: "Balanced" }
+    },
+    tier: {
+      smooth: { zh: "流畅优先", en: "Smooth" },
+      standard: { zh: "标准", en: "Standard" },
+      full: { zh: "完整功能", en: "Full features" },
+      custom: { zh: "自定义", en: "Custom" }
+    }
+  });
+  var CUSTOM_GROUPS = Object.freeze([
+    {
+      id: "combat",
+      title: { zh: "战斗与刷新", en: "Combat & refresh" },
+      fields: ["dps", "battleBuffs", "dpsGraph", "refreshIntervalMs"]
+    },
+    {
+      id: "tasks-assets",
+      title: { zh: "任务与资产", en: "Tasks & assets" },
+      fields: [
+        "taskEnhancements",
+        "taskArt",
+        "assetHistory",
+        "totalAssetsAndSort"
+      ]
+    },
+    {
+      id: "production",
+      title: { zh: "生产与悬浮计算", en: "Production & tooltip calculations" },
+      fields: ["productionSummary", "complexCalculations"]
+    },
+    {
+      id: "guild-visual",
+      title: { zh: "公会与视觉", en: "Guild & visuals" },
+      fields: ["guildEnhancements", "decorativeAnimations"]
+    }
+  ]);
+  var FIELD_TEXT = Object.freeze({
+    dps: {
+      title: { zh: "DPS / HPS / 承伤", en: "DPS / HPS / damage taken" },
+      summary: {
+        zh: "记录实时战斗、片段和历史统计。",
+        en: "Track live combat, segments, and history."
+      }
+    },
+    battleBuffs: {
+      title: { zh: "战斗 Buff 倒计时", en: "Combat buff countdowns" },
+      summary: {
+        zh: "在战斗单位下显示增益、减益与剩余时间。",
+        en: "Show buffs, debuffs, and remaining time below combat units."
+      }
+    },
+    taskEnhancements: {
+      title: { zh: "任务增强布局", en: "Enhanced task layout" },
+      summary: {
+        zh: "启用任务平铺、整理、筛选与相关增强。",
+        en: "Enable flat tasks, organization, filters, and related enhancements."
+      }
+    },
+    taskArt: {
+      title: { zh: "任务背景图", en: "Task artwork" },
+      summary: {
+        zh: "显示任务物品、怪物与副本的原生图标。",
+        en: "Show native item, monster, and dungeon artwork."
+      }
+    },
+    assetHistory: {
+      title: { zh: "资产历史图表", en: "Asset history charts" },
+      summary: {
+        zh: "保存每日资产快照并显示盈亏趋势。",
+        en: "Store daily asset snapshots and show P/L trends."
+      }
+    },
+    totalAssetsAndSort: {
+      title: { zh: "总资产与库存排序", en: "Total assets & inventory sorting" },
+      summary: {
+        zh: "计算着装评分、总资产并按价值整理库存。",
+        en: "Calculate gear scores and assets and sort inventory by value."
+      }
+    },
+    productionSummary: {
+      title: { zh: "生产摘要", en: "Production summary" },
+      summary: {
+        zh: "开启时默认折叠显示产出、库存与最大次数。",
+        en: "Show output, inventory, and maximum count collapsed by default."
+      }
+    },
+    complexCalculations: {
+      title: {
+        zh: "利润与复杂悬浮计算",
+        en: "Profit & detailed tooltip calculations"
+      },
+      summary: {
+        zh: "开启后仍需按键或移动端长按才显示复杂详情。",
+        en: "Detailed calculations still require a held key or mobile long press."
+      }
+    },
+    guildEnhancements: {
+      title: {
+        zh: "公会趋势与排行榜增强",
+        en: "Guild trends & leaderboard enhancements"
+      },
+      summary: {
+        zh: "显示公会经验趋势、成员速率、名次徽章与排行榜速率。",
+        en: "Show guild trends, member rates, rank badges, and leaderboard rates."
+      }
+    },
+    decorativeAnimations: {
+      title: { zh: "持续装饰动画", en: "Continuous decorative motion" },
+      summary: {
+        zh: "控制徽章扫光、提示脉冲等持续动画。",
+        en: "Control badge glints, notification pulses, and similar motion."
+      }
+    },
+    dpsGraph: {
+      title: { zh: "DPS 趋势图默认显示", en: "Show DPS trend by default" },
+      summary: {
+        zh: "同时控制新版和兼容面板的趋势图初始状态。",
+        en: "Set the initial graph state in both modern and compatible panels."
+      }
+    },
+    refreshIntervalMs: {
+      title: { zh: "可见面板刷新间隔", en: "Visible panel refresh interval" },
+      summary: {
+        zh: "只调整定时刷新的 MWITools 面板；事件驱动功能保持即时。",
+        en: "Adjust timed MWITools panels; event-driven features stay immediate."
+      }
+    }
+  });
+  function isZH2() {
+    return Boolean(runtime.config.isZH);
+  }
+  function t18(value) {
+    if (typeof value === "string") return value;
+    return value?.[isZH2() ? "zh" : "en"] ?? "";
+  }
+  function addStyles16() {
+    if (document.getElementById(PERFORMANCE_STYLE_ID)) return;
+    const style = document.createElement("style");
+    style.id = PERFORMANCE_STYLE_ID;
+    style.textContent = `
+    #${PERFORMANCE_ONBOARDING_ID}{position:fixed;inset:0;z-index:2147483400;display:grid;grid-template:1fr/1fr;opacity:0;transition:opacity .3s linear;color:var(--color-neutral-100,#e7e7e7);font:14px/1.5 Roboto,Helvetica,Arial,sans-serif}
+    #${PERFORMANCE_ONBOARDING_ID}.mwi-performance-open{opacity:1}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-backdrop{grid-area:1/1;background:var(--color-midnight-800-opacity-80,rgba(25,26,36,.82))}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{grid-area:1/1;place-self:center;display:flex;align-items:flex-end;max-width:calc(100vw - 24px);transform:translate(50vw,-50vh) scale(0);transition:transform .3s linear}
+    #${PERFORMANCE_ONBOARDING_ID}.mwi-performance-open .mwi-performance-dialog{transform:none}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot{position:relative;z-index:1;width:130px;flex:0 0 130px;margin:0 -20px 0 -40px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{display:block;width:130px;height:100px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 10px;padding:1px 7px;border-radius:4px;background:var(--color-space-600,#394064);font-size:14px;font-weight:600;white-space:nowrap}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{position:relative;display:grid;width:min(560px,calc(100vw - 24px));max-height:min(760px,calc(100vh - 32px));overflow:hidden;border:1px solid var(--color-neutral-200,#d0d0d0);border-radius:4px;background:var(--color-midnight-900,#131419);box-shadow:rgba(208,208,208,.28) 0 0 4px 4px;grid-template-rows:auto minmax(0,1fr) auto}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding:14px 48px 8px 18px;text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-title{font-size:17px;font-weight:700}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-progress{margin-top:2px;color:var(--color-neutral-400,#999);font-size:11px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-close{position:absolute;z-index:2;right:8px;top:7px;display:flex;width:30px;height:30px;align-items:center;justify-content:center;border:0;background:transparent;color:#fff;font-size:25px;line-height:1;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{min-height:180px;overflow:auto;overscroll-behavior:contain;padding:10px 18px 16px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-copy{margin:0 auto 14px;max-width:470px;color:var(--color-neutral-200,#d0d0d0);text-align:center}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-note{margin:10px 0 0;padding:8px 10px;border-radius:4px;background:var(--color-midnight-700,#292d3e);color:var(--color-neutral-300,#b7b7b7);font-size:12px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{position:relative;min-height:82px;padding:11px;border:1px solid rgba(208,208,208,.24);border-radius:4px;background:var(--color-midnight-700,#292d3e);color:inherit;text-align:left;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option:hover{border-color:rgba(238,154,29,.7)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option[aria-checked="true"]{border-color:var(--color-primary,#ee9a1d);box-shadow:inset 0 0 0 1px var(--color-primary,#ee9a1d);background:rgba(238,154,29,.12)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option-title{font-size:14px;font-weight:700}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option-copy{margin-top:4px;color:var(--color-neutral-300,#b7b7b7);font-size:11px;line-height:1.4}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-recommended{position:absolute;right:7px;top:7px;padding:1px 5px;border-radius:999px;background:var(--color-primary,#ee9a1d);color:#111;font-size:9px;font-weight:800}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-fields{display:flex;flex-direction:column;gap:7px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field{display:grid;min-height:56px;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 10px;border-radius:4px;background:var(--color-midnight-700,#292d3e)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field-title{font-weight:650}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-field-copy{margin-top:2px;color:var(--color-neutral-400,#999);font-size:10.5px;line-height:1.35}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch{position:relative;width:42px;height:23px;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input{position:absolute;opacity:0}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch span{position:absolute;inset:0;border-radius:99px;background:#555}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch span::after{content:"";position:absolute;left:3px;top:3px;width:17px;height:17px;border-radius:50%;background:#fff;opacity:.65;transition:transform .15s}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input:checked+span{background:#29c274}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-switch input:checked+span::after{transform:translateX(19px);opacity:1}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-select{min-width:100px;border:1px solid rgba(255,255,255,.2);border-radius:4px;padding:6px 24px 6px 8px;background:var(--color-midnight-900,#131419);color:inherit}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:4px;background:var(--color-midnight-700,#292d3e);font-size:11px}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review-row b{color:#8ed9a6;font-weight:700;text-align:right}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-footer{display:flex;justify-content:flex-end;gap:8px;padding:10px 16px 14px;border-top:1px solid rgba(255,255,255,.09)}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button{display:flex;min-height:36px;align-items:center;justify-content:center;border:0;border-radius:4px;padding:0 14px;font:600 14px/1 Roboto,Arial,sans-serif;cursor:pointer}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button:disabled{cursor:wait;opacity:.55}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button-secondary{background:var(--color-midnight-600,#39405a);color:#eee}
+    #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-button-primary{background:var(--color-primary,#ee9a1d);color:#111}
+    html[data-mwitools-decorative-motion="off"] .mwi-lb-badge--top-five::before,
+    html[data-mwitools-decorative-motion="off"] .mwi-lb-badge--top-five::after,
+    html[data-mwitools-decorative-motion="off"] #script_item_warning,
+    html[data-mwitools-decorative-motion="off"] .mwi-train-shop-target,
+    html[data-mwitools-decorative-motion="off"] .handle-badge::after,
+    html[data-mwitools-decorative-motion="off"] #mwitools-feedback-button[data-unread="true"]{animation:none!important}
+    @media(max-width:700px){
+      #${PERFORMANCE_ONBOARDING_ID}{align-items:end}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{width:calc(100vw - 16px);max-width:none;max-height:calc(100vh - 12px);flex-direction:column;align-items:flex-start;place-self:end center}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot{display:flex;width:auto;height:58px;flex:0 0 58px;align-items:flex-end;margin:0 0 -12px 9px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot svg{width:76px;height:58px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-mascot-name{margin:0 0 12px -8px;font-size:11px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-card{width:100%;max-height:calc(100vh - 70px);max-height:calc(100dvh - 70px)}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-head{padding-top:12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-body{padding:8px 12px 12px}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-options,#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-review{grid-template-columns:1fr}
+      #${PERFORMANCE_ONBOARDING_ID} .mwi-performance-option{min-height:68px}
+    }
+    @media(prefers-reduced-motion:reduce){#${PERFORMANCE_ONBOARDING_ID},#${PERFORMANCE_ONBOARDING_ID} .mwi-performance-dialog{transition:none}}
+  `;
+    (document.head ?? document.documentElement).append(style);
+  }
+  function findPurpleCowSprite() {
+    const direct = document.querySelector('svg[aria-label="Purple Cow"] use')?.getAttribute("href");
+    if (direct) return direct.replace(/#.*$/, "#purple_cow_hello");
+    const existing = document.querySelector(
+      'use[href*="misc_sprite"],use[xlink\\:href*="misc_sprite"]'
+    );
+    const existingHref = existing?.getAttribute("href") ?? existing?.getAttribute("xlink:href");
+    if (existingHref) {
+      return existingHref.replace(/#.*$/, "#purple_cow_hello");
+    }
+    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
+      if (/\/misc_sprite\.[^/]+\.svg(?:$|\?)/.test(entry.name)) {
+        return `${entry.name.split("?")[0]}#purple_cow_hello`;
+      }
+    }
+    return "";
+  }
+  function createMascot() {
+    const host = document.createElement("div");
+    host.className = "mwi-performance-mascot";
+    const href = findPurpleCowSprite();
+    if (href) {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("role", "img");
+      svg.setAttribute("aria-label", isZH2() ? "小紫牛" : "Purple Cow");
+      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+      use.setAttribute("href", href);
+      svg.append(use);
+      host.append(svg);
+    } else {
+      host.dataset.mascotMissing = "true";
+    }
+    const name = document.createElement("div");
+    name.className = "mwi-performance-mascot-name";
+    name.textContent = isZH2() ? "MWITools 小紫牛" : "MWITools Purple";
+    host.append(name);
+    return host;
+  }
+  function optionCopy(kind, id) {
+    const copies = {
+      usage: {
+        life: {
+          zh: "优先生活技能与日常生产；流畅档会关闭实时战斗统计。",
+          en: "Prioritize skilling and production; Smooth disables live combat stats."
+        },
+        combat: {
+          zh: "保留实时战斗统计；按设备性能调整战斗显示。",
+          en: "Keep live combat stats and scale combat visuals to the device."
+        },
+        balanced: {
+          zh: "兼顾生活与战斗；当前战斗条件与战斗模式相同。",
+          en: "Cover both skilling and combat; combat conditions currently match Combat."
+        }
+      },
+      tier: {
+        smooth: {
+          zh: "低性能或旧款手机推荐：2 秒刷新，关闭资产历史与持续动画。",
+          en: "For slower phones: 2-second refresh, no asset history or continuous motion."
+        },
+        standard: {
+          zh: "大多数设备推荐：1 秒刷新，开启常用功能。",
+          en: "Recommended for most devices: 1-second refresh and common features."
+        },
+        full: {
+          zh: "高性能设备：开启全部显示，并默认展示 DPS 趋势图。",
+          en: "For fast devices: all visuals and DPS trends enabled by default."
+        },
+        custom: {
+          zh: "按功能组逐步选择，每项都由你决定。",
+          en: "Choose each feature group step by step."
+        }
+      }
+    };
+    return t18(copies[kind][id]);
+  }
+  function choiceStatus(field, value) {
+    if (field === "refreshIntervalMs") {
+      return `${Number(value) / 1e3} ${isZH2() ? "秒" : "sec"}`;
+    }
+    if (field === "productionSummary" && value) {
+      return isZH2() ? "折叠显示" : "Collapsed";
+    }
+    if (field === "complexCalculations" && value) {
+      return isZH2() ? "按键 / 长按" : "Key / long press";
+    }
+    return value ? isZH2() ? "开启" : "On" : isZH2() ? "关闭" : "Off";
+  }
+  var PerformanceOnboarding = class {
+    constructor({ firstRun = false } = {}) {
+      this.firstRun = firstRun;
+      const current = getProfileState();
+      this.usage = current.completed ? current.usage : "balanced";
+      this.tier = current.completed ? current.tier : recommendPerformanceTier();
+      this.choices = current.completed ? { ...current.choices } : resolvePresetChoices(this.usage, this.tier);
+      this.stage = "welcome";
+      this.history = [];
+      this.previousBodyOverflow = "";
+      this.trigger = document.activeElement;
+      this.resolve = null;
+      this.closing = false;
+      this.promise = new Promise((resolve) => {
+        this.resolve = resolve;
+      });
+      this.handleKeydown = this.handleKeydown.bind(this);
+    }
+    open() {
+      addStyles16();
+      document.getElementById(PERFORMANCE_ONBOARDING_ID)?.remove();
+      this.root = document.createElement("div");
+      this.root.id = PERFORMANCE_ONBOARDING_ID;
+      this.root.setAttribute("role", "dialog");
+      this.root.setAttribute("aria-modal", "true");
+      this.root.setAttribute(
+        "aria-label",
+        isZH2() ? "MWITools 性能引导" : "MWITools performance guide"
+      );
+      const backdrop = document.createElement("div");
+      backdrop.className = "mwi-performance-backdrop";
+      backdrop.addEventListener("click", () => void this.cancel());
+      this.dialog = document.createElement("div");
+      this.dialog.className = "mwi-performance-dialog";
+      const card = document.createElement("section");
+      card.className = "mwi-performance-card";
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "mwi-performance-close";
+      close.setAttribute("aria-label", isZH2() ? "关闭引导" : "Close guide");
+      close.textContent = "×";
+      close.addEventListener("click", () => void this.cancel());
+      this.head = document.createElement("header");
+      this.head.className = "mwi-performance-head";
+      this.body = document.createElement("div");
+      this.body.className = "mwi-performance-body";
+      this.footer = document.createElement("footer");
+      this.footer.className = "mwi-performance-footer";
+      card.append(close, this.head, this.body, this.footer);
+      this.dialog.append(createMascot(), card);
+      this.root.append(backdrop, this.dialog);
+      this.previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      document.body.append(this.root);
+      document.addEventListener("keydown", this.handleKeydown, true);
+      this.render();
+      setTimeout(() => {
+        this.root?.classList.add("mwi-performance-open");
+        this.root?.querySelector(".mwi-performance-button-primary")?.focus();
+      }, 0);
+      return this.promise;
+    }
+    handleKeydown(event) {
+      if (!this.root) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        void this.cancel();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = [
+        ...this.root.querySelectorAll(
+          'button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]'
+        )
+      ];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    stageInfo() {
+      if (this.stage === "welcome") {
+        return {
+          title: isZH2() ? "欢迎使用 MWITools" : "Welcome to MWITools",
+          progress: isZH2() ? "性能初始化" : "Performance setup"
+        };
+      }
+      if (this.stage === "usage") {
+        return {
+          title: isZH2() ? "你主要怎么玩？" : "How do you usually play?",
+          progress: isZH2() ? "第 1 步，共 3 步" : "Step 1 of 3"
+        };
+      }
+      if (this.stage === "tier") {
+        return {
+          title: isZH2() ? "选择设备性能档位" : "Choose a performance tier",
+          progress: isZH2() ? "第 2 步，共 3 步" : "Step 2 of 3"
+        };
+      }
+      if (this.stage.startsWith("custom:")) {
+        const index = Number(this.stage.split(":")[1]);
+        return {
+          title: t18(CUSTOM_GROUPS[index].title),
+          progress: isZH2() ? `自定义 ${index + 1} / ${CUSTOM_GROUPS.length}` : `Custom ${index + 1} of ${CUSTOM_GROUPS.length}`
+        };
+      }
+      return {
+        title: isZH2() ? "确认性能设置" : "Confirm performance settings",
+        progress: isZH2() ? "第 3 步，共 3 步" : "Step 3 of 3"
+      };
+    }
+    render() {
+      const info = this.stageInfo();
+      this.head.replaceChildren();
+      const title = document.createElement("div");
+      title.className = "mwi-performance-title";
+      title.textContent = info.title;
+      const progress = document.createElement("div");
+      progress.className = "mwi-performance-progress";
+      progress.textContent = info.progress;
+      this.head.append(title, progress);
+      this.body.replaceChildren();
+      this.footer.replaceChildren();
+      if (this.stage === "welcome") this.renderWelcome();
+      else if (this.stage === "usage") this.renderOptions("usage");
+      else if (this.stage === "tier") this.renderOptions("tier");
+      else if (this.stage.startsWith("custom:")) this.renderCustom();
+      else this.renderReview();
+      this.renderFooter();
+    }
+    renderWelcome() {
+      const copy = document.createElement("p");
+      copy.className = "mwi-performance-copy";
+      copy.textContent = isZH2() ? "根据你的玩法和设备选择合适配置，可以减少手机长时间挂机时的发热、耗电和卡顿。所有选项之后都能在设置中重新调整。" : "Choose a setup for your play style and device to reduce heat, battery use, and long-session stutter. You can restart this guide from Settings at any time.";
+      const note = document.createElement("div");
+      note.className = "mwi-performance-note";
+      note.textContent = isZH2() ? "只会调整性能相关功能，不会修改语言、估值口径、通知或已保存的数据。" : "Only performance-related features change. Language, valuation rules, notifications, and saved data stay untouched.";
+      this.body.append(copy, note);
+    }
+    renderOptions(kind) {
+      const selected = kind === "usage" ? this.usage : this.tier;
+      const ids = kind === "usage" ? ["life", "combat", "balanced"] : ["smooth", "standard", "full", "custom"];
+      const recommended = kind === "tier" ? recommendPerformanceTier() : null;
+      const options = document.createElement("div");
+      options.className = "mwi-performance-options";
+      options.setAttribute("role", "radiogroup");
+      for (const id of ids) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "mwi-performance-option";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", String(selected === id));
+        button.dataset.value = id;
+        const heading = document.createElement("div");
+        heading.className = "mwi-performance-option-title";
+        heading.textContent = t18(TEXT[kind][id]);
+        const copy = document.createElement("div");
+        copy.className = "mwi-performance-option-copy";
+        copy.textContent = optionCopy(kind, id);
+        button.append(heading, copy);
+        if (recommended === id) {
+          const badge = document.createElement("span");
+          badge.className = "mwi-performance-recommended";
+          badge.textContent = isZH2() ? "推荐" : "Recommended";
+          button.append(badge);
+        }
+        button.addEventListener("click", () => {
+          if (kind === "usage") this.usage = id;
+          else {
+            this.tier = id;
+            this.choices = id === "custom" ? { ...getProfileState().choices } : resolvePresetChoices(this.usage, id);
+          }
+          this.render();
+        });
+        options.append(button);
+      }
+      this.body.append(options);
+      if (kind === "usage") {
+        const note = document.createElement("div");
+        note.className = "mwi-performance-note";
+        note.textContent = isZH2() ? "“战斗开”会在战斗或平衡模式开启，在生活模式关闭。" : '"Combat on" enables a feature for Combat and Balanced and disables it for Skilling.';
+        this.body.append(note);
+      }
+    }
+    renderCustom() {
+      const index = Number(this.stage.split(":")[1]);
+      const group = CUSTOM_GROUPS[index];
+      const fields = document.createElement("div");
+      fields.className = "mwi-performance-fields";
+      for (const field of group.fields) {
+        const row = document.createElement("div");
+        row.className = "mwi-performance-field";
+        const copy = document.createElement("div");
+        const heading = document.createElement("div");
+        heading.className = "mwi-performance-field-title";
+        heading.textContent = t18(FIELD_TEXT[field].title);
+        const summary = document.createElement("div");
+        summary.className = "mwi-performance-field-copy";
+        summary.textContent = t18(FIELD_TEXT[field].summary);
+        copy.append(heading, summary);
+        if (field === "refreshIntervalMs") {
+          const select = document.createElement("select");
+          select.className = "mwi-performance-select";
+          select.setAttribute("aria-label", heading.textContent);
+          for (const value of [1e3, 2e3]) {
+            const option = document.createElement("option");
+            option.value = String(value);
+            option.textContent = `${value / 1e3} ${isZH2() ? "秒" : "sec"}`;
+            select.append(option);
+          }
+          select.value = String(this.choices[field]);
+          select.addEventListener("change", () => {
+            this.choices[field] = Number(select.value);
+          });
+          row.append(copy, select);
+        } else {
+          const toggle = document.createElement("label");
+          toggle.className = "mwi-performance-switch";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.checked = Boolean(this.choices[field]);
+          input.setAttribute("aria-label", heading.textContent);
+          const track = document.createElement("span");
+          input.addEventListener("change", () => {
+            this.choices[field] = input.checked;
+          });
+          toggle.append(input, track);
+          row.append(copy, toggle);
+        }
+        fields.append(row);
+      }
+      this.body.append(fields);
+    }
+    renderReview() {
+      const copy = document.createElement("p");
+      copy.className = "mwi-performance-copy";
+      copy.textContent = `${t18(TEXT.usage[this.usage])} · ${t18(TEXT.tier[this.tier])}`;
+      const review = document.createElement("div");
+      review.className = "mwi-performance-review";
+      for (const field of Object.keys(FIELD_TEXT)) {
+        const row = document.createElement("div");
+        row.className = "mwi-performance-review-row";
+        const label = document.createElement("span");
+        label.textContent = t18(FIELD_TEXT[field].title);
+        const status = document.createElement("b");
+        status.textContent = choiceStatus(field, this.choices[field]);
+        row.append(label, status);
+        review.append(row);
+      }
+      this.body.append(copy, review);
+    }
+    renderFooter() {
+      if (this.stage !== "welcome") {
+        const back = document.createElement("button");
+        back.type = "button";
+        back.className = "mwi-performance-button mwi-performance-button-secondary";
+        back.textContent = isZH2() ? "返回" : "Back";
+        back.addEventListener("click", () => this.goBack());
+        this.footer.append(back);
+      }
+      const next = document.createElement("button");
+      next.type = "button";
+      next.className = "mwi-performance-button mwi-performance-button-primary";
+      next.textContent = this.stage === "review" ? isZH2() ? "应用并进入游戏" : "Apply and enter game" : isZH2() ? "下一步" : "Next";
+      next.addEventListener("click", async () => {
+        if (this.stage === "review") {
+          if (this.closing) return;
+          this.closing = true;
+          next.disabled = true;
+          try {
+            await applyPerformanceProfile({
+              usage: this.usage,
+              tier: this.tier,
+              choices: this.tier === "custom" ? this.choices : null
+            });
+            this.finish("applied");
+          } catch (error) {
+            this.closing = false;
+            next.disabled = false;
+            const note = document.createElement("div");
+            note.className = "mwi-performance-note";
+            note.setAttribute("role", "alert");
+            note.textContent = isZH2() ? "设置保存失败，请重试。" : "Could not save these settings. Please try again.";
+            this.body.prepend(note);
+            console.error(
+              "[MWITools] Failed to apply performance profile",
+              error
+            );
+          }
+          return;
+        }
+        this.goNext();
+      });
+      this.footer.append(next);
+    }
+    goNext() {
+      this.history.push(this.stage);
+      if (this.stage === "welcome") this.stage = "usage";
+      else if (this.stage === "usage") this.stage = "tier";
+      else if (this.stage === "tier") {
+        this.choices = this.tier === "custom" ? { ...this.choices } : resolvePresetChoices(this.usage, this.tier);
+        this.stage = this.tier === "custom" ? "custom:0" : "review";
+      } else if (this.stage.startsWith("custom:")) {
+        const index = Number(this.stage.split(":")[1]);
+        this.stage = index + 1 < CUSTOM_GROUPS.length ? `custom:${index + 1}` : "review";
+      }
+      this.render();
+      this.body.scrollTop = 0;
+    }
+    goBack() {
+      this.stage = this.history.pop() ?? "welcome";
+      this.render();
+      this.body.scrollTop = 0;
+    }
+    async cancel() {
+      if (this.closing) return;
+      this.closing = true;
+      try {
+        if (this.firstRun) await completePerformanceOnboardingWithoutChanges();
+      } finally {
+        this.finish("cancelled");
+      }
+    }
+    finish(result) {
+      if (!this.root) return;
+      const root = this.root;
+      this.root = null;
+      document.removeEventListener("keydown", this.handleKeydown, true);
+      document.body.style.overflow = this.previousBodyOverflow;
+      root.classList.remove("mwi-performance-open");
+      setTimeout(() => root.remove(), 300);
+      this.trigger?.focus?.();
+      this.resolve?.({ result, profile: getProfileState() });
+      this.resolve = null;
+      activeOnboarding = null;
+    }
+  };
+  var activeOnboarding = null;
+  async function openPerformanceOnboarding(options = {}) {
+    if (activeOnboarding) return activeOnboarding.promise;
+    if (!document.body) {
+      await new Promise(
+        (resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true })
+      );
+    }
+    activeOnboarding = new PerformanceOnboarding(options);
+    return activeOnboarding.open();
+  }
+  async function runPerformanceOnboardingIfNeeded() {
+    initializePerformancePolicy();
+    if (!shouldRunPerformanceOnboarding()) return getProfileState();
+    const result = await openPerformanceOnboarding({ firstRun: true });
+    return result.profile;
+  }
+  Object.assign(runtime.api, {
+    openPerformanceOnboarding,
+    runPerformanceOnboardingIfNeeded
+  });
+
   // src/features/update-banner.js
   var MANIFEST_URL = "https://raw.githubusercontent.com/YangLeda/Userscripts-For-MilkyWayIdle/main/release-manifest.json";
   var FALLBACK_MANIFEST_URL = "https://feedback.43.167.210.211.sslip.io/api/v1/release-manifest";
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID18 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t18(value) {
+  function t19(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -47984,7 +49126,7 @@ ${locks}` : ""}`;
       return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
-            t18({
+            t19({
               zh: `更新清单请求失败（HTTP ${response.status}）`,
               en: `Update manifest request failed (HTTP ${response.status})`
             })
@@ -47999,7 +49141,7 @@ ${locks}` : ""}`;
           if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
             reject(
               new Error(
-                t18({
+                t19({
                   zh: `更新清单请求失败（HTTP ${response?.status}）`,
                   en: `Update manifest request failed (HTTP ${response?.status})`
                 })
@@ -48020,7 +49162,7 @@ ${locks}` : ""}`;
           onload: finish,
           onerror: () => reject(
             new Error(
-              t18({
+              t19({
                 zh: "更新清单请求失败。",
                 en: "Update manifest request failed."
               })
@@ -48028,7 +49170,7 @@ ${locks}` : ""}`;
           ),
           ontimeout: () => reject(
             new Error(
-              t18({
+              t19({
                 zh: "更新清单请求超时。",
                 en: "Update manifest request timed out."
               })
@@ -48044,7 +49186,7 @@ ${locks}` : ""}`;
   function validateManifest(manifest) {
     if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
-        t18({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
+        t19({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
     return manifest;
@@ -48061,7 +49203,7 @@ ${locks}` : ""}`;
         lastError = error;
       }
     }
-    throw lastError ?? new Error(t18({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+    throw lastError ?? new Error(t19({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
   }
   var manifestCheck = null;
   function getImportantUpdateManifest() {
@@ -48071,7 +49213,7 @@ ${locks}` : ""}`;
   function updateDownloadUrl() {
     return String(globalThis.GM_info?.script?.downloadURL ?? "").trim() || GREASY_FORK_DOWNLOAD_URL;
   }
-  function addStyles16() {
+  function addStyles17() {
     if (document.getElementById(STYLE_ID18)) return;
     const style = document.createElement("style");
     style.id = STYLE_ID18;
@@ -48092,7 +49234,7 @@ ${locks}` : ""}`;
   function renderImportantUpdateBanner(manifest) {
     document.getElementById(BANNER_ID)?.remove();
     if (!shouldShowImportantUpdate(manifest)) return false;
-    addStyles16();
+    addStyles17();
     const banner = document.createElement("aside");
     banner.id = BANNER_ID;
     banner.setAttribute("role", "status");
@@ -48104,8 +49246,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t18(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    const message = t18(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t19(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    const message = t19(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
     banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
@@ -48269,7 +49411,8 @@ ${locks}` : ""}`;
       showGraph: false,
       autoReset: true,
       language: defaultLanguage,
-      panelOpacity: 100
+      panelOpacity: 100,
+      refreshIntervalMs: 1e3
     };
     let state = { ...defaults };
     try {
@@ -48354,6 +49497,29 @@ ${locks}` : ""}`;
         state.recountShowGraph = v;
         save();
       },
+      getRefreshInterval: () => Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3,
+      getPerformance: () => ({
+        showGraph: Boolean(state.showGraph),
+        recountShowGraph: state.recountShowGraph !== false,
+        refreshIntervalMs: Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3
+      }),
+      setPerformance: (patch = {}) => {
+        if (patch.showGraph !== void 0) {
+          state.showGraph = Boolean(patch.showGraph);
+        }
+        if (patch.recountShowGraph !== void 0) {
+          state.recountShowGraph = Boolean(patch.recountShowGraph);
+        }
+        if (patch.refreshIntervalMs !== void 0) {
+          state.refreshIntervalMs = Number(patch.refreshIntervalMs) === 2e3 ? 2e3 : 1e3;
+        }
+        save();
+        return {
+          showGraph: Boolean(state.showGraph),
+          recountShowGraph: state.recountShowGraph !== false,
+          refreshIntervalMs: Number(state.refreshIntervalMs) === 2e3 ? 2e3 : 1e3
+        };
+      },
       getDebugMode: () => state.debugMode || false,
       setDebugMode: (v) => {
         state.debugMode = v;
@@ -48376,6 +49542,10 @@ ${locks}` : ""}`;
       }
     };
   })();
+  runtime.api.dpsPerformance = {
+    get: Settings.getPerformance,
+    set: Settings.setPerformance
+  };
   function formatDamage(n) {
     const value = Number(n) || 0, absolute = Math.abs(value);
     if (absolute >= 1e6) return (value / 1e6).toFixed(1) + "M";
@@ -50226,9 +51396,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t19 = 0;
-        playerKills.forEach((v) => t19 += v);
-        return t19;
+        let t20 = 0;
+        playerKills.forEach((v) => t20 += v);
+        return t20;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -50493,12 +51663,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t19) {
-      const low = t19.toLowerCase();
+    function looksLikeNoise(t20) {
+      const low = t20.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t19)) return true;
-      if (/^\d+%?$/.test(t19)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t19)) return true;
+      if (/^lv\.?\d+$/i.test(t20)) return true;
+      if (/^\d+%?$/.test(t20)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t20)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -50520,14 +51690,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t19) => t19 && !looksLikeNoise(t19) && !/^trial\s/i.test(t19));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t20) => t20 && !looksLikeNoise(t20) && !/^trial\s/i.test(t20));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t19, i) => {
-        resolved.set(String(i + offset), t19);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t20, i) => {
+        resolved.set(String(i + offset), t20);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -50595,7 +51765,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t19) => t19.length > 0)) {
+          if (texts.some((t20) => t20.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -50631,10 +51801,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t19 = c.textContent.trim();
-            if (t19.length >= 2 && t19.length <= 20 && !looksLikeNoise(t19)) {
+            const t20 = c.textContent.trim();
+            if (t20.length >= 2 && t20.length <= 20 && !looksLikeNoise(t20)) {
               nameLikeCount++;
-              texts.push(t19.slice(0, 20));
+              texts.push(t20.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -52430,11 +53600,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t19 = el2.textContent.trim();
-        if (!t19 || t19.length < 2 || t19.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t19);
+        const t20 = el2.textContent.trim();
+        if (!t20 || t20.length < 2 || t20.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t20);
         let cssEllipsis = false;
-        if (!literalEllipsis && t19.length <= 20 && !t19.includes(" ") && !looksLikeNoise(t19)) {
+        if (!literalEllipsis && t20.length <= 20 && !t20.includes(" ") && !looksLikeNoise(t20)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -54939,10 +56109,10 @@ ${locks}` : ""}`;
         getGameTranslation("labyrinthPanel.automation")
       ];
       for (const c of containers) {
-        const t19 = c.textContent;
-        if (combatZones && t19.includes(combatZones) || t19.includes("Combat Zones") || t19.includes("战斗区域") || t19.includes("戰鬥區域"))
+        const t20 = c.textContent;
+        if (combatZones && t20.includes(combatZones) || t20.includes("Combat Zones") || t20.includes("战斗区域") || t20.includes("戰鬥區域"))
           return c;
-        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t19.includes(label)) || t19.includes("Labyrinth") && t19.includes("Room") && t19.includes("Automation") || t19.includes("迷宫") && (t19.includes("房间") || t19.includes("自动化")) || t19.includes("迷宮") && (t19.includes("房間") || t19.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t20.includes(label)) || t20.includes("Labyrinth") && t20.includes("Room") && t20.includes("Automation") || t20.includes("迷宫") && (t20.includes("房间") || t20.includes("自动化")) || t20.includes("迷宮") && (t20.includes("房間") || t20.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -55249,10 +56419,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t19) => {
+      TYPES.forEach((t20) => {
         const btn = document.createElement("button");
-        btn.textContent = t19.label;
-        const active = historyFilter === t19.id;
+        btn.textContent = t20.label;
+        const active = historyFilter === t20.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -55266,7 +56436,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t19.id;
+          historyFilter = t20.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -55390,8 +56560,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t19) => t19.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t19) => t19.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t20) => t20.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t20) => t20.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -55989,11 +57159,19 @@ ${locks}` : ""}`;
         persistActive(true);
       }
     });
-    scope.interval(() => {
+    let refreshTimer2 = null;
+    const refresh = () => {
+      refreshTimer2 = null;
       Session.advanceBuckets();
       persistActive();
       if (KikiMeter.isOpen()) renderSelectedPanels();
-    }, 1e3);
+      refreshTimer2 = setTimeout(refresh, Settings.getRefreshInterval());
+    };
+    refreshTimer2 = setTimeout(refresh, Settings.getRefreshInterval());
+    scope.add(() => {
+      if (refreshTimer2 !== null) clearTimeout(refreshTimer2);
+      refreshTimer2 = null;
+    });
     Object.assign(MWI, {
       enabled: true,
       bus: SocketHook.bus,
@@ -57352,7 +58530,7 @@ ${locks}` : ""}`;
     }
     return true;
   }
-  function startGame() {
+  async function startGame() {
     const clientDataLoaded = loadCachedClientData();
     if (!clientDataLoaded) {
       runtime.features.register({
@@ -57382,9 +58560,18 @@ ${locks}` : ""}`;
       );
     }
     runtime.api.fetchMarketJSON(true);
-    runtime.start();
+    try {
+      await runtime.api.runPerformanceOnboardingIfNeeded();
+    } catch (error) {
+      console.error(
+        runtime.config.isZH ? "[MWITools] 性能引导启动失败，将继续使用当前设置。" : "[MWITools] Performance setup failed; continuing with current settings.",
+        error
+      );
+    }
+    await runtime.start();
   }
-  function main() {
+  async function main() {
+    runtime.features.pauseInitialization();
     runtime.api.readSettings();
     if (document.URL.includes("amvoidguy.github.io") || document.URL.includes("shykai.github.io/MWICombatSimulatorTest/")) {
       runtime.api.addImportButtonForAmvoidguy();
@@ -57395,7 +58582,7 @@ ${locks}` : ""}`;
       runtime.api.addImportButtonForMooneycalc();
       return;
     }
-    startGame();
+    await startGame();
   }
-  main();
+  void main();
 })();

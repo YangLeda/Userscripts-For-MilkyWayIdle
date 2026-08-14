@@ -40,6 +40,7 @@ import "./features/game-widgets.js";
 import "./features/navigation-action-queue.js";
 import "./features/enhancement-tooltip.js";
 import "./features/settings-and-notifications.js";
+import "./features/performance-onboarding.js";
 import "./features/update-banner.js";
 import "./features/dps/index.js";
 import "./features/external-tools.js";
@@ -87,7 +88,7 @@ function loadCachedClientData() {
   return true;
 }
 
-function startGame() {
+async function startGame() {
   const clientDataLoaded = loadCachedClientData();
   if (!clientDataLoaded) {
     runtime.features.register({
@@ -120,10 +121,21 @@ function startGame() {
     );
   }
   runtime.api.fetchMarketJSON(true);
-  runtime.start();
+  try {
+    await runtime.api.runPerformanceOnboardingIfNeeded();
+  } catch (error) {
+    console.error(
+      runtime.config.isZH
+        ? "[MWITools] 性能引导启动失败，将继续使用当前设置。"
+        : "[MWITools] Performance setup failed; continuing with current settings.",
+      error,
+    );
+  }
+  await runtime.start();
 }
 
-function main() {
+async function main() {
+  runtime.features.pauseInitialization();
   runtime.api.readSettings();
 
   if (
@@ -141,7 +153,7 @@ function main() {
     runtime.api.addImportButtonForMooneycalc();
     return;
   }
-  startGame();
+  await startGame();
 }
 
-main();
+void main();

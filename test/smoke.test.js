@@ -70,6 +70,15 @@ function createUserscriptWindow(url) {
     },
   };
   window.localStorage.setItem("initClientData", "cached");
+  window.localStorage.setItem(
+    "MWITools_performance_profile_v1",
+    JSON.stringify({
+      version: 1,
+      completed: true,
+      usage: "balanced",
+      tier: "standard",
+    }),
+  );
   window.localStorageUtil = {
     getInitClientData: () => ({ actionDetailMap: {}, itemDetailMap: {} }),
   };

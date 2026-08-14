@@ -284,6 +284,18 @@ test("card settings render every visible setting with nested children and search
     true,
   );
   assert.equal(root.querySelectorAll(".mwi-settings-group").length, 10);
+  const performanceCard = root.querySelector(".mwi-performance-settings-card");
+  assert.ok(performanceCard);
+  assert.equal(
+    performanceCard.parentElement.firstElementChild,
+    performanceCard,
+  );
+  let guideOpenCount = 0;
+  runtime.api.openPerformanceOnboarding = () => {
+    guideOpenCount += 1;
+  };
+  performanceCard.querySelector(".mwi-performance-settings-open").click();
+  assert.equal(guideOpenCount, 1);
   assert.equal(
     root.querySelectorAll(".mwi-setting-card").length,
     Object.values(runtime.settings.catalog).filter(

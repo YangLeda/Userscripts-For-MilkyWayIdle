@@ -74,6 +74,7 @@ const featureDefinitions = new Map();
 const featureStates = new Map();
 const featureStatusListeners = new Set();
 let runtimeStarted = false;
+let featureInitializationPaused = false;
 let activeCharacterId = "";
 
 function emitFeatureStatus(id) {
@@ -216,6 +217,7 @@ export const runtime = {
     this.starts.push({ name, start });
   },
   start() {
+    featureInitializationPaused = false;
     for (const feature of this.starts) {
       try {
         const result = feature.start();
@@ -285,7 +287,9 @@ export const runtime = {
           error: null,
         });
       }
-      if (runtimeStarted) void initializeFeature(definition.id);
+      if (runtimeStarted && !featureInitializationPaused) {
+        void initializeFeature(definition.id);
+      }
       return definition.id;
     },
     async initializeAll(scope = null) {
@@ -301,20 +305,39 @@ export const runtime = {
       return initializeFeature(id);
     },
     async syncSetting(settingId) {
-      const touched = [];
+      return this.syncSettings([settingId]);
+    },
+    async syncSettings(settingIds) {
+      const changed = new Set(settingIds ?? []);
+      const affected = new Set();
       for (const [id, definition] of featureDefinitions) {
-        if (definition.setting !== settingId) continue;
-        touched.push(id);
-        if (isFeatureEnabled(definition)) await initializeFeature(id);
-        else await disableFeature(id);
+        if (changed.has(definition.setting)) affected.add(id);
       }
-      for (const parentId of touched) {
+      let expanded = true;
+      while (expanded) {
+        expanded = false;
         for (const [id, definition] of featureDefinitions) {
-          if (!definition.dependsOn?.includes(parentId)) continue;
-          if (isFeatureEnabled(definition)) await initializeFeature(id);
-          else await disableFeature(id);
+          if (
+            !affected.has(id) &&
+            definition.dependsOn?.some((dependencyId) =>
+              affected.has(dependencyId),
+            )
+          ) {
+            affected.add(id);
+            expanded = true;
+          }
         }
       }
+      if (featureInitializationPaused) return [...affected];
+      for (const [id, definition] of [...featureDefinitions].reverse()) {
+        if (!affected.has(id) || isFeatureEnabled(definition)) continue;
+        await disableFeature(id);
+      }
+      for (const [id, definition] of featureDefinitions) {
+        if (!affected.has(id) || !isFeatureEnabled(definition)) continue;
+        await initializeFeature(id);
+      }
+      return [...affected];
     },
     async handleCharacterData(payload) {
       const nextCharacterId = resolveCharacterId(payload);
@@ -326,7 +349,15 @@ export const runtime = {
       }
       const changed = activeCharacterId !== nextCharacterId;
       activeCharacterId = nextCharacterId;
-      if (changed) await this.initializeAll("character");
+      if (changed && !featureInitializationPaused) {
+        await this.initializeAll("character");
+      }
+    },
+    pauseInitialization() {
+      featureInitializationPaused = true;
+    },
+    resumeInitialization() {
+      featureInitializationPaused = false;
     },
     getStatus(id) {
       const state = featureStates.get(id) ?? {

@@ -404,6 +404,7 @@ test("announcement history preserves each release separately through 26.4.9", ()
     ["26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
   assert.equal(current.version, "26.4.9");
+  assert.equal(current.publishedAt, "2026-08-14");
   assert.equal(previous.version, "26.4.8");
   assert.equal(older.version, "26.4.7");
   assert.equal(oldest.version, "26.4.6");
@@ -426,6 +427,14 @@ test("announcement history preserves each release separately through 26.4.9", ()
   assert.match(
     current.body.zh.join("\n"),
     /更换战斗技能后，目标等级和生产次数快捷输入不显示/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /小紫牛风格的性能初始化引导.*流畅优先.*重新开始/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /Purple Cow-style performance setup.*Smooth.*restart the guide/,
   );
 });
 

@@ -1291,6 +1291,95 @@ async function setSetting(id, value, options = {}) {
   return true;
 }
 
+async function applySettingsBatch(
+  { values = {}, preferences = {} } = {},
+  options = {},
+) {
+  const settingChanges = [];
+  const preferenceChanges = [];
+  const nextValues = { ...values };
+  if (
+    Object.hasOwn(preferences, "productionSummaryMode") &&
+    !Object.hasOwn(nextValues, "productionSummary")
+  ) {
+    nextValues.productionSummary =
+      normalizePreference(
+        "productionSummaryMode",
+        preferences.productionSummaryMode,
+      ) !== "off";
+  }
+
+  for (const [id, value] of Object.entries(nextValues)) {
+    if (!settingsMap[id]) {
+      throw new TypeError(`Unknown MWITools setting: ${id}`);
+    }
+    if (typeof value !== "boolean") {
+      throw new TypeError(`MWITools setting ${id} must be boolean`);
+    }
+  }
+  for (const [id, value] of Object.entries(preferences)) {
+    if (!preferenceDefinitions[id]) {
+      throw new TypeError(`Unknown MWITools preference: ${id}`);
+    }
+    if (!preferenceDefinitions[id].values.includes(value)) {
+      throw new TypeError(`Invalid MWITools preference value for ${id}`);
+    }
+  }
+
+  for (const [id, value] of Object.entries(nextValues)) {
+    const normalized = value;
+    const previous = settingsMap[id].isTrue;
+    settingsMap[id].isTrue = normalized;
+    if (previous !== normalized || options.force) {
+      settingChanges.push({ id, value: normalized, previous });
+    }
+  }
+  for (const [id, value] of Object.entries(preferences)) {
+    const normalized = normalizePreference(id, value);
+    if (normalized === undefined) continue;
+    const previous = preferenceValues[id];
+    preferenceValues[id] = normalized;
+    if (previous !== normalized || options.force) {
+      preferenceChanges.push({ id, value: normalized, previous });
+    }
+  }
+
+  if (options.persist !== false) runtime.api.persistSettings?.();
+  for (const change of preferenceChanges) {
+    for (const listener of preferenceListeners.get(change.id) ?? []) {
+      try {
+        listener(change.value, change.previous);
+      } catch (error) {
+        console.error(
+          isZH
+            ? `[MWITools] 偏好设置 ${change.id} 的监听器执行失败`
+            : `[MWITools] Preference listener failed for ${change.id}`,
+          error,
+        );
+      }
+    }
+  }
+  for (const change of settingChanges) {
+    for (const listener of settingListeners.get(change.id) ?? []) {
+      try {
+        listener(change.value, change.previous);
+      } catch (error) {
+        console.error(
+          isZH
+            ? `[MWITools] 设置 ${change.id} 的监听器执行失败`
+            : `[MWITools] Setting listener failed for ${change.id}`,
+          error,
+        );
+      }
+    }
+  }
+  await runtime.features.syncSettings(settingChanges.map(({ id }) => id));
+  return {
+    settings: settingChanges.map(({ id }) => id),
+    preferences: preferenceChanges.map(({ id }) => id),
+  };
+}
+
 function onSettingChange(id, listener) {
   const listeners = settingListeners.get(id) ?? new Set();
   listeners.add(listener);
@@ -1397,6 +1486,7 @@ Object.defineProperties(runtime.settings, {
 Object.assign(runtime.settings, {
   get: getSetting,
   set: setSetting,
+  applyBatch: applySettingsBatch,
   onChange: onSettingChange,
   getPreference,
   setPreference,

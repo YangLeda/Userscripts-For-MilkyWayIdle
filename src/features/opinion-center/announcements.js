@@ -4,7 +4,7 @@ export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
     id: "26.4.9",
     version: "26.4.9",
-    publishedAt: "2026-08-13",
+    publishedAt: "2026-08-14",
     title: Object.freeze({
       zh: "26.4.9 更新公告",
       en: "Version 26.4.9 update",
@@ -29,6 +29,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。",
         "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
         "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
+        "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。",
       ]),
       en: Object.freeze([
         "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -49,6 +50,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned.",
         "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
         "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
+        "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. General settings now show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike.",
       ]),
     }),
   }),
