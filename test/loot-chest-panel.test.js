@@ -464,6 +464,11 @@ test("hover is read-only and pinned panels expose synchronized switches", async 
   const anchor = ensureAnchor();
   const hover = runtime.api.showLootChestPanel(anchor, ITEM.chest);
   assert.ok(hover);
+  assert.match(
+    document.getElementById("mwitools-production-profit-panel-style")
+      .textContent,
+    /--mwi-hover-font-scale/,
+  );
   assert.equal(hover.querySelectorAll(".mwi-loot-switch").length, 0);
   assert.equal(hover.querySelectorAll(".mwi-loot-best-badge").length, 2);
 

@@ -597,6 +597,14 @@ const catalogRows = [
     "Adjust text in MWITools panels, hints, and badges without changing the game UI.",
   ],
   [
+    "hoverFontScale",
+    "general",
+    "悬浮窗口字号",
+    "Tooltip panel font size",
+    "调整生产利润、宝箱估值与强化成本悬浮窗口的字号，不影响游戏原生提示和页面布局。",
+    "Adjust production profit, loot valuation, and enhancement cost tooltip panels without changing native game tooltips or page layout.",
+  ],
+  [
     "useOrangeAsMainColor",
     "general",
     "使用橙色强调色",
@@ -1157,6 +1165,15 @@ settingsCatalog.uiFontScale.control = {
     ["largest", { zh: "最大", en: "Largest" }],
   ],
 };
+settingsCatalog.hoverFontScale.control = {
+  type: "select",
+  preference: "hoverFontScale",
+  options: [
+    ["standard", { zh: "标准", en: "Standard" }],
+    ["large", { zh: "较大", en: "Large" }],
+    ["largest", { zh: "最大", en: "Largest" }],
+  ],
+};
 
 const settingParents = {
   actionBarProfit: "totalActionTime",
@@ -1201,6 +1218,10 @@ const preferenceDefinitions = Object.freeze({
     values: Object.freeze(["collapsed", "expanded", "off"]),
   }),
   uiFontScale: Object.freeze({
+    defaultValue: "standard",
+    values: Object.freeze(["standard", "large", "largest"]),
+  }),
+  hoverFontScale: Object.freeze({
     defaultValue: "standard",
     values: Object.freeze(["standard", "large", "largest"]),
   }),

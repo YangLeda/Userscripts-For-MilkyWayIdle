@@ -70,6 +70,7 @@ test("legacy settings merge into current defaults", () => {
     "collapsed",
   );
   assert.equal(runtime.settings.getPreference("uiFontScale"), "standard");
+  assert.equal(runtime.settings.getPreference("hoverFontScale"), "standard");
   assert.equal(runtime.settings.settingsMap.lootIgnoreCowbells.isTrue, false);
   assert.equal(runtime.settings.settingsMap.leaderboardBadgeGlint.isTrue, true);
   assert.equal(
@@ -110,6 +111,7 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   await runtime.settings.set("notifiEmptyAction", true);
   await runtime.settings.setPreference("productionSummaryMode", "expanded");
   await runtime.settings.setPreference("uiFontScale", "large");
+  await runtime.settings.setPreference("hoverFontScale", "largest");
   assert.equal(
     JSON.parse(localStorage.getItem("MWITools_settings_v2")).values
       .notifiEmptyAction,
@@ -118,12 +120,18 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   const stored = JSON.parse(localStorage.getItem("MWITools_settings_v2"));
   assert.equal(stored.preferences.productionSummaryMode, "expanded");
   assert.equal(stored.preferences.uiFontScale, "large");
+  assert.equal(stored.preferences.hoverFontScale, "largest");
   assert.equal(
     document.documentElement.style.getPropertyValue("--mwi-ui-font-scale"),
     "1.12",
   );
+  assert.equal(
+    document.documentElement.style.getPropertyValue("--mwi-hover-font-scale"),
+    "1.25",
+  );
   await runtime.settings.setPreference("productionSummaryMode", "collapsed");
   await runtime.settings.setPreference("uiFontScale", "standard");
+  await runtime.settings.setPreference("hoverFontScale", "standard");
   assert.equal(
     JSON.parse(localStorage.getItem("script_settingsMap")).notifiEmptyAction
       .isTrue,

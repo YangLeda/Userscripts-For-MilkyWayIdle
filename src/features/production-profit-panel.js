@@ -107,14 +107,14 @@ function addStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
+    #${PANEL_ID} { position:fixed; z-index:2147483000; width:min(760px,calc(100vw - 24px)); max-height:min(78vh,760px); box-sizing:border-box; overflow:auto; pointer-events:none; color:var(--color-text-primary,#f2f2f2); border:1px solid rgba(255,255,255,.16); border-radius:10px; background:linear-gradient(145deg,rgba(35,39,47,.985),rgba(19,22,28,.985)); box-shadow:0 18px 48px rgba(0,0,0,.48),0 2px 8px rgba(0,0,0,.3); font-family:inherit; font-size:calc(12px * var(--mwi-ui-font-scale,1) * var(--mwi-hover-font-scale,1)); line-height:1.35; scrollbar-width:thin; }
     #${PANEL_ID} * { box-sizing:border-box; }
     .mwi-profit-header { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid rgba(255,255,255,.1); }
     .mwi-profit-header-icon { display:grid; width:38px; height:38px; flex:0 0 38px; place-items:center; border-radius:8px; background:rgba(255,255,255,.065); }
     .mwi-profit-header-main { min-width:0; }
-    .mwi-profit-title { color:#fff; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-profit-subtitle { margin-top:2px; color:var(--color-text-secondary,#aeb4bf); font-size:11px; }
-    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:max(.6875rem,10px); font-weight:650; white-space:nowrap; }
+    .mwi-profit-title { color:#fff; font-size:calc(14px * var(--mwi-hover-font-scale,1)); font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-profit-subtitle { margin-top:2px; color:var(--color-text-secondary,#aeb4bf); font-size:calc(11px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-status { margin-left:auto; padding:3px 8px; border:1px solid currentColor; border-radius:999px; font-size:max(calc(.6875rem * var(--mwi-hover-font-scale,1)),calc(10px * var(--mwi-hover-font-scale,1))); font-weight:650; white-space:nowrap; }
     .mwi-profit-status.complete { color:#7bd69a; background:rgba(66,185,108,.1); }
     .mwi-profit-status.partial { color:#e7bd68; background:rgba(221,164,51,.1); }
     .mwi-profit-status.incomplete { color:#ef8c86; background:rgba(218,73,65,.1); }
@@ -123,26 +123,26 @@ function addStyles() {
     .mwi-profit-card { min-width:0; padding:10px; border:1px solid rgba(255,255,255,.095); border-radius:8px; background:rgba(255,255,255,.035); }
     .mwi-profit-card.cost { border-top:2px solid rgba(239,124,111,.72); }
     .mwi-profit-card.income { border-top:2px solid rgba(83,201,132,.72); }
-    .mwi-profit-card-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; color:#fff; font-size:11px; font-weight:700; letter-spacing:.04em; }
-    .mwi-profit-card-total { color:var(--color-text-secondary,#aeb4bf); font-size:10px; font-weight:600; }
+    .mwi-profit-card-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:700; letter-spacing:.04em; }
+    .mwi-profit-card-total { color:var(--color-text-secondary,#aeb4bf); font-size:calc(10px * var(--mwi-hover-font-scale,1)); font-weight:600; }
     .mwi-profit-item { display:grid; grid-template-columns:28px minmax(0,1fr) auto; gap:7px; align-items:center; padding:7px 0; border-top:1px solid rgba(255,255,255,.065); }
     .mwi-profit-item:first-of-type { border-top:0; }
-    .mwi-profit-item-name { min-width:0; color:#edf0f4; font-size:11px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-profit-item-meta { margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
+    .mwi-profit-item-name { min-width:0; color:#edf0f4; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-profit-item-meta { margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-item-value { min-width:64px; text-align:right; }
-    .mwi-profit-item-value strong { display:block; color:#fff; font-size:11px; }
-    .mwi-profit-item-value span { display:block; margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
-    .mwi-profit-kind { display:inline-block; margin-right:4px; padding:0 4px; border-radius:3px; background:rgba(255,255,255,.075); color:#bdc5d1; font-size:8.5px; }
+    .mwi-profit-item-value strong { display:block; color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-item-value span { display:block; margin-top:2px; color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-kind { display:inline-block; margin-right:4px; padding:0 4px; border-radius:3px; background:rgba(255,255,255,.075); color:#bdc5d1; font-size:calc(8.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-player { display:flex; min-width:0; flex-direction:column; align-items:center; justify-content:center; gap:7px; padding:9px 7px; border:1px solid rgba(255,255,255,.095); border-radius:8px; background:rgba(255,255,255,.025); text-align:center; }
-    .mwi-profit-player-title { color:#fff; font-size:11px; font-weight:700; }
+    .mwi-profit-player-title { color:#fff; font-size:calc(11px * var(--mwi-hover-font-scale,1)); font-weight:700; }
     .mwi-profit-teas { display:flex; min-height:28px; align-items:center; justify-content:center; gap:4px; }
     .mwi-profit-tea { display:grid; width:27px; height:27px; place-items:center; border-radius:6px; background:rgba(255,255,255,.07); }
-    .mwi-profit-no-tea { color:var(--color-text-secondary,#9ba2ad); font-size:9.5px; }
+    .mwi-profit-no-tea { color:var(--color-text-secondary,#9ba2ad); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-effects { display:flex; flex-wrap:wrap; justify-content:center; gap:3px; }
-    .mwi-profit-effect { padding:2px 5px; border-radius:999px; color:#d5dbe4; background:rgba(255,255,255,.07); font-size:9px; }
-    .mwi-profit-flow { color:var(--color-primary,#70a8ff); font-size:24px; line-height:1; }
+    .mwi-profit-effect { padding:2px 5px; border-radius:999px; color:#d5dbe4; background:rgba(255,255,255,.07); font-size:calc(9px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-flow { color:var(--color-primary,#70a8ff); font-size:calc(24px * var(--mwi-hover-font-scale,1)); line-height:1; }
     .mwi-profit-stat-list { width:100%; }
-    .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:9.5px; }
+    .mwi-profit-stat { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.055); color:var(--color-text-secondary,#a4abb6); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); }
     .mwi-profit-stat strong { color:#edf0f4; font-weight:650; }
     .mwi-profit-valuations { display:flex; flex-direction:column; gap:4px; padding:0 12px 10px; }
     .mwi-profit-valuation-row { display:grid; grid-template-columns:126px repeat(6,minmax(0,1fr)); min-width:0; overflow:hidden; border:1px solid rgba(255,255,255,.1); border-left:3px solid var(--mwi-valuation-color); border-radius:7px; background:rgba(255,255,255,.03); }
@@ -152,25 +152,25 @@ function addStyles() {
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
-    .mwi-profit-valuation-title { color:#fff; font-size:10.5px; font-weight:750; line-height:1.2; }
-    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:.6875rem; line-height:1.15; }
+    .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
+    .mwi-profit-valuation-state { color:var(--mwi-valuation-color); font-size:calc(.6875rem * var(--mwi-hover-font-scale,1)); line-height:1.15; }
     .mwi-profit-valuation-metric { min-width:0; padding:5px 4px; border-left:1px solid rgba(255,255,255,.055); text-align:center; }
     .mwi-profit-valuation-name + .mwi-profit-valuation-metric { border-left:0; }
-    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:.6875rem; line-height:1.1; }
-    .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:10.5px; font-weight:700; overflow-wrap:anywhere; }
+    .mwi-profit-valuation-label { min-height:2.2em; color:var(--color-text-secondary,#9da5b0); font-size:calc(.6875rem * var(--mwi-hover-font-scale,1)); line-height:1.1; }
+    .mwi-profit-valuation-value { margin-top:2px; color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:700; overflow-wrap:anywhere; }
     .mwi-profit-valuation-metric.profit { background:rgba(55,160,97,.075); }
     .mwi-profit-valuation-metric.profit .mwi-profit-valuation-value { color:#82dfa4; }
-    .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:10px; }
-    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:9.5px; line-height:1.35; }
+    .mwi-profit-warning { margin:0 12px 12px; padding:8px 10px; border:1px solid rgba(224,177,75,.25); border-radius:7px; background:rgba(195,139,30,.09); color:#e3c276; font-size:calc(10px * var(--mwi-hover-font-scale,1)); }
+    .mwi-profit-hint { margin:0 12px 12px; color:var(--color-text-secondary,#8b93a0); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); line-height:1.35; }
     #${PANEL_ID}.mwi-profit-pinned { pointer-events:auto; }
-    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:14px; line-height:1; cursor:pointer; }
+    .mwi-profit-close { flex:0 0 auto; width:22px; height:22px; margin-left:auto; padding:0; border:1px solid rgba(255,255,255,.16); border-radius:5px; background:rgba(255,255,255,.06); color:#e7e9ef; font-size:calc(14px * var(--mwi-hover-font-scale,1)); line-height:1; cursor:pointer; }
     .mwi-profit-close:hover { background:rgba(255,255,255,.14); }
     .mwi-loot-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; margin:10px 12px 0; padding:8px 10px; border:1px solid rgba(255,255,255,.08); border-radius:7px; background:rgba(0,0,0,.12); }
     .mwi-loot-controls.has-key { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .mwi-loot-control { display:grid; min-width:0; min-height:38px; grid-template-columns:minmax(0,1fr) 36px; grid-template-rows:auto 20px; align-items:center; gap:2px 7px; padding:0 7px; border-left:1px solid rgba(255,255,255,.07); }
     .mwi-loot-control:first-child { padding-left:0; border-left:0; }
-    .mwi-loot-control-label { min-width:0; grid-column:1 / 3; color:#edf0f4; font-size:10.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-loot-control-state { min-width:0; color:var(--color-text-secondary,#aeb4bf); font-size:9.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-control-label { min-width:0; grid-column:1 / 3; color:#edf0f4; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-control-state { min-width:0; color:var(--color-text-secondary,#aeb4bf); font-size:calc(9.5px * var(--mwi-hover-font-scale,1)); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .mwi-loot-switch { position:relative; width:36px; height:20px; flex:0 0 36px; }
     .mwi-loot-switch input { position:absolute; opacity:0; pointer-events:none; }
     .mwi-loot-switch span { position:absolute; inset:0; border-radius:999px; cursor:pointer; background:#555; transition:.16s; }
@@ -181,13 +181,13 @@ function addStyles() {
     .mwi-loot-cell { position:relative; display:flex; min-width:0; align-items:center; gap:6px; padding:5px 7px; border:1px solid rgba(255,255,255,.08); border-radius:6px; background:rgba(255,255,255,.03); }
     .mwi-loot-cell.unpriced { opacity:.6; }
     .mwi-loot-cell.best-redemption { border-color:rgba(255,193,74,.86); background:linear-gradient(135deg,rgba(255,185,55,.16),rgba(255,255,255,.035)); box-shadow:0 0 0 1px rgba(255,184,55,.12),0 0 14px rgba(255,171,42,.12); }
-    .mwi-loot-best-badge { position:absolute; top:-6px; right:-4px; z-index:1; padding:1px 5px; border:1px solid rgba(255,211,112,.72); border-radius:999px; background:#7b5410; color:#fff3cf; font-size:8px; font-weight:750; line-height:1.35; white-space:nowrap; }
+    .mwi-loot-best-badge { position:absolute; top:-6px; right:-4px; z-index:1; padding:1px 5px; border:1px solid rgba(255,211,112,.72); border-radius:999px; background:#7b5410; color:#fff3cf; font-size:calc(8px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.35; white-space:nowrap; }
     .mwi-loot-cell-icon { position:relative; flex:0 0 26px; width:26px; height:26px; }
     .mwi-loot-cell-icon .mwi-profit-icon,.mwi-loot-cell-icon .mwi-profit-icon-fallback { width:26px; height:26px; }
-    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:8px; line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
+    .mwi-loot-cell-chance { position:absolute; right:-3px; bottom:-3px; padding:0 3px; border-radius:6px; background:rgba(15,18,28,.92); color:#cbd3f4; font-size:calc(8px * var(--mwi-hover-font-scale,1)); line-height:1.3; box-shadow:0 0 0 1px rgba(255,255,255,.1); }
     .mwi-loot-cell-main { min-width:0; }
-    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:10.5px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:10px; font-weight:650; }
+    .mwi-loot-cell-name { overflow:hidden; color:#edf0f4; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+    .mwi-loot-cell-value { margin-top:1px; color:#82dfa4; font-size:calc(10px * var(--mwi-hover-font-scale,1)); font-weight:650; }
     .mwi-loot-cell.unpriced .mwi-loot-cell-value { color:var(--color-text-secondary,#9ba2ad); }
     .mwi-profit-state { margin:12px; padding:18px; border:1px solid rgba(255,255,255,.09); border-radius:8px; background:rgba(255,255,255,.03); color:var(--color-text-secondary,#acb3be); text-align:center; }
     .mwi-profit-icon,.mwi-profit-icon-fallback { width:26px; height:26px; }

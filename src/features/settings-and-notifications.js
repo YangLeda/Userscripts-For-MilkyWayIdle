@@ -167,9 +167,18 @@ function applyVisualSettings() {
     "--mwi-ui-font-scale",
     String(scale),
   );
+  const hoverScale =
+    { standard: 1, large: 1.12, largest: 1.25 }[
+      runtime.settings.getPreference("hoverFontScale")
+    ] ?? 1;
+  document.documentElement?.style.setProperty(
+    "--mwi-hover-font-scale",
+    String(hoverScale),
+  );
 }
 
 runtime.settings.onPreferenceChange?.("uiFontScale", applyVisualSettings);
+runtime.settings.onPreferenceChange?.("hoverFontScale", applyVisualSettings);
 
 function readSettings() {
   let loadedV2 = false;

@@ -19,6 +19,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "强化行动的剩余时间改为原位更新，并会在原生强化数量文字短暂缺失时沿用同一行动最后一次有效数量，不再闪成无限或消失。本次生产总耗时已移到数量、无限与最大控制右侧，以无边框的“耗时”文字显示；购物车与生产摘要的英文界面也改用更清晰的系统字体。",
         "行动队列更新现在按行动 ID 合并、去重并按真实序号排序，上下重排后会在已打开的队列内立即刷新耗时。遇到无限行动时保留此前可达的有限总时长并显示“有限时长 + ∞”，无限后的行动不再计算或残留旧时间；队列关闭后会立即停止相关观察与延迟校验。",
         "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
+        "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
       ]),
       en: Object.freeze([
         "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -29,6 +30,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Enhancement remaining time now updates in place and keeps the last valid native quantity for the same action when that text briefly disappears, preventing the estimate from flashing to infinity or vanishing. Production duration now appears as unboxed Duration text to the right of the quantity, infinity, and Max controls, and English Shopping Cart and Production Summary surfaces use a clearer system UI font stack.",
         "Action updates now merge and deduplicate by action ID and sort by the authoritative ordinal, so moving actions up or down refreshes an open queue immediately. The queue keeps every reachable finite duration before the first infinite action and displays “finite duration + ∞”; actions after infinity are not calculated and stale timing is removed. Queue observers and transition checks stop as soon as the menu or feature closes.",
         "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
+        "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
       ]),
     }),
   }),
