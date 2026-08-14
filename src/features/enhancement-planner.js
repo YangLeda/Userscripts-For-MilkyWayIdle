@@ -29,6 +29,9 @@ const DEFAULT_BONUS_MULTIPLIERS = [
 ];
 
 const EPSILON = 1e-9;
+const ENHANCEMENT_FLOW_CACHE_LIMIT = 4096;
+const enhancementFlowCache = new Map();
+let enhancementFlowCacheWeight = 0;
 
 function finitePositive(value) {
   const number = Number(value);
@@ -162,6 +165,61 @@ function successRateAt(table, level) {
   const value = Number(table[level] ?? table.at(-1));
   if (!Number.isFinite(value)) return 0;
   return value > 1 ? value / 100 : value;
+}
+
+function enhancementFlowProfileKey({
+  targetLevel,
+  successRates,
+  successBonus,
+  blessedChance,
+}) {
+  const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+  const bonus = Number(successBonus) || 0;
+  const blessed = Number(blessedChance) || 0;
+  const effectiveSuccessRates = Array.from({ length: target }, (_, level) =>
+    Math.min(1, successRateAt(successRates, level) * (1 + bonus)),
+  );
+  return `${target}|${blessed}|${effectiveSuccessRates.join(",")}`;
+}
+
+function freezeEnhancementFlow(flow) {
+  if (!flow) return null;
+  return Object.freeze({
+    ...flow,
+    actionsByLevel: Object.freeze([...(flow.actionsByLevel ?? [])]),
+  });
+}
+
+function cloneEnhancementFlow(flow) {
+  return flow
+    ? { ...flow, actionsByLevel: [...(flow.actionsByLevel ?? [])] }
+    : null;
+}
+
+function cachedEnhancementValue(key, weight, calculate) {
+  if (enhancementFlowCache.has(key)) {
+    const cached = enhancementFlowCache.get(key);
+    enhancementFlowCache.delete(key);
+    enhancementFlowCache.set(key, cached);
+    return cached.value;
+  }
+  const normalizedWeight = Math.max(1, Math.floor(Number(weight) || 1));
+  const value = calculate();
+  enhancementFlowCache.set(key, { value, weight: normalizedWeight });
+  enhancementFlowCacheWeight += normalizedWeight;
+  while (enhancementFlowCacheWeight > ENHANCEMENT_FLOW_CACHE_LIMIT) {
+    const oldestKey = enhancementFlowCache.keys().next().value;
+    const oldest = enhancementFlowCache.get(oldestKey);
+    enhancementFlowCache.delete(oldestKey);
+    enhancementFlowCacheWeight -= oldest?.weight ?? 0;
+  }
+  return value;
+}
+
+function cachedEnhancementFlow(key, calculate) {
+  return cachedEnhancementValue(key, 1, () =>
+    freezeEnhancementFlow(calculate()),
+  );
 }
 
 function solveLinearSystem(matrix, vector) {
@@ -308,7 +366,7 @@ function addTransition(matrix, from, to, rate, targetLevel) {
   matrix[to][from] -= rate;
 }
 
-export function calculateNormalEnhancementFlow({
+function calculateNormalEnhancementFlowUncached({
   targetLevel,
   protectLevel,
   successRates = DEFAULT_SUCCESS_RATES,
@@ -372,6 +430,28 @@ export function calculateNormalEnhancementFlow({
   };
 }
 
+function getCachedNormalEnhancementFlow(options, profileKeys = null) {
+  const protectLevel = Math.max(
+    0,
+    Math.floor(Number(options.protectLevel) || 0),
+  );
+  const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+  let profileKey = profileKeys?.get(targetLevel);
+  if (!profileKey) {
+    profileKey = enhancementFlowProfileKey(options);
+    profileKeys?.set(targetLevel, profileKey);
+  }
+  return cachedEnhancementFlow(`normal|${protectLevel}|${profileKey}`, () =>
+    calculateNormalEnhancementFlowUncached(options),
+  );
+}
+
+export function calculateNormalEnhancementFlow(options) {
+  return cloneEnhancementFlow(
+    getCachedNormalEnhancementFlow(options, new Map()),
+  );
+}
+
 function calculateMirrorRequirements(targetLevel, philosopherStartLevel) {
   const requirements = Array(targetLevel + 1).fill(0);
   const actionsByLevel = Array(targetLevel).fill(0);
@@ -394,14 +474,17 @@ function calculateMirrorRequirements(targetLevel, philosopherStartLevel) {
   };
 }
 
-export function calculatePhilosopherEnhancementFlow({
-  targetLevel,
-  protectLevel,
-  philosopherStartLevel,
-  successRates = DEFAULT_SUCCESS_RATES,
-  successBonus,
-  blessedChance,
-}) {
+function calculatePhilosopherEnhancementFlowUncached(
+  {
+    targetLevel,
+    protectLevel,
+    philosopherStartLevel,
+    successRates = DEFAULT_SUCCESS_RATES,
+    successBonus,
+    blessedChance,
+  },
+  resolveNormalFlow,
+) {
   if (
     targetLevel <= 1 ||
     philosopherStartLevel < 1 ||
@@ -413,7 +496,7 @@ export function calculatePhilosopherEnhancementFlow({
     targetLevel,
     philosopherStartLevel,
   );
-  const aFlow = calculateNormalEnhancementFlow({
+  const aFlow = resolveNormalFlow({
     targetLevel: philosopherStartLevel,
     protectLevel,
     successRates,
@@ -422,7 +505,7 @@ export function calculatePhilosopherEnhancementFlow({
   });
   const bFlow =
     philosopherStartLevel > 1
-      ? calculateNormalEnhancementFlow({
+      ? resolveNormalFlow({
           targetLevel: philosopherStartLevel - 1,
           protectLevel,
           successRates,
@@ -452,6 +535,106 @@ export function calculatePhilosopherEnhancementFlow({
     aCount: mirror.aCount,
     bCount: mirror.bCount,
   };
+}
+
+function getCachedPhilosopherEnhancementFlow(options, profileKeys = null) {
+  const protectLevel = Math.max(
+    0,
+    Math.floor(Number(options.protectLevel) || 0),
+  );
+  const philosopherStartLevel = Math.max(
+    0,
+    Math.floor(Number(options.philosopherStartLevel) || 0),
+  );
+  const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+  let profileKey = profileKeys?.get(targetLevel);
+  if (!profileKey) {
+    profileKey = enhancementFlowProfileKey(options);
+    profileKeys?.set(targetLevel, profileKey);
+  }
+  return cachedEnhancementFlow(
+    `philosopher|${protectLevel}|${philosopherStartLevel}|${profileKey}`,
+    () =>
+      calculatePhilosopherEnhancementFlowUncached(options, (normalOptions) =>
+        getCachedNormalEnhancementFlow(normalOptions, profileKeys),
+      ),
+  );
+}
+
+export function calculatePhilosopherEnhancementFlow(options) {
+  return cloneEnhancementFlow(
+    getCachedPhilosopherEnhancementFlow(options, new Map()),
+  );
+}
+
+function getCachedEnhancementFlowTable({
+  targetLevel,
+  successRates,
+  successBonus,
+  blessedChance,
+}) {
+  const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+  const profileKey = enhancementFlowProfileKey({
+    targetLevel: target,
+    successRates,
+    successBonus,
+    blessedChance,
+  });
+  const flowCount = target + (target * (target - 1)) / 2;
+  return cachedEnhancementValue(`table|${profileKey}`, flowCount, () => {
+    const localNormalFlows = Array.from({ length: target + 1 }, () => []);
+    const resolveNormalFlow = (options) => {
+      const flowTarget = Math.max(
+        0,
+        Math.floor(Number(options.targetLevel) || 0),
+      );
+      const protectLevel = Math.max(
+        0,
+        Math.floor(Number(options.protectLevel) || 0),
+      );
+      if (localNormalFlows[flowTarget][protectLevel] === undefined) {
+        localNormalFlows[flowTarget][protectLevel] =
+          calculateNormalEnhancementFlowUncached(options);
+      }
+      return localNormalFlows[flowTarget][protectLevel];
+    };
+    const normal = Array(target + 1).fill(null);
+    for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
+      normal[protectLevel] = resolveNormalFlow({
+        targetLevel: target,
+        protectLevel,
+        successRates,
+        successBonus,
+        blessedChance,
+      });
+    }
+    const philosopher = Array.from({ length: target }, () => []);
+    for (
+      let philosopherStartLevel = 1;
+      philosopherStartLevel < target;
+      philosopherStartLevel++
+    ) {
+      for (
+        let protectLevel = 1;
+        protectLevel <= philosopherStartLevel;
+        protectLevel++
+      ) {
+        philosopher[philosopherStartLevel][protectLevel] =
+          calculatePhilosopherEnhancementFlowUncached(
+            {
+              targetLevel: target,
+              protectLevel,
+              philosopherStartLevel,
+              successRates,
+              successBonus,
+              blessedChance,
+            },
+            resolveNormalFlow,
+          );
+      }
+    }
+    return { normal, philosopher };
+  });
 }
 
 function unavailableResult(missingMarketValues = []) {
@@ -657,15 +840,15 @@ export function calculateEnhancementPlan({
     ultraTeaCostPerAction +
     blessedTeaCostPerNormalAction;
   let best = null;
+  const flowTable = getCachedEnhancementFlowTable({
+    targetLevel: target,
+    successRates,
+    successBonus: stats.successBonus,
+    blessedChance: stats.blessedChance,
+  });
 
   for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
-    const flow = calculateNormalEnhancementFlow({
-      targetLevel: target,
-      protectLevel,
-      successRates,
-      successBonus: stats.successBonus,
-      blessedChance: stats.blessedChance,
-    });
+    const flow = flowTable.normal[protectLevel];
     if (!flow) continue;
     if (flow.protectionCount > EPSILON && !protectionPrice) continue;
     const totalCost =
@@ -698,14 +881,7 @@ export function calculateEnhancementPlan({
         protectLevel <= philosopherStartLevel;
         protectLevel++
       ) {
-        const flow = calculatePhilosopherEnhancementFlow({
-          targetLevel: target,
-          protectLevel,
-          philosopherStartLevel,
-          successRates,
-          successBonus: stats.successBonus,
-          blessedChance: stats.blessedChance,
-        });
+        const flow = flowTable.philosopher[philosopherStartLevel][protectLevel];
         if (!flow || flow.baseItemCount < -EPSILON) continue;
         if (flow.protectionCount > EPSILON && !protectionPrice) continue;
         const totalCost =

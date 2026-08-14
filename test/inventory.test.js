@@ -144,10 +144,31 @@ test("derived currency, loot, and equipment categories participate in inventory 
 });
 
 test("inventory asset summaries rerender without restoring the removed header UI", async () => {
-  await runtime.api.calculateNetworth();
-  await Promise.resolve();
-  await runtime.api.calculateNetworth();
-  await Promise.resolve();
+  assert.equal(
+    document.querySelector("#mwitools-inventory-summary-style"),
+    null,
+  );
+  const characterItems = runtime.state.initData_characterItems;
+  runtime.state.initData_characterItems = null;
+  runtime.api.scheduleNetworthRefresh();
+  runtime.state.initData_characterItems = characterItems;
+  assert.ok(document.querySelector("#mwitools-inventory-summary-style"));
+
+  const originalGetComputedStyle = window.getComputedStyle;
+  let computedStyleReadCount = 0;
+  window.getComputedStyle = (...args) => {
+    computedStyleReadCount += 1;
+    return originalGetComputedStyle.apply(window, args);
+  };
+  try {
+    await runtime.api.calculateNetworth();
+    await Promise.resolve();
+    await runtime.api.calculateNetworth();
+    await Promise.resolve();
+  } finally {
+    window.getComputedStyle = originalGetComputedStyle;
+  }
+  assert.equal(computedStyleReadCount, 0);
 
   assert.equal(document.querySelectorAll("#script_current_assets").length, 0);
   assert.equal(
@@ -251,13 +272,15 @@ test("inventory asset summaries rerender without restoring the removed header UI
   const summary = document.querySelector("#script_inventory_summary");
   assert.equal(sortControls.nextElementSibling, summary);
   const noneButton = document.querySelector("#script_sortByNone_btn");
-  assert.equal(noneButton.style.fontWeight, "700");
+  assert.equal(sortControls.dataset.sortOrder, "none");
+  assert.equal(noneButton.style.fontWeight, "");
   document.querySelector("#script_sortByFair_btn").click();
+  assert.equal(sortControls.dataset.sortOrder, "fair");
   assert.equal(
     document.querySelector("#script_sortByFair_btn").style.fontWeight,
-    "700",
+    "",
   );
-  assert.equal(noneButton.style.fontWeight, "500");
+  assert.equal(noneButton.style.fontWeight, "");
 
   summary.style.display = "none";
   sortControls.style.display = "none";
@@ -268,13 +291,13 @@ test("inventory asset summaries rerender without restoring the removed header UI
     document
       .querySelector("#script_inventory_summary")
       .style.getPropertyValue("--mwi-inventory-heading-font-size"),
-    "14px",
+    "",
   );
   assert.equal(
     document
       .querySelector("#script_inventory_summary")
       .style.getPropertyValue("--mwi-inventory-heading-line-height"),
-    "20px",
+    "",
   );
   assert.match(summaryStyles, /\.mwi-summary-stats::before/);
   assert.match(summaryStyles, /\.mwi-summary-stat::before/);

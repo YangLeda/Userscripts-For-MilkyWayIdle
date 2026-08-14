@@ -686,3 +686,119 @@ test("high enhancement targets remain finite without external math", () => {
   assert.ok(Number.isFinite(plan.totalCost));
   assert.ok(Number.isFinite(plan.totalSeconds));
 });
+
+test("cached enhancement flows are isolated from callers and include probability inputs", () => {
+  const options = {
+    targetLevel: 20,
+    protectLevel: 6,
+    successRates: Array(20).fill(0.5),
+    successBonus: 0,
+    blessedChance: 0.01,
+  };
+  const first = calculateNormalEnhancementFlow(options);
+  const expectedFirstLevelActions = first.actionsByLevel[0];
+  first.actionsByLevel[0] = -1;
+
+  const cached = calculateNormalEnhancementFlow(options);
+  const differentChance = calculateNormalEnhancementFlow({
+    ...options,
+    successBonus: 0.05,
+  });
+
+  assert.equal(cached.actionsByLevel[0], expectedFirstLevelActions);
+  assert.notEqual(differentChance.actionsByLevel[0], expectedFirstLevelActions);
+});
+
+test("normal and philosopher flows stay stable from +1 through +20", () => {
+  for (let targetLevel = 1; targetLevel <= 20; targetLevel += 1) {
+    const options = {
+      targetLevel,
+      protectLevel: Math.max(1, Math.floor(targetLevel / 3)),
+      successRates: Array.from(
+        { length: targetLevel },
+        (_, level) => 0.3 + ((targetLevel + level) % 4) * 0.05,
+      ),
+      successBonus: (targetLevel % 3) * 0.01,
+      blessedChance: targetLevel % 2 ? 0.01 : 0,
+    };
+    const normal = calculateNormalEnhancementFlow(options);
+    assert.deepEqual(calculateNormalEnhancementFlow(options), normal);
+    assert.ok(Number.isFinite(normal.totalActions));
+
+    if (targetLevel < 2) continue;
+    const philosopherOptions = {
+      ...options,
+      philosopherStartLevel: Math.max(1, Math.floor(targetLevel / 2)),
+    };
+    const philosopher = calculatePhilosopherEnhancementFlow(philosopherOptions);
+    assert.deepEqual(
+      calculatePhilosopherEnhancementFlow(philosopherOptions),
+      philosopher,
+    );
+    assert.ok(Number.isFinite(philosopher.totalActions));
+  }
+});
+
+test("repeated +20 planning reuses probability flows without caching prices", () => {
+  const values = prices();
+  const options = {
+    itemHrid: "/items/target",
+    targetLevel: 20,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+  };
+  const beforePriceChange = calculateEnhancementPlan(options);
+  values["/items/material"] = 1_250;
+  const afterPriceChange = calculateEnhancementPlan(options);
+
+  assert.notEqual(afterPriceChange.totalCost, beforePriceChange.totalCost);
+
+  const startedAt = performance.now();
+  for (let index = 0; index < 200; index += 1) {
+    calculateEnhancementPlan(options);
+  }
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.ok(
+    elapsedMs < 250,
+    `expected 200 cached +20 plans under 250ms, received ${elapsedMs.toFixed(1)}ms`,
+  );
+});
+
+test("three hundred unique enhanced items share a sub-50ms warm planning pass", () => {
+  const values = prices();
+  const details = itemDetailMap();
+  const targets = Array.from(
+    { length: 300 },
+    (_, index) => `/items/benchmark_target_${index}`,
+  );
+  for (const itemHrid of targets) {
+    details[itemHrid] = {
+      ...details["/items/target"],
+      protectionItemHrids: [...details["/items/target"].protectionItemHrids],
+    };
+  }
+  const getFairValue = (hrid) =>
+    hrid.startsWith("/items/benchmark_target_")
+      ? values["/items/target"]
+      : (values[hrid] ?? 0);
+  const plan = (itemHrid) =>
+    calculateEnhancementPlan({
+      itemHrid,
+      targetLevel: 20,
+      itemDetailMap: details,
+      bonusMultiplierTable: MULTIPLIERS,
+      getFairValue,
+    });
+
+  plan(targets[0]);
+  const startedAt = performance.now();
+  for (const itemHrid of targets) plan(itemHrid);
+  const elapsedMs = performance.now() - startedAt;
+
+  assert.ok(
+    elapsedMs < 50,
+    `expected 300 warm unique-item plans under 50ms, received ${elapsedMs.toFixed(1)}ms`,
+  );
+});

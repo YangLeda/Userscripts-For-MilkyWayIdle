@@ -77,9 +77,9 @@
     mod
   ));
 
-  // ../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js
+  // node_modules/lz-string/libs/lz-string.js
   var require_lz_string = __commonJS({
-    "../../../Volumes/StellaSW/mwitools/node_modules/lz-string/libs/lz-string.js"(exports, module) {
+    "node_modules/lz-string/libs/lz-string.js"(exports, module) {
       var LZString2 = (function() {
         var f = String.fromCharCode;
         var keyStrBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
@@ -23398,6 +23398,10 @@
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
+  var actionOutputIndexSource = null;
+  var actionOutputIndexes = null;
+  var shopRewardIndexSources = null;
+  var shopRewardIndex = null;
   function positiveNumber2(value) {
     const number3 = Number(value);
     return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
@@ -23415,6 +23419,10 @@
     assetValueCache.clear();
     assetLiquidationCache.clear();
     guildCreditHridCache = null;
+    actionOutputIndexSource = null;
+    actionOutputIndexes = null;
+    shopRewardIndexSources = null;
+    shopRewardIndex = null;
     runtime.api.resetAssetValuationMarketSnapshot?.();
   }
   function getItemDetails(itemHrid) {
@@ -23571,6 +23579,75 @@
       runtime.state.initData_taskShopItemDetailMap,
       runtime.state.initData_labyrinthShopItemDetailMap
     ].flatMap((map) => entriesOfMap(map).map(([, detail]) => detail));
+  }
+  function assetItemKey(itemHrid, enhancementLevel = 0) {
+    return `${itemHrid}#${Number(enhancementLevel) || 0}`;
+  }
+  function getActionOutputIndexes() {
+    const source = runtime.state.initData_actionDetailMap;
+    if (source === actionOutputIndexSource && actionOutputIndexes) {
+      return actionOutputIndexes;
+    }
+    const byItemAndLevel = /* @__PURE__ */ new Map();
+    const upgradesByItem = /* @__PURE__ */ new Map();
+    for (const [, action] of entriesOfMap(source)) {
+      const countsByKey = /* @__PURE__ */ new Map();
+      const countsByItem = /* @__PURE__ */ new Map();
+      for (const output of action?.outputItems ?? []) {
+        const itemHrid = output?.itemHrid ?? output?.hrid;
+        if (!itemHrid) continue;
+        const count = positiveNumber2(output.count ?? 1);
+        if (!count) continue;
+        const key = assetItemKey(itemHrid, output.enhancementLevel);
+        countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+        countsByItem.set(itemHrid, (countsByItem.get(itemHrid) ?? 0) + count);
+      }
+      for (const [key, outputCount] of countsByKey) {
+        const candidates = byItemAndLevel.get(key) ?? [];
+        candidates.push({ action, outputCount });
+        byItemAndLevel.set(key, candidates);
+      }
+      if (action?.upgradeItemHrid) {
+        for (const [itemHrid, outputCount] of countsByItem) {
+          const candidates = upgradesByItem.get(itemHrid) ?? [];
+          candidates.push({ action, outputCount });
+          upgradesByItem.set(itemHrid, candidates);
+        }
+      }
+    }
+    actionOutputIndexSource = source;
+    actionOutputIndexes = { byItemAndLevel, upgradesByItem };
+    return actionOutputIndexes;
+  }
+  function getShopRewardIndex() {
+    const sources = [
+      runtime.state.initData_shopItemDetailMap,
+      runtime.state.initData_taskShopItemDetailMap,
+      runtime.state.initData_labyrinthShopItemDetailMap
+    ];
+    if (shopRewardIndex && shopRewardIndexSources?.every((source, index2) => source === sources[index2])) {
+      return shopRewardIndex;
+    }
+    const index = /* @__PURE__ */ new Map();
+    for (const detail of getShopDetails()) {
+      const countsByKey = /* @__PURE__ */ new Map();
+      for (const reward of normalizeRewardRecords(detail)) {
+        const itemHrid = reward?.itemHrid ?? reward?.hrid;
+        if (!itemHrid) continue;
+        const count = positiveNumber2(reward.count ?? 1);
+        if (!count) continue;
+        const key = assetItemKey(itemHrid, reward.enhancementLevel);
+        countsByKey.set(key, (countsByKey.get(key) ?? 0) + count);
+      }
+      for (const [key, rewardCount] of countsByKey) {
+        const candidates = index.get(key) ?? [];
+        candidates.push({ detail, rewardCount });
+        index.set(key, candidates);
+      }
+    }
+    shopRewardIndexSources = sources;
+    shopRewardIndex = index;
+    return shopRewardIndex;
   }
   function getLootConfig(overrides = {}) {
     const settings2 = runtime.settings.settingsMap ?? {};
@@ -23905,14 +23982,8 @@
   }
   function getShopAcquisitionValue(itemHrid, enhancementLevel, context) {
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const detail of getShopDetails()) {
-      const rewards = normalizeRewardRecords(detail);
-      const matchingCount = rewards.reduce((total, reward) => {
-        const rewardHrid = reward?.itemHrid ?? reward?.hrid;
-        const rewardLevel = Number(reward?.enhancementLevel ?? 0) || 0;
-        return rewardHrid === itemHrid && rewardLevel === enhancementLevel ? total + positiveNumber2(reward.count ?? 1) : total;
-      }, 0);
-      if (!matchingCount) continue;
+    const candidates = getShopRewardIndex().get(assetItemKey(itemHrid, enhancementLevel)) ?? [];
+    for (const { detail, rewardCount } of candidates) {
       let totalCost = 0, complete = true;
       for (const cost of normalizeCostRecords(detail)) {
         const costHrid = cost?.itemHrid ?? cost?.hrid;
@@ -23930,7 +24001,7 @@
         totalCost += count * unitValue;
       }
       if (complete && totalCost > 0) {
-        bestValue = Math.min(bestValue, totalCost / matchingCount);
+        bestValue = Math.min(bestValue, totalCost / rewardCount);
       }
     }
     return Number.isFinite(bestValue) ? bestValue : 0;
@@ -23938,16 +24009,10 @@
   function getRefinedAcquisitionValue(itemHrid, enhancementLevel, context) {
     if (!String(itemHrid).endsWith("_refined")) return 0;
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        return outputHrid === itemHrid ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
+    const candidates = getActionOutputIndexes().upgradesByItem.get(itemHrid) ?? [];
+    for (const { action, outputCount } of candidates) {
       const baseItemHrid = action?.upgradeItemHrid;
-      if (!outputCount || !baseItemHrid) continue;
+      if (!baseItemHrid) continue;
       const retainedLevel = action.retainAllEnhancement ? enhancementLevel : 0;
       let totalCost = acquisitionCostValue(baseItemHrid, retainedLevel, context), complete = totalCost > 0;
       for (const cost of action.inputItems ?? []) {
@@ -23973,16 +24038,10 @@
   }
   function getCraftedAcquisitionValue(itemHrid, enhancementLevel, context) {
     let bestValue = Number.POSITIVE_INFINITY;
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-        return outputHrid === itemHrid && outputLevel === enhancementLevel ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
-      if (!outputCount) continue;
+    const candidates = getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel)
+    ) ?? [];
+    for (const { action, outputCount } of candidates) {
       let totalCost = 0;
       let complete = true;
       const inputItems = action?.inputItems ?? [];
@@ -24191,16 +24250,10 @@
   function getCraftedLiquidationValue(itemHrid, enhancementLevel, mode, context) {
     let bestValue = Number.POSITIVE_INFINITY;
     let missingItemHrids = [];
-    for (const [, action] of entriesOfMap(
-      runtime.state.initData_actionDetailMap
-    )) {
-      const outputs = Array.isArray(action?.outputItems) ? action.outputItems : [];
-      const outputCount = outputs.reduce((total, output) => {
-        const outputHrid = output?.itemHrid ?? output?.hrid;
-        const outputLevel = Number(output?.enhancementLevel ?? 0) || 0;
-        return outputHrid === itemHrid && outputLevel === enhancementLevel ? total + positiveNumber2(output.count ?? 1) : total;
-      }, 0);
-      if (!outputCount) continue;
+    const candidates = getActionOutputIndexes().byItemAndLevel.get(
+      assetItemKey(itemHrid, enhancementLevel)
+    ) ?? [];
+    for (const { action, outputCount } of candidates) {
       const inputItems = [...action?.inputItems ?? []];
       const upgradeItemHrid = action?.upgradeItemHrid;
       if (upgradeItemHrid) {
@@ -31762,16 +31815,39 @@ ${preview}`
     style.id = INVENTORY_SUMMARY_STYLE_ID;
     style.textContent = `
     #script_inventory_summary {
-      --mwi-inventory-heading-font-size: .875rem;
-      --mwi-inventory-heading-line-height: 1.2;
       display: block !important;
       margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: var(--mwi-inventory-heading-font-size);
-      line-height: var(--mwi-inventory-heading-line-height);
+      font-family: inherit;
+      font-size: calc(.875rem * var(--mwi-ui-font-scale, 1));
+      line-height: 1.2;
       text-align: left;
     }
     #script_inv_sort_controls { display: block !important; }
+    #script_inv_sort_controls button {
+      margin: 0 2px;
+      padding: 2px 8px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .08);
+      color: var(--color-text-secondary, #aeb5c0);
+      box-shadow: none;
+      font: inherit;
+      font-size: .78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s ease-in-out;
+    }
+    #script_inv_sort_controls[data-sort-order="fair"] #script_sortByFair_btn,
+    #script_inv_sort_controls[data-sort-order="ask"] #script_sortByAsk_btn,
+    #script_inv_sort_controls[data-sort-order="bid"] #script_sortByBid_btn,
+    #script_inv_sort_controls[data-sort-order="none"] #script_sortByNone_btn {
+      border-color: transparent;
+      background: ${runtime.config.SCRIPT_COLOR_MAIN};
+      color: #0b1522;
+      box-shadow: 0 0 8px rgba(0, 198, 255, .45);
+      font-weight: 700;
+    }
     [class*="Item_enhancementLevel"] ~ #script_stack_price {
       margin-top: 15px;
     }
@@ -32030,17 +32106,8 @@ ${preview}`
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
-  function syncInventorySummaryTypography(invElem, summary) {
-    const categoryTitle = invElem.querySelector(
-      '[class*="Inventory_categoryButton"]'
-    );
-    const computed = categoryTitle ? categoryTitle.ownerDocument?.defaultView?.getComputedStyle(categoryTitle) : null;
-    const fontSize = Number.parseFloat(computed?.fontSize) > 0 ? computed.fontSize : ".875rem";
-    const lineHeight = computed?.lineHeight && computed.lineHeight !== "normal" ? computed.lineHeight : "1.2";
-    summary.style.setProperty("--mwi-inventory-heading-font-size", fontSize);
-    summary.style.setProperty("--mwi-inventory-heading-line-height", lineHeight);
-  }
   function scheduleNetworthRefresh() {
+    addInventorySummaryStyles();
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
     clearTimeout(inventoryRefreshTimer);
     inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
@@ -32249,7 +32316,6 @@ ${preview}`
       const summary = invElem.parentElement.querySelector(
         "#script_inventory_summary"
       );
-      syncInventorySummaryTypography(invElem, summary);
       const toggleScores = summary.querySelector("#toggleScores");
       const ScoreDetails = summary.querySelector("#buildScores");
       const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
@@ -32382,7 +32448,7 @@ ${preview}`
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-    const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
+    const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${showSort ? runtime.config.isZH ? "物品排序：" : "Sort items by: " : ""}${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
     if (!invElem.isConnected || !invElem.parentElement) return;
     const existingSummary = invElem.parentElement.querySelector(
       "#script_inventory_summary"
@@ -32392,42 +32458,11 @@ ${preview}`
     } else {
       invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
     }
-    const updateSortButtonStyles = (activeOrder) => {
-      const parent = invElem.parentElement;
-      if (!parent) return;
-      const btnMap = {
-        fair: parent.querySelector("button#script_sortByFair_btn"),
-        ask: parent.querySelector("button#script_sortByAsk_btn"),
-        bid: parent.querySelector("button#script_sortByBid_btn"),
-        none: parent.querySelector("button#script_sortByNone_btn")
-      };
-      for (const [key, btn] of Object.entries(btnMap)) {
-        if (!btn) continue;
-        const isActive = key === activeOrder;
-        btn.style.borderRadius = "4px";
-        btn.style.padding = "2px 8px";
-        btn.style.margin = "0 2px";
-        btn.style.cursor = "pointer";
-        btn.style.font = "inherit";
-        btn.style.fontSize = "0.78rem";
-        btn.style.transition = "all 0.15s ease-in-out";
-        if (isActive) {
-          btn.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-          btn.style.color = "#0b1522";
-          btn.style.fontWeight = "700";
-          btn.style.border = "1px solid transparent";
-          btn.style.boxShadow = "0 0 8px rgba(0, 198, 255, 0.45)";
-        } else {
-          btn.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
-          btn.style.color = "var(--color-text-secondary, #aeb5c0)";
-          btn.style.fontWeight = "500";
-          btn.style.border = "1px solid rgba(255, 255, 255, 0.16)";
-          btn.style.boxShadow = "none";
-        }
-      }
-    };
     const sortItemsBy = (order) => {
-      updateSortButtonStyles(order);
+      const controls = invElem.parentElement?.querySelector(
+        "#script_inv_sort_controls"
+      );
+      if (controls) controls.dataset.sortOrder = order;
       for (const typeDiv of invElem.children) {
         const categoryButton = typeDiv.querySelector(
           '[class*="Inventory_categoryButton"]'
@@ -32494,7 +32529,6 @@ ${preview}`
       invElem.parentElement.querySelector("button#script_sortByAsk_btn")?.addEventListener("click", () => sortItemsBy("ask"));
       invElem.parentElement.querySelector("button#script_sortByBid_btn")?.addEventListener("click", () => sortItemsBy("bid"));
       invElem.parentElement.querySelector("button#script_sortByNone_btn")?.addEventListener("click", () => sortItemsBy("none"));
-      updateSortButtonStyles("none");
     }
   }
   async function addGuildCreditConversionsSortButton() {
@@ -42708,7 +42742,8 @@ ${locks}` : ""}`;
           "修复游戏改用独立饮品栏消息后，本次生产摘要没有及时读取加工茶的问题；现在切换加工茶后会立即按实际加工率拆分原料与加工品产出，并同步更新产出数量和利润，其他生产规划也会使用最新饮品栏。",
           "26.4.9 已标记为重要更新；仍在使用旧版本的玩家会收到顶部更新提示，以便及时获得本次规划、任务筛选、快捷设置、时间显示及生产修复。",
           "修复前五名排行榜徽章的闪光设置在徽章已经显示后可能不立即刷新，并隔离相关回归验证，避免较慢环境把正常的延迟渲染误判为失败。",
-          "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。"
+          "修复手机端切换到响应式角色面板后“规划”标签仍留在隐藏桌面面板的问题；规划现在会精确跟随可见的手机页签栏，并继续显示在“盈亏”旁。设置中也新增默认开启的独立“规划计算器”开关，不再与购物车和采购功能共用开关。第 2、3 步计算现在只滚动规划面板内部，不再把游戏页面推高并露出底部空白。第 2 步还会锁定点击计算时的库存与项目占用快照，后续游戏数据更新不会再让结果闪现后消失，第 3 步也不会改用更新后的库存；只有重新计算第 2 步才会换用新库存。“所需”数量现在显示扣除快照库存后的实际制作缺口，不再误显示最终持有目标总量；基础材料的“已覆盖/还需”也只按实际库存判断，不再把购物车数量当成已经持有。物品耗尽时，即使游戏的零数量更新省略了原堆叠 ID，采购库存缓存也会正确移除旧条目，不再把已经用完的碎片或其他物品算作仍然持有。",
+          "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。"
         ]),
         en: Object.freeze([
           "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -42726,7 +42761,8 @@ ${locks}` : ""}`;
           "Fixed Production Summary not picking up Processing Tea after the game moved drink-slot changes to a dedicated message. Switching Processing Tea now immediately splits raw and processed output at the effective rate, updates quantities and profit, and keeps other production planning on the latest drink loadout.",
           "Version 26.4.9 is now marked as an important update. Players still on an older release will see the top update prompt so they can receive the new planner, task filters, quick settings, timing display, and production fixes.",
           "Fixed the top-five leaderboard badge glint setting not always refreshing badges that were already visible, and isolated its regression coverage so slower environments no longer mistake normal deferred rendering for a failure.",
-          "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned."
+          "Fixed Planning remaining attached to a hidden desktop character panel after mobile switched to its responsive panel. Planning now follows the visible mobile tab bar precisely and stays beside P/L. Settings also include a separate Planning calculator switch, enabled by default and independent from shopping cart and procurement features. Step 2 and Step 3 calculations now scroll only inside Planning, preventing the game page from jumping upward and exposing a blank strip. Step 2 also locks the inventory and project-reservation snapshot from the moment Calculate is clicked: later game updates no longer make the result flash and disappear, Step 3 does not switch to newer inventory, and only recalculating Step 2 captures a new snapshot. Required quantities now show the actual production shortage after snapshot inventory instead of the final holding target total; base-material Covered/Need status also reflects actual inventory without treating cart quantities as already owned. When a stack is depleted, the procurement inventory cache now removes its old entry even if the game's zero-count update omits the original stack ID, so consumed fragments and other items are no longer counted as still owned.",
+          "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full."
         ])
       })
     }),
@@ -45587,6 +45623,9 @@ ${locks}` : ""}`;
     50
   ];
   var EPSILON2 = 1e-9;
+  var ENHANCEMENT_FLOW_CACHE_LIMIT = 4096;
+  var enhancementFlowCache = /* @__PURE__ */ new Map();
+  var enhancementFlowCacheWeight = 0;
   function finitePositive(value) {
     const number3 = Number(value);
     return Number.isFinite(number3) && number3 > 0 ? number3 : 0;
@@ -45687,6 +45726,57 @@ ${locks}` : ""}`;
     const value = Number(table[level] ?? table.at(-1));
     if (!Number.isFinite(value)) return 0;
     return value > 1 ? value / 100 : value;
+  }
+  function enhancementFlowProfileKey({
+    targetLevel,
+    successRates,
+    successBonus,
+    blessedChance
+  }) {
+    const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+    const bonus = Number(successBonus) || 0;
+    const blessed = Number(blessedChance) || 0;
+    const effectiveSuccessRates = Array.from(
+      { length: target },
+      (_, level) => Math.min(1, successRateAt(successRates, level) * (1 + bonus))
+    );
+    return `${target}|${blessed}|${effectiveSuccessRates.join(",")}`;
+  }
+  function freezeEnhancementFlow(flow) {
+    if (!flow) return null;
+    return Object.freeze({
+      ...flow,
+      actionsByLevel: Object.freeze([...flow.actionsByLevel ?? []])
+    });
+  }
+  function cloneEnhancementFlow(flow) {
+    return flow ? { ...flow, actionsByLevel: [...flow.actionsByLevel ?? []] } : null;
+  }
+  function cachedEnhancementValue(key, weight, calculate2) {
+    if (enhancementFlowCache.has(key)) {
+      const cached = enhancementFlowCache.get(key);
+      enhancementFlowCache.delete(key);
+      enhancementFlowCache.set(key, cached);
+      return cached.value;
+    }
+    const normalizedWeight = Math.max(1, Math.floor(Number(weight) || 1));
+    const value = calculate2();
+    enhancementFlowCache.set(key, { value, weight: normalizedWeight });
+    enhancementFlowCacheWeight += normalizedWeight;
+    while (enhancementFlowCacheWeight > ENHANCEMENT_FLOW_CACHE_LIMIT) {
+      const oldestKey = enhancementFlowCache.keys().next().value;
+      const oldest = enhancementFlowCache.get(oldestKey);
+      enhancementFlowCache.delete(oldestKey);
+      enhancementFlowCacheWeight -= oldest?.weight ?? 0;
+    }
+    return value;
+  }
+  function cachedEnhancementFlow(key, calculate2) {
+    return cachedEnhancementValue(
+      key,
+      1,
+      () => freezeEnhancementFlow(calculate2())
+    );
   }
   function solveLinearSystem(matrix, vector) {
     const size = matrix.length;
@@ -45798,7 +45888,7 @@ ${locks}` : ""}`;
     if (rate <= 0 || to >= targetLevel) return;
     matrix[to][from] -= rate;
   }
-  function calculateNormalEnhancementFlow({
+  function calculateNormalEnhancementFlowUncached({
     targetLevel,
     protectLevel,
     successRates = DEFAULT_SUCCESS_RATES,
@@ -45857,6 +45947,27 @@ ${locks}` : ""}`;
       protectionCount
     };
   }
+  function getCachedNormalEnhancementFlow(options, profileKeys = null) {
+    const protectLevel = Math.max(
+      0,
+      Math.floor(Number(options.protectLevel) || 0)
+    );
+    const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+    let profileKey = profileKeys?.get(targetLevel);
+    if (!profileKey) {
+      profileKey = enhancementFlowProfileKey(options);
+      profileKeys?.set(targetLevel, profileKey);
+    }
+    return cachedEnhancementFlow(
+      `normal|${protectLevel}|${profileKey}`,
+      () => calculateNormalEnhancementFlowUncached(options)
+    );
+  }
+  function calculateNormalEnhancementFlow(options) {
+    return cloneEnhancementFlow(
+      getCachedNormalEnhancementFlow(options, /* @__PURE__ */ new Map())
+    );
+  }
   function calculateMirrorRequirements(targetLevel, philosopherStartLevel) {
     const requirements = Array(targetLevel + 1).fill(0);
     const actionsByLevel = Array(targetLevel).fill(0);
@@ -45876,14 +45987,14 @@ ${locks}` : ""}`;
       mirrorCount: aCount + bCount - 1
     };
   }
-  function calculatePhilosopherEnhancementFlow({
+  function calculatePhilosopherEnhancementFlowUncached({
     targetLevel,
     protectLevel,
     philosopherStartLevel,
     successRates = DEFAULT_SUCCESS_RATES,
     successBonus,
     blessedChance
-  }) {
+  }, resolveNormalFlow) {
     if (targetLevel <= 1 || philosopherStartLevel < 1 || philosopherStartLevel >= targetLevel) {
       return null;
     }
@@ -45891,14 +46002,14 @@ ${locks}` : ""}`;
       targetLevel,
       philosopherStartLevel
     );
-    const aFlow = calculateNormalEnhancementFlow({
+    const aFlow = resolveNormalFlow({
       targetLevel: philosopherStartLevel,
       protectLevel,
       successRates,
       successBonus,
       blessedChance
     });
-    const bFlow = philosopherStartLevel > 1 ? calculateNormalEnhancementFlow({
+    const bFlow = philosopherStartLevel > 1 ? resolveNormalFlow({
       targetLevel: philosopherStartLevel - 1,
       protectLevel,
       successRates,
@@ -45921,6 +46032,93 @@ ${locks}` : ""}`;
       aCount: mirror.aCount,
       bCount: mirror.bCount
     };
+  }
+  function getCachedPhilosopherEnhancementFlow(options, profileKeys = null) {
+    const protectLevel = Math.max(
+      0,
+      Math.floor(Number(options.protectLevel) || 0)
+    );
+    const philosopherStartLevel = Math.max(
+      0,
+      Math.floor(Number(options.philosopherStartLevel) || 0)
+    );
+    const targetLevel = Math.max(0, Math.floor(Number(options.targetLevel) || 0));
+    let profileKey = profileKeys?.get(targetLevel);
+    if (!profileKey) {
+      profileKey = enhancementFlowProfileKey(options);
+      profileKeys?.set(targetLevel, profileKey);
+    }
+    return cachedEnhancementFlow(
+      `philosopher|${protectLevel}|${philosopherStartLevel}|${profileKey}`,
+      () => calculatePhilosopherEnhancementFlowUncached(
+        options,
+        (normalOptions) => getCachedNormalEnhancementFlow(normalOptions, profileKeys)
+      )
+    );
+  }
+  function calculatePhilosopherEnhancementFlow(options) {
+    return cloneEnhancementFlow(
+      getCachedPhilosopherEnhancementFlow(options, /* @__PURE__ */ new Map())
+    );
+  }
+  function getCachedEnhancementFlowTable({
+    targetLevel,
+    successRates,
+    successBonus,
+    blessedChance
+  }) {
+    const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
+    const profileKey = enhancementFlowProfileKey({
+      targetLevel: target,
+      successRates,
+      successBonus,
+      blessedChance
+    });
+    const flowCount = target + target * (target - 1) / 2;
+    return cachedEnhancementValue(`table|${profileKey}`, flowCount, () => {
+      const localNormalFlows = Array.from({ length: target + 1 }, () => []);
+      const resolveNormalFlow = (options) => {
+        const flowTarget = Math.max(
+          0,
+          Math.floor(Number(options.targetLevel) || 0)
+        );
+        const protectLevel = Math.max(
+          0,
+          Math.floor(Number(options.protectLevel) || 0)
+        );
+        if (localNormalFlows[flowTarget][protectLevel] === void 0) {
+          localNormalFlows[flowTarget][protectLevel] = calculateNormalEnhancementFlowUncached(options);
+        }
+        return localNormalFlows[flowTarget][protectLevel];
+      };
+      const normal = Array(target + 1).fill(null);
+      for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
+        normal[protectLevel] = resolveNormalFlow({
+          targetLevel: target,
+          protectLevel,
+          successRates,
+          successBonus,
+          blessedChance
+        });
+      }
+      const philosopher = Array.from({ length: target }, () => []);
+      for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
+        for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
+          philosopher[philosopherStartLevel][protectLevel] = calculatePhilosopherEnhancementFlowUncached(
+            {
+              targetLevel: target,
+              protectLevel,
+              philosopherStartLevel,
+              successRates,
+              successBonus,
+              blessedChance
+            },
+            resolveNormalFlow
+          );
+        }
+      }
+      return { normal, philosopher };
+    });
   }
   function unavailableResult(missingMarketValues = []) {
     return {
@@ -46088,14 +46286,14 @@ ${locks}` : ""}`;
     const blessedTeaCostPerNormalAction = stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds * blessedTeaPrice;
     const normalActionCost = materialCostPerAction + ultraTeaCostPerAction + blessedTeaCostPerNormalAction;
     let best = null;
+    const flowTable = getCachedEnhancementFlowTable({
+      targetLevel: target,
+      successRates,
+      successBonus: stats.successBonus,
+      blessedChance: stats.blessedChance
+    });
     for (let protectLevel = 1; protectLevel <= target; protectLevel++) {
-      const flow = calculateNormalEnhancementFlow({
-        targetLevel: target,
-        protectLevel,
-        successRates,
-        successBonus: stats.successBonus,
-        blessedChance: stats.blessedChance
-      });
+      const flow = flowTable.normal[protectLevel];
       if (!flow) continue;
       if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
       const totalCost = basePrice + flow.totalActions * normalActionCost + flow.protectionCount * protectionPrice;
@@ -46116,14 +46314,7 @@ ${locks}` : ""}`;
     if (allowPhilosopherMirror && philosopherMirrorPrice > 0) {
       for (let philosopherStartLevel = 1; philosopherStartLevel < target; philosopherStartLevel++) {
         for (let protectLevel = 1; protectLevel <= philosopherStartLevel; protectLevel++) {
-          const flow = calculatePhilosopherEnhancementFlow({
-            targetLevel: target,
-            protectLevel,
-            philosopherStartLevel,
-            successRates,
-            successBonus: stats.successBonus,
-            blessedChance: stats.blessedChance
-          });
+          const flow = flowTable.philosopher[philosopherStartLevel][protectLevel];
           if (!flow || flow.baseItemCount < -EPSILON2) continue;
           if (flow.protectionCount > EPSILON2 && !protectionPrice) continue;
           const totalCost = flow.baseItemCount * basePrice + flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) + (flow.totalActions - flow.mirrorCount) * blessedTeaCostPerNormalAction + flow.protectionCount * protectionPrice + flow.mirrorCount * philosopherMirrorPrice;

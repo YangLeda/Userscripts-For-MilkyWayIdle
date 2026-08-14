@@ -16,16 +16,39 @@ function addInventorySummaryStyles() {
   style.id = INVENTORY_SUMMARY_STYLE_ID;
   style.textContent = `
     #script_inventory_summary {
-      --mwi-inventory-heading-font-size: .875rem;
-      --mwi-inventory-heading-line-height: 1.2;
       display: block !important;
       margin: .0625rem 0;
       color: var(--color-text-primary, #f3f5f7);
-      font-size: var(--mwi-inventory-heading-font-size);
-      line-height: var(--mwi-inventory-heading-line-height);
+      font-family: inherit;
+      font-size: calc(.875rem * var(--mwi-ui-font-scale, 1));
+      line-height: 1.2;
       text-align: left;
     }
     #script_inv_sort_controls { display: block !important; }
+    #script_inv_sort_controls button {
+      margin: 0 2px;
+      padding: 2px 8px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 4px;
+      background: rgba(255, 255, 255, .08);
+      color: var(--color-text-secondary, #aeb5c0);
+      box-shadow: none;
+      font: inherit;
+      font-size: .78rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s ease-in-out;
+    }
+    #script_inv_sort_controls[data-sort-order="fair"] #script_sortByFair_btn,
+    #script_inv_sort_controls[data-sort-order="ask"] #script_sortByAsk_btn,
+    #script_inv_sort_controls[data-sort-order="bid"] #script_sortByBid_btn,
+    #script_inv_sort_controls[data-sort-order="none"] #script_sortByNone_btn {
+      border-color: transparent;
+      background: ${runtime.config.SCRIPT_COLOR_MAIN};
+      color: #0b1522;
+      box-shadow: 0 0 8px rgba(0, 198, 255, .45);
+      font-weight: 700;
+    }
     [class*="Item_enhancementLevel"] ~ #script_stack_price {
       margin-top: 15px;
     }
@@ -286,24 +309,8 @@ function numberHtml(value) {
   return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
 }
 
-function syncInventorySummaryTypography(invElem, summary) {
-  const categoryTitle = invElem.querySelector(
-    '[class*="Inventory_categoryButton"]',
-  );
-  const computed = categoryTitle
-    ? categoryTitle.ownerDocument?.defaultView?.getComputedStyle(categoryTitle)
-    : null;
-  const fontSize =
-    Number.parseFloat(computed?.fontSize) > 0 ? computed.fontSize : ".875rem";
-  const lineHeight =
-    computed?.lineHeight && computed.lineHeight !== "normal"
-      ? computed.lineHeight
-      : "1.2";
-  summary.style.setProperty("--mwi-inventory-heading-font-size", fontSize);
-  summary.style.setProperty("--mwi-inventory-heading-line-height", lineHeight);
-}
-
 function scheduleNetworthRefresh() {
+  addInventorySummaryStyles();
   if (!Array.isArray(runtime.state.initData_characterItems)) return;
   clearTimeout(inventoryRefreshTimer);
   inventoryRefreshTimer = setTimeout(() => calculateNetworth(), 100);
@@ -558,7 +565,6 @@ async function calculateNetworth() {
     const summary = invElem.parentElement.querySelector(
       "#script_inventory_summary",
     );
-    syncInventorySummaryTypography(invElem, summary);
     const toggleScores = summary.querySelector("#toggleScores");
     const ScoreDetails = summary.querySelector("#buildScores");
     const toggleSkillingScores = summary.querySelector("#toggleSkillingScores");
@@ -726,7 +732,7 @@ async function addInvSortButton(invElem) {
         id="script_sortByNone_btn">
         ${runtime.config.isZH ? "无" : "None"}
         </button>`;
-  const buttonsDiv = `<div id="script_inv_sort_controls" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
+  const buttonsDiv = `<div id="script_inv_sort_controls" data-sort-order="none" style="color: ${runtime.config.SCRIPT_COLOR_MAIN}; font-size: 0.875rem; text-align: left; ">${
     showSort ? (runtime.config.isZH ? "物品排序：" : "Sort items by: ") : ""
   }${showSort ? `${fairButton} ${askButton} ${bidButton} ${noneButton}` : ""}</div>`;
   if (!invElem.isConnected || !invElem.parentElement) return;
@@ -739,43 +745,11 @@ async function addInvSortButton(invElem) {
     invElem.insertAdjacentHTML("beforebegin", buttonsDiv);
   }
 
-  const updateSortButtonStyles = (activeOrder) => {
-    const parent = invElem.parentElement;
-    if (!parent) return;
-    const btnMap = {
-      fair: parent.querySelector("button#script_sortByFair_btn"),
-      ask: parent.querySelector("button#script_sortByAsk_btn"),
-      bid: parent.querySelector("button#script_sortByBid_btn"),
-      none: parent.querySelector("button#script_sortByNone_btn"),
-    };
-    for (const [key, btn] of Object.entries(btnMap)) {
-      if (!btn) continue;
-      const isActive = key === activeOrder;
-      btn.style.borderRadius = "4px";
-      btn.style.padding = "2px 8px";
-      btn.style.margin = "0 2px";
-      btn.style.cursor = "pointer";
-      btn.style.font = "inherit";
-      btn.style.fontSize = "0.78rem";
-      btn.style.transition = "all 0.15s ease-in-out";
-      if (isActive) {
-        btn.style.backgroundColor = runtime.config.SCRIPT_COLOR_MAIN;
-        btn.style.color = "#0b1522";
-        btn.style.fontWeight = "700";
-        btn.style.border = "1px solid transparent";
-        btn.style.boxShadow = "0 0 8px rgba(0, 198, 255, 0.45)";
-      } else {
-        btn.style.backgroundColor = "rgba(255, 255, 255, 0.08)";
-        btn.style.color = "var(--color-text-secondary, #aeb5c0)";
-        btn.style.fontWeight = "500";
-        btn.style.border = "1px solid rgba(255, 255, 255, 0.16)";
-        btn.style.boxShadow = "none";
-      }
-    }
-  };
-
   const sortItemsBy = (order) => {
-    updateSortButtonStyles(order);
+    const controls = invElem.parentElement?.querySelector(
+      "#script_inv_sort_controls",
+    );
+    if (controls) controls.dataset.sortOrder = order;
     for (const typeDiv of invElem.children) {
       const categoryButton = typeDiv.querySelector(
         '[class*="Inventory_categoryButton"]',
@@ -875,7 +849,6 @@ async function addInvSortButton(invElem) {
     invElem.parentElement
       .querySelector("button#script_sortByNone_btn")
       ?.addEventListener("click", () => sortItemsBy("none"));
-    updateSortButtonStyles("none");
   }
 }
 
