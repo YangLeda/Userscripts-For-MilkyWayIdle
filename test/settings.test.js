@@ -9,6 +9,8 @@ const dom = new JSDOM("<!doctype html><body></body>", {
 globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.window = dom.window;
+globalThis.GM_getValue = (_key, fallback) => fallback;
+globalThis.GM_setValue = () => {};
 
 localStorage.setItem(
   "script_settingsMap",
@@ -28,7 +30,11 @@ localStorage.setItem(
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
+await import("../src/core/state.js");
+await import("../src/core/message-state.js");
+await import("../src/core/messages.js");
 await import("../src/features/settings-and-notifications.js");
+await import("../src/features/message-effects.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
 
@@ -143,7 +149,7 @@ test("legacy disabled production summaries migrate to off mode", () => {
   runtime.api.persistSettings();
 });
 
-test("iron-cow adaptation recognizes both game modes and remains opt-in", async () => {
+test("iron-cow adaptation recognizes both game modes and stays scoped to iron-cow characters", async () => {
   runtime.state.currentCharacterGameMode = "ironcow";
   assert.equal(runtime.api.isIronCowCharacter(), true);
   assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
@@ -155,6 +161,73 @@ test("iron-cow adaptation recognizes both game modes and remains opt-in", async 
   assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
   runtime.state.currentCharacterGameMode = "standard";
   assert.equal(runtime.api.isIronCowCharacter(), false);
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+});
+
+test("iron-cow detection automatically enables and persists market adaptation", async () => {
+  runtime.api.scheduleNetworthRefresh = () => {};
+  runtime.api.assetHistory = { scheduleRefresh() {} };
+  runtime.api.checkEquipment = () => {};
+  runtime.state.currentCharacterGameMode = "standard";
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "init_character_data",
+      character: { id: "standard-1", gameMode: "standard" },
+      characterSkills: [],
+      characterItems: [],
+      characterActions: [],
+    }),
+  );
+  assert.equal(
+    runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue,
+    false,
+  );
+
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "init_character_data",
+      character: { id: "iron-1", gameMode: "ironcow" },
+      characterSkills: [],
+      characterItems: [],
+      characterActions: [],
+    }),
+  );
+  assert.equal(
+    runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue,
+    true,
+  );
+  assert.equal(
+    JSON.parse(localStorage.getItem("MWITools_settings_v2")).values
+      .adaptIronCowMarketFeatures,
+    true,
+  );
+
+  await runtime.settings.set("adaptIronCowMarketFeatures", false);
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "init_character_data",
+      character: { id: "iron-2", gameMode: "legacy_ironcow" },
+      characterSkills: [],
+      characterItems: [],
+      characterActions: [],
+    }),
+  );
+  assert.equal(
+    runtime.settings.settingsMap.adaptIronCowMarketFeatures.isTrue,
+    true,
+  );
+  assert.equal(runtime.api.shouldSuppressMarketFeatures(), true);
+  runtime.api.handleMessage(
+    JSON.stringify({
+      type: "init_character_data",
+      character: { id: "standard-2", gameMode: "standard" },
+      characterSkills: [],
+      characterItems: [],
+      characterActions: [],
+    }),
+  );
   assert.equal(runtime.api.shouldSuppressMarketFeatures(), false);
   await runtime.settings.set("adaptIronCowMarketFeatures", false);
 });

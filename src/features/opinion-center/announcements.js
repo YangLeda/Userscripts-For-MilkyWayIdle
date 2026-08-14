@@ -30,6 +30,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "优化库存首次打开和切换性能：强化装备会复用相同的概率方案，制作、精炼与商店来源改为按目标物品查找，并减少汇总和排序控件的首屏样式计算；总资产、分类价值和排序仍会同步完整显示。",
         "修复手机端开启“规划”后角色页明显卡顿、规划界面可能迟迟无法加载的问题；规划编辑器现在只在首次点开时构建，响应式布局切换不会反复创建隐藏界面，生产目标也改为按产物索引查找并可在角色数据加载期间正常识别。",
         "新增游戏原生小紫牛风格的性能初始化引导，新装与升级后可先选择生活、战斗或平衡用途，再使用流畅优先、标准、完整功能或分组自定义档位；手机与触屏设备默认推荐流畅优先，桌面默认推荐标准。引导会一次性设置 DPS、Buff 倒计时、任务与资产、公会增强、装饰动画、DPS 趋势图和 1/2 秒刷新节奏，利润等复杂悬浮计算仍统一使用按键或长按触发；左上角总进度会在自定义流程中显示当前步数，应用配置后自动刷新页面。可在通用设置顶部查看当前配置并随时重新开始，取消不会覆盖已有选择。首次启动会先保留消息与数据核心，确认配置后才启动可选功能，避免升级时先全量初始化造成卡顿。",
+        "检测到铁牛或旧铁牛角色时，现在会自动开启铁牛模式适配，隐藏该模式不可用的市场价格、交易利润与市场采购操作；切回普通角色时这些功能仍会正常显示。",
       ]),
       en: Object.freeze([
         "Fixed the character-page Planning tab being mistaken for the native Loadout tab, which rebuilt and closed it immediately after a click. P/L and Planning now coexist reliably and Planning stays open after selection.",
@@ -51,6 +52,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
         "Fixed severe character-page lag and Planning sometimes failing to load on mobile while the feature was enabled. The Planning editor is now built only when first opened, responsive layout switches no longer recreate a hidden editor, and production targets use an output index so they remain discoverable while character data is loading.",
         "Added a native Purple Cow-style performance setup for fresh installs and upgrades. Choose Skilling, Combat, or Balanced, then Smooth, Standard, Full features, or grouped Custom settings; phones and touch devices recommend Smooth while desktop recommends Standard. The guide atomically configures DPS, buff countdowns, tasks and assets, guild enhancements, decorative motion, DPS graphs, and one- or two-second refresh cadence, while detailed profit calculations continue to require a held key or long press. An overall progress bar in the upper-left tracks custom steps, and applying the profile now refreshes the page automatically. General settings show the active profile and can restart the guide without changing anything when cancelled. Startup keeps message and data services available but waits to initialize optional features until the profile is confirmed, avoiding an all-features-first upgrade spike.",
+        "Detecting an Iron Cow or Legacy Iron Cow character now automatically enables Iron Cow adaptation, hiding marketplace prices, trading profit, and marketplace procurement actions that are unavailable in those modes; these features remain visible after switching back to a standard character.",
       ]),
     }),
   }),
