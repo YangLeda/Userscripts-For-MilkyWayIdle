@@ -11,6 +11,7 @@ import {
   DamageSources,
   TakenSources,
 } from "./10-combat-sources.js";
+import { getLocalizedEntityName } from "../../core/game-localization.js";
 import { Session } from "./20-session.js";
 
 const langText = (zh, en) => (Settings.getLanguage() === "en" ? en : zh);
@@ -37,6 +38,7 @@ function withUnattributedDamage(players, teamDamage, elapsed) {
       taken: 0,
       takenPs: 0,
       kills: 0,
+      accuracy: null,
       breakdown: null,
       takenBreakdown: null,
     },
@@ -801,6 +803,42 @@ const ViewData = (() => {
         pct: total > 0 ? (item.value * 100) / total : 0,
       }));
   }
+  function accuracyBreakdown(raw) {
+    const attempts = Number(raw && raw.attempts) || 0;
+    if (!(attempts > 0)) return null;
+    const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+    const monsters = Object.values((raw && raw.monsters) || {})
+      .map((monster) => {
+        const monsterAttempts = Number(monster && monster.attempts) || 0,
+          monsterHits = Math.max(
+            0,
+            Math.min(monsterAttempts, Number(monster && monster.hits) || 0),
+          ),
+          monsterHrid = String((monster && monster.monsterHrid) || ""),
+          monsterName = String((monster && monster.monsterName) || ""),
+          localized = monsterHrid
+            ? getLocalizedEntityName("monster", monsterHrid)
+            : "";
+        return {
+          monsterName:
+            localized ||
+            monsterName ||
+            (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterHrid,
+          attempts: monsterAttempts,
+          hits: monsterHits,
+          pct: monsterAttempts > 0 ? (monsterHits * 100) / monsterAttempts : 0,
+        };
+      })
+      .filter((monster) => monster.attempts > 0)
+      .sort(
+        (a, b) =>
+          b.attempts - a.attempts ||
+          b.pct - a.pct ||
+          a.monsterName.localeCompare(b.monsterName),
+      );
+    return { attempts, hits, pct: (hits * 100) / attempts, monsters };
+  }
   function current() {
     const elapsed = Session.getElapsedSeconds(),
       names = Session.getAllPlayerNames(),
@@ -815,6 +853,7 @@ const ViewData = (() => {
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
+        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -853,13 +892,15 @@ const ViewData = (() => {
         damage = maps.damage || {},
         healing = maps.healing || {},
         taken = maps.taken || {},
-        kills = maps.kills || {};
+        kills = maps.kills || {},
+        accuracy = maps.accuracy || {};
       const names = [
         ...new Set([
           ...Object.keys(damage),
           ...Object.keys(healing),
           ...Object.keys(taken),
           ...Object.keys(kills),
+          ...Object.keys(accuracy),
         ]),
       ];
       const sources = maps.sources || {},
@@ -871,6 +912,7 @@ const ViewData = (() => {
         healing: Number(healing[name]) || 0,
         taken: Number(taken[name]) || 0,
         kills: Number(kills[name]) || 0,
+        accuracy: accuracyBreakdown(accuracy[name]),
         dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
         hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
         takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -889,6 +931,7 @@ const ViewData = (() => {
     } else {
       players = (entry.players || []).map((p) => ({
         ...p,
+        accuracy: accuracyBreakdown(p.accuracy),
         takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
         breakdown: damageBreakdown(
           p.sources,

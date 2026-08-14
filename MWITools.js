@@ -27257,6 +27257,7 @@ ${locks}` : ""}`;
           "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。",
           "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
           "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
+          "DPS 面板新增使用“稳定射击”图标的实时命中率排行，可查看每位玩家的可靠直伤命中数与出手数；悬停玩家行可查看对各怪物的命中率。统计会保存到新战斗历史，并排除辅助、持续伤害、反伤与无法归属的同帧结算，避免显示误导数字。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
@@ -27278,6 +27279,7 @@ ${locks}` : ""}`;
           "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place.",
           "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
           "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
+          "Added a live accuracy ranking to the DPS panel with the Steady Shot icon, showing each player's reliably resolved direct hits and attempts; hovering a player shows accuracy against each monster. New combat history retains these statistics, while support actions, damage-over-time ticks, reflected damage, and ambiguous simultaneous resolutions are excluded to avoid misleading results.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
@@ -33834,6 +33836,9 @@ ${locks}` : ""}`;
     },
     get stamina() {
       return GameAssets.skill("stamina");
+    },
+    get steadyShot() {
+      return GameAssets.ability("/abilities/steady_shot");
     }
   };
   var TOOLBAR_ICONS = {
@@ -33925,9 +33930,9 @@ ${locks}` : ""}`;
         state.showGraph = v;
         save();
       },
-      getMainMode: () => ["dps", "hps", "taken", "debug"].includes(state.mainMode) ? state.mainMode : "dps",
+      getMainMode: () => ["dps", "hps", "taken", "accuracy", "debug"].includes(state.mainMode) ? state.mainMode : "dps",
       setMainMode: (v) => {
-        state.mainMode = ["dps", "hps", "taken", "debug"].includes(v) ? v : "dps";
+        state.mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(v) ? v : "dps";
         save();
       },
       getAutoReset: () => state.autoReset,
@@ -35470,7 +35475,8 @@ ${locks}` : ""}`;
       healing: {},
       taken: {},
       takenSources: {},
-      kills: {}
+      kills: {},
+      accuracy: {}
     };
     let fragmentPrefix = null;
     const playerDamage = /* @__PURE__ */ new Map();
@@ -35479,6 +35485,7 @@ ${locks}` : ""}`;
     const playerKills = /* @__PURE__ */ new Map();
     const playerTaken = /* @__PURE__ */ new Map();
     const playerTakenSources = /* @__PURE__ */ new Map();
+    const playerAccuracy = /* @__PURE__ */ new Map();
     const BUCKETS = 150, BUCKET_MS = 2e3;
     const dmgBuckets = new Array(BUCKETS).fill(0);
     const bossBuckets = new Array(BUCKETS).fill(false);
@@ -35507,6 +35514,99 @@ ${locks}` : ""}`;
         );
         target.set(name, map);
       });
+    };
+    const accuracyObject = (map) => Object.fromEntries(
+      Array.from(map, ([name, value]) => [
+        name,
+        {
+          attempts: Number(value.attempts) || 0,
+          hits: Number(value.hits) || 0,
+          monsters: Object.fromEntries(value.monsters || [])
+        }
+      ])
+    );
+    const restoreAccuracy = (target, raw) => {
+      target.clear();
+      Object.entries(raw || {}).forEach(([name, value]) => {
+        const monsters = /* @__PURE__ */ new Map();
+        Object.entries(value && value.monsters || {}).forEach(
+          ([key, monster]) => {
+            const attempts2 = Number(monster && monster.attempts) || 0;
+            if (!(attempts2 > 0)) return;
+            monsters.set(key, {
+              monsterName: String(monster && monster.monsterName || ""),
+              monsterHrid: String(monster && monster.monsterHrid || ""),
+              attempts: attempts2,
+              hits: Math.max(
+                0,
+                Math.min(attempts2, Number(monster && monster.hits) || 0)
+              )
+            });
+          }
+        );
+        const attempts = Number(value && value.attempts) || 0;
+        if (!(attempts > 0) && !monsters.size) return;
+        target.set(name, {
+          attempts,
+          hits: Math.max(0, Math.min(attempts, Number(value && value.hits) || 0)),
+          monsters
+        });
+      });
+    };
+    const accuracyDelta = (map, base = {}) => Object.fromEntries(
+      Array.from(map, ([name, value]) => {
+        const previous = base[name] || {}, previousMonsters = previous.monsters || {};
+        const monsters = Object.fromEntries(
+          Array.from(value.monsters || [], ([key, monster]) => {
+            const old = previousMonsters[key] || {}, attempts2 = (Number(monster.attempts) || 0) - (Number(old.attempts) || 0), hits2 = (Number(monster.hits) || 0) - (Number(old.hits) || 0);
+            return [
+              key,
+              {
+                monsterName: monster.monsterName || old.monsterName || "",
+                monsterHrid: monster.monsterHrid || old.monsterHrid || "",
+                attempts: attempts2,
+                hits: hits2
+              }
+            ];
+          }).filter(([, monster]) => monster.attempts > 0)
+        );
+        const attempts = (Number(value.attempts) || 0) - (Number(previous.attempts) || 0), hits = (Number(value.hits) || 0) - (Number(previous.hits) || 0);
+        return [name, { attempts, hits, monsters }];
+      }).filter(
+        ([, value]) => value.attempts > 0 || Object.keys(value.monsters).length
+      )
+    );
+    const accuracyBaseFromDelta = (map, delta = {}) => {
+      const base = accuracyObject(map);
+      Object.entries(delta || {}).forEach(([name, value]) => {
+        if (!base[name]) return;
+        base[name].attempts = Math.max(
+          0,
+          (Number(base[name].attempts) || 0) - (Number(value && value.attempts) || 0)
+        );
+        base[name].hits = Math.max(
+          0,
+          (Number(base[name].hits) || 0) - (Number(value && value.hits) || 0)
+        );
+        Object.entries(value && value.monsters || {}).forEach(
+          ([key, monster]) => {
+            if (!base[name].monsters[key]) return;
+            base[name].monsters[key].attempts = Math.max(
+              0,
+              (Number(base[name].monsters[key].attempts) || 0) - (Number(monster && monster.attempts) || 0)
+            );
+            base[name].monsters[key].hits = Math.max(
+              0,
+              (Number(base[name].monsters[key].hits) || 0) - (Number(monster && monster.hits) || 0)
+            );
+            if (!(base[name].monsters[key].attempts > 0))
+              delete base[name].monsters[key];
+          }
+        );
+        if (!(base[name].attempts > 0) && !Object.keys(base[name].monsters).length)
+          delete base[name];
+      });
+      return base;
     };
     const nestedDelta = (map, base = {}) => Object.fromEntries(
       Array.from(map, ([name, sources]) => {
@@ -35546,7 +35646,8 @@ ${locks}` : ""}`;
             playerTakenSources,
             fragmentBase.takenSources
           ),
-          kills: mapDelta(playerKills, fragmentBase.kills)
+          kills: mapDelta(playerKills, fragmentBase.kills),
+          accuracy: accuracyDelta(playerAccuracy, fragmentBase.accuracy)
         }
       };
     }
@@ -35560,7 +35661,8 @@ ${locks}` : ""}`;
         healing: mapObject(playerHealing),
         taken: mapObject(playerTaken),
         takenSources: nestedMapObject(playerTakenSources),
-        kills: mapObject(playerKills)
+        kills: mapObject(playerKills),
+        accuracy: accuracyObject(playerAccuracy)
       };
       fragmentPrefix = null;
     }
@@ -35617,6 +35719,7 @@ ${locks}` : ""}`;
         playerKills.clear();
         playerTaken.clear();
         playerTakenSources.clear();
+        playerAccuracy.clear();
         dmgBuckets.fill(0);
         bossBuckets.fill(false);
         curBucket = 0;
@@ -35637,7 +35740,8 @@ ${locks}` : ""}`;
           healing: {},
           taken: {},
           takenSources: {},
-          kills: {}
+          kills: {},
+          accuracy: {}
         };
         fragmentPrefix = null;
       },
@@ -35706,7 +35810,8 @@ ${locks}` : ""}`;
           healing: baseFrom(playerHealing, deltas.healing),
           taken: baseFrom(playerTaken, deltas.taken),
           takenSources: takenSourceBase,
-          kills: baseFrom(playerKills, deltas.kills)
+          kills: baseFrom(playerKills, deltas.kills),
+          accuracy: accuracyBaseFromDelta(playerAccuracy, deltas.accuracy)
         };
         fragmentPrefix = {
           startedAt: previous.startedAt,
@@ -35742,7 +35847,8 @@ ${locks}` : ""}`;
             healing: mapObject(playerHealing),
             taken: mapObject(playerTaken),
             takenSources: nestedMapObject(playerTakenSources),
-            kills: mapObject(playerKills)
+            kills: mapObject(playerKills),
+            accuracy: accuracyObject(playerAccuracy)
           },
           classes: Object.fromEntries(
             this.getAllPlayerNames().map((n) => [n, ClassSystem.classFor(n)])
@@ -35770,6 +35876,7 @@ ${locks}` : ""}`;
         restoreMap(playerTaken, s.players && s.players.taken);
         restoreNestedMap(playerTakenSources, s.players && s.players.takenSources);
         restoreMap(playerKills, s.players && s.players.kills);
+        restoreAccuracy(playerAccuracy, s.players && s.players.accuracy);
         ClassSystem.applyClasses(s.classes);
         fragments = Array.isArray(s.fragments) ? s.fragments : [];
         fragmentStart = null;
@@ -35829,6 +35936,34 @@ ${locks}` : ""}`;
       addPlayerKill(n) {
         playerKills.set(n, (playerKills.get(n) || 0) + 1);
       },
+      addPlayerAccuracy(n, hit, targets = []) {
+        if (!n) return;
+        const value = playerAccuracy.get(n) || {
+          attempts: 0,
+          hits: 0,
+          monsters: /* @__PURE__ */ new Map()
+        };
+        value.attempts++;
+        if (hit) value.hits++;
+        const seen = /* @__PURE__ */ new Set();
+        (Array.isArray(targets) ? targets : []).forEach((target) => {
+          const monsterName2 = String(target && target.monsterName || ""), monsterHrid = String(target && target.monsterHrid || ""), key = monsterHrid || "name:" + monsterName2;
+          if (!key || key === "name:" || seen.has(key)) return;
+          seen.add(key);
+          const monster = value.monsters.get(key) || {
+            monsterName: monsterName2,
+            monsterHrid,
+            attempts: 0,
+            hits: 0
+          };
+          monster.monsterName = monster.monsterName || monsterName2;
+          monster.monsterHrid = monster.monsterHrid || monsterHrid;
+          monster.attempts++;
+          if (target.hit) monster.hits++;
+          value.monsters.set(key, monster);
+        });
+        playerAccuracy.set(n, value);
+      },
       // Fusionne les stats d'un ancien label (ex: fallback "Joueur6") vers le
       // nom réel confirmé, au lieu de laisser deux lignes distinctes pour la
       // même personne. Utilisé quand la résolution de noms du Trial de guilde
@@ -35859,6 +35994,28 @@ ${locks}` : ""}`;
           );
           playerTakenSources.set(newName, target);
           playerTakenSources.delete(oldName);
+        }
+        if (playerAccuracy.has(oldName)) {
+          const source = playerAccuracy.get(oldName), target = playerAccuracy.get(newName) || {
+            attempts: 0,
+            hits: 0,
+            monsters: /* @__PURE__ */ new Map()
+          };
+          target.attempts += Number(source.attempts) || 0;
+          target.hits += Number(source.hits) || 0;
+          source.monsters.forEach((monster, key) => {
+            const current = target.monsters.get(key) || {
+              monsterName: monster.monsterName || "",
+              monsterHrid: monster.monsterHrid || "",
+              attempts: 0,
+              hits: 0
+            };
+            current.attempts += Number(monster.attempts) || 0;
+            current.hits += Number(monster.hits) || 0;
+            target.monsters.set(key, current);
+          });
+          playerAccuracy.set(newName, target);
+          playerAccuracy.delete(oldName);
         }
       },
       getTeamDps() {
@@ -35903,6 +36060,15 @@ ${locks}` : ""}`;
       getPlayerKills(n) {
         return playerKills.get(n) || 0;
       },
+      getPlayerAccuracy(n) {
+        const value = playerAccuracy.get(n);
+        if (!value) return null;
+        return {
+          attempts: Number(value.attempts) || 0,
+          hits: Number(value.hits) || 0,
+          monsters: Object.fromEntries(value.monsters || [])
+        };
+      },
       getElapsedSeconds() {
         return elapsed();
       },
@@ -35912,7 +36078,8 @@ ${locks}` : ""}`;
             ...playerDamage.keys(),
             ...playerKills.keys(),
             ...playerHealing.keys(),
-            ...playerTaken.keys()
+            ...playerTaken.keys(),
+            ...playerAccuracy.keys()
           ])
         );
       },
@@ -36557,6 +36724,27 @@ ${locks}` : ""}`;
       if (!rule) return "unknown";
       return rule.direct ? "direct" : "support";
     }
+    function targetsAllEnemies(action) {
+      const rule = abilityDamageRules.get(String(action || ""));
+      return !!(rule && Array.isArray(rule.targetTypes) && rule.targetTypes.some((type) => /allEnemies|all_enemies/i.test(type)));
+    }
+    function accuracyTargets(action, hits, aliveKeys, names, hrids) {
+      const hitKeys = new Set((hits || []).map((hit) => String(hit.key))), living = [...new Set((aliveKeys || []).map(String))];
+      let keys;
+      if (targetsAllEnemies(action)) keys = living;
+      else if (hitKeys.size) keys = [...hitKeys];
+      else keys = living.length === 1 ? living : [];
+      return keys.map((key) => {
+        const monsterHrid = String(hrids && hrids[key] || ""), fallback = monsterHrid.split("/").pop().replace(/_/g, " "), monsterName2 = String(
+          names && names[key] || fallback || "怪物" + (+key + 1)
+        );
+        return {
+          monsterName: monsterName2,
+          monsterHrid,
+          hit: hitKeys.has(key)
+        };
+      });
+    }
     function activateDot(activeContainer, dotContainer, key, abilityHrid, ts, timeline = null) {
       const hrid = String(abilityHrid || ""), rule = abilityDamageRules.get(hrid);
       if (!rule || !(rule.dotDuration > 0)) return;
@@ -37185,7 +37373,7 @@ ${locks}` : ""}`;
         guildCombatWasActive = true;
         return;
       }
-      const counterActors = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
+      const counterActors = [], counterDeltas = {}, completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
         const unit = pMap[k], counter = playerAttackCounter(unit), previous = guildPlayersAtkCounter[k];
         rememberAbilityKnowledge(
@@ -37201,6 +37389,7 @@ ${locks}` : ""}`;
           if (previous !== void 0 && counter > previous) {
             const completed = guildCurrentAction[k] || (unit.isAutoAtk || unit.isAutoAttack ? "auto" : "unknown");
             counterActors.push(k);
+            counterDeltas[k] = counter - previous;
             completedActions[k] = completed;
             activateGuildReflection(k, completed, ts);
             activateDot(guildDotUntil, guildKnownDotAbilities, k, completed, ts);
@@ -37239,6 +37428,9 @@ ${locks}` : ""}`;
           guildMonsterCurrentAction[mk]
         );
       }
+      const soleAccuracyActor = counterActors.length === 1 && counterDeltas[counterActors[0]] === 1 && monsterActors.length === 0 && Object.keys(mMap).length > 0 && actionDamageKind(completedActions[counterActors[0]]) === "direct" ? counterActors[0] : null, accuracyAction = soleAccuracyActor === null ? "" : completedActions[soleAccuracyActor] || "", accuracyAliveMonsterKeys = Object.keys(guildMonstersHP).filter(
+        (key) => mMap[key] && Number(guildMonstersHP[key]) > 0
+      );
       let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
       if (monsterActors.length === 1) {
         const mk = monsterActors[0];
@@ -37470,6 +37662,24 @@ ${locks}` : ""}`;
           Diagnostics.recordOrphan(tickDmg);
         }
       }
+      if (soleAccuracyActor !== null) {
+        bus.dispatchEvent(
+          new CustomEvent("attackResolved", {
+            detail: {
+              name: guildSlotLabel(soleAccuracyActor),
+              hit: guildMonsterHits.length > 0,
+              targets: accuracyTargets(
+                accuracyAction,
+                guildMonsterHits,
+                accuracyAliveMonsterKeys,
+                guildMonsterNames,
+                guildMonsterHrids
+              ),
+              battleType: "trial"
+            }
+          })
+        );
+      }
     }
     function resetBattleState() {
       monstersHP = [];
@@ -37635,7 +37845,7 @@ ${locks}` : ""}`;
       const idx = Object.keys(pMap);
       const ts = clockNow();
       const battleType = isInLabyrinth ? "labyrinth" : "combat";
-      const counterActors = [], mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
+      const counterActors = [], counterDeltas = {}, mpDroppers = [], completedActions = {}, hitPlayers = /* @__PURE__ */ new Set();
       for (const k of idx) {
         const i = +k, mp = pMap[k].cMP || 0;
         rememberAbilityKnowledge(
@@ -37655,6 +37865,7 @@ ${locks}` : ""}`;
           if (previousCounter !== void 0 && nextCounter > previousCounter) {
             const completed = currentAction[i] || (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
             counterActors.push(k);
+            counterDeltas[k] = nextCounter - previousCounter;
             completedActions[k] = completed;
             activatePlayerReflection(k, completed, ts);
             activateDot(
@@ -37700,6 +37911,7 @@ ${locks}` : ""}`;
           monstersAtkCounter[i] = counter;
         }
       }
+      const soleAccuracyActor = counterActors.length === 1 && counterDeltas[counterActors[0]] === 1 && monsterActors.length === 0 && Object.keys(mMap).length > 0 && actionDamageKind(completedActions[counterActors[0]]) === "direct" ? counterActors[0] : null, accuracyAction = soleAccuracyActor === null ? "" : completedActions[soleAccuracyActor] || "", accuracyAliveMonsterKeys = monstersAlive.map((alive, index) => alive ? String(index) : null).filter((key) => key !== null && mMap[key]);
       let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
       if (monsterActors.length === 1) {
         const mk = monsterActors[0];
@@ -37938,6 +38150,26 @@ ${locks}` : ""}`;
             bus.dispatchEvent(
               new CustomEvent("kill", { detail: { name, battleType } })
             );
+      }
+      if (soleAccuracyActor !== null) {
+        const name = keyToName.get(soleAccuracyActor);
+        if (name)
+          bus.dispatchEvent(
+            new CustomEvent("attackResolved", {
+              detail: {
+                name,
+                hit: monsterHits.length > 0,
+                targets: accuracyTargets(
+                  accuracyAction,
+                  monsterHits,
+                  accuracyAliveMonsterKeys,
+                  monsterNames,
+                  monsterHrids
+                ),
+                battleType
+              }
+            })
+          );
       }
       for (const k of idx) {
         const i = +k, pv = pMap[k];
@@ -38208,6 +38440,7 @@ ${locks}` : ""}`;
         taken: 0,
         takenPs: 0,
         kills: 0,
+        accuracy: null,
         breakdown: null,
         takenBreakdown: null
       }
@@ -38876,6 +39109,27 @@ ${locks}` : ""}`;
         pct: total > 0 ? item.value * 100 / total : 0
       }));
     }
+    function accuracyBreakdown(raw) {
+      const attempts = Number(raw && raw.attempts) || 0;
+      if (!(attempts > 0)) return null;
+      const hits = Math.max(0, Math.min(attempts, Number(raw && raw.hits) || 0));
+      const monsters = Object.values(raw && raw.monsters || {}).map((monster) => {
+        const monsterAttempts = Number(monster && monster.attempts) || 0, monsterHits = Math.max(
+          0,
+          Math.min(monsterAttempts, Number(monster && monster.hits) || 0)
+        ), monsterHrid = String(monster && monster.monsterHrid || ""), monsterName2 = String(monster && monster.monsterName || ""), localized = monsterHrid ? getLocalizedEntityName("monster", monsterHrid) : "";
+        return {
+          monsterName: localized || monsterName2 || (Settings.getLanguage() === "en" ? "Unknown Monster" : "未知怪物"),
+          monsterHrid,
+          attempts: monsterAttempts,
+          hits: monsterHits,
+          pct: monsterAttempts > 0 ? monsterHits * 100 / monsterAttempts : 0
+        };
+      }).filter((monster) => monster.attempts > 0).sort(
+        (a, b) => b.attempts - a.attempts || b.pct - a.pct || a.monsterName.localeCompare(b.monsterName)
+      );
+      return { attempts, hits, pct: hits * 100 / attempts, monsters };
+    }
     function current() {
       const elapsed = Session.getElapsedSeconds(), names = Session.getAllPlayerNames(), teamDamage = Session.getTeamDamage(), players = names.map((name) => ({
         name,
@@ -38887,6 +39141,7 @@ ${locks}` : ""}`;
         taken: Session.getPlayerTaken(name),
         takenPs: Session.getPlayerTakenPs(name),
         kills: Session.getPlayerKills(name),
+        accuracy: accuracyBreakdown(Session.getPlayerAccuracy(name)),
         breakdown: damageBreakdown(
           Session.getPlayerDamageSources(name),
           Session.getPlayerDamage(name),
@@ -38918,13 +39173,14 @@ ${locks}` : ""}`;
       const elapsed = fragment ? (Number(fragment.durationMs) || 0) / 1e3 : Number(entry.durationSeconds) || (Number(entry.durationMs) || 0) / 1e3;
       let players;
       if (fragment) {
-        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {};
+        const maps = fragment.players || {}, damage = maps.damage || {}, healing = maps.healing || {}, taken = maps.taken || {}, kills = maps.kills || {}, accuracy = maps.accuracy || {};
         const names = [
           .../* @__PURE__ */ new Set([
             ...Object.keys(damage),
             ...Object.keys(healing),
             ...Object.keys(taken),
-            ...Object.keys(kills)
+            ...Object.keys(kills),
+            ...Object.keys(accuracy)
           ])
         ];
         const sources = maps.sources || {}, takenSources = maps.takenSources || {};
@@ -38935,6 +39191,7 @@ ${locks}` : ""}`;
           healing: Number(healing[name]) || 0,
           taken: Number(taken[name]) || 0,
           kills: Number(kills[name]) || 0,
+          accuracy: accuracyBreakdown(accuracy[name]),
           dps: elapsed > 0 ? (Number(damage[name]) || 0) / elapsed : 0,
           hps: elapsed > 0 ? (Number(healing[name]) || 0) / elapsed : 0,
           takenPs: elapsed > 0 ? (Number(taken[name]) || 0) / elapsed : 0,
@@ -38953,6 +39210,7 @@ ${locks}` : ""}`;
       } else {
         players = (entry.players || []).map((p) => ({
           ...p,
+          accuracy: accuracyBreakdown(p.accuracy),
           takenPs: elapsed > 0 ? (Number(p.taken) || 0) / elapsed : 0,
           breakdown: damageBreakdown(
             p.sources,
@@ -39538,6 +39796,273 @@ ${locks}` : ""}`;
     }
     return { show, update, isOpenFor, scheduleClose, cancelClose, close };
   })();
+  var AccuracyBreakdownTooltip = /* @__PURE__ */ (() => {
+    let popup = null, closeTimer = null, container = null, playerName = "", lastAnchor = null;
+    function cancelClose() {
+      if (closeTimer !== null) clearTimeout(closeTimer);
+      closeTimer = null;
+    }
+    function close() {
+      cancelClose();
+      popup?.remove();
+      popup = null;
+      container = null;
+      playerName = "";
+      lastAnchor = null;
+    }
+    function scheduleClose() {
+      cancelClose();
+      closeTimer = setTimeout(close, 140);
+    }
+    function position(anchor) {
+      if (!popup || !anchor) return;
+      const rect = anchor.getBoundingClientRect(), width = Math.min(340, window.innerWidth - 12), left = rect.right + 6 + width <= window.innerWidth ? rect.right + 6 : Math.max(6, rect.left - width - 6), height = popup.offsetHeight || 180, top = Math.max(6, Math.min(rect.top, window.innerHeight - height - 6));
+      Object.assign(popup.style, {
+        width: width + "px",
+        left: left + "px",
+        top: top + "px"
+      });
+    }
+    function render(row) {
+      if (!popup || !row) return;
+      const scrollTop = popup.scrollTop, cls = ClassSystem.get(row.name), header = el("div", {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 8px",
+        fontWeight: "700",
+        borderBottom: "1px solid rgba(255,255,255,.13)"
+      });
+      popup.replaceChildren();
+      const classIcon = iconElement(cls.icon, cls.label);
+      Object.assign(classIcon.style, {
+        width: "20px",
+        height: "20px",
+        objectFit: "contain"
+      });
+      const title = document.createElement("span");
+      title.textContent = `${row.name} · ${langText2("对怪物命中率", "Accuracy by monster")}`;
+      header.append(classIcon, title);
+      popup.appendChild(header);
+      const monsters = Array.isArray(row.monsters) ? row.monsters : [];
+      monsters.forEach((monster) => {
+        const line = el("div", {
+          position: "relative",
+          height: "27px",
+          margin: "3px 5px",
+          overflow: "hidden",
+          borderRadius: "2px",
+          background: "rgba(0,0,0,.46)",
+          border: "1px solid rgba(255,255,255,.06)"
+        }), bar = el("div", {
+          position: "absolute",
+          inset: "0 auto 0 0",
+          width: Math.max(0, Math.min(100, Number(monster.pct) || 0)) + "%",
+          background: `linear-gradient(90deg,${cls.color}c9,${cls.color}55)`
+        }), content = el("div", {
+          position: "absolute",
+          inset: "0",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "1px 6px",
+          textShadow: "0 1px 2px #000"
+        }), label = el("span", {
+          flex: "1",
+          minWidth: "40px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontWeight: "600"
+        }), stats = el("span", {
+          fontSize: "10px",
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap"
+        });
+        label.textContent = monster.monsterName;
+        label.title = monster.monsterName;
+        stats.textContent = `${(Number(monster.pct) || 0).toFixed(1)}% (${Number(monster.hits) || 0}/${Number(monster.attempts) || 0})`;
+        content.append(label, stats);
+        line.append(bar, content);
+        popup.appendChild(line);
+      });
+      if (!monsters.length) {
+        const empty = el("div", {
+          padding: "12px 10px 7px",
+          textAlign: "center",
+          opacity: ".58"
+        });
+        empty.textContent = langText2(
+          "暂无可判定的怪物目标",
+          "No resolved monster targets"
+        );
+        popup.appendChild(empty);
+      }
+      const note = el("div", {
+        padding: "5px 8px 7px",
+        borderTop: "1px solid rgba(255,255,255,.08)",
+        color: "rgba(255,255,255,.58)",
+        fontSize: "9px",
+        lineHeight: "1.4"
+      });
+      note.textContent = langText2(
+        "仅包含可判定目标；多怪物时无法确定目标的未命中不会硬性分配。",
+        "Resolved targets only; ambiguous misses with multiple monsters are not assigned."
+      );
+      popup.appendChild(note);
+      position(lastAnchor);
+      popup.scrollTop = scrollTop;
+    }
+    function show(anchor, row, owner) {
+      cancelClose();
+      lastAnchor = anchor;
+      container = owner;
+      playerName = row.name;
+      if (!popup) {
+        popup = el("div", {
+          position: "fixed",
+          zIndex: "10004",
+          maxHeight: "min(420px,calc(100vh - 12px))",
+          overflowY: "auto",
+          boxSizing: "border-box",
+          background: "linear-gradient(180deg,rgba(25,25,25,.99),rgba(7,7,7,.99))",
+          border: "1px solid rgba(212,175,55,.72)",
+          borderRadius: "5px",
+          boxShadow: "0 8px 30px rgba(0,0,0,.9)",
+          color: "#f2f2f2",
+          fontSize: "11px"
+        });
+        popup.dataset.kikimeter = "true";
+        popup.dataset.kikimeterAccuracyTooltip = "true";
+        popup.addEventListener("mouseenter", cancelClose);
+        popup.addEventListener("mouseleave", scheduleClose);
+        document.body.appendChild(popup);
+      }
+      render(row);
+    }
+    function update(rows2) {
+      if (!popup) return false;
+      const row = (rows2 || []).find((item) => item.name === playerName);
+      if (row) render(row);
+      else close();
+      return !!popup;
+    }
+    function isOpenFor(owner) {
+      return !!popup && container === owner;
+    }
+    return { show, update, isOpenFor, scheduleClose, cancelClose, close };
+  })();
+  function renderAccuracyRows(container, rows2, rerender, emptyText) {
+    if (AccuracyBreakdownTooltip.isOpenFor(container)) {
+      AccuracyBreakdownTooltip.update(rows2);
+      const existing = new Map(
+        [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
+          (line) => [line.dataset.player, line]
+        )
+      );
+      if (existing.size === rows2.length && rows2.every((row) => existing.has(row.name))) {
+        rows2.forEach((row, index) => {
+          const line = existing.get(row.name);
+          line._accuracyRow = row;
+          line._accuracyRank.textContent = String(index + 1) + ".";
+          line._accuracyBar.style.width = Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
+          line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+        });
+        rows2.forEach((row) => container.appendChild(existing.get(row.name)));
+        return;
+      }
+      AccuracyBreakdownTooltip.close();
+    }
+    container.replaceChildren();
+    rows2.forEach((row, index) => {
+      const cls = ClassSystem.get(row.name), line = el("div", {
+        position: "relative",
+        height: "24px",
+        margin: "2px 0",
+        overflow: "hidden",
+        minHeight: "24px",
+        flexShrink: "0",
+        boxSizing: "border-box",
+        borderRadius: "2px",
+        background: "rgba(0,0,0,.42)",
+        border: "1px solid rgba(255,255,255,.06)",
+        color: "#fff"
+      }), bar = el("div", {
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
+        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
+        boxShadow: `inset 0 0 5px ${cls.color}`
+      }), content = el("div", {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "1px 5px",
+        whiteSpace: "nowrap",
+        textShadow: "0 1px 2px #000"
+      }), rank = el("span", {
+        width: "18px",
+        textAlign: "right",
+        opacity: ".85",
+        fontSize: "11px"
+      }), icon = iconElement(cls.icon, cls.label), name = el("span", {
+        fontWeight: "600",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        flex: "1",
+        minWidth: "30px"
+      }), stats = el("span", {
+        fontSize: "11px",
+        fontVariantNumeric: "tabular-nums",
+        textAlign: "right"
+      });
+      line.dataset.kikimeterAccuracyRow = "true";
+      line.dataset.player = row.name;
+      line._accuracyRow = row;
+      line._accuracyRank = rank;
+      line._accuracyBar = bar;
+      line._accuracyStats = stats;
+      rank.textContent = String(index + 1) + ".";
+      Object.assign(icon.style, {
+        width: "19px",
+        height: "19px",
+        objectFit: "contain",
+        flexShrink: "0",
+        cursor: "pointer",
+        filter: "drop-shadow(0 1px 1px #000)"
+      });
+      icon.title = `${cls.label}${langText2("｜点击选择职业", " | Click to choose class")}`;
+      icon.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openClassPicker(row.name, icon, rerender);
+      });
+      name.textContent = row.name;
+      stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+      line.title = langText2(
+        "悬停查看对各怪物的命中率",
+        "Hover to view accuracy by monster"
+      );
+      line.addEventListener(
+        "mouseenter",
+        () => AccuracyBreakdownTooltip.show(line, line._accuracyRow, container)
+      );
+      line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
+      content.append(rank, icon, name, stats);
+      line.append(bar, content);
+      container.appendChild(line);
+    });
+    if (!rows2.length) {
+      const empty = el("div", {
+        padding: "14px",
+        textAlign: "center",
+        opacity: ".5"
+      });
+      empty.textContent = emptyText || langText2("暂无命中率数据", "No accuracy data");
+      container.appendChild(empty);
+    }
+  }
   function renderDetailsRows(container, rows2, rerender) {
     if (DamageBreakdownTooltip.isOpenFor(container) && DamageBreakdownTooltip.update(rows2))
       return;
@@ -39682,7 +40207,7 @@ ${locks}` : ""}`;
     let panelOpen = false, tabBtn = null, panel = null;
     let reinjector = null, throttleTimer = null, viewportHandler = null;
     let historyFilter = "combat";
-    let titleEl, playersListEl, segmentSelect, dpsTab, hpsTab, takenTab, debugTab, graphTab, settingsTab, settingsMenu, langTab, resetTab, copyTab, closeTab, trialClassNotice;
+    let titleEl, playersListEl, segmentSelect, dpsTab, hpsTab, takenTab, accuracyTab, debugTab, graphTab, settingsTab, settingsMenu, langTab, resetTab, copyTab, closeTab, trialClassNotice;
     let mainGraphObj = null, mainGraphWrap = null;
     let mainMode = Settings.getMainMode();
     if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
@@ -39725,6 +40250,7 @@ ${locks}` : ""}`;
         [dpsTab, "dps"],
         [hpsTab, "hps"],
         [takenTab, "taken"],
+        [accuracyTab, "accuracy"],
         [debugTab, "debug"]
       ].forEach(([button, mode]) => {
         if (!button) return;
@@ -39748,7 +40274,9 @@ ${locks}` : ""}`;
         debugTab.style.display = Settings.getDebugMode() ? "" : "none";
     }
     function setMainMode(mode) {
-      mainMode = ["dps", "hps", "taken", "debug"].includes(mode) ? mode : "dps";
+      DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
+      mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(mode) ? mode : "dps";
       if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
       Settings.setMainMode(mainMode);
       refreshModeTabs();
@@ -39781,6 +40309,7 @@ ${locks}` : ""}`;
         [dpsTab, "伤害输出（DPS）", "Damage Done (DPS)"],
         [hpsTab, "恢复量（HPS）", "Healing (HPS)"],
         [takenTab, "承受伤害（DTPS）", "Damage Taken (DTPS)"],
+        [accuracyTab, "实时命中率", "Live Accuracy"],
         [graphTab, "显示或隐藏 DPS 趋势", "Show or hide DPS trend"],
         [debugTab, "职业调试", "Class Debug"],
         [settingsTab, "设置", "Settings"],
@@ -39796,6 +40325,7 @@ ${locks}` : ""}`;
     }
     function toggleLanguage() {
       DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
       closeSettingsMenu();
       Settings.setLanguage(Settings.getLanguage() === "zh" ? "en" : "zh");
       refreshLanguageSwitch();
@@ -40035,7 +40565,7 @@ ${locks}` : ""}`;
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       });
-      titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "debug" ? "职业调试" : "伤害输出";
+      titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "accuracy" ? "Accuracy" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "accuracy" ? "命中率" : mainMode === "debug" ? "职业调试" : "伤害输出";
       const titleTools = el("div", {
         display: "flex",
         alignItems: "center",
@@ -40098,6 +40628,11 @@ ${locks}` : ""}`;
         "承受伤害（DTPS）",
         () => setMainMode("taken")
       );
+      accuracyTab = iconButton(
+        SKILL_MODE_ICONS.steadyShot,
+        "实时命中率",
+        () => setMainMode("accuracy")
+      );
       graphTab = iconButton(
         TOOLBAR_ICONS.trend,
         "显示或隐藏 DPS 趋势",
@@ -40126,6 +40661,7 @@ ${locks}` : ""}`;
         dpsTab,
         hpsTab,
         takenTab,
+        accuracyTab,
         graphTab,
         debugTab,
         settingsTab,
@@ -40315,6 +40851,7 @@ ${locks}` : ""}`;
       panelOpen = false;
       closeSettingsMenu();
       DamageBreakdownTooltip.close();
+      AccuracyBreakdownTooltip.close();
       if (panel) panel.style.display = "none";
       if (tabBtn) tabBtn.style.filter = "none";
     }
@@ -40691,7 +41228,7 @@ ${locks}` : ""}`;
       refreshModeTabs();
       refreshToolbarLanguage();
       if (titleEl)
-        titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "debug" ? "职业调试" : "伤害输出";
+        titleEl.textContent = Settings.getLanguage() === "en" ? mainMode === "hps" ? "Healing" : mainMode === "taken" ? "Damage Taken" : mainMode === "accuracy" ? "Accuracy" : mainMode === "debug" ? "Class Debug" : "Damage Done" : mainMode === "hps" ? "恢复量" : mainMode === "taken" ? "承受伤害" : mainMode === "accuracy" ? "命中率" : mainMode === "debug" ? "职业调试" : "伤害输出";
       if (mainGraphObj) mainGraphObj.render(view.graphPoints || []);
       if (trialClassNotice)
         trialClassNotice.style.display = mainMode !== "debug" && view.type === "trial" ? "block" : "none";
@@ -40819,6 +41356,30 @@ ${locks}` : ""}`;
         });
         buttons.append(copy, clear);
         playersListEl.append(hint, probeButtons, report, buttons);
+        return;
+      }
+      if (mainMode === "accuracy") {
+        const rows3 = (view.players || []).filter((player) => player.accuracy && player.accuracy.attempts > 0).map((player) => ({
+          name: player.name,
+          attempts: player.accuracy.attempts,
+          hits: player.accuracy.hits,
+          pct: player.accuracy.pct,
+          monsters: player.accuracy.monsters
+        })).sort(
+          (a, b) => b.pct - a.pct || b.attempts - a.attempts || a.name.localeCompare(b.name)
+        );
+        renderAccuracyRows(
+          playersListEl,
+          rows3,
+          () => renderView(ViewData.get()),
+          view.current ? langText4(
+            "暂无可靠判定的直接攻击",
+            "No reliably resolved direct attacks yet"
+          ) : langText4(
+            "该历史记录暂无命中率数据",
+            "No accuracy data for this combat record"
+          )
+        );
         return;
       }
       const total = mainMode === "hps" ? (view.players || []).reduce(
@@ -41386,7 +41947,8 @@ ${locks}` : ""}`;
           healing: Session.getPlayerHealing(n),
           taken: Session.getPlayerTaken(n),
           sources: Session.getPlayerDamageSources(n),
-          takenSources: Session.getPlayerTakenSources(n)
+          takenSources: Session.getPlayerTakenSources(n),
+          accuracy: Session.getPlayerAccuracy(n)
         }))
       };
     }
@@ -41572,6 +42134,14 @@ ${locks}` : ""}`;
           ev.detail.name,
           ev.detail.amount,
           ev.detail.source
+        );
+    });
+    scope.event(SocketHook.bus, "attackResolved", (ev) => {
+      if (acceptsCombatEvent(ev.detail))
+        Session.addPlayerAccuracy(
+          ev.detail.name,
+          ev.detail.hit,
+          ev.detail.targets
         );
     });
     scope.event(SocketHook.bus, "healing", (ev) => {

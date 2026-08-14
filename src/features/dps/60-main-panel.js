@@ -22,8 +22,10 @@ import {
   refreshSegmentSelect,
 } from "./30-history.js";
 import {
+  AccuracyBreakdownTooltip,
   DamageBreakdownTooltip,
   buildDetailsGraph,
+  renderAccuracyRows,
   renderDetailsRows,
 } from "./50-graph-components.js";
 
@@ -86,6 +88,7 @@ const KikiMeter = (() => {
     dpsTab,
     hpsTab,
     takenTab,
+    accuracyTab,
     debugTab,
     graphTab,
     settingsTab,
@@ -150,6 +153,7 @@ const KikiMeter = (() => {
       [dpsTab, "dps"],
       [hpsTab, "hps"],
       [takenTab, "taken"],
+      [accuracyTab, "accuracy"],
       [debugTab, "debug"],
     ].forEach(([button, mode]) => {
       if (!button) return;
@@ -173,7 +177,11 @@ const KikiMeter = (() => {
       debugTab.style.display = Settings.getDebugMode() ? "" : "none";
   }
   function setMainMode(mode) {
-    mainMode = ["dps", "hps", "taken", "debug"].includes(mode) ? mode : "dps";
+    DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
+    mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(mode)
+      ? mode
+      : "dps";
     if (mainMode === "debug" && !Settings.getDebugMode()) mainMode = "dps";
     Settings.setMainMode(mainMode);
     refreshModeTabs();
@@ -210,6 +218,7 @@ const KikiMeter = (() => {
       [dpsTab, "伤害输出（DPS）", "Damage Done (DPS)"],
       [hpsTab, "恢复量（HPS）", "Healing (HPS)"],
       [takenTab, "承受伤害（DTPS）", "Damage Taken (DTPS)"],
+      [accuracyTab, "实时命中率", "Live Accuracy"],
       [graphTab, "显示或隐藏 DPS 趋势", "Show or hide DPS trend"],
       [debugTab, "职业调试", "Class Debug"],
       [settingsTab, "设置", "Settings"],
@@ -227,6 +236,7 @@ const KikiMeter = (() => {
   }
   function toggleLanguage() {
     DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
     closeSettingsMenu();
     Settings.setLanguage(Settings.getLanguage() === "zh" ? "en" : "zh");
     refreshLanguageSwitch();
@@ -484,16 +494,20 @@ const KikiMeter = (() => {
           ? "Healing"
           : mainMode === "taken"
             ? "Damage Taken"
-            : mainMode === "debug"
-              ? "Class Debug"
-              : "Damage Done"
+            : mainMode === "accuracy"
+              ? "Accuracy"
+              : mainMode === "debug"
+                ? "Class Debug"
+                : "Damage Done"
         : mainMode === "hps"
           ? "恢复量"
           : mainMode === "taken"
             ? "承受伤害"
-            : mainMode === "debug"
-              ? "职业调试"
-              : "伤害输出";
+            : mainMode === "accuracy"
+              ? "命中率"
+              : mainMode === "debug"
+                ? "职业调试"
+                : "伤害输出";
     const titleTools = el("div", {
       display: "flex",
       alignItems: "center",
@@ -553,6 +567,9 @@ const KikiMeter = (() => {
     takenTab = iconButton(SKILL_MODE_ICONS.defense, "承受伤害（DTPS）", () =>
       setMainMode("taken"),
     );
+    accuracyTab = iconButton(SKILL_MODE_ICONS.steadyShot, "实时命中率", () =>
+      setMainMode("accuracy"),
+    );
     graphTab = iconButton(
       TOOLBAR_ICONS.trend,
       "显示或隐藏 DPS 趋势",
@@ -577,6 +594,7 @@ const KikiMeter = (() => {
       dpsTab,
       hpsTab,
       takenTab,
+      accuracyTab,
       graphTab,
       debugTab,
       settingsTab,
@@ -781,6 +799,7 @@ const KikiMeter = (() => {
     panelOpen = false;
     closeSettingsMenu();
     DamageBreakdownTooltip.close();
+    AccuracyBreakdownTooltip.close();
     if (panel) panel.style.display = "none";
     if (tabBtn) tabBtn.style.filter = "none";
   }
@@ -1254,16 +1273,20 @@ const KikiMeter = (() => {
             ? "Healing"
             : mainMode === "taken"
               ? "Damage Taken"
-              : mainMode === "debug"
-                ? "Class Debug"
-                : "Damage Done"
+              : mainMode === "accuracy"
+                ? "Accuracy"
+                : mainMode === "debug"
+                  ? "Class Debug"
+                  : "Damage Done"
           : mainMode === "hps"
             ? "恢复量"
             : mainMode === "taken"
               ? "承受伤害"
-              : mainMode === "debug"
-                ? "职业调试"
-                : "伤害输出";
+              : mainMode === "accuracy"
+                ? "命中率"
+                : mainMode === "debug"
+                  ? "职业调试"
+                  : "伤害输出";
     if (mainGraphObj) mainGraphObj.render(view.graphPoints || []);
     if (trialClassNotice)
       trialClassNotice.style.display =
@@ -1403,6 +1426,38 @@ const KikiMeter = (() => {
       });
       buttons.append(copy, clear);
       playersListEl.append(hint, probeButtons, report, buttons);
+      return;
+    }
+    if (mainMode === "accuracy") {
+      const rows = (view.players || [])
+        .filter((player) => player.accuracy && player.accuracy.attempts > 0)
+        .map((player) => ({
+          name: player.name,
+          attempts: player.accuracy.attempts,
+          hits: player.accuracy.hits,
+          pct: player.accuracy.pct,
+          monsters: player.accuracy.monsters,
+        }))
+        .sort(
+          (a, b) =>
+            b.pct - a.pct ||
+            b.attempts - a.attempts ||
+            a.name.localeCompare(b.name),
+        );
+      renderAccuracyRows(
+        playersListEl,
+        rows,
+        () => renderView(ViewData.get()),
+        view.current
+          ? langText(
+              "暂无可靠判定的直接攻击",
+              "No reliably resolved direct attacks yet",
+            )
+          : langText(
+              "该历史记录暂无命中率数据",
+              "No accuracy data for this combat record",
+            ),
+      );
       return;
     }
     const total =

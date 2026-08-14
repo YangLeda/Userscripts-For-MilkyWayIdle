@@ -728,6 +728,34 @@ const SocketHook = (() => {
     if (!rule) return "unknown";
     return rule.direct ? "direct" : "support";
   }
+  function targetsAllEnemies(action) {
+    const rule = abilityDamageRules.get(String(action || ""));
+    return !!(
+      rule &&
+      Array.isArray(rule.targetTypes) &&
+      rule.targetTypes.some((type) => /allEnemies|all_enemies/i.test(type))
+    );
+  }
+  function accuracyTargets(action, hits, aliveKeys, names, hrids) {
+    const hitKeys = new Set((hits || []).map((hit) => String(hit.key))),
+      living = [...new Set((aliveKeys || []).map(String))];
+    let keys;
+    if (targetsAllEnemies(action)) keys = living;
+    else if (hitKeys.size) keys = [...hitKeys];
+    else keys = living.length === 1 ? living : [];
+    return keys.map((key) => {
+      const monsterHrid = String((hrids && hrids[key]) || ""),
+        fallback = monsterHrid.split("/").pop().replace(/_/g, " "),
+        monsterName = String(
+          (names && names[key]) || fallback || "怪物" + (+key + 1),
+        );
+      return {
+        monsterName,
+        monsterHrid,
+        hit: hitKeys.has(key),
+      };
+    });
+  }
   function activateDot(
     activeContainer,
     dotContainer,
@@ -1617,6 +1645,7 @@ const SocketHook = (() => {
     // 新版测试服为所有玩家提供完整 atkCounter；唯一增长者就是刚完成动作
     // 的玩家。公会试炼不再查看 MP，也不再按 pMap 人数平均分配。
     const counterActors = [],
+      counterDeltas = {},
       completedActions = {},
       hitPlayers = new Set();
     for (const k of idx) {
@@ -1638,6 +1667,7 @@ const SocketHook = (() => {
             guildCurrentAction[k] ||
             (unit.isAutoAtk || unit.isAutoAttack ? "auto" : "unknown");
           counterActors.push(k);
+          counterDeltas[k] = counter - previous;
           completedActions[k] = completed;
           activateGuildReflection(k, completed, ts);
           activateDot(guildDotUntil, guildKnownDotAbilities, k, completed, ts);
@@ -1684,6 +1714,23 @@ const SocketHook = (() => {
         guildMonsterCurrentAction[mk],
       );
     }
+    // 仅在一条完整怪物快照中，单一玩家的已知直伤动作恰好结算
+    // 一次时记录命中率；同帧多人、计数跳变和 Boss 行动全部排除。
+    const soleAccuracyActor =
+        counterActors.length === 1 &&
+        counterDeltas[counterActors[0]] === 1 &&
+        monsterActors.length === 0 &&
+        Object.keys(mMap).length > 0 &&
+        actionDamageKind(completedActions[counterActors[0]]) === "direct"
+          ? counterActors[0]
+          : null,
+      accuracyAction =
+        soleAccuracyActor === null
+          ? ""
+          : completedActions[soleAccuracyActor] || "",
+      accuracyAliveMonsterKeys = Object.keys(guildMonstersHP).filter(
+        (key) => mMap[key] && Number(guildMonstersHP[key]) > 0,
+      );
 
     let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
     if (monsterActors.length === 1) {
@@ -1950,6 +1997,24 @@ const SocketHook = (() => {
         Diagnostics.recordOrphan(tickDmg);
       }
     }
+    if (soleAccuracyActor !== null) {
+      bus.dispatchEvent(
+        new CustomEvent("attackResolved", {
+          detail: {
+            name: guildSlotLabel(soleAccuracyActor),
+            hit: guildMonsterHits.length > 0,
+            targets: accuracyTargets(
+              accuracyAction,
+              guildMonsterHits,
+              accuracyAliveMonsterKeys,
+              guildMonsterNames,
+              guildMonsterHrids,
+            ),
+            battleType: "trial",
+          },
+        }),
+      );
+    }
   }
 
   function resetBattleState() {
@@ -2168,6 +2233,7 @@ const SocketHook = (() => {
     //    一条事件可能触及多人，但通常只有发起攻击或施法者的计数器递增。
     //    MP 变化仅作为后备信号，因为普攻不耗蓝，而辅助技能也会耗蓝。
     const counterActors = [],
+      counterDeltas = {},
       mpDroppers = [],
       completedActions = {},
       hitPlayers = new Set();
@@ -2197,6 +2263,7 @@ const SocketHook = (() => {
             currentAction[i] ||
             (pMap[k].isAutoAtk || pMap[k].isAutoAttack ? "auto" : "unknown");
           counterActors.push(k);
+          counterDeltas[k] = nextCounter - previousCounter;
           completedActions[k] = completed;
           activatePlayerReflection(k, completed, ts);
           activateDot(
@@ -2255,6 +2322,23 @@ const SocketHook = (() => {
         monstersAtkCounter[i] = counter;
       }
     }
+    // 与试炼使用同一严格口径，避免把 MP 后备归属、DoT 或反伤
+    // 恰好落在攻击帧的伤害误当成可靠命中。
+    const soleAccuracyActor =
+        counterActors.length === 1 &&
+        counterDeltas[counterActors[0]] === 1 &&
+        monsterActors.length === 0 &&
+        Object.keys(mMap).length > 0 &&
+        actionDamageKind(completedActions[counterActors[0]]) === "direct"
+          ? counterActors[0]
+          : null,
+      accuracyAction =
+        soleAccuracyActor === null
+          ? ""
+          : completedActions[soleAccuracyActor] || "",
+      accuracyAliveMonsterKeys = monstersAlive
+        .map((alive, index) => (alive ? String(index) : null))
+        .filter((key) => key !== null && mMap[key]);
     let incomingTakenSource = TakenSources.encode("未知怪物", "", "unknown");
     if (monsterActors.length === 1) {
       const mk = monsterActors[0];
@@ -2544,6 +2628,27 @@ const SocketHook = (() => {
           bus.dispatchEvent(
             new CustomEvent("kill", { detail: { name, battleType } }),
           );
+    }
+
+    if (soleAccuracyActor !== null) {
+      const name = keyToName.get(soleAccuracyActor);
+      if (name)
+        bus.dispatchEvent(
+          new CustomEvent("attackResolved", {
+            detail: {
+              name,
+              hit: monsterHits.length > 0,
+              targets: accuracyTargets(
+                accuracyAction,
+                monsterHits,
+                accuracyAliveMonsterKeys,
+                monsterNames,
+                monsterHrids,
+              ),
+              battleType,
+            },
+          }),
+        );
     }
 
     // 4. currentAction mis à jour APRÈS l'attribution — décalage d'un message,

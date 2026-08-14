@@ -669,6 +669,304 @@ const DamageBreakdownTooltip = (() => {
   return { show, update, isOpenFor, scheduleClose, cancelClose, close };
 })();
 
+const AccuracyBreakdownTooltip = (() => {
+  let popup = null,
+    closeTimer = null,
+    container = null,
+    playerName = "",
+    lastAnchor = null;
+  function cancelClose() {
+    if (closeTimer !== null) clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+  function close() {
+    cancelClose();
+    popup?.remove();
+    popup = null;
+    container = null;
+    playerName = "";
+    lastAnchor = null;
+  }
+  function scheduleClose() {
+    cancelClose();
+    closeTimer = setTimeout(close, 140);
+  }
+  function position(anchor) {
+    if (!popup || !anchor) return;
+    const rect = anchor.getBoundingClientRect(),
+      width = Math.min(340, window.innerWidth - 12),
+      left =
+        rect.right + 6 + width <= window.innerWidth
+          ? rect.right + 6
+          : Math.max(6, rect.left - width - 6),
+      height = popup.offsetHeight || 180,
+      top = Math.max(6, Math.min(rect.top, window.innerHeight - height - 6));
+    Object.assign(popup.style, {
+      width: width + "px",
+      left: left + "px",
+      top: top + "px",
+    });
+  }
+  function render(row) {
+    if (!popup || !row) return;
+    const scrollTop = popup.scrollTop,
+      cls = ClassSystem.get(row.name),
+      header = el("div", {
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "6px 8px",
+        fontWeight: "700",
+        borderBottom: "1px solid rgba(255,255,255,.13)",
+      });
+    popup.replaceChildren();
+    const classIcon = iconElement(cls.icon, cls.label);
+    Object.assign(classIcon.style, {
+      width: "20px",
+      height: "20px",
+      objectFit: "contain",
+    });
+    const title = document.createElement("span");
+    title.textContent = `${row.name} · ${langText("对怪物命中率", "Accuracy by monster")}`;
+    header.append(classIcon, title);
+    popup.appendChild(header);
+    const monsters = Array.isArray(row.monsters) ? row.monsters : [];
+    monsters.forEach((monster) => {
+      const line = el("div", {
+          position: "relative",
+          height: "27px",
+          margin: "3px 5px",
+          overflow: "hidden",
+          borderRadius: "2px",
+          background: "rgba(0,0,0,.46)",
+          border: "1px solid rgba(255,255,255,.06)",
+        }),
+        bar = el("div", {
+          position: "absolute",
+          inset: "0 auto 0 0",
+          width: Math.max(0, Math.min(100, Number(monster.pct) || 0)) + "%",
+          background: `linear-gradient(90deg,${cls.color}c9,${cls.color}55)`,
+        }),
+        content = el("div", {
+          position: "absolute",
+          inset: "0",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "1px 6px",
+          textShadow: "0 1px 2px #000",
+        }),
+        label = el("span", {
+          flex: "1",
+          minWidth: "40px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontWeight: "600",
+        }),
+        stats = el("span", {
+          fontSize: "10px",
+          fontVariantNumeric: "tabular-nums",
+          whiteSpace: "nowrap",
+        });
+      label.textContent = monster.monsterName;
+      label.title = monster.monsterName;
+      stats.textContent = `${(Number(monster.pct) || 0).toFixed(1)}% (${Number(monster.hits) || 0}/${Number(monster.attempts) || 0})`;
+      content.append(label, stats);
+      line.append(bar, content);
+      popup.appendChild(line);
+    });
+    if (!monsters.length) {
+      const empty = el("div", {
+        padding: "12px 10px 7px",
+        textAlign: "center",
+        opacity: ".58",
+      });
+      empty.textContent = langText(
+        "暂无可判定的怪物目标",
+        "No resolved monster targets",
+      );
+      popup.appendChild(empty);
+    }
+    const note = el("div", {
+      padding: "5px 8px 7px",
+      borderTop: "1px solid rgba(255,255,255,.08)",
+      color: "rgba(255,255,255,.58)",
+      fontSize: "9px",
+      lineHeight: "1.4",
+    });
+    note.textContent = langText(
+      "仅包含可判定目标；多怪物时无法确定目标的未命中不会硬性分配。",
+      "Resolved targets only; ambiguous misses with multiple monsters are not assigned.",
+    );
+    popup.appendChild(note);
+    position(lastAnchor);
+    popup.scrollTop = scrollTop;
+  }
+  function show(anchor, row, owner) {
+    cancelClose();
+    lastAnchor = anchor;
+    container = owner;
+    playerName = row.name;
+    if (!popup) {
+      popup = el("div", {
+        position: "fixed",
+        zIndex: "10004",
+        maxHeight: "min(420px,calc(100vh - 12px))",
+        overflowY: "auto",
+        boxSizing: "border-box",
+        background:
+          "linear-gradient(180deg,rgba(25,25,25,.99),rgba(7,7,7,.99))",
+        border: "1px solid rgba(212,175,55,.72)",
+        borderRadius: "5px",
+        boxShadow: "0 8px 30px rgba(0,0,0,.9)",
+        color: "#f2f2f2",
+        fontSize: "11px",
+      });
+      popup.dataset.kikimeter = "true";
+      popup.dataset.kikimeterAccuracyTooltip = "true";
+      popup.addEventListener("mouseenter", cancelClose);
+      popup.addEventListener("mouseleave", scheduleClose);
+      document.body.appendChild(popup);
+    }
+    render(row);
+  }
+  function update(rows) {
+    if (!popup) return false;
+    const row = (rows || []).find((item) => item.name === playerName);
+    if (row) render(row);
+    else close();
+    return !!popup;
+  }
+  function isOpenFor(owner) {
+    return !!popup && container === owner;
+  }
+  return { show, update, isOpenFor, scheduleClose, cancelClose, close };
+})();
+
+function renderAccuracyRows(container, rows, rerender, emptyText) {
+  if (AccuracyBreakdownTooltip.isOpenFor(container)) {
+    AccuracyBreakdownTooltip.update(rows);
+    const existing = new Map(
+      [...container.querySelectorAll("[data-kikimeter-accuracy-row]")].map(
+        (line) => [line.dataset.player, line],
+      ),
+    );
+    if (
+      existing.size === rows.length &&
+      rows.every((row) => existing.has(row.name))
+    ) {
+      rows.forEach((row, index) => {
+        const line = existing.get(row.name);
+        line._accuracyRow = row;
+        line._accuracyRank.textContent = String(index + 1) + ".";
+        line._accuracyBar.style.width =
+          Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%";
+        line._accuracyStats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+      });
+      rows.forEach((row) => container.appendChild(existing.get(row.name)));
+      return;
+    }
+    AccuracyBreakdownTooltip.close();
+  }
+  container.replaceChildren();
+  rows.forEach((row, index) => {
+    const cls = ClassSystem.get(row.name),
+      line = el("div", {
+        position: "relative",
+        height: "24px",
+        margin: "2px 0",
+        overflow: "hidden",
+        minHeight: "24px",
+        flexShrink: "0",
+        boxSizing: "border-box",
+        borderRadius: "2px",
+        background: "rgba(0,0,0,.42)",
+        border: "1px solid rgba(255,255,255,.06)",
+        color: "#fff",
+      }),
+      bar = el("div", {
+        position: "absolute",
+        inset: "0 auto 0 0",
+        width: Math.max(0, Math.min(100, Number(row.pct) || 0)) + "%",
+        background: `linear-gradient(90deg,${cls.color}d9,${cls.color}70)`,
+        boxShadow: `inset 0 0 5px ${cls.color}`,
+      }),
+      content = el("div", {
+        position: "absolute",
+        inset: "0",
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        padding: "1px 5px",
+        whiteSpace: "nowrap",
+        textShadow: "0 1px 2px #000",
+      }),
+      rank = el("span", {
+        width: "18px",
+        textAlign: "right",
+        opacity: ".85",
+        fontSize: "11px",
+      }),
+      icon = iconElement(cls.icon, cls.label),
+      name = el("span", {
+        fontWeight: "600",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        flex: "1",
+        minWidth: "30px",
+      }),
+      stats = el("span", {
+        fontSize: "11px",
+        fontVariantNumeric: "tabular-nums",
+        textAlign: "right",
+      });
+    line.dataset.kikimeterAccuracyRow = "true";
+    line.dataset.player = row.name;
+    line._accuracyRow = row;
+    line._accuracyRank = rank;
+    line._accuracyBar = bar;
+    line._accuracyStats = stats;
+    rank.textContent = String(index + 1) + ".";
+    Object.assign(icon.style, {
+      width: "19px",
+      height: "19px",
+      objectFit: "contain",
+      flexShrink: "0",
+      cursor: "pointer",
+      filter: "drop-shadow(0 1px 1px #000)",
+    });
+    icon.title = `${cls.label}${langText("｜点击选择职业", " | Click to choose class")}`;
+    icon.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openClassPicker(row.name, icon, rerender);
+    });
+    name.textContent = row.name;
+    stats.textContent = `${(Number(row.pct) || 0).toFixed(1)}% (${Number(row.hits) || 0}/${Number(row.attempts) || 0})`;
+    line.title = langText(
+      "悬停查看对各怪物的命中率",
+      "Hover to view accuracy by monster",
+    );
+    line.addEventListener("mouseenter", () =>
+      AccuracyBreakdownTooltip.show(line, line._accuracyRow, container),
+    );
+    line.addEventListener("mouseleave", AccuracyBreakdownTooltip.scheduleClose);
+    content.append(rank, icon, name, stats);
+    line.append(bar, content);
+    container.appendChild(line);
+  });
+  if (!rows.length) {
+    const empty = el("div", {
+      padding: "14px",
+      textAlign: "center",
+      opacity: ".5",
+    });
+    empty.textContent =
+      emptyText || langText("暂无命中率数据", "No accuracy data");
+    container.appendChild(empty);
+  }
+}
+
 function renderDetailsRows(container, rows, rerender) {
   if (
     DamageBreakdownTooltip.isOpenFor(container) &&
@@ -783,10 +1081,12 @@ function renderDetailsRows(container, rows, rerender) {
 }
 
 export {
+  AccuracyBreakdownTooltip,
   BOSS_COLOR,
   DamageBreakdownTooltip,
   buildDetailsGraph,
   buildGraph,
   openClassPicker,
+  renderAccuracyRows,
   renderDetailsRows,
 };

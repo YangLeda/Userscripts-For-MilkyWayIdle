@@ -415,7 +415,11 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 19);
+  assert.equal(current.body.zh.length, 20);
+  assert.match(
+    current.body.zh.join("\n"),
+    /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
+  );
   assert.match(
     current.body.zh.join("\n"),
     /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,

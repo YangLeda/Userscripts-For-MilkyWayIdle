@@ -47,6 +47,9 @@ const SKILL_MODE_ICONS = {
   get stamina() {
     return GameAssets.skill("stamina");
   },
+  get steadyShot() {
+    return GameAssets.ability("/abilities/steady_shot");
+  },
 };
 const TOOLBAR_ICONS = {
   get history() {
@@ -147,11 +150,13 @@ const Settings = (() => {
       save();
     },
     getMainMode: () =>
-      ["dps", "hps", "taken", "debug"].includes(state.mainMode)
+      ["dps", "hps", "taken", "accuracy", "debug"].includes(state.mainMode)
         ? state.mainMode
         : "dps",
     setMainMode: (v) => {
-      state.mainMode = ["dps", "hps", "taken", "debug"].includes(v) ? v : "dps";
+      state.mainMode = ["dps", "hps", "taken", "accuracy", "debug"].includes(v)
+        ? v
+        : "dps";
       save();
     },
     getAutoReset: () => state.autoReset,

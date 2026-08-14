@@ -89,6 +89,7 @@ function start(scope) {
         taken: Session.getPlayerTaken(n),
         sources: Session.getPlayerDamageSources(n),
         takenSources: Session.getPlayerTakenSources(n),
+        accuracy: Session.getPlayerAccuracy(n),
       })),
     };
   }
@@ -306,6 +307,14 @@ function start(scope) {
         ev.detail.name,
         ev.detail.amount,
         ev.detail.source,
+      );
+  });
+  scope.event(SocketHook.bus, "attackResolved", (ev) => {
+    if (acceptsCombatEvent(ev.detail))
+      Session.addPlayerAccuracy(
+        ev.detail.name,
+        ev.detail.hit,
+        ev.detail.targets,
       );
   });
   scope.event(SocketHook.bus, "healing", (ev) => {
