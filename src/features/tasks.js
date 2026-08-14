@@ -12,6 +12,7 @@ import {
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import {
   getGameSpriteHref,
   scanGameSpriteSources,
@@ -1789,13 +1790,17 @@ runtime.features.register({
     const scheduleRender = () => renderScheduler.schedule();
     scanGameSpriteSources({ force: true });
     render();
-    const observer = new MutationObserver((records) => {
-      if (shouldRenderTaskMutations(records)) scheduleRender();
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+    subscribeMutationChannel(
+      {
+        name: "task-surface",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope,
+      },
+      (records) => {
+        if (shouldRenderTaskMutations(records)) scheduleRender();
+      },
+    );
     scope.add(
       runtime.onMessage("quests_updated", () => {
         nativeResetChoiceUntil = 0;

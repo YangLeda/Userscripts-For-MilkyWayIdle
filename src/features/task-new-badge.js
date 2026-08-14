@@ -4,6 +4,7 @@ import {
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 
 const STYLE_ID = "mwitools-task-new-style";
 const TASK_SELECTOR =
@@ -225,13 +226,17 @@ runtime.features.register({
         schedule();
       }),
     );
-    const observer = new MutationObserver((records) => {
-      if (shouldRenderTaskNewMutations(records)) schedule();
-    });
-    scope.observer(observer, document.body, {
-      childList: true,
-      subtree: true,
-    });
+    subscribeMutationChannel(
+      {
+        name: "task-surface",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope,
+      },
+      (records) => {
+        if (shouldRenderTaskNewMutations(records)) schedule();
+      },
+    );
     render();
     scope.add(() => {
       renderScheduler.cancel();

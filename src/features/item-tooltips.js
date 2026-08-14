@@ -184,67 +184,6 @@ function productionCostTooltipRows(itemHrid) {
   `;
 }
 
-/* 显示当前动作总时间 */
-const showTotalActionTime = () => {
-  const targetNode = document.querySelector("div.Header_actionName__31-L2");
-  if (targetNode) {
-    console.log(
-      runtime.config.isZH
-        ? "[MWITools] 开始监听行动进度栏。"
-        : "[MWITools] Started observing the action progress bar.",
-    );
-    calculateTotalTime(targetNode);
-    new MutationObserver((mutationsList) =>
-      mutationsList.forEach((mutation) => {
-        calculateTotalTime();
-      }),
-    ).observe(targetNode, {
-      characterData: true,
-      subtree: true,
-      childList: true,
-    });
-  } else {
-    setTimeout(showTotalActionTime, 200);
-  }
-};
-
-function calculateTotalTime() {
-  const targetNode = document.querySelector(
-    "div.Header_actionName__31-L2 > div.Header_displayName__1hN09",
-  );
-  if (targetNode.textContent.includes("[")) {
-    return;
-  }
-
-  let totalTimeStr = "Error";
-  const content = targetNode.innerText;
-  const match = content.match(/\((\d+)\)/);
-  if (match) {
-    const numOfTimes = +match[1];
-    const timePerActionSec = +runtime.api
-      .getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn"))
-      .match(/[\d\.]+/)[0];
-    const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
-    let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
-    if (actionHrid.includes("enhanc")) {
-      effBuff = 1;
-    }
-    const actualNumberOfTimes = Math.round(numOfTimes / effBuff);
-    const totalTimeSeconds = actualNumberOfTimes * timePerActionSec;
-    totalTimeStr = " [" + timeReadable(totalTimeSeconds) + "]";
-
-    const currentTime = new Date();
-    currentTime.setSeconds(currentTime.getSeconds() + totalTimeSeconds);
-    totalTimeStr += ` ${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(
-      currentTime.getSeconds(),
-    ).padStart(2, "0")}`;
-  } else {
-    totalTimeStr = " [∞]";
-  }
-
-  targetNode.textContent += totalTimeStr;
-}
-
 function timeReadable(sec) {
   if (!Number.isFinite(sec) || sec < 0) return "—";
   const normalized = Math.round(sec);
@@ -745,8 +684,6 @@ function getActionHridFromItemName(name) {
 }
 
 Object.assign(runtime.api, {
-  showTotalActionTime,
-  calculateTotalTime,
   timeReadable,
   getToolsSpeedBuffByActionHrid,
   getItemEffiBuffByActionHrid,

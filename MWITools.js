@@ -11391,6 +11391,90 @@
     };
   }
 
+  // src/core/mutation-channel.js
+  var channels = /* @__PURE__ */ new Map();
+  var OPTION_KEYS = [
+    "attributes",
+    "attributeOldValue",
+    "characterData",
+    "characterDataOldValue",
+    "childList",
+    "subtree"
+  ];
+  function optionSignature(options = {}) {
+    const normalized = Object.fromEntries(
+      OPTION_KEYS.map((key) => [key, Boolean(options[key])])
+    );
+    normalized.attributeFilter = [...options.attributeFilter ?? []].sort();
+    return JSON.stringify(normalized);
+  }
+  function observerConstructor(target) {
+    return globalThis.MutationObserver ?? target?.ownerDocument?.defaultView?.MutationObserver ?? globalThis.document?.defaultView?.MutationObserver;
+  }
+  function t(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function reportSubscriberError(name, error) {
+    console.error(
+      `[MWITools] Mutation channel subscriber failed (${name})`,
+      error
+    );
+  }
+  function subscribeMutationChannel({ name, target, options, scope }, callback) {
+    if (!name || !target || typeof callback !== "function") {
+      throw new TypeError(
+        "Mutation channel subscriptions need a name, target, and callback"
+      );
+    }
+    const signature = optionSignature(options);
+    let channel = channels.get(name);
+    if (channel) {
+      if (channel.target !== target || channel.signature !== signature) {
+        throw new Error(
+          t(
+            `页面观察通道 ${name} 使用了不同的根节点或配置`,
+            `Mutation channel ${name} was reused with a different target or options`
+          )
+        );
+      }
+    } else {
+      const Observer = observerConstructor(target);
+      if (typeof Observer !== "function") {
+        throw new Error(
+          t(
+            `页面观察通道 ${name} 无法使用 MutationObserver`,
+            `MutationObserver is unavailable for channel ${name}`
+          )
+        );
+      }
+      const subscribers = /* @__PURE__ */ new Set();
+      const observer = new Observer((records, source) => {
+        for (const subscriber of [...subscribers]) {
+          try {
+            subscriber(records, source);
+          } catch (error) {
+            reportSubscriberError(name, error);
+          }
+        }
+      });
+      channel = { name, observer, signature, subscribers, target };
+      observer.observe(target, options);
+      channels.set(name, channel);
+    }
+    channel.subscribers.add(callback);
+    let active = true;
+    const unsubscribe = () => {
+      if (!active) return;
+      active = false;
+      channel.subscribers.delete(callback);
+      if (channel.subscribers.size) return;
+      channel.observer.disconnect();
+      if (channels.get(name) === channel) channels.delete(name);
+    };
+    scope?.add?.(unsubscribe);
+    return unsubscribe;
+  }
+
   // src/features/asset-history/20-chart.js
   var COLORS = {
     equipment: "#5bc0eb",
@@ -11410,7 +11494,7 @@
     nonTradableTokens: ["不可交易代币", "Non-tradable tokens"],
     shrine: ["神龛", "Shrine"]
   };
-  function t(zh, en) {
+  function t2(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function filterEntries(entries, range) {
@@ -11500,7 +11584,7 @@
         this.destroy();
         this.canvas.hidden = true;
         this.fallback.hidden = false;
-        this.fallback.textContent = t(
+        this.fallback.textContent = t2(
           "图表依赖未加载；资产数据与明细仍可正常使用。",
           "Chart dependencies did not load; asset data is still available."
         );
@@ -11515,7 +11599,7 @@
         datasets = [
           {
             type: "bar",
-            label: t("每日盈亏", "Daily P/L"),
+            label: t2("每日盈亏", "Daily P/L"),
             data: profit,
             backgroundColor: profit.map(
               (value) => value >= 0 ? "rgba(65,190,115,.58)" : "rgba(235,90,90,.58)"
@@ -11524,7 +11608,7 @@
           },
           {
             type: "line",
-            label: t(`${maWindow} 日均线`, `${maWindow}-day average`),
+            label: t2(`${maWindow} 日均线`, `${maWindow}-day average`),
             data: calendarAverage(filtered, "total", maWindow),
             borderColor: "#ffd369",
             backgroundColor: "transparent",
@@ -11534,11 +11618,11 @@
             spanGaps: true
           }
         ];
-        title = t("每日资产盈亏", "Daily asset P/L");
+        title = t2("每日资产盈亏", "Daily asset P/L");
       } else if (mode === "breakdown") {
         datasets = ASSET_COMPONENT_KEYS.map((key) => ({
           type: "line",
-          label: t(...LABELS[key]),
+          label: t2(...LABELS[key]),
           data: filtered.map(([, record]) => record?.values?.[key] ?? null),
           mwitoolsVisibilityKey: key,
           borderColor: COLORS[key],
@@ -11548,12 +11632,12 @@
           tension: lineTension,
           spanGaps: true
         }));
-        title = t("分项资产", "Component assets");
+        title = t2("分项资产", "Component assets");
       } else {
         datasets = [
           {
             type: "line",
-            label: t("总资产", "Total assets"),
+            label: t2("总资产", "Total assets"),
             data: filtered.map(([, record]) => record?.values?.total ?? null),
             borderColor: "#4cc9f0",
             backgroundColor: "rgba(76,201,240,.14)",
@@ -11564,7 +11648,7 @@
             spanGaps: true
           }
         ];
-        title = t("总资产历史", "Total asset history");
+        title = t2("总资产历史", "Total asset history");
       }
       for (const dataset of datasets) {
         const key = `${mode}:${dataset.mwitoolsVisibilityKey ?? dataset.label}`;
@@ -12488,7 +12572,7 @@ ${values.map((item) => item.date).join("\n")}`
     ["nonTradableTokens", "不可交易代币", "Non-tradable tokens"],
     ["shrine", "神龛", "Shrine"]
   ];
-  function t2(zh, en) {
+  function t3(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatNumber(value, signed = false) {
@@ -12811,50 +12895,50 @@ ${values.map((item) => item.date).join("\n")}`
     }
     build() {
       this.host.innerHTML = `
-      <p class="mwi-asset-disclaimer">${t2("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
-      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t2("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t2("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t2("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
+      <p class="mwi-asset-disclaimer">${t3("盈亏按资产估值变化计算，包含市场价格波动，并非已实现交易利润。", "P/L is based on asset valuation changes, including market price movement; it is not realized trading profit.")}</p>
+      <div class="mwi-asset-share"><button type="button" class="mwi-asset-action" id="mwi-asset-open-center">${t3("打开资产中心", "Open Asset Center")}</button><button type="button" class="mwi-asset-action" id="mwi-asset-share-chat" disabled>${t3("炫耀", "Flex")}</button><span class="mwi-asset-share-status">${t3("需要至少两天的资产记录", "At least two asset records are required")}</span></div>
       <div class="mwi-asset-summary">
-        ${createCard(t2("当前总资产", "Current total assets"), "mwi-asset-current-total")}
-        ${createCard(t2("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
-        ${createCard(t2("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
-        ${createCard(t2("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
+        ${createCard(t3("当前总资产", "Current total assets"), "mwi-asset-current-total")}
+        ${createCard(t3("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t3("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
+        ${createCard(t3("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
       </div>
       <section class="mwi-asset-section">
-        <div class="mwi-asset-section-title">${t2("分项资产变化", "Asset changes by component")}</div>
-        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table"><thead><tr><th>${t2("项目", "Component")}</th><th>${t2("当前", "Current")}</th><th id="mwi-asset-change-heading">${t2("变化", "Change")}</th><th>${t2("比例", "Percentage")}</th></tr></thead><tbody id="mwi-asset-breakdown"></tbody></table></div>
+        <div class="mwi-asset-section-title">${t3("分项资产变化", "Asset changes by component")}</div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table"><thead><tr><th>${t3("项目", "Component")}</th><th>${t3("当前", "Current")}</th><th id="mwi-asset-change-heading">${t3("变化", "Change")}</th><th>${t3("比例", "Percentage")}</th></tr></thead><tbody id="mwi-asset-breakdown"></tbody></table></div>
       </section>
       <section class="mwi-asset-section">
         <div class="mwi-asset-chart-controls">
-          <button type="button" data-mode="total">${t2("总资产", "Total assets")}</button>
-          <button type="button" data-mode="profit">${t2("每日盈亏", "Daily P/L")}</button>
-          <button type="button" data-mode="breakdown">${t2("分项资产", "Component assets")}</button>
+          <button type="button" data-mode="total">${t3("总资产", "Total assets")}</button>
+          <button type="button" data-mode="profit">${t3("每日盈亏", "Daily P/L")}</button>
+          <button type="button" data-mode="breakdown">${t3("分项资产", "Component assets")}</button>
           <span style="flex:1"></span>
-          <button type="button" data-range="7">7${t2("天", "d")}</button>
-          <button type="button" data-range="15">15${t2("天", "d")}</button>
-          <button type="button" data-range="30">30${t2("天", "d")}</button>
-          <button type="button" data-range="all">${t2("全部", "All")}</button>
-          <button type="button" id="mwi-asset-reset-zoom">${t2("重置缩放", "Reset zoom")}</button>
+          <button type="button" data-range="7">7${t3("天", "d")}</button>
+          <button type="button" data-range="15">15${t3("天", "d")}</button>
+          <button type="button" data-range="30">30${t3("天", "d")}</button>
+          <button type="button" data-range="all">${t3("全部", "All")}</button>
+          <button type="button" id="mwi-asset-reset-zoom">${t3("重置缩放", "Reset zoom")}</button>
         </div>
         <div class="mwi-asset-chart-box"><canvas id="mwi-asset-chart"></canvas><div class="mwi-asset-chart-fallback" hidden></div></div>
       </section>
-      <section class="mwi-asset-section"><details class="mwi-asset-manager"><summary>${t2("数据管理与备份", "Data management & backup")}</summary>
+      <section class="mwi-asset-section"><details class="mwi-asset-manager"><summary>${t3("数据管理与备份", "Data management & backup")}</summary>
         <div class="mwi-asset-manager-actions">
-          <button type="button" class="mwi-asset-action" id="mwi-asset-export">${t2("导出备份", "Export backup")}</button>
-          <button type="button" class="mwi-asset-action" id="mwi-asset-import">${t2("导入备份", "Import backup")}</button>
-          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-cleanup">${t2("清理无效记录", "Clean invalid records")}</button>
-          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-anomalies">${t2("检测并删除异常", "Detect & delete anomalies")}</button>
+          <button type="button" class="mwi-asset-action" id="mwi-asset-export">${t3("导出备份", "Export backup")}</button>
+          <button type="button" class="mwi-asset-action" id="mwi-asset-import">${t3("导入备份", "Import backup")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-cleanup">${t3("清理无效记录", "Clean invalid records")}</button>
+          <button type="button" class="mwi-asset-action is-danger" id="mwi-asset-anomalies">${t3("检测并删除异常", "Detect & delete anomalies")}</button>
           <input type="file" id="mwi-asset-import-file" accept="application/json" hidden>
         </div>
-        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table mwi-asset-history-table"><thead><tr><th>${t2("日期", "Date")}</th><th>${t2("总资产", "Total")}</th><th>${t2("操作", "Actions")}</th></tr></thead><tbody id="mwi-asset-history-rows"></tbody></table></div>
+        <div class="mwi-asset-table-wrap"><table class="mwi-asset-table mwi-asset-history-table"><thead><tr><th>${t3("日期", "Date")}</th><th>${t3("总资产", "Total")}</th><th>${t3("操作", "Actions")}</th></tr></thead><tbody id="mwi-asset-history-rows"></tbody></table></div>
       </details></section>
-      <dialog class="mwi-asset-edit-dialog" id="mwi-asset-edit-dialog"><h3>${t2("编辑分项资产", "Edit asset components")}</h3><div class="mwi-asset-edit-grid">${ASSET_COMPONENT_KEYS.map(
+      <dialog class="mwi-asset-edit-dialog" id="mwi-asset-edit-dialog"><h3>${t3("编辑分项资产", "Edit asset components")}</h3><div class="mwi-asset-edit-grid">${ASSET_COMPONENT_KEYS.map(
         (key) => {
           const row = ROWS.find(([candidate]) => candidate === key);
-          return `<label>${t2(row[1], row[2])}<input type="number" min="0" step="any" data-component="${key}"></label>`;
+          return `<label>${t3(row[1], row[2])}<input type="number" min="0" step="any" data-component="${key}"></label>`;
         }
       ).join(
         ""
-      )}</div><div class="mwi-asset-edit-actions"><button type="button" class="mwi-asset-action" data-edit-cancel>${t2("取消", "Cancel")}</button><button type="button" class="mwi-asset-action" data-edit-save>${t2("保存", "Save")}</button></div></dialog>
+      )}</div><div class="mwi-asset-edit-actions"><button type="button" class="mwi-asset-action" data-edit-cancel>${t3("取消", "Cancel")}</button><button type="button" class="mwi-asset-action" data-edit-save>${t3("保存", "Save")}</button></div></dialog>
     `;
       this.chart = new AssetHistoryChart(
         this.host.querySelector("#mwi-asset-chart"),
@@ -12890,7 +12974,7 @@ ${values.map((item) => item.date).join("\n")}`
         try {
           const backup = JSON.parse(await file.text());
           const replace = globalThis.confirm?.(
-            t2(
+            t3(
               "确定：替换当前角色历史；取消：合并导入。",
               "OK: replace this character's history; Cancel: merge it."
             )
@@ -12902,7 +12986,7 @@ ${values.map((item) => item.date).join("\n")}`
           this.update(this.snapshot);
         } catch (error) {
           globalThis.alert?.(
-            `${t2("导入失败", "Import failed")}: ${error.message}`
+            `${t3("导入失败", "Import failed")}: ${error.message}`
           );
         } finally {
           fileInput.value = "";
@@ -12911,7 +12995,7 @@ ${values.map((item) => item.date).join("\n")}`
       this.host.querySelector("#mwi-asset-cleanup").addEventListener("click", () => {
         const removed = this.store.cleanupInvalid(this.scopeKey);
         globalThis.alert?.(
-          t2(
+          t3(
             `已删除 ${removed} 条无效记录。`,
             `Removed ${removed} invalid records.`
           )
@@ -12922,13 +13006,13 @@ ${values.map((item) => item.date).join("\n")}`
         const anomalies = this.store.detectAnomalies(this.scopeKey);
         if (!anomalies.length) {
           globalThis.alert?.(
-            t2("未发现明显异常。", "No clear anomalies found.")
+            t3("未发现明显异常。", "No clear anomalies found.")
           );
           return;
         }
         const preview = anomalies.map(({ date, zScore }) => `${date} (Z=${zScore.toFixed(1)})`).join("\n");
         if (!globalThis.confirm?.(
-          t2(
+          t3(
             `确认删除以下异常日期？
 ${preview}`,
             `Delete these anomalous dates?
@@ -12949,7 +13033,7 @@ ${preview}`
       const status = this.host.querySelector(".mwi-asset-share-status");
       const message = buildAssetShareMessage(this.shareStats ?? {});
       if (!message) {
-        status.textContent = t2(
+        status.textContent = t3(
           "暂无可对比的盈亏数据",
           "No comparable P/L data yet"
         );
@@ -12957,7 +13041,7 @@ ${preview}`
       }
       const input = pasteAssetShareToChat(message);
       status.dataset.pasted = String(Boolean(input));
-      status.textContent = input ? t2("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t2(
+      status.textContent = input ? t3("已放入聊天框，按回车发送", "Pasted into chat; press Enter to send") : t3(
         "未找到聊天框，请先展开聊天",
         "Chat input not found; open chat first"
       );
@@ -12990,7 +13074,7 @@ ${preview}`
         (key) => Number.isFinite(values[key]) && values[key] >= 0
       )) {
         globalThis.alert?.(
-          t2(
+          t3(
             "请为全部七个分项填写不小于零的数字。",
             "Enter a non-negative number for all seven components."
           )
@@ -13024,20 +13108,20 @@ ${preview}`
       const shareStatus = this.host.querySelector(".mwi-asset-share-status");
       shareButton.disabled = !this.shareStats;
       if (!this.shareStats) {
-        shareStatus.textContent = t2(
+        shareStatus.textContent = t3(
           "需要至少两天的资产记录",
           "At least two asset records are required"
         );
       } else if (shareStatus.dataset.pasted !== "true") {
-        shareStatus.textContent = t2(
+        shareStatus.textContent = t3(
           "随机生成今日战报并放入聊天框",
           "Generate a random report and paste it into chat"
         );
       }
-      const compareText = comparison ? comparison.gapDays === 1 ? t2(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t2(
+      const compareText = comparison ? comparison.gapDays === 1 ? t3(`较昨日（${comparison.date}）`, `vs yesterday (${comparison.date})`) : t3(
         `较 ${comparison.gapDays} 天前（${comparison.date}）`,
         `vs ${comparison.gapDays} days ago (${comparison.date})`
-      ) : t2("暂无历史对比", "No prior record");
+      ) : t3("暂无历史对比", "No prior record");
       const setNumber = (selector, value, { signed = false, className = "" } = {}) => {
         const node = this.host.querySelector(selector);
         node.textContent = formatNumber(value, signed);
@@ -13059,7 +13143,7 @@ ${preview}`
         signed: true,
         className: valueClass(average)
       });
-      this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t2(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t2("变化", "Change");
+      this.host.querySelector("#mwi-asset-change-heading").textContent = comparison ? t3(`变化（较 ${comparison.date}）`, `Change (vs ${comparison.date})`) : t3("变化", "Change");
       const body = this.host.querySelector("#mwi-asset-breakdown");
       body.replaceChildren(
         ...ROWS.map(([key, zh, en]) => {
@@ -13068,7 +13152,7 @@ ${preview}`
           const currentValue = current[key];
           const previousValue = previous[key];
           const change = Number.isFinite(currentValue) && Number.isFinite(previousValue) ? currentValue - previousValue : null;
-          row.innerHTML = `<td>${t2(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
+          row.innerHTML = `<td>${t3(zh, en)}</td><td title="${Number.isFinite(currentValue) ? runtime.api.formatExactNumber(currentValue, 0) : ""}">${formatNumber(currentValue)}</td><td class="${valueClass(change)}" title="${Number.isFinite(change) ? runtime.api.formatExactNumber(change, 0) : ""}">${formatNumber(change, true)}</td><td class="${valueClass(change)}">${formatPercent(currentValue, previousValue)}</td>`;
           return row;
         })
       );
@@ -13082,10 +13166,10 @@ ${preview}`
         ...entries.map(([dayKey, record]) => {
           const row = document.createElement("tr");
           const total = record?.values?.total;
-          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t2("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t2("删除", "Delete")}</button></td>`;
+          row.innerHTML = `<td>${dayKey}</td><td title="${Number.isFinite(total) ? runtime.api.formatExactNumber(total, 0) : ""}">${formatNumber(total)}</td><td><button type="button" class="mwi-asset-action" data-edit>${t3("编辑", "Edit")}</button> <button type="button" class="mwi-asset-action is-danger" data-delete>${t3("删除", "Delete")}</button></td>`;
           row.querySelector("[data-edit]").addEventListener("click", () => this.openEditor(dayKey));
           row.querySelector("[data-delete]").addEventListener("click", () => {
-            if (globalThis.confirm?.(t2(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
+            if (globalThis.confirm?.(t3(`确认删除 ${dayKey}？`, `Delete ${dayKey}?`))) {
               this.store.deleteDay(dayKey, this.scopeKey);
               this.update(this.snapshot);
             }
@@ -13191,8 +13275,30 @@ ${preview}`
       host.style.height = available;
       host.style.maxHeight = available;
     };
+    const syncNativeVisibility = () => {
+      for (const node of [...shell2?.children ?? []]) {
+        if (node === navigationBranch || node === host || node.tagName === "STYLE") {
+          continue;
+        }
+        if (!hiddenNodes.has(node)) {
+          hiddenNodes.set(node, {
+            hidden: node.hidden,
+            styleDisplay: node.style.display || null
+          });
+        }
+        if (!node.hidden) node.hidden = true;
+        if (node.style.display !== "none") node.style.display = "none";
+      }
+    };
     const setActive = (next) => {
       const nextActive = Boolean(next);
+      if (nextActive === active) {
+        if (active) {
+          syncNativeVisibility();
+          syncHostViewport();
+        }
+        return;
+      }
       if (mountMode === "native" && nextActive && !active) {
         captureIdleTabStyle();
       }
@@ -13224,18 +13330,7 @@ ${preview}`
         return;
       }
       navigationBranch.dataset.mwitoolsAssetActive = "true";
-      for (const node of [...shell2?.children ?? []]) {
-        if (node === navigationBranch || node === host || node.tagName === "STYLE")
-          continue;
-        if (!hiddenNodes.has(node)) {
-          hiddenNodes.set(node, {
-            hidden: node.hidden,
-            styleDisplay: node.style.display || null
-          });
-        }
-        node.hidden = true;
-        node.style.display = "none";
-      }
+      syncNativeVisibility();
       syncHostViewport();
       panel?.update(runtime.api.getLatestAssetSnapshot?.());
     };
@@ -13263,9 +13358,9 @@ ${preview}`
         ".TabsComponent_badge__1Du26, .MuiBadge-root"
       );
       if (badgeText) {
-        badgeText.textContent = t2("盈亏", "P/L");
+        badgeText.textContent = t3("盈亏", "P/L");
       } else {
-        tab.textContent = t2("盈亏", "P/L");
+        tab.textContent = t3("盈亏", "P/L");
       }
       for (const className of [...tab.classList]) {
         if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
@@ -13303,7 +13398,10 @@ ${preview}`
             if (active) setActive(false);
             return;
           }
-          if (active) setActive(true);
+          if (active) {
+            syncNativeVisibility();
+            syncHostViewport();
+          }
           return;
         }
         teardownMount();
@@ -13315,36 +13413,47 @@ ${preview}`
     addStyles3();
     ensureMounted();
     const mountScheduler = createFrameScheduler(ensureMounted);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const mountObserver = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
-          return false;
-        }
-        if (record.type === "attributes") {
-          return Boolean(
-            target?.closest?.(
+    subscribeMutationChannel(
+      {
+        name: "character-management-mount",
+        target: document.body,
+        options: {
+          attributes: true,
+          attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+          childList: true,
+          subtree: true
+        },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) {
+            return false;
+          }
+          if (record.type === "attributes") {
+            return Boolean(
+              target?.closest?.(
+                '[class*="CharacterManagement_characterManagement"]'
+              )
+            );
+          }
+          if (target?.closest?.(
+            '[class*="CharacterManagement_characterManagement"]'
+          )) {
+            return true;
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) && (node.matches?.(
               '[class*="CharacterManagement_characterManagement"]'
-            )
+            ) || node.querySelector?.(
+              '[class*="CharacterManagement_characterManagement"]'
+            ))
           );
-        }
-        return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && !(node.matches?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`) || node.closest?.(`#${TAB_ID},#${PANEL_ID},#${CENTER_ID}`)) && (node.matches?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ) || node.querySelector?.(
-            '[class*="CharacterManagement_characterManagement"]'
-          ))
-        );
-      });
-      if (relevant) mountScheduler.schedule();
-    });
-    scope.observer(mountObserver, document.body, {
-      attributes: true,
-      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-      childList: true,
-      subtree: true
-    });
+        });
+        if (relevant) mountScheduler.schedule();
+      }
+    );
     scope.add(() => mountScheduler.cancel());
     const handleTabBranchClick = (event) => {
       if (!active || event.target.closest(`#${TAB_ID}`) || event.target.closest(`#${PANEL_ID}`)) {
@@ -13515,7 +13624,7 @@ ${preview}`
   var procurement2 = runtime.api.procurement;
   var planning = runtime.api.planning;
   var spriteBaseCache = /* @__PURE__ */ new Map();
-  function t3(zh, en) {
+  function t4(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function number(value) {
@@ -13646,7 +13755,7 @@ ${preview}`
   }
   function goalSources(ids, goals) {
     const byId = new Map(goals.map((goal) => [goal.id, goalLabel(goal)]));
-    return ids.map((id) => byId.get(id) ?? id).join(t3("、", ", "));
+    return ids.map((id) => byId.get(id) ?? id).join(t4("、", ", "));
   }
   var POLICY_OPTIONS = Object.freeze([
     ["chain", "全链条制作", "Full chain"],
@@ -13654,16 +13763,16 @@ ${preview}`
     ["buy", "直接购买", "Buy"]
   ]);
   function policyLabel(policy) {
-    if (policy === "mixed") return t3("混合", "Mixed");
+    if (policy === "mixed") return t4("混合", "Mixed");
     const option = POLICY_OPTIONS.find(([value]) => value === policy);
-    return option ? t3(option[1], option[2]) : t3("全链条制作", "Full chain");
+    return option ? t4(option[1], option[2]) : t4("全链条制作", "Full chain");
   }
   function createPolicyControl(value, onChange, { disabled = false } = {}) {
     if (value === "mixed") {
       const mixed = document.createElement("span");
       mixed.className = "planning-policy-mixed";
       mixed.textContent = policyLabel("mixed");
-      mixed.title = t3(
+      mixed.title = t4(
         "来源目标策略不同，请展开后分别调整。",
         "Source goals use different policies; expand to edit them separately."
       );
@@ -13684,7 +13793,7 @@ ${preview}`
       const button = document.createElement("button");
       button.type = "button";
       button.dataset.policy = policy;
-      button.textContent = t3(zh, en);
+      button.textContent = t4(zh, en);
       button.disabled = disabled;
       button.addEventListener("click", (event) => {
         event.preventDefault();
@@ -13737,7 +13846,7 @@ ${preview}`
     button.type = "button";
     button.className = "planning-option";
     const icon = kind === "item" ? itemIcon(candidate.hrid, candidate.name) : houseIcon(candidate);
-    const meta = kind === "item" ? candidate.hrid : `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+    const meta = kind === "item" ? candidate.hrid : `${t4("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t4("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
     const iconHost = document.createElement("span");
     iconHost.className = "planning-option-icon";
     iconHost.innerHTML = icon;
@@ -13758,8 +13867,8 @@ ${preview}`
     const input = document.createElement("input");
     input.type = "search";
     input.className = "planning-search-input";
-    input.placeholder = t3("搜索物品名称、英文名或 HRID", "Search name or HRID");
-    input.setAttribute("aria-label", t3("选择规划物品", "Choose planning item"));
+    input.placeholder = t4("搜索物品名称、英文名或 HRID", "Search name or HRID");
+    input.setAttribute("aria-label", t4("选择规划物品", "Choose planning item"));
     const results = document.createElement("div");
     results.className = "planning-results";
     let selected = null;
@@ -13844,7 +13953,7 @@ ${preview}`
     const button = document.createElement("button");
     button.type = "button";
     button.className = "planning-picker-button";
-    button.setAttribute("aria-label", t3("选择房屋", "Choose house"));
+    button.setAttribute("aria-label", t4("选择房屋", "Choose house"));
     const results = document.createElement("div");
     results.className = "planning-results";
     let selected = candidates[0] ?? null;
@@ -13853,7 +13962,7 @@ ${preview}`
       const copy = document.createElement("span");
       copy.className = "planning-picker-copy";
       if (!selected) {
-        copy.textContent = t3("暂无房屋", "No houses");
+        copy.textContent = t4("暂无房屋", "No houses");
         button.append(copy);
         return;
       }
@@ -13903,7 +14012,7 @@ ${preview}`
         paintButton();
         results.querySelectorAll(".planning-option-copy small").forEach((meta, index) => {
           const candidate = candidates[index];
-          meta.textContent = `${t3("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t3("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
+          meta.textContent = `${t4("当前", "Current")} ${currentHouseLevel2(candidate.hrid)} · ${t4("最高", "Max")} ${maxHouseLevel2(candidate.hrid)}`;
         });
       }
     };
@@ -13915,7 +14024,7 @@ ${preview}`
       const heading = document.createElement("div");
       heading.className = "planning-add-title";
       const copy = document.createElement("span");
-      copy.textContent = t3(zh, en);
+      copy.textContent = t4(zh, en);
       let defaultPolicy = planning.getDefaultPolicy(kind);
       const policy = createPolicyControl(defaultPolicy, (next) => {
         defaultPolicy = next;
@@ -13946,16 +14055,16 @@ ${preview}`
     itemCount.step = "1";
     itemCount.value = "1";
     itemCount.className = "planning-count-input";
-    itemCount.setAttribute("aria-label", t3("最终持有量", "Final quantity"));
+    itemCount.setAttribute("aria-label", t4("最终持有量", "Final quantity"));
     const itemAdd = document.createElement("button");
     itemAdd.type = "button";
     itemAdd.className = "planning-primary";
-    itemAdd.textContent = t3("添加", "Add");
+    itemAdd.textContent = t4("添加", "Add");
     const submitItem = () => {
       const candidate = chosenItem ?? itemPicker.getSelected();
       if (!candidate) {
         itemPicker.input.setCustomValidity?.(
-          t3("请先选择有效物品", "Choose a valid item")
+          t4("请先选择有效物品", "Choose a valid item")
         );
         itemPicker.input.reportValidity?.();
         return;
@@ -13987,7 +14096,7 @@ ${preview}`
     houseWrap.className = "planning-house-wrap";
     const level = document.createElement("select");
     level.className = "planning-level-select";
-    level.setAttribute("aria-label", t3("房屋目标等级", "House target level"));
+    level.setAttribute("aria-label", t4("房屋目标等级", "House target level"));
     let levelSignature = "";
     let levelHouseHrid = "";
     const refreshLevels = (candidate) => {
@@ -14005,7 +14114,7 @@ ${preview}`
       for (let targetLevel = current + 1; targetLevel <= maxHouseLevel2(candidate.hrid); targetLevel += 1) {
         const option = document.createElement("option");
         option.value = String(targetLevel);
-        option.textContent = `${t3("等级", "Level")} ${targetLevel}`;
+        option.textContent = `${t4("等级", "Level")} ${targetLevel}`;
         level.append(option);
       }
       level.disabled = level.options.length === 0;
@@ -14018,7 +14127,7 @@ ${preview}`
     const houseAdd = document.createElement("button");
     houseAdd.type = "button";
     houseAdd.className = "planning-primary";
-    houseAdd.textContent = t3("添加", "Add");
+    houseAdd.textContent = t4("添加", "Add");
     houseAdd.addEventListener("click", () => {
       const candidate = housePicker.getSelected();
       if (!candidate || !level.value) return;
@@ -14045,12 +14154,12 @@ ${preview}`
     const section = document.createElement("section");
     section.className = "planning-section";
     const heading = document.createElement("h3");
-    heading.textContent = `${t3("规划目标", "Planning goals")} · ${goals.length}`;
+    heading.textContent = `${t4("规划目标", "Planning goals")} · ${goals.length}`;
     section.append(heading);
     if (!goals.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3(
+      empty.textContent = t4(
         "从上方选择物品或房屋开始规划。",
         "Choose an item or house above to begin."
       );
@@ -14063,7 +14172,7 @@ ${preview}`
       const toggle = document.createElement("input");
       toggle.type = "checkbox";
       toggle.checked = goal.enabled;
-      toggle.title = t3("启用目标", "Enable goal");
+      toggle.title = t4("启用目标", "Enable goal");
       toggle.addEventListener("change", () => {
         planning.updateGoal(goal.id, { enabled: toggle.checked });
       });
@@ -14078,7 +14187,7 @@ ${preview}`
       const current = document.createElement("span");
       current.className = "planning-goal-current";
       current.dataset.goalId = goal.id;
-      current.textContent = `${t3("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0))}`;
+      current.textContent = `${t4("当前", "Current")} ${number(goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0))}`;
       const arrow = document.createElement("span");
       arrow.className = "planning-goal-arrow";
       arrow.textContent = "→";
@@ -14088,7 +14197,7 @@ ${preview}`
       target.max = goal.kind === "house" ? String(maxHouseLevel2(goal.targetHrid)) : "";
       target.step = "1";
       target.value = String(goal.target);
-      target.title = goal.kind === "house" ? t3("目标等级", "Target level") : t3("最终持有量", "Final quantity");
+      target.title = goal.kind === "house" ? t4("目标等级", "Target level") : t4("最终持有量", "Final quantity");
       target.addEventListener("change", () => {
         planning.updateGoal(goal.id, { target: target.value });
       });
@@ -14100,7 +14209,7 @@ ${preview}`
       remove.type = "button";
       remove.className = "planning-remove";
       remove.textContent = "×";
-      remove.title = t3("删除", "Remove");
+      remove.title = t4("删除", "Remove");
       remove.addEventListener("click", () => planning.removeGoal(goal.id));
       row.append(toggle, icon, values, policy, remove);
       section.append(row);
@@ -14118,7 +14227,7 @@ ${preview}`
       const node = nodes.get(goal.id);
       if (!node) continue;
       const current = goal.kind === "house" ? currentHouseLevel2(goal.targetHrid) : procurement2.getInventoryCount(goal.targetHrid, 0);
-      node.textContent = `${t3("当前", "Current")} ${number(current)}`;
+      node.textContent = `${t4("当前", "Current")} ${number(current)}`;
     }
   }
   function renderSteps(host, result) {
@@ -14126,12 +14235,12 @@ ${preview}`
     const section = document.createElement("section");
     section.className = "planning-section";
     const heading = document.createElement("h3");
-    heading.textContent = `${t3("第 2 步：选择制作方式", "Step 2: Choose production methods")} · ${result.nodes.length}`;
+    heading.textContent = `${t4("第 2 步：选择制作方式", "Step 2: Choose production methods")} · ${result.nodes.length}`;
     section.append(heading);
     if (!result.nodes.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3("当前没有需要制作的物品。", "Nothing to produce.");
+      empty.textContent = t4("当前没有需要制作的物品。", "Nothing to produce.");
       section.append(empty);
     }
     for (const node of result.nodes) {
@@ -14146,7 +14255,7 @@ ${preview}`
       label.textContent = node.name;
       const required = document.createElement("span");
       required.className = "planning-step-count";
-      required.textContent = `${t3("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
+      required.textContent = `${t4("所需", "Required")} ${number(node.requiredAfterSupply ?? node.requiredOutput)}`;
       const policy = createPolicyControl(node.policy, (next) => {
         for (const goalId of new Set(
           node.branches.map((branch) => branch.goalId)
@@ -14172,7 +14281,7 @@ ${preview}`
         name.title = name.textContent;
         sourceCopy.append(sourceIcon, name);
         const count = document.createElement("span");
-        count.textContent = `${t3("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
+        count.textContent = `${t4("所需", "Required")} ${number(branch.remaining ?? branch.requiredOutput)}`;
         const branchPolicy = createPolicyControl(branch.policy, (next) => {
           planning.setNodePolicy(branch.goalId, node.itemHrid, next);
         });
@@ -14191,11 +14300,11 @@ ${preview}`
     const heading = document.createElement("div");
     heading.className = "planning-section-heading";
     const title = document.createElement("h3");
-    title.textContent = `${t3("基础材料", "Base materials")} · ${result.materials.length}`;
+    title.textContent = `${t4("基础材料", "Base materials")} · ${result.materials.length}`;
     const addAll = document.createElement("button");
     addAll.type = "button";
     addAll.className = "planning-primary";
-    addAll.textContent = t3("一键补齐", "Add all");
+    addAll.textContent = t4("一键补齐", "Add all");
     addAll.disabled = !result.materials.some(
       (material) => material.purchasable && material.addableShortage > 0
     );
@@ -14207,7 +14316,7 @@ ${preview}`
     if (!result.materials.length) {
       const empty = document.createElement("div");
       empty.className = "planning-empty";
-      empty.textContent = t3(
+      empty.textContent = t4(
         "当前没有基础材料需求。",
         "No base materials needed."
       );
@@ -14226,7 +14335,7 @@ ${preview}`
       name.textContent = material.name;
       name.title = material.itemHrid;
       const missing = document.createElement("strong");
-      missing.textContent = material.remainingShortage ? `${t3("还需", "Need")} ${wholeNumber(material.remainingShortage)}` : t3("已覆盖", "Covered");
+      missing.textContent = material.remainingShortage ? `${t4("还需", "Need")} ${wholeNumber(material.remainingShortage)}` : t4("已覆盖", "Covered");
       summary.append(icon, name, missing);
       const grid = document.createElement("div");
       grid.className = "planning-material-grid";
@@ -14236,19 +14345,19 @@ ${preview}`
         return cell;
       };
       grid.append(
-        metric4(t3("规划需求", "Required"), wholeNumber(material.required)),
+        metric4(t4("规划需求", "Required"), wholeNumber(material.required)),
         metric4(
-          t3("库存", "Inventory"),
+          t4("库存", "Inventory"),
           wholeNumber(material.owned),
-          `${t3("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t3("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`
+          `${t4("项目占用", "Project")} ${wholeNumber(material.projectInventory)} · ${t4("规划使用", "Planning")} ${wholeNumber(material.inventoryUsed)}`
         ),
         metric4(
-          t3("购物车", "Cart"),
+          t4("购物车", "Cart"),
           wholeNumber(material.cart.total),
-          `${t3("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t3("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t3("手工", "Manual")} ${wholeNumber(material.cart.manual)}`
+          `${t4("项目", "Project")} ${wholeNumber(material.cart.project)} · ${t4("规划", "Planning")} ${wholeNumber(material.cart.planning)} · ${t4("手工", "Manual")} ${wholeNumber(material.cart.manual)}`
         ),
         metric4(
-          t3("材料缺口", "Shortage"),
+          t4("材料缺口", "Shortage"),
           wholeNumber(material.remainingShortage)
         )
       );
@@ -14256,14 +14365,14 @@ ${preview}`
       actions.className = "planning-material-actions";
       const add = document.createElement("button");
       add.type = "button";
-      add.textContent = material.purchasable ? t3("加入购物车", "Add to cart") : t3("不可购买", "Not tradable");
+      add.textContent = material.purchasable ? t4("加入购物车", "Add to cart") : t4("不可购买", "Not tradable");
       add.disabled = !material.purchasable || !material.addableShortage;
       add.addEventListener(
         "click",
         () => planning.addShortagesToCart([material])
       );
       const source = document.createElement("span");
-      source.textContent = `${t3("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
+      source.textContent = `${t4("来源", "Sources")}: ${goalSources(material.sourceIds, result.goals)}`;
       actions.append(add, source);
       row.append(summary, grid, actions);
       section.append(row);
@@ -14300,11 +14409,11 @@ ${preview}`
       const targetTab = document.createElement("button");
       targetTab.type = "button";
       targetTab.dataset.route = "targets";
-      targetTab.textContent = t3("目标", "Targets");
+      targetTab.textContent = t4("目标", "Targets");
       const listTab = document.createElement("button");
       listTab.type = "button";
       listTab.dataset.route = "list";
-      listTab.textContent = t3("清单", "List");
+      listTab.textContent = t4("清单", "List");
       targetTab.addEventListener("click", () => this.setRoute("targets"));
       listTab.addEventListener("click", () => this.setRoute("list"));
       tabs.append(targetTab, listTab);
@@ -14313,13 +14422,13 @@ ${preview}`
       this.targetPage.dataset.page = "targets";
       const stageOneTitle = document.createElement("h2");
       stageOneTitle.className = "planning-stage-title";
-      stageOneTitle.textContent = t3(
+      stageOneTitle.textContent = t4(
         "第 1 步：选择目标",
         "Step 1: Choose targets"
       );
       const intro = document.createElement("p");
       intro.className = "planning-intro";
-      intro.textContent = t3(
+      intro.textContent = t4(
         "设置目标不会自动重算。房屋成本固定；计算第 2 步时，制作链才会读取当前茶饮、装备、社区 Buff、暴饮之囊、库存和安全余量。",
         "Editing targets does not recalculate automatically. House costs stay fixed; calculating Step 2 reads current buffs, inventory, and safety margins."
       );
@@ -14329,7 +14438,7 @@ ${preview}`
       this.targetCalculate = document.createElement("button");
       this.targetCalculate.type = "button";
       this.targetCalculate.className = "planning-primary";
-      this.targetCalculate.textContent = t3("计算第 2 步", "Calculate Step 2");
+      this.targetCalculate.textContent = t4("计算第 2 步", "Calculate Step 2");
       this.targetCalculate.addEventListener(
         "click",
         () => this.calculateDecisions()
@@ -14346,7 +14455,7 @@ ${preview}`
       this.materialCalculate = document.createElement("button");
       this.materialCalculate.type = "button";
       this.materialCalculate.className = "planning-primary";
-      this.materialCalculate.textContent = t3("计算第 3 步", "Calculate Step 3");
+      this.materialCalculate.textContent = t4("计算第 3 步", "Calculate Step 3");
       this.materialCalculate.addEventListener(
         "click",
         () => this.calculateMaterials()
@@ -14367,7 +14476,7 @@ ${preview}`
       const listBar = document.createElement("div");
       listBar.className = "planning-calculate-bar";
       const stageThreeTitle = document.createElement("strong");
-      stageThreeTitle.textContent = t3(
+      stageThreeTitle.textContent = t4(
         "第 3 步：基础材料清单",
         "Step 3: Base-material list"
       );
@@ -14484,14 +14593,14 @@ ${preview}`
     updateStatus() {
       const dirty = planning.isDirty();
       const diagnostics = planning.getDiagnostics();
-      const listCopy = dirty ? t3("目标已更改，等待计算", "Targets changed; calculation pending") : diagnostics.lastCalculatedAt ? t3("当前清单已计算", "List is up to date") : t3("尚未计算", "Not calculated yet");
+      const listCopy = dirty ? t4("目标已更改，等待计算", "Targets changed; calculation pending") : diagnostics.lastCalculatedAt ? t4("当前清单已计算", "List is up to date") : t4("尚未计算", "Not calculated yet");
       this.listStatus.className = dirty ? "planning-dirty" : "planning-clean";
       this.listStatus.textContent = listCopy;
       const decisionReady = Boolean(this.decisionResult);
       this.targetStatus.className = decisionReady ? "planning-clean" : "planning-dirty";
-      this.targetStatus.textContent = decisionReady ? t3("第 2 步已生成", "Step 2 is ready") : t3("等待计算第 2 步", "Step 2 is pending");
+      this.targetStatus.textContent = decisionReady ? t4("第 2 步已生成", "Step 2 is ready") : t4("等待计算第 2 步", "Step 2 is pending");
       this.decisionStatus.className = "planning-dirty";
-      this.decisionStatus.textContent = t3(
+      this.decisionStatus.textContent = t4(
         "调整策略不会自动计算材料",
         "Policy edits do not calculate materials automatically"
       );
@@ -14517,7 +14626,7 @@ ${preview}`
         this.materialsHost.replaceChildren();
         const empty = document.createElement("div");
         empty.className = "planning-empty planning-section";
-        empty.textContent = t3(
+        empty.textContent = t4(
           "请在“目标”页点击开始计算。",
           "Choose Start calculation on the Targets tab."
         );
@@ -14537,13 +14646,13 @@ ${preview}`
       if (result.warnings.length) {
         const warning = document.createElement("div");
         warning.className = "planning-warning";
-        warning.textContent = t3(
+        warning.textContent = t4(
           `有 ${result.warnings.length} 条链路出现循环或超过深度限制，已作为基础材料显示。`,
           `${result.warnings.length} paths contained a cycle or exceeded the depth limit and were shown as base materials.`
         );
         this.warningHost.append(warning);
       }
-      this.footer.textContent = t3(
+      this.footer.textContent = t4(
         `规划 ${result.goals.length} 项 · 基础材料 ${result.materials.length} 种`,
         `${result.goals.length} goals · ${result.materials.length} base materials`
       );
@@ -14731,8 +14840,8 @@ ${preview}`
       const badge = tab.querySelector(
         ".TabsComponent_badge__1Du26,.MuiBadge-root"
       );
-      if (badge) badge.textContent = t3("规划", "Planning");
-      else tab.textContent = t3("规划", "Planning");
+      if (badge) badge.textContent = t4("规划", "Planning");
+      else tab.textContent = t4("规划", "Planning");
       for (const className of [...tab.classList]) {
         if (/(?:^|[_-])(?:active|selected)(?:[_-]|$)/i.test(className)) {
           tab.classList.remove(className);
@@ -14781,26 +14890,32 @@ ${preview}`
     addStyles4();
     ensureMounted();
     const mountScheduler = createFrameScheduler(ensureMounted);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
-        if (record.type === "attributes") {
-          return isRelevantPlanningMountAttribute(target, navigationBranch);
-        }
-        return [...record.addedNodes, ...record.removedNodes].some(
-          isRelevantPlanningMountNode
-        );
-      });
-      if (relevant) mountScheduler.schedule();
-    });
-    scope.observer(observer, document.body, {
-      attributes: true,
-      attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-      childList: true,
-      subtree: true
-    });
+    subscribeMutationChannel(
+      {
+        name: "character-management-mount",
+        target: document.body,
+        options: {
+          attributes: true,
+          attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+          childList: true,
+          subtree: true
+        },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(`#${TAB_ID2},#${PANEL_ID2}`)) return false;
+          if (record.type === "attributes") {
+            return isRelevantPlanningMountAttribute(target, navigationBranch);
+          }
+          return [...record.addedNodes, ...record.removedNodes].some(
+            isRelevantPlanningMountNode
+          );
+        });
+        if (relevant) mountScheduler.schedule();
+      }
+    );
     const closeFromOtherTab = (event) => {
       if (active && !event.target.closest(`#${TAB_ID2}`) && !event.target.closest(`#${PANEL_ID2}`) && navigationBranch?.contains(event.target)) {
         setActive(false);
@@ -15013,7 +15128,7 @@ ${preview}`
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
-  function t4(zh, en) {
+  function t5(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function categoryLabel(value, fallback) {
@@ -15288,7 +15403,7 @@ ${preview}`
         header.setAttribute(RATE_HEADER_ATTRIBUTE, "");
         headingRow.append(header);
       }
-      const headerCopy = t4("经验/小时", "XP/hour");
+      const headerCopy = t5("经验/小时", "XP/hour");
       if (header.textContent !== headerCopy) header.textContent = headerCopy;
       const rowsByName = currentRowsByName();
       for (const rowElement of tbody.rows) {
@@ -15302,7 +15417,7 @@ ${preview}`
         }
         const copy = formatExperienceRate(model?.xpPerHour);
         const rate = validExperienceRate(model?.xpPerHour);
-        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t4("经验/小时", "XP/hour")}` : t4("缺少可比较的历史快照", "No comparable historical snapshot");
+        const title = rate != null ? `${runtime.api.formatExactNumber?.(Math.round(rate), 0) ?? Math.round(rate)} ${t5("经验/小时", "XP/hour")}` : t5("缺少可比较的历史快照", "No comparable historical snapshot");
         if (cell.textContent !== copy) cell.textContent = copy;
         if (cell.title !== title) cell.title = title;
       }
@@ -17189,7 +17304,7 @@ ${preview}`
   };
   var advisorPositionState = null;
   var advisorPositionFrame = null;
-  function t5(zh, en) {
+  function t6(zh, en) {
     return localize(zh, en);
   }
   function escapeHtml3(value) {
@@ -17545,43 +17660,43 @@ ${preview}`
     return `<div class="rank-row${index === 0 ? " best" : ""}${separate ? " current-row" : ""}">
     <span class="rank">${separate ? "—" : index + 1}</span>
     ${itemIconMarkup(option.itemHrid, name)}
-    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t5("当前", "Current"))}</span>` : ""}</span></span>
-    <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t5("每信用点", "per credit"))}</small></span>
+    <span class="copy"><span class="name-line"><span class="name" title="${escapeHtml3(name)}">${escapeHtml3(name)}</span>${current ? `<span class="tag">${escapeHtml3(t6("当前", "Current"))}</span>` : ""}</span></span>
+    <span class="price" title="${escapeHtml3(formatExact(option.costPerCredit))}">${pricePrefix}${escapeHtml3(formatNumber2(option.costPerCredit))}<small>${escapeHtml3(t6("每信用点", "per credit"))}</small></span>
   </div>`;
   }
   function replacementSummaryMarkup(result, best) {
     if (!result) {
-      return `<div class="summary">${escapeHtml3(t5("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
+      return `<div class="summary">${escapeHtml3(t6("选择兑换物品后可比较卖出换购收益。", "Select an exchange item to compare sell-and-rebuy returns."))}</div>`;
     }
     if (result.status === "already_optimal") {
-      return `<div class="summary"><strong>${escapeHtml3(t5("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
+      return `<div class="summary"><strong>${escapeHtml3(t6("当前方案已是单位信用成本最优", "The selected option already has the best unit cost"))}</strong></div>`;
     }
     if (result.status === "no_sell_quote") {
-      return `<div class="summary warning"><strong>${escapeHtml3(t5("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml3(t5("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t6("当前物品没有足够的收购报价", "The selected item has insufficient buy-order depth"))}</strong><br>${escapeHtml3(t6("无法估算卖出换购结果。", "The sell-and-rebuy result cannot be estimated."))}</div>`;
     }
     if (result.status === "unaffordable") {
-      return `<div class="summary warning"><strong>${escapeHtml3(t5("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
+      return `<div class="summary warning"><strong>${escapeHtml3(t6("税后收入不足以购买一个最优兑换批次", "Net sale proceeds cannot buy one batch of the best option"))}</strong></div>`;
     }
     const name = itemName2(best.itemHrid);
     const difference = Number(result.difference) || 0;
     let conclusion;
     if (difference > 0) {
-      conclusion = t5(
+      conclusion = t6(
         `卖出当前物品并改买${name}，可多兑换 ${formatExact(difference)} 点信用。`,
         `Sell the selected items and buy ${name} to gain ${formatExact(difference)} more credits.`
       );
     } else if (difference < 0) {
-      conclusion = t5(
+      conclusion = t6(
         `直接兑换更划算；改买${name}会少 ${formatExact(-difference)} 点信用。`,
         `Direct exchange is better; switching to ${name} yields ${formatExact(-difference)} fewer credits.`
       );
     } else {
-      conclusion = t5(
+      conclusion = t6(
         `直接兑换与改买${name}获得的信用点相同。`,
         `Direct exchange and switching to ${name} yield the same credits.`
       );
     }
-    return `<div class="summary"><strong>${escapeHtml3(conclusion)}</strong><br>${escapeHtml3(t5(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
+    return `<div class="summary"><strong>${escapeHtml3(conclusion)}</strong><br>${escapeHtml3(t6(`税后可用 ${formatNumber2(result.netSaleValue)}，可购买 ${formatExact(result.replacement.requiredItems)} 个材料。`, `${formatNumber2(result.netSaleValue)} net proceeds buy ${formatExact(result.replacement.requiredItems)} materials.`))}</div>`;
   }
   function advisorMarkup({
     context,
@@ -17604,10 +17719,10 @@ ${preview}`
         current: option.itemHrid === context.selectedItemHrid
       })
     ).join("");
-    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml3(t5("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
+    const current = selected && !selectedInTop ? `<div class="current-heading">${escapeHtml3(t6("当前方案", "Selected option"))}</div>${rankRowMarkup(selected, -1, { current: true, separate: true })}` : "";
     const estimated = ranked.some(({ estimated: value }) => value) || replacement?.estimated;
-    return `<header class="head"><span class="title">${escapeHtml3(t5("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml3(creditName)}</span></span><span class="basis">${escapeHtml3(t5("按订单深度", "Order-book depth"))}</span></header>
-    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml3(t5("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml3(t5("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
+    return `<header class="head"><span class="title">${escapeHtml3(t6("公会信用兑换推荐", "Guild Credit Exchange"))}<span class="credit">${escapeHtml3(creditName)}</span></span><span class="basis">${escapeHtml3(t6("按订单深度", "Order-book depth"))}</span></header>
+    <div class="body">${ranking ? `<div class="ranking">${ranking}</div>${current}${replacementSummaryMarkup(replacement, top[0])}${estimated ? `<div class="estimate">${escapeHtml3(t6("带 ≈ 的市场结果使用当前最低报价估算。", "Estimated market results use the current best quote."))}</div>` : ""}` : `<div class="empty">${escapeHtml3(t6("没有具备完整报价的兑换方案。", "No exchange option has a complete market quote."))}</div>`}</div>`;
   }
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
@@ -17839,7 +17954,7 @@ ${preview}`
     const advisor = host.shadowRoot.querySelector(".advisor");
     advisor.setAttribute(
       "aria-label",
-      t5("公会信用兑换推荐", "Guild Credit Exchange")
+      t6("公会信用兑换推荐", "Guild Credit Exchange")
     );
     advisor.innerHTML = advisorMarkup({
       context,
@@ -17969,7 +18084,7 @@ ${preview}`
   var VIEWPORT_MARGIN2 = 12;
   var PANEL_GAP2 = 10;
   var activePanel = null;
-  function t6(zh, en) {
+  function t7(zh, en) {
     return localize(zh, en);
   }
   function escapeHtml4(value) {
@@ -18123,10 +18238,10 @@ ${preview}`
       quantity = `${formatNumber3(baseCount, 3)} → ${quantity}`;
     }
     let kind = "";
-    if (item.isUpgradeItem) kind = t6("前置", "Base");
-    if (item.kind === "essence") kind = t6("精华", "Essence");
-    if (item.kind === "rare") kind = t6("稀有", "Rare");
-    const priceLabel = isInput ? t6("市价", "Market value") : item.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : t6("税后市价", "Net market value");
+    if (item.isUpgradeItem) kind = t7("前置", "Base");
+    if (item.kind === "essence") kind = t7("精华", "Essence");
+    if (item.kind === "rare") kind = t7("稀有", "Rare");
+    const priceLabel = isInput ? t7("市价", "Market value") : item.valueSource === "derived" ? t7("派生期望值", "Derived expected value") : t7("税后市价", "Net market value");
     return `
     <div class="mwi-profit-item" data-item-hrid="${escapeHtml4(item.itemHrid)}">
       <div>${renderItemIcon(item.itemHrid, name)}</div>
@@ -18136,7 +18251,7 @@ ${preview}`
       </div>
       <div class="mwi-profit-item-value">
         <strong${numberTitleAttribute(item.valuePerAction)}>${formatMoney(item.valuePerAction)}</strong>
-        <span>${t6("每动作", "per action")}</span>
+        <span>${t7("每动作", "per action")}</span>
       </div>
     </div>`;
   }
@@ -18181,19 +18296,19 @@ ${preview}`
       <div class="mwi-profit-valuation-title">${escapeHtml4(valuationText(definition.title))}</div>
       <div class="mwi-profit-valuation-state">${escapeHtml4(valuationText(definition.explanation))}</div>
     </div>
-    ${renderValuationMetric(t6("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
-    ${renderValuationMetric(t6("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
-    ${renderValuationMetric(t6("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
-    ${renderValuationMetric(t6("总成本/动作", "Total cost/action"), totalCost)}
-    ${renderValuationMetric(t6("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
-    ${renderValuationMetric(t6("净利润/天", "Net profit/day"), profitPerDay, true)}
+    ${renderValuationMetric(t7("税后收入/动作", "Net revenue/action"), complete ? valuation.revenuePerAction : null)}
+    ${renderValuationMetric(t7("材料成本/动作", "Materials/action"), complete ? valuation.materialCostPerAction : null)}
+    ${renderValuationMetric(t7("茶饮成本/动作", "Tea cost/action"), complete ? valuation.teaCostPerAction : null)}
+    ${renderValuationMetric(t7("总成本/动作", "Total cost/action"), totalCost)}
+    ${renderValuationMetric(t7("净利润/动作", "Net profit/action"), complete ? valuation.netProfitPerAction : null, true)}
+    ${renderValuationMetric(t7("净利润/天", "Net profit/day"), profitPerDay, true)}
   </section>`;
   }
   function statusInfo(projection) {
     if (projection.status === "waiting") {
       return {
         className: "waiting",
-        label: t6("玩家数据未就绪", "Player data pending")
+        label: t7("玩家数据未就绪", "Player data pending")
       };
     }
     const valuations = VALUATION_ROWS.map(
@@ -18203,20 +18318,20 @@ ${preview}`
       (valuation) => valuation?.complete
     ).length;
     if (completeCount === 0) {
-      return { className: "incomplete", label: t6("无法计算", "Unavailable") };
+      return { className: "incomplete", label: t7("无法计算", "Unavailable") };
     }
     if (completeCount < valuations.length) {
       return {
         className: "partial",
-        label: t6("部分口径缺价", "Some prices missing")
+        label: t7("部分口径缺价", "Some prices missing")
       };
     }
     if (valuations.some(
       (valuation) => valuation?.fallbackItemHrids?.length > 0 || valuation?.unpricedByproducts?.length > 0 || valuation?.derivedMissingPrices?.length > 0
     )) {
-      return { className: "partial", label: t6("部分计价", "Partial pricing") };
+      return { className: "partial", label: t7("部分计价", "Partial pricing") };
     }
-    return { className: "complete", label: t6("完整计价", "Fully priced") };
+    return { className: "complete", label: t7("完整计价", "Fully priced") };
   }
   function renderPanel(panel, itemHrid, projection, options = {}) {
     const productName = itemName3(itemHrid);
@@ -18224,7 +18339,7 @@ ${preview}`
     const detail = projection.detail;
     const directAction = Boolean(options.directAction);
     const title = directAction ? actionName2(projection.actionHrid, detail) : productName;
-    const subtitle = directAction ? `${t6("全部期望产物", "All expected outputs")} · ${t6("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t6("当前玩家实时配置", "Current player configuration")}`;
+    const subtitle = directAction ? `${t7("全部期望产物", "All expected outputs")} · ${t7("当前玩家实时配置", "Current player configuration")}` : `${actionName2(projection.actionHrid, detail)} · ${t7("当前玩家实时配置", "Current player configuration")}`;
     panel.dataset.status = status.className;
     panel.innerHTML = `
     <header class="mwi-profit-header">
@@ -18238,7 +18353,7 @@ ${preview}`
     if (projection.status === "waiting") {
       panel.insertAdjacentHTML(
         "beforeend",
-        `<div class="mwi-profit-state">${t6("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
+        `<div class="mwi-profit-state">${t7("正在等待当前角色的装备、技能与茶饮数据，未使用任何默认配置。", "Waiting for this character's equipment, skills, and drink data. No defaults are being used.")}</div>`
       );
       return;
     }
@@ -18251,41 +18366,41 @@ ${preview}`
     const teaIcons = teas.length ? teas.map((tea) => {
       const name = itemName3(tea.itemHrid);
       return `<span class="mwi-profit-tea">${renderItemIcon(tea.itemHrid, name)}</span>`;
-    }).join("") : `<span class="mwi-profit-no-tea">${t6("未使用茶饮", "No active drinks")}</span>`;
+    }).join("") : `<span class="mwi-profit-no-tea">${t7("未使用茶饮", "No active drinks")}</span>`;
     const effects = [];
     if (projection.teaEffects?.lessResource > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t6("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t7("工匠", "Artisan")} −${formatNumber3(projection.teaEffects.lessResource * 100, 1)}%</span>`
       );
     }
     if (projection.teaEffects?.quantity > 0) {
       effects.push(
-        `<span class="mwi-profit-effect">${t6("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
+        `<span class="mwi-profit-effect">${t7("额外产量", "Extra output")} +${formatNumber3(projection.teaEffects.quantity * 100, 1)}%</span>`
       );
     }
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-body">
       <section class="mwi-profit-card cost">
-        <div class="mwi-profit-card-title"><span>${t6("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t6("动作", "action")}</span></div>
-        ${inputRows || `<div class="mwi-profit-no-tea">${t6("无材料投入", "No material inputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t7("投入", "Inputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.materialCostPerAction)}>${formatMoney(projection.materialCostPerAction)} / ${t7("动作", "action")}</span></div>
+        ${inputRows || `<div class="mwi-profit-no-tea">${t7("无材料投入", "No material inputs")}</div>`}
       </section>
       <section class="mwi-profit-player">
-        <div class="mwi-profit-player-title">${t6("当前玩家", "Current player")}</div>
+        <div class="mwi-profit-player-title">${t7("当前玩家", "Current player")}</div>
         <div class="mwi-profit-teas">${teaIcons}</div>
         <div class="mwi-profit-effects">${effects.join("")}</div>
         <div class="mwi-profit-flow">→</div>
         <div class="mwi-profit-stat-list">
-          <div class="mwi-profit-stat"><span>${t6("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
-          <div class="mwi-profit-stat"><span>${t6("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("饮料浓度", "Drink strength")}</span><strong>×${formatNumber3(projection.teaEffects?.concentrationMultiplier ?? 1, 3)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("动作速度", "Action speed")}</span><strong>${formatPercent2(projection.speedPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("综合效率", "Efficiency")}</span><strong>${formatPercent2(projection.efficiencyPercent)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("动作/小时", "Actions/hour")}</span><strong>${formatNumber3(projection.actionsPerHour, 1)}</strong></div>
+          <div class="mwi-profit-stat"><span>${t7("茶费/小时", "Tea cost/hour")}</span><strong${numberTitleAttribute(projection.teaCostPerHour)}>${formatMoney(projection.teaCostPerHour)}</strong></div>
         </div>
       </section>
       <section class="mwi-profit-card income">
-        <div class="mwi-profit-card-title"><span>${t6("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t6("动作", "action")}</span></div>
-        ${outputRows || `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced outputs")}</div>`}
+        <div class="mwi-profit-card-title"><span>${t7("产出", "Outputs")}</span><span class="mwi-profit-card-total"${numberTitleAttribute(projection.revenuePerAction)}>${formatMoney(projection.revenuePerAction)} / ${t7("动作", "action")}</span></div>
+        ${outputRows || `<div class="mwi-profit-no-tea">${t7("无可计价产出", "No priced outputs")}</div>`}
       </section>
     </div>`
     );
@@ -18305,7 +18420,7 @@ ${preview}`
         return `${valuationText(definition.title)}：${names || "—"}`;
       }).join(runtime.config.isZH ? "；" : "; ");
       warningParts.push(
-        `${t6("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
+        `${t7("以下口径缺少必需市场价格：", "Required prices are missing for: ")}${details}`
       );
     }
     const unpricedByproducts = [
@@ -18317,7 +18432,7 @@ ${preview}`
     ];
     if (unpricedByproducts.length) {
       warningParts.push(
-        `${t6("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("以下副产物没有市场价，已从利润中排除：", "These byproducts have no market price and were excluded: ")}${unpricedByproducts.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const derivedMissingPrices = [
@@ -18329,7 +18444,7 @@ ${preview}`
     ];
     if (derivedMissingPrices.length) {
       warningParts.push(
-        `${t6("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("派生期望值仍有内部产物缺价，当前利润只计入已知部分：", "Some contents used by derived expected values are unpriced; profit includes only known contents: ")}${derivedMissingPrices.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     const fallbackItemHrids = [
@@ -18341,7 +18456,7 @@ ${preview}`
     ];
     if (fallbackItemHrids.length) {
       warningParts.push(
-        `${t6("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+        `${t7("以下物品缺少所选订单簿价格，已使用市场价值兜底：", "Market value was used where the selected order-book price was unavailable: ")}${fallbackItemHrids.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
       );
     }
     if (!warningParts.length) return;
@@ -18352,24 +18467,24 @@ ${preview}`
   }
   function renderLootChestDropCell(drop) {
     const name = itemName3(drop.itemHrid);
-    const chance = drop.dropRate >= 1 ? t6("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
+    const chance = drop.dropRate >= 1 ? t7("必得", "100%") : `${formatNumber3(drop.dropRate * 100, drop.dropRate * 100 < 1 ? 2 : 0)}%`;
     const countRange = drop.minCount === drop.maxCount ? formatNumber3(drop.minCount, 0) : `${formatNumber3(drop.minCount, 0)}–${formatNumber3(drop.maxCount, 0)}`;
     const redemptions = drop.redemptions ?? [];
     const redemptionLines = redemptions.map((route) => {
       const tokenName = itemName3(route.tokenItemHrid);
-      return `${t6("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t6("代币", "token")}`;
+      return `${t7("最佳兑换", "Best exchange")} · ${tokenName}: ${formatNumber3(route.tokenCount, 0)} → ${formatNumber3(route.rewardCount, 0)} ${name} · ${formatMoney(route.valuePerToken)} / ${t7("代币", "token")}`;
     });
-    const sourceLabel = drop.valueSource === "redemption" ? t6("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t6("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t6("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t6("封印计为 0", "Seal valued at 0") : drop.nested ? t6("开箱期望", "Opening EV") : t6("单价", "Unit");
+    const sourceLabel = drop.valueSource === "redemption" ? t7("最佳兑换折算", "Best redemption") : drop.valueSource === "derived" ? t7("派生期望值", "Derived expected value") : drop.valueSource === "excluded" ? t7("牛铃已忽略", "Cowbells ignored") : drop.valueSource === "zero" ? t7("封印计为 0", "Seal valued at 0") : drop.nested ? t7("开箱期望", "Opening EV") : t7("单价", "Unit");
     const title = [
       `${name}
-${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} · ${t6("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
-      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t6("无价", "No price")} · ${t6("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t6("无价", "No price")}`,
+${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} · ${t7("期望", "Expected")}: ${formatNumber3(drop.expectedCount, 2)}`,
+      `${sourceLabel}: ${drop.priced ? formatMoney(drop.unitValue) : t7("无价", "No price")} · ${t7("期望价值", "Expected value")}: ${drop.priced ? formatMoney(drop.value) : t7("无价", "No price")}`,
       ...redemptionLines
     ].join("\n");
-    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t6("无价", "No price");
+    const valueText = drop.priced ? `${drop.nested ? "≈" : ""}${formatMoney(drop.value)}` : t7("无价", "No price");
     return `
     <div class="mwi-loot-cell${drop.priced ? "" : " unpriced"}${redemptions.length ? " best-redemption" : ""}" data-item-hrid="${escapeHtml4(drop.itemHrid)}" title="${escapeHtml4(title)}">
-      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t6("最佳兑换", "Best Exchange")}</span>` : ""}
+      ${redemptions.length ? `<span class="mwi-loot-best-badge">${t7("最佳兑换", "Best Exchange")}</span>` : ""}
       <div class="mwi-loot-cell-icon">
         ${renderItemIcon(drop.itemHrid, name)}
         <span class="mwi-loot-cell-chance">${escapeHtml4(chance)}</span>
@@ -18394,14 +18509,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const controls = [
       renderLootSwitch(
         "lootSellAtAsk",
-        t6("产物卖出", "Sell drops"),
-        config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now"),
+        t7("产物卖出", "Sell drops"),
+        config.sellAtAsk ? t7("挂卖单", "List at ask") : t7("立即卖出", "Sell now"),
         config.sellAtAsk
       ),
       renderLootSwitch(
         "lootIgnoreCowbells",
-        t6("牛铃价值", "Cowbell value"),
-        config.ignoreCowbells ? t6("忽略", "Ignored") : t6("计入", "Included"),
+        t7("牛铃价值", "Cowbell value"),
+        config.ignoreCowbells ? t7("忽略", "Ignored") : t7("计入", "Included"),
         config.ignoreCowbells
       )
     ];
@@ -18409,14 +18524,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       controls.push(
         renderLootSwitch(
           "lootBuyAtAsk",
-          t6("钥匙或碎片", "Key or fragments"),
-          config.buyAtAsk ? t6("立即买入", "Buy now") : t6("挂买单", "Place bid"),
+          t7("钥匙或碎片", "Key or fragments"),
+          config.buyAtAsk ? t7("立即买入", "Buy now") : t7("挂买单", "Place bid"),
           config.buyAtAsk
         ),
         renderLootSwitch(
           "lootKeyFromFragments",
-          t6("钥匙来源", "Key source"),
-          config.fromFragments ? t6("碎片自制", "Craft fragments") : t6("购买成品", "Buy finished"),
+          t7("钥匙来源", "Key source"),
+          config.fromFragments ? t7("碎片自制", "Craft fragments") : t7("购买成品", "Buy finished"),
           config.fromFragments
         )
       );
@@ -18428,7 +18543,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const productName = itemName3(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
     const statusClass = chest.complete ? "complete" : "partial";
-    const statusLabel3 = chest.complete ? t6("完整计价", "Fully priced") : t6("部分计价", "Partial pricing");
+    const statusLabel3 = chest.complete ? t7("完整计价", "Fully priced") : t7("部分计价", "Partial pricing");
     panel.dataset.status = statusClass;
     panel.classList.toggle("mwi-profit-pinned", pinned);
     panel.innerHTML = `
@@ -18436,10 +18551,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml4(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t6("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t6("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
-      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t6("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
+      ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t7("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
     </header>`;
     if (pinned) {
       panel.insertAdjacentHTML(
@@ -18451,29 +18566,29 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     panel.insertAdjacentHTML(
       "beforeend",
       `<section class="mwi-profit-card income" style="margin:12px;">
-      <div class="mwi-profit-card-title"><span>${t6("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
-      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t6("无可计价产出", "No priced drops")}</div>`}
+      <div class="mwi-profit-card-title"><span>${t7("可能产出", "Possible drops")} (${chest.drops.length})</span><span class="mwi-profit-card-total"${numberTitleAttribute(chest.grossValue)}>${formatMoney(chest.grossValue)}</span></div>
+      ${cells ? `<div class="mwi-loot-grid">${cells}</div>` : `<div class="mwi-profit-no-tea">${t7("无可计价产出", "No priced drops")}</div>`}
     </section>`
     );
-    const sellLabel = chest.config.sellAtAsk ? t6("挂卖单", "List at ask") : t6("立即卖出", "Sell now");
-    const keyLabel = !hasKey ? t6("无需钥匙", "No key") : chest.config.fromFragments ? t6("碎片自制", "Crafted from fragments") : t6("购买成品", "Buy finished");
+    const sellLabel = chest.config.sellAtAsk ? t7("挂卖单", "List at ask") : t7("立即卖出", "Sell now");
+    const keyLabel = !hasKey ? t7("无需钥匙", "No key") : chest.config.fromFragments ? t7("碎片自制", "Crafted from fragments") : t7("购买成品", "Buy finished");
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-valuations">
       <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
-          <div class="mwi-profit-valuation-title">${t6("期望价值", "Expected value")}</div>
+          <div class="mwi-profit-valuation-title">${t7("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml4(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
-        ${renderValuationMetric(t6("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t6("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
-        ${renderValuationMetric(t6("净期望价值", "Net value"), chest.netValue, true)}
+        ${renderValuationMetric(t7("毛期望价值", "Gross value"), chest.grossValue)}
+        ${renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${renderValuationMetric(t7("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`
     );
     panel.insertAdjacentHTML(
       "beforeend",
-      `<div class="mwi-profit-hint">${t6(
+      `<div class="mwi-profit-hint">${t7(
         pinned ? "开关会立即重算并保存；高亮卡片是每枚代币回报最高的兑换物品。" : "双击固定面板后可调整买卖方向和钥匙来源；高亮卡片是每枚代币回报最高的兑换物品。",
         pinned ? "Switches recalculate and save immediately; highlighted cards are the best return per token." : "Double-click to pin and adjust pricing; highlighted cards are the best return per token."
       )}</div>`
@@ -18482,7 +18597,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       panel.insertAdjacentHTML(
         "beforeend",
         `<div class="mwi-profit-warning">${escapeHtml4(
-          `${t6("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
+          `${t7("以下物品缺少所选口径的价格或配方，未计入期望：", "These items lack prices or recipes for the selected mode and were excluded: ")}${chest.missing.map(itemName3).join(runtime.config.isZH ? "、" : ", ")}`
         )}</div>`
       );
     }
@@ -18919,57 +19034,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     <div data-mwitools-tooltip-market="true" style="color: var(--color-text-secondary,#777); font-size: calc(.6875rem * var(--mwi-ui-font-scale,1));">${hint}</div>
   `;
   }
-  var showTotalActionTime = () => {
-    const targetNode = document.querySelector("div.Header_actionName__31-L2");
-    if (targetNode) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听行动进度栏。" : "[MWITools] Started observing the action progress bar."
-      );
-      calculateTotalTime(targetNode);
-      new MutationObserver(
-        (mutationsList) => mutationsList.forEach((mutation) => {
-          calculateTotalTime();
-        })
-      ).observe(targetNode, {
-        characterData: true,
-        subtree: true,
-        childList: true
-      });
-    } else {
-      setTimeout(showTotalActionTime, 200);
-    }
-  };
-  function calculateTotalTime() {
-    const targetNode = document.querySelector(
-      "div.Header_actionName__31-L2 > div.Header_displayName__1hN09"
-    );
-    if (targetNode.textContent.includes("[")) {
-      return;
-    }
-    let totalTimeStr = "Error";
-    const content = targetNode.innerText;
-    const match = content.match(/\((\d+)\)/);
-    if (match) {
-      const numOfTimes = +match[1];
-      const timePerActionSec = +runtime.api.getOriTextFromElement(document.querySelector(".ProgressBar_text__102Yn")).match(/[\d\.]+/)[0];
-      const actionHrid = runtime.state.currentActionsHridList[0].actionHrid;
-      let effBuff = 1 + runtime.api.getTotalEffiPercentage(actionHrid) / 100;
-      if (actionHrid.includes("enhanc")) {
-        effBuff = 1;
-      }
-      const actualNumberOfTimes = Math.round(numOfTimes / effBuff);
-      const totalTimeSeconds = actualNumberOfTimes * timePerActionSec;
-      totalTimeStr = " [" + timeReadable(totalTimeSeconds) + "]";
-      const currentTime = /* @__PURE__ */ new Date();
-      currentTime.setSeconds(currentTime.getSeconds() + totalTimeSeconds);
-      totalTimeStr += ` ${String(currentTime.getHours()).padStart(2, "0")}:${String(currentTime.getMinutes()).padStart(2, "0")}:${String(
-        currentTime.getSeconds()
-      ).padStart(2, "0")}`;
-    } else {
-      totalTimeStr = " [∞]";
-    }
-    targetNode.textContent += totalTimeStr;
-  }
   function timeReadable(sec) {
     if (!Number.isFinite(sec) || sec < 0) return "—";
     const normalized = Math.round(sec);
@@ -19361,8 +19425,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     return null;
   }
   Object.assign(runtime.api, {
-    showTotalActionTime,
-    calculateTotalTime,
     timeReadable,
     getToolsSpeedBuffByActionHrid,
     getItemEffiBuffByActionHrid,
@@ -19616,7 +19678,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_STYLE_ID = "mwitools-action-panel-style";
   var EFFICIENCY_BUFF_TYPE = "/buff_types/efficiency";
   var ACTION_LEVEL_BUFF_TYPE = "/buff_types/action_level";
-  var MAIN_PANEL_SELECTOR = 'div[class*="GamePage_mainPanel"]';
   var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
   var actionPanelRetryStates = /* @__PURE__ */ new Map();
@@ -19636,29 +19697,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   `;
     (document.head ?? document.documentElement).appendChild(style);
   }
-  var waitForActionPanelParent = () => {
-    const targetNode = document.querySelector(MAIN_PANEL_SELECTOR);
-    if (targetNode) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听行动面板。" : "[MWITools] Started observing the action panel."
-      );
-      const actionPanelObserver = new MutationObserver(async function(mutations) {
-        for (const mutation of mutations) {
-          for (const added of mutation.addedNodes) {
-            const panel = added?.matches?.(ACTION_PANEL_SELECTOR) ? added : added?.querySelector?.(ACTION_PANEL_SELECTOR);
-            if (panel) scheduleActionPanel(panel);
-          }
-        }
-      });
-      actionPanelObserver.observe(targetNode, {
-        attributes: false,
-        childList: true,
-        subtree: true
-      });
-    } else {
-      setTimeout(waitForActionPanelParent, 200);
-    }
-  };
   async function handleActionPanel(panel) {
     if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue) return false;
     if (panel.dataset.mwitoolsActionPanel === "true" && panel.querySelector("#mwi-level-progress") && panel.querySelectorAll(".mwi-native-level-stat").length === 4)
@@ -20010,7 +20048,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   };
   var removeInsertedDivs = () => document.querySelectorAll("span.insertedSpan").forEach((div) => div.parentNode.removeChild(div));
   Object.assign(runtime.api, {
-    waitForActionPanelParent,
     handleActionPanel,
     getTotalEffiPercentage,
     getActionEfficiencyDetails,
@@ -20212,7 +20249,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   });
   var productionDataRevision = 0;
   var enhancementTimingCache = { identity: "", count: null };
-  function t7(zh, en) {
+  function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function formatDuration(seconds) {
@@ -20225,9 +20262,9 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const days = Math.floor(normalized / 86400);
     const hours = Math.floor(normalized % 86400 / 3600);
     const minutes = Math.floor(normalized % 3600 / 60);
-    const parts = [t7(`${days}天`, `${days}d`)];
-    if (hours > 0) parts.push(t7(`${hours}小时`, `${hours}h`));
-    if (minutes > 0) parts.push(t7(`${minutes}分`, `${minutes}m`));
+    const parts = [t8(`${days}天`, `${days}d`)];
+    if (hours > 0) parts.push(t8(`${hours}小时`, `${hours}h`));
+    if (minutes > 0) parts.push(t8(`${minutes}分`, `${minutes}m`));
     return parts.join(runtime.config.isZH ? "" : " ");
   }
   function number2(value) {
@@ -20580,12 +20617,12 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     currentTime.removeAttribute("title");
     if (projection.materialLimited) {
-      currentTime.title = t7(
+      currentTime.title = t8(
         "已按当前库存中的可用原料计算",
         "Limited by materials currently in inventory"
       );
     } else if (enhancementCount !== null) {
-      currentTime.title = t7(
+      currentTime.title = t8(
         "已按强化栏当前可处理数量计算",
         "Based on the amount currently available for enhancement"
       );
@@ -20626,11 +20663,17 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function bindActionUiRenderer(scope, render, messages = []) {
     const scheduler = createFrameScheduler(render);
     const schedule = () => scheduler.schedule();
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      if (shouldScheduleActionUi(records)) schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "action-ui",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        if (shouldScheduleActionUi(records)) schedule();
+      }
+    );
     const scheduleFromInput = (event) => {
       if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
     };
@@ -20844,7 +20887,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputHourButtons",
-        label: t7("时长", "Hours"),
+        label: t8("时长", "Hours"),
         values: QUICK_HOURS,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
@@ -20859,7 +20902,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         panel,
         input,
         id: "quickInputCountButtons",
-        label: t7("次数", "Count"),
+        label: t8("次数", "Count"),
         values: QUICK_COUNTS,
         resolveCount: (count) => count
       });
@@ -20872,7 +20915,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const normalizedEfficiency = Number.isFinite(efficiencyPercent) && efficiencyPercent > -100 ? efficiencyPercent : 0;
     host.querySelectorAll("#quickInputHourButtons button").forEach((button) => {
       button.disabled = !Number.isFinite(duration) || duration <= 0;
-      button.title = button.disabled ? t7("无法读取当前单次耗时", "Current action duration unavailable") : t7(
+      button.title = button.disabled ? t8("无法读取当前单次耗时", "Current action duration unavailable") : t8(
         `按当前 ${duration}s/次与 ${normalizedEfficiency.toFixed(1)}% 综合效率换算，实际时长不少于所选值；增益变化后请重新选择`,
         `Uses the current ${duration}s cycle and ${normalizedEfficiency.toFixed(1)}% efficiency, rounding up to at least the selected duration; select again after buffs change`
       );
@@ -20890,7 +20933,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       button = infinityButton.cloneNode(false);
       button.type = "button";
       button.classList.add("mwi-max-action-button");
-      button.textContent = t7("最大", "Max");
+      button.textContent = t8("最大", "Max");
       button.addEventListener("click", () => {
         const count = Number(button.dataset.maxCraftable);
         if (!Number.isSafeInteger(count) || count <= 0) return;
@@ -20911,10 +20954,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const enabled = Number.isSafeInteger(maxCraftable) && maxCraftable > 0;
     button.disabled = !enabled;
     button.dataset.maxCraftable = enabled ? String(maxCraftable) : "";
-    button.title = enabled ? t7(
+    button.title = enabled ? t8(
       `填入库存最多可做 ${maxCraftable} 次`,
       `Use inventory maximum: ${maxCraftable}`
-    ) : t7("当前没有有限的可生产次数", "No finite production maximum");
+    ) : t8("当前没有有限的可生产次数", "No finite production maximum");
   }
   function syncProductionDuration(panel, input, totalSeconds) {
     document.querySelectorAll(".mwi-production-duration-inline").forEach((element) => {
@@ -20929,7 +20972,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       duration = document.createElement("span");
       duration.className = "mwi-production-duration-inline";
     }
-    duration.textContent = `${t7("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
+    duration.textContent = `${t8("耗时", "Duration")} ${formatDuration(totalSeconds)}`;
     target.append(duration);
     return duration;
   }
@@ -21078,7 +21121,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const title = document.createElement("button");
     title.type = "button";
     title.className = "mwi-production-card-title";
-    title.textContent = t7("本次生产摘要", "Production summary");
+    title.textContent = t8("本次生产摘要", "Production summary");
     title.setAttribute("aria-expanded", String(expanded));
     const body = document.createElement("div");
     body.className = "mwi-production-card-body";
@@ -21100,36 +21143,36 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (output) => outputs.append(createProductionOutput(output, panel))
     );
     const outputMetric = metric(
-      projection.effectivelyInfinite ? t7("预期单次产出", "Output per action") : t7("预期总产出", "Total output"),
+      projection.effectivelyInfinite ? t8("预期单次产出", "Output per action") : t8("预期总产出", "Total output"),
       outputs
     );
     outputMetric.classList.add("mwi-production-output-metric");
     grid.append(
       outputMetric,
       metric(
-        t7("当前拥有", "Owned"),
+        t8("当前拥有", "Owned"),
         projection.outputs?.length ? projection.outputs.map((output) => runtime.api.numberFormatter(output.owned)).join(" · ") : "—"
       ),
       metric(
-        t7("库存最多可做", "Max craftable"),
+        t8("库存最多可做", "Max craftable"),
         projection.maxCraftable === Infinity ? "∞" : number2(projection.maxCraftable)
       )
     );
     if (showProfit) {
       grid.append(
         metric(
-          t7("每次净利润", "Per action"),
+          t8("每次净利润", "Per action"),
           number2(projection.netProfitPerAction)
         ),
-        metric(t7("每小时净利润", "Per hour"), number2(projection.profitPerHour)),
+        metric(t8("每小时净利润", "Per hour"), number2(projection.profitPerHour)),
         metric(
-          t7("每天净利润", "Per day"),
+          t8("每天净利润", "Per day"),
           number2(
             projection.profitPerHour === null ? null : projection.profitPerHour * 24
           )
         ),
         metric(
-          t7("本次总净利润", "Total profit"),
+          t8("本次总净利润", "Total profit"),
           projection.netProfitPerAction === null ? number2(null) : projection.effectivelyInfinite ? "∞" : number2(projection.totalProfit)
         )
       );
@@ -21138,7 +21181,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (showProfit && projection.status === "incomplete") {
       const warning = document.createElement("div");
       warning.className = "mwi-production-warning";
-      warning.textContent = t7(
+      warning.textContent = t8(
         "部分市场价格缺失，利润暂不显示为 0。",
         "Some market prices are missing; profit is not treated as zero."
       );
@@ -21295,7 +21338,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
-  function t8(zh, en) {
+  function t9(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function marketFeaturesSuppressed() {
@@ -21440,7 +21483,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     handle.dataset.hasItems = String(activeCount > 0);
     handle.setAttribute("aria-expanded", String(drawerOpen));
     handle.querySelector(".handle-badge").hidden = activeCount === 0;
-    shadow.querySelector(".head-count").textContent = activeCount ? t8(`缺 ${activeCount} 项`, `${activeCount} missing`) : t8("无缺料", "All set");
+    shadow.querySelector(".head-count").textContent = activeCount ? t9(`缺 ${activeCount} 项`, `${activeCount} missing`) : t9("无缺料", "All set");
     for (const button of shadow.querySelectorAll(".tab")) {
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
@@ -21508,13 +21551,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     row.className = "cart-row";
     row.dataset.cartKey = key;
     row.innerHTML = `
-    <button class="cart-drag" type="button" title="${t8("拖动排序", "Drag to reorder")}" aria-label="${t8("拖动排序", "Drag to reorder")}">⋮⋮</button>
+    <button class="cart-drag" type="button" title="${t9("拖动排序", "Drag to reorder")}" aria-label="${t9("拖动排序", "Drag to reorder")}">⋮⋮</button>
     <button class="star">${STAR_ICON}</button>
     <button class="item-icon"></button>
     <button class="item-name"></button>
-    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t8("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
-    <button class="delete" title="${t8("删除", "Remove")}">×</button>
-    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t8("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
+    <div class="row-controls"><button class="step" data-step="-1">−</button><input class="qty" inputmode="numeric" aria-label="${t9("待购数量", "Quantity")}"><button class="step" data-step="1">＋</button></div>
+    <button class="delete" title="${t9("删除", "Remove")}">×</button>
+    <div class="row-bottom"><span class="owned"></span><span class="price"></span><label class="threshold-wrap">${t9("常备", "Min")}<input class="threshold" inputmode="numeric" placeholder="0"></label></div>`;
     const setQuantity = (quantity) => {
       const item = latestCartItem(row);
       if (item)
@@ -21583,13 +21626,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     const star = row.querySelector(".star");
     star.dataset.active = String(Boolean(item.starred));
-    star.title = t8(
+    star.title = t9(
       "收藏：买齐后保留并监控常备数量",
       "Favorite: keep and restock"
     );
     const icon = row.querySelector(".item-icon");
     icon.disabled = !marketEnabled;
-    icon.title = marketEnabled ? t8("在市场中打开", "Open in marketplace") : "";
+    icon.title = marketEnabled ? t9("在市场中打开", "Open in marketplace") : "";
     icon.innerHTML = renderItemIcon2(item);
     const name = row.querySelector(".item-name");
     name.disabled = !marketEnabled;
@@ -21604,11 +21647,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     );
     const ownedNode = row.querySelector(".owned");
     ownedNode.title = exactNumber(owned);
-    ownedNode.textContent = `${t8("库存", "Stock")} ${formatNumber4(owned)}`;
+    ownedNode.textContent = `${t9("库存", "Stock")} ${formatNumber4(owned)}`;
     const priceNode = row.querySelector(".price");
     priceNode.hidden = !pricesEnabled;
     priceNode.title = price > 0 ? exactNumber(price * item.quantity) : "—";
-    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t8("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
+    priceNode.textContent = price > 0 ? `${formatNumber4(price)} · ${t9("计", "total")} ${formatNumber4(price * item.quantity)}` : "—";
     const thresholdWrap = row.querySelector(".threshold-wrap");
     thresholdWrap.hidden = !item.starred;
     const threshold = row.querySelector(".threshold");
@@ -21634,13 +21677,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       footer.append(clear);
     }
     totalNode.hidden = !marketEnabled;
-    totalNode.querySelector("span").textContent = t8("补齐合计", "Total");
+    totalNode.querySelector("span").textContent = t9("补齐合计", "Total");
     const strong = totalNode.querySelector("strong");
-    strong.title = unpriced ? t8("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
+    strong.title = unpriced ? t9("部分物品缺少价格", "Some items are unpriced") : exactNumber(total);
     strong.textContent = settings2.cartTotalEnabled && !unpriced ? formatNumber4(total) : "—";
     const small = totalNode.querySelector("small");
-    small.textContent = unpriced ? `${unpriced} ${t8("项未估价", "unpriced")}` : "";
-    clear.textContent = t8("清空未收藏", "Clear");
+    small.textContent = unpriced ? `${unpriced} ${t9("项未估价", "unpriced")}` : "";
+    clear.textContent = t9("清空未收藏", "Clear");
   }
   function renderCart(body) {
     const items = procurement3.getCartItems();
@@ -21649,7 +21692,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       body.replaceChildren();
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t8(
+      empty.textContent = t9(
         "购物清单还是空的。打开生产或房屋界面，把缺少的材料加入这里。",
         "Your shopping list is empty. Add missing materials from a production or housing panel."
       );
@@ -21732,7 +21775,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     if (!plans2.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = t8(
+      empty.textContent = t9(
         "还没有生产项目。把生产缺料加入购物车时可以同时创建。",
         "No production projects yet. Create one when adding production materials."
       );
@@ -21744,13 +21787,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       row.className = "plan-row";
       const percent = plan.targetCount ? Math.min(100, plan.progress / plan.targetCount * 100) : 0;
       row.innerHTML = `
-      <div class="row-top"><div class="plan-title">${escapeHtml5(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t8("已完成", "Completed") : t8("进行中", "Active")}</span></div>
+      <div class="row-top"><div class="plan-title">${escapeHtml5(plan.name)}</div><span class="plan-status">${plan.status === "completed" ? t9("已完成", "Completed") : t9("进行中", "Active")}</span></div>
       <div class="progress"><span style="width:${percent}%"></span></div>
       <div class="plan-meta"><span>${formatNumber4(plan.progress)} / ${formatNumber4(plan.targetCount)}</span><span>${Object.keys(plan.materials ?? {}).length} ${materialNoun(Object.keys(plan.materials ?? {}).length)}</span></div>
-      <div class="plan-actions"><button data-action="count">${t8("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t8("重新打开", "Reopen") : t8("完成", "Complete")}</button><button data-action="remove">${t8("删除", "Delete")}</button></div>`;
+      <div class="plan-actions"><button data-action="count">${t9("修改次数", "Edit count")}</button><button data-action="toggle">${plan.status === "completed" ? t9("重新打开", "Reopen") : t9("完成", "Complete")}</button><button data-action="remove">${t9("删除", "Delete")}</button></div>`;
       row.querySelector('[data-action="count"]').addEventListener("click", () => {
         const value = globalThis.prompt?.(
-          t8("输入新的目标次数", "Enter a new target count"),
+          t9("输入新的目标次数", "Enter a new target count"),
           String(plan.targetCount)
         );
         if (value != null)
@@ -21766,7 +21809,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       });
       body.append(row);
     }
-    footer.innerHTML = `<span>${t8("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t8("清空项目", "Clear projects")}</button>`;
+    footer.innerHTML = `<span>${t9("生产项目", "Projects")} ${plans2.length}</span><button class="clear">${t9("清空项目", "Clear projects")}</button>`;
     footer.querySelector(".clear").addEventListener("click", () => {
       for (const plan of procurement3.getPlans()) procurement3.removePlan(plan.id);
     });
@@ -21923,7 +21966,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       section.className = "setting-section";
       const heading = document.createElement("div");
       heading.className = "setting-section-title";
-      heading.textContent = t8(...sectionDefinition.title);
+      heading.textContent = t9(...sectionDefinition.title);
       section.append(heading);
       for (const [id, zh, en, type] of sectionDefinition.rows) {
         const row = document.createElement("div");
@@ -21931,14 +21974,14 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         const label = document.createElement("span");
         label.className = "setting-label";
         const description = SETTING_DESCRIPTIONS[id];
-        label.innerHTML = `${escapeHtml5(t8(zh, en))}${description ? `<small>${escapeHtml5(t8(...description))}</small>` : ""}`;
+        label.innerHTML = `${escapeHtml5(t9(zh, en))}${description ? `<small>${escapeHtml5(t9(...description))}</small>` : ""}`;
         row.append(label);
         let control;
         if (type === "bool") {
           const state = document.createElement("span");
           state.className = "switch-state";
           state.dataset.on = String(Boolean(settings2[id]));
-          state.textContent = settings2[id] ? t8("开", "On") : t8("关", "Off");
+          state.textContent = settings2[id] ? t9("开", "On") : t9("关", "Off");
           row.append(state);
           control = document.createElement("button");
           control.type = "button";
@@ -21946,7 +21989,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control.dataset.on = String(Boolean(settings2[id]));
           control.setAttribute("role", "switch");
           control.setAttribute("aria-checked", String(Boolean(settings2[id])));
-          control.setAttribute("aria-label", t8(zh, en));
+          control.setAttribute("aria-label", t9(zh, en));
           control.addEventListener(
             "click",
             () => procurement3.setSetting(id, !settings2[id])
@@ -21954,10 +21997,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         } else if (type === "safety") {
           control = document.createElement("select");
           for (const [value, text] of [
-            ["off", t8("关闭", "Off")],
-            ["95", t8("标准 95%", "Standard 95%")],
-            ["99", t8("充足 99%", "Ample 99%")],
-            ["99.9", t8("极高 99.9%", "Full 99.9%")]
+            ["off", t9("关闭", "Off")],
+            ["95", t9("标准 95%", "Standard 95%")],
+            ["99", t9("充足 99%", "Ample 99%")],
+            ["99.9", t9("极高 99.9%", "Full 99.9%")]
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -21973,7 +22016,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button shortcut";
-          control.textContent = formatShortcut(settings2.nextItemShortcut) || t8("录制", "Record");
+          control.textContent = formatShortcut(settings2.nextItemShortcut) || t9("录制", "Record");
           control.addEventListener("click", () => captureShortcut(control));
           control.addEventListener("contextmenu", (event) => {
             event.preventDefault();
@@ -21983,7 +22026,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
           control = document.createElement("button");
           control.type = "button";
           control.className = "setting-button";
-          control.textContent = t8("重置", "Reset");
+          control.textContent = t9("重置", "Reset");
           control.addEventListener("click", () => {
             procurement3.setSetting(
               id === "resetHandle" ? "handleY" : "drawerWidth",
@@ -22018,7 +22061,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     ].filter(Boolean).join("+");
   }
   function captureShortcut(button) {
-    button.textContent = t8("请按快捷键…", "Press shortcut…");
+    button.textContent = t9("请按快捷键…", "Press shortcut…");
     const handler = (event) => {
       if (event.key === "Escape") {
         window.removeEventListener("keydown", handler, true);
@@ -22054,11 +22097,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const style = document.createElement("style");
     style.textContent = shellStyles();
     shadow.innerHTML = `
-    <button class="handle" aria-label="${t8("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
-    <aside class="drawer" data-open="false" aria-label="${t8("购物车", "Shopping cart")}">
+    <button class="handle" aria-label="${t9("购物车（可拖动）", "Shopping cart (drag to move)")}" aria-expanded="false">${CART_ICON}<span class="handle-badge"></span></button>
+    <aside class="drawer" data-open="false" aria-label="${t9("购物车", "Shopping cart")}">
       <div class="resize"></div>
-      <header class="header"><div class="title">${t8("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t8("收起", "Collapse")}">»</button></header>
-      <nav class="tabs"><button class="tab" data-tab="cart">${t8("清单", "Cart")}</button><button class="tab" data-tab="plans">${t8("项目", "Projects")}</button><button class="tab" data-tab="settings">${t8("设置", "Settings")}</button></nav>
+      <header class="header"><div class="title">${t9("购物车", "Shopping Cart")}</div><span class="head-count"></span><button class="close" aria-label="${t9("收起", "Collapse")}">»</button></header>
+      <nav class="tabs"><button class="tab" data-tab="cart">${t9("清单", "Cart")}</button><button class="tab" data-tab="plans">${t9("项目", "Projects")}</button><button class="tab" data-tab="settings">${t9("设置", "Settings")}</button></nav>
       <main class="body"></main>
       <footer class="panel-footer"></footer>
     </aside>`;
@@ -22321,10 +22364,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         "enhancing"
       );
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
     });
     root.append(input, add);
@@ -22404,7 +22447,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       summary2.className = "mwi-procurement-summary-line";
       const state = document.createElement("span");
       state.className = "mwi-procurement-summary-state";
-      state.textContent = t8("请选择生产数量", "Enter a production quantity");
+      state.textContent = t9("请选择生产数量", "Enter a production quantity");
       summary2.append(state);
       root2.append(summary2);
       if (runtime.api.mountProductionModule) {
@@ -22453,11 +22496,11 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
         const badge = document.createElement("span");
         badge.className = "mwi-procurement-badge";
         badge.dataset.state = material.shortage ? "missing" : "ready";
-        badge.textContent = material.shortage ? `${t8("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t8("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
+        badge.textContent = material.shortage ? `${t9("缺", "Need")} ${formatNumber4(material.shortage)}` : `${t9("余", "Spare")} ${formatNumber4(material.effectiveOwned - material.suggested)}`;
         const locks = material.lockedByPlans.map((entry) => `${entry.name}: ${exactNumber(entry.quantity)}`).join("\n");
-        badge.title = `${t8("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
-${t8("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
-${t8("计划锁定", "Locked")}: ${exactNumber(material.locked)}
+        badge.title = `${t9("建议准备", "Suggested")}: ${exactNumber(material.suggested)}
+${t9("当前拥有", "Owned")}: ${exactNumber(material.owned)}${material.locked ? `
+${t9("计划锁定", "Locked")}: ${exactNumber(material.locked)}
 ${locks}` : ""}`;
         host.insertAdjacentElement("afterend", badge);
         layoutMaterialBadge(context.panel, host, badge);
@@ -22482,9 +22525,9 @@ ${locks}` : ""}`;
       chainModeInput = document.createElement("input");
       chainModeInput.type = "checkbox";
       chainModeInput.setAttribute("role", "switch");
-      chainModeInput.setAttribute("aria-label", t8("所选链条", "Selected chain"));
+      chainModeInput.setAttribute("aria-label", t9("所选链条", "Selected chain"));
       const chainModeLabel = document.createElement("span");
-      chainModeLabel.textContent = t8("所选链条", "Selected chain");
+      chainModeLabel.textContent = t9("所选链条", "Selected chain");
       chainMode.append(chainModeInput, chainModeLabel);
       summary.append(summaryState, chainMode);
     } else {
@@ -22510,12 +22553,12 @@ ${locks}` : ""}`;
       const addable = scopedMaterials.filter(
         (material) => material.purchasable && material.addableShortage > 0
       );
-      summaryState.innerHTML = missing.length ? `${t8("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t8("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t8("材料充足", "Materials ready");
+      summaryState.innerHTML = missing.length ? `${t9("缺少", "Missing")} <strong>${missing.length}</strong> ${materialNoun(missing.length)} · ${t9("建议准备已包含安全余量", "Suggested amounts include a safety margin")}` : t9("材料充足", "Materials ready");
       root.hidden = Boolean(
         !missing.length && runtime.settings.get("hideReadyProductionShortage")
       );
       add.disabled = addable.length === 0;
-      add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
+      add.textContent = addable.length ? t9("加入购物清单", "Add to shopping list") : t9("已在清单中", "Already listed");
     };
     chainModeInput?.addEventListener("change", updateSummary);
     add.addEventListener("click", () => {
@@ -22530,10 +22573,10 @@ ${locks}` : ""}`;
         isEnhancing ? "enhancing" : "production"
       );
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
     });
     summary.append(add);
@@ -22543,7 +22586,7 @@ ${locks}` : ""}`;
       const details = document.createElement("details");
       details.className = "mwi-procurement-chain";
       const heading = document.createElement("summary");
-      heading.textContent = `${t8("升级链", "Upgrade chain")} · ${chain.stages.length} ${t8("阶段", "stages")}${chain.cycle ? ` · ${t8("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t8("已达到 25 层", "25-level limit")}` : ""}`;
+      heading.textContent = `${t9("升级链", "Upgrade chain")} · ${chain.stages.length} ${t9("阶段", "stages")}${chain.cycle ? ` · ${t9("检测到循环", "cycle detected")}` : ""}${chain.truncated ? ` · ${t9("已达到 25 层", "25-level limit")}` : ""}`;
       const list = document.createElement("div");
       list.className = "mwi-procurement-chain-list";
       for (const stage of chain.stages) {
@@ -22557,7 +22600,7 @@ ${locks}` : ""}`;
       const allButton = document.createElement("button");
       allButton.type = "button";
       allButton.className = "mwi-procurement-chain-preset";
-      allButton.textContent = t8("全链条", "Full chain");
+      allButton.textContent = t9("全链条", "Full chain");
       stageInputs = [...list.querySelectorAll("input[type=checkbox]")];
       const updatePresetState = () => {
         const checked = stageInputs.map((input) => input.checked);
@@ -22732,22 +22775,22 @@ ${locks}` : ""}`;
     const missing = materials.filter(
       (material) => material.purchasable && material.shortage > 0
     );
-    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t8("房屋升级材料充足", "House materials ready")}</span>`;
+    root.innerHTML = `<span class="mwi-procurement-summary-state">${missing.length ? runtime.config.isZH ? `房屋升级缺少 <strong>${missing.length}</strong> 种材料` : `Missing <strong>${missing.length}</strong> ${materialNoun(missing.length)} for the house upgrade` : t9("房屋升级材料充足", "House materials ready")}</span>`;
     const add = document.createElement("button");
     add.className = "mwi-procurement-inline-button";
     add.type = "button";
     const addable = materials.filter(
       (material) => material.purchasable && material.addableShortage > 0
     );
-    add.textContent = addable.length ? t8("加入购物清单", "Add to shopping list") : t8("已在清单中", "Already listed");
+    add.textContent = addable.length ? t9("加入购物清单", "Add to shopping list") : t9("已在清单中", "Already listed");
     add.disabled = addable.length === 0;
     add.addEventListener("click", () => {
       const result = procurement3.addRequirementsToCart(materials, "housing");
       showToast(
-        result.added ? t8(
+        result.added ? t9(
           `已加入 ${result.added} 种材料`,
           `Added ${result.added} ${materialNoun(result.added)}`
-        ) : t8("没有新的缺料", "No new shortages")
+        ) : t9("没有新的缺料", "No new shortages")
       );
       lastProductionSignature = "";
       globalThis.queueMicrotask(() => renderHouseProcurement(modal));
@@ -22796,7 +22839,7 @@ ${locks}` : ""}`;
     const resolved = resolveMarketplaceHandler();
     if (!resolved) {
       showToast(
-        t8(
+        t9(
           "暂时无法打开市场，请先手动打开市场",
           "Could not open the market; open it manually first"
         )
@@ -22883,7 +22926,7 @@ ${locks}` : ""}`;
       runtime.config.isZH ? "[MWITools] 无法在市场中打开购物清单物品。" : "[MWITools] Failed to open the shopping-list item in the marketplace.",
       lastError
     );
-    showToast(t8("市场跳转失败", "Marketplace navigation failed"));
+    showToast(t9("市场跳转失败", "Marketplace navigation failed"));
     return false;
   }
   runtime.api.openProcurementMarketplace = openMarketplace;
@@ -23003,7 +23046,7 @@ ${locks}` : ""}`;
     nav.replaceChildren();
     const progress = document.createElement("span");
     progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t8(`待购 ${items.length}`, `${items.length} pending`);
+    progress.textContent = t9(`待购 ${items.length}`, `${items.length} pending`);
     const list = document.createElement("div");
     list.className = "mwi-procurement-nav-items";
     for (const item of rows2) {
@@ -23012,7 +23055,7 @@ ${locks}` : ""}`;
       chip.dataset.current = String(!item.done && item.itemHrid === current);
       chip.dataset.done = String(Boolean(item.done));
       const itemName4 = procurement3.resolveItemName(item.itemHrid) || item.name;
-      const quantity = item.done ? t8("已完成", "Completed") : exactNumber(item.quantity);
+      const quantity = item.done ? t9("已完成", "Completed") : exactNumber(item.quantity);
       chip.title = `${itemName4} · ${quantity}`;
       chip.setAttribute("aria-label", chip.title);
       chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName4 })}</span><b>${item.done ? "✓" : formatNumber4(item.quantity)}</b>`;
@@ -23027,7 +23070,7 @@ ${locks}` : ""}`;
     const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
     const nextButton = document.createElement("button");
     nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t8("下一项 ›", "Next ›");
+    nextButton.textContent = t9("下一项 ›", "Next ›");
     nextButton.disabled = !next;
     nextButton.addEventListener("click", () => {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
@@ -23124,10 +23167,10 @@ ${locks}` : ""}`;
         const next = pendingItems().at(0);
         armedNextItem = next?.itemHrid ?? "";
         showToast(
-          next ? t8(
+          next ? t9(
             `${procurement3.resolveItemName(item.itemHrid)} 已补齐，下一项：${next.name}`,
             `${procurement3.resolveItemName(item.itemHrid)} fulfilled. Next: ${next.name}`
-          ) : t8("购物清单已全部补齐", "Shopping list fulfilled")
+          ) : t9("购物清单已全部补齐", "Shopping list fulfilled")
         );
         updateMarketUi();
       })
@@ -23274,7 +23317,7 @@ ${locks}` : ""}`;
       );
     });
   }
-  function t9(zh, en) {
+  function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function visible(element) {
@@ -23344,12 +23387,12 @@ ${locks}` : ""}`;
   function localizeStep(step, index) {
     const output = localizedItem(step.outputHrid);
     if (step.kind === "shop") {
-      return `${index + 1}. ${t9("商店购买", "Buy from shop")}「${output}」`;
+      return `${index + 1}. ${t10("商店购买", "Buy from shop")}「${output}」`;
     }
     if (step.kind === "craft") {
-      return `${index + 1}. ${t9("制造", "Craft")}「${output}」`;
+      return `${index + 1}. ${t10("制造", "Craft")}「${output}」`;
     }
-    return `${index + 1}. ${t9("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
+    return `${index + 1}. ${t10("升级", "Upgrade")}「${localizedItem(step.inputHrid)}」→「${output}」`;
   }
   function createButton(text, kind, handler) {
     const button = document.createElement("button");
@@ -23390,13 +23433,13 @@ ${locks}` : ""}`;
       indicator.type = "button";
       indicator.addEventListener(
         "click",
-        () => cancelTrain(t9("用户取消", "Cancelled by user"))
+        () => cancelTrain(t10("用户取消", "Cancelled by user"))
       );
       document.body.appendChild(indicator);
     }
     const copy = runtime.config.isZH ? `🚂 正在进行火车 (${activeTrain.index + 1}/${activeTrain.steps.length}) · 点击退出` : `🚂 Train in progress (${activeTrain.index + 1}/${activeTrain.steps.length}) · Click to cancel`;
     if (indicator.textContent !== copy) indicator.textContent = copy;
-    indicator.title = t9("点击退出当前火车", "Click to cancel the current train");
+    indicator.title = t10("点击退出当前火车", "Click to cancel the current train");
   }
   function showTrainDetail(plan, currentIndex = null) {
     closeDetail();
@@ -23407,7 +23450,7 @@ ${locks}` : ""}`;
     box.setAttribute("aria-modal", "true");
     const title = document.createElement("div");
     title.className = "mwi-train-detail-title";
-    title.textContent = t9("🚂 火车详情", "🚂 Train details");
+    title.textContent = t10("🚂 火车详情", "🚂 Train details");
     box.appendChild(title);
     plan.steps.forEach((step, index) => {
       const row = document.createElement("div");
@@ -23417,17 +23460,17 @@ ${locks}` : ""}`;
       label.textContent = `${index === currentIndex ? "▶ " : "　"}${localizeStep(step, index)}`;
       const count = document.createElement("span");
       count.className = "mwi-train-detail-count";
-      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t9("保持当前次数", "Keep current count");
+      count.textContent = Number.isFinite(step.count) ? `× ${runtime.api.formatExactNumber?.(step.count) ?? step.count}` : t10("保持当前次数", "Keep current count");
       row.append(label, count);
       if (index === plan.steps.length - 1) {
         const terminal = document.createElement("span");
         terminal.className = "mwi-train-detail-terminal";
-        terminal.textContent = t9("终点", "Final");
+        terminal.textContent = t10("终点", "Final");
         row.appendChild(terminal);
       }
       box.appendChild(row);
     });
-    const close = createButton(t9("关闭", "Close"), "detail", closeDetail);
+    const close = createButton(t10("关闭", "Close"), "detail", closeDetail);
     close.classList.add("mwi-train-detail-close");
     box.appendChild(close);
     modal.appendChild(box);
@@ -23704,7 +23747,7 @@ ${locks}` : ""}`;
       return;
     }
     activeTrain.timeout = setTimeout(
-      () => cancelTrain(t9("等待下一站超时", "Timed out waiting for the next stop")),
+      () => cancelTrain(t10("等待下一站超时", "Timed out waiting for the next stop")),
       TRAIN_TIMEOUT_MS
     );
   }
@@ -23747,13 +23790,13 @@ ${locks}` : ""}`;
     const current = activeTrain.steps[currentIndex];
     if (current.kind === "shop") {
       showToast2(
-        t9("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
+        t10("商店站点无需加入市场购物车", "Shop stops do not use the market cart")
       );
       return { ok: false, added: 0, skipped: 0 };
     }
     const count = usePlannedCount ? plannedStepCount() ?? activeStepCount(context) : activeStepCount(context);
     if (!count) {
-      showToast2(t9("请先填写本步次数", "Enter the action count first"));
+      showToast2(t10("请先填写本步次数", "Enter the action count first"));
       return { ok: false, added: 0, skipped: 0 };
     }
     current.count = count;
@@ -23775,10 +23818,10 @@ ${locks}` : ""}`;
       "train"
     );
     showToast2(
-      result.added ? t9(
+      result.added ? t10(
         `本步缺料已加入购物车（${result.added} 种）`,
         `Added this stop's shortages (${result.added})`
-      ) : t9("本步没有新的缺料", "No new shortages for this stop")
+      ) : t10("本步没有新的缺料", "No new shortages for this stop")
     );
     scheduleScan();
     return result;
@@ -23849,7 +23892,7 @@ ${locks}` : ""}`;
       if (activeTrain.index === activeTrain.steps.length - 1 && !activeTrain.arrivalShown) {
         activeTrain.arrivalShown = true;
         showToast2(
-          t9(
+          t10(
             "火车已到终点，请手动加入队列",
             "Final stop reached; add it to the queue manually"
           )
@@ -23889,7 +23932,7 @@ ${locks}` : ""}`;
       }
     );
     showToast2(
-      t9(
+      t10(
         `购买 ${step.count} 个「${localizedItem(step.outputHrid)}」后自动续站`,
         `Buy ${step.count} ${localizedItem(step.outputHrid)} to continue automatically`
       )
@@ -23901,7 +23944,7 @@ ${locks}` : ""}`;
     const step = activeTrain.steps[activeTrain.index];
     const navigated = step.kind === "shop" ? (activeTrain.navigateShop ?? navigateToTrainShop)(step) : (activeTrain.navigateAction ?? navigateToTrainAction)(step.actionHrid);
     if (!navigated) {
-      cancelTrain(t9("无法打开下一站", "Could not open the next stop"));
+      cancelTrain(t10("无法打开下一站", "Could not open the next stop"));
       return;
     }
     if (step.kind === "shop") watchShopStep(step);
@@ -23912,7 +23955,7 @@ ${locks}` : ""}`;
     cancelTrain("");
     if (plan?.unavailableOutputs?.length) {
       showToast2(
-        t9(
+        t10(
           "当前茶饮使火车所需产物无法产出，请调整茶饮后重新规划",
           "Current drinks prevent a required train output; change drinks and replan"
         )
@@ -23921,10 +23964,10 @@ ${locks}` : ""}`;
     }
     if (plan?.cycle || plan?.truncated) {
       showToast2(
-        plan.cycle ? t9(
+        plan.cycle ? t10(
           "升级链存在循环，无法启动火车",
           "The upgrade chain contains a cycle"
-        ) : t9(
+        ) : t10(
           "升级链过长，无法安全启动火车",
           "The upgrade chain is too long to start safely"
         )
@@ -23935,7 +23978,7 @@ ${locks}` : ""}`;
     const finalCount = Number(allSteps.at(-1)?.count);
     if (!Number.isFinite(finalCount) || finalCount <= 0) {
       showToast2(
-        t9(
+        t10(
           "请先填写生产数量，再开始火车",
           "Enter a production count before starting the train"
         )
@@ -23949,7 +23992,7 @@ ${locks}` : ""}`;
     const steps = hasPlannedCounts ? allSteps.slice(firstNeeded < 0 ? allSteps.length : firstNeeded) : allSteps;
     if (!steps.length) {
       showToast2(
-        t9("库存已经足够，无需开火车", "Inventory already covers this train")
+        t10("库存已经足够，无需开火车", "Inventory already covers this train")
       );
       return false;
     }
@@ -23983,7 +24026,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    if (reason) showToast2(`${t9("火车已停止：", "Train stopped: ")}${reason}`);
+    if (reason) showToast2(`${t10("火车已停止：", "Train stopped: ")}${reason}`);
     return true;
   }
   function finishTrain() {
@@ -23995,7 +24038,7 @@ ${locks}` : ""}`;
     closeDetail();
     renderActiveIndicator();
     scheduleScan();
-    showToast2(t9("火车已完成", "Train completed"));
+    showToast2(t10("火车已完成", "Train completed"));
     return true;
   }
   function getTrainState() {
@@ -24059,7 +24102,7 @@ ${locks}` : ""}`;
     controls.dataset.signature = signature;
     controls.appendChild(
       createButton(
-        t9("📋 详情", "📋 Details"),
+        t10("📋 详情", "📋 Details"),
         "detail",
         () => showTrainDetail(plan, activeTrain?.index ?? null)
       )
@@ -24069,8 +24112,8 @@ ${locks}` : ""}`;
       mode.type = "button";
       mode.className = "mwi-train-cart-mode";
       mode.setAttribute("aria-pressed", String(activeTrain.autoCartEnabled));
-      mode.textContent = activeTrain.autoCartEnabled ? t9("自动加购", "Auto cart") : t9("手动加购", "Manual cart");
-      mode.title = t9(
+      mode.textContent = activeTrain.autoCartEnabled ? t10("自动加购", "Auto cart") : t10("手动加购", "Manual cart");
+      mode.title = t10(
         "切换本步材料的自动或手动加购",
         "Toggle automatic or manual step shopping"
       );
@@ -24081,7 +24124,7 @@ ${locks}` : ""}`;
       });
       controls.appendChild(mode);
       const cart2 = createButton(
-        runningStep.kind === "shop" ? t9("本步无需加购", "No cart items") : t9("🛒 本步加购", "🛒 Add step shortages"),
+        runningStep.kind === "shop" ? t10("本步无需加购", "No cart items") : t10("🛒 本步加购", "🛒 Add step shortages"),
         "cart",
         () => addCurrentTrainStepToCart(context)
       );
@@ -24089,20 +24132,20 @@ ${locks}` : ""}`;
       controls.appendChild(cart2);
       controls.appendChild(
         createButton(
-          `🛑 ${t9("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
+          `🛑 ${t10("取消火车", "Cancel train")} (${activeTrain.index + 1}/${activeTrain.steps.length})`,
           "cancel",
-          () => cancelTrain(t9("用户取消", "Cancelled by user"))
+          () => cancelTrain(t10("用户取消", "Cancelled by user"))
         )
       );
     } else {
       const start2 = createButton(
-        `🚂 ${t9("开始火车", "Start train")} (${plan.steps.length}${t9("步", " stops")})`,
+        `🚂 ${t10("开始火车", "Start train")} (${plan.steps.length}${t10("步", " stops")})`,
         "start",
         () => startTrain(idlePlan(context))
       );
       start2.disabled = plan.hasExplicitCount === false;
       if (start2.disabled) {
-        start2.title = t9("请先填写生产数量", "Enter a production count first");
+        start2.title = t10("请先填写生产数量", "Enter a production count first");
       }
       controls.appendChild(start2);
     }
@@ -24423,7 +24466,7 @@ ${locks}` : ""}`;
       })
     }));
   }
-  function t10(zh, en) {
+  function t11(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function taskId(task) {
@@ -24811,7 +24854,7 @@ ${locks}` : ""}`;
     const key = String(actionType ?? "").split("/").pop();
     const known = PROFESSIONS.find((profession) => profession.key === key);
     if (known) return known;
-    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t10("任务", "Tasks");
+    const prefix = title.split(/\s[-–]\s/)[0]?.trim() || t11("任务", "Tasks");
     return {
       key: `custom-${prefix.toLowerCase().replaceAll(/[^\p{L}\p{N}]+/gu, "-")}`,
       zh: prefix,
@@ -24877,7 +24920,7 @@ ${locks}` : ""}`;
       });
       return {
         key: `dungeon-${detail.hrid}`,
-        label: name ? `${t10("地牢", "Dungeon")} · ${name}` : t10("地牢", "Dungeon"),
+        label: name ? `${t11("地牢", "Dungeon")} · ${name}` : t11("地牢", "Dungeon"),
         order: 1e4 + Number(detail.sortIndex ?? 0)
       };
     }
@@ -24892,7 +24935,7 @@ ${locks}` : ""}`;
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
-        label: `${t10("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
+        label: `${t11("地图", "Zone")} ${sortIndex}${name ? ` · ${name}` : ""}`,
         order: sortIndex
       };
     }
@@ -24900,13 +24943,13 @@ ${locks}` : ""}`;
     if (mapIndex) {
       return {
         key: `zone-index-${mapIndex}`,
-        label: `${t10("地图", "Zone")} ${mapIndex}`,
+        label: `${t11("地图", "Zone")} ${mapIndex}`,
         order: Number(mapIndex)
       };
     }
     return {
       key: "non-dungeon-monsters",
-      label: t10("非地牢怪物", "Non-dungeon monsters"),
+      label: t11("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
@@ -24918,7 +24961,7 @@ ${locks}` : ""}`;
       key: `dungeon-${detail?.hrid}`,
       actionHrid: detail?.hrid ?? "",
       isDungeon: true,
-      label: name || t10("地牢", "Dungeon"),
+      label: name || t11("地牢", "Dungeon"),
       order: Number(detail?.sortIndex ?? 9999)
     };
   }
@@ -24927,7 +24970,7 @@ ${locks}` : ""}`;
       key: "non-dungeon-monsters",
       actionHrid: "",
       isDungeon: false,
-      label: t10("非地牢怪物", "Non-dungeon monsters"),
+      label: t11("非地牢怪物", "Non-dungeon monsters"),
       order: 99999
     };
   }
@@ -25324,7 +25367,7 @@ ${locks}` : ""}`;
       toolbar.setAttribute("role", "toolbar");
       toolbar.setAttribute(
         "aria-label",
-        t10("任务排序与筛选", "Task sorting and filters")
+        t11("任务排序与筛选", "Task sorting and filters")
       );
       if (statisticsEnabled) {
         const controls2 = document.createElement("div");
@@ -25333,7 +25376,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "reset",
             value: "reset",
-            label: t10("重置筛选", "Reset filters"),
+            label: t11("重置筛选", "Reset filters"),
             fallback: "↺",
             showLabel: true,
             showCount: false,
@@ -25377,7 +25420,7 @@ ${locks}` : ""}`;
           createTaskFilterButton({
             kind: "combat",
             value: "combat",
-            label: t10("战斗", "Combat"),
+            label: t11("战斗", "Combat"),
             iconKind: "misc",
             iconHrid: "combat",
             fallback: "⚔",
@@ -25418,14 +25461,14 @@ ${locks}` : ""}`;
       const sortButton = document.createElement("button");
       sortButton.type = "button";
       sortButton.className = "mwi-task-sort-button";
-      sortButton.title = t10("重新排序任务", "Sort tasks again");
+      sortButton.title = t11("重新排序任务", "Sort tasks again");
       sortButton.setAttribute("aria-label", sortButton.title);
       const sortIcon = document.createElement("span");
       sortIcon.className = "mwi-task-filter-icon";
       sortIcon.textContent = "↕";
       const sortLabel = document.createElement("span");
       sortLabel.className = "mwi-task-filter-label";
-      sortLabel.textContent = t10("任务排序", "Sort tasks");
+      sortLabel.textContent = t11("任务排序", "Sort tasks");
       sortButton.append(sortIcon, sortLabel);
       sortButton.addEventListener("click", () => sortTasks());
       const controls = toolbar.querySelector(":scope > .mwi-task-toolbar-controls") ?? toolbar;
@@ -25456,7 +25499,7 @@ ${locks}` : ""}`;
     }
     const resetButton = toolbar.querySelector('[data-filter-kind="reset"]');
     resetButton.disabled = !hasActiveTaskFilters();
-    resetButton.title = t10("清除全部任务筛选", "Clear all task filters");
+    resetButton.title = t11("清除全部任务筛选", "Clear all task filters");
     resetButton.setAttribute("aria-label", resetButton.title);
     for (const profession of LIFE_PROFESSIONS) {
       const button = toolbar.querySelector(
@@ -25469,7 +25512,7 @@ ${locks}` : ""}`;
       });
     }
     updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
-      label: t10("战斗", "Combat"),
+      label: t11("战斗", "Combat"),
       count: combatCount,
       pressed: combatFilterEnabled
     });
@@ -25611,7 +25654,7 @@ ${locks}` : ""}`;
     const toast = document.createElement("div");
     toast.className = "mwi-task-merge-toast";
     toast.setAttribute("role", "status");
-    toast.textContent = t10(
+    toast.textContent = t11(
       `已合并 ${pending.taskCount} 个同动作任务，共 ${runtime.api.formatExactNumber(pending.count)} 次。`,
       `Merged ${pending.taskCount} matching tasks for ${runtime.api.formatExactNumber(pending.count)} actions.`
     );
@@ -25838,13 +25881,17 @@ ${locks}` : ""}`;
       const scheduleRender = () => renderScheduler.schedule();
       scanGameSpriteSources({ force: true });
       render();
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskMutations(records)) scheduleRender();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskMutations(records)) scheduleRender();
+        }
+      );
       scope.add(
         runtime.onMessage("quests_updated", () => {
           nativeResetChoiceUntil = 0;
@@ -25895,7 +25942,7 @@ ${locks}` : ""}`;
   var CONTROL_CLASS2 = "mwi-task-train-planner";
   var TASK_SELECTOR2 = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
   var OWNED_TASK_SELECTOR2 = '.mwi-task-train-planner,.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
-  function t11(zh, en) {
+  function t12(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles10() {
@@ -25995,8 +26042,8 @@ ${locks}` : ""}`;
     button.type = "button";
     button.className = CONTROL_CLASS2;
     button.dataset.signature = signature;
-    button.textContent = t11("🚂 规划火车", "🚂 Plan train");
-    button.title = t11(
+    button.textContent = t12("🚂 规划火车", "🚂 Plan train");
+    button.title = t12(
       "合并同一升级链全部未完成任务并按最新库存重新规划",
       "Combine all unfinished tasks in this upgrade chain and recalculate from current inventory"
     );
@@ -26054,8 +26101,8 @@ ${locks}` : ""}`;
         insertBeforeTaskNavigation(
           card,
           plannerLabel(
-            t11("已被规划", "Included in plan"),
-            t11(
+            t12("已被规划", "Included in plan"),
+            t12(
               "已由同一升级链的最高级任务统一规划",
               "Included by the highest-level task in this upgrade chain"
             ),
@@ -26124,13 +26171,17 @@ ${locks}` : ""}`;
       renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
       render();
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskTrainMutations(records)) schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskTrainMutations(records)) schedule();
+        }
+      );
       scope.add(runtime.onMessage("quests_updated", schedule));
       scope.add(() => {
         renderScheduler.cancel();
@@ -26319,13 +26370,17 @@ ${locks}` : ""}`;
           schedule();
         })
       );
-      const observer = new MutationObserver((records) => {
-        if (shouldRenderTaskNewMutations(records)) schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          if (shouldRenderTaskNewMutations(records)) schedule();
+        }
+      );
       render();
       scope.add(() => {
         renderScheduler.cancel();
@@ -26618,8 +26673,15 @@ ${locks}` : ""}`;
         },
         true
       );
-      const observer = new MutationObserver(observeAction);
-      scope.observer(observer, document.body, { childList: true, subtree: true });
+      subscribeMutationChannel(
+        {
+          name: "task-surface",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        observeAction
+      );
       scope.add(clearPending);
     }
   });
@@ -26628,7 +26690,7 @@ ${locks}` : ""}`;
   var STYLE_ID14 = "mwitools-ability-book-calculator-style";
   var PANEL_CLASS = "mwi-ability-book-calculator";
   var DICTIONARY_SELECTOR = '[class*="ItemDictionary_modalContent"]';
-  function t12(zh, en) {
+  function t13(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function finite(value) {
@@ -26825,7 +26887,7 @@ ${locks}` : ""}`;
     button.dataset.quantity = "0";
     if (!cartEnabled) return;
     if (!requirement || requirement.status === "invalid") {
-      button.textContent = t12("加入购物车", "Add to cart");
+      button.textContent = t13("加入购物车", "Add to cart");
       return;
     }
     const totalBooks = Math.max(0, Math.ceil(requirement.totalBooks || 0));
@@ -26839,12 +26901,12 @@ ${locks}` : ""}`;
     );
     const shortage = Math.max(0, Math.ceil(totalBooks - owned - listed));
     if (shortage <= 0) {
-      button.textContent = t12("已备齐", "Covered");
+      button.textContent = t13("已备齐", "Covered");
       return;
     }
     button.dataset.quantity = String(shortage);
     button.disabled = false;
-    button.textContent = t12(
+    button.textContent = t13(
       `加入购物车（${shortage}）`,
       `Add to cart (${shortage})`
     );
@@ -26854,12 +26916,12 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-title",
-      t12("技能书计算器", "Ability book calculator")
+      t13("技能书计算器", "Ability book calculator")
     );
     const data = calculatorData(itemHrid);
     const input = panel.querySelector("input");
     const targetLabel = panel.querySelector(".mwi-book-target span");
-    targetLabel.textContent = t12("目标等级", "Target level");
+    targetLabel.textContent = t13("目标等级", "Target level");
     input.setAttribute("aria-label", targetLabel.textContent);
     if (!data.ready || !data.experienceGain || !data.maximumLevel) {
       panel.dataset.status = "waiting";
@@ -26867,7 +26929,7 @@ ${locks}` : ""}`;
       setPanelText(
         panel,
         ".mwi-book-state",
-        t12("等待角色与技能书数据", "Waiting for character and ability-book data")
+        t13("等待角色与技能书数据", "Waiting for character and ability-book data")
       );
       setPanelText(panel, ".mwi-book-per-book", "");
       setPanelText(panel, ".mwi-book-result", "—");
@@ -26890,15 +26952,15 @@ ${locks}` : ""}`;
     setPanelText(
       panel,
       ".mwi-book-state",
-      data.isLearned ? t12(
+      data.isLearned ? t13(
         `当前 Lv.${data.level} · 总经验 ${exact(data.experience, 0)}`,
         `Current Lv.${data.level} · total XP ${exact(data.experience, 0)}`
-      ) : t12("当前：未学习", "Current: not learned")
+      ) : t13("当前：未学习", "Current: not learned")
     );
     setPanelText(
       panel,
       ".mwi-book-per-book",
-      t12(
+      t13(
         `每本增加 ${exact(data.experienceGain, 0)} 经验`,
         `${exact(data.experienceGain, 0)} XP per book`
       )
@@ -26914,19 +26976,19 @@ ${locks}` : ""}`;
     panel.dataset.status = requirement.status;
     let resultText;
     if (requirement.status === "invalid") {
-      resultText = t12(
+      resultText = t13(
         `目标等级必须为 1–${data.maximumLevel} 的整数`,
         `Target level must be an integer from 1 to ${data.maximumLevel}`
       );
     } else if (requirement.status === "reached") {
-      resultText = t12("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
+      resultText = t13("已达到目标 · 还需 0 本", "Target reached · 0 books needed");
     } else if (requirement.unlockBooks) {
-      resultText = t12(
+      resultText = t13(
         `解锁 1 + 升级 ${requirement.levelingBooks} = 合计 ${requirement.totalBooks} 本`,
         `Unlock 1 + level ${requirement.levelingBooks} = ${requirement.totalBooks} books total`
       );
     } else {
-      resultText = t12(
+      resultText = t13(
         `升级还需 ${requirement.totalBooks} 本`,
         `${requirement.totalBooks} books needed to level`
       );
@@ -26936,10 +26998,10 @@ ${locks}` : ""}`;
     const ask = runtime.api.getAskPrice?.(itemHrid, 0) ?? 0;
     let costText = "";
     if (requirement.status !== "invalid") {
-      costText = books === 0 ? t12("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t12(
+      costText = books === 0 ? t13("参考购买成本：0", "Reference purchase cost: 0") : ask > 0 ? t13(
         `参考购买成本：${runtime.api.numberFormatter(books * ask)}（最低出售价 ${runtime.api.numberFormatter(ask)}/本）`,
         `Reference purchase cost: ${runtime.api.numberFormatter(books * ask)} (best ask ${runtime.api.numberFormatter(ask)}/book)`
-      ) : t12(
+      ) : t13(
         "参考购买成本：暂无出售价",
         "Reference purchase cost: no ask price"
       );
@@ -27111,7 +27173,8 @@ ${locks}` : ""}`;
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
           "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
           "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。",
-          "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。"
+          "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
+          "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27129,7 +27192,8 @@ ${locks}` : ""}`;
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
           "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
           "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests.",
-          "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds."
+          "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
+          "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead."
         ])
       })
     }),
@@ -27398,7 +27462,7 @@ ${locks}` : ""}`;
   var TOKEN_PREFIX = "MWITools_feedback_identity_v1";
   var REQUEST_TIMEOUT = 1e4;
   var MAX_IMAGE_LINKS = 3;
-  function t13(zh, en) {
+  function t14(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var SERVER_ERROR_LABELS = {
@@ -27455,10 +27519,10 @@ ${locks}` : ""}`;
   function localizeErrorDetail(detail) {
     const value = String(detail ?? "").trim();
     const labels = SERVER_ERROR_LABELS[value];
-    if (labels) return t13(...labels);
+    if (labels) return t14(...labels);
     const limit = /^Text exceeds (\d+) characters$/.exec(value);
     if (limit) {
-      return t13(
+      return t14(
         `内容不能超过 ${limit[1]} 个字符`,
         `Text cannot exceed ${limit[1]} characters`
       );
@@ -27522,7 +27586,7 @@ ${locks}` : ""}`;
       }).catch((error) => {
         if (error?.name === "AbortError") {
           throw new Error(
-            t13("意见反馈服务请求超时", "Feedback service request timed out")
+            t14("意见反馈服务请求超时", "Feedback service request timed out")
           );
         }
         throw error;
@@ -27539,7 +27603,7 @@ ${locks}` : ""}`;
         if (status < 200 || status >= 300) {
           const payload = parseResponse(response);
           const error = new Error(
-            localizeErrorDetail(payload?.detail) || t13(
+            localizeErrorDetail(payload?.detail) || t14(
               `反馈服务返回 HTTP ${status}`,
               `Feedback service returned HTTP ${status}`
             )
@@ -27557,7 +27621,7 @@ ${locks}` : ""}`;
         reject(new Error(message));
       };
       watchdog = setTimeout(
-        () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out")),
+        () => fail(t14("意见反馈服务请求超时", "Feedback service request timed out")),
         REQUEST_TIMEOUT + 1e3
       );
       try {
@@ -27571,9 +27635,9 @@ ${locks}` : ""}`;
           anonymous: false,
           onload: finish,
           onerror: () => fail(
-            t13("无法连接意见反馈服务", "Unable to reach the feedback service")
+            t14("无法连接意见反馈服务", "Unable to reach the feedback service")
           ),
-          ontimeout: () => fail(t13("意见反馈服务请求超时", "Feedback service request timed out"))
+          ontimeout: () => fail(t14("意见反馈服务请求超时", "Feedback service request timed out"))
         });
         result?.then?.(finish).catch((error) => fail(error.message));
       } catch (error) {
@@ -27586,21 +27650,21 @@ ${locks}` : ""}`;
     const links = values.map((item) => String(item).trim()).filter(Boolean);
     if (links.length > MAX_IMAGE_LINKS) {
       throw new Error(
-        t13("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
+        t14("最多只能填写 3 个图片链接", "At most 3 image links are allowed")
       );
     }
     for (const link of links) {
       if (link.length > 2e3)
-        throw new Error(t13("图片链接过长", "The image link is too long"));
+        throw new Error(t14("图片链接过长", "The image link is too long"));
       let url;
       try {
         url = new URL(link);
       } catch {
-        throw new Error(t13("图片链接格式不正确", "Invalid image link format"));
+        throw new Error(t14("图片链接格式不正确", "Invalid image link format"));
       }
       if (!["http:", "https:"].includes(url.protocol)) {
         throw new Error(
-          t13("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
+          t14("图片链接只支持 HTTP 或 HTTPS", "Image links must use HTTP or HTTPS")
         );
       }
     }
@@ -27738,7 +27802,7 @@ ${locks}` : ""}`;
   var ROOT_ID2 = "mwitools-feedback-root";
   var BUTTON_ID = "mwitools-feedback-button";
   var STYLE_ID15 = "mwitools-feedback-style";
-  function t14(zh, en) {
+  function t15(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function statusLabel(status) {
@@ -27747,7 +27811,7 @@ ${locks}` : ""}`;
       processing: ["处理中", "Processing"],
       closed: ["已结束", "Closed"]
     };
-    return labels[status] ? t14(...labels[status]) : status;
+    return labels[status] ? t15(...labels[status]) : status;
   }
   function addStyles13() {
     if (document.getElementById(STYLE_ID15)) return;
@@ -27805,19 +27869,19 @@ ${locks}` : ""}`;
       this.root.id = ROOT_ID2;
       this.root.hidden = true;
       this.root.innerHTML = `
-      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t14("MWITools 意见中心", "MWITools Feedback Center")}">
-        <header class="mwi-feedback-head"><h2>${t14("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t14("关闭", "Close")}">×</button></header>
-        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t14("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t14("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t14("我的反馈", "My feedback")}</button></nav>
+      <section class="mwi-feedback-modal" role="dialog" aria-modal="true" aria-label="${t15("MWITools 意见中心", "MWITools Feedback Center")}">
+        <header class="mwi-feedback-head"><h2>${t15("MWITools 意见中心", "MWITools Feedback Center")}</h2><button type="button" class="mwi-feedback-close" aria-label="${t15("关闭", "Close")}">×</button></header>
+        <nav class="mwi-feedback-tabs"><button type="button" class="mwi-feedback-tab" data-tab="announcements" data-active="false">${t15("公告", "Announcements")}</button><button type="button" class="mwi-feedback-tab" data-tab="submit" data-active="true">${t15("提交反馈", "Submit")}</button><button type="button" class="mwi-feedback-tab" data-tab="mine" data-active="false">${t15("我的反馈", "My feedback")}</button></nav>
         <div class="mwi-feedback-body">
           <section class="mwi-feedback-view" data-view="announcements" hidden><div class="mwi-announcement-list"></div></section>
-          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t14("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
+          <section class="mwi-feedback-view" data-view="submit"><div class="mwi-feedback-notice">${t15("每个角色每个 UTC+8 自然周最多提交 2 条；编辑和留言不占额度。不会采集聊天、游戏消息正文或凭证。", "Up to 2 new reports per character each UTC+8 week. Edits and messages do not use quota. Chats, game message bodies, and credentials are never collected.")}</div>
             <form class="mwi-feedback-form"><div class="mwi-feedback-grid">
-              <label class="mwi-feedback-field"><span>${t14("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t14("功能建议", "Feature request")}</option><option value="other">${t14("其他", "Other")}</option></select></label>
-              <label class="mwi-feedback-field"><span>${t14("标题", "Title")}</span><input name="title" maxlength="160" required></label>
-              <label class="mwi-feedback-field is-wide"><span>${t14("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
-              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t14("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t14("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
-              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t14("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t14("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t14("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
-            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t14("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t14("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
+              <label class="mwi-feedback-field"><span>${t15("类型", "Type")}</span><select name="type"><option value="bug">Bug</option><option value="feature">${t15("功能建议", "Feature request")}</option><option value="other">${t15("其他", "Other")}</option></select></label>
+              <label class="mwi-feedback-field"><span>${t15("标题", "Title")}</span><input name="title" maxlength="160" required></label>
+              <label class="mwi-feedback-field is-wide"><span>${t15("详细说明", "Details")}</span><textarea name="detail" maxlength="12000" required></textarea></label>
+              <div class="mwi-feedback-bug-fields"><label class="mwi-feedback-field is-wide"><span>${t15("复现步骤", "Steps to reproduce")}</span><textarea name="reproduction" maxlength="8000"></textarea></label><label class="mwi-feedback-field is-wide"><span>${t15("预期结果", "Expected result")}</span><textarea name="expected" maxlength="8000"></textarea></label></div>
+              <label class="mwi-feedback-field is-wide mwi-feedback-image-links"><span class="mwi-feedback-label-row"><span>${t15("图片链接（每行一个，最多 3 个）", "Image links (one per line, up to 3)")}</span><a class="mwi-feedback-image-help" href="https://tupian.li" target="_blank" rel="noopener noreferrer" title="${t15("不知道图床？打开 tupian.li", "Need image hosting? Open tupian.li")}">?</a></span><textarea name="imageLinks" maxlength="6002" placeholder="https://..."></textarea><small>${t15("服务器不会上传、下载或代理图片，只保存你填写的链接。", "The server only stores your links; it never uploads, downloads, or proxies images.")}</small></label>
+            </div><div class="mwi-feedback-footer"><span class="mwi-feedback-quota">${t15("正在查询本周额度…", "Checking weekly quota…")}</span><button type="submit" class="mwi-feedback-submit">${t15("提交", "Submit")}</button></div><div class="mwi-feedback-error"></div></form>
           </section>
           <section class="mwi-feedback-view" data-view="mine" hidden><div class="mwi-feedback-list"></div><div class="mwi-feedback-detail" hidden></div><div class="mwi-feedback-error"></div></section>
         </div>
@@ -27890,10 +27954,10 @@ ${locks}` : ""}`;
       if (dot) dot.hidden = !hasUnread;
       button.setAttribute(
         "aria-label",
-        hasUnread ? t14(
+        hasUnread ? t15(
           "MWITools 意见中心，有新内容",
           "MWITools Feedback Center, new activity"
-        ) : t14("MWITools 意见中心", "MWITools Feedback Center")
+        ) : t15("MWITools 意见中心", "MWITools Feedback Center")
       );
     }
     async open() {
@@ -27958,12 +28022,12 @@ ${locks}` : ""}`;
       const button = this.form.querySelector(".mwi-feedback-submit");
       button.disabled = true;
       error.classList.remove("mwi-feedback-success");
-      error.textContent = t14("正在提交…", "Submitting…");
+      error.textContent = t15("正在提交…", "Submitting…");
       try {
         const value = this.formValue();
         if (!value.title || !value.detail) {
           throw new Error(
-            t14("请填写标题和详细说明。", "Enter a title and details.")
+            t15("请填写标题和详细说明。", "Enter a title and details.")
           );
         }
         const editingId = this.editing?.id ?? null;
@@ -27983,7 +28047,7 @@ ${locks}` : ""}`;
         this.resetForm();
         this.renderQuota();
         error.classList.add("mwi-feedback-success");
-        error.textContent = t14("已保存反馈。", "Feedback saved.");
+        error.textContent = t15("已保存反馈。", "Feedback saved.");
         this.showTab("mine");
         void this.refresh();
       } catch (caught) {
@@ -27996,7 +28060,7 @@ ${locks}` : ""}`;
     resetForm() {
       this.form.reset();
       this.editing = null;
-      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t15(
         "提交",
         "Submit"
       );
@@ -28073,7 +28137,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t14("目前还没有公告。", "There are no announcements yet.")
+            t15("目前还没有公告。", "There are no announcements yet.")
           )
         );
         return;
@@ -28114,13 +28178,13 @@ ${locks}` : ""}`;
     }
     renderQuota(errorMessage = "") {
       const node = this.form.querySelector(".mwi-feedback-quota");
-      node.textContent = errorMessage ? t14(
+      node.textContent = errorMessage ? t15(
         `额度查询失败：${errorMessage}`,
         `Quota check failed: ${errorMessage}`
-      ) : this.quota ? t14(
+      ) : this.quota ? t15(
         `本周剩余 ${this.quota.remaining}/${this.quota.limit} 条`,
         `${this.quota.remaining}/${this.quota.limit} submissions left this week`
-      ) : t14("额度暂时不可用", "Quota unavailable");
+      ) : t15("额度暂时不可用", "Quota unavailable");
       this.form.querySelector(".mwi-feedback-submit").disabled = !this.editing && this.quota?.remaining === 0;
     }
     renderList() {
@@ -28135,7 +28199,7 @@ ${locks}` : ""}`;
           makeElement(
             "div",
             "mwi-feedback-empty",
-            t14("还没有提交过反馈。", "No feedback yet.")
+            t15("还没有提交过反馈。", "No feedback yet.")
           )
         );
         return;
@@ -28169,7 +28233,7 @@ ${locks}` : ""}`;
         const back = makeElement(
           "button",
           "mwi-feedback-detail-back",
-          `← ${t14("返回列表", "Back")}`
+          `← ${t15("返回列表", "Back")}`
         );
         back.type = "button";
         back.addEventListener("click", () => this.renderList(), { once: true });
@@ -28183,29 +28247,29 @@ ${locks}` : ""}`;
           back,
           title,
           meta,
-          this.textSection(t14("详细说明", "Details"), item.detail)
+          this.textSection(t15("详细说明", "Details"), item.detail)
         );
         if (item.type === "bug") {
           detail.append(
             this.textSection(
-              t14("复现步骤", "Steps to reproduce"),
+              t15("复现步骤", "Steps to reproduce"),
               item.reproduction || "—"
             ),
             this.textSection(
-              t14("预期结果", "Expected result"),
+              t15("预期结果", "Expected result"),
               item.expected || "—"
             )
           );
         }
         if (item.imageLinks?.length) {
           const section = makeElement("section", "mwi-feedback-section");
-          section.append(makeElement("h4", "", t14("图片链接", "Image links")));
+          section.append(makeElement("h4", "", t15("图片链接", "Image links")));
           const links = makeElement("div", "mwi-feedback-link-list");
           for (const [index, url] of item.imageLinks.entries()) {
             const link = makeElement(
               "a",
               "",
-              `${t14("图片", "Image")} ${index + 1}：${url}`
+              `${t15("图片", "Image")} ${index + 1}：${url}`
             );
             link.href = url;
             link.target = "_blank";
@@ -28216,7 +28280,7 @@ ${locks}` : ""}`;
           detail.append(section);
         }
         const messages = makeElement("section", "mwi-feedback-section");
-        messages.append(makeElement("h4", "", t14("留言", "Messages")));
+        messages.append(makeElement("h4", "", t15("留言", "Messages")));
         const messageList = makeElement("div", "mwi-feedback-messages");
         for (const message of item.messages ?? []) {
           const box = makeElement("div", `mwi-feedback-message ${message.actor}`);
@@ -28224,7 +28288,7 @@ ${locks}` : ""}`;
             makeElement(
               "strong",
               "",
-              message.actor === "admin" ? t14("管理员", "Admin") : t14("我", "Me")
+              message.actor === "admin" ? t15("管理员", "Admin") : t15("我", "Me")
             ),
             makeElement("div", "mwi-feedback-copy", message.body),
             makeElement("time", "", formatTime(message.createdAt))
@@ -28236,7 +28300,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-card-meta",
-              t14("暂无留言", "No messages")
+              t15("暂无留言", "No messages")
             )
           );
         }
@@ -28244,7 +28308,7 @@ ${locks}` : ""}`;
         detail.append(messages);
         if (item.status !== "closed") {
           const actions = makeElement("div", "mwi-feedback-actions");
-          const edit = makeElement("button", "", t14("修改反馈", "Edit feedback"));
+          const edit = makeElement("button", "", t15("修改反馈", "Edit feedback"));
           edit.type = "button";
           edit.addEventListener("click", () => this.startEdit(item), {
             once: true
@@ -28253,9 +28317,9 @@ ${locks}` : ""}`;
           detail.append(actions);
           const reply = makeElement("div", "mwi-feedback-reply");
           const input = document.createElement("textarea");
-          input.placeholder = t14("补充留言…", "Add a message…");
+          input.placeholder = t15("补充留言…", "Add a message…");
           input.maxLength = 8e3;
-          const send = makeElement("button", "", t14("发送", "Send"));
+          const send = makeElement("button", "", t15("发送", "Send"));
           send.type = "button";
           send.addEventListener("click", async () => {
             if (!input.value.trim()) return;
@@ -28276,7 +28340,7 @@ ${locks}` : ""}`;
             makeElement(
               "div",
               "mwi-feedback-notice",
-              t14(
+              t15(
                 "该反馈已结束，内容和留言已锁定。",
                 "This feedback is closed and locked."
               )
@@ -28313,7 +28377,7 @@ ${locks}` : ""}`;
         this.form.elements[name].value = item[name] ?? "";
       }
       this.form.elements.imageLinks.value = (item.imageLinks ?? []).join("\n");
-      this.form.querySelector(".mwi-feedback-submit").textContent = t14(
+      this.form.querySelector(".mwi-feedback-submit").textContent = t15(
         "保存修改",
         "Save changes"
       );
@@ -28364,25 +28428,28 @@ ${locks}` : ""}`;
       const ensure = () => panel.ensureButton();
       ensure();
       const ensureScheduler = createFrameScheduler(ensure);
-      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-      const observer = new MutationObserverRef((records) => {
-        const relevant = records.some(
-          (record) => [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && !node.matches?.(
-              "#mwitools-feedback-root,#mwitools-feedback-button"
-            ) && (node.matches?.(
-              '[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ) || node.querySelector?.(
-              '[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ))
-          )
-        );
-        if (relevant) ensureScheduler.schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "header-mount",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          const relevant = records.some(
+            (record) => [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node?.nodeType === 1 && !node.matches?.(
+                "#mwitools-feedback-root,#mwitools-feedback-button"
+              ) && (node.matches?.(
+                '[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ) || node.querySelector?.(
+                '[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ))
+            )
+          );
+          if (relevant) ensureScheduler.schedule();
+        }
+      );
       schedule(1500);
       scope.add(() => {
         ensureScheduler.cancel();
@@ -28413,29 +28480,35 @@ ${locks}` : ""}`;
   var OWNED_GUILD_SELECTOR = ".mwi-guild-xp-card,.mwi-guild-rate-cell,.mwi-guild-div-rates,.mwi-guild-div-rate-head,.mwi-guild-idle";
   function observeGuildSurface(scope, render) {
     const scheduler = createFrameScheduler(render);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        const changed = [...record.addedNodes, ...record.removedNodes].filter(
-          (node) => node?.nodeType === 1
-        );
-        if (target?.closest?.(OWNED_GUILD_SELECTOR) || changed.length && changed.every(
-          (node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)
-        )) {
-          return false;
-        }
-        if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
-        return changed.some(
-          (node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR)
-        );
-      });
-      if (relevant) scheduler.schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "guild-surface",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const changed = [...record.addedNodes, ...record.removedNodes].filter(
+            (node) => node?.nodeType === 1
+          );
+          if (target?.closest?.(OWNED_GUILD_SELECTOR) || changed.length && changed.every(
+            (node) => node.matches?.(OWNED_GUILD_SELECTOR) || node.closest?.(OWNED_GUILD_SELECTOR)
+          )) {
+            return false;
+          }
+          if (target?.closest?.(GUILD_SURFACE_SELECTOR)) return true;
+          return changed.some(
+            (node) => node.matches?.(GUILD_SURFACE_SELECTOR) || node.querySelector?.(GUILD_SURFACE_SELECTOR)
+          );
+        });
+        if (relevant) scheduler.schedule();
+      }
+    );
     scope.add(() => scheduler.cancel());
   }
-  function t15(zh, en) {
+  function t16(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function findField(object, keys, maxDepth = 4) {
@@ -28614,7 +28687,7 @@ ${locks}` : ""}`;
   }
   function rateText(value, waiting = false) {
     if (!Number.isFinite(value))
-      return waiting ? t15("待再次采样", "Awaiting another sample") : t15("样本不足", "Not enough data");
+      return waiting ? t16("待再次采样", "Awaiting another sample") : t16("样本不足", "Not enough data");
     return `${runtime.api.numberFormatter(value)}/h`;
   }
   function metric2(label, value, title = "") {
@@ -28680,7 +28753,7 @@ ${locks}` : ""}`;
     svg.classList.add("mwi-guild-trend");
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    const label = t15(
+    const label = t16(
       "公会经验获取速度（6 小时滚动平均，XP/小时）",
       "Guild XP gain rate (6-hour rolling average, XP/hour)"
     );
@@ -28694,7 +28767,7 @@ ${locks}` : ""}`;
       const empty = svgElement("text", "mwi-guild-trend-empty");
       empty.setAttribute("x", String(width / 2));
       empty.setAttribute("y", String(height / 2));
-      empty.textContent = t15("样本不足", "Not enough data");
+      empty.textContent = t16("样本不足", "Not enough data");
       svg.append(empty);
       return svg;
     }
@@ -28810,10 +28883,10 @@ ${locks}` : ""}`;
     head.className = "mwi-guild-xp-head";
     const title = document.createElement("div");
     title.className = "mwi-guild-xp-title";
-    title.textContent = t15("公会经验进度", "Guild XP progress");
+    title.textContent = t16("公会经验进度", "Guild XP progress");
     const sampled = document.createElement("div");
     sampled.className = "mwi-guild-xp-sampled";
-    sampled.textContent = rates?.lastSampleAt ? `${t15("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t15("待采样", "Awaiting samples");
+    sampled.textContent = rates?.lastSampleAt ? `${t16("最后采样", "Last sample")} ${new Date(rates.lastSampleAt).toLocaleString()}` : t16("待采样", "Awaiting samples");
     head.append(title, sampled);
     const grid = document.createElement("div");
     grid.className = "mwi-guild-xp-grid";
@@ -28827,14 +28900,14 @@ ${locks}` : ""}`;
     const etaHours = remaining !== null && estimateRate !== null ? remaining / estimateRate : null;
     grid.append(
       metric2(
-        t15("预计升级", "Level ETA"),
-        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t15("样本不足", "Not enough data")
+        t16("预计升级", "Level ETA"),
+        Number.isFinite(etaHours) ? runtime.api.timeReadable(etaHours * 3600) : t16("样本不足", "Not enough data")
       ),
-      metric2(t15("24 小时平均", "24-hour average"), rateText(rates?.day))
+      metric2(t16("24 小时平均", "24-hour average"), rateText(rates?.day))
     );
     const trendLabel = document.createElement("div");
     trendLabel.className = "mwi-guild-trend-label";
-    trendLabel.textContent = t15(
+    trendLabel.textContent = t16(
       "最近 7 天经验获取速度（6 小时滚动平均）",
       "XP gain rate over the last 7 days (6-hour rolling average)"
     );
@@ -28846,7 +28919,7 @@ ${locks}` : ""}`;
       const idleRow = document.createElement("div");
       idleRow.className = "mwi-guild-idle";
       const label = document.createElement("b");
-      label.textContent = `${t15("当前闲置", "Idle now")} (${idle.length}) · ${t15(
+      label.textContent = `${t16("当前闲置", "Idle now")} (${idle.length}) · ${t16(
         "状态更新",
         "Updated"
       )} ${new Date(runtime.state.guildStateUpdatedAt).toLocaleTimeString()}`;
@@ -28869,9 +28942,9 @@ ${locks}` : ""}`;
     if (!header.querySelector(".mwi-guild-recent-head")) {
       const sortable = kind === "member";
       const columns = [
-        ["mwi-guild-recent-head", t15("近 6 小时 XP/h", "6h XP/h")],
-        ["mwi-guild-day-head", t15("24 小时 XP/h", "24h XP/h")],
-        ...kind === "member" ? [["mwi-guild-week-head", t15("本周平均 XP/h", "This-week avg XP/h")]] : []
+        ["mwi-guild-recent-head", t16("近 6 小时 XP/h", "6h XP/h")],
+        ["mwi-guild-day-head", t16("24 小时 XP/h", "24h XP/h")],
+        ...kind === "member" ? [["mwi-guild-week-head", t16("本周平均 XP/h", "This-week avg XP/h")]] : []
       ];
       for (const [rateIndex, [className, label]] of columns.entries()) {
         const cell = document.createElement("th");
@@ -28889,7 +28962,7 @@ ${locks}` : ""}`;
         cell.append(sortIndicator);
         cell.tabIndex = 0;
         cell.style.cursor = "pointer";
-        cell.title = t15("点击按经验速率排序", "Click to sort by XP rate");
+        cell.title = t16("点击按经验速率排序", "Click to sort by XP rate");
         const sortRows = () => {
           const body = table.tBodies[0];
           if (!body) return;
@@ -29008,10 +29081,10 @@ ${locks}` : ""}`;
       head.className = "mwi-guild-div-rate-head";
       head.append(
         Object.assign(document.createElement("span"), {
-          textContent: t15("近 6 小时 XP/h", "6h XP/h")
+          textContent: t16("近 6 小时 XP/h", "6h XP/h")
         }),
         Object.assign(document.createElement("span"), {
-          textContent: t15("24 小时 XP/h", "24h XP/h")
+          textContent: t16("24 小时 XP/h", "24h XP/h")
         })
       );
       leaderboard.before(head);
@@ -29143,7 +29216,7 @@ ${locks}` : ""}`;
   });
 
   // src/features/game-widgets.js
-  function t16(zh, en) {
+  function t17(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   var lastBattleSummaryMessage = null;
@@ -29455,7 +29528,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "等级: 大于等于 " : "Equipment level: >= "}
             <select name="script_filter_level_select" id="script_filter_level_select">
-            <option value="1">${t16("全部", "All")}</option>
+            <option value="1">${t17("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -29476,7 +29549,7 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_level_to" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "小于 " : "< "}
             <select name="script_filter_level_select_to" id="script_filter_level_select_to">
-            <option value="1000">${t16("全部", "All")}</option>
+            <option value="1000">${t17("全部", "All")}</option>
             <option value="10">10</option>
             <option value="20">20</option>
             <option value="30">30</option>
@@ -29497,33 +29570,33 @@ ${locks}` : ""}`;
         "beforeend",
         `<span id="script_filter_skill" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "职业: " : "Class: "}
             <select name="script_filter_skill_select" id="script_filter_skill_select">
-                <option value="all">${t16("全部", "All")}</option>
-                <option value="attack">${t16("攻击", "Attack")}</option>
-                <option value="melee">${t16("近战", "Melee")}</option>
-                <option value="defense">${t16("防御", "Defense")}</option>
-                <option value="ranged">${t16("远程", "Ranged")}</option>
-                <option value="magic">${t16("魔法", "Magic")}</option>
-                <option value="others">${t16("其他", "Others")}</option>
+                <option value="all">${t17("全部", "All")}</option>
+                <option value="attack">${t17("攻击", "Attack")}</option>
+                <option value="melee">${t17("近战", "Melee")}</option>
+                <option value="defense">${t17("防御", "Defense")}</option>
+                <option value="ranged">${t17("远程", "Ranged")}</option>
+                <option value="magic">${t17("魔法", "Magic")}</option>
+                <option value="others">${t17("其他", "Others")}</option>
             </select>&emsp;</span>`
       );
       filters.insertAdjacentHTML(
         "beforeend",
         `<span id="script_filter_location" style="float: left; color: ${runtime.config.SCRIPT_COLOR_MAIN};">${runtime.config.isZH ? "部位: " : "Slot: "}
             <select name="script_filter_location_select" id="script_filter_location_select">
-                <option value="all">${t16("全部", "All")}</option>
-                <option value="main_hand">${t16("主手", "Main Hand")}</option>
-                <option value="off_hand">${t16("副手", "Off Hand")}</option>
-                <option value="two_hand">${t16("双手", "Two Hand")}</option>
-                <option value="head">${t16("头部", "Head")}</option>
-                <option value="body">${t16("身体", "Body")}</option>
-                <option value="hands">${t16("手部", "Hands")}</option>
-                <option value="legs">${t16("腿部", "Legs")}</option>
-                <option value="feet">${t16("脚部", "Feet")}</option>
-                <option value="neck">${t16("项链", "Neck")}</option>
-                <option value="earrings">${t16("耳饰", "Earrings")}</option>
-                <option value="ring">${t16("戒指", "Ring")}</option>
-                <option value="pouch">${t16("袋子", "Pouch")}</option>
-                <option value="back">${t16("背部", "Back")}</option>
+                <option value="all">${t17("全部", "All")}</option>
+                <option value="main_hand">${t17("主手", "Main Hand")}</option>
+                <option value="off_hand">${t17("副手", "Off Hand")}</option>
+                <option value="two_hand">${t17("双手", "Two Hand")}</option>
+                <option value="head">${t17("头部", "Head")}</option>
+                <option value="body">${t17("身体", "Body")}</option>
+                <option value="hands">${t17("手部", "Hands")}</option>
+                <option value="legs">${t17("腿部", "Legs")}</option>
+                <option value="feet">${t17("脚部", "Feet")}</option>
+                <option value="neck">${t17("项链", "Neck")}</option>
+                <option value="earrings">${t17("耳饰", "Earrings")}</option>
+                <option value="ring">${t17("戒指", "Ring")}</option>
+                <option value="pouch">${t17("袋子", "Pouch")}</option>
+                <option value="back">${t17("背部", "Back")}</option>
             </select>&emsp;</span>`
       );
       const levelFilter = document.querySelector("#script_filter_level_select");
@@ -30828,7 +30901,7 @@ ${locks}` : ""}`;
   var VIEWPORT_MARGIN3 = 12;
   var PANEL_GAP3 = 8;
   var activePanel2 = null;
-  function t17(zh, en) {
+  function t18(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
   function addStyles15() {
@@ -30869,7 +30942,7 @@ ${locks}` : ""}`;
     if (!Number.isFinite(number3)) return "—";
     const rounded = Math.round(number3);
     const digits = Math.abs(number3 - rounded) < 1e-8 ? 0 : 1;
-    return `${compactNumber(number3, digits)} ${t17("个", "pcs")}`;
+    return `${compactNumber(number3, digits)} ${t18("个", "pcs")}`;
   }
   function metric3(label, value, exactValue = null, titleText = "") {
     const row = document.createElement("div");
@@ -30892,11 +30965,11 @@ ${locks}` : ""}`;
       return { text: "—", title: "" };
     }
     return {
-      text: t17(
+      text: t18(
         `普通保护 ${compactNumber(normal, 1)} 次，贤者之镜 ${compactNumber(mirror, 1)} 次`,
         `Regular protection: ${compactNumber(normal, 1)} uses; Philosopher's Mirror: ${compactNumber(mirror, 1)} uses`
       ),
-      title: t17(
+      title: t18(
         `普通保护：${exactTitle(normal)} 次；贤者之镜：${exactTitle(mirror)} 次`,
         `Regular protection: ${exactTitle(normal)} uses; Philosopher's Mirror: ${exactTitle(mirror)} uses`
       )
@@ -30905,40 +30978,40 @@ ${locks}` : ""}`;
   function renderPanel2(panel, plan) {
     const complete = plan?.status === "complete";
     const protection = complete ? protectionUsage(plan) : { text: "—", title: "" };
-    const normalStart = complete ? plan.normalProtectStart === null ? t17("不用", "None") : `+${plan.normalProtectStart}` : "—";
-    const philosopherStart = complete ? plan.philosopherStart === null ? t17("不用", "None") : `+${plan.philosopherStart}` : "—";
-    const aLabel = complete && plan.aLevel !== null ? t17(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t17("需要", "Need");
-    const bLabel = complete && plan.bLevel !== null ? t17(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t17("需要", "Need");
+    const normalStart = complete ? plan.normalProtectStart === null ? t18("不用", "None") : `+${plan.normalProtectStart}` : "—";
+    const philosopherStart = complete ? plan.philosopherStart === null ? t18("不用", "None") : `+${plan.philosopherStart}` : "—";
+    const aLabel = complete && plan.aLevel !== null ? t18(`需要 +${plan.aLevel}`, `Need +${plan.aLevel}`) : t18("需要", "Need");
+    const bLabel = complete && plan.bLevel !== null ? t18(`需要 +${plan.bLevel}`, `Need +${plan.bLevel}`) : t18("需要", "Need");
     const grid = document.createElement("div");
     grid.className = "mwi-enhancement-grid";
     const protectionMetric = metric3("", protection.text, null, protection.title);
     protectionMetric.classList.add("mwi-enhancement-protection");
     grid.append(
       metric3(
-        t17("总成本", "Total cost"),
+        t18("总成本", "Total cost"),
         complete ? compactNumber(plan.totalCost, 1) : "—",
         plan?.totalCost
       ),
       metric3(
-        t17("底子成本", "Base cost"),
+        t18("底子成本", "Base cost"),
         complete ? compactNumber(plan.baseCost, 1) : "—",
         plan?.baseCost
       ),
       ...complete && Number(plan.refinementCost) > 0 ? [
         metric3(
-          t17("其中精炼", "Includes refining"),
+          t18("其中精炼", "Includes refining"),
           compactNumber(plan.refinementCost, 1),
           plan.refinementCost
         )
       ] : [],
       metric3(
-        t17("耗时", "Time"),
+        t18("耗时", "Time"),
         complete ? runtime.api.timeReadable(plan.totalSeconds) : "—",
         plan?.totalSeconds
       ),
-      metric3(t17("开始保护", "Protect from"), normalStart),
+      metric3(t18("开始保护", "Protect from"), normalStart),
       protectionMetric,
-      metric3(t17("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
+      metric3(t18("开始贤者保护", "Philosopher's Mirror from"), philosopherStart),
       metric3(aLabel, complete ? countWithUnit(plan.aCount) : "—", plan?.aCount),
       metric3(bLabel, complete ? countWithUnit(plan.bCount) : "—", plan?.bCount)
     );
@@ -32266,31 +32339,6 @@ ${locks}` : ""}`;
       title: "MWITools"
     });
   }
-  var waitForMarketOrders = () => {
-    const element = document.querySelector(
-      ".MarketplacePanel_marketListings__1GCyQ"
-    );
-    if (element) {
-      console.log(
-        runtime.config.isZH ? "[MWITools] 开始监听市场订单窗口。" : "[MWITools] Started observing market order dialogs."
-      );
-      new MutationObserver((mutationsList) => {
-        mutationsList.forEach((mutation) => {
-          mutation.addedNodes.forEach((node) => {
-            if (node.classList.contains("Modal_modalContainer__3B80m")) {
-              handleMarketNewOrder(node);
-            }
-          });
-        });
-      }).observe(element, {
-        characterData: false,
-        subtree: false,
-        childList: true
-      });
-    } else {
-      setTimeout(waitForMarketOrders, 500);
-    }
-  };
   function handleMarketNewOrder(node) {
     const title = runtime.api.getOriTextFromElement(
       node.querySelector(".MarketplacePanel_header__yahJo")
@@ -32365,7 +32413,6 @@ ${locks}` : ""}`;
     checkEquipment,
     hasItemHridInInv,
     notificate,
-    waitForMarketOrders,
     handleMarketNewOrder
   });
   runtime.features.register({
@@ -32381,32 +32428,35 @@ ${locks}` : ""}`;
         ensureSettingsLauncher();
       };
       const scheduler = createFrameScheduler(render);
-      const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-      const observer = new MutationObserverRef((records) => {
-        const relevant = records.some((record) => {
-          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-          if (target?.closest?.(
-            `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`
-          )) {
-            return false;
-          }
-          if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
-            return true;
-          }
-          return [...record.addedNodes, ...record.removedNodes].some(
-            (node) => node?.nodeType === 1 && (node.matches?.(
-              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ) || node.querySelector?.(
-              '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
-            ))
-          );
-        });
-        if (relevant) scheduler.schedule();
-      });
-      scope.observer(observer, document.body, {
-        childList: true,
-        subtree: true
-      });
+      subscribeMutationChannel(
+        {
+          name: "header-mount",
+          target: document.body,
+          options: { childList: true, subtree: true },
+          scope
+        },
+        (records) => {
+          const relevant = records.some((record) => {
+            const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+            if (target?.closest?.(
+              `#script_settings,[${SETTINGS_ROOT_ATTRIBUTE}],[${SETTINGS_TAB_ATTRIBUTE}],[${SETTINGS_PANEL_ATTRIBUTE}],#${SETTINGS_BUTTON_ID},#${SETTINGS_POPOVER_ID},#${HEADER_TOOLS_ID}`
+            )) {
+              return false;
+            }
+            if (target?.closest?.('[class*="SettingsPanel_settingsPanel"]')) {
+              return true;
+            }
+            return [...record.addedNodes, ...record.removedNodes].some(
+              (node) => node?.nodeType === 1 && (node.matches?.(
+                '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ) || node.querySelector?.(
+                '[class*="SettingsPanel_settingsPanel"],[class*="Header_totalLevel"],[class*="totalLevel"]'
+              ))
+            );
+          });
+          if (relevant) scheduler.schedule();
+        }
+      );
       scope.event(document, "click", (event) => {
         const popover = document.getElementById(SETTINGS_POPOVER_ID);
         if (!popover || popover.hidden || popover.contains(event.target) || event.target.closest?.(`#${SETTINGS_BUTTON_ID}`)) {
@@ -32884,7 +32934,7 @@ ${locks}` : ""}`;
   function isZH2() {
     return Boolean(runtime.config.isZH);
   }
-  function t18(value) {
+  function t19(value) {
     if (typeof value === "string") return value;
     return value?.[isZH2() ? "zh" : "en"] ?? "";
   }
@@ -33034,7 +33084,7 @@ ${locks}` : ""}`;
         }
       }
     };
-    return t18(copies[kind][id]);
+    return t19(copies[kind][id]);
   }
   function choiceStatus(field, value) {
     if (field === "refreshIntervalMs") {
@@ -33153,7 +33203,7 @@ ${locks}` : ""}`;
       if (this.stage.startsWith("custom:")) {
         const index = Number(this.stage.split(":")[1]);
         return {
-          title: t18(CUSTOM_GROUPS[index].title)
+          title: t19(CUSTOM_GROUPS[index].title)
         };
       }
       return {
@@ -33236,7 +33286,7 @@ ${locks}` : ""}`;
         button.dataset.value = id;
         const heading = document.createElement("div");
         heading.className = "mwi-performance-option-title";
-        heading.textContent = t18(TEXT[kind][id]);
+        heading.textContent = t19(TEXT[kind][id]);
         const copy = document.createElement("div");
         copy.className = "mwi-performance-option-copy";
         copy.textContent = optionCopy(kind, id);
@@ -33270,10 +33320,10 @@ ${locks}` : ""}`;
         const copy = document.createElement("div");
         const heading = document.createElement("div");
         heading.className = "mwi-performance-field-title";
-        heading.textContent = t18(FIELD_TEXT[field].title);
+        heading.textContent = t19(FIELD_TEXT[field].title);
         const summary = document.createElement("div");
         summary.className = "mwi-performance-field-copy";
-        summary.textContent = t18(FIELD_TEXT[field].summary);
+        summary.textContent = t19(FIELD_TEXT[field].summary);
         copy.append(heading, summary);
         if (field === "refreshIntervalMs") {
           const select = document.createElement("select");
@@ -33311,14 +33361,14 @@ ${locks}` : ""}`;
     renderReview() {
       const copy = document.createElement("p");
       copy.className = "mwi-performance-copy";
-      copy.textContent = `${t18(TEXT.usage[this.usage])} · ${t18(TEXT.tier[this.tier])}`;
+      copy.textContent = `${t19(TEXT.usage[this.usage])} · ${t19(TEXT.tier[this.tier])}`;
       const review = document.createElement("div");
       review.className = "mwi-performance-review";
       for (const field of Object.keys(FIELD_TEXT)) {
         const row = document.createElement("div");
         row.className = "mwi-performance-review-row";
         const label = document.createElement("span");
-        label.textContent = t18(FIELD_TEXT[field].title);
+        label.textContent = t19(FIELD_TEXT[field].title);
         const status = document.createElement("b");
         status.textContent = choiceStatus(field, this.choices[field]);
         row.append(label, status);
@@ -33455,7 +33505,7 @@ ${locks}` : ""}`;
   var GREASY_FORK_DOWNLOAD_URL = "https://update.greasyfork.org/scripts/494467/MWITools.user.js";
   var STYLE_ID18 = "mwitools-important-update-style";
   var BANNER_ID = "mwitools-important-update-banner";
-  function t19(value) {
+  function t20(value) {
     if (typeof value === "string") return value;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
@@ -33491,7 +33541,7 @@ ${locks}` : ""}`;
       return globalThis.fetch(url, { cache: "no-store" }).then((response) => {
         if (!response.ok) {
           throw new Error(
-            t19({
+            t20({
               zh: `更新清单请求失败（HTTP ${response.status}）`,
               en: `Update manifest request failed (HTTP ${response.status})`
             })
@@ -33506,7 +33556,7 @@ ${locks}` : ""}`;
           if (Number(response?.status) < 200 || Number(response?.status) >= 300) {
             reject(
               new Error(
-                t19({
+                t20({
                   zh: `更新清单请求失败（HTTP ${response?.status}）`,
                   en: `Update manifest request failed (HTTP ${response?.status})`
                 })
@@ -33527,7 +33577,7 @@ ${locks}` : ""}`;
           onload: finish,
           onerror: () => reject(
             new Error(
-              t19({
+              t20({
                 zh: "更新清单请求失败。",
                 en: "Update manifest request failed."
               })
@@ -33535,7 +33585,7 @@ ${locks}` : ""}`;
           ),
           ontimeout: () => reject(
             new Error(
-              t19({
+              t20({
                 zh: "更新清单请求超时。",
                 en: "Update manifest request timed out."
               })
@@ -33551,7 +33601,7 @@ ${locks}` : ""}`;
   function validateManifest(manifest) {
     if (!manifest || typeof manifest !== "object" || manifest.version !== 1 || typeof manifest.latestVersion !== "string" || !manifest.latestVersion.trim() || typeof manifest.importantVersion !== "string" || !manifest.importantVersion.trim() || !manifest.title || typeof manifest.title !== "object" || !manifest.message || typeof manifest.message !== "object") {
       throw new Error(
-        t19({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
+        t20({ zh: "更新清单格式无效。", en: "Invalid update manifest." })
       );
     }
     return manifest;
@@ -33568,7 +33618,7 @@ ${locks}` : ""}`;
         lastError = error;
       }
     }
-    throw lastError ?? new Error(t19({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
+    throw lastError ?? new Error(t20({ zh: "更新清单不可用。", en: "Update manifest unavailable." }));
   }
   var manifestCheck = null;
   function getImportantUpdateManifest() {
@@ -33611,8 +33661,8 @@ ${locks}` : ""}`;
     </div>
     <a class="mwi-update-banner-action" target="_blank" rel="noopener noreferrer"></a>
     <button class="mwi-update-banner-close" aria-label="${runtime.config.isZH ? "关闭" : "Dismiss"}">×</button>`;
-    banner.querySelector(".mwi-update-banner-title").textContent = t19(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
-    const message = t19(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
+    banner.querySelector(".mwi-update-banner-title").textContent = t20(manifest.title) || (runtime.config.isZH ? "MWITools 有重要更新" : "Important MWITools update");
+    const message = t20(manifest.message) || (runtime.config.isZH ? `建议更新到 ${manifest.latestVersion}` : `Update to ${manifest.latestVersion} is recommended.`);
     banner.querySelector(".mwi-update-banner-message").textContent = runtime.config.isZH ? `最新版本 ${manifest.latestVersion} · ${message}` : `Latest version ${manifest.latestVersion} · ${message}`;
     const action = banner.querySelector(".mwi-update-banner-action");
     action.textContent = runtime.config.isZH ? "前往更新" : "Update";
@@ -35728,9 +35778,9 @@ ${locks}` : ""}`;
         return teamDamage;
       },
       getTeamKills() {
-        let t20 = 0;
-        playerKills.forEach((v) => t20 += v);
-        return t20;
+        let t21 = 0;
+        playerKills.forEach((v) => t21 += v);
+        return t21;
       },
       getPlayerDps(n) {
         const e = elapsed();
@@ -35995,12 +36045,12 @@ ${locks}` : ""}`;
       "myparty",
       "combatzones"
     ]);
-    function looksLikeNoise(t20) {
-      const low = t20.toLowerCase();
+    function looksLikeNoise(t21) {
+      const low = t21.toLowerCase();
       if (GUILD_NAME_NOISE.has(low)) return true;
-      if (/^lv\.?\d+$/i.test(t20)) return true;
-      if (/^\d+%?$/.test(t20)) return true;
-      if (/^[\d.,]+[km]?$/i.test(t20)) return true;
+      if (/^lv\.?\d+$/i.test(t21)) return true;
+      if (/^\d+%?$/.test(t21)) return true;
+      if (/^[\d.,]+[km]?$/i.test(t21)) return true;
       return false;
     }
     function resolveGuildNames(expectedSlots) {
@@ -36022,14 +36072,14 @@ ${locks}` : ""}`;
         }
         if (candidates.length > 0) break;
       }
-      const names = candidates.map((el2) => el2.textContent.trim()).filter((t20) => t20 && !looksLikeNoise(t20) && !/^trial\s/i.test(t20));
+      const names = candidates.map((el2) => el2.textContent.trim()).filter((t21) => t21 && !looksLikeNoise(t21) && !/^trial\s/i.test(t21));
       const localName = [...keyToName.values()][0];
       const localInList = localName && names.includes(localName);
       const offset = !localName || !localInList ? 1 : 0;
       const resolved = /* @__PURE__ */ new Map();
       if (offset === 1 && localName) resolved.set("0", localName);
-      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t20, i) => {
-        resolved.set(String(i + offset), t20);
+      names.slice(0, expectedSlots ? expectedSlots - offset : names.length).forEach((t21, i) => {
+        resolved.set(String(i + offset), t21);
       });
       for (const [slot, name] of resolved) {
         if (guildSlotLocked.has(slot)) continue;
@@ -36097,7 +36147,7 @@ ${locks}` : ""}`;
         const n = el2.children.length;
         if (n >= lo && n <= hi) {
           const texts = [...el2.children].slice(0, 6).map((c) => c.textContent.trim().slice(0, 20));
-          if (texts.some((t20) => t20.length > 0)) {
+          if (texts.some((t21) => t21.length > 0)) {
             out.push({
               selector: (el2.className || el2.tagName) + "",
               tag: el2.tagName,
@@ -36133,10 +36183,10 @@ ${locks}` : ""}`;
           let nameLikeCount = 0;
           const texts = [];
           el2.querySelectorAll(":scope > * ").forEach((c) => {
-            const t20 = c.textContent.trim();
-            if (t20.length >= 2 && t20.length <= 20 && !looksLikeNoise(t20)) {
+            const t21 = c.textContent.trim();
+            if (t21.length >= 2 && t21.length <= 20 && !looksLikeNoise(t21)) {
               nameLikeCount++;
-              texts.push(t20.slice(0, 20));
+              texts.push(t21.slice(0, 20));
             }
           });
           if (nameLikeCount >= 10) {
@@ -37932,11 +37982,11 @@ ${locks}` : ""}`;
       document.querySelectorAll("*").forEach((el2) => {
         if (isOwnUI(el2)) return;
         if (el2.children.length > 1) return;
-        const t20 = el2.textContent.trim();
-        if (!t20 || t20.length < 2 || t20.length > 40) return;
-        const literalEllipsis = /(\.\.\.|…)$/.test(t20);
+        const t21 = el2.textContent.trim();
+        if (!t21 || t21.length < 2 || t21.length > 40) return;
+        const literalEllipsis = /(\.\.\.|…)$/.test(t21);
         let cssEllipsis = false;
-        if (!literalEllipsis && t20.length <= 20 && !t20.includes(" ") && !looksLikeNoise(t20)) {
+        if (!literalEllipsis && t21.length <= 20 && !t21.includes(" ") && !looksLikeNoise(t21)) {
           try {
             const cs = getComputedStyle(el2);
             cssEllipsis = cs.textOverflow === "ellipsis" && cs.overflow !== "visible";
@@ -40441,10 +40491,10 @@ ${locks}` : ""}`;
         getGameTranslation("labyrinthPanel.automation")
       ];
       for (const c of containers) {
-        const t20 = c.textContent;
-        if (combatZones && t20.includes(combatZones) || t20.includes("Combat Zones") || t20.includes("战斗区域") || t20.includes("戰鬥區域"))
+        const t21 = c.textContent;
+        if (combatZones && t21.includes(combatZones) || t21.includes("Combat Zones") || t21.includes("战斗区域") || t21.includes("戰鬥區域"))
           return c;
-        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t20.includes(label)) || t20.includes("Labyrinth") && t20.includes("Room") && t20.includes("Automation") || t20.includes("迷宫") && (t20.includes("房间") || t20.includes("自动化")) || t20.includes("迷宮") && (t20.includes("房間") || t20.includes("自動化")))
+        if (labyrinthLabels.every(Boolean) && labyrinthLabels.every((label) => t21.includes(label)) || t21.includes("Labyrinth") && t21.includes("Room") && t21.includes("Automation") || t21.includes("迷宫") && (t21.includes("房间") || t21.includes("自动化")) || t21.includes("迷宮") && (t21.includes("房間") || t21.includes("自動化")))
           return c;
         if (isSelectedTrialTabBar(c)) return c;
         if (isSelectedGuildProgressTabBar(c)) return c;
@@ -40751,10 +40801,10 @@ ${locks}` : ""}`;
         gap: "4px",
         marginBottom: "8px"
       });
-      TYPES.forEach((t20) => {
+      TYPES.forEach((t21) => {
         const btn = document.createElement("button");
-        btn.textContent = t20.label;
-        const active = historyFilter === t20.id;
+        btn.textContent = t21.label;
+        const active = historyFilter === t21.id;
         Object.assign(btn.style, {
           flex: "1",
           cursor: "pointer",
@@ -40768,7 +40818,7 @@ ${locks}` : ""}`;
           transition: "background .12s"
         });
         btn.addEventListener("click", () => {
-          historyFilter = t20.id;
+          historyFilter = t21.id;
           renderHistory(container);
         });
         filterRow.appendChild(btn);
@@ -40892,8 +40942,8 @@ ${locks}` : ""}`;
       });
       const clearBtn = document.createElement("button");
       clearBtn.textContent = langText4(
-        `清空${(TYPES.find((t20) => t20.id === historyFilter) || {}).label}记录`,
-        `Clear ${(TYPES.find((t20) => t20.id === historyFilter) || {}).label} records`
+        `清空${(TYPES.find((t21) => t21.id === historyFilter) || {}).label}记录`,
+        `Clear ${(TYPES.find((t21) => t21.id === historyFilter) || {}).label} records`
       );
       Object.assign(clearBtn.style, {
         width: "100%",
@@ -42570,18 +42620,24 @@ ${locks}` : ""}`;
   }
   function observeRelevantDom(scope, selector, callback) {
     const scheduler = createFrameScheduler(callback);
-    const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-    const observer = new MutationObserverRef((records) => {
-      const relevant = records.some((record) => {
-        const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
-        if (target?.closest?.(selector)) return true;
-        return [...record.addedNodes, ...record.removedNodes].some(
-          (node) => node?.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector))
-        );
-      });
-      if (relevant) scheduler.schedule();
-    });
-    scope.observer(observer, document.body, { childList: true, subtree: true });
+    subscribeMutationChannel(
+      {
+        name: "legacy-dom",
+        target: document.body,
+        options: { childList: true, subtree: true },
+        scope
+      },
+      (records) => {
+        const relevant = records.some((record) => {
+          const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          if (target?.closest?.(selector)) return true;
+          return [...record.addedNodes, ...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.(selector) || node.querySelector?.(selector))
+          );
+        });
+        if (relevant) scheduler.schedule();
+      }
+    );
     scope.add(() => scheduler.cancel());
     return scheduler;
   }

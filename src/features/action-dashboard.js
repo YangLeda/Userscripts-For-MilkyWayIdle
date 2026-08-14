@@ -6,6 +6,7 @@ import {
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import { formatRemainingTiming } from "../core/time-format.js";
 import { getGameSpriteHref } from "../core/game-assets.js";
 
@@ -547,12 +548,17 @@ function shouldScheduleActionUi(records) {
 function bindActionUiRenderer(scope, render, messages = []) {
   const scheduler = createFrameScheduler(render);
   const schedule = () => scheduler.schedule();
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const observer = new MutationObserverRef((records) => {
-    if (shouldScheduleActionUi(records)) schedule();
-  });
-  scope.observer(observer, document.body, { childList: true, subtree: true });
+  subscribeMutationChannel(
+    {
+      name: "action-ui",
+      target: document.body,
+      options: { childList: true, subtree: true },
+      scope,
+    },
+    (records) => {
+      if (shouldScheduleActionUi(records)) schedule();
+    },
+  );
   const scheduleFromInput = (event) => {
     if (event.target?.closest?.(ACTION_SURFACE_SELECTOR)) schedule();
   };

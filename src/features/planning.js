@@ -1,4 +1,5 @@
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { subscribeMutationChannel } from "../core/mutation-channel.js";
 import { itemName } from "../core/localization.js";
 import { getLocalizedEntityName } from "../core/game-localization.js";
 import { runtime } from "../core/runtime.js";
@@ -1440,30 +1441,35 @@ export function createPlanningUi({ scope }) {
   addStyles();
   ensureMounted();
   const mountScheduler = createFrameScheduler(ensureMounted);
-  const MutationObserverRef =
-    globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
-  const observer = new MutationObserverRef((records) => {
-    const relevant = records.some((record) => {
-      const target =
-        record.target?.nodeType === 1
-          ? record.target
-          : record.target?.parentElement;
-      if (target?.closest?.(`#${TAB_ID},#${PANEL_ID}`)) return false;
-      if (record.type === "attributes") {
-        return isRelevantPlanningMountAttribute(target, navigationBranch);
-      }
-      return [...record.addedNodes, ...record.removedNodes].some(
-        isRelevantPlanningMountNode,
-      );
-    });
-    if (relevant) mountScheduler.schedule();
-  });
-  scope.observer(observer, document.body, {
-    attributes: true,
-    attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
-    childList: true,
-    subtree: true,
-  });
+  subscribeMutationChannel(
+    {
+      name: "character-management-mount",
+      target: document.body,
+      options: {
+        attributes: true,
+        attributeFilter: ["aria-selected", "class", "data-active", "hidden"],
+        childList: true,
+        subtree: true,
+      },
+      scope,
+    },
+    (records) => {
+      const relevant = records.some((record) => {
+        const target =
+          record.target?.nodeType === 1
+            ? record.target
+            : record.target?.parentElement;
+        if (target?.closest?.(`#${TAB_ID},#${PANEL_ID}`)) return false;
+        if (record.type === "attributes") {
+          return isRelevantPlanningMountAttribute(target, navigationBranch);
+        }
+        return [...record.addedNodes, ...record.removedNodes].some(
+          isRelevantPlanningMountNode,
+        );
+      });
+      if (relevant) mountScheduler.schedule();
+    },
+  );
   const closeFromOtherTab = (event) => {
     if (
       active &&

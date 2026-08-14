@@ -529,6 +529,87 @@ test("盈亏 visually suppresses native selection without mutating React tab sta
   assert.equal(document.querySelector("#mwitools-asset-history-panel"), null);
 });
 
+test("盈亏 settles after activation and does not rebuild its chart every frame", async () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  const shell = gameShell();
+  const nativeContent = shell.querySelector("section");
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const frames = [];
+  const previousAnimationFrame = globalThis.requestAnimationFrame;
+  const previousCancelAnimationFrame = globalThis.cancelAnimationFrame;
+  const previousChart = globalThis.Chart;
+  const canvasPrototype = window.HTMLCanvasElement.prototype;
+  const previousGetContext = canvasPrototype.getContext;
+  let chartCreates = 0;
+  let chartDestroys = 0;
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  globalThis.cancelAnimationFrame = () => {};
+  canvasPrototype.getContext = () => ({});
+  globalThis.Chart = class {
+    constructor() {
+      chartCreates += 1;
+    }
+    destroy() {
+      chartDestroys += 1;
+    }
+  };
+  let ui = null;
+  const flushMutations = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const runFrame = async () => {
+    await flushMutations();
+    const queued = frames.splice(0);
+    queued.forEach((callback) => callback(performance.now()));
+    return queued.length;
+  };
+
+  try {
+    ui = createAssetHistoryUi({
+      scope,
+      store,
+      scopeKey: "production:quiescence",
+    });
+    document.querySelector("#mwitools-asset-history-tab").click();
+    assert.equal(chartCreates, 1);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+
+    nativeContent.hidden = false;
+    assert.equal(await runFrame(), 1);
+    assert.equal(nativeContent.hidden, true);
+    assert.equal(await runFrame(), 1);
+    assert.equal(await runFrame(), 0);
+    assert.equal(chartCreates, 1);
+    assert.equal(chartDestroys, 0);
+  } finally {
+    ui?.destroy();
+    scope.cleanup();
+    canvasPrototype.getContext = previousGetContext;
+    if (previousAnimationFrame === undefined) {
+      delete globalThis.requestAnimationFrame;
+    } else {
+      globalThis.requestAnimationFrame = previousAnimationFrame;
+    }
+    if (previousCancelAnimationFrame === undefined) {
+      delete globalThis.cancelAnimationFrame;
+    } else {
+      globalThis.cancelAnimationFrame = previousCancelAnimationFrame;
+    }
+    if (previousChart === undefined) delete globalThis.Chart;
+    else globalThis.Chart = previousChart;
+  }
+});
+
 test("mobile mounts P/L beside the visible character-management tabs", () => {
   document.body.replaceChildren();
   intervals.clear();
