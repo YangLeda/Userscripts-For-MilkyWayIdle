@@ -1,5 +1,6 @@
 import { GameAssets, Settings, VERSION } from "./00-bootstrap.js";
 import { runtime } from "../../core/runtime.js";
+import { getLocalizedEntityName } from "../../core/game-localization.js";
 
 // ─── 职业识别、颜色与图标 ───────────────────────────────────────────────────
 const ClassSystem = (() => {
@@ -1594,7 +1595,7 @@ const DamageSources = (() => {
           .replace(/\b\w/g, (char) => char.toUpperCase())
       );
     return (
-      runtime.data.ZHOthersDic?.[value] ||
+      getLocalizedEntityName("ability", value) ||
       clientAbilityName(value) ||
       value
         .split("/")
@@ -1666,11 +1667,11 @@ const DamageSources = (() => {
           .pop()
           .replace(/_/g, " ")
           .replace(/\b\w/g, (char) => char.toUpperCase());
-      const chineseName =
-        runtime.data.ZHItemNames?.[value] ||
+      const localizedName =
+        getLocalizedEntityName("item", value) ||
         itemLabels[value]?.[0] ||
         englishName;
-      return english ? englishName + " Effect" : "武器特效：" + chineseName;
+      return english ? englishName + " Effect" : "武器特效：" + localizedName;
     }
     const tail = value
       .split("/")
@@ -1740,7 +1741,10 @@ const TakenSources = (() => {
   }
   function monsterLabel(detail) {
     if (Settings.getLanguage() !== "en") {
-      const officialName = runtime.data.ZHOthersDic?.[detail.monsterHrid];
+      const officialName = getLocalizedEntityName(
+        "monster",
+        detail.monsterHrid,
+      );
       if (officialName) return officialName;
     }
     if (detail.monsterName) return detail.monsterName;

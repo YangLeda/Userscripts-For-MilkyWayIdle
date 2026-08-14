@@ -1,6 +1,7 @@
 import { runtime } from "../core/runtime.js";
 import { parseCompactNumber } from "../core/market.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
@@ -178,32 +179,12 @@ function pendingItems() {
     });
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function renderItemIcon(item) {
-  const bare = procurement.normalizeItemHrid(item.itemHrid).split("/").at(-1);
-  const sprite = findItemsSpriteBase();
-  if (!bare || !sprite) {
+  const itemHrid = procurement.normalizeItemHrid(item.itemHrid);
+  const href = getGameSpriteHref("items", itemHrid);
+  if (!href) {
     return `<span class="item-icon-fallback">${escapeHtml((item.name || "?").trim().charAt(0) || "?")}</span>`;
   }
-  const href = `${sprite}#${bare}`;
   return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml(item.name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 

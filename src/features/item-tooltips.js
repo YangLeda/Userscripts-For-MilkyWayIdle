@@ -1,5 +1,6 @@
 import { runtime } from "../core/runtime.js";
 import {
+  getLocalizedEntityName,
   resolveEntityFromElement,
   resolveLocalizedEntity,
 } from "../core/game-localization.js";
@@ -414,7 +415,7 @@ export function resolveGatheringActionFromElement(element) {
   const matches = Object.values(runtime.state.initData_actionDetailMap ?? {})
     .filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type))
     .filter((detail) => {
-      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]]
+      const names = [detail.name, getLocalizedEntityName("action", detail.hrid)]
         .map((name) => String(name ?? "").trim())
         .filter(Boolean);
       return texts.some((text) => names.includes(text));

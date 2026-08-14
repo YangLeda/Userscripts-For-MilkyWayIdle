@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { runtime } from "../src/core/runtime.js";
-import "../src/data/translations.js";
+import "../src/core/game-data.js";
 import "../src/core/state.js";
 import "../src/core/market.js";
 import "../src/core/asset-values.js";

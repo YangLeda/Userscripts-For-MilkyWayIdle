@@ -1,4 +1,5 @@
 import { runtime } from "./runtime.js";
+import { getLocalizedEntityName } from "./game-localization.js";
 
 export function localize(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -13,48 +14,25 @@ function tailLabel(hrid) {
   );
 }
 
-function detailFrom(map, hrid, explicitDetail) {
-  if (explicitDetail) return explicitDetail;
-  return map instanceof Map ? map.get(hrid) : map?.[hrid];
-}
-
-const ENTITY_SOURCES = {
-  item: {
-    zh: () => runtime.data.ZHItemNames,
-    en: () => runtime.state.initData_itemDetailMap,
-  },
-  action: {
-    zh: () => runtime.data.ZHActionNames,
-    en: () => runtime.state.initData_actionDetailMap,
-  },
-  ability: {
-    zh: () => runtime.data.ZHOthersDic,
-    en: () => runtime.state.initData_abilityDetailMap,
-  },
-  monster: {
-    zh: () => runtime.data.ZHOthersDic,
-    en: () => null,
-  },
-};
-
 /**
- * Resolve game entity names without letting a plug-in translation override the
- * official client dictionaries. Existing plug-in translations remain the
- * fallback for client entries that have not been localized yet.
+ * Resolve official game entity names while preserving feature-specific fallback
+ * labels for data that the game does not publish.
  */
 export function entityName(
   kind,
   hrid,
   { fallbackZh = "", fallbackEn = "", detail = null, fallback = "" } = {},
 ) {
-  const source = ENTITY_SOURCES[kind];
-  const officialZh = source?.zh?.()?.[hrid];
-  const englishDetail = detailFrom(source?.en?.(), hrid, detail);
-  const officialEn = String(englishDetail?.name ?? "").trim();
+  const official = getLocalizedEntityName(kind, hrid);
+  const detailName = String(detail?.name ?? "").trim();
   const diagnostic = fallback || tailLabel(hrid) || "—";
-  return runtime.config.isZH
-    ? officialZh || fallbackZh || officialEn || fallbackEn || diagnostic
-    : officialEn || fallbackEn || fallbackZh || officialZh || diagnostic;
+  return (
+    official ||
+    (runtime.config.isZH ? fallbackZh : fallbackEn) ||
+    detailName ||
+    (runtime.config.isZH ? fallbackEn : fallbackZh) ||
+    diagnostic
+  );
 }
 
 export const itemName = (hrid, options) => entityName("item", hrid, options);

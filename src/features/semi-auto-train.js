@@ -325,11 +325,7 @@ function clickActionCard(actionHrid) {
     .split("/")
     .at(-1);
   const names = new Set(
-    [
-      detail?.name,
-      runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
-      getLocalizedEntityName("action", actionHrid),
-    ]
+    [detail?.name, getLocalizedEntityName("action", actionHrid)]
       .filter(Boolean)
       .map((name) => String(name).replaceAll(/\s+/g, " ").trim()),
   );

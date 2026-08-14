@@ -13,12 +13,14 @@ localStorage.setItem("i18nextLng", "en");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 const {
   SUPPORTED_GAME_LOCALES,
   extractGameLocaleResources,
+  extractReactGameLocaleResources,
   getGameLocale,
+  getGameLocaleResources,
   getGameTranslation,
   getLocalizedEntityName,
   matchesGameTranslation,
@@ -98,7 +100,7 @@ for (const [locale, [moduleId, chunkId]] of Object.entries(
   modules[moduleId].chunkId = chunkId;
 }
 
-globalThis.unsafeWindow = {
+const webpackWindow = {
   webpackJsonprpg_web: [
     [[0], { 400: modules[400] }],
     ...Object.entries(modules)
@@ -109,6 +111,7 @@ globalThis.unsafeWindow = {
       ]),
   ],
 };
+globalThis.unsafeWindow = webpackWindow;
 
 runtime.state.initData_itemDetailMap = {
   "/items/coin": { name: "Coin", isTradable: true },
@@ -122,6 +125,13 @@ runtime.state.initData_abilityDetailMap = {
 };
 runtime.state.initData_monsterDetailMap = {
   "/monsters/rat": { name: "Rat" },
+};
+runtime.state.clientData = {
+  versionTimestamp: "fixture-v1",
+  itemDetailMap: runtime.state.initData_itemDetailMap,
+  actionDetailMap: runtime.state.initData_actionDetailMap,
+  abilityDetailMap: runtime.state.initData_abilityDetailMap,
+  combatMonsterDetailMap: runtime.state.initData_monsterDetailMap,
 };
 
 test("normalizes every built-in game locale without collapsing Traditional Chinese", () => {
@@ -151,6 +161,28 @@ test("extracts and validates the official lazy locale modules", () => {
     );
     assert.equal(resources.itemNames["/items/coin"], coin, locale);
   }
+});
+
+test("React i18n resources take priority for the currently loaded locale", () => {
+  const resources = {
+    itemNames: { "/items/coin": "React コイン" },
+    actionNames: { "/actions/milking/cow": "React 乳牛" },
+    monsterNames: { "/monsters/rat": "React ネズミ" },
+    abilityNames: { "/abilities/strike": "React 強打" },
+  };
+  const root = document.createElement("div");
+  root.id = "root";
+  root.__reactFiber$test = {
+    memoizedProps: {
+      i18n: { options: { resources: { ja: { translation: resources } } } },
+    },
+  };
+  document.body.append(root);
+  assert.equal(extractReactGameLocaleResources("ja"), resources);
+  localStorage.setItem("i18nextLng", "ja");
+  resetGameLocalizationCache();
+  assert.equal(getGameLocaleResources("ja"), resources);
+  root.remove();
 });
 
 test("resolves items, actions, monsters, and abilities in all nine languages", () => {
@@ -256,4 +288,35 @@ test("resolves sprite HRIDs before localized aria labels", () => {
 test("unknown names and missing locale modules fail safely", () => {
   assert.equal(resolveLocalizedEntity("item", "not an item"), "");
   assert.equal(extractGameLocaleResources("fr", {}), null);
+});
+
+test("locale cache is scoped to the game version and falls back safely", () => {
+  const cachedResources = {
+    itemNames: { "/items/coin": "Pièce en cache" },
+    actionNames: { "/actions/milking/cow": "Vache en cache" },
+    monsterNames: { "/monsters/rat": "Rat en cache" },
+    abilityNames: { "/abilities/strike": "Frappe en cache" },
+  };
+  runtime.state.clientData.versionTimestamp = "cache-v1";
+  registerGameLocaleResources("fr", cachedResources);
+  assert.ok(
+    [...Array(localStorage.length).keys()]
+      .map((index) => localStorage.key(index))
+      .some((key) => key.includes("cache-v1") && key.endsWith(":fr")),
+  );
+
+  resetGameLocalizationCache();
+  globalThis.unsafeWindow = {};
+  assert.equal(
+    getLocalizedEntityName("item", "/items/coin", { locale: "fr" }),
+    "Pièce en cache",
+  );
+
+  runtime.state.clientData.versionTimestamp = "cache-v2";
+  resetGameLocalizationCache();
+  assert.equal(
+    getLocalizedEntityName("item", "/items/coin", { locale: "fr" }),
+    "Coin",
+  );
+  globalThis.unsafeWindow = webpackWindow;
 });

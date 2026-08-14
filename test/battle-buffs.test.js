@@ -19,6 +19,28 @@ runtime.config.isZH = true;
 let battleBuffsEnabled = false;
 runtime.settings.get = (id) =>
   id === "battleBuffs" ? battleBuffsEnabled : false;
+runtime.state.initData_abilityDetailMap = {
+  "/abilities/berserk": {
+    abilityEffects: [
+      { targetType: "self", buffs: [{ duration: 8_000_000_000 }] },
+    ],
+  },
+  "/abilities/fierce_aura": {
+    abilityEffects: [
+      { targetType: "all_allies", buffs: [{ duration: 10_000_000_000 }] },
+    ],
+  },
+  "/abilities/maim": {
+    abilityEffects: [
+      { targetType: "enemy", buffs: [{ duration: 9_000_000_000 }] },
+    ],
+  },
+  "/abilities/puncture": {
+    abilityEffects: [
+      { targetType: "enemy", buffs: [{ duration: 12_000_000_000 }] },
+    ],
+  },
+};
 
 await import("../src/features/battle-buffs.js");
 
@@ -33,6 +55,7 @@ function battleMarkup(playerCount, monsterCount) {
         "</div>",
     ).join("");
   document.body.innerHTML = `
+    <svg hidden><use href="/static/media/abilities_sprite.test.svg#berserk"></use></svg>
     <div class="BattlePanel_playersArea__vvwlB">
       <div class="BattlePanel_combatUnitGrid__2hTAM">${units(playerCount)}</div>
     </div>
@@ -58,6 +81,7 @@ test("battle buff catalog stays consistent", () => {
   // Team buffs and single-target debuffs must reference known abilities.
   for (const hrid of TEAM_BUFFS) assert.ok(BUFFS.has(hrid), hrid);
   for (const hrid of SINGLE_TARGET_DEBUFFS) assert.ok(DEBUFFS.has(hrid), hrid);
+  assert.equal(DEBUFFS.get("/abilities/puncture"), 12);
 });
 
 test("a cast buff renders an icon chip below the caster", async () => {

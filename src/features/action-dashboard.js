@@ -7,6 +7,7 @@ import {
 } from "../core/game-localization.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
 import { formatRemainingTiming } from "../core/time-format.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 const PRODUCTION_PROFILE_MESSAGES = Object.freeze([
   "init_character_data",
@@ -69,25 +70,6 @@ function number(value) {
   return runtime.api.createFormattedNumber(value);
 }
 
-function findItemsSpriteBase() {
-  for (const entry of globalThis.performance?.getEntriesByType?.("resource") ??
-    []) {
-    if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-      try {
-        return new URL(entry.name).pathname;
-      } catch {
-        return entry.name;
-      }
-    }
-  }
-  const use = document.querySelector(
-    'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]',
-  );
-  const href =
-    use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-  return href.includes("#") ? href.split("#")[0] : "";
-}
-
 function outputItemName(itemHrid) {
   return itemName(itemHrid, { fallback: "?" });
 }
@@ -120,10 +102,9 @@ function nativeProductionItem(panel, itemHrid, name) {
   for (const className of [...item.classList]) {
     if (className.includes("Item_clickable")) item.classList.remove(className);
   }
-  const sprite = findItemsSpriteBase();
+  const href = getGameSpriteHref("items", itemHrid);
   const use = item.querySelector("use");
-  if (use && sprite && bare) {
-    const href = `${sprite}#${bare}`;
+  if (use && href && bare) {
     use.setAttribute("href", href);
     use.setAttribute("xlink:href", href);
   }
@@ -140,14 +121,13 @@ function fallbackProductionItem(itemHrid, name) {
   const bare = String(itemHrid ?? "")
     .split("/")
     .at(-1);
-  const sprite = findItemsSpriteBase();
-  if (bare && sprite) {
+  const href = getGameSpriteHref("items", itemHrid);
+  if (bare && href) {
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.classList.add("mwi-production-output-icon");
     svg.setAttribute("viewBox", "0 0 32 32");
     svg.setAttribute("aria-label", name);
     const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-    const href = `${sprite}#${bare}`;
     use.setAttribute("href", href);
     use.setAttribute("xlink:href", href);
     svg.append(use);
@@ -335,12 +315,10 @@ function normalizedActionText(value) {
 function actionHeaderNames(actionHrid, detail) {
   const names = new Set([
     detail?.name,
-    runtime.data.ZHActionNames?.[actionHrid],
     getLocalizedEntityName("action", actionHrid),
   ]);
   for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
     names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
-    names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
     names.add(getLocalizedEntityName("item", output.itemHrid));
   }
   return [...names].map(normalizedActionText).filter(Boolean);

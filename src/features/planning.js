@@ -1,5 +1,6 @@
 import { createFrameScheduler } from "../core/frame-scheduler.js";
 import { itemName } from "../core/localization.js";
+import { getLocalizedEntityName } from "../core/game-localization.js";
 import { runtime } from "../core/runtime.js";
 import {
   findCharacterManagementLoadoutTab,
@@ -49,11 +50,10 @@ function tail(value) {
 }
 
 function houseName(hrid) {
-  const chinese = runtime.data?.ZHOthersDic?.[hrid];
   const english = runtime.state.initData_houseRoomDetailMap?.[hrid]?.name;
-  return runtime.config.isZH
-    ? chinese || english || tail(hrid)
-    : english || chinese || tail(hrid);
+  return getLocalizedEntityName("houseRoom", hrid, {
+    fallback: english || tail(hrid),
+  });
 }
 
 function currentHouseLevel(hrid) {

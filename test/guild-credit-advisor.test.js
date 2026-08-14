@@ -24,7 +24,7 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 const {
@@ -39,6 +39,21 @@ const {
   renderGuildCreditAdvisor,
   renderGuildCreditRecommendations,
 } = await import("../src/features/guild-credit-advisor.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+
+registerGameLocaleResources("zh", {
+  itemNames: {
+    "/items/green_guild_credit": "绿色公会信用",
+    "/items/milk": "牛奶",
+    "/items/cheese": "奶酪",
+    "/items/yogurt": "酸奶",
+    "/items/flour": "面粉",
+  },
+  actionNames: { "/actions/milking/cow": "奶牛" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+});
 
 const creditHrid = "/items/green_guild_credit";
 runtime.state.initData_itemDetailMap = {
@@ -278,7 +293,7 @@ test("a selected option outside the top three gets a separate current row", asyn
     ),
     ["牛奶", "奶酪", "酸奶"],
   );
-  assert.equal(shadow(host, ".current-row .name").textContent, "Flour");
+  assert.equal(shadow(host, ".current-row .name").textContent, "面粉");
   assert.equal(shadow(host, ".current-row .tag").textContent, "当前");
 });
 

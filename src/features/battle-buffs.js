@@ -1,4 +1,5 @@
 import { runtime } from "../core/runtime.js";
+import { getGameSpriteHref } from "../core/game-assets.js";
 
 /*
  * Battle buff/debuff overlay. Ported from the standalone "牛牛战斗Buff显示"
@@ -8,60 +9,69 @@ import { runtime } from "../core/runtime.js";
  */
 
 const STYLE_ID = "mwi-buff-style";
-const FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
+let abilityEffectIndexSource = null;
+let abilityEffectIndex = null;
 
-// Ability hrid -> approximate buff duration in seconds.
-const BUFFS = new Map([
-  ["/abilities/mana_spring", 10],
-  ["/abilities/taunt", 65],
-  ["/abilities/provoke", 65],
-  ["/abilities/toughness", 20],
-  ["/abilities/elusiveness", 20],
-  ["/abilities/precision", 20],
-  ["/abilities/berserk", 20],
-  ["/abilities/elemental_affinity", 20],
-  ["/abilities/frenzy", 20],
-  ["/abilities/spike_shell", 30],
-  ["/abilities/retribution", 30],
-  ["/abilities/vampirism", 20],
-  ["/abilities/insanity", 12],
-  ["/abilities/invincible", 12],
-  ["/abilities/fierce_aura", 120],
-  ["/abilities/guardian_aura", 120],
-  ["/abilities/mystic_aura", 120],
-  ["/abilities/speed_aura", 120],
-  ["/abilities/critical_aura", 120],
-]);
-const DEBUFFS = new Map([
-  ["/abilities/puncture", 10],
-  ["/abilities/maim", 12],
-  ["/abilities/crippling_slash", 12],
-  ["/abilities/fracturing_impact", 12],
-  ["/abilities/pestilent_shot", 12],
-  ["/abilities/ice_spear", 8],
-  ["/abilities/frost_surge", 9],
-  ["/abilities/toxic_pollen", 10],
-  ["/abilities/smoke_burst", 8],
-]);
-const SINGLE_TARGET_DEBUFFS = new Set([
-  "/abilities/puncture",
-  "/abilities/maim",
-  "/abilities/pestilent_shot",
-  "/abilities/smoke_burst",
-]);
-const TEAM_BUFFS = new Set([
-  "/abilities/mana_spring",
-  "/abilities/fierce_aura",
-  "/abilities/guardian_aura",
-  "/abilities/mystic_aura",
-  "/abilities/speed_aura",
-  "/abilities/critical_aura",
-]);
-
-function abilityId(hrid) {
-  const parts = hrid.split("/");
-  return parts[parts.length - 1] || hrid;
+function buildAbilityEffectIndex() {
+  const source = runtime.state.initData_abilityDetailMap ?? {};
+  if (source === abilityEffectIndexSource && abilityEffectIndex) {
+    return abilityEffectIndex;
+  }
+  const index = {
+    buffs: new Map(),
+    debuffs: new Map(),
+    teamBuffs: new Set(),
+    singleTargetDebuffs: new Set(),
+  };
+  const entries =
+    source instanceof Map ? source.entries() : Object.entries(source);
+  for (const [abilityHrid, detail] of entries) {
+    for (const effect of detail?.abilityEffects ?? []) {
+      const durations = (effect?.buffs ?? [])
+        .map((buff) => Number(buff?.duration) / 1e9)
+        .filter((duration) => Number.isFinite(duration) && duration > 0);
+      if (!durations.length) continue;
+      const duration = Math.max(...durations);
+      const targetType = String(effect?.targetType ?? "")
+        .toLowerCase()
+        .replaceAll(/[^a-z]/g, "");
+      const targetsEnemy = targetType.includes("enemy");
+      const durationsByAbility = targetsEnemy ? index.debuffs : index.buffs;
+      durationsByAbility.set(
+        abilityHrid,
+        Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0),
+      );
+      if (!targetsEnemy && targetType.includes("allallies")) {
+        index.teamBuffs.add(abilityHrid);
+      }
+      if (targetsEnemy && !targetType.includes("allenemies")) {
+        index.singleTargetDebuffs.add(abilityHrid);
+      }
+    }
+  }
+  abilityEffectIndexSource = source;
+  abilityEffectIndex = index;
+  return index;
 }
+
+function dynamicCollection(key) {
+  return Object.freeze({
+    has(value) {
+      return buildAbilityEffectIndex()[key].has(value);
+    },
+    get(value) {
+      return buildAbilityEffectIndex()[key].get(value);
+    },
+    [Symbol.iterator]() {
+      return buildAbilityEffectIndex()[key][Symbol.iterator]();
+    },
+  });
+}
+
+const BUFFS = dynamicCollection("buffs");
+const DEBUFFS = dynamicCollection("debuffs");
+const TEAM_BUFFS = dynamicCollection("teamBuffs");
+const SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
 
 function ensureBuffStyles(scope) {
   if (document.getElementById(STYLE_ID)) return;
@@ -92,32 +102,6 @@ function createBuffTracker(scope) {
   const BATTLE_STATE = { players: new Map(), monsters: new Map() };
   const PENDING_BUFFS = [];
   const PENDING_DEBUFFS = [];
-  let abilitySpriteBase = null;
-
-  function getAbilitySpriteBase() {
-    if (abilitySpriteBase) return abilitySpriteBase;
-    const selectors = [
-      'use[href*="abilities_sprite"]',
-      'use[xlink\\:href*="abilities_sprite"]',
-      'img[src*="abilities_sprite"]',
-      'link[href*="abilities_sprite"]',
-    ];
-    for (const selector of selectors) {
-      const node = document.querySelector(selector);
-      if (!node) continue;
-      const href =
-        node.getAttribute("href") ||
-        node.getAttribute("xlink:href") ||
-        node.getAttribute("src");
-      if (typeof href === "string" && href.includes("abilities_sprite")) {
-        abilitySpriteBase = href.split("#")[0];
-        return abilitySpriteBase;
-      }
-    }
-    abilitySpriteBase = FALLBACK_SPRITE_URL;
-    return abilitySpriteBase;
-  }
-
   function getUnitElements(areaClass) {
     const area = document.querySelector(`[class*="${areaClass}"]`);
     if (!area) return [];
@@ -370,11 +354,15 @@ function createBuffTracker(scope) {
       icon.setAttribute("width", "100%");
       icon.setAttribute("height", "100%");
       const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      const spriteBase = getAbilitySpriteBase();
-      const spriteRef = `${spriteBase}#${abilityId(effect.abilityHrid)}`;
-      use.setAttribute("href", spriteRef);
-      use.setAttribute("xlink:href", spriteRef);
-      icon.appendChild(use);
+      const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+      if (spriteRef) {
+        use.setAttribute("href", spriteRef);
+        use.setAttribute("xlink:href", spriteRef);
+        icon.appendChild(use);
+        iconWrap.appendChild(icon);
+      } else {
+        iconWrap.textContent = "?";
+      }
       const total = Math.max(1, effect.durationSec);
       const elapsed = Math.max(
         0,
@@ -382,7 +370,6 @@ function createBuffTracker(scope) {
       );
       const progress = Math.min(1, Math.max(0, elapsed / total));
       const degrees = progress * 360;
-      iconWrap.appendChild(icon);
       chip.appendChild(iconWrap);
       const ring = document.createElement("span");
       ring.className = "mwi-progress-ring";

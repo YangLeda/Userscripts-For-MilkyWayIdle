@@ -1,4 +1,6 @@
-import "../src/data/translations.js";
+import "../src/core/game-data.js";
+import "../src/core/game-assets.js";
+import "../src/core/game-localization.js";
 
 export { registerGameLocaleResources } from "../src/core/game-localization.js";
 

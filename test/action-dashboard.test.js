@@ -40,7 +40,7 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
@@ -49,6 +49,30 @@ await import("../src/features/action-dashboard.js");
 await import("../src/features/settings-and-notifications.js");
 const { registerGameLocaleResources } =
   await import("../src/core/game-localization.js");
+const { resetGameSpriteSources, scanGameSpriteSources } =
+  await import("../src/core/game-assets.js");
+
+const zhGameResources = {
+  itemNames: {
+    "/items/log": "原木",
+    "/items/lumber": "木板",
+    "/items/milk": "牛奶",
+    "/items/cheese": "奶酪",
+    "/items/apple": "苹果",
+    "/items/orange": "橙子",
+    "/items/plum": "李子",
+  },
+  actionNames: {
+    "/actions/crafting/lumber": "木板",
+    "/actions/milking/cow": "奶牛",
+    "/actions/foraging/mixed": "混合果园",
+    "/actions/combat/hell_pit": "地狱深渊",
+    "/actions/combat/chimerical_den": "奇幻洞穴",
+  },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+};
+registerGameLocaleResources("zh", zhGameResources);
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/lumber": {
@@ -211,6 +235,7 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
     .querySelector('use[href*="items_sprite"]')
     .closest("svg");
   spriteHost.remove();
+  resetGameSpriteSources();
   document.querySelector("#mwi-production-summary").remove();
   runtime.api.renderProductionPanel();
   const output = document.querySelector(".mwi-production-output-item");
@@ -220,6 +245,8 @@ test("production outputs use a neutral fallback when the item sprite is unavaila
   );
   assert.equal(output.textContent.includes("木板"), true);
   document.body.prepend(spriteHost);
+  resetGameSpriteSources();
+  scanGameSpriteSources({ force: true });
   runtime.api.renderProductionPanel();
 });
 
@@ -470,9 +497,9 @@ test("gathering dialogs without a count input still render expected outputs", ()
     inputItems: [{ itemHrid: "/items/milk", count: 2 }],
     outputItems: [{ itemHrid: "/items/cheese", count: 1 }],
   };
-  runtime.data.ZHActionNames["/actions/milking/cow"] = "奶牛";
-  runtime.data.ZHItemNames["/items/milk"] = "牛奶";
-  runtime.data.ZHItemNames["/items/cheese"] = "奶酪";
+  zhGameResources.actionNames["/actions/milking/cow"] = "奶牛";
+  zhGameResources.itemNames["/items/milk"] = "牛奶";
+  zhGameResources.itemNames["/items/cheese"] = "奶酪";
   const previousNetSell = runtime.api.getNetSellPrice;
   runtime.api.getNetSellPrice = (itemHrid) =>
     ({ "/items/milk": 50, "/items/cheese": 120 })[itemHrid] ??
@@ -559,12 +586,12 @@ test("mixed gathering outputs use a two-column icon grid", () => {
     "/items/orange": { hrid: "/items/orange", name: "Orange" },
     "/items/plum": { hrid: "/items/plum", name: "Plum" },
   });
-  Object.assign(runtime.data.ZHItemNames, {
+  Object.assign(zhGameResources.itemNames, {
     "/items/apple": "苹果",
     "/items/orange": "橙子",
     "/items/plum": "李子",
   });
-  runtime.data.ZHActionNames["/actions/foraging/mixed"] = "混合果园";
+  zhGameResources.actionNames["/actions/foraging/mixed"] = "混合果园";
   const previousNetSell = runtime.api.getNetSellPrice;
   runtime.api.getNetSellPrice = (itemHrid) =>
     ["/items/apple", "/items/orange", "/items/plum"].includes(itemHrid)
@@ -600,7 +627,7 @@ test("combat dialogs never render the production summary", () => {
     baseTimeCost: 3_000_000_000,
     dropTable: [{ itemHrid: "/items/log", count: 1 }],
   };
-  runtime.data.ZHActionNames["/actions/combat/hell_pit"] = "地狱深渊";
+  zhGameResources.actionNames["/actions/combat/hell_pit"] = "地狱深渊";
   document.querySelector('div[class*="SkillActionDetail_name"]').textContent =
     "地狱深渊";
 
@@ -874,7 +901,7 @@ test("the top action bar follows ordinal order and hides on header mismatch or c
     name: "Chimerical Den",
     type: "/action_types/combat",
   };
-  runtime.data.ZHActionNames["/actions/combat/chimerical_den"] = "奇幻洞穴";
+  zhGameResources.actionNames["/actions/combat/chimerical_den"] = "奇幻洞穴";
   runtime.state.currentActionsHridList = [
     {
       ordinal: 1,
@@ -1178,7 +1205,7 @@ test("every skilling equipment reminder uses the current game item HRID", () => 
   }
 });
 
-test("every localized skilling action resolves to its canonical action HRID", () => {
+test("every loaded official skilling action resolves to its canonical action HRID", () => {
   const skillingPrefixes = [
     "/actions/milking/",
     "/actions/foraging/",
@@ -1191,10 +1218,10 @@ test("every localized skilling action resolves to its canonical action HRID", ()
     "/actions/alchemy/",
     "/actions/enhancing/",
   ];
-  const actions = Object.entries(runtime.data.ZHActionNames).filter(([hrid]) =>
+  const actions = Object.entries(zhGameResources.actionNames).filter(([hrid]) =>
     skillingPrefixes.some((prefix) => hrid.startsWith(prefix)),
   );
-  assert.ok(actions.length > 100, "expected the complete skilling catalog");
+  assert.ok(actions.length > 0, "expected loaded official skilling actions");
 
   for (const [actionHrid, localizedName] of actions) {
     const panel = document.createElement("div");

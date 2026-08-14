@@ -4,6 +4,10 @@ import debugIcon from "./assets/debug.png";
 import resetIcon from "./assets/reset.png";
 import trendIcon from "./assets/trend.png";
 import { runtime } from "../../core/runtime.js";
+import {
+  getGameSpriteHref,
+  scanGameSpriteSources,
+} from "../../core/game-assets.js";
 import { getGameTranslation } from "../../core/game-localization.js";
 
 /*
@@ -25,88 +29,14 @@ const TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";
 
 // Details 风格的主强调色。
 const ACCENT = "#d4af37";
-const GameAssets = (() => {
-  const fallback = {
-      abilities: "fdd1b4de",
-      skills: "3bb4d936",
-      items: "f58c9476",
-      misc: "6560b17a",
-      avatars: "75a98d25",
-    },
-    bases = new Map();
-  let lastScanAt = Number.NEGATIVE_INFINITY;
-  const SCAN_INTERVAL_MS = 5000;
-  function remember(raw) {
-    const value = String(raw || ""),
-      match = value.match(
-        /(?:https?:\/\/[^/]+)?(\/static\/media\/(abilities|skills|items|misc|avatars)_sprite\.[^/#]+\.svg)/i,
-      );
-    if (match) bases.set(match[2].toLowerCase(), match[1]);
-  }
-  function scan(force = true) {
-    const now =
-      typeof performance !== "undefined" &&
-      typeof performance.now === "function"
-        ? performance.now()
-        : Date.now();
-    if (
-      !force &&
-      (bases.size >= Object.keys(fallback).length ||
-        now - lastScanAt < SCAN_INTERVAL_MS)
-    ) {
-      return;
-    }
-    lastScanAt = now;
-    try {
-      if (
-        typeof performance !== "undefined" &&
-        typeof performance.getEntriesByType === "function"
-      )
-        performance
-          .getEntriesByType("resource")
-          .forEach((entry) => remember(entry.name));
-    } catch (ignore) {}
-    try {
-      if (
-        typeof document !== "undefined" &&
-        typeof document.querySelectorAll === "function"
-      )
-        document
-          .querySelectorAll("svg use,img")
-          .forEach((node) =>
-            remember(
-              (node.getAttribute &&
-                (node.getAttribute("href") ||
-                  node.getAttribute("xlink:href") ||
-                  node.getAttribute("src"))) ||
-                node.currentSrc ||
-                node.src,
-            ),
-          );
-    } catch (ignore) {}
-  }
-  function sprite(kind, id) {
-    scan(false);
-    const base =
-      bases.get(kind) ||
-      "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
-    return (
-      base +
-      "#" +
-      String(id || "")
-        .split("/")
-        .pop()
-    );
-  }
-  return {
-    ability: (id) => sprite("abilities", id),
-    skill: (id) => sprite("skills", id),
-    item: (id) => sprite("items", id),
-    misc: (id) => sprite("misc", id),
-    avatar: (id) => sprite("avatars", id),
-    scan: () => scan(true),
-  };
-})();
+const GameAssets = Object.freeze({
+  ability: (id) => getGameSpriteHref("abilities", id),
+  skill: (id) => getGameSpriteHref("skills", id),
+  item: (id) => getGameSpriteHref("items", id),
+  misc: (id) => getGameSpriteHref("misc", id),
+  avatar: (id) => getGameSpriteHref("avatars", id),
+  scan: () => scanGameSpriteSources({ force: true }),
+});
 const SKILL_MODE_ICONS = {
   get attack() {
     return GameAssets.skill("attack");

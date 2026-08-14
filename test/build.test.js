@@ -73,6 +73,9 @@ test("generated userscript has a single valid metadata block", () => {
   );
   assert.match(output, /["']1\.0\.51["']/);
   assert.match(output, /__MWI_DPS/);
+  assert.doesNotMatch(output, /ZHItemNames|ZHActionNames|ZHOthersDic/);
+  assert.doesNotMatch(output, /KNOWN_DUNGEON_ROSTERS/);
+  assert.doesNotMatch(output, /asset-manifest\.json/);
 });
 
 test("generated userscript is standalone JavaScript", () => {

@@ -66,11 +66,32 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+const zhGameResources = {
+  itemNames: { "/items/sundering_crossbow": "裂空之弩" },
+  actionNames: { "/actions/combat/rat": "鼠患" },
+  monsterNames: { "/monsters/trial_firefly": "试炼萤火虫" },
+  abilityNames: {
+    "/abilities/firestorm": "火焰风暴",
+    "/abilities/sweep": "重扫",
+    "/abilities/stunning_blow": "重锤",
+    "/abilities/fireball": "火球",
+    "/abilities/mana_spring": "法力喷泉",
+    "/abilities/natures_veil": "自然菌幕",
+  },
+};
+registerGameLocaleResources("zh", zhGameResources);
+localStorage.setItem("i18nextLng", "zh-CN");
+document.body.innerHTML = `
+  <svg><use href="/static/media/abilities_sprite.test.svg#firestorm"></use></svg>
+  <svg><use href="/static/media/skills_sprite.test.svg#attack"></use></svg>
+  <svg><use href="/static/media/items_sprite.test.svg#sundering_crossbow"></use></svg>
+  <svg><use href="/static/media/misc_sprite.test.svg#settings"></use></svg>
+  <svg><use href="/static/media/avatars_sprite.test.svg#unknown"></use></svg>`;
 GameAssets.scan();
 const originalQuerySelectorAll = document.querySelectorAll.bind(document);
 let assetDomScans = 0;
 document.querySelectorAll = (selector) => {
-  if (selector === "svg use,img") assetDomScans += 1;
+  if (selector === "svg use,img[src],link[href]") assetDomScans += 1;
   return originalQuerySelectorAll(selector);
 };
 GameAssets.item("/items/cheese");
@@ -112,7 +133,7 @@ assert(
 );
 assert(
   String(DamageSources.icon("/abilities/firestorm")).endsWith(
-    "/abilities_sprite.fdd1b4de.svg#firestorm",
+    "/abilities_sprite.test.svg#firestorm",
   ),
   "技能没有直接引用游戏 ability Sprite",
 );
@@ -143,7 +164,7 @@ const genericCombatIcon = DamageSources.icon("auto");
 for (const abilityHrid of supplementalAbilityHrids) {
   assert(
     String(DamageSources.icon(abilityHrid)).endsWith(
-      "/abilities_sprite.fdd1b4de.svg#" + abilityHrid.split("/").pop(),
+      "/abilities_sprite.test.svg#" + abilityHrid.split("/").pop(),
     ),
     abilityHrid + " 没有引用游戏技能图标",
   );
@@ -153,14 +174,13 @@ for (const abilityHrid of supplementalAbilityHrids) {
   );
 }
 assert(
-  genericCombatIcon.endsWith("/skills_sprite.3bb4d936.svg#attack"),
+  genericCombatIcon.endsWith("/skills_sprite.test.svg#attack"),
   "普通攻击没有直接引用游戏 skill Sprite",
 );
 assert(
   GameAssets.misc("loot_tracker").endsWith(
-    "/misc_sprite.6560b17a.svg#loot_tracker",
-  ) &&
-    GameAssets.misc("settings").endsWith("/misc_sprite.6560b17a.svg#settings"),
+    "/misc_sprite.test.svg#loot_tracker",
+  ) && GameAssets.misc("settings").endsWith("/misc_sprite.test.svg#settings"),
   "历史或设置没有直接引用游戏 misc Sprite",
 );
 for (const [classId, definition] of Object.entries(ClassSystem.definitions)) {
@@ -196,8 +216,8 @@ assert(
   "DPS 技能名没有使用游戏官方汉化",
 );
 for (const [abilityHrid, officialName] of Object.entries(
-  runtime.data.ZHOthersDic,
-).filter(([hrid]) => hrid.startsWith("/abilities/")))
+  zhGameResources.abilityNames,
+))
   assert(
     DamageSources.label(abilityHrid) === officialName,
     `${abilityHrid} 没有显示官方中文名 ${officialName}`,

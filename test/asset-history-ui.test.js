@@ -11,6 +11,7 @@ globalThis.Element = dom.window.Element;
 globalThis.localStorage = dom.window.localStorage;
 globalThis.location = dom.window.location;
 globalThis.window = dom.window;
+localStorage.setItem("i18nextLng", "zh-CN");
 const intervals = new Map();
 let nextInterval = 1;
 globalThis.setInterval = (callback) => {
@@ -23,12 +24,21 @@ const settleDom = () => new Promise((resolve) => setTimeout(resolve, 30));
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 await import("../src/core/planning.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/nail": "钉子" },
+  actionNames: { "/actions/crafting/nail": "制作钉子" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+  houseRoomNames: { "/house_rooms/workshop": "工作室" },
+});
 runtime.config.isZH = true;
 runtime.api.numberFormatter = (value) => {
   const number = Number(value);
@@ -186,7 +196,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
     /items_sprite/,
   );
   assert.equal(results.querySelectorAll(".planning-option").length, 1);
-  assert.match(results.textContent, /Nail/);
+  assert.match(results.textContent, /钉子/);
   assert.doesNotMatch(results.textContent, /Board/);
 
   runtime.api.procurement.emit("inventory:change", {});
@@ -331,7 +341,7 @@ test("规划 mounts beside P/L and keeps icon pickers stable during updates", as
   const englishPanel = document.querySelector("#mwitools-planning-panel");
   assert.match(
     englishPanel.querySelector(".planning-picker-copy").textContent,
-    /Workshop/,
+    /工作室/,
   );
   assert.deepEqual(
     [...englishPanel.querySelectorAll(".planning-policy-switch button")]

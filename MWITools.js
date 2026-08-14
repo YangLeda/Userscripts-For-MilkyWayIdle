@@ -876,6 +876,163 @@
     }
   };
 
+  // src/core/game-data.js
+  var CLIENT_DATA_STATE_FIELDS = Object.freeze({
+    actionDetailMap: "initData_actionDetailMap",
+    levelExperienceTable: "initData_levelExperienceTable",
+    enhancementLevelSuccessRateTable: "initData_enhancementLevelSuccessRateTable",
+    enhancementLevelTotalBonusMultiplierTable: "initData_enhancementLevelTotalBonusMultiplierTable",
+    itemDetailMap: "initData_itemDetailMap",
+    itemLocationDetailMap: "initData_itemLocationDetailMap",
+    houseRoomDetailMap: "initData_houseRoomDetailMap",
+    actionCategoryDetailMap: "initData_actionCategoryDetailMap",
+    abilityDetailMap: "initData_abilityDetailMap",
+    shopItemDetailMap: "initData_shopItemDetailMap",
+    taskShopItemDetailMap: "initData_taskShopItemDetailMap",
+    labyrinthShopItemDetailMap: "initData_labyrinthShopItemDetailMap",
+    openableLootDropMap: "initData_openableLootDropMap",
+    guildBuffDetailMap: "initData_guildBuffDetailMap",
+    skillDetailMap: "initData_skillDetailMap",
+    buffTypeDetailMap: "initData_buffTypeDetailMap",
+    combatMonsterDetailMap: "initData_combatMonsterDetailMap"
+  });
+  var clientData = null;
+  var readyResolve;
+  var warnedReadFailure = false;
+  runtime.state.itemEnNameToHridMap ??= {};
+  var readyPromise = new Promise((resolve) => {
+    readyResolve = resolve;
+  });
+  function pageGlobal() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function validClientData(value) {
+    return Boolean(value?.actionDetailMap && value?.itemDetailMap);
+  }
+  function rebuildEnglishItemIndex(data) {
+    const index = {};
+    for (const [hrid, detail] of Object.entries(data?.itemDetailMap ?? {})) {
+      const name = String(detail?.name ?? "").trim();
+      if (name) index[name] = hrid;
+    }
+    runtime.state.itemEnNameToHridMap = index;
+  }
+  function publishClientData(data) {
+    clientData = data;
+    runtime.state.clientData = data;
+    for (const [sourceKey, stateKey] of Object.entries(
+      CLIENT_DATA_STATE_FIELDS
+    )) {
+      runtime.state[stateKey] = data[sourceKey] ?? null;
+    }
+    runtime.state.initData_monsterDetailMap = data.combatMonsterDetailMap ?? null;
+    rebuildEnglishItemIndex(data);
+    runtime.api.invalidateAssetValueCache?.();
+    runtime.api.resetGameLocalizationCache?.();
+    if (typeof globalThis.GM_setValue === "function") {
+      globalThis.GM_setValue("init_client_data", JSON.stringify(data));
+    }
+    readyResolve?.(data);
+    readyResolve = null;
+    return data;
+  }
+  function refreshGameClientData() {
+    const localStorageUtil = pageGlobal().localStorageUtil;
+    if (typeof localStorageUtil?.getInitClientData !== "function") {
+      return null;
+    }
+    let next;
+    try {
+      next = localStorageUtil.getInitClientData();
+    } catch (error) {
+      if (!warnedReadFailure) {
+        warnedReadFailure = true;
+        console.warn(
+          "[MWITools] Could not read the game's client data cache.",
+          error
+        );
+      }
+      return null;
+    }
+    return validClientData(next) ? publishClientData(next) : null;
+  }
+  function getGameClientData() {
+    return clientData;
+  }
+  function whenGameClientDataReady() {
+    return clientData ? Promise.resolve(clientData) : readyPromise;
+  }
+  Object.assign(runtime.api, {
+    getGameClientData,
+    refreshGameClientData,
+    whenGameClientDataReady
+  });
+
+  // src/core/game-assets.js
+  var SPRITE_PATTERN = /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
+  var spriteBases = /* @__PURE__ */ new Map();
+  var lastScanAt = Number.NEGATIVE_INFINITY;
+  function normalizeKind(kind) {
+    const value = String(kind ?? "").toLowerCase();
+    if (value === "ability") return "abilities";
+    if (value === "action") return "actions";
+    if (value === "avatar") return "avatars";
+    if (value === "monster" || value === "monsters") return "combat_monsters";
+    if (value === "item") return "items";
+    if (value === "skill") return "skills";
+    return value;
+  }
+  function registerGameSpriteSource(rawValue) {
+    const value = String(rawValue ?? "").split("#")[0];
+    const match = value.match(SPRITE_PATTERN);
+    if (!match) return false;
+    spriteBases.set(normalizeKind(match[2]), match[1]);
+    return true;
+  }
+  function scanGameSpriteSources({ force = false } = {}) {
+    const now = globalThis.performance?.now?.() ?? Date.now();
+    if (!force && now - lastScanAt < 2e3) return spriteBases.size;
+    lastScanAt = now;
+    try {
+      for (const entry of globalThis.performance?.getEntriesByType?.(
+        "resource"
+      ) ?? []) {
+        registerGameSpriteSource(entry?.name);
+      }
+    } catch {
+    }
+    try {
+      for (const node of globalThis.document?.querySelectorAll?.(
+        "svg use,img[src],link[href]"
+      ) ?? []) {
+        registerGameSpriteSource(
+          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src
+        );
+      }
+    } catch {
+    }
+    return spriteBases.size;
+  }
+  function getGameSpriteBase(kind) {
+    scanGameSpriteSources();
+    return spriteBases.get(normalizeKind(kind)) ?? "";
+  }
+  function getGameSpriteHref(kind, hrid) {
+    const base = getGameSpriteBase(kind);
+    const symbol = String(hrid ?? "").split("/").at(-1);
+    return base && symbol ? `${base}#${symbol}` : "";
+  }
+  function resetGameSpriteSources() {
+    spriteBases.clear();
+    lastScanAt = Number.NEGATIVE_INFINITY;
+  }
+  Object.assign(runtime.api, {
+    getGameSpriteBase,
+    getGameSpriteHref,
+    registerGameSpriteSource,
+    scanGameSpriteSources
+  });
+
   // src/core/config.js
   function getGameLanguage() {
     const storedLanguage = localStorage.getItem("i18nextLng")?.trim();
@@ -2232,2413 +2389,6 @@
     console.log(window.location.href);
   });
 
-  // src/core/game-localization.js
-  var SUPPORTED_GAME_LOCALES = Object.freeze([
-    "en",
-    "es",
-    "fr",
-    "pt",
-    "zh",
-    "zh-TW",
-    "ja",
-    "ko",
-    "ru"
-  ]);
-  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
-  var ENTITY_TYPES = Object.freeze({
-    item: {
-      resourceKey: "itemNames",
-      stateKey: "initData_itemDetailMap",
-      prefix: "/items/",
-      sprite: "items_sprite"
-    },
-    action: {
-      resourceKey: "actionNames",
-      stateKey: "initData_actionDetailMap",
-      prefix: "/actions/",
-      sprite: "actions_sprite"
-    },
-    monster: {
-      resourceKey: "monsterNames",
-      stateKey: "initData_monsterDetailMap",
-      prefix: "/monsters/",
-      sprite: "combat_monsters_sprite"
-    },
-    ability: {
-      resourceKey: "abilityNames",
-      stateKey: "initData_abilityDetailMap",
-      prefix: "/abilities/",
-      sprite: "abilities_sprite"
-    }
-  });
-  var TYPE_ALIASES = Object.freeze({
-    items: "item",
-    actions: "action",
-    monsters: "monster",
-    abilities: "ability"
-  });
-  var localeResources = /* @__PURE__ */ new Map();
-  var reverseIndexes = /* @__PURE__ */ new WeakMap();
-  var warnedLocales = /* @__PURE__ */ new Set();
-  function pageGlobal() {
-    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
-  }
-  function normalizeGameLocale(value) {
-    const raw = String(value ?? "").trim().replaceAll("_", "-");
-    if (!raw) return "en";
-    const lower = raw.toLowerCase();
-    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
-      return "zh-TW";
-    }
-    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
-    const base = lower.split("-")[0];
-    return LOCALE_SET.has(base) ? base : "en";
-  }
-  function getGameLocale() {
-    return normalizeGameLocale(
-      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
-    );
-  }
-  function webpackQueues(target = pageGlobal()) {
-    const queues = [];
-    for (const key of Object.getOwnPropertyNames(target ?? {})) {
-      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
-      let value;
-      try {
-        value = target[key];
-      } catch {
-        continue;
-      }
-      if (Array.isArray(value)) queues.push(value);
-    }
-    return queues;
-  }
-  function chunkEntries(target) {
-    return webpackQueues(target).flatMap(
-      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
-    );
-  }
-  function localeModuleMap(entries) {
-    const result = /* @__PURE__ */ new Map();
-    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
-    for (const entry of entries) {
-      for (const factory of Object.values(entry[1])) {
-        if (typeof factory !== "function") continue;
-        const source = Function.prototype.toString.call(factory);
-        if (!source.includes("./zh-TW/index.js")) continue;
-        for (const match of source.matchAll(pattern)) {
-          result.set(normalizeGameLocale(match[1]), String(match[2]));
-        }
-      }
-    }
-    return result;
-  }
-  function runLocaleFactory(factory) {
-    const module = { exports: {} };
-    const exports = module.exports;
-    const webpackRequire = () => {
-      throw new Error(
-        runtime.config.isZH ? "游戏语言模块意外引用了其他模块" : "The game locale unexpectedly imported another module"
-      );
-    };
-    webpackRequire.r = (target) => {
-      Object.defineProperty(target, "__esModule", { value: true });
-    };
-    webpackRequire.d = (target, nameOrDefinition, getter) => {
-      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
-      for (const [name, get] of Object.entries(definition)) {
-        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
-        Object.defineProperty(target, name, {
-          enumerable: true,
-          get
-        });
-      }
-    };
-    factory.call(exports, module, exports, webpackRequire);
-    return module.exports?.default ?? exports.default ?? module.exports;
-  }
-  function validResourceMap(value, prefix) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-    return Object.keys(value).some((key) => key.startsWith(prefix));
-  }
-  function validateGameLocaleResources(value) {
-    return Boolean(
-      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
-    );
-  }
-  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal()) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en") return null;
-    const entries = chunkEntries(target);
-    const moduleMap = localeModuleMap(entries);
-    const expectedModuleId = moduleMap.get(normalizedLocale);
-    const candidates = [];
-    for (const entry of entries) {
-      for (const [moduleId, factory] of Object.entries(entry[1])) {
-        if (typeof factory !== "function") continue;
-        if (expectedModuleId && moduleId !== expectedModuleId) continue;
-        const source = Function.prototype.toString.call(factory);
-        if (!expectedModuleId && (!source.includes("itemNames") || !source.includes("actionNames") || !source.includes("monsterNames") || !source.includes("abilityNames"))) {
-          continue;
-        }
-        candidates.push(factory);
-      }
-    }
-    for (const factory of candidates) {
-      try {
-        const resources = runLocaleFactory(factory);
-        if (validateGameLocaleResources(resources)) return resources;
-      } catch {
-      }
-    }
-    return null;
-  }
-  function englishResourceMap(type) {
-    const definition = ENTITY_TYPES[type];
-    const details = runtime.state[definition.stateKey];
-    if (!details || typeof details !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(details).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
-    );
-  }
-  function englishResources() {
-    const resources = {
-      itemNames: englishResourceMap("item"),
-      actionNames: englishResourceMap("action"),
-      monsterNames: englishResourceMap("monster"),
-      abilityNames: englishResourceMap("ability")
-    };
-    for (const [hrid, name] of Object.entries(resources.actionNames)) {
-      if (!hrid.startsWith("/actions/combat/")) continue;
-      const monsterHrid = hrid.replace("/actions/combat/", "/monsters/");
-      if (!resources.monsterNames[monsterHrid]) {
-        resources.monsterNames[monsterHrid] = name;
-      }
-    }
-    return resources;
-  }
-  function simplifiedResources() {
-    const others = runtime.data.ZHOthersDic ?? {};
-    return {
-      itemNames: runtime.data.ZHItemNames ?? {},
-      actionNames: runtime.data.ZHActionNames ?? {},
-      monsterNames: Object.fromEntries(
-        Object.entries(others).filter(([hrid]) => hrid.startsWith("/monsters/"))
-      ),
-      abilityNames: Object.fromEntries(
-        Object.entries(others).filter(([hrid]) => hrid.startsWith("/abilities/"))
-      )
-    };
-  }
-  function getGameLocaleResources(locale = getGameLocale()) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en") return englishResources();
-    if (localeResources.has(normalizedLocale)) {
-      return localeResources.get(normalizedLocale);
-    }
-    const extracted = extractGameLocaleResources(normalizedLocale);
-    if (extracted) {
-      localeResources.set(normalizedLocale, extracted);
-      return extracted;
-    }
-    if (normalizedLocale === "zh") return simplifiedResources();
-    if (!warnedLocales.has(normalizedLocale)) {
-      warnedLocales.add(normalizedLocale);
-      console.warn(
-        `[MWITools] The official ${normalizedLocale} game language resources are not available yet. Locale-dependent fallbacks will stay disabled.`
-      );
-    }
-    return null;
-  }
-  function registerGameLocaleResources(locale, resources) {
-    const normalizedLocale = normalizeGameLocale(locale);
-    if (normalizedLocale === "en" || !validateGameLocaleResources(resources)) {
-      return false;
-    }
-    localeResources.set(normalizedLocale, resources);
-    return true;
-  }
-  function entityType(kind) {
-    const normalized = TYPE_ALIASES[kind] ?? kind;
-    return ENTITY_TYPES[normalized] ? normalized : null;
-  }
-  function normalizedName(value, type = "") {
-    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
-    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
-    return result;
-  }
-  function reverseIndex(resources, type) {
-    let indexes = reverseIndexes.get(resources);
-    if (!indexes) {
-      indexes = /* @__PURE__ */ new Map();
-      reverseIndexes.set(resources, indexes);
-    }
-    if (indexes.has(type)) return indexes.get(type);
-    const definition = ENTITY_TYPES[type];
-    const index = /* @__PURE__ */ new Map();
-    for (const [hrid, name] of Object.entries(
-      resources?.[definition.resourceKey] ?? {}
-    )) {
-      const key = normalizedName(name, type);
-      if (!key) continue;
-      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
-      else index.set(key, hrid);
-    }
-    indexes.set(type, index);
-    return index;
-  }
-  function directHrid(type, value) {
-    const definition = ENTITY_TYPES[type];
-    const candidate = String(value ?? "").trim();
-    return candidate.startsWith(definition.prefix) ? candidate : "";
-  }
-  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
-    const type = entityType(kind);
-    if (!type) return "";
-    const direct = directHrid(type, name);
-    if (direct) return direct;
-    const key = normalizedName(name, type);
-    if (!key) return "";
-    if (type === "item") {
-      const directEnglish = runtime.state.itemEnNameToHridMap?.[name];
-      if (directEnglish) return directEnglish;
-      for (const [englishName, hrid] of Object.entries(
-        runtime.state.itemEnNameToHridMap ?? {}
-      )) {
-        if (normalizedName(englishName, type) === key) return hrid;
-      }
-    }
-    const sources = [getGameLocaleResources(locale), englishResources()];
-    if (normalizeGameLocale(locale) !== "zh") sources.push(simplifiedResources());
-    for (const resources of sources) {
-      if (!resources) continue;
-      const match = reverseIndex(resources, type).get(key);
-      if (match) return match;
-    }
-    return "";
-  }
-  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
-    const type = entityType(kind);
-    if (!type) return fallback;
-    const definition = ENTITY_TYPES[type];
-    const resources = getGameLocaleResources(locale);
-    return resources?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
-  }
-  function elementCandidates(element) {
-    const result = [];
-    for (let current = element; current && result.length < 24; ) {
-      result.push(current);
-      current = current.parentElement;
-    }
-    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
-      if (!result.includes(child)) result.push(child);
-    }
-    return result;
-  }
-  function datasetHrid(type, element) {
-    const names = [
-      `${type}Hrid`,
-      "hrid",
-      "itemHrid",
-      "actionHrid",
-      "monsterHrid",
-      "abilityHrid"
-    ];
-    for (const name of names) {
-      const value = element?.dataset?.[name];
-      const direct = directHrid(type, value);
-      if (direct) return direct;
-    }
-    return "";
-  }
-  function spriteHrid(type, element) {
-    const definition = ENTITY_TYPES[type];
-    const href = String(
-      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
-    );
-    const [base, fragment = ""] = href.split("#");
-    if (!fragment || !base.includes(definition.sprite)) return "";
-    return `${definition.prefix}${fragment}`;
-  }
-  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
-    const type = entityType(kind);
-    if (!type || !element) return "";
-    const candidates = elementCandidates(element);
-    for (const candidate of candidates) {
-      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
-      if (hrid) return hrid;
-    }
-    for (const candidate of candidates) {
-      for (const value of [
-        candidate?.getAttribute?.("aria-label"),
-        candidate?.getAttribute?.("title"),
-        candidate?.textContent
-      ]) {
-        const hrid = resolveLocalizedEntity(type, value, { locale });
-        if (hrid) return hrid;
-      }
-    }
-    return "";
-  }
-  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
-    let value = getGameLocaleResources(locale);
-    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
-      if (!key || !value || typeof value !== "object") return "";
-      value = value[key];
-    }
-    return typeof value === "string" ? value : "";
-  }
-  function escapeRegularExpression(value) {
-    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
-  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
-    const template = getGameTranslation(path, { locale });
-    if (!template) return false;
-    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
-    const pattern = parts.map(
-      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
-    ).join("");
-    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
-  }
-  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
-    const value = String(text ?? "").trim();
-    if ([...Array.isArray(paths) ? paths : [paths]].some(
-      (path) => matchesGameTranslation(path, value, { locale })
-    )) {
-      return true;
-    }
-    return fallbackPatterns.some((pattern) => {
-      if (pattern instanceof RegExp) return pattern.test(value);
-      return String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase();
-    });
-  }
-  function resetGameLocalizationCache() {
-    localeResources.clear();
-    warnedLocales.clear();
-  }
-  Object.assign(runtime.api, {
-    getGameLocale,
-    getGameLocaleResources,
-    registerGameLocaleResources,
-    getGameTranslation,
-    matchesGameTranslation,
-    resolveLocalizedEntity,
-    resolveEntityFromElement,
-    getLocalizedEntityName
-  });
-
-  // src/data/translations.js
-  var ZHItemNames = {
-    "/items/coin": "金币",
-    "/items/task_token": "任务代币",
-    "/items/labyrinth_token": "迷宫代币",
-    "/items/chimerical_token": "奇幻代币",
-    "/items/sinister_token": "阴森代币",
-    "/items/enchanted_token": "秘法代币",
-    "/items/pirate_token": "海盗代币",
-    "/items/guild_token": "公会代币",
-    "/items/green_guild_credit": "绿色公会信用点",
-    "/items/brown_guild_credit": "棕色公会信用点",
-    "/items/white_guild_credit": "白色公会信用点",
-    "/items/blue_guild_credit": "蓝色公会信用点",
-    "/items/purple_guild_credit": "紫色公会信用点",
-    "/items/red_guild_credit": "红色公会信用点",
-    "/items/silver_guild_credit": "银色公会信用点",
-    "/items/gold_guild_credit": "金色公会信用点",
-    "/items/cowbell": "牛铃",
-    "/items/bag_of_10_cowbells": "牛铃袋 (10个)",
-    "/items/purples_gift": "小紫牛的礼物",
-    "/items/small_meteorite_cache": "小陨石舱",
-    "/items/medium_meteorite_cache": "中陨石舱",
-    "/items/large_meteorite_cache": "大陨石舱",
-    "/items/small_artisans_crate": "小工匠匣",
-    "/items/medium_artisans_crate": "中工匠匣",
-    "/items/large_artisans_crate": "大工匠匣",
-    "/items/small_treasure_chest": "小宝箱",
-    "/items/medium_treasure_chest": "中宝箱",
-    "/items/large_treasure_chest": "大宝箱",
-    "/items/chimerical_chest": "奇幻宝箱",
-    "/items/chimerical_refinement_chest": "奇幻精炼宝箱",
-    "/items/sinister_chest": "阴森宝箱",
-    "/items/sinister_refinement_chest": "阴森精炼宝箱",
-    "/items/enchanted_chest": "秘法宝箱",
-    "/items/enchanted_refinement_chest": "秘法精炼宝箱",
-    "/items/pirate_chest": "海盗宝箱",
-    "/items/pirate_refinement_chest": "海盗精炼宝箱",
-    "/items/purdoras_box_skilling": "紫多拉之盒（生活）",
-    "/items/purdoras_box_combat": "紫多拉之盒（战斗）",
-    "/items/labyrinth_refinement_chest": "迷宫精炼宝箱",
-    "/items/seal_of_gathering": "采集卷轴",
-    "/items/seal_of_gourmet": "美食卷轴",
-    "/items/seal_of_processing": "加工卷轴",
-    "/items/seal_of_efficiency": "效率卷轴",
-    "/items/seal_of_action_speed": "行动速度卷轴",
-    "/items/seal_of_combat_drop": "战斗掉落卷轴",
-    "/items/seal_of_attack_speed": "攻击速度卷轴",
-    "/items/seal_of_cast_speed": "施法速度卷轴",
-    "/items/seal_of_damage": "伤害卷轴",
-    "/items/seal_of_critical_rate": "暴击率卷轴",
-    "/items/seal_of_wisdom": "经验卷轴",
-    "/items/seal_of_rare_find": "稀有发现卷轴",
-    "/items/blue_key_fragment": "蓝色钥匙碎片",
-    "/items/green_key_fragment": "绿色钥匙碎片",
-    "/items/purple_key_fragment": "紫色钥匙碎片",
-    "/items/white_key_fragment": "白色钥匙碎片",
-    "/items/orange_key_fragment": "橙色钥匙碎片",
-    "/items/brown_key_fragment": "棕色钥匙碎片",
-    "/items/stone_key_fragment": "石头钥匙碎片",
-    "/items/dark_key_fragment": "黑暗钥匙碎片",
-    "/items/burning_key_fragment": "燃烧钥匙碎片",
-    "/items/chimerical_entry_key": "奇幻钥匙",
-    "/items/chimerical_chest_key": "奇幻宝箱钥匙",
-    "/items/sinister_entry_key": "阴森钥匙",
-    "/items/sinister_chest_key": "阴森宝箱钥匙",
-    "/items/enchanted_entry_key": "秘法钥匙",
-    "/items/enchanted_chest_key": "秘法宝箱钥匙",
-    "/items/pirate_entry_key": "海盗钥匙",
-    "/items/pirate_chest_key": "海盗宝箱钥匙",
-    "/items/donut": "甜甜圈",
-    "/items/blueberry_donut": "蓝莓甜甜圈",
-    "/items/blackberry_donut": "黑莓甜甜圈",
-    "/items/strawberry_donut": "草莓甜甜圈",
-    "/items/mooberry_donut": "哞莓甜甜圈",
-    "/items/marsberry_donut": "火星莓甜甜圈",
-    "/items/spaceberry_donut": "太空莓甜甜圈",
-    "/items/cupcake": "纸杯蛋糕",
-    "/items/blueberry_cake": "蓝莓蛋糕",
-    "/items/blackberry_cake": "黑莓蛋糕",
-    "/items/strawberry_cake": "草莓蛋糕",
-    "/items/mooberry_cake": "哞莓蛋糕",
-    "/items/marsberry_cake": "火星莓蛋糕",
-    "/items/spaceberry_cake": "太空莓蛋糕",
-    "/items/gummy": "软糖",
-    "/items/apple_gummy": "苹果软糖",
-    "/items/orange_gummy": "橙子软糖",
-    "/items/plum_gummy": "李子软糖",
-    "/items/peach_gummy": "桃子软糖",
-    "/items/dragon_fruit_gummy": "火龙果软糖",
-    "/items/star_fruit_gummy": "杨桃软糖",
-    "/items/yogurt": "酸奶",
-    "/items/apple_yogurt": "苹果酸奶",
-    "/items/orange_yogurt": "橙子酸奶",
-    "/items/plum_yogurt": "李子酸奶",
-    "/items/peach_yogurt": "桃子酸奶",
-    "/items/dragon_fruit_yogurt": "火龙果酸奶",
-    "/items/star_fruit_yogurt": "杨桃酸奶",
-    "/items/milking_tea": "挤奶茶",
-    "/items/foraging_tea": "采摘茶",
-    "/items/woodcutting_tea": "伐木茶",
-    "/items/cooking_tea": "烹饪茶",
-    "/items/brewing_tea": "冲泡茶",
-    "/items/alchemy_tea": "炼金茶",
-    "/items/enhancing_tea": "强化茶",
-    "/items/cheesesmithing_tea": "奶酪锻造茶",
-    "/items/crafting_tea": "制作茶",
-    "/items/tailoring_tea": "缝纫茶",
-    "/items/super_milking_tea": "超级挤奶茶",
-    "/items/super_foraging_tea": "超级采摘茶",
-    "/items/super_woodcutting_tea": "超级伐木茶",
-    "/items/super_cooking_tea": "超级烹饪茶",
-    "/items/super_brewing_tea": "超级冲泡茶",
-    "/items/super_alchemy_tea": "超级炼金茶",
-    "/items/super_enhancing_tea": "超级强化茶",
-    "/items/super_cheesesmithing_tea": "超级奶酪锻造茶",
-    "/items/super_crafting_tea": "超级制作茶",
-    "/items/super_tailoring_tea": "超级缝纫茶",
-    "/items/ultra_milking_tea": "究极挤奶茶",
-    "/items/ultra_foraging_tea": "究极采摘茶",
-    "/items/ultra_woodcutting_tea": "究极伐木茶",
-    "/items/ultra_cooking_tea": "究极烹饪茶",
-    "/items/ultra_brewing_tea": "究极冲泡茶",
-    "/items/ultra_alchemy_tea": "究极炼金茶",
-    "/items/ultra_enhancing_tea": "究极强化茶",
-    "/items/ultra_cheesesmithing_tea": "究极奶酪锻造茶",
-    "/items/ultra_crafting_tea": "究极制作茶",
-    "/items/ultra_tailoring_tea": "究极缝纫茶",
-    "/items/gathering_tea": "采集茶",
-    "/items/gourmet_tea": "美食茶",
-    "/items/wisdom_tea": "经验茶",
-    "/items/processing_tea": "加工茶",
-    "/items/efficiency_tea": "效率茶",
-    "/items/artisan_tea": "工匠茶",
-    "/items/catalytic_tea": "催化茶",
-    "/items/blessed_tea": "福气茶",
-    "/items/stamina_coffee": "耐力咖啡",
-    "/items/intelligence_coffee": "智力咖啡",
-    "/items/defense_coffee": "防御咖啡",
-    "/items/attack_coffee": "攻击咖啡",
-    "/items/melee_coffee": "近战咖啡",
-    "/items/ranged_coffee": "远程咖啡",
-    "/items/magic_coffee": "魔法咖啡",
-    "/items/super_stamina_coffee": "超级耐力咖啡",
-    "/items/super_intelligence_coffee": "超级智力咖啡",
-    "/items/super_defense_coffee": "超级防御咖啡",
-    "/items/super_attack_coffee": "超级攻击咖啡",
-    "/items/super_melee_coffee": "超级近战咖啡",
-    "/items/super_ranged_coffee": "超级远程咖啡",
-    "/items/super_magic_coffee": "超级魔法咖啡",
-    "/items/ultra_stamina_coffee": "究极耐力咖啡",
-    "/items/ultra_intelligence_coffee": "究极智力咖啡",
-    "/items/ultra_defense_coffee": "究极防御咖啡",
-    "/items/ultra_attack_coffee": "究极攻击咖啡",
-    "/items/ultra_melee_coffee": "究极近战咖啡",
-    "/items/ultra_ranged_coffee": "究极远程咖啡",
-    "/items/ultra_magic_coffee": "究极魔法咖啡",
-    "/items/wisdom_coffee": "经验咖啡",
-    "/items/lucky_coffee": "幸运咖啡",
-    "/items/swiftness_coffee": "迅捷咖啡",
-    "/items/channeling_coffee": "吟唱咖啡",
-    "/items/critical_coffee": "暴击咖啡",
-    "/items/poke": "破胆之刺",
-    "/items/impale": "透骨之刺",
-    "/items/puncture": "破甲之刺",
-    "/items/penetrating_strike": "贯心之刺",
-    "/items/scratch": "爪影斩",
-    "/items/cleave": "分裂斩",
-    "/items/maim": "血刃斩",
-    "/items/crippling_slash": "致残斩",
-    "/items/smack": "重碾",
-    "/items/sweep": "重扫",
-    "/items/stunning_blow": "重锤",
-    "/items/fracturing_impact": "碎裂冲击",
-    "/items/shield_bash": "盾击",
-    "/items/quick_shot": "快速射击",
-    "/items/aqua_arrow": "流水箭",
-    "/items/flame_arrow": "烈焰箭",
-    "/items/rain_of_arrows": "箭雨",
-    "/items/silencing_shot": "沉默之箭",
-    "/items/steady_shot": "稳定射击",
-    "/items/pestilent_shot": "疫病射击",
-    "/items/penetrating_shot": "贯穿射击",
-    "/items/water_strike": "流水冲击",
-    "/items/ice_spear": "冰枪术",
-    "/items/frost_surge": "冰霜爆裂",
-    "/items/mana_spring": "法力喷泉",
-    "/items/entangle": "缠绕",
-    "/items/toxic_pollen": "剧毒粉尘",
-    "/items/natures_veil": "自然菌幕",
-    "/items/life_drain": "生命吸取",
-    "/items/fireball": "火球",
-    "/items/flame_blast": "熔岩爆裂",
-    "/items/firestorm": "火焰风暴",
-    "/items/smoke_burst": "烟爆灭影",
-    "/items/minor_heal": "初级自愈术",
-    "/items/heal": "自愈术",
-    "/items/quick_aid": "快速治疗术",
-    "/items/rejuvenate": "群体治疗术",
-    "/items/taunt": "嘲讽",
-    "/items/provoke": "挑衅",
-    "/items/toughness": "坚韧",
-    "/items/elusiveness": "闪避",
-    "/items/precision": "精确",
-    "/items/berserk": "狂暴",
-    "/items/elemental_affinity": "元素增幅",
-    "/items/frenzy": "狂速",
-    "/items/spike_shell": "尖刺防护",
-    "/items/retribution": "惩戒",
-    "/items/vampirism": "吸血",
-    "/items/revive": "复活",
-    "/items/insanity": "疯狂",
-    "/items/invincible": "无敌",
-    "/items/speed_aura": "速度光环",
-    "/items/guardian_aura": "守护光环",
-    "/items/fierce_aura": "物理光环",
-    "/items/critical_aura": "暴击光环",
-    "/items/mystic_aura": "元素光环",
-    "/items/gobo_stabber": "哥布林长剑",
-    "/items/gobo_slasher": "哥布林关刀",
-    "/items/gobo_smasher": "哥布林狼牙棒",
-    "/items/spiked_bulwark": "尖刺重盾",
-    "/items/werewolf_slasher": "狼人关刀",
-    "/items/griffin_bulwark": "狮鹫重盾",
-    "/items/griffin_bulwark_refined": "狮鹫重盾 ★",
-    "/items/gobo_shooter": "哥布林弹弓",
-    "/items/vampiric_bow": "吸血弓",
-    "/items/cursed_bow": "咒怨之弓",
-    "/items/cursed_bow_refined": "咒怨之弓 ★",
-    "/items/gobo_boomstick": "哥布林火棍",
-    "/items/cheese_bulwark": "奶酪重盾",
-    "/items/verdant_bulwark": "翠绿重盾",
-    "/items/azure_bulwark": "蔚蓝重盾",
-    "/items/burble_bulwark": "深紫重盾",
-    "/items/crimson_bulwark": "绛红重盾",
-    "/items/rainbow_bulwark": "彩虹重盾",
-    "/items/holy_bulwark": "神圣重盾",
-    "/items/wooden_bow": "木弓",
-    "/items/birch_bow": "桦木弓",
-    "/items/cedar_bow": "雪松弓",
-    "/items/purpleheart_bow": "紫心弓",
-    "/items/ginkgo_bow": "银杏弓",
-    "/items/redwood_bow": "红杉弓",
-    "/items/arcane_bow": "神秘弓",
-    "/items/stalactite_spear": "石钟长枪",
-    "/items/granite_bludgeon": "花岗岩大棒",
-    "/items/furious_spear": "狂怒长枪",
-    "/items/furious_spear_refined": "狂怒长枪 ★",
-    "/items/regal_sword": "君王之剑",
-    "/items/regal_sword_refined": "君王之剑 ★",
-    "/items/chaotic_flail": "混沌连枷",
-    "/items/chaotic_flail_refined": "混沌连枷 ★",
-    "/items/soul_hunter_crossbow": "灵魂猎手弩",
-    "/items/sundering_crossbow": "裂空之弩",
-    "/items/sundering_crossbow_refined": "裂空之弩 ★",
-    "/items/frost_staff": "冰霜法杖",
-    "/items/infernal_battlestaff": "炼狱法杖",
-    "/items/jackalope_staff": "鹿角兔之杖",
-    "/items/rippling_trident": "涟漪三叉戟",
-    "/items/rippling_trident_refined": "涟漪三叉戟 ★",
-    "/items/blooming_trident": "绽放三叉戟",
-    "/items/blooming_trident_refined": "绽放三叉戟 ★",
-    "/items/blazing_trident": "炽焰三叉戟",
-    "/items/blazing_trident_refined": "炽焰三叉戟 ★",
-    "/items/cheese_sword": "奶酪剑",
-    "/items/verdant_sword": "翠绿剑",
-    "/items/azure_sword": "蔚蓝剑",
-    "/items/burble_sword": "深紫剑",
-    "/items/crimson_sword": "绛红剑",
-    "/items/rainbow_sword": "彩虹剑",
-    "/items/holy_sword": "神圣剑",
-    "/items/cheese_spear": "奶酪长枪",
-    "/items/verdant_spear": "翠绿长枪",
-    "/items/azure_spear": "蔚蓝长枪",
-    "/items/burble_spear": "深紫长枪",
-    "/items/crimson_spear": "绛红长枪",
-    "/items/rainbow_spear": "彩虹长枪",
-    "/items/holy_spear": "神圣长枪",
-    "/items/cheese_mace": "奶酪钉头锤",
-    "/items/verdant_mace": "翠绿钉头锤",
-    "/items/azure_mace": "蔚蓝钉头锤",
-    "/items/burble_mace": "深紫钉头锤",
-    "/items/crimson_mace": "绛红钉头锤",
-    "/items/rainbow_mace": "彩虹钉头锤",
-    "/items/holy_mace": "神圣钉头锤",
-    "/items/wooden_crossbow": "木弩",
-    "/items/birch_crossbow": "桦木弩",
-    "/items/cedar_crossbow": "雪松弩",
-    "/items/purpleheart_crossbow": "紫心弩",
-    "/items/ginkgo_crossbow": "银杏弩",
-    "/items/redwood_crossbow": "红杉弩",
-    "/items/arcane_crossbow": "神秘弩",
-    "/items/wooden_water_staff": "木制水法杖",
-    "/items/birch_water_staff": "桦木水法杖",
-    "/items/cedar_water_staff": "雪松水法杖",
-    "/items/purpleheart_water_staff": "紫心水法杖",
-    "/items/ginkgo_water_staff": "银杏水法杖",
-    "/items/redwood_water_staff": "红杉水法杖",
-    "/items/arcane_water_staff": "神秘水法杖",
-    "/items/wooden_nature_staff": "木制自然法杖",
-    "/items/birch_nature_staff": "桦木自然法杖",
-    "/items/cedar_nature_staff": "雪松自然法杖",
-    "/items/purpleheart_nature_staff": "紫心自然法杖",
-    "/items/ginkgo_nature_staff": "银杏自然法杖",
-    "/items/redwood_nature_staff": "红杉自然法杖",
-    "/items/arcane_nature_staff": "神秘自然法杖",
-    "/items/wooden_fire_staff": "木制火法杖",
-    "/items/birch_fire_staff": "桦木火法杖",
-    "/items/cedar_fire_staff": "雪松火法杖",
-    "/items/purpleheart_fire_staff": "紫心火法杖",
-    "/items/ginkgo_fire_staff": "银杏火法杖",
-    "/items/redwood_fire_staff": "红杉火法杖",
-    "/items/arcane_fire_staff": "神秘火法杖",
-    "/items/eye_watch": "掌上监工",
-    "/items/snake_fang_dirk": "蛇牙短剑",
-    "/items/vision_shield": "视觉盾",
-    "/items/gobo_defender": "哥布林防御者",
-    "/items/vampire_fang_dirk": "吸血鬼短剑",
-    "/items/knights_aegis": "骑士盾",
-    "/items/knights_aegis_refined": "骑士盾 ★",
-    "/items/treant_shield": "树人盾",
-    "/items/manticore_shield": "蝎狮盾",
-    "/items/tome_of_healing": "治疗之书",
-    "/items/tome_of_the_elements": "元素之书",
-    "/items/watchful_relic": "警戒遗物",
-    "/items/bishops_codex": "主教法典",
-    "/items/bishops_codex_refined": "主教法典 ★",
-    "/items/cheese_buckler": "奶酪圆盾",
-    "/items/verdant_buckler": "翠绿圆盾",
-    "/items/azure_buckler": "蔚蓝圆盾",
-    "/items/burble_buckler": "深紫圆盾",
-    "/items/crimson_buckler": "绛红圆盾",
-    "/items/rainbow_buckler": "彩虹圆盾",
-    "/items/holy_buckler": "神圣圆盾",
-    "/items/wooden_shield": "木盾",
-    "/items/birch_shield": "桦木盾",
-    "/items/cedar_shield": "雪松盾",
-    "/items/purpleheart_shield": "紫心盾",
-    "/items/ginkgo_shield": "银杏盾",
-    "/items/redwood_shield": "红杉盾",
-    "/items/arcane_shield": "神秘盾",
-    "/items/gatherer_cape": "采集者披风",
-    "/items/gatherer_cape_refined": "采集者披风 ★",
-    "/items/artificer_cape": "工匠披风",
-    "/items/artificer_cape_refined": "工匠披风 ★",
-    "/items/culinary_cape": "厨师披风",
-    "/items/culinary_cape_refined": "厨师披风 ★",
-    "/items/chance_cape": "机缘披风",
-    "/items/chance_cape_refined": "机缘披风 ★",
-    "/items/sinister_cape": "阴森披风",
-    "/items/sinister_cape_refined": "阴森披风 ★",
-    "/items/chimerical_quiver": "奇幻箭袋",
-    "/items/chimerical_quiver_refined": "奇幻箭袋 ★",
-    "/items/enchanted_cloak": "秘法披风",
-    "/items/enchanted_cloak_refined": "秘法披风 ★",
-    "/items/red_culinary_hat": "红色厨师帽",
-    "/items/snail_shell_helmet": "蜗牛壳头盔",
-    "/items/vision_helmet": "视觉头盔",
-    "/items/fluffy_red_hat": "蓬松红帽子",
-    "/items/corsair_helmet": "掠夺者头盔",
-    "/items/corsair_helmet_refined": "掠夺者头盔 ★",
-    "/items/acrobatic_hood": "杂技师兜帽",
-    "/items/acrobatic_hood_refined": "杂技师兜帽 ★",
-    "/items/magicians_hat": "魔术师帽",
-    "/items/magicians_hat_refined": "魔术师帽 ★",
-    "/items/cheese_helmet": "奶酪头盔",
-    "/items/verdant_helmet": "翠绿头盔",
-    "/items/azure_helmet": "蔚蓝头盔",
-    "/items/burble_helmet": "深紫头盔",
-    "/items/crimson_helmet": "绛红头盔",
-    "/items/rainbow_helmet": "彩虹头盔",
-    "/items/holy_helmet": "神圣头盔",
-    "/items/rough_hood": "粗糙兜帽",
-    "/items/reptile_hood": "爬行动物兜帽",
-    "/items/gobo_hood": "哥布林兜帽",
-    "/items/beast_hood": "野兽兜帽",
-    "/items/umbral_hood": "暗影兜帽",
-    "/items/cotton_hat": "棉帽",
-    "/items/linen_hat": "亚麻帽",
-    "/items/bamboo_hat": "竹帽",
-    "/items/silk_hat": "丝帽",
-    "/items/radiant_hat": "光辉帽",
-    "/items/dairyhands_top": "挤奶工上衣",
-    "/items/foragers_top": "采摘者上衣",
-    "/items/lumberjacks_top": "伐木工上衣",
-    "/items/cheesemakers_top": "奶酪师上衣",
-    "/items/crafters_top": "工匠上衣",
-    "/items/tailors_top": "裁缝上衣",
-    "/items/chefs_top": "厨师上衣",
-    "/items/brewers_top": "饮品师上衣",
-    "/items/alchemists_top": "炼金师上衣",
-    "/items/enhancers_top": "强化师上衣",
-    "/items/gator_vest": "鳄鱼马甲",
-    "/items/turtle_shell_body": "龟壳胸甲",
-    "/items/colossus_plate_body": "巨像胸甲",
-    "/items/demonic_plate_body": "恶魔胸甲",
-    "/items/anchorbound_plate_body": "锚定胸甲",
-    "/items/anchorbound_plate_body_refined": "锚定胸甲 ★",
-    "/items/maelstrom_plate_body": "怒涛胸甲",
-    "/items/maelstrom_plate_body_refined": "怒涛胸甲 ★",
-    "/items/marine_tunic": "海洋皮衣",
-    "/items/revenant_tunic": "亡灵皮衣",
-    "/items/griffin_tunic": "狮鹫皮衣",
-    "/items/kraken_tunic": "克拉肯皮衣",
-    "/items/kraken_tunic_refined": "克拉肯皮衣 ★",
-    "/items/icy_robe_top": "冰霜袍服",
-    "/items/flaming_robe_top": "烈焰袍服",
-    "/items/luna_robe_top": "月神袍服",
-    "/items/royal_water_robe_top": "皇家水系袍服",
-    "/items/royal_water_robe_top_refined": "皇家水系袍服 ★",
-    "/items/royal_nature_robe_top": "皇家自然系袍服",
-    "/items/royal_nature_robe_top_refined": "皇家自然系袍服 ★",
-    "/items/royal_fire_robe_top": "皇家火系袍服",
-    "/items/royal_fire_robe_top_refined": "皇家火系袍服 ★",
-    "/items/cheese_plate_body": "奶酪胸甲",
-    "/items/verdant_plate_body": "翠绿胸甲",
-    "/items/azure_plate_body": "蔚蓝胸甲",
-    "/items/burble_plate_body": "深紫胸甲",
-    "/items/crimson_plate_body": "绛红胸甲",
-    "/items/rainbow_plate_body": "彩虹胸甲",
-    "/items/holy_plate_body": "神圣胸甲",
-    "/items/rough_tunic": "粗糙皮衣",
-    "/items/reptile_tunic": "爬行动物皮衣",
-    "/items/gobo_tunic": "哥布林皮衣",
-    "/items/beast_tunic": "野兽皮衣",
-    "/items/umbral_tunic": "暗影皮衣",
-    "/items/cotton_robe_top": "棉袍服",
-    "/items/linen_robe_top": "亚麻袍服",
-    "/items/bamboo_robe_top": "竹袍服",
-    "/items/silk_robe_top": "丝绸袍服",
-    "/items/radiant_robe_top": "光辉袍服",
-    "/items/dairyhands_bottoms": "挤奶工下装",
-    "/items/foragers_bottoms": "采摘者下装",
-    "/items/lumberjacks_bottoms": "伐木工下装",
-    "/items/cheesemakers_bottoms": "奶酪师下装",
-    "/items/crafters_bottoms": "工匠下装",
-    "/items/tailors_bottoms": "裁缝下装",
-    "/items/chefs_bottoms": "厨师下装",
-    "/items/brewers_bottoms": "饮品师下装",
-    "/items/alchemists_bottoms": "炼金师下装",
-    "/items/enhancers_bottoms": "强化师下装",
-    "/items/turtle_shell_legs": "龟壳腿甲",
-    "/items/colossus_plate_legs": "巨像腿甲",
-    "/items/demonic_plate_legs": "恶魔腿甲",
-    "/items/anchorbound_plate_legs": "锚定腿甲",
-    "/items/anchorbound_plate_legs_refined": "锚定腿甲 ★",
-    "/items/maelstrom_plate_legs": "怒涛腿甲",
-    "/items/maelstrom_plate_legs_refined": "怒涛腿甲 ★",
-    "/items/marine_chaps": "航海皮裤",
-    "/items/revenant_chaps": "亡灵皮裤",
-    "/items/griffin_chaps": "狮鹫皮裤",
-    "/items/kraken_chaps": "克拉肯皮裤",
-    "/items/kraken_chaps_refined": "克拉肯皮裤 ★",
-    "/items/icy_robe_bottoms": "冰霜袍裙",
-    "/items/flaming_robe_bottoms": "烈焰袍裙",
-    "/items/luna_robe_bottoms": "月神袍裙",
-    "/items/royal_water_robe_bottoms": "皇家水系袍裙",
-    "/items/royal_water_robe_bottoms_refined": "皇家水系袍裙 ★",
-    "/items/royal_nature_robe_bottoms": "皇家自然系袍裙",
-    "/items/royal_nature_robe_bottoms_refined": "皇家自然系袍裙 ★",
-    "/items/royal_fire_robe_bottoms": "皇家火系袍裙",
-    "/items/royal_fire_robe_bottoms_refined": "皇家火系袍裙 ★",
-    "/items/cheese_plate_legs": "奶酪腿甲",
-    "/items/verdant_plate_legs": "翠绿腿甲",
-    "/items/azure_plate_legs": "蔚蓝腿甲",
-    "/items/burble_plate_legs": "深紫腿甲",
-    "/items/crimson_plate_legs": "绛红腿甲",
-    "/items/rainbow_plate_legs": "彩虹腿甲",
-    "/items/holy_plate_legs": "神圣腿甲",
-    "/items/rough_chaps": "粗糙皮裤",
-    "/items/reptile_chaps": "爬行动物皮裤",
-    "/items/gobo_chaps": "哥布林皮裤",
-    "/items/beast_chaps": "野兽皮裤",
-    "/items/umbral_chaps": "暗影皮裤",
-    "/items/cotton_robe_bottoms": "棉袍裙",
-    "/items/linen_robe_bottoms": "亚麻袍裙",
-    "/items/bamboo_robe_bottoms": "竹袍裙",
-    "/items/silk_robe_bottoms": "丝绸袍裙",
-    "/items/radiant_robe_bottoms": "光辉袍裙",
-    "/items/enchanted_gloves": "附魔手套",
-    "/items/pincer_gloves": "蟹钳手套",
-    "/items/panda_gloves": "熊猫手套",
-    "/items/magnetic_gloves": "磁力手套",
-    "/items/dodocamel_gauntlets": "渡渡驼护手",
-    "/items/dodocamel_gauntlets_refined": "渡渡驼护手 ★",
-    "/items/sighted_bracers": "瞄准护腕",
-    "/items/marksman_bracers": "神射护腕",
-    "/items/marksman_bracers_refined": "神射护腕 ★",
-    "/items/chrono_gloves": "时空手套",
-    "/items/cheese_gauntlets": "奶酪护手",
-    "/items/verdant_gauntlets": "翠绿护手",
-    "/items/azure_gauntlets": "蔚蓝护手",
-    "/items/burble_gauntlets": "深紫护手",
-    "/items/crimson_gauntlets": "绛红护手",
-    "/items/rainbow_gauntlets": "彩虹护手",
-    "/items/holy_gauntlets": "神圣护手",
-    "/items/rough_bracers": "粗糙护腕",
-    "/items/reptile_bracers": "爬行动物护腕",
-    "/items/gobo_bracers": "哥布林护腕",
-    "/items/beast_bracers": "野兽护腕",
-    "/items/umbral_bracers": "暗影护腕",
-    "/items/cotton_gloves": "棉手套",
-    "/items/linen_gloves": "亚麻手套",
-    "/items/bamboo_gloves": "竹手套",
-    "/items/silk_gloves": "丝手套",
-    "/items/radiant_gloves": "光辉手套",
-    "/items/collectors_boots": "收藏家靴",
-    "/items/shoebill_shoes": "鲸头鹳鞋",
-    "/items/black_bear_shoes": "黑熊鞋",
-    "/items/grizzly_bear_shoes": "棕熊鞋",
-    "/items/polar_bear_shoes": "北极熊鞋",
-    "/items/pathbreaker_boots": "开路者靴",
-    "/items/pathbreaker_boots_refined": "开路者靴 ★",
-    "/items/centaur_boots": "半人马靴",
-    "/items/pathfinder_boots": "探路者靴",
-    "/items/pathfinder_boots_refined": "探路者靴 ★",
-    "/items/sorcerer_boots": "巫师靴",
-    "/items/pathseeker_boots": "寻路者靴",
-    "/items/pathseeker_boots_refined": "寻路者靴 ★",
-    "/items/cheese_boots": "奶酪靴",
-    "/items/verdant_boots": "翠绿靴",
-    "/items/azure_boots": "蔚蓝靴",
-    "/items/burble_boots": "深紫靴",
-    "/items/crimson_boots": "绛红靴",
-    "/items/rainbow_boots": "彩虹靴",
-    "/items/holy_boots": "神圣靴",
-    "/items/rough_boots": "粗糙靴",
-    "/items/reptile_boots": "爬行动物靴",
-    "/items/gobo_boots": "哥布林靴",
-    "/items/beast_boots": "野兽靴",
-    "/items/umbral_boots": "暗影靴",
-    "/items/cotton_boots": "棉靴",
-    "/items/linen_boots": "亚麻靴",
-    "/items/bamboo_boots": "竹靴",
-    "/items/silk_boots": "丝靴",
-    "/items/radiant_boots": "光辉靴",
-    "/items/small_pouch": "小袋子",
-    "/items/medium_pouch": "中袋子",
-    "/items/large_pouch": "大袋子",
-    "/items/giant_pouch": "巨大袋子",
-    "/items/gluttonous_pouch": "贪食之袋",
-    "/items/guzzling_pouch": "暴饮之囊",
-    "/items/necklace_of_efficiency": "效率项链",
-    "/items/fighter_necklace": "战士项链",
-    "/items/ranger_necklace": "射手项链",
-    "/items/wizard_necklace": "巫师项链",
-    "/items/necklace_of_wisdom": "经验项链",
-    "/items/necklace_of_speed": "速度项链",
-    "/items/philosophers_necklace": "贤者项链",
-    "/items/earrings_of_gathering": "采集耳环",
-    "/items/earrings_of_essence_find": "精华发现耳环",
-    "/items/earrings_of_armor": "护甲耳环",
-    "/items/earrings_of_regeneration": "恢复耳环",
-    "/items/earrings_of_resistance": "抗性耳环",
-    "/items/earrings_of_rare_find": "稀有发现耳环",
-    "/items/earrings_of_critical_strike": "暴击耳环",
-    "/items/philosophers_earrings": "贤者耳环",
-    "/items/ring_of_gathering": "采集戒指",
-    "/items/ring_of_essence_find": "精华发现戒指",
-    "/items/ring_of_armor": "护甲戒指",
-    "/items/ring_of_regeneration": "恢复戒指",
-    "/items/ring_of_resistance": "抗性戒指",
-    "/items/ring_of_rare_find": "稀有发现戒指",
-    "/items/ring_of_critical_strike": "暴击戒指",
-    "/items/philosophers_ring": "贤者戒指",
-    "/items/trainee_milking_charm": "实习挤奶护符",
-    "/items/basic_milking_charm": "基础挤奶护符",
-    "/items/advanced_milking_charm": "高级挤奶护符",
-    "/items/expert_milking_charm": "专家挤奶护符",
-    "/items/master_milking_charm": "大师挤奶护符",
-    "/items/grandmaster_milking_charm": "宗师挤奶护符",
-    "/items/trainee_foraging_charm": "实习采摘护符",
-    "/items/basic_foraging_charm": "基础采摘护符",
-    "/items/advanced_foraging_charm": "高级采摘护符",
-    "/items/expert_foraging_charm": "专家采摘护符",
-    "/items/master_foraging_charm": "大师采摘护符",
-    "/items/grandmaster_foraging_charm": "宗师采摘护符",
-    "/items/trainee_woodcutting_charm": "实习伐木护符",
-    "/items/basic_woodcutting_charm": "基础伐木护符",
-    "/items/advanced_woodcutting_charm": "高级伐木护符",
-    "/items/expert_woodcutting_charm": "专家伐木护符",
-    "/items/master_woodcutting_charm": "大师伐木护符",
-    "/items/grandmaster_woodcutting_charm": "宗师伐木护符",
-    "/items/trainee_cheesesmithing_charm": "实习奶酪锻造护符",
-    "/items/basic_cheesesmithing_charm": "基础奶酪锻造护符",
-    "/items/advanced_cheesesmithing_charm": "高级奶酪锻造护符",
-    "/items/expert_cheesesmithing_charm": "专家奶酪锻造护符",
-    "/items/master_cheesesmithing_charm": "大师奶酪锻造护符",
-    "/items/grandmaster_cheesesmithing_charm": "宗师奶酪锻造护符",
-    "/items/trainee_crafting_charm": "实习制作护符",
-    "/items/basic_crafting_charm": "基础制作护符",
-    "/items/advanced_crafting_charm": "高级制作护符",
-    "/items/expert_crafting_charm": "专家制作护符",
-    "/items/master_crafting_charm": "大师制作护符",
-    "/items/grandmaster_crafting_charm": "宗师制作护符",
-    "/items/trainee_tailoring_charm": "实习缝纫护符",
-    "/items/basic_tailoring_charm": "基础缝纫护符",
-    "/items/advanced_tailoring_charm": "高级缝纫护符",
-    "/items/expert_tailoring_charm": "专家缝纫护符",
-    "/items/master_tailoring_charm": "大师缝纫护符",
-    "/items/grandmaster_tailoring_charm": "宗师缝纫护符",
-    "/items/trainee_cooking_charm": "实习烹饪护符",
-    "/items/basic_cooking_charm": "基础烹饪护符",
-    "/items/advanced_cooking_charm": "高级烹饪护符",
-    "/items/expert_cooking_charm": "专家烹饪护符",
-    "/items/master_cooking_charm": "大师烹饪护符",
-    "/items/grandmaster_cooking_charm": "宗师烹饪护符",
-    "/items/trainee_brewing_charm": "实习冲泡护符",
-    "/items/basic_brewing_charm": "基础冲泡护符",
-    "/items/advanced_brewing_charm": "高级冲泡护符",
-    "/items/expert_brewing_charm": "专家冲泡护符",
-    "/items/master_brewing_charm": "大师冲泡护符",
-    "/items/grandmaster_brewing_charm": "宗师冲泡护符",
-    "/items/trainee_alchemy_charm": "实习炼金护符",
-    "/items/basic_alchemy_charm": "基础炼金护符",
-    "/items/advanced_alchemy_charm": "高级炼金护符",
-    "/items/expert_alchemy_charm": "专家炼金护符",
-    "/items/master_alchemy_charm": "大师炼金护符",
-    "/items/grandmaster_alchemy_charm": "宗师炼金护符",
-    "/items/trainee_enhancing_charm": "实习强化护符",
-    "/items/basic_enhancing_charm": "基础强化护符",
-    "/items/advanced_enhancing_charm": "高级强化护符",
-    "/items/expert_enhancing_charm": "专家强化护符",
-    "/items/master_enhancing_charm": "大师强化护符",
-    "/items/grandmaster_enhancing_charm": "宗师强化护符",
-    "/items/trainee_stamina_charm": "实习耐力护符",
-    "/items/basic_stamina_charm": "基础耐力护符",
-    "/items/advanced_stamina_charm": "高级耐力护符",
-    "/items/expert_stamina_charm": "专家耐力护符",
-    "/items/master_stamina_charm": "大师耐力护符",
-    "/items/grandmaster_stamina_charm": "宗师耐力护符",
-    "/items/trainee_intelligence_charm": "实习智力护符",
-    "/items/basic_intelligence_charm": "基础智力护符",
-    "/items/advanced_intelligence_charm": "高级智力护符",
-    "/items/expert_intelligence_charm": "专家智力护符",
-    "/items/master_intelligence_charm": "大师智力护符",
-    "/items/grandmaster_intelligence_charm": "宗师智力护符",
-    "/items/trainee_attack_charm": "实习攻击护符",
-    "/items/basic_attack_charm": "基础攻击护符",
-    "/items/advanced_attack_charm": "高级攻击护符",
-    "/items/expert_attack_charm": "专家攻击护符",
-    "/items/master_attack_charm": "大师攻击护符",
-    "/items/grandmaster_attack_charm": "宗师攻击护符",
-    "/items/trainee_defense_charm": "实习防御护符",
-    "/items/basic_defense_charm": "基础防御护符",
-    "/items/advanced_defense_charm": "高级防御护符",
-    "/items/expert_defense_charm": "专家防御护符",
-    "/items/master_defense_charm": "大师防御护符",
-    "/items/grandmaster_defense_charm": "宗师防御护符",
-    "/items/trainee_melee_charm": "实习近战护符",
-    "/items/basic_melee_charm": "基础近战护符",
-    "/items/advanced_melee_charm": "高级近战护符",
-    "/items/expert_melee_charm": "专家近战护符",
-    "/items/master_melee_charm": "大师近战护符",
-    "/items/grandmaster_melee_charm": "宗师近战护符",
-    "/items/trainee_ranged_charm": "实习远程护符",
-    "/items/basic_ranged_charm": "基础远程护符",
-    "/items/advanced_ranged_charm": "高级远程护符",
-    "/items/expert_ranged_charm": "专家远程护符",
-    "/items/master_ranged_charm": "大师远程护符",
-    "/items/grandmaster_ranged_charm": "宗师远程护符",
-    "/items/trainee_magic_charm": "实习魔法护符",
-    "/items/basic_magic_charm": "基础魔法护符",
-    "/items/advanced_magic_charm": "高级魔法护符",
-    "/items/expert_magic_charm": "专家魔法护符",
-    "/items/master_magic_charm": "大师魔法护符",
-    "/items/grandmaster_magic_charm": "宗师魔法护符",
-    "/items/basic_task_badge": "基础任务徽章",
-    "/items/advanced_task_badge": "高级任务徽章",
-    "/items/expert_task_badge": "专家任务徽章",
-    "/items/celestial_brush": "星空刷子",
-    "/items/cheese_brush": "奶酪刷子",
-    "/items/verdant_brush": "翠绿刷子",
-    "/items/azure_brush": "蔚蓝刷子",
-    "/items/burble_brush": "深紫刷子",
-    "/items/crimson_brush": "绛红刷子",
-    "/items/rainbow_brush": "彩虹刷子",
-    "/items/holy_brush": "神圣刷子",
-    "/items/celestial_shears": "星空剪刀",
-    "/items/cheese_shears": "奶酪剪刀",
-    "/items/verdant_shears": "翠绿剪刀",
-    "/items/azure_shears": "蔚蓝剪刀",
-    "/items/burble_shears": "深紫剪刀",
-    "/items/crimson_shears": "绛红剪刀",
-    "/items/rainbow_shears": "彩虹剪刀",
-    "/items/holy_shears": "神圣剪刀",
-    "/items/celestial_hatchet": "星空斧头",
-    "/items/cheese_hatchet": "奶酪斧头",
-    "/items/verdant_hatchet": "翠绿斧头",
-    "/items/azure_hatchet": "蔚蓝斧头",
-    "/items/burble_hatchet": "深紫斧头",
-    "/items/crimson_hatchet": "绛红斧头",
-    "/items/rainbow_hatchet": "彩虹斧头",
-    "/items/holy_hatchet": "神圣斧头",
-    "/items/celestial_hammer": "星空锤子",
-    "/items/cheese_hammer": "奶酪锤子",
-    "/items/verdant_hammer": "翠绿锤子",
-    "/items/azure_hammer": "蔚蓝锤子",
-    "/items/burble_hammer": "深紫锤子",
-    "/items/crimson_hammer": "绛红锤子",
-    "/items/rainbow_hammer": "彩虹锤子",
-    "/items/holy_hammer": "神圣锤子",
-    "/items/celestial_chisel": "星空凿子",
-    "/items/cheese_chisel": "奶酪凿子",
-    "/items/verdant_chisel": "翠绿凿子",
-    "/items/azure_chisel": "蔚蓝凿子",
-    "/items/burble_chisel": "深紫凿子",
-    "/items/crimson_chisel": "绛红凿子",
-    "/items/rainbow_chisel": "彩虹凿子",
-    "/items/holy_chisel": "神圣凿子",
-    "/items/celestial_needle": "星空针",
-    "/items/cheese_needle": "奶酪针",
-    "/items/verdant_needle": "翠绿针",
-    "/items/azure_needle": "蔚蓝针",
-    "/items/burble_needle": "深紫针",
-    "/items/crimson_needle": "绛红针",
-    "/items/rainbow_needle": "彩虹针",
-    "/items/holy_needle": "神圣针",
-    "/items/celestial_spatula": "星空锅铲",
-    "/items/cheese_spatula": "奶酪锅铲",
-    "/items/verdant_spatula": "翠绿锅铲",
-    "/items/azure_spatula": "蔚蓝锅铲",
-    "/items/burble_spatula": "深紫锅铲",
-    "/items/crimson_spatula": "绛红锅铲",
-    "/items/rainbow_spatula": "彩虹锅铲",
-    "/items/holy_spatula": "神圣锅铲",
-    "/items/celestial_pot": "星空壶",
-    "/items/cheese_pot": "奶酪壶",
-    "/items/verdant_pot": "翠绿壶",
-    "/items/azure_pot": "蔚蓝壶",
-    "/items/burble_pot": "深紫壶",
-    "/items/crimson_pot": "绛红壶",
-    "/items/rainbow_pot": "彩虹壶",
-    "/items/holy_pot": "神圣壶",
-    "/items/celestial_alembic": "星空蒸馏器",
-    "/items/cheese_alembic": "奶酪蒸馏器",
-    "/items/verdant_alembic": "翠绿蒸馏器",
-    "/items/azure_alembic": "蔚蓝蒸馏器",
-    "/items/burble_alembic": "深紫蒸馏器",
-    "/items/crimson_alembic": "绛红蒸馏器",
-    "/items/rainbow_alembic": "彩虹蒸馏器",
-    "/items/holy_alembic": "神圣蒸馏器",
-    "/items/celestial_enhancer": "星空强化器",
-    "/items/cheese_enhancer": "奶酪强化器",
-    "/items/verdant_enhancer": "翠绿强化器",
-    "/items/azure_enhancer": "蔚蓝强化器",
-    "/items/burble_enhancer": "深紫强化器",
-    "/items/crimson_enhancer": "绛红强化器",
-    "/items/rainbow_enhancer": "彩虹强化器",
-    "/items/holy_enhancer": "神圣强化器",
-    "/items/milk": "牛奶",
-    "/items/verdant_milk": "翠绿牛奶",
-    "/items/azure_milk": "蔚蓝牛奶",
-    "/items/burble_milk": "深紫牛奶",
-    "/items/crimson_milk": "绛红牛奶",
-    "/items/rainbow_milk": "彩虹牛奶",
-    "/items/holy_milk": "神圣牛奶",
-    "/items/cheese": "奶酪",
-    "/items/verdant_cheese": "翠绿奶酪",
-    "/items/azure_cheese": "蔚蓝奶酪",
-    "/items/burble_cheese": "深紫奶酪",
-    "/items/crimson_cheese": "绛红奶酪",
-    "/items/rainbow_cheese": "彩虹奶酪",
-    "/items/holy_cheese": "神圣奶酪",
-    "/items/log": "原木",
-    "/items/birch_log": "白桦原木",
-    "/items/cedar_log": "雪松原木",
-    "/items/purpleheart_log": "紫心原木",
-    "/items/ginkgo_log": "银杏原木",
-    "/items/redwood_log": "红杉原木",
-    "/items/arcane_log": "神秘原木",
-    "/items/lumber": "木板",
-    "/items/birch_lumber": "白桦木板",
-    "/items/cedar_lumber": "雪松木板",
-    "/items/purpleheart_lumber": "紫心木板",
-    "/items/ginkgo_lumber": "银杏木板",
-    "/items/redwood_lumber": "红杉木板",
-    "/items/arcane_lumber": "神秘木板",
-    "/items/rough_hide": "粗糙兽皮",
-    "/items/reptile_hide": "爬行动物皮",
-    "/items/gobo_hide": "哥布林皮",
-    "/items/beast_hide": "野兽皮",
-    "/items/umbral_hide": "暗影皮",
-    "/items/rough_leather": "粗糙皮革",
-    "/items/reptile_leather": "爬行动物皮革",
-    "/items/gobo_leather": "哥布林皮革",
-    "/items/beast_leather": "野兽皮革",
-    "/items/umbral_leather": "暗影皮革",
-    "/items/cotton": "棉花",
-    "/items/flax": "亚麻",
-    "/items/bamboo_branch": "竹子",
-    "/items/cocoon": "蚕茧",
-    "/items/radiant_fiber": "光辉纤维",
-    "/items/cotton_fabric": "棉花布料",
-    "/items/linen_fabric": "亚麻布料",
-    "/items/bamboo_fabric": "竹子布料",
-    "/items/silk_fabric": "丝绸",
-    "/items/radiant_fabric": "光辉布料",
-    "/items/egg": "鸡蛋",
-    "/items/wheat": "小麦",
-    "/items/sugar": "糖",
-    "/items/blueberry": "蓝莓",
-    "/items/blackberry": "黑莓",
-    "/items/strawberry": "草莓",
-    "/items/mooberry": "哞莓",
-    "/items/marsberry": "火星莓",
-    "/items/spaceberry": "太空莓",
-    "/items/apple": "苹果",
-    "/items/orange": "橙子",
-    "/items/plum": "李子",
-    "/items/peach": "桃子",
-    "/items/dragon_fruit": "火龙果",
-    "/items/star_fruit": "杨桃",
-    "/items/arabica_coffee_bean": "低级咖啡豆",
-    "/items/robusta_coffee_bean": "中级咖啡豆",
-    "/items/liberica_coffee_bean": "高级咖啡豆",
-    "/items/excelsa_coffee_bean": "特级咖啡豆",
-    "/items/fieriosa_coffee_bean": "火山咖啡豆",
-    "/items/spacia_coffee_bean": "太空咖啡豆",
-    "/items/green_tea_leaf": "绿茶叶",
-    "/items/black_tea_leaf": "黑茶叶",
-    "/items/burble_tea_leaf": "紫茶叶",
-    "/items/moolong_tea_leaf": "哞龙茶叶",
-    "/items/red_tea_leaf": "红茶叶",
-    "/items/emp_tea_leaf": "虚空茶叶",
-    "/items/catalyst_of_coinification": "点金催化剂",
-    "/items/catalyst_of_decomposition": "分解催化剂",
-    "/items/catalyst_of_transmutation": "转化催化剂",
-    "/items/prime_catalyst": "至高催化剂",
-    "/items/snake_fang": "蛇牙",
-    "/items/shoebill_feather": "鲸头鹳羽毛",
-    "/items/snail_shell": "蜗牛壳",
-    "/items/crab_pincer": "蟹钳",
-    "/items/turtle_shell": "乌龟壳",
-    "/items/marine_scale": "海洋鳞片",
-    "/items/treant_bark": "树皮",
-    "/items/centaur_hoof": "半人马蹄",
-    "/items/luna_wing": "月神翼",
-    "/items/gobo_rag": "哥布林抹布",
-    "/items/goggles": "护目镜",
-    "/items/magnifying_glass": "放大镜",
-    "/items/eye_of_the_watcher": "观察者之眼",
-    "/items/icy_cloth": "冰霜织物",
-    "/items/flaming_cloth": "烈焰织物",
-    "/items/sorcerers_sole": "魔法师鞋底",
-    "/items/chrono_sphere": "时空球",
-    "/items/frost_sphere": "冰霜球",
-    "/items/panda_fluff": "熊猫绒",
-    "/items/black_bear_fluff": "黑熊绒",
-    "/items/grizzly_bear_fluff": "棕熊绒",
-    "/items/polar_bear_fluff": "北极熊绒",
-    "/items/red_panda_fluff": "小熊猫绒",
-    "/items/magnet": "磁铁",
-    "/items/stalactite_shard": "钟乳石碎片",
-    "/items/living_granite": "花岗岩",
-    "/items/colossus_core": "巨像核心",
-    "/items/vampire_fang": "吸血鬼之牙",
-    "/items/werewolf_claw": "狼人之爪",
-    "/items/revenant_anima": "亡者之魂",
-    "/items/soul_fragment": "灵魂碎片",
-    "/items/infernal_ember": "地狱余烬",
-    "/items/demonic_core": "恶魔核心",
-    "/items/griffin_leather": "狮鹫之皮",
-    "/items/manticore_sting": "蝎狮之刺",
-    "/items/jackalope_antler": "鹿角兔之角",
-    "/items/dodocamel_plume": "渡渡驼之翎",
-    "/items/griffin_talon": "狮鹫之爪",
-    "/items/chimerical_refinement_shard": "奇幻精炼碎片",
-    "/items/acrobats_ribbon": "杂技师彩带",
-    "/items/magicians_cloth": "魔术师织物",
-    "/items/chaotic_chain": "混沌锁链",
-    "/items/cursed_ball": "诅咒之球",
-    "/items/sinister_refinement_shard": "阴森精炼碎片",
-    "/items/royal_cloth": "皇家织物",
-    "/items/knights_ingot": "骑士之锭",
-    "/items/bishops_scroll": "主教卷轴",
-    "/items/regal_jewel": "君王宝石",
-    "/items/sundering_jewel": "裂空宝石",
-    "/items/enchanted_refinement_shard": "秘法精炼碎片",
-    "/items/marksman_brooch": "神射胸针",
-    "/items/corsair_crest": "掠夺者徽章",
-    "/items/damaged_anchor": "破损船锚",
-    "/items/maelstrom_plating": "怒涛甲片",
-    "/items/kraken_leather": "克拉肯皮革",
-    "/items/kraken_fang": "克拉肯之牙",
-    "/items/pirate_refinement_shard": "海盗精炼碎片",
-    "/items/pathbreaker_lodestone": "开路者磁石",
-    "/items/pathfinder_lodestone": "探路者磁石",
-    "/items/pathseeker_lodestone": "寻路者磁石",
-    "/items/labyrinth_refinement_shard": "迷宫精炼碎片",
-    "/items/butter_of_proficiency": "精通之油",
-    "/items/thread_of_expertise": "专精之线",
-    "/items/branch_of_insight": "洞察之枝",
-    "/items/gluttonous_energy": "贪食能量",
-    "/items/guzzling_energy": "暴饮能量",
-    "/items/milking_essence": "挤奶精华",
-    "/items/foraging_essence": "采摘精华",
-    "/items/woodcutting_essence": "伐木精华",
-    "/items/cheesesmithing_essence": "奶酪锻造精华",
-    "/items/crafting_essence": "制作精华",
-    "/items/tailoring_essence": "缝纫精华",
-    "/items/cooking_essence": "烹饪精华",
-    "/items/brewing_essence": "冲泡精华",
-    "/items/alchemy_essence": "炼金精华",
-    "/items/enhancing_essence": "强化精华",
-    "/items/swamp_essence": "沼泽精华",
-    "/items/aqua_essence": "海洋精华",
-    "/items/jungle_essence": "丛林精华",
-    "/items/gobo_essence": "哥布林精华",
-    "/items/eyessence": "眼精华",
-    "/items/sorcerer_essence": "法师精华",
-    "/items/bear_essence": "熊熊精华",
-    "/items/golem_essence": "魔像精华",
-    "/items/twilight_essence": "暮光精华",
-    "/items/abyssal_essence": "地狱精华",
-    "/items/chimerical_essence": "奇幻精华",
-    "/items/sinister_essence": "阴森精华",
-    "/items/enchanted_essence": "秘法精华",
-    "/items/pirate_essence": "海盗精华",
-    "/items/labyrinth_essence": "迷宫精华",
-    "/items/task_crystal": "任务水晶",
-    "/items/star_fragment": "星光碎片",
-    "/items/pearl": "珍珠",
-    "/items/amber": "琥珀",
-    "/items/garnet": "石榴石",
-    "/items/jade": "翡翠",
-    "/items/amethyst": "紫水晶",
-    "/items/moonstone": "月亮石",
-    "/items/sunstone": "太阳石",
-    "/items/philosophers_stone": "贤者之石",
-    "/items/crushed_pearl": "珍珠碎片",
-    "/items/crushed_amber": "琥珀碎片",
-    "/items/crushed_garnet": "石榴石碎片",
-    "/items/crushed_jade": "翡翠碎片",
-    "/items/crushed_amethyst": "紫水晶碎片",
-    "/items/crushed_moonstone": "月亮石碎片",
-    "/items/crushed_sunstone": "太阳石碎片",
-    "/items/crushed_philosophers_stone": "贤者之石碎片",
-    "/items/shard_of_protection": "保护碎片",
-    "/items/mirror_of_protection": "保护之镜",
-    "/items/philosophers_mirror": "贤者之镜",
-    "/items/basic_torch": "基础火把",
-    "/items/advanced_torch": "进阶火把",
-    "/items/expert_torch": "专家火把",
-    "/items/basic_shroud": "基础斗篷",
-    "/items/advanced_shroud": "进阶斗篷",
-    "/items/expert_shroud": "专家斗篷",
-    "/items/basic_beacon": "基础探照灯",
-    "/items/advanced_beacon": "进阶探照灯",
-    "/items/expert_beacon": "专家探照灯",
-    "/items/basic_food_crate": "基础食物箱",
-    "/items/advanced_food_crate": "进阶食物箱",
-    "/items/expert_food_crate": "专家食物箱",
-    "/items/basic_tea_crate": "基础茶叶箱",
-    "/items/advanced_tea_crate": "进阶茶叶箱",
-    "/items/expert_tea_crate": "专家茶叶箱",
-    "/items/basic_coffee_crate": "基础咖啡箱",
-    "/items/advanced_coffee_crate": "进阶咖啡箱",
-    "/items/expert_coffee_crate": "专家咖啡箱"
-  };
-  var ZHActionNames = {
-    "/actions/milking/cow": "奶牛",
-    "/actions/milking/verdant_cow": "翠绿奶牛",
-    "/actions/milking/azure_cow": "蔚蓝奶牛",
-    "/actions/milking/burble_cow": "深紫奶牛",
-    "/actions/milking/crimson_cow": "绛红奶牛",
-    "/actions/milking/unicow": "彩虹奶牛",
-    "/actions/milking/holy_cow": "神圣奶牛",
-    "/actions/foraging/egg": "鸡蛋",
-    "/actions/foraging/wheat": "小麦",
-    "/actions/foraging/sugar": "糖",
-    "/actions/foraging/cotton": "棉花",
-    "/actions/foraging/farmland": "翠野农场",
-    "/actions/foraging/blueberry": "蓝莓",
-    "/actions/foraging/apple": "苹果",
-    "/actions/foraging/arabica_coffee_bean": "低级咖啡豆",
-    "/actions/foraging/flax": "亚麻",
-    "/actions/foraging/shimmering_lake": "波光湖泊",
-    "/actions/foraging/blackberry": "黑莓",
-    "/actions/foraging/orange": "橙子",
-    "/actions/foraging/robusta_coffee_bean": "中级咖啡豆",
-    "/actions/foraging/misty_forest": "迷雾森林",
-    "/actions/foraging/strawberry": "草莓",
-    "/actions/foraging/plum": "李子",
-    "/actions/foraging/liberica_coffee_bean": "高级咖啡豆",
-    "/actions/foraging/bamboo_branch": "竹子",
-    "/actions/foraging/burble_beach": "深紫沙滩",
-    "/actions/foraging/mooberry": "哞莓",
-    "/actions/foraging/peach": "桃子",
-    "/actions/foraging/excelsa_coffee_bean": "特级咖啡豆",
-    "/actions/foraging/cocoon": "蚕茧",
-    "/actions/foraging/silly_cow_valley": "傻牛山谷",
-    "/actions/foraging/marsberry": "火星莓",
-    "/actions/foraging/dragon_fruit": "火龙果",
-    "/actions/foraging/fieriosa_coffee_bean": "火山咖啡豆",
-    "/actions/foraging/olympus_mons": "奥林匹斯山",
-    "/actions/foraging/spaceberry": "太空莓",
-    "/actions/foraging/star_fruit": "杨桃",
-    "/actions/foraging/spacia_coffee_bean": "太空咖啡豆",
-    "/actions/foraging/radiant_fiber": "光辉纤维",
-    "/actions/foraging/asteroid_belt": "小行星带",
-    "/actions/woodcutting/tree": "树",
-    "/actions/woodcutting/birch_tree": "桦树",
-    "/actions/woodcutting/cedar_tree": "雪松树",
-    "/actions/woodcutting/purpleheart_tree": "紫心树",
-    "/actions/woodcutting/ginkgo_tree": "银杏树",
-    "/actions/woodcutting/redwood_tree": "红杉树",
-    "/actions/woodcutting/arcane_tree": "奥秘树",
-    "/actions/cheesesmithing/cheese": "奶酪",
-    "/actions/cheesesmithing/cheese_boots": "奶酪靴",
-    "/actions/cheesesmithing/cheese_gauntlets": "奶酪护手",
-    "/actions/cheesesmithing/cheese_sword": "奶酪剑",
-    "/actions/cheesesmithing/cheese_brush": "奶酪刷子",
-    "/actions/cheesesmithing/cheese_shears": "奶酪剪刀",
-    "/actions/cheesesmithing/cheese_hatchet": "奶酪斧头",
-    "/actions/cheesesmithing/cheese_spear": "奶酪长枪",
-    "/actions/cheesesmithing/cheese_hammer": "奶酪锤子",
-    "/actions/cheesesmithing/cheese_chisel": "奶酪凿子",
-    "/actions/cheesesmithing/cheese_needle": "奶酪针",
-    "/actions/cheesesmithing/cheese_spatula": "奶酪锅铲",
-    "/actions/cheesesmithing/cheese_pot": "奶酪壶",
-    "/actions/cheesesmithing/cheese_mace": "奶酪钉头锤",
-    "/actions/cheesesmithing/cheese_alembic": "奶酪蒸馏器",
-    "/actions/cheesesmithing/cheese_enhancer": "奶酪强化器",
-    "/actions/cheesesmithing/cheese_helmet": "奶酪头盔",
-    "/actions/cheesesmithing/cheese_buckler": "奶酪圆盾",
-    "/actions/cheesesmithing/cheese_bulwark": "奶酪重盾",
-    "/actions/cheesesmithing/cheese_plate_legs": "奶酪腿甲",
-    "/actions/cheesesmithing/cheese_plate_body": "奶酪胸甲",
-    "/actions/cheesesmithing/verdant_cheese": "翠绿奶酪",
-    "/actions/cheesesmithing/verdant_boots": "翠绿靴",
-    "/actions/cheesesmithing/verdant_gauntlets": "翠绿护手",
-    "/actions/cheesesmithing/verdant_sword": "翠绿剑",
-    "/actions/cheesesmithing/verdant_brush": "翠绿刷子",
-    "/actions/cheesesmithing/verdant_shears": "翠绿剪刀",
-    "/actions/cheesesmithing/verdant_hatchet": "翠绿斧头",
-    "/actions/cheesesmithing/verdant_spear": "翠绿长枪",
-    "/actions/cheesesmithing/verdant_hammer": "翠绿锤子",
-    "/actions/cheesesmithing/verdant_chisel": "翠绿凿子",
-    "/actions/cheesesmithing/verdant_needle": "翠绿针",
-    "/actions/cheesesmithing/verdant_spatula": "翠绿锅铲",
-    "/actions/cheesesmithing/verdant_pot": "翠绿壶",
-    "/actions/cheesesmithing/verdant_mace": "翠绿钉头锤",
-    "/actions/cheesesmithing/snake_fang_dirk": "蛇牙短剑",
-    "/actions/cheesesmithing/verdant_alembic": "翠绿蒸馏器",
-    "/actions/cheesesmithing/verdant_enhancer": "翠绿强化器",
-    "/actions/cheesesmithing/verdant_helmet": "翠绿头盔",
-    "/actions/cheesesmithing/verdant_buckler": "翠绿圆盾",
-    "/actions/cheesesmithing/verdant_bulwark": "翠绿重盾",
-    "/actions/cheesesmithing/verdant_plate_legs": "翠绿腿甲",
-    "/actions/cheesesmithing/verdant_plate_body": "翠绿胸甲",
-    "/actions/cheesesmithing/azure_cheese": "蔚蓝奶酪",
-    "/actions/cheesesmithing/azure_boots": "蔚蓝靴",
-    "/actions/cheesesmithing/basic_beacon": "基础探照灯",
-    "/actions/cheesesmithing/azure_gauntlets": "蔚蓝护手",
-    "/actions/cheesesmithing/azure_sword": "蔚蓝剑",
-    "/actions/cheesesmithing/azure_brush": "蔚蓝刷子",
-    "/actions/cheesesmithing/azure_shears": "蔚蓝剪刀",
-    "/actions/cheesesmithing/azure_hatchet": "蔚蓝斧头",
-    "/actions/cheesesmithing/azure_spear": "蔚蓝长枪",
-    "/actions/cheesesmithing/azure_hammer": "蔚蓝锤子",
-    "/actions/cheesesmithing/azure_chisel": "蔚蓝凿子",
-    "/actions/cheesesmithing/azure_needle": "蔚蓝针",
-    "/actions/cheesesmithing/azure_spatula": "蔚蓝锅铲",
-    "/actions/cheesesmithing/azure_pot": "蔚蓝壶",
-    "/actions/cheesesmithing/azure_mace": "蔚蓝钉头锤",
-    "/actions/cheesesmithing/pincer_gloves": "蟹钳手套",
-    "/actions/cheesesmithing/azure_alembic": "蔚蓝蒸馏器",
-    "/actions/cheesesmithing/azure_enhancer": "蔚蓝强化器",
-    "/actions/cheesesmithing/azure_helmet": "蔚蓝头盔",
-    "/actions/cheesesmithing/azure_buckler": "蔚蓝圆盾",
-    "/actions/cheesesmithing/azure_bulwark": "蔚蓝重盾",
-    "/actions/cheesesmithing/azure_plate_legs": "蔚蓝腿甲",
-    "/actions/cheesesmithing/snail_shell_helmet": "蜗牛壳头盔",
-    "/actions/cheesesmithing/azure_plate_body": "蔚蓝胸甲",
-    "/actions/cheesesmithing/turtle_shell_legs": "龟壳腿甲",
-    "/actions/cheesesmithing/turtle_shell_body": "龟壳胸甲",
-    "/actions/cheesesmithing/burble_cheese": "深紫奶酪",
-    "/actions/cheesesmithing/burble_boots": "深紫靴",
-    "/actions/cheesesmithing/burble_gauntlets": "深紫护手",
-    "/actions/cheesesmithing/burble_sword": "深紫剑",
-    "/actions/cheesesmithing/burble_brush": "深紫刷子",
-    "/actions/cheesesmithing/burble_shears": "深紫剪刀",
-    "/actions/cheesesmithing/burble_hatchet": "深紫斧头",
-    "/actions/cheesesmithing/burble_spear": "深紫长枪",
-    "/actions/cheesesmithing/burble_hammer": "深紫锤子",
-    "/actions/cheesesmithing/burble_chisel": "深紫凿子",
-    "/actions/cheesesmithing/burble_needle": "深紫针",
-    "/actions/cheesesmithing/burble_spatula": "深紫锅铲",
-    "/actions/cheesesmithing/burble_pot": "深紫壶",
-    "/actions/cheesesmithing/burble_mace": "深紫钉头锤",
-    "/actions/cheesesmithing/burble_alembic": "深紫蒸馏器",
-    "/actions/cheesesmithing/burble_enhancer": "深紫强化器",
-    "/actions/cheesesmithing/burble_helmet": "深紫头盔",
-    "/actions/cheesesmithing/burble_buckler": "深紫圆盾",
-    "/actions/cheesesmithing/burble_bulwark": "深紫重盾",
-    "/actions/cheesesmithing/burble_plate_legs": "深紫腿甲",
-    "/actions/cheesesmithing/burble_plate_body": "深紫胸甲",
-    "/actions/cheesesmithing/crimson_cheese": "绛红奶酪",
-    "/actions/cheesesmithing/crimson_boots": "绛红靴",
-    "/actions/cheesesmithing/advanced_beacon": "进阶探照灯",
-    "/actions/cheesesmithing/crimson_gauntlets": "绛红护手",
-    "/actions/cheesesmithing/crimson_sword": "绛红剑",
-    "/actions/cheesesmithing/crimson_brush": "绛红刷子",
-    "/actions/cheesesmithing/crimson_shears": "绛红剪刀",
-    "/actions/cheesesmithing/crimson_hatchet": "绛红斧头",
-    "/actions/cheesesmithing/crimson_spear": "绛红长枪",
-    "/actions/cheesesmithing/crimson_hammer": "绛红锤子",
-    "/actions/cheesesmithing/crimson_chisel": "绛红凿子",
-    "/actions/cheesesmithing/crimson_needle": "绛红针",
-    "/actions/cheesesmithing/crimson_spatula": "绛红锅铲",
-    "/actions/cheesesmithing/crimson_pot": "绛红壶",
-    "/actions/cheesesmithing/crimson_mace": "绛红钉头锤",
-    "/actions/cheesesmithing/crimson_alembic": "绛红蒸馏器",
-    "/actions/cheesesmithing/crimson_enhancer": "绛红强化器",
-    "/actions/cheesesmithing/crimson_helmet": "绛红头盔",
-    "/actions/cheesesmithing/crimson_buckler": "绛红圆盾",
-    "/actions/cheesesmithing/crimson_bulwark": "绛红重盾",
-    "/actions/cheesesmithing/crimson_plate_legs": "绛红腿甲",
-    "/actions/cheesesmithing/vision_helmet": "视觉头盔",
-    "/actions/cheesesmithing/vision_shield": "视觉盾",
-    "/actions/cheesesmithing/crimson_plate_body": "绛红胸甲",
-    "/actions/cheesesmithing/rainbow_cheese": "彩虹奶酪",
-    "/actions/cheesesmithing/rainbow_boots": "彩虹靴",
-    "/actions/cheesesmithing/black_bear_shoes": "黑熊鞋",
-    "/actions/cheesesmithing/grizzly_bear_shoes": "棕熊鞋",
-    "/actions/cheesesmithing/polar_bear_shoes": "北极熊鞋",
-    "/actions/cheesesmithing/rainbow_gauntlets": "彩虹护手",
-    "/actions/cheesesmithing/rainbow_sword": "彩虹剑",
-    "/actions/cheesesmithing/panda_gloves": "熊猫手套",
-    "/actions/cheesesmithing/rainbow_brush": "彩虹刷子",
-    "/actions/cheesesmithing/rainbow_shears": "彩虹剪刀",
-    "/actions/cheesesmithing/rainbow_hatchet": "彩虹斧头",
-    "/actions/cheesesmithing/rainbow_spear": "彩虹长枪",
-    "/actions/cheesesmithing/rainbow_hammer": "彩虹锤子",
-    "/actions/cheesesmithing/rainbow_chisel": "彩虹凿子",
-    "/actions/cheesesmithing/rainbow_needle": "彩虹针",
-    "/actions/cheesesmithing/rainbow_spatula": "彩虹锅铲",
-    "/actions/cheesesmithing/rainbow_pot": "彩虹壶",
-    "/actions/cheesesmithing/rainbow_mace": "彩虹钉头锤",
-    "/actions/cheesesmithing/rainbow_alembic": "彩虹蒸馏器",
-    "/actions/cheesesmithing/rainbow_enhancer": "彩虹强化器",
-    "/actions/cheesesmithing/rainbow_helmet": "彩虹头盔",
-    "/actions/cheesesmithing/rainbow_buckler": "彩虹圆盾",
-    "/actions/cheesesmithing/rainbow_bulwark": "彩虹重盾",
-    "/actions/cheesesmithing/rainbow_plate_legs": "彩虹腿甲",
-    "/actions/cheesesmithing/rainbow_plate_body": "彩虹胸甲",
-    "/actions/cheesesmithing/holy_cheese": "神圣奶酪",
-    "/actions/cheesesmithing/holy_boots": "神圣靴",
-    "/actions/cheesesmithing/expert_beacon": "专家探照灯",
-    "/actions/cheesesmithing/holy_gauntlets": "神圣护手",
-    "/actions/cheesesmithing/holy_sword": "神圣剑",
-    "/actions/cheesesmithing/holy_brush": "神圣刷子",
-    "/actions/cheesesmithing/holy_shears": "神圣剪刀",
-    "/actions/cheesesmithing/holy_hatchet": "神圣斧头",
-    "/actions/cheesesmithing/holy_spear": "神圣长枪",
-    "/actions/cheesesmithing/holy_hammer": "神圣锤子",
-    "/actions/cheesesmithing/holy_chisel": "神圣凿子",
-    "/actions/cheesesmithing/holy_needle": "神圣针",
-    "/actions/cheesesmithing/holy_spatula": "神圣锅铲",
-    "/actions/cheesesmithing/holy_pot": "神圣壶",
-    "/actions/cheesesmithing/holy_mace": "神圣钉头锤",
-    "/actions/cheesesmithing/magnetic_gloves": "磁力手套",
-    "/actions/cheesesmithing/stalactite_spear": "石钟长枪",
-    "/actions/cheesesmithing/granite_bludgeon": "花岗岩大棒",
-    "/actions/cheesesmithing/vampire_fang_dirk": "吸血鬼短剑",
-    "/actions/cheesesmithing/werewolf_slasher": "狼人关刀",
-    "/actions/cheesesmithing/holy_alembic": "神圣蒸馏器",
-    "/actions/cheesesmithing/holy_enhancer": "神圣强化器",
-    "/actions/cheesesmithing/holy_helmet": "神圣头盔",
-    "/actions/cheesesmithing/holy_buckler": "神圣圆盾",
-    "/actions/cheesesmithing/holy_bulwark": "神圣重盾",
-    "/actions/cheesesmithing/holy_plate_legs": "神圣腿甲",
-    "/actions/cheesesmithing/holy_plate_body": "神圣胸甲",
-    "/actions/cheesesmithing/celestial_brush": "星空刷子",
-    "/actions/cheesesmithing/celestial_shears": "星空剪刀",
-    "/actions/cheesesmithing/celestial_hatchet": "星空斧头",
-    "/actions/cheesesmithing/celestial_hammer": "星空锤子",
-    "/actions/cheesesmithing/celestial_chisel": "星空凿子",
-    "/actions/cheesesmithing/celestial_needle": "星空针",
-    "/actions/cheesesmithing/celestial_spatula": "星空锅铲",
-    "/actions/cheesesmithing/celestial_pot": "星空壶",
-    "/actions/cheesesmithing/celestial_alembic": "星空蒸馏器",
-    "/actions/cheesesmithing/celestial_enhancer": "星空强化器",
-    "/actions/cheesesmithing/colossus_plate_body": "巨像胸甲",
-    "/actions/cheesesmithing/colossus_plate_legs": "巨像腿甲",
-    "/actions/cheesesmithing/demonic_plate_body": "恶魔胸甲",
-    "/actions/cheesesmithing/demonic_plate_legs": "恶魔腿甲",
-    "/actions/cheesesmithing/spiked_bulwark": "尖刺重盾",
-    "/actions/cheesesmithing/pathbreaker_boots": "开路者靴",
-    "/actions/cheesesmithing/dodocamel_gauntlets": "渡渡驼护手",
-    "/actions/cheesesmithing/corsair_helmet": "掠夺者头盔",
-    "/actions/cheesesmithing/knights_aegis": "骑士盾",
-    "/actions/cheesesmithing/anchorbound_plate_legs": "锚定腿甲",
-    "/actions/cheesesmithing/maelstrom_plate_legs": "怒涛腿甲",
-    "/actions/cheesesmithing/griffin_bulwark": "狮鹫重盾",
-    "/actions/cheesesmithing/furious_spear": "狂怒长枪",
-    "/actions/cheesesmithing/chaotic_flail": "混沌连枷",
-    "/actions/cheesesmithing/regal_sword": "君王之剑",
-    "/actions/cheesesmithing/anchorbound_plate_body": "锚定胸甲",
-    "/actions/cheesesmithing/maelstrom_plate_body": "怒涛胸甲",
-    "/actions/cheesesmithing/pathbreaker_boots_refined": "开路者靴 ★",
-    "/actions/cheesesmithing/dodocamel_gauntlets_refined": "渡渡驼护手 ★",
-    "/actions/cheesesmithing/corsair_helmet_refined": "掠夺者头盔 ★",
-    "/actions/cheesesmithing/knights_aegis_refined": "骑士盾 ★",
-    "/actions/cheesesmithing/anchorbound_plate_legs_refined": "锚定腿甲 ★",
-    "/actions/cheesesmithing/maelstrom_plate_legs_refined": "怒涛腿甲 ★",
-    "/actions/cheesesmithing/griffin_bulwark_refined": "狮鹫重盾 ★",
-    "/actions/cheesesmithing/furious_spear_refined": "狂怒长枪 ★",
-    "/actions/cheesesmithing/chaotic_flail_refined": "混沌连枷 ★",
-    "/actions/cheesesmithing/regal_sword_refined": "君王之剑 ★",
-    "/actions/cheesesmithing/anchorbound_plate_body_refined": "锚定胸甲 ★",
-    "/actions/cheesesmithing/maelstrom_plate_body_refined": "怒涛胸甲 ★",
-    "/actions/crafting/lumber": "木板",
-    "/actions/crafting/wooden_crossbow": "木弩",
-    "/actions/crafting/wooden_water_staff": "木制水法杖",
-    "/actions/crafting/basic_task_badge": "基础任务徽章",
-    "/actions/crafting/advanced_task_badge": "高级任务徽章",
-    "/actions/crafting/expert_task_badge": "专家任务徽章",
-    "/actions/crafting/wooden_shield": "木盾",
-    "/actions/crafting/wooden_nature_staff": "木制自然法杖",
-    "/actions/crafting/wooden_bow": "木弓",
-    "/actions/crafting/wooden_fire_staff": "木制火法杖",
-    "/actions/crafting/birch_lumber": "白桦木板",
-    "/actions/crafting/birch_crossbow": "桦木弩",
-    "/actions/crafting/birch_water_staff": "桦木水法杖",
-    "/actions/crafting/crushed_pearl": "珍珠碎片",
-    "/actions/crafting/birch_shield": "桦木盾",
-    "/actions/crafting/birch_nature_staff": "桦木自然法杖",
-    "/actions/crafting/birch_bow": "桦木弓",
-    "/actions/crafting/ring_of_gathering": "采集戒指",
-    "/actions/crafting/birch_fire_staff": "桦木火法杖",
-    "/actions/crafting/earrings_of_gathering": "采集耳环",
-    "/actions/crafting/cedar_lumber": "雪松木板",
-    "/actions/crafting/cedar_crossbow": "雪松弩",
-    "/actions/crafting/cedar_water_staff": "雪松水法杖",
-    "/actions/crafting/basic_milking_charm": "基础挤奶护符",
-    "/actions/crafting/basic_foraging_charm": "基础采摘护符",
-    "/actions/crafting/basic_woodcutting_charm": "基础伐木护符",
-    "/actions/crafting/basic_cheesesmithing_charm": "基础奶酪锻造护符",
-    "/actions/crafting/basic_crafting_charm": "基础制作护符",
-    "/actions/crafting/basic_tailoring_charm": "基础缝纫护符",
-    "/actions/crafting/basic_cooking_charm": "基础烹饪护符",
-    "/actions/crafting/basic_brewing_charm": "基础冲泡护符",
-    "/actions/crafting/basic_alchemy_charm": "基础炼金护符",
-    "/actions/crafting/basic_enhancing_charm": "基础强化护符",
-    "/actions/crafting/basic_torch": "基础火把",
-    "/actions/crafting/cedar_shield": "雪松盾",
-    "/actions/crafting/cedar_nature_staff": "雪松自然法杖",
-    "/actions/crafting/cedar_bow": "雪松弓",
-    "/actions/crafting/crushed_amber": "琥珀碎片",
-    "/actions/crafting/cedar_fire_staff": "雪松火法杖",
-    "/actions/crafting/ring_of_essence_find": "精华发现戒指",
-    "/actions/crafting/earrings_of_essence_find": "精华发现耳环",
-    "/actions/crafting/necklace_of_efficiency": "效率项链",
-    "/actions/crafting/purpleheart_lumber": "紫心木板",
-    "/actions/crafting/purpleheart_crossbow": "紫心弩",
-    "/actions/crafting/purpleheart_water_staff": "紫心水法杖",
-    "/actions/crafting/purpleheart_shield": "紫心盾",
-    "/actions/crafting/purpleheart_nature_staff": "紫心自然法杖",
-    "/actions/crafting/purpleheart_bow": "紫心弓",
-    "/actions/crafting/advanced_milking_charm": "高级挤奶护符",
-    "/actions/crafting/advanced_foraging_charm": "高级采摘护符",
-    "/actions/crafting/advanced_woodcutting_charm": "高级伐木护符",
-    "/actions/crafting/advanced_cheesesmithing_charm": "高级奶酪锻造护符",
-    "/actions/crafting/advanced_crafting_charm": "高级制作护符",
-    "/actions/crafting/advanced_tailoring_charm": "高级缝纫护符",
-    "/actions/crafting/advanced_cooking_charm": "高级烹饪护符",
-    "/actions/crafting/advanced_brewing_charm": "高级冲泡护符",
-    "/actions/crafting/advanced_alchemy_charm": "高级炼金护符",
-    "/actions/crafting/advanced_enhancing_charm": "高级强化护符",
-    "/actions/crafting/advanced_stamina_charm": "高级耐力护符",
-    "/actions/crafting/advanced_intelligence_charm": "高级智力护符",
-    "/actions/crafting/advanced_attack_charm": "高级攻击护符",
-    "/actions/crafting/advanced_defense_charm": "高级防御护符",
-    "/actions/crafting/advanced_melee_charm": "高级近战护符",
-    "/actions/crafting/advanced_ranged_charm": "高级远程护符",
-    "/actions/crafting/advanced_magic_charm": "高级魔法护符",
-    "/actions/crafting/crushed_garnet": "石榴石碎片",
-    "/actions/crafting/crushed_jade": "翡翠碎片",
-    "/actions/crafting/crushed_amethyst": "紫水晶碎片",
-    "/actions/crafting/catalyst_of_coinification": "点金催化剂",
-    "/actions/crafting/treant_shield": "树人盾",
-    "/actions/crafting/purpleheart_fire_staff": "紫心火法杖",
-    "/actions/crafting/ring_of_regeneration": "恢复戒指",
-    "/actions/crafting/earrings_of_regeneration": "恢复耳环",
-    "/actions/crafting/fighter_necklace": "战士项链",
-    "/actions/crafting/ginkgo_lumber": "银杏木板",
-    "/actions/crafting/ginkgo_crossbow": "银杏弩",
-    "/actions/crafting/ginkgo_water_staff": "银杏水法杖",
-    "/actions/crafting/ring_of_armor": "护甲戒指",
-    "/actions/crafting/catalyst_of_decomposition": "分解催化剂",
-    "/actions/crafting/advanced_torch": "进阶火把",
-    "/actions/crafting/ginkgo_shield": "银杏盾",
-    "/actions/crafting/earrings_of_armor": "护甲耳环",
-    "/actions/crafting/ginkgo_nature_staff": "银杏自然法杖",
-    "/actions/crafting/ranger_necklace": "射手项链",
-    "/actions/crafting/ginkgo_bow": "银杏弓",
-    "/actions/crafting/ring_of_resistance": "抗性戒指",
-    "/actions/crafting/crushed_moonstone": "月亮石碎片",
-    "/actions/crafting/ginkgo_fire_staff": "银杏火法杖",
-    "/actions/crafting/earrings_of_resistance": "抗性耳环",
-    "/actions/crafting/wizard_necklace": "巫师项链",
-    "/actions/crafting/ring_of_rare_find": "稀有发现戒指",
-    "/actions/crafting/expert_milking_charm": "专家挤奶护符",
-    "/actions/crafting/expert_foraging_charm": "专家采摘护符",
-    "/actions/crafting/expert_woodcutting_charm": "专家伐木护符",
-    "/actions/crafting/expert_cheesesmithing_charm": "专家奶酪锻造护符",
-    "/actions/crafting/expert_crafting_charm": "专家制作护符",
-    "/actions/crafting/expert_tailoring_charm": "专家缝纫护符",
-    "/actions/crafting/expert_cooking_charm": "专家烹饪护符",
-    "/actions/crafting/expert_brewing_charm": "专家冲泡护符",
-    "/actions/crafting/expert_alchemy_charm": "专家炼金护符",
-    "/actions/crafting/expert_enhancing_charm": "专家强化护符",
-    "/actions/crafting/expert_stamina_charm": "专家耐力护符",
-    "/actions/crafting/expert_intelligence_charm": "专家智力护符",
-    "/actions/crafting/expert_attack_charm": "专家攻击护符",
-    "/actions/crafting/expert_defense_charm": "专家防御护符",
-    "/actions/crafting/expert_melee_charm": "专家近战护符",
-    "/actions/crafting/expert_ranged_charm": "专家远程护符",
-    "/actions/crafting/expert_magic_charm": "专家魔法护符",
-    "/actions/crafting/catalyst_of_transmutation": "转化催化剂",
-    "/actions/crafting/earrings_of_rare_find": "稀有发现耳环",
-    "/actions/crafting/necklace_of_wisdom": "经验项链",
-    "/actions/crafting/redwood_lumber": "红杉木板",
-    "/actions/crafting/redwood_crossbow": "红杉弩",
-    "/actions/crafting/redwood_water_staff": "红杉水法杖",
-    "/actions/crafting/redwood_shield": "红杉盾",
-    "/actions/crafting/redwood_nature_staff": "红杉自然法杖",
-    "/actions/crafting/redwood_bow": "红杉弓",
-    "/actions/crafting/crushed_sunstone": "太阳石碎片",
-    "/actions/crafting/chimerical_entry_key": "奇幻钥匙",
-    "/actions/crafting/chimerical_chest_key": "奇幻宝箱钥匙",
-    "/actions/crafting/eye_watch": "掌上监工",
-    "/actions/crafting/watchful_relic": "警戒遗物",
-    "/actions/crafting/redwood_fire_staff": "红杉火法杖",
-    "/actions/crafting/ring_of_critical_strike": "暴击戒指",
-    "/actions/crafting/mirror_of_protection": "保护之镜",
-    "/actions/crafting/earrings_of_critical_strike": "暴击耳环",
-    "/actions/crafting/necklace_of_speed": "速度项链",
-    "/actions/crafting/arcane_lumber": "神秘木板",
-    "/actions/crafting/arcane_crossbow": "神秘弩",
-    "/actions/crafting/arcane_water_staff": "神秘水法杖",
-    "/actions/crafting/master_milking_charm": "大师挤奶护符",
-    "/actions/crafting/master_foraging_charm": "大师采摘护符",
-    "/actions/crafting/master_woodcutting_charm": "大师伐木护符",
-    "/actions/crafting/master_cheesesmithing_charm": "大师奶酪锻造护符",
-    "/actions/crafting/master_crafting_charm": "大师制作护符",
-    "/actions/crafting/master_tailoring_charm": "大师缝纫护符",
-    "/actions/crafting/master_cooking_charm": "大师烹饪护符",
-    "/actions/crafting/master_brewing_charm": "大师冲泡护符",
-    "/actions/crafting/master_alchemy_charm": "大师炼金护符",
-    "/actions/crafting/master_enhancing_charm": "大师强化护符",
-    "/actions/crafting/master_stamina_charm": "大师耐力护符",
-    "/actions/crafting/master_intelligence_charm": "大师智力护符",
-    "/actions/crafting/master_attack_charm": "大师攻击护符",
-    "/actions/crafting/master_defense_charm": "大师防御护符",
-    "/actions/crafting/master_melee_charm": "大师近战护符",
-    "/actions/crafting/master_ranged_charm": "大师远程护符",
-    "/actions/crafting/master_magic_charm": "大师魔法护符",
-    "/actions/crafting/sinister_entry_key": "阴森钥匙",
-    "/actions/crafting/sinister_chest_key": "阴森宝箱钥匙",
-    "/actions/crafting/expert_torch": "专家火把",
-    "/actions/crafting/arcane_shield": "神秘盾",
-    "/actions/crafting/arcane_nature_staff": "神秘自然法杖",
-    "/actions/crafting/manticore_shield": "蝎狮盾",
-    "/actions/crafting/arcane_bow": "神秘弓",
-    "/actions/crafting/enchanted_entry_key": "秘法钥匙",
-    "/actions/crafting/enchanted_chest_key": "秘法宝箱钥匙",
-    "/actions/crafting/pirate_entry_key": "海盗钥匙",
-    "/actions/crafting/pirate_chest_key": "海盗宝箱钥匙",
-    "/actions/crafting/arcane_fire_staff": "神秘火法杖",
-    "/actions/crafting/vampiric_bow": "吸血弓",
-    "/actions/crafting/soul_hunter_crossbow": "灵魂猎手弩",
-    "/actions/crafting/frost_staff": "冰霜法杖",
-    "/actions/crafting/infernal_battlestaff": "炼狱法杖",
-    "/actions/crafting/jackalope_staff": "鹿角兔之杖",
-    "/actions/crafting/philosophers_ring": "贤者戒指",
-    "/actions/crafting/crushed_philosophers_stone": "贤者之石碎片",
-    "/actions/crafting/philosophers_earrings": "贤者耳环",
-    "/actions/crafting/philosophers_necklace": "贤者项链",
-    "/actions/crafting/bishops_codex": "主教法典",
-    "/actions/crafting/cursed_bow": "咒怨之弓",
-    "/actions/crafting/sundering_crossbow": "裂空之弩",
-    "/actions/crafting/rippling_trident": "涟漪三叉戟",
-    "/actions/crafting/blooming_trident": "绽放三叉戟",
-    "/actions/crafting/blazing_trident": "炽焰三叉戟",
-    "/actions/crafting/grandmaster_milking_charm": "宗师挤奶护符",
-    "/actions/crafting/grandmaster_foraging_charm": "宗师采摘护符",
-    "/actions/crafting/grandmaster_woodcutting_charm": "宗师伐木护符",
-    "/actions/crafting/grandmaster_cheesesmithing_charm": "宗师奶酪锻造护符",
-    "/actions/crafting/grandmaster_crafting_charm": "宗师制作护符",
-    "/actions/crafting/grandmaster_tailoring_charm": "宗师缝纫护符",
-    "/actions/crafting/grandmaster_cooking_charm": "宗师烹饪护符",
-    "/actions/crafting/grandmaster_brewing_charm": "宗师冲泡护符",
-    "/actions/crafting/grandmaster_alchemy_charm": "宗师炼金护符",
-    "/actions/crafting/grandmaster_enhancing_charm": "宗师强化护符",
-    "/actions/crafting/grandmaster_stamina_charm": "宗师耐力护符",
-    "/actions/crafting/grandmaster_intelligence_charm": "宗师智力护符",
-    "/actions/crafting/grandmaster_attack_charm": "宗师攻击护符",
-    "/actions/crafting/grandmaster_defense_charm": "宗师防御护符",
-    "/actions/crafting/grandmaster_melee_charm": "宗师近战护符",
-    "/actions/crafting/grandmaster_ranged_charm": "宗师远程护符",
-    "/actions/crafting/grandmaster_magic_charm": "宗师魔法护符",
-    "/actions/crafting/philosophers_mirror": "贤者之镜",
-    "/actions/crafting/bishops_codex_refined": "主教法典 ★",
-    "/actions/crafting/cursed_bow_refined": "咒怨之弓 ★",
-    "/actions/crafting/sundering_crossbow_refined": "裂空之弩 ★",
-    "/actions/crafting/rippling_trident_refined": "涟漪三叉戟 ★",
-    "/actions/crafting/blooming_trident_refined": "绽放三叉戟 ★",
-    "/actions/crafting/blazing_trident_refined": "炽焰三叉戟 ★",
-    "/actions/tailoring/rough_leather": "粗糙皮革",
-    "/actions/tailoring/cotton_fabric": "棉花布料",
-    "/actions/tailoring/rough_boots": "粗糙靴",
-    "/actions/tailoring/cotton_boots": "棉靴",
-    "/actions/tailoring/rough_bracers": "粗糙护腕",
-    "/actions/tailoring/cotton_gloves": "棉手套",
-    "/actions/tailoring/small_pouch": "小袋子",
-    "/actions/tailoring/rough_hood": "粗糙兜帽",
-    "/actions/tailoring/cotton_hat": "棉帽",
-    "/actions/tailoring/rough_chaps": "粗糙皮裤",
-    "/actions/tailoring/cotton_robe_bottoms": "棉袍裙",
-    "/actions/tailoring/rough_tunic": "粗糙皮衣",
-    "/actions/tailoring/cotton_robe_top": "棉袍服",
-    "/actions/tailoring/reptile_leather": "爬行动物皮革",
-    "/actions/tailoring/linen_fabric": "亚麻布料",
-    "/actions/tailoring/reptile_boots": "爬行动物靴",
-    "/actions/tailoring/linen_boots": "亚麻靴",
-    "/actions/tailoring/reptile_bracers": "爬行动物护腕",
-    "/actions/tailoring/linen_gloves": "亚麻手套",
-    "/actions/tailoring/basic_shroud": "基础斗篷",
-    "/actions/tailoring/reptile_hood": "爬行动物兜帽",
-    "/actions/tailoring/linen_hat": "亚麻帽",
-    "/actions/tailoring/reptile_chaps": "爬行动物皮裤",
-    "/actions/tailoring/linen_robe_bottoms": "亚麻袍裙",
-    "/actions/tailoring/medium_pouch": "中袋子",
-    "/actions/tailoring/reptile_tunic": "爬行动物皮衣",
-    "/actions/tailoring/linen_robe_top": "亚麻袍服",
-    "/actions/tailoring/shoebill_shoes": "鲸头鹳鞋",
-    "/actions/tailoring/gobo_leather": "哥布林皮革",
-    "/actions/tailoring/bamboo_fabric": "竹子布料",
-    "/actions/tailoring/gobo_boots": "哥布林靴",
-    "/actions/tailoring/bamboo_boots": "竹靴",
-    "/actions/tailoring/gobo_bracers": "哥布林护腕",
-    "/actions/tailoring/bamboo_gloves": "竹手套",
-    "/actions/tailoring/gobo_hood": "哥布林兜帽",
-    "/actions/tailoring/bamboo_hat": "竹帽",
-    "/actions/tailoring/gobo_chaps": "哥布林皮裤",
-    "/actions/tailoring/bamboo_robe_bottoms": "竹袍裙",
-    "/actions/tailoring/large_pouch": "大袋子",
-    "/actions/tailoring/gobo_tunic": "哥布林皮衣",
-    "/actions/tailoring/bamboo_robe_top": "竹袍服",
-    "/actions/tailoring/marine_tunic": "海洋皮衣",
-    "/actions/tailoring/marine_chaps": "航海皮裤",
-    "/actions/tailoring/icy_robe_top": "冰霜袍服",
-    "/actions/tailoring/icy_robe_bottoms": "冰霜袍裙",
-    "/actions/tailoring/flaming_robe_top": "烈焰袍服",
-    "/actions/tailoring/flaming_robe_bottoms": "烈焰袍裙",
-    "/actions/tailoring/advanced_shroud": "进阶斗篷",
-    "/actions/tailoring/beast_leather": "野兽皮革",
-    "/actions/tailoring/silk_fabric": "丝绸",
-    "/actions/tailoring/beast_boots": "野兽靴",
-    "/actions/tailoring/silk_boots": "丝靴",
-    "/actions/tailoring/beast_bracers": "野兽护腕",
-    "/actions/tailoring/silk_gloves": "丝手套",
-    "/actions/tailoring/collectors_boots": "收藏家靴",
-    "/actions/tailoring/sighted_bracers": "瞄准护腕",
-    "/actions/tailoring/beast_hood": "野兽兜帽",
-    "/actions/tailoring/silk_hat": "丝帽",
-    "/actions/tailoring/beast_chaps": "野兽皮裤",
-    "/actions/tailoring/silk_robe_bottoms": "丝绸袍裙",
-    "/actions/tailoring/centaur_boots": "半人马靴",
-    "/actions/tailoring/sorcerer_boots": "巫师靴",
-    "/actions/tailoring/giant_pouch": "巨大袋子",
-    "/actions/tailoring/beast_tunic": "野兽皮衣",
-    "/actions/tailoring/silk_robe_top": "丝绸袍服",
-    "/actions/tailoring/red_culinary_hat": "红色厨师帽",
-    "/actions/tailoring/luna_robe_top": "月神袍服",
-    "/actions/tailoring/luna_robe_bottoms": "月神袍裙",
-    "/actions/tailoring/umbral_leather": "暗影皮革",
-    "/actions/tailoring/radiant_fabric": "光辉布料",
-    "/actions/tailoring/umbral_boots": "暗影靴",
-    "/actions/tailoring/radiant_boots": "光辉靴",
-    "/actions/tailoring/umbral_bracers": "暗影护腕",
-    "/actions/tailoring/radiant_gloves": "光辉手套",
-    "/actions/tailoring/enchanted_gloves": "附魔手套",
-    "/actions/tailoring/fluffy_red_hat": "蓬松红帽子",
-    "/actions/tailoring/chrono_gloves": "时空手套",
-    "/actions/tailoring/expert_shroud": "专家斗篷",
-    "/actions/tailoring/umbral_hood": "暗影兜帽",
-    "/actions/tailoring/radiant_hat": "光辉帽",
-    "/actions/tailoring/umbral_chaps": "暗影皮裤",
-    "/actions/tailoring/radiant_robe_bottoms": "光辉袍裙",
-    "/actions/tailoring/umbral_tunic": "暗影皮衣",
-    "/actions/tailoring/radiant_robe_top": "光辉袍服",
-    "/actions/tailoring/revenant_chaps": "亡灵皮裤",
-    "/actions/tailoring/griffin_chaps": "狮鹫皮裤",
-    "/actions/tailoring/dairyhands_top": "挤奶工上衣",
-    "/actions/tailoring/dairyhands_bottoms": "挤奶工下装",
-    "/actions/tailoring/foragers_top": "采摘者上衣",
-    "/actions/tailoring/foragers_bottoms": "采摘者下装",
-    "/actions/tailoring/lumberjacks_top": "伐木工上衣",
-    "/actions/tailoring/lumberjacks_bottoms": "伐木工下装",
-    "/actions/tailoring/cheesemakers_top": "奶酪师上衣",
-    "/actions/tailoring/cheesemakers_bottoms": "奶酪师下装",
-    "/actions/tailoring/crafters_top": "工匠上衣",
-    "/actions/tailoring/crafters_bottoms": "工匠下装",
-    "/actions/tailoring/tailors_top": "裁缝上衣",
-    "/actions/tailoring/tailors_bottoms": "裁缝下装",
-    "/actions/tailoring/chefs_top": "厨师上衣",
-    "/actions/tailoring/chefs_bottoms": "厨师下装",
-    "/actions/tailoring/brewers_top": "饮品师上衣",
-    "/actions/tailoring/brewers_bottoms": "饮品师下装",
-    "/actions/tailoring/alchemists_top": "炼金师上衣",
-    "/actions/tailoring/alchemists_bottoms": "炼金师下装",
-    "/actions/tailoring/enhancers_top": "强化师上衣",
-    "/actions/tailoring/enhancers_bottoms": "强化师下装",
-    "/actions/tailoring/revenant_tunic": "亡灵皮衣",
-    "/actions/tailoring/griffin_tunic": "狮鹫皮衣",
-    "/actions/tailoring/gluttonous_pouch": "贪食之袋",
-    "/actions/tailoring/guzzling_pouch": "暴饮之囊",
-    "/actions/tailoring/pathfinder_boots": "探路者靴",
-    "/actions/tailoring/pathseeker_boots": "寻路者靴",
-    "/actions/tailoring/marksman_bracers": "神射护腕",
-    "/actions/tailoring/acrobatic_hood": "杂技师兜帽",
-    "/actions/tailoring/magicians_hat": "魔术师帽",
-    "/actions/tailoring/kraken_chaps": "克拉肯皮裤",
-    "/actions/tailoring/royal_water_robe_bottoms": "皇家水系袍裙",
-    "/actions/tailoring/royal_nature_robe_bottoms": "皇家自然系袍裙",
-    "/actions/tailoring/royal_fire_robe_bottoms": "皇家火系袍裙",
-    "/actions/tailoring/kraken_tunic": "克拉肯皮衣",
-    "/actions/tailoring/royal_water_robe_top": "皇家水系袍服",
-    "/actions/tailoring/royal_nature_robe_top": "皇家自然系袍服",
-    "/actions/tailoring/royal_fire_robe_top": "皇家火系袍服",
-    "/actions/tailoring/gatherer_cape_refined": "采集者披风 ★",
-    "/actions/tailoring/artificer_cape_refined": "工匠披风 ★",
-    "/actions/tailoring/culinary_cape_refined": "厨师披风 ★",
-    "/actions/tailoring/chance_cape_refined": "机缘披风 ★",
-    "/actions/tailoring/chimerical_quiver_refined": "奇幻箭袋 ★",
-    "/actions/tailoring/sinister_cape_refined": "阴森披风 ★",
-    "/actions/tailoring/enchanted_cloak_refined": "秘法披风 ★",
-    "/actions/tailoring/pathfinder_boots_refined": "探路者靴 ★",
-    "/actions/tailoring/pathseeker_boots_refined": "寻路者靴 ★",
-    "/actions/tailoring/marksman_bracers_refined": "神射护腕 ★",
-    "/actions/tailoring/acrobatic_hood_refined": "杂技师兜帽 ★",
-    "/actions/tailoring/magicians_hat_refined": "魔术师帽 ★",
-    "/actions/tailoring/kraken_chaps_refined": "克拉肯皮裤 ★",
-    "/actions/tailoring/royal_water_robe_bottoms_refined": "皇家水系袍裙 ★",
-    "/actions/tailoring/royal_nature_robe_bottoms_refined": "皇家自然系袍裙 ★",
-    "/actions/tailoring/royal_fire_robe_bottoms_refined": "皇家火系袍裙 ★",
-    "/actions/tailoring/kraken_tunic_refined": "克拉肯皮衣 ★",
-    "/actions/tailoring/royal_water_robe_top_refined": "皇家水系袍服 ★",
-    "/actions/tailoring/royal_nature_robe_top_refined": "皇家自然系袍服 ★",
-    "/actions/tailoring/royal_fire_robe_top_refined": "皇家火系袍服 ★",
-    "/actions/cooking/donut": "甜甜圈",
-    "/actions/cooking/cupcake": "纸杯蛋糕",
-    "/actions/cooking/gummy": "软糖",
-    "/actions/cooking/yogurt": "酸奶",
-    "/actions/cooking/blueberry_donut": "蓝莓甜甜圈",
-    "/actions/cooking/blueberry_cake": "蓝莓蛋糕",
-    "/actions/cooking/apple_gummy": "苹果软糖",
-    "/actions/cooking/apple_yogurt": "苹果酸奶",
-    "/actions/cooking/blackberry_donut": "黑莓甜甜圈",
-    "/actions/cooking/blackberry_cake": "黑莓蛋糕",
-    "/actions/cooking/orange_gummy": "橙子软糖",
-    "/actions/cooking/orange_yogurt": "橙子酸奶",
-    "/actions/cooking/basic_food_crate": "基础食物箱",
-    "/actions/cooking/strawberry_donut": "草莓甜甜圈",
-    "/actions/cooking/strawberry_cake": "草莓蛋糕",
-    "/actions/cooking/plum_gummy": "李子软糖",
-    "/actions/cooking/plum_yogurt": "李子酸奶",
-    "/actions/cooking/mooberry_donut": "哞莓甜甜圈",
-    "/actions/cooking/mooberry_cake": "哞莓蛋糕",
-    "/actions/cooking/peach_gummy": "桃子软糖",
-    "/actions/cooking/peach_yogurt": "桃子酸奶",
-    "/actions/cooking/advanced_food_crate": "进阶食物箱",
-    "/actions/cooking/marsberry_donut": "火星莓甜甜圈",
-    "/actions/cooking/marsberry_cake": "火星莓蛋糕",
-    "/actions/cooking/dragon_fruit_gummy": "火龙果软糖",
-    "/actions/cooking/dragon_fruit_yogurt": "火龙果酸奶",
-    "/actions/cooking/spaceberry_donut": "太空莓甜甜圈",
-    "/actions/cooking/spaceberry_cake": "太空莓蛋糕",
-    "/actions/cooking/star_fruit_gummy": "杨桃软糖",
-    "/actions/cooking/star_fruit_yogurt": "杨桃酸奶",
-    "/actions/cooking/expert_food_crate": "专家食物箱",
-    "/actions/brewing/milking_tea": "挤奶茶",
-    "/actions/brewing/stamina_coffee": "耐力咖啡",
-    "/actions/brewing/foraging_tea": "采摘茶",
-    "/actions/brewing/intelligence_coffee": "智力咖啡",
-    "/actions/brewing/gathering_tea": "采集茶",
-    "/actions/brewing/woodcutting_tea": "伐木茶",
-    "/actions/brewing/cooking_tea": "烹饪茶",
-    "/actions/brewing/defense_coffee": "防御咖啡",
-    "/actions/brewing/brewing_tea": "冲泡茶",
-    "/actions/brewing/attack_coffee": "攻击咖啡",
-    "/actions/brewing/gourmet_tea": "美食茶",
-    "/actions/brewing/alchemy_tea": "炼金茶",
-    "/actions/brewing/enhancing_tea": "强化茶",
-    "/actions/brewing/cheesesmithing_tea": "奶酪锻造茶",
-    "/actions/brewing/melee_coffee": "近战咖啡",
-    "/actions/brewing/basic_tea_crate": "基础茶叶箱",
-    "/actions/brewing/basic_coffee_crate": "基础咖啡箱",
-    "/actions/brewing/crafting_tea": "制作茶",
-    "/actions/brewing/ranged_coffee": "远程咖啡",
-    "/actions/brewing/wisdom_tea": "经验茶",
-    "/actions/brewing/wisdom_coffee": "经验咖啡",
-    "/actions/brewing/tailoring_tea": "缝纫茶",
-    "/actions/brewing/magic_coffee": "魔法咖啡",
-    "/actions/brewing/super_milking_tea": "超级挤奶茶",
-    "/actions/brewing/super_stamina_coffee": "超级耐力咖啡",
-    "/actions/brewing/super_foraging_tea": "超级采摘茶",
-    "/actions/brewing/super_intelligence_coffee": "超级智力咖啡",
-    "/actions/brewing/processing_tea": "加工茶",
-    "/actions/brewing/lucky_coffee": "幸运咖啡",
-    "/actions/brewing/super_woodcutting_tea": "超级伐木茶",
-    "/actions/brewing/super_cooking_tea": "超级烹饪茶",
-    "/actions/brewing/super_defense_coffee": "超级防御咖啡",
-    "/actions/brewing/advanced_tea_crate": "进阶茶叶箱",
-    "/actions/brewing/advanced_coffee_crate": "进阶咖啡箱",
-    "/actions/brewing/super_brewing_tea": "超级冲泡茶",
-    "/actions/brewing/ultra_milking_tea": "究极挤奶茶",
-    "/actions/brewing/super_attack_coffee": "超级攻击咖啡",
-    "/actions/brewing/ultra_stamina_coffee": "究极耐力咖啡",
-    "/actions/brewing/efficiency_tea": "效率茶",
-    "/actions/brewing/swiftness_coffee": "迅捷咖啡",
-    "/actions/brewing/super_alchemy_tea": "超级炼金茶",
-    "/actions/brewing/super_enhancing_tea": "超级强化茶",
-    "/actions/brewing/ultra_foraging_tea": "究极采摘茶",
-    "/actions/brewing/ultra_intelligence_coffee": "究极智力咖啡",
-    "/actions/brewing/channeling_coffee": "吟唱咖啡",
-    "/actions/brewing/super_cheesesmithing_tea": "超级奶酪锻造茶",
-    "/actions/brewing/ultra_woodcutting_tea": "究极伐木茶",
-    "/actions/brewing/super_melee_coffee": "超级近战咖啡",
-    "/actions/brewing/artisan_tea": "工匠茶",
-    "/actions/brewing/super_crafting_tea": "超级制作茶",
-    "/actions/brewing/ultra_cooking_tea": "究极烹饪茶",
-    "/actions/brewing/super_ranged_coffee": "超级远程咖啡",
-    "/actions/brewing/ultra_defense_coffee": "究极防御咖啡",
-    "/actions/brewing/catalytic_tea": "催化茶",
-    "/actions/brewing/critical_coffee": "暴击咖啡",
-    "/actions/brewing/super_tailoring_tea": "超级缝纫茶",
-    "/actions/brewing/ultra_brewing_tea": "究极冲泡茶",
-    "/actions/brewing/super_magic_coffee": "超级魔法咖啡",
-    "/actions/brewing/ultra_attack_coffee": "究极攻击咖啡",
-    "/actions/brewing/blessed_tea": "福气茶",
-    "/actions/brewing/ultra_alchemy_tea": "究极炼金茶",
-    "/actions/brewing/ultra_enhancing_tea": "究极强化茶",
-    "/actions/brewing/expert_tea_crate": "专家茶叶箱",
-    "/actions/brewing/expert_coffee_crate": "专家咖啡箱",
-    "/actions/brewing/ultra_cheesesmithing_tea": "究极奶酪锻造茶",
-    "/actions/brewing/ultra_melee_coffee": "究极近战咖啡",
-    "/actions/brewing/ultra_crafting_tea": "究极制作茶",
-    "/actions/brewing/ultra_ranged_coffee": "究极远程咖啡",
-    "/actions/brewing/ultra_tailoring_tea": "究极缝纫茶",
-    "/actions/brewing/ultra_magic_coffee": "究极魔法咖啡",
-    "/actions/alchemy/coinify": "点金",
-    "/actions/alchemy/transmute": "转化",
-    "/actions/alchemy/decompose": "分解",
-    "/actions/alchemy/unrefine": "解精炼",
-    "/actions/enhancing/enhance": "强化",
-    "/actions/combat/fly": "苍蝇",
-    "/actions/combat/rat": "杰瑞",
-    "/actions/combat/skunk": "臭鼬",
-    "/actions/combat/porcupine": "豪猪",
-    "/actions/combat/slimy": "史莱姆",
-    "/actions/combat/smelly_planet": "臭臭星球",
-    "/actions/combat/frog": "青蛙",
-    "/actions/combat/snake": "蛇",
-    "/actions/combat/swampy": "沼泽虫",
-    "/actions/combat/alligator": "夏洛克",
-    "/actions/combat/swamp_planet": "沼泽星球",
-    "/actions/combat/sea_snail": "蜗牛",
-    "/actions/combat/crab": "螃蟹",
-    "/actions/combat/aquahorse": "水马",
-    "/actions/combat/nom_nom": "咬咬鱼",
-    "/actions/combat/turtle": "忍者龟",
-    "/actions/combat/aqua_planet": "海洋星球",
-    "/actions/combat/jungle_sprite": "丛林精灵",
-    "/actions/combat/myconid": "蘑菇人",
-    "/actions/combat/treant": "树人",
-    "/actions/combat/centaur_archer": "半人马弓箭手",
-    "/actions/combat/jungle_planet": "丛林星球",
-    "/actions/combat/gobo_stabby": "刺刺",
-    "/actions/combat/gobo_slashy": "砍砍",
-    "/actions/combat/gobo_smashy": "锤锤",
-    "/actions/combat/gobo_shooty": "咻咻",
-    "/actions/combat/gobo_boomy": "轰轰",
-    "/actions/combat/gobo_planet": "哥布林星球",
-    "/actions/combat/eye": "独眼",
-    "/actions/combat/eyes": "叠眼",
-    "/actions/combat/veyes": "复眼",
-    "/actions/combat/planet_of_the_eyes": "眼球星球",
-    "/actions/combat/novice_sorcerer": "新手巫师",
-    "/actions/combat/ice_sorcerer": "冰霜巫师",
-    "/actions/combat/flame_sorcerer": "火焰巫师",
-    "/actions/combat/elementalist": "元素法师",
-    "/actions/combat/sorcerers_tower": "巫师之塔",
-    "/actions/combat/gummy_bear": "软糖熊",
-    "/actions/combat/panda": "熊猫",
-    "/actions/combat/black_bear": "黑熊",
-    "/actions/combat/grizzly_bear": "棕熊",
-    "/actions/combat/polar_bear": "北极熊",
-    "/actions/combat/bear_with_it": "熊熊星球",
-    "/actions/combat/magnetic_golem": "磁力魔像",
-    "/actions/combat/stalactite_golem": "钟乳石魔像",
-    "/actions/combat/granite_golem": "花岗岩魔像",
-    "/actions/combat/golem_cave": "魔像洞穴",
-    "/actions/combat/zombie": "僵尸",
-    "/actions/combat/vampire": "吸血鬼",
-    "/actions/combat/werewolf": "狼人",
-    "/actions/combat/twilight_zone": "暮光之地",
-    "/actions/combat/abyssal_imp": "深渊小鬼",
-    "/actions/combat/soul_hunter": "灵魂猎手",
-    "/actions/combat/infernal_warlock": "地狱术士",
-    "/actions/combat/infernal_abyss": "地狱深渊",
-    "/actions/combat/chimerical_den": "奇幻洞穴",
-    "/actions/combat/sinister_circus": "阴森马戏团",
-    "/actions/combat/enchanted_fortress": "秘法要塞",
-    "/actions/combat/pirate_cove": "海盗基地",
-    "/actions/labyrinth/explore": "探索迷宫",
-    "/actions/special/party_ready": "队伍准备就绪"
-  };
-  var ZHOthersDic = {
-    // houseRoomNames
-    "/house_rooms/dairy_barn": "奶牛棚",
-    "/house_rooms/garden": "花园",
-    "/house_rooms/log_shed": "原木棚",
-    "/house_rooms/forge": "锻造间",
-    "/house_rooms/workshop": "工作室",
-    "/house_rooms/sewing_parlor": "缝纫室",
-    "/house_rooms/kitchen": "厨房",
-    "/house_rooms/brewery": "冲泡室",
-    "/house_rooms/laboratory": "实验室",
-    "/house_rooms/observatory": "天文台",
-    "/house_rooms/dining_room": "餐厅",
-    "/house_rooms/library": "图书馆",
-    "/house_rooms/dojo": "道场",
-    "/house_rooms/gym": "健身房",
-    "/house_rooms/armory": "军械库",
-    "/house_rooms/archery_range": "射箭场",
-    "/house_rooms/mystical_study": "神秘书房",
-    // monsterNames
-    "/monsters/abyssal_imp": "深渊小鬼",
-    "/monsters/acrobat": "杂技师",
-    "/monsters/trial_hedgehog": "试炼刺猬",
-    "/monsters/anchor_shark": "持锚鲨",
-    "/monsters/aquahorse": "水马",
-    "/monsters/trial_jellyfish": "试炼水母",
-    "/monsters/black_bear": "黑熊",
-    "/monsters/gobo_boomy": "轰轰",
-    "/monsters/brine_marksman": "海盐射手",
-    "/monsters/butterjerry": "蝶鼠",
-    "/monsters/captain_fishhook": "鱼钩船长",
-    "/monsters/centaur_archer": "半人马弓箭手",
-    "/monsters/cyclops": "独眼巨人",
-    "/monsters/chronofrost_sorcerer": "霜时巫师",
-    "/monsters/dryad": "树精",
-    "/monsters/crystal_colossus": "水晶巨像",
-    "/monsters/frost_sniper": "霜冻狙击手",
-    "/monsters/demonic_overlord": "恶魔霸主",
-    "/monsters/deranged_jester": "小丑皇",
-    "/monsters/dodocamel": "渡渡驼",
-    "/monsters/dusk_revenant": "黄昏亡灵",
-    "/monsters/trial_chameleon": "试炼变色龙",
-    "/monsters/elementalist": "元素法师",
-    "/monsters/enchanted_bishop": "秘法主教",
-    "/monsters/enchanted_king": "秘法国王",
-    "/monsters/enchanted_knight": "秘法骑士",
-    "/monsters/enchanted_pawn": "秘法士兵",
-    "/monsters/enchanted_queen": "秘法王后",
-    "/monsters/enchanted_rook": "秘法堡垒",
-    "/monsters/eye": "独眼",
-    "/monsters/eyes": "叠眼",
-    "/monsters/flame_sorcerer": "火焰巫师",
-    "/monsters/fly": "苍蝇",
-    "/monsters/trial_beetle": "试炼甲虫",
-    "/monsters/trial_dragonfly": "试炼蜻蜓",
-    "/monsters/trial_wasp": "试炼黄蜂",
-    "/monsters/trial_firefly": "试炼萤火虫",
-    "/monsters/frog": "青蛙",
-    "/monsters/sea_snail": "蜗牛",
-    "/monsters/giant_shoebill": "鲸头鹳",
-    "/monsters/gobo_chieftain": "哥布林酋长",
-    "/monsters/granite_golem": "花岗魔像",
-    "/monsters/griffin": "狮鹫",
-    "/monsters/grizzly_bear": "棕熊",
-    "/monsters/gummy_bear": "软糖熊",
-    "/monsters/crab": "螃蟹",
-    "/monsters/ice_sorcerer": "冰霜巫师",
-    "/monsters/infernal_warlock": "地狱术士",
-    "/monsters/trial_badger": "试炼獾",
-    "/monsters/jackalope": "鹿角兔",
-    "/monsters/rat": "杰瑞",
-    "/monsters/juggler": "杂耍者",
-    "/monsters/jungle_sprite": "丛林精灵",
-    "/monsters/giant_mantis": "巨螳螂",
-    "/monsters/luna_empress": "月神之蝶",
-    "/monsters/magician": "魔术师",
-    "/monsters/magnetic_golem": "磁力魔像",
-    "/monsters/manticore": "狮蝎兽",
-    "/monsters/marine_huntress": "海洋猎手",
-    "/monsters/giant_scorpion": "巨蝎",
-    "/monsters/mimic": "宝箱怪",
-    "/monsters/myconid": "蘑菇人",
-    "/monsters/nom_nom": "咬咬鱼",
-    "/monsters/novice_sorcerer": "新手巫师",
-    "/monsters/panda": "熊猫",
-    "/monsters/polar_bear": "北极熊",
-    "/monsters/porcupine": "豪猪",
-    "/monsters/rabid_rabbit": "疯魔兔",
-    "/monsters/red_panda": "小熊猫",
-    "/monsters/alligator": "夏洛克",
-    "/monsters/gobo_shooty": "咻咻",
-    "/monsters/skunk": "臭鼬",
-    "/monsters/gobo_slashy": "砍砍",
-    "/monsters/slimy": "史莱姆",
-    "/monsters/gobo_smashy": "锤锤",
-    "/monsters/soul_hunter": "灵魂猎手",
-    "/monsters/squawker": "鹦鹉",
-    "/monsters/gobo_stabby": "刺刺",
-    "/monsters/stalactite_golem": "钟乳石魔像",
-    "/monsters/pyre_hunter": "火焰猎手",
-    "/monsters/swampy": "沼泽虫",
-    "/monsters/the_kraken": "克拉肯",
-    "/monsters/the_watcher": "观察者",
-    "/monsters/snake": "蛇",
-    "/monsters/tidal_conjuror": "潮汐召唤师",
-    "/monsters/salamander": "火蜥蜴",
-    "/monsters/shadow_archer": "暗影弓手",
-    "/monsters/treant": "树人",
-    "/monsters/turtle": "忍者龟",
-    "/monsters/vampire": "吸血鬼",
-    "/monsters/veyes": "复眼",
-    "/monsters/siren": "海妖",
-    "/monsters/werewolf": "狼人",
-    "/monsters/zombie": "僵尸",
-    "/monsters/zombie_bear": "僵尸熊",
-    // abilityNames
-    "/abilities/poke": "破胆之刺",
-    "/abilities/impale": "透骨之刺",
-    "/abilities/puncture": "破甲之刺",
-    "/abilities/penetrating_strike": "贯心之刺",
-    "/abilities/scratch": "爪影斩",
-    "/abilities/cleave": "分裂斩",
-    "/abilities/maim": "血刃斩",
-    "/abilities/crippling_slash": "致残斩",
-    "/abilities/smack": "重碾",
-    "/abilities/sweep": "重扫",
-    "/abilities/stunning_blow": "重锤",
-    "/abilities/fracturing_impact": "碎裂冲击",
-    "/abilities/shield_bash": "盾击",
-    "/abilities/quick_shot": "快速射击",
-    "/abilities/aqua_arrow": "流水箭",
-    "/abilities/flame_arrow": "烈焰箭",
-    "/abilities/rain_of_arrows": "箭雨",
-    "/abilities/silencing_shot": "沉默之箭",
-    "/abilities/steady_shot": "稳定射击",
-    "/abilities/pestilent_shot": "疫病射击",
-    "/abilities/penetrating_shot": "贯穿射击",
-    "/abilities/water_strike": "流水冲击",
-    "/abilities/ice_spear": "冰枪术",
-    "/abilities/frost_surge": "冰霜爆裂",
-    "/abilities/mana_spring": "法力喷泉",
-    "/abilities/entangle": "缠绕",
-    "/abilities/toxic_pollen": "剧毒粉尘",
-    "/abilities/natures_veil": "自然菌幕",
-    "/abilities/life_drain": "生命吸取",
-    "/abilities/fireball": "火球",
-    "/abilities/flame_blast": "熔岩爆裂",
-    "/abilities/firestorm": "火焰风暴",
-    "/abilities/smoke_burst": "烟爆灭影",
-    "/abilities/minor_heal": "初级自愈术",
-    "/abilities/heal": "自愈术",
-    "/abilities/quick_aid": "快速治疗术",
-    "/abilities/rejuvenate": "群体治疗术",
-    "/abilities/taunt": "嘲讽",
-    "/abilities/provoke": "挑衅",
-    "/abilities/toughness": "坚韧",
-    "/abilities/elusiveness": "闪避",
-    "/abilities/precision": "精确",
-    "/abilities/berserk": "狂暴",
-    "/abilities/frenzy": "狂速",
-    "/abilities/elemental_affinity": "元素增幅",
-    "/abilities/spike_shell": "尖刺防护",
-    "/abilities/retribution": "惩戒",
-    "/abilities/vampirism": "吸血",
-    "/abilities/revive": "复活",
-    "/abilities/insanity": "疯狂",
-    "/abilities/invincible": "无敌",
-    "/abilities/speed_aura": "速度光环",
-    "/abilities/guardian_aura": "守护光环",
-    "/abilities/fierce_aura": "物理光环",
-    "/abilities/critical_aura": "暴击光环",
-    "/abilities/mystic_aura": "元素光环",
-    "/abilities/promote": "晋升"
-  };
-  function inverseKV(obj) {
-    const retobj = {};
-    for (const key in obj) {
-      retobj[obj[key]] = key;
-    }
-    return retobj;
-  }
-  var ZHToItemHridMap = inverseKV(ZHItemNames);
-  var ZHToActionHridMap = inverseKV(ZHActionNames);
-  var ZHToOthersMap = inverseKV(ZHOthersDic);
-  function getItemEnNameFromZhName(zhName) {
-    const itemHrid = resolveLocalizedEntity("item", zhName) || ZHToItemHridMap[zhName];
-    if (!itemHrid) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到物品“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English item name for “${zhName}”.`
-      );
-      return "";
-    }
-    let enName;
-    try {
-      enName = runtime.state.initData_itemDetailMap?.[itemHrid]?.name;
-    } catch {
-      return "";
-    }
-    if (!enName) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到物品 ${itemHrid} 的英文名称。` : `[MWITools] Cannot find the English item name for ${itemHrid}.`
-      );
-      return "";
-    }
-    return enName;
-  }
-  function getActionEnNameFromZhName(zhName) {
-    const actionHrid = resolveLocalizedEntity("action", zhName) || ZHToActionHridMap[zhName];
-    if (!actionHrid) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到行动“${zhName}”对应的英文名称。` : `[MWITools] Cannot find the English action name for “${zhName}”.`
-      );
-      return "";
-    }
-    let enName;
-    try {
-      enName = runtime.state.initData_actionDetailMap?.[actionHrid]?.name;
-    } catch {
-      return "";
-    }
-    if (!enName) {
-      console.log(
-        runtime.config.isZH ? `[MWITools] 找不到行动 ${actionHrid} 的英文名称。` : `[MWITools] Cannot find the English action name for ${actionHrid}.`
-      );
-      return "";
-    }
-    return enName;
-  }
-  function getOthersFromZhName(zhName) {
-    const key = resolveLocalizedEntity("monster", zhName) || resolveLocalizedEntity("ability", zhName) || ZHToOthersMap[zhName];
-    if (!key) {
-      return "";
-    }
-    return key;
-  }
-  var itemEnNameToHridMap = {};
-  Object.assign(runtime.api, {
-    inverseKV,
-    getItemEnNameFromZhName,
-    getActionEnNameFromZhName,
-    getOthersFromZhName,
-    getLocalizedEntityName
-  });
-  Object.defineProperties(runtime.data, {
-    ZHItemNames: {
-      enumerable: true,
-      get() {
-        return ZHItemNames;
-      }
-    },
-    ZHActionNames: {
-      enumerable: true,
-      get() {
-        return ZHActionNames;
-      }
-    },
-    ZHOthersDic: {
-      enumerable: true,
-      get() {
-        return ZHOthersDic;
-      }
-    },
-    ZHToItemHridMap: {
-      enumerable: true,
-      get() {
-        return ZHToItemHridMap;
-      }
-    },
-    ZHToActionHridMap: {
-      enumerable: true,
-      get() {
-        return ZHToActionHridMap;
-      }
-    },
-    ZHToOthersMap: {
-      enumerable: true,
-      get() {
-        return ZHToOthersMap;
-      }
-    }
-  });
-  Object.defineProperties(runtime.state, {
-    itemEnNameToHridMap: {
-      enumerable: true,
-      get() {
-        return itemEnNameToHridMap;
-      }
-    }
-  });
-
   // src/data/market-backup.json
   var market_backup_default = "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";
 
@@ -5066,6 +2816,522 @@
     }
   });
 
+  // src/core/game-localization.js
+  var SUPPORTED_GAME_LOCALES = Object.freeze([
+    "en",
+    "es",
+    "fr",
+    "pt",
+    "zh",
+    "zh-TW",
+    "ja",
+    "ko",
+    "ru"
+  ]);
+  var LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
+  var LOCALE_CACHE_SCHEMA = 1;
+  var LOCALE_CACHE_PREFIX = "MWITools_game_locale_v1";
+  var ENTITY_TYPES = Object.freeze({
+    item: {
+      resourceKey: "itemNames",
+      clientDataKey: "itemDetailMap",
+      stateKey: "initData_itemDetailMap",
+      prefix: "/items/",
+      sprite: "items_sprite"
+    },
+    action: {
+      resourceKey: "actionNames",
+      clientDataKey: "actionDetailMap",
+      stateKey: "initData_actionDetailMap",
+      prefix: "/actions/",
+      sprite: "actions_sprite"
+    },
+    monster: {
+      resourceKey: "monsterNames",
+      clientDataKey: "combatMonsterDetailMap",
+      stateKey: "initData_combatMonsterDetailMap",
+      prefix: "/monsters/",
+      sprite: "combat_monsters_sprite"
+    },
+    ability: {
+      resourceKey: "abilityNames",
+      clientDataKey: "abilityDetailMap",
+      stateKey: "initData_abilityDetailMap",
+      prefix: "/abilities/",
+      sprite: "abilities_sprite"
+    },
+    skill: {
+      resourceKey: "skillNames",
+      clientDataKey: "skillDetailMap",
+      stateKey: "initData_skillDetailMap",
+      prefix: "/skills/",
+      sprite: "skills_sprite"
+    },
+    houseRoom: {
+      resourceKey: "houseRoomNames",
+      clientDataKey: "houseRoomDetailMap",
+      stateKey: "initData_houseRoomDetailMap",
+      prefix: "/house_rooms/"
+    },
+    buffType: {
+      resourceKey: "buffTypeNames",
+      clientDataKey: "buffTypeDetailMap",
+      stateKey: "initData_buffTypeDetailMap",
+      prefix: "/buff_types/"
+    },
+    itemCategory: {
+      resourceKey: "itemCategoryNames",
+      clientDataKey: "itemCategoryDetailMap",
+      stateKey: "initData_itemCategoryDetailMap",
+      prefix: "/item_categories/"
+    },
+    actionCategory: {
+      resourceKey: "actionCategoryNames",
+      clientDataKey: "actionCategoryDetailMap",
+      stateKey: "initData_actionCategoryDetailMap",
+      prefix: "/action_categories/"
+    },
+    shopCategory: {
+      resourceKey: "shopCategoryNames",
+      clientDataKey: "shopCategoryDetailMap",
+      stateKey: "initData_shopCategoryDetailMap",
+      prefix: "/shop_categories/"
+    },
+    achievement: {
+      resourceKey: "achievementNames",
+      clientDataKey: "achievementDetailMap",
+      stateKey: "initData_achievementDetailMap",
+      prefix: "/achievements/"
+    }
+  });
+  var TYPE_ALIASES = Object.freeze({
+    items: "item",
+    actions: "action",
+    monsters: "monster",
+    abilities: "ability",
+    skills: "skill",
+    houseRooms: "houseRoom",
+    buffTypes: "buffType",
+    itemCategories: "itemCategory",
+    actionCategories: "actionCategory",
+    shopCategories: "shopCategory",
+    achievements: "achievement"
+  });
+  var localeResources = /* @__PURE__ */ new Map();
+  var reverseIndexes = /* @__PURE__ */ new WeakMap();
+  var warnedLocales = /* @__PURE__ */ new Set();
+  function localizedText(zh, en) {
+    return runtime.config.isZH ? zh : en;
+  }
+  function pageGlobal2() {
+    return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  }
+  function normalizeGameLocale(value) {
+    const raw = String(value ?? "").trim().replaceAll("_", "-");
+    if (!raw) return "en";
+    const lower = raw.toLowerCase();
+    if (lower === "zh-tw" || lower === "zh-hant" || lower.startsWith("zh-hant-") || lower === "zh-hk" || lower === "zh-mo") {
+      return "zh-TW";
+    }
+    if (lower === "zh" || lower.startsWith("zh-")) return "zh";
+    const base = lower.split("-")[0];
+    return LOCALE_SET.has(base) ? base : "en";
+  }
+  function getGameLocale() {
+    return normalizeGameLocale(
+      runtime.config.gameLanguage ?? globalThis.localStorage?.getItem?.("i18nextLng") ?? globalThis.document?.documentElement?.lang ?? globalThis.navigator?.language
+    );
+  }
+  function webpackQueues(target = pageGlobal2()) {
+    const queues = [];
+    for (const key of Object.getOwnPropertyNames(target ?? {})) {
+      if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
+      try {
+        if (Array.isArray(target[key])) queues.push(target[key]);
+      } catch {
+      }
+    }
+    return queues;
+  }
+  function chunkEntries(target) {
+    return webpackQueues(target).flatMap(
+      (queue) => queue.filter((entry) => entry?.[1] && typeof entry[1] === "object")
+    );
+  }
+  function localeModuleMap(entries) {
+    const result = /* @__PURE__ */ new Map();
+    const pattern = /["']\.\/([^"'\\]+)\/index\.js["']\s*:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/g;
+    for (const entry of entries) {
+      for (const factory of Object.values(entry[1])) {
+        if (typeof factory !== "function") continue;
+        const source = Function.prototype.toString.call(factory);
+        if (!source.includes("./zh-TW/index.js")) continue;
+        for (const match of source.matchAll(pattern)) {
+          result.set(normalizeGameLocale(match[1]), String(match[2]));
+        }
+      }
+    }
+    return result;
+  }
+  function runLocaleFactory(factory) {
+    const module = { exports: {} };
+    const exports = module.exports;
+    const webpackRequire = () => {
+      throw new Error();
+    };
+    webpackRequire.r = (target) => {
+      Object.defineProperty(target, "__esModule", { value: true });
+    };
+    webpackRequire.d = (target, nameOrDefinition, getter) => {
+      const definition = typeof nameOrDefinition === "object" ? nameOrDefinition : { [nameOrDefinition]: getter };
+      for (const [name, get] of Object.entries(definition)) {
+        if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
+        Object.defineProperty(target, name, { enumerable: true, get });
+      }
+    };
+    factory.call(exports, module, exports, webpackRequire);
+    return module.exports?.default ?? exports.default ?? module.exports;
+  }
+  function validResourceMap(value, prefix) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return Object.keys(value).some((key) => key.startsWith(prefix));
+  }
+  function validateGameLocaleResources(value) {
+    return Boolean(
+      value && typeof value === "object" && validResourceMap(value.itemNames, "/items/") && validResourceMap(value.actionNames, "/actions/") && validResourceMap(value.monsterNames, "/monsters/") && validResourceMap(value.abilityNames, "/abilities/")
+    );
+  }
+  function extractGameLocaleResources(locale = getGameLocale(), target = pageGlobal2()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    const entries = chunkEntries(target);
+    const expectedModuleId = localeModuleMap(entries).get(normalizedLocale);
+    if (!expectedModuleId) return null;
+    const candidates = [];
+    for (const entry of entries) {
+      for (const [moduleId, factory] of Object.entries(entry[1])) {
+        if (typeof factory !== "function") continue;
+        if (moduleId !== expectedModuleId) continue;
+        candidates.push(factory);
+      }
+    }
+    for (const factory of candidates) {
+      try {
+        const resources = runLocaleFactory(factory);
+        if (validateGameLocaleResources(resources)) return resources;
+      } catch {
+      }
+    }
+    return null;
+  }
+  function i18nFromFiber(element) {
+    const fiberKey2 = Reflect.ownKeys(element ?? {}).find(
+      (key) => String(key).startsWith("__reactFiber$")
+    );
+    for (let fiber = fiberKey2 ? element[fiberKey2] : null, depth = 0; fiber && depth < 80; fiber = fiber.return, depth += 1) {
+      for (const candidate of [
+        fiber.memoizedProps?.i18n,
+        fiber.pendingProps?.i18n,
+        fiber.stateNode?.props?.i18n,
+        fiber.stateNode?.i18n
+      ]) {
+        if (candidate?.options?.resources) return candidate;
+      }
+    }
+    return null;
+  }
+  function translationForLocale(i18n, locale) {
+    const normalized = normalizeGameLocale(locale);
+    const match = Object.entries(i18n?.options?.resources ?? {}).find(
+      ([key]) => normalizeGameLocale(key) === normalized
+    );
+    return match?.[1]?.translation ?? null;
+  }
+  function extractReactGameLocaleResources(locale = getGameLocale(), documentTarget = globalThis.document) {
+    if (!documentTarget?.querySelector) return null;
+    const candidates = /* @__PURE__ */ new Set([
+      documentTarget.querySelector("#root"),
+      documentTarget.querySelector('[class^="GamePage"]'),
+      documentTarget.body
+    ]);
+    if (![...candidates].some((element) => i18nFromFiber(element))) {
+      let inspected = 0;
+      for (const element of documentTarget.querySelectorAll("*")) {
+        if (inspected >= 300) break;
+        if (Reflect.ownKeys(element).some(
+          (key) => String(key).startsWith("__reactFiber$")
+        )) {
+          candidates.add(element);
+          inspected += 1;
+        }
+      }
+    }
+    for (const element of candidates) {
+      const resources = translationForLocale(i18nFromFiber(element), locale);
+      if (validateGameLocaleResources(resources)) return resources;
+    }
+    return null;
+  }
+  function clientData2() {
+    return runtime.state.clientData ?? runtime.api.getGameClientData?.() ?? null;
+  }
+  function englishResourceMap(type) {
+    const definition = ENTITY_TYPES[type];
+    const details = clientData2()?.[definition.clientDataKey] ?? runtime.state[definition.stateKey] ?? (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+    const result = Object.fromEntries(
+      Object.entries(details ?? {}).map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()]).filter(([, name]) => name)
+    );
+    if (type === "item") {
+      for (const [name, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (!result[hrid] && name) result[hrid] = name;
+      }
+    }
+    return result;
+  }
+  function englishResources() {
+    return Object.fromEntries(
+      Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+        definition.resourceKey,
+        englishResourceMap(type)
+      ])
+    );
+  }
+  function gameVersionKey() {
+    const data = clientData2();
+    return String(data?.versionTimestamp ?? data?.gameVersion ?? "").trim();
+  }
+  function localeCacheKey(locale) {
+    const version = gameVersionKey();
+    return version ? `${LOCALE_CACHE_PREFIX}:${encodeURIComponent(version)}:${normalizeGameLocale(locale)}` : "";
+  }
+  function readCachedResources(locale) {
+    const key = localeCacheKey(locale);
+    if (!key) return null;
+    try {
+      const cached = JSON.parse(
+        globalThis.localStorage?.getItem?.(key) || "null"
+      );
+      return cached?.schemaVersion === LOCALE_CACHE_SCHEMA && validateGameLocaleResources(cached.resources) ? cached.resources : null;
+    } catch {
+      return null;
+    }
+  }
+  function writeCachedResources(locale, resources) {
+    const key = localeCacheKey(locale);
+    if (!key || !validateGameLocaleResources(resources)) return;
+    try {
+      globalThis.localStorage?.setItem?.(
+        key,
+        JSON.stringify({ schemaVersion: LOCALE_CACHE_SCHEMA, resources })
+      );
+    } catch {
+    }
+  }
+  function getGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (localeResources.has(normalizedLocale)) {
+      return localeResources.get(normalizedLocale);
+    }
+    const official = extractReactGameLocaleResources(normalizedLocale) ?? extractGameLocaleResources(normalizedLocale) ?? readCachedResources(normalizedLocale);
+    if (official) {
+      localeResources.set(normalizedLocale, official);
+      writeCachedResources(normalizedLocale, official);
+      return official;
+    }
+    if (normalizedLocale === "en") return englishResources();
+    if (!warnedLocales.has(normalizedLocale)) {
+      warnedLocales.add(normalizedLocale);
+      console.warn(
+        localizedText(
+          `[MWITools] 官方 ${normalizedLocale} 语言资源尚未就绪，将暂时使用英文名称。`,
+          `[MWITools] Official ${normalizedLocale} resources are not ready; English names will be used temporarily.`
+        )
+      );
+    }
+    return null;
+  }
+  function registerGameLocaleResources(locale, resources) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    if (!validateGameLocaleResources(resources)) return false;
+    localeResources.set(normalizedLocale, resources);
+    writeCachedResources(normalizedLocale, resources);
+    return true;
+  }
+  function refreshGameLocaleResources(locale = getGameLocale()) {
+    const normalizedLocale = normalizeGameLocale(locale);
+    localeResources.delete(normalizedLocale);
+    warnedLocales.delete(normalizedLocale);
+    return getGameLocaleResources(normalizedLocale);
+  }
+  function entityType(kind) {
+    const normalized = TYPE_ALIASES[kind] ?? kind;
+    return ENTITY_TYPES[normalized] ? normalized : null;
+  }
+  function normalizedName(value, type = "") {
+    let result = String(value ?? "").normalize("NFKC").replaceAll(/\s+/g, " ").trim();
+    if (type === "item") result = result.replace(/\s+\+\d+\s*$/, "").trim();
+    return result;
+  }
+  function reverseIndex(resources, type) {
+    let indexes = reverseIndexes.get(resources);
+    if (!indexes) {
+      indexes = /* @__PURE__ */ new Map();
+      reverseIndexes.set(resources, indexes);
+    }
+    if (indexes.has(type)) return indexes.get(type);
+    const definition = ENTITY_TYPES[type];
+    const index = /* @__PURE__ */ new Map();
+    for (const [hrid, name] of Object.entries(
+      resources?.[definition.resourceKey] ?? {}
+    )) {
+      const key = normalizedName(name, type);
+      if (!key) continue;
+      if (index.has(key) && index.get(key) !== hrid) index.set(key, null);
+      else index.set(key, hrid);
+    }
+    indexes.set(type, index);
+    return index;
+  }
+  function directHrid(type, value) {
+    const candidate = String(value ?? "").trim();
+    return candidate.startsWith(ENTITY_TYPES[type].prefix) ? candidate : "";
+  }
+  function resolveLocalizedEntity(kind, name, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type) return "";
+    const direct = directHrid(type, name);
+    if (direct) return direct;
+    const key = normalizedName(name, type);
+    if (!key) return "";
+    for (const resources of [
+      getGameLocaleResources(locale),
+      englishResources()
+    ]) {
+      if (!resources) continue;
+      const match = reverseIndex(resources, type).get(key);
+      if (match) return match;
+    }
+    if (type === "item") {
+      for (const [englishName, hrid] of Object.entries(
+        runtime.state.itemEnNameToHridMap ?? {}
+      )) {
+        if (normalizedName(englishName, type) === key) return hrid;
+      }
+    }
+    return "";
+  }
+  function getLocalizedEntityName(kind, hrid, { locale = getGameLocale(), fallback = "" } = {}) {
+    const type = entityType(kind);
+    if (!type) return fallback;
+    const definition = ENTITY_TYPES[type];
+    return getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid] ?? englishResources()[definition.resourceKey]?.[hrid] ?? fallback;
+  }
+  function elementCandidates(element) {
+    const result = [];
+    for (let current = element; current && result.length < 24; ) {
+      result.push(current);
+      current = current.parentElement;
+    }
+    for (const child of element?.querySelectorAll?.("[data-hrid],svg,use") ?? []) {
+      if (!result.includes(child)) result.push(child);
+    }
+    return result;
+  }
+  function datasetHrid(type, element) {
+    const names = [
+      `${type}Hrid`,
+      "hrid",
+      "itemHrid",
+      "actionHrid",
+      "monsterHrid",
+      "abilityHrid",
+      "skillHrid"
+    ];
+    for (const name of names) {
+      const value = element?.dataset?.[name];
+      const direct = directHrid(type, value);
+      if (direct) return direct;
+    }
+    return "";
+  }
+  function spriteHrid(type, element) {
+    const definition = ENTITY_TYPES[type];
+    if (!definition.sprite) return "";
+    const href = String(
+      element?.getAttribute?.("href") ?? element?.getAttribute?.("xlink:href") ?? element?.querySelector?.("use")?.getAttribute?.("href") ?? ""
+    );
+    const [base, fragment = ""] = href.split("#");
+    return fragment && base.includes(definition.sprite) ? `${definition.prefix}${fragment}` : "";
+  }
+  function resolveEntityFromElement(kind, element, { locale = getGameLocale() } = {}) {
+    const type = entityType(kind);
+    if (!type || !element) return "";
+    const candidates = elementCandidates(element);
+    for (const candidate of candidates) {
+      const hrid = datasetHrid(type, candidate) || spriteHrid(type, candidate);
+      if (hrid) return hrid;
+    }
+    for (const candidate of candidates) {
+      for (const value of [
+        candidate?.getAttribute?.("aria-label"),
+        candidate?.getAttribute?.("title"),
+        candidate?.textContent
+      ]) {
+        const hrid = resolveLocalizedEntity(type, value, { locale });
+        if (hrid) return hrid;
+      }
+    }
+    return "";
+  }
+  function getGameTranslation(path, { locale = getGameLocale() } = {}) {
+    let value = getGameLocaleResources(locale);
+    for (const key of String(path ?? "").replace(/^translation\./, "").split(".")) {
+      if (!key || !value || typeof value !== "object") return "";
+      value = value[key];
+    }
+    return typeof value === "string" ? value : "";
+  }
+  function escapeRegularExpression(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  function matchesGameTranslation(path, text, { locale = getGameLocale() } = {}) {
+    const template = getGameTranslation(path, { locale });
+    if (!template) return false;
+    const parts = template.split(/(<[^>]+\/>|{{[^}]+}}|\$t\([^)]*\))/g);
+    const pattern = parts.map(
+      (part, index) => index % 2 ? ".*?" : escapeRegularExpression(part).replace(/\s+/g, "\\s+")
+    ).join("");
+    return new RegExp(`^${pattern}$`, "iu").test(String(text ?? "").trim());
+  }
+  function matchesGameTranslations(paths, text, { locale = getGameLocale(), fallbackPatterns = [] } = {}) {
+    const value = String(text ?? "").trim();
+    if ([...Array.isArray(paths) ? paths : [paths]].some(
+      (path) => matchesGameTranslation(path, value, { locale })
+    )) {
+      return true;
+    }
+    return fallbackPatterns.some(
+      (pattern) => pattern instanceof RegExp ? pattern.test(value) : String(pattern ?? "").trim().toLocaleLowerCase() === value.toLocaleLowerCase()
+    );
+  }
+  function resetGameLocalizationCache() {
+    localeResources.clear();
+    warnedLocales.clear();
+  }
+  Object.assign(runtime.api, {
+    getGameLocale,
+    getGameLocaleResources,
+    registerGameLocaleResources,
+    refreshGameLocaleResources,
+    resetGameLocalizationCache,
+    getGameTranslation,
+    matchesGameTranslation,
+    resolveLocalizedEntity,
+    resolveEntityFromElement,
+    getLocalizedEntityName
+  });
+
   // src/core/localization.js
   function localize(zh, en) {
     return runtime.config.isZH ? zh : en;
@@ -5073,35 +3339,11 @@
   function tailLabel(hrid) {
     return String(hrid ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "";
   }
-  function detailFrom(map, hrid, explicitDetail) {
-    if (explicitDetail) return explicitDetail;
-    return map instanceof Map ? map.get(hrid) : map?.[hrid];
-  }
-  var ENTITY_SOURCES = {
-    item: {
-      zh: () => runtime.data.ZHItemNames,
-      en: () => runtime.state.initData_itemDetailMap
-    },
-    action: {
-      zh: () => runtime.data.ZHActionNames,
-      en: () => runtime.state.initData_actionDetailMap
-    },
-    ability: {
-      zh: () => runtime.data.ZHOthersDic,
-      en: () => runtime.state.initData_abilityDetailMap
-    },
-    monster: {
-      zh: () => runtime.data.ZHOthersDic,
-      en: () => null
-    }
-  };
   function entityName(kind, hrid, { fallbackZh = "", fallbackEn = "", detail = null, fallback = "" } = {}) {
-    const source = ENTITY_SOURCES[kind];
-    const officialZh = source?.zh?.()?.[hrid];
-    const englishDetail = detailFrom(source?.en?.(), hrid, detail);
-    const officialEn = String(englishDetail?.name ?? "").trim();
+    const official = getLocalizedEntityName(kind, hrid);
+    const detailName = String(detail?.name ?? "").trim();
     const diagnostic = fallback || tailLabel(hrid) || "—";
-    return runtime.config.isZH ? officialZh || fallbackZh || officialEn || fallbackEn || diagnostic : officialEn || fallbackEn || fallbackZh || officialZh || diagnostic;
+    return official || (runtime.config.isZH ? fallbackZh : fallbackEn) || detailName || (runtime.config.isZH ? fallbackEn : fallbackZh) || diagnostic;
   }
   var itemName = (hrid, options) => entityName("item", hrid, options);
   var actionName = (hrid, options) => entityName("action", hrid, options);
@@ -5380,8 +3622,8 @@
   function loadMarketItemValuesFromStorage() {
     let parsed = null;
     try {
-      const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
-      parsed = pageGlobal4.localStorageUtil?.getMarketItemValues?.() ?? null;
+      const pageGlobal5 = globalThis.unsafeWindow ?? globalThis;
+      parsed = pageGlobal5.localStorageUtil?.getMarketItemValues?.() ?? null;
     } catch (error) {
       console.error(
         runtime.config.isZH ? "[MWITools] 无法从游戏缓存读取市场价值" : "[MWITools] Unable to read market values from the game cache",
@@ -15260,9 +13502,10 @@ ${preview}`
     return String(value ?? "").split("/").at(-1)?.replaceAll("_", " ") ?? "—";
   }
   function houseName(hrid) {
-    const chinese = runtime.data?.ZHOthersDic?.[hrid];
     const english = runtime.state.initData_houseRoomDetailMap?.[hrid]?.name;
-    return runtime.config.isZH ? chinese || english || tail(hrid) : english || chinese || tail(hrid);
+    return getLocalizedEntityName("houseRoom", hrid, {
+      fallback: english || tail(hrid)
+    });
   }
   function currentHouseLevel2(hrid) {
     const map = runtime.state.initData_characterHouseRoomMap ?? {};
@@ -16585,7 +14828,7 @@ ${preview}`
   var PUBLIC_API_VERSION = 1;
   var SCORE_SCHEMA_VERSION = 1;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
-  var pageGlobal2 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
     const number3 = Number(value);
@@ -16594,7 +14837,7 @@ ${preview}`
   function cloneForConsumer(value) {
     if (value === null || value === void 0) return value ?? null;
     const serialized = JSON.stringify(value);
-    return pageGlobal2.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
+    return pageGlobal3.JSON?.parse?.(serialized) ?? JSON.parse(serialized);
   }
   function createPublicScoreSnapshot(assetSnapshot) {
     const scores = assetSnapshot?.scores;
@@ -16621,10 +14864,10 @@ ${preview}`
     };
   }
   function dispatchScoresUpdated() {
-    if (!latestScores || typeof pageGlobal2.dispatchEvent !== "function") return;
-    const EventConstructor = pageGlobal2.CustomEvent ?? globalThis.CustomEvent;
+    if (!latestScores || typeof pageGlobal3.dispatchEvent !== "function") return;
+    const EventConstructor = pageGlobal3.CustomEvent ?? globalThis.CustomEvent;
     if (typeof EventConstructor !== "function") return;
-    pageGlobal2.dispatchEvent(
+    pageGlobal3.dispatchEvent(
       new EventConstructor(SCORES_UPDATED_EVENT, {
         detail: cloneForConsumer(latestScores)
       })
@@ -16659,13 +14902,13 @@ ${preview}`
     refreshScores
   };
   try {
-    Object.defineProperty(pageGlobal2, "MWIToolsAPI", {
+    Object.defineProperty(pageGlobal3, "MWIToolsAPI", {
       configurable: true,
       enumerable: true,
       value: publicApi2
     });
   } catch {
-    pageGlobal2.MWIToolsAPI = publicApi2;
+    pageGlobal3.MWIToolsAPI = publicApi2;
   }
   runtime.api.onAssetSnapshot?.(publishScoreSnapshot);
   var existingSnapshot = runtime.api.getLatestAssetSnapshot?.();
@@ -16734,11 +14977,6 @@ ${preview}`
     labyrinth_depth: "labyrinth",
     fame_points: "experience"
   });
-  var NATIVE_SPRITE_FALLBACKS = Object.freeze({
-    misc: "/static/media/misc_sprite.6560b17a.svg",
-    skills: "/static/media/skills_sprite.3bb4d936.svg"
-  });
-  var nativeSpriteBasesByDocument = /* @__PURE__ */ new WeakMap();
   var activeInstances = 0;
   var featureEnabled = false;
   var controllers = /* @__PURE__ */ new Set();
@@ -16824,16 +15062,13 @@ ${preview}`
   `;
     mount.append(style);
   }
-  function nativeSpriteBase(documentRef, kind) {
-    let bases = nativeSpriteBasesByDocument.get(documentRef);
-    if (!bases) {
-      bases = /* @__PURE__ */ new Map();
-      nativeSpriteBasesByDocument.set(documentRef, bases);
+  function nativeSpriteHref(documentRef, kind, symbol) {
+    for (const use of documentRef.querySelectorAll("use")) {
+      registerGameSpriteSource(
+        use.getAttribute("href") ?? use.getAttribute("xlink:href")
+      );
     }
-    if (bases.has(kind)) return bases.get(kind);
-    const base = [...documentRef.querySelectorAll("use")].map((element) => element.getAttribute("href") || "").find((href) => href.includes(`${kind}_sprite`))?.split("#")[0] ?? NATIVE_SPRITE_FALLBACKS[kind];
-    bases.set(kind, base);
-    return base;
+    return getGameSpriteHref(kind, symbol);
   }
   function createBadgeIcon(documentRef, category, customIconBaseUrl = "") {
     const miscSymbol = MISC_CATEGORY_SYMBOLS[category];
@@ -16852,11 +15087,11 @@ ${preview}`
     icon.setAttribute("viewBox", "0 0 40 40");
     icon.setAttribute("aria-hidden", "true");
     const use = documentRef.createElementNS("http://www.w3.org/2000/svg", "use");
-    use.setAttribute(
-      "href",
-      `${nativeSpriteBase(documentRef, spriteKind)}#${symbol}`
-    );
-    icon.append(use);
+    const href = nativeSpriteHref(documentRef, spriteKind, symbol);
+    if (href) {
+      use.setAttribute("href", href);
+      icon.append(use);
+    }
     return icon;
   }
   function createOverlay(options = {}) {
@@ -17327,15 +15562,15 @@ ${preview}`
       }
     });
   }
-  var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
+  var pageGlobal4 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   try {
-    Object.defineProperty(pageGlobal3, "MWILeaderboardOverlay", {
+    Object.defineProperty(pageGlobal4, "MWILeaderboardOverlay", {
       configurable: true,
       enumerable: true,
       value: leaderboardOverlayApi
     });
   } catch {
-    pageGlobal3.MWILeaderboardOverlay = leaderboardOverlayApi;
+    pageGlobal4.MWILeaderboardOverlay = leaderboardOverlayApi;
   }
   var integratedModes = /* @__PURE__ */ new Set();
   var integratedService = null;
@@ -17462,57 +15697,61 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
-  var FALLBACK_SPRITE_URL = "/static/media/abilities_sprite.fdd1b4de.svg";
-  var BUFFS = /* @__PURE__ */ new Map([
-    ["/abilities/mana_spring", 10],
-    ["/abilities/taunt", 65],
-    ["/abilities/provoke", 65],
-    ["/abilities/toughness", 20],
-    ["/abilities/elusiveness", 20],
-    ["/abilities/precision", 20],
-    ["/abilities/berserk", 20],
-    ["/abilities/elemental_affinity", 20],
-    ["/abilities/frenzy", 20],
-    ["/abilities/spike_shell", 30],
-    ["/abilities/retribution", 30],
-    ["/abilities/vampirism", 20],
-    ["/abilities/insanity", 12],
-    ["/abilities/invincible", 12],
-    ["/abilities/fierce_aura", 120],
-    ["/abilities/guardian_aura", 120],
-    ["/abilities/mystic_aura", 120],
-    ["/abilities/speed_aura", 120],
-    ["/abilities/critical_aura", 120]
-  ]);
-  var DEBUFFS = /* @__PURE__ */ new Map([
-    ["/abilities/puncture", 10],
-    ["/abilities/maim", 12],
-    ["/abilities/crippling_slash", 12],
-    ["/abilities/fracturing_impact", 12],
-    ["/abilities/pestilent_shot", 12],
-    ["/abilities/ice_spear", 8],
-    ["/abilities/frost_surge", 9],
-    ["/abilities/toxic_pollen", 10],
-    ["/abilities/smoke_burst", 8]
-  ]);
-  var SINGLE_TARGET_DEBUFFS = /* @__PURE__ */ new Set([
-    "/abilities/puncture",
-    "/abilities/maim",
-    "/abilities/pestilent_shot",
-    "/abilities/smoke_burst"
-  ]);
-  var TEAM_BUFFS = /* @__PURE__ */ new Set([
-    "/abilities/mana_spring",
-    "/abilities/fierce_aura",
-    "/abilities/guardian_aura",
-    "/abilities/mystic_aura",
-    "/abilities/speed_aura",
-    "/abilities/critical_aura"
-  ]);
-  function abilityId(hrid) {
-    const parts = hrid.split("/");
-    return parts[parts.length - 1] || hrid;
+  var abilityEffectIndexSource = null;
+  var abilityEffectIndex = null;
+  function buildAbilityEffectIndex() {
+    const source = runtime.state.initData_abilityDetailMap ?? {};
+    if (source === abilityEffectIndexSource && abilityEffectIndex) {
+      return abilityEffectIndex;
+    }
+    const index = {
+      buffs: /* @__PURE__ */ new Map(),
+      debuffs: /* @__PURE__ */ new Map(),
+      teamBuffs: /* @__PURE__ */ new Set(),
+      singleTargetDebuffs: /* @__PURE__ */ new Set()
+    };
+    const entries = source instanceof Map ? source.entries() : Object.entries(source);
+    for (const [abilityHrid, detail] of entries) {
+      for (const effect of detail?.abilityEffects ?? []) {
+        const durations = (effect?.buffs ?? []).map((buff) => Number(buff?.duration) / 1e9).filter((duration2) => Number.isFinite(duration2) && duration2 > 0);
+        if (!durations.length) continue;
+        const duration = Math.max(...durations);
+        const targetType = String(effect?.targetType ?? "").toLowerCase().replaceAll(/[^a-z]/g, "");
+        const targetsEnemy = targetType.includes("enemy");
+        const durationsByAbility = targetsEnemy ? index.debuffs : index.buffs;
+        durationsByAbility.set(
+          abilityHrid,
+          Math.max(duration, durationsByAbility.get(abilityHrid) ?? 0)
+        );
+        if (!targetsEnemy && targetType.includes("allallies")) {
+          index.teamBuffs.add(abilityHrid);
+        }
+        if (targetsEnemy && !targetType.includes("allenemies")) {
+          index.singleTargetDebuffs.add(abilityHrid);
+        }
+      }
+    }
+    abilityEffectIndexSource = source;
+    abilityEffectIndex = index;
+    return index;
   }
+  function dynamicCollection(key) {
+    return Object.freeze({
+      has(value) {
+        return buildAbilityEffectIndex()[key].has(value);
+      },
+      get(value) {
+        return buildAbilityEffectIndex()[key].get(value);
+      },
+      [Symbol.iterator]() {
+        return buildAbilityEffectIndex()[key][Symbol.iterator]();
+      }
+    });
+  }
+  var BUFFS = dynamicCollection("buffs");
+  var DEBUFFS = dynamicCollection("debuffs");
+  var TEAM_BUFFS = dynamicCollection("teamBuffs");
+  var SINGLE_TARGET_DEBUFFS = dynamicCollection("singleTargetDebuffs");
   function ensureBuffStyles(scope) {
     if (document.getElementById(STYLE_ID6)) return;
     const style = document.createElement("style");
@@ -17536,27 +15775,6 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
-    let abilitySpriteBase = null;
-    function getAbilitySpriteBase() {
-      if (abilitySpriteBase) return abilitySpriteBase;
-      const selectors = [
-        'use[href*="abilities_sprite"]',
-        'use[xlink\\:href*="abilities_sprite"]',
-        'img[src*="abilities_sprite"]',
-        'link[href*="abilities_sprite"]'
-      ];
-      for (const selector of selectors) {
-        const node = document.querySelector(selector);
-        if (!node) continue;
-        const href = node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src");
-        if (typeof href === "string" && href.includes("abilities_sprite")) {
-          abilitySpriteBase = href.split("#")[0];
-          return abilitySpriteBase;
-        }
-      }
-      abilitySpriteBase = FALLBACK_SPRITE_URL;
-      return abilitySpriteBase;
-    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -17760,11 +15978,15 @@ ${preview}`
         icon.setAttribute("width", "100%");
         icon.setAttribute("height", "100%");
         const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-        const spriteBase = getAbilitySpriteBase();
-        const spriteRef = `${spriteBase}#${abilityId(effect.abilityHrid)}`;
-        use.setAttribute("href", spriteRef);
-        use.setAttribute("xlink:href", spriteRef);
-        icon.appendChild(use);
+        const spriteRef = getGameSpriteHref("abilities", effect.abilityHrid);
+        if (spriteRef) {
+          use.setAttribute("href", spriteRef);
+          use.setAttribute("xlink:href", spriteRef);
+          icon.appendChild(use);
+          iconWrap.appendChild(icon);
+        } else {
+          iconWrap.textContent = "?";
+        }
         const total = Math.max(1, effect.durationSec);
         const elapsed = Math.max(
           0,
@@ -17772,7 +15994,6 @@ ${preview}`
         );
         const progress = Math.min(1, Math.max(0, elapsed / total));
         const degrees = progress * 360;
-        iconWrap.appendChild(icon);
         chip.appendChild(iconWrap);
         const ring = document.createElement("span");
         ring.className = "mwi-progress-ring";
@@ -19205,29 +17426,11 @@ ${preview}`
   function itemName2(itemHrid) {
     return itemName(itemHrid, { fallback: itemHrid });
   }
-  function findItemsSpriteBase() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function itemIconMarkup(itemHrid, name) {
-    const sprite = findItemsSpriteBase();
-    const bare = String(itemHrid ?? "").split("/").at(-1);
-    if (!sprite || !bare) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="icon-fallback" aria-label="${escapeHtml3(name)}">?</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg class="item-icon" viewBox="0 0 32 32" role="img" aria-label="${escapeHtml3(name)}"><use href="${escapeHtml3(href)}" xlink:href="${escapeHtml3(href)}"></use></svg>`;
   }
   function creditColor(creditItemHrid) {
@@ -19772,31 +17975,13 @@ ${preview}`
   function actionName2(actionHrid, detail) {
     return actionName(actionHrid, { detail });
   }
-  function findItemsSpriteBase2() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function renderItemIcon(itemHrid, name) {
-    const bare = String(itemHrid ?? "").split("/").at(-1);
-    const sprite = findItemsSpriteBase2();
-    if (!bare || !sprite) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="mwi-profit-icon-fallback">${escapeHtml4(
         String(name || "?").trim().charAt(0) || "?"
       )}</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg class="mwi-profit-icon" viewBox="0 0 32 32" aria-label="${escapeHtml4(name)}"><use href="${escapeHtml4(href)}" xlink:href="${escapeHtml4(href)}"></use></svg>`;
   }
   function addStyles5() {
@@ -20889,7 +19074,7 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       (text) => String(text ?? "").replaceAll(/\s+/g, " ").trim()
     ).filter(Boolean);
     const matches = Object.values(runtime.state.initData_actionDetailMap ?? {}).filter((detail) => GATHERING_ACTION_TYPES.has(detail?.type)).filter((detail) => {
-      const names = [detail.name, runtime.data.ZHActionNames?.[detail.hrid]].map((name) => String(name ?? "").trim()).filter(Boolean);
+      const names = [detail.name, getLocalizedEntityName("action", detail.hrid)].map((name) => String(name ?? "").trim()).filter(Boolean);
       return texts.some((text) => names.includes(text));
     }).sort(
       (left, right) => Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0) || String(left.hrid).localeCompare(String(right.hrid))
@@ -22015,22 +20200,6 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function number2(value) {
     return runtime.api.createFormattedNumber(value);
   }
-  function findItemsSpriteBase3() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function outputItemName(itemHrid) {
     return itemName(itemHrid, { fallback: "?" });
   }
@@ -22046,8 +20215,8 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       )
     );
     const prototype = candidates.find((candidate) => {
-      const href = candidate.querySelector("use")?.getAttribute("href") ?? candidate.querySelector("use")?.getAttribute("xlink:href") ?? "";
-      return bare && href.endsWith(`#${bare}`);
+      const href2 = candidate.querySelector("use")?.getAttribute("href") ?? candidate.querySelector("use")?.getAttribute("xlink:href") ?? "";
+      return bare && href2.endsWith(`#${bare}`);
     }) ?? candidates[0];
     if (!prototype) return null;
     const item = prototype.cloneNode(true);
@@ -22055,10 +20224,9 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     for (const className of [...item.classList]) {
       if (className.includes("Item_clickable")) item.classList.remove(className);
     }
-    const sprite = findItemsSpriteBase3();
+    const href = getGameSpriteHref("items", itemHrid);
     const use = item.querySelector("use");
-    if (use && sprite && bare) {
-      const href = `${sprite}#${bare}`;
+    if (use && href && bare) {
       use.setAttribute("href", href);
       use.setAttribute("xlink:href", href);
     }
@@ -22072,14 +20240,13 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
     const item = document.createElement("span");
     item.className = "mwi-production-native-fallback";
     const bare = String(itemHrid ?? "").split("/").at(-1);
-    const sprite = findItemsSpriteBase3();
-    if (bare && sprite) {
+    const href = getGameSpriteHref("items", itemHrid);
+    if (bare && href) {
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.classList.add("mwi-production-output-icon");
       svg.setAttribute("viewBox", "0 0 32 32");
       svg.setAttribute("aria-label", name);
       const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      const href = `${sprite}#${bare}`;
       use.setAttribute("href", href);
       use.setAttribute("xlink:href", href);
       svg.append(use);
@@ -22226,12 +20393,10 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
   function actionHeaderNames(actionHrid, detail) {
     const names = /* @__PURE__ */ new Set([
       detail?.name,
-      runtime.data.ZHActionNames?.[actionHrid],
       getLocalizedEntityName("action", actionHrid)
     ]);
     for (const output of runtime.api.getExpectedOutputs?.(detail) ?? []) {
       names.add(runtime.state.initData_itemDetailMap?.[output.itemHrid]?.name);
-      names.add(runtime.data.ZHItemNames?.[output.itemHrid]);
       names.add(getLocalizedEntityName("item", output.itemHrid));
     }
     return [...names].map(normalizedActionText).filter(Boolean);
@@ -23220,29 +21385,12 @@ ${t6("概率", "Chance")}: ${chance} · ${t6("数量", "Count")}: ${countRange} 
       return a.name.localeCompare(b.name, runtime.config.isZH ? "zh" : "en");
     });
   }
-  function findItemsSpriteBase4() {
-    for (const entry of globalThis.performance?.getEntriesByType?.("resource") ?? []) {
-      if (entry.name?.includes("items_sprite") && entry.name.endsWith(".svg")) {
-        try {
-          return new URL(entry.name).pathname;
-        } catch {
-          return entry.name;
-        }
-      }
-    }
-    const use = document.querySelector(
-      'svg use[href*="items_sprite"],svg use[xlink\\:href*="items_sprite"]'
-    );
-    const href = use?.getAttribute("href") ?? use?.getAttribute("xlink:href") ?? "";
-    return href.includes("#") ? href.split("#")[0] : "";
-  }
   function renderItemIcon2(item) {
-    const bare = procurement3.normalizeItemHrid(item.itemHrid).split("/").at(-1);
-    const sprite = findItemsSpriteBase4();
-    if (!bare || !sprite) {
+    const itemHrid = procurement3.normalizeItemHrid(item.itemHrid);
+    const href = getGameSpriteHref("items", itemHrid);
+    if (!href) {
       return `<span class="item-icon-fallback">${escapeHtml5((item.name || "?").trim().charAt(0) || "?")}</span>`;
     }
-    const href = `${sprite}#${bare}`;
     return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml5(item.name)}"><use href="${escapeHtml5(href)}" xlink:href="${escapeHtml5(href)}"></use></svg>`;
   }
   function renderShell() {
@@ -25262,9 +23410,9 @@ ${locks}` : ""}`;
     );
   }
   function gameInstances() {
-    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
+    const pageGlobal5 = globalThis.unsafeWindow ?? globalThis;
     const instances = [];
-    if (pageGlobal4.mwi?.game) instances.push(pageGlobal4.mwi.game);
+    if (pageGlobal5.mwi?.game) instances.push(pageGlobal5.mwi.game);
     const fibers = [];
     const rootElement = document.getElementById("root");
     for (const root of [
@@ -25320,11 +23468,7 @@ ${locks}` : ""}`;
     const outputHrid = runtime.api.getExpectedOutputs?.(detail)?.[0]?.itemHrid;
     const bare = String(outputHrid ?? "").split("/").at(-1);
     const names = new Set(
-      [
-        detail?.name,
-        runtime.config.isZH ? runtime.data.ZHActionNames?.[actionHrid] : null,
-        getLocalizedEntityName("action", actionHrid)
-      ].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
+      [detail?.name, getLocalizedEntityName("action", actionHrid)].filter(Boolean).map((name) => String(name).replaceAll(/\s+/g, " ").trim())
     );
     const card = [
       ...document.querySelectorAll('[class*="SkillAction_skillAction"]')
@@ -26010,8 +24154,6 @@ ${locks}` : ""}`;
   // src/core/task-card-resolution.js
   var NAME_SELECTOR = '[class*="RandomTask_name"]';
   var cachedActionMap2 = null;
-  var cachedZhActionNames = null;
-  var cachedZhMonsterNames = null;
   var cachedLocale = "";
   var cachedActionLabels = /* @__PURE__ */ new Map();
   function normalize(value) {
@@ -26057,13 +24199,9 @@ ${locks}` : ""}`;
   }
   function candidateLabels(task, actionHrid) {
     const actionMap = runtime.state.initData_actionDetailMap;
-    const zhActionNames = runtime.data.ZHActionNames;
-    const zhMonsterNames = runtime.data.ZHMonsterNames;
     const locale = getGameLocale();
-    if (actionMap !== cachedActionMap2 || zhActionNames !== cachedZhActionNames || zhMonsterNames !== cachedZhMonsterNames || locale !== cachedLocale) {
+    if (actionMap !== cachedActionMap2 || locale !== cachedLocale) {
       cachedActionMap2 = actionMap;
-      cachedZhActionNames = zhActionNames;
-      cachedZhMonsterNames = zhMonsterNames;
       cachedLocale = locale;
       cachedActionLabels = /* @__PURE__ */ new Map();
     }
@@ -26076,9 +24214,7 @@ ${locks}` : ""}`;
     const labels = new Set(
       [
         detail?.name,
-        zhActionNames?.[actionHrid],
         getLocalizedEntityName("action", actionHrid, { locale }),
-        monsterHrid && zhMonsterNames?.[monsterHrid],
         monsterHrid && getLocalizedEntityName("monster", monsterHrid, { locale }),
         String(actionHrid ?? "").split("/").at(-1)?.replaceAll("_", " "),
         monsterHrid.split("/").at(-1)?.replaceAll("_", " ")
@@ -26222,133 +24358,16 @@ ${locks}` : ""}`;
   var lastTaskRenderSignature = "";
   var lastActionDetails = null;
   var lastActionCategories = null;
-  var taskSpriteManifestPromise = null;
-  var taskSpriteBases = /* @__PURE__ */ new Map();
-  var spriteScanDocument = null;
-  var spriteSourcesScanned = false;
   var cachedTaskActionIndex = null;
   var cachedTaskActionIndexMap = null;
   var cachedTaskActionIndexLocale = "";
+  var warnedMissingDungeonData = false;
   var taskActionCache = /* @__PURE__ */ new WeakMap();
   var taskRemainingCache = /* @__PURE__ */ new WeakMap();
   var pageOrderBySlot = /* @__PURE__ */ new Map();
   var activeProfessionFilters = /* @__PURE__ */ new Set();
   var combatFilterEnabled = false;
   var activeDungeonFilters = /* @__PURE__ */ new Set();
-  var KNOWN_DUNGEON_ROSTERS = [
-    {
-      actionHrid: "/actions/combat/chimerical_den",
-      sortIndex: 56,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/alligator",
-        "/monsters/aquahorse",
-        "/monsters/butterjerry",
-        "/monsters/centaur_archer",
-        "/monsters/crab",
-        "/monsters/dodocamel",
-        "/monsters/eye",
-        "/monsters/eyes",
-        "/monsters/frog",
-        "/monsters/gobo_boomy",
-        "/monsters/gobo_shooty",
-        "/monsters/gobo_slashy",
-        "/monsters/gobo_smashy",
-        "/monsters/gobo_stabby",
-        "/monsters/griffin",
-        "/monsters/jackalope",
-        "/monsters/jungle_sprite",
-        "/monsters/manticore",
-        "/monsters/myconid",
-        "/monsters/nom_nom",
-        "/monsters/porcupine",
-        "/monsters/rat",
-        "/monsters/sea_snail",
-        "/monsters/skunk",
-        "/monsters/slimy",
-        "/monsters/snake",
-        "/monsters/swampy",
-        "/monsters/turtle",
-        "/monsters/veyes"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/sinister_circus",
-      sortIndex: 57,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/acrobat",
-        "/monsters/black_bear",
-        "/monsters/deranged_jester",
-        "/monsters/elementalist",
-        "/monsters/flame_sorcerer",
-        "/monsters/gobo_boomy",
-        "/monsters/gobo_shooty",
-        "/monsters/gobo_slashy",
-        "/monsters/gobo_smashy",
-        "/monsters/gobo_stabby",
-        "/monsters/grizzly_bear",
-        "/monsters/gummy_bear",
-        "/monsters/ice_sorcerer",
-        "/monsters/juggler",
-        "/monsters/magician",
-        "/monsters/novice_sorcerer",
-        "/monsters/panda",
-        "/monsters/polar_bear",
-        "/monsters/rabid_rabbit",
-        "/monsters/vampire",
-        "/monsters/werewolf",
-        "/monsters/zombie",
-        "/monsters/zombie_bear"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/enchanted_fortress",
-      sortIndex: 58,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/abyssal_imp",
-        "/monsters/black_bear",
-        "/monsters/elementalist",
-        "/monsters/enchanted_bishop",
-        "/monsters/enchanted_king",
-        "/monsters/enchanted_knight",
-        "/monsters/enchanted_pawn",
-        "/monsters/enchanted_queen",
-        "/monsters/enchanted_rook",
-        "/monsters/flame_sorcerer",
-        "/monsters/grizzly_bear",
-        "/monsters/ice_sorcerer",
-        "/monsters/magnetic_golem",
-        "/monsters/novice_sorcerer",
-        "/monsters/panda",
-        "/monsters/polar_bear",
-        "/monsters/soul_hunter",
-        "/monsters/stalactite_golem"
-      ])
-    },
-    {
-      actionHrid: "/actions/combat/pirate_cove",
-      sortIndex: 59,
-      monsters: /* @__PURE__ */ new Set([
-        "/monsters/abyssal_imp",
-        "/monsters/anchor_shark",
-        "/monsters/brine_marksman",
-        "/monsters/captain_fishhook",
-        "/monsters/eye",
-        "/monsters/eyes",
-        "/monsters/granite_golem",
-        "/monsters/infernal_warlock",
-        "/monsters/magnetic_golem",
-        "/monsters/soul_hunter",
-        "/monsters/squawker",
-        "/monsters/stalactite_golem",
-        "/monsters/the_kraken",
-        "/monsters/tidal_conjuror",
-        "/monsters/vampire",
-        "/monsters/veyes",
-        "/monsters/werewolf",
-        "/monsters/zombie"
-      ])
-    }
-  ];
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -26361,12 +24380,16 @@ ${locks}` : ""}`;
     ["combat", "战斗", "Combat"]
   ].map(([key, zh, en], order) => ({ key, zh, en, order }));
   var LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
-  var DUNGEON_FILTERS = [
-    ["/actions/combat/chimerical_den", "奇幻洞穴", "Chimerical Den"],
-    ["/actions/combat/sinister_circus", "邪恶马戏团", "Sinister Circus"],
-    ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
-    ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"]
-  ].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
+  function dungeonFilters() {
+    return Object.values(runtime.state.initData_actionDetailMap ?? {}).filter((detail) => detail?.combatZoneInfo?.isDungeon).sort(
+      (left, right) => Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0)
+    ).map((detail) => ({
+      actionHrid: detail.hrid,
+      label: getLocalizedEntityName("action", detail.hrid, {
+        fallback: detail.name
+      })
+    }));
+  }
   function t10(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -26409,67 +24432,6 @@ ${locks}` : ""}`;
   }
   function hasActiveTaskFilters() {
     return activeProfessionFilters.size > 0 || combatFilterEnabled || activeDungeonFilters.size > 0;
-  }
-  function rememberSpriteBase(kind, value) {
-    const base = String(value ?? "").split("#")[0];
-    if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
-      taskSpriteBases.set(kind, base);
-    }
-  }
-  function scanTaskSpriteBases({ force = false } = {}) {
-    if (spriteScanDocument !== document) {
-      spriteScanDocument = document;
-      spriteSourcesScanned = false;
-    }
-    if (spriteSourcesScanned && !force) return;
-    spriteSourcesScanned = true;
-    try {
-      document.querySelectorAll("svg use").forEach(
-        (use) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) => rememberSpriteBase(
-            kind,
-            use.getAttribute("href") ?? use.getAttribute("xlink:href")
-          )
-        )
-      );
-      globalThis.performance?.getEntriesByType?.("resource")?.forEach(
-        (entry) => ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) => rememberSpriteBase(kind, entry.name)
-        )
-      );
-    } catch {
-    }
-  }
-  async function loadTaskSpriteManifest() {
-    if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
-    taskSpriteManifestPromise = (async () => {
-      scanTaskSpriteBases({ force: true });
-      try {
-        const response = await globalThis.fetch(
-          new URL("/asset-manifest.json", globalThis.location?.origin).href
-        );
-        if (!response.ok) return;
-        const manifest = await response.json();
-        for (const value of Object.values(manifest?.files ?? {})) {
-          for (const kind of [
-            "items",
-            "actions",
-            "combat_monsters",
-            "skills",
-            "misc"
-          ]) {
-            rememberSpriteBase(kind, value);
-          }
-        }
-      } catch {
-      }
-    })();
-    return taskSpriteManifestPromise;
-  }
-  function taskSpriteHref(kind, hrid) {
-    const base = taskSpriteBases.get(kind);
-    const symbol = String(hrid ?? "").split("/").at(-1);
-    return base && symbol ? `${base}#${symbol}` : "";
   }
   function addStyles9() {
     if (document.getElementById(STYLE_ID11)) return;
@@ -26552,7 +24514,6 @@ ${locks}` : ""}`;
       if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
       for (const name of [
         detail.name,
-        runtime.data.ZHActionNames?.[detail.hrid],
         getLocalizedEntityName("action", detail.hrid, { locale })
       ]) {
         const normalized = normalizeTaskLookupName(name);
@@ -26563,7 +24524,25 @@ ${locks}` : ""}`;
       if (detail?.category && detail?.combatZoneInfo?.fightInfo?.battlesPerBoss === 10 && !zoneActionByCategory.has(detail.category)) {
         zoneActionByCategory.set(detail.category, detail);
       }
-      const monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+      const dungeonInfo = detail?.combatZoneInfo?.dungeonInfo;
+      let monsters;
+      if (detail?.combatZoneInfo?.isDungeon) {
+        const hasDungeonSpawns = Boolean(
+          dungeonInfo?.randomSpawnInfoMap || dungeonInfo?.fixedSpawnsMap
+        );
+        if (!hasDungeonSpawns && !warnedMissingDungeonData) {
+          warnedMissingDungeonData = true;
+          console.warn(
+            "[MWITools] Official dungeon spawn data is unavailable; dungeon task inference is disabled."
+          );
+        }
+        monsters = hasDungeonSpawns ? fightMonsterHrids([
+          dungeonInfo.randomSpawnInfoMap,
+          dungeonInfo.fixedSpawnsMap
+        ]) : /* @__PURE__ */ new Set();
+      } else {
+        monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+      }
       for (const monsterHrid of monsters) {
         if (!combatByMonster.has(monsterHrid)) {
           combatByMonster.set(monsterHrid, detail);
@@ -26671,7 +24650,7 @@ ${locks}` : ""}`;
     if (value.startsWith("/monsters/")) return value;
     if (!value.startsWith("/actions/combat/")) return "";
     const candidate = value.replace("/actions/combat/", "/monsters/");
-    return Object.hasOwn(runtime.data.ZHOthersDic ?? {}, candidate) ? candidate : "";
+    return runtime.state.initData_monsterDetailMap?.[candidate] ? candidate : "";
   }
   function fightMonsterHrids(value, result = /* @__PURE__ */ new Set(), visited = /* @__PURE__ */ new Set()) {
     if (!value || visited.has(value)) return result;
@@ -26731,7 +24710,7 @@ ${locks}` : ""}`;
       card.querySelector(":scope > .mwi-task-bg")?.remove();
       return;
     }
-    const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+    const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!href) {
       existing?.remove();
@@ -26757,7 +24736,7 @@ ${locks}` : ""}`;
     const existing = card.querySelector(":scope > .mwi-task-bg");
     if (!runtime.settings.get("taskIcons")) return !existing;
     const artwork = taskArtworkForCard(card, task);
-    const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+    const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
     return href ? existing?.dataset.spriteHref === href : existing === null;
   }
   function visibleTaskTitle(card) {
@@ -26860,7 +24839,9 @@ ${locks}` : ""}`;
   } = {}) {
     const categories = runtime.state.initData_actionCategoryDetailMap ?? {};
     if (detail?.combatZoneInfo?.isDungeon) {
-      const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail.hrid] : detail.name) ?? detail.name;
+      const name = getLocalizedEntityName("action", detail.hrid, {
+        fallback: detail.name
+      });
       return {
         key: `dungeon-${detail.hrid}`,
         label: name ? `${t10("地牢", "Dungeon")} · ${name}` : t10("地牢", "Dungeon"),
@@ -26872,7 +24853,9 @@ ${locks}` : ""}`;
       const zoneAction = getTaskActionIndex().zoneActionByCategory.get(
         detail.category
       );
-      const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[zoneAction?.hrid] : zoneAction?.name) ?? category?.name;
+      const name = getLocalizedEntityName("action", zoneAction?.hrid, {
+        fallback: zoneAction?.name ?? category?.name
+      });
       const sortIndex = Number(category?.sortIndex ?? 9999);
       return {
         key: `zone-${detail.category}`,
@@ -26895,7 +24878,9 @@ ${locks}` : ""}`;
     };
   }
   function dungeonLocation(detail) {
-    const name = (runtime.config.isZH ? runtime.data.ZHActionNames?.[detail?.hrid] : detail?.name) ?? detail?.name;
+    const name = getLocalizedEntityName("action", detail?.hrid, {
+      fallback: detail?.name
+    });
     return {
       key: `dungeon-${detail?.hrid}`,
       actionHrid: detail?.hrid ?? "",
@@ -26927,21 +24912,7 @@ ${locks}` : ""}`;
         (detail) => detail.hrid
       )
     );
-    for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
-      if (dungeon.monsters.has(monsterHrid)) {
-        matchingDungeonHrids.add(dungeon.actionHrid);
-      }
-    }
-    const matches = [...matchingDungeonHrids].map((dungeonActionHrid) => {
-      const known = KNOWN_DUNGEON_ROSTERS.find(
-        (dungeon) => dungeon.actionHrid === dungeonActionHrid
-      );
-      return actionDetails[dungeonActionHrid] ?? {
-        hrid: dungeonActionHrid,
-        sortIndex: known?.sortIndex,
-        combatZoneInfo: { isDungeon: true }
-      };
-    }).map(dungeonLocation).sort(
+    const matches = [...matchingDungeonHrids].map((dungeonActionHrid) => actionDetails[dungeonActionHrid]).filter(Boolean).map(dungeonLocation).sort(
       (left, right) => left.order - right.order || left.label.localeCompare(right.label)
     );
     return matches.length ? matches : [nonDungeonLocation()];
@@ -27258,7 +25229,7 @@ ${locks}` : ""}`;
   function updateTaskFilterIcon(button) {
     const icon = button.querySelector(".mwi-task-filter-icon");
     if (!icon) return;
-    const href = button.dataset.iconKind ? taskSpriteHref(button.dataset.iconKind, button.dataset.iconHrid) : "";
+    const href = button.dataset.iconKind ? getGameSpriteHref(button.dataset.iconKind, button.dataset.iconHrid) : "";
     const signature = href || `fallback:${button.dataset.iconFallback}`;
     if (icon.dataset.signature === signature) return;
     icon.dataset.signature = signature;
@@ -27386,12 +25357,12 @@ ${locks}` : ""}`;
         );
         const dungeons = document.createElement("div");
         dungeons.className = "mwi-task-dungeon-filters";
-        for (const dungeon of DUNGEON_FILTERS) {
+        for (const dungeon of dungeonFilters()) {
           dungeons.append(
             createTaskFilterButton({
               kind: "dungeon",
               value: dungeon.actionHrid,
-              label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+              label: dungeon.label,
               iconKind: "actions",
               iconHrid: dungeon.actionHrid,
               fallback: "◆",
@@ -27430,8 +25401,9 @@ ${locks}` : ""}`;
     }
     if (!statisticsEnabled) return;
     const professionCounts = new Map(LIFE_PROFESSIONS.map(({ key }) => [key, 0]));
+    const currentDungeonFilters = dungeonFilters();
     const dungeonCounts = new Map(
-      DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0])
+      currentDungeonFilters.map(({ actionHrid }) => [actionHrid, 0])
     );
     let combatCount = 0;
     for (const row of rows2) {
@@ -27468,12 +25440,12 @@ ${locks}` : ""}`;
       count: combatCount,
       pressed: combatFilterEnabled
     });
-    for (const dungeon of DUNGEON_FILTERS) {
+    for (const dungeon of currentDungeonFilters) {
       const button = toolbar.querySelector(
         `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`
       );
       updateTaskFilterButton(button, {
-        label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+        label: dungeon.label,
         count: dungeonCounts.get(dungeon.actionHrid),
         pressed: activeDungeonFilters.has(dungeon.actionHrid)
       });
@@ -27760,7 +25732,7 @@ ${locks}` : ""}`;
         delete card.dataset.mwitoolsLocation;
       }
     });
-    if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
+    if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
     const rows2 = orderedRows(cards, cardTasks, snapshots);
     rows2.forEach((row) => decorateCard(row.card, row.task, row.artwork));
     wireMergeButtons(cards);
@@ -27816,7 +25788,6 @@ ${locks}` : ""}`;
     scope: "character",
     initialize({ scope }) {
       addStyles9();
-      let active = true;
       let settleRetries = 0;
       let renderScheduler = null;
       const render = () => {
@@ -27832,12 +25803,8 @@ ${locks}` : ""}`;
       };
       renderScheduler = createFrameScheduler(render);
       const scheduleRender = () => renderScheduler.schedule();
+      scanGameSpriteSources({ force: true });
       render();
-      void loadTaskSpriteManifest().then(() => {
-        if (!active) return;
-        lastTaskRenderSignature = "";
-        scheduleRender();
-      });
       const observer = new MutationObserver((records) => {
         if (shouldRenderTaskMutations(records)) scheduleRender();
       });
@@ -27852,7 +25819,6 @@ ${locks}` : ""}`;
         })
       );
       scope.add(() => {
-        active = false;
         renderScheduler.cancel();
         cleanupTasks();
       });
@@ -29110,7 +27076,8 @@ ${locks}` : ""}`;
           "优化手机端资产中心的图表生命周期：隐藏的盈亏页不再持续重建图表，打开资产中心时会先释放底层画布，离开资产页后也会立即停止图表工作，避免游戏持续卡顿。",
           "修复 DPS 职业可能长期沿用旧自动缓存的问题；本场明确的武器与近战、魔法战斗属性现在会纠正旧结果，手动指定仍保持最高优先级，只有无法仅凭攻速可靠区分的弓弩继续保留已有精确装备识别。",
           "修复角色初始化或重新连接时生产缺料提示可能先读取旧库存的问题；现在直接使用本次角色消息中的完整库存建立快照，避免材料充足却被误报缺少。",
-          "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。"
+          "恢复发布脚本原有的可读构建，并改为压缩内置备用行情数据，使脚本保持在 Greasy Fork 大小上限以内；备用行情仅在网络行情与缓存均不可用时解压一次，不增加外部 CDN 依赖。",
+          "游戏物品、行动、怪物、技能、副本与 Buff 现在直接使用当前游戏版本的官方客户端数据和当前语言资源，覆盖全部九种游戏语言；已移除内置旧中文实体表、固定副本名单、漂移的技能时长和带构建哈希的图标地址。数据在启动时从游戏本地缓存读取一次并按版本保存语言资源，不轮询服务器、不预载其他语言，也不会新增游戏数据网络请求。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -29126,7 +27093,8 @@ ${locks}` : ""}`;
           "Optimized Asset Center chart lifecycles on mobile: hidden P/L pages no longer rebuild charts, opening Asset Center releases the underlying canvas first, and leaving the asset page stops chart work immediately to prevent ongoing game lag.",
           "Fixed DPS roles remaining stuck on stale automatic classifications. Explicit current-battle weapon, melee, and magic evidence now corrects old results, manual choices remain highest priority, and existing exact equipment detection is preserved only when attack speed alone cannot reliably distinguish bows from crossbows.",
           "Fixed production shortage hints occasionally reading stale inventory during character initialization or reconnection. They now build their snapshot directly from the complete inventory in the current character message, preventing materials already owned from being reported as missing.",
-          "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added."
+          "Restored the original readable userscript build and compressed its embedded backup market data to stay within Greasy Fork's size limit. The backup is decompressed once only when both live and cached prices are unavailable, with no external CDN dependency added.",
+          "Game items, actions, monsters, abilities, dungeons, and buffs now use official client data and the active locale resources for the current game version across all nine game languages. The bundled legacy Chinese entity table, fixed dungeon rosters, drifting ability durations, and build-hashed sprite URLs have been removed. Data is read once from the game's local cache at startup and locale resources are cached per version, without server polling, preloading other languages, or adding game-data network requests."
         ])
       })
     }),
@@ -33448,7 +31416,7 @@ ${locks}` : ""}`;
   `;
     styleHost.appendChild(style);
   }
-  function localizedText(value) {
+  function localizedText2(value) {
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? "";
   }
   function featureStatusForSetting(id) {
@@ -33532,11 +31500,11 @@ ${locks}` : ""}`;
     titleLine.className = "mwi-setting-title-line";
     const title = document.createElement("div");
     title.className = "mwi-setting-title";
-    title.textContent = localizedText(definition.title);
+    title.textContent = localizedText2(definition.title);
     titleLine.append(title);
     const summary = document.createElement("div");
     summary.className = "mwi-setting-summary";
-    summary.textContent = localizedText(definition.summary);
+    summary.textContent = localizedText2(definition.summary);
     copy.append(titleLine, summary);
     if (definition.details) {
       const details = document.createElement("details");
@@ -33544,17 +31512,17 @@ ${locks}` : ""}`;
       const heading = document.createElement("summary");
       heading.textContent = runtime.config.isZH ? "详细说明" : "Details";
       const detailsCopy = document.createElement("p");
-      detailsCopy.textContent = localizedText(definition.details);
+      detailsCopy.textContent = localizedText2(definition.details);
       details.append(heading, detailsCopy);
       copy.append(details);
     }
     const select = document.createElement("select");
     select.className = "mwi-setting-select mwi-setting-primary-select";
-    select.setAttribute("aria-label", localizedText(definition.title));
+    select.setAttribute("aria-label", localizedText2(definition.title));
     for (const [value, label] of definition.control.options) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = localizedText(label);
+      option.textContent = localizedText2(label);
       select.append(option);
     }
     const preferenceId = definition.control.preference;
@@ -33612,10 +31580,10 @@ ${locks}` : ""}`;
     copy.className = "mwi-setting-copy";
     const title = document.createElement("div");
     title.className = "mwi-setting-title";
-    title.textContent = localizedText(definition.title);
+    title.textContent = localizedText2(definition.title);
     const summary = document.createElement("div");
     summary.className = "mwi-setting-summary";
-    summary.textContent = localizedText(definition.summary);
+    summary.textContent = localizedText2(definition.summary);
     const status = document.createElement("span");
     status.className = "mwi-setting-status";
     const setStatus = () => {
@@ -33650,7 +31618,7 @@ ${locks}` : ""}`;
     if (definition.parent) {
       checkbox.disabled = !areSettingParentsEnabled(definition);
     }
-    checkbox.setAttribute("aria-label", localizedText(definition.title));
+    checkbox.setAttribute("aria-label", localizedText2(definition.title));
     const track = document.createElement("span");
     toggle.append(checkbox, track);
     if (definition.details) {
@@ -33660,7 +31628,7 @@ ${locks}` : ""}`;
       detailsSummary.textContent = runtime.config.isZH ? "详细说明" : "Details";
       details.append(detailsSummary);
       const detailsCopy = document.createElement("p");
-      detailsCopy.textContent = localizedText(definition.details);
+      detailsCopy.textContent = localizedText2(definition.details);
       details.append(detailsCopy);
       copy.append(details);
     }
@@ -33860,10 +31828,10 @@ ${locks}` : ""}`;
       head.className = "mwi-settings-group-head";
       const groupTitle = document.createElement("div");
       groupTitle.className = "mwi-settings-group-title";
-      groupTitle.textContent = localizedText(group.title);
+      groupTitle.textContent = localizedText2(group.title);
       const groupSummary = document.createElement("div");
       groupSummary.className = "mwi-settings-group-summary";
-      groupSummary.textContent = localizedText(group.summary);
+      groupSummary.textContent = localizedText2(group.summary);
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
@@ -35673,57 +33641,14 @@ ${locks}` : ""}`;
   var VERSION = "1.0.51";
   var TAB_CONTAINER_CLASS = "TabsComponent_tabsContainer__3BDUp";
   var ACCENT = "#d4af37";
-  var GameAssets = (() => {
-    const fallback = {
-      abilities: "fdd1b4de",
-      skills: "3bb4d936",
-      items: "f58c9476",
-      misc: "6560b17a",
-      avatars: "75a98d25"
-    }, bases = /* @__PURE__ */ new Map();
-    let lastScanAt = Number.NEGATIVE_INFINITY;
-    const SCAN_INTERVAL_MS = 5e3;
-    function remember(raw) {
-      const value = String(raw || ""), match = value.match(
-        /(?:https?:\/\/[^/]+)?(\/static\/media\/(abilities|skills|items|misc|avatars)_sprite\.[^/#]+\.svg)/i
-      );
-      if (match) bases.set(match[2].toLowerCase(), match[1]);
-    }
-    function scan2(force = true) {
-      const now = typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-      if (!force && (bases.size >= Object.keys(fallback).length || now - lastScanAt < SCAN_INTERVAL_MS)) {
-        return;
-      }
-      lastScanAt = now;
-      try {
-        if (typeof performance !== "undefined" && typeof performance.getEntriesByType === "function")
-          performance.getEntriesByType("resource").forEach((entry) => remember(entry.name));
-      } catch (ignore) {
-      }
-      try {
-        if (typeof document !== "undefined" && typeof document.querySelectorAll === "function")
-          document.querySelectorAll("svg use,img").forEach(
-            (node) => remember(
-              node.getAttribute && (node.getAttribute("href") || node.getAttribute("xlink:href") || node.getAttribute("src")) || node.currentSrc || node.src
-            )
-          );
-      } catch (ignore) {
-      }
-    }
-    function sprite(kind, id) {
-      scan2(false);
-      const base = bases.get(kind) || "/static/media/" + kind + "_sprite." + fallback[kind] + ".svg";
-      return base + "#" + String(id || "").split("/").pop();
-    }
-    return {
-      ability: (id) => sprite("abilities", id),
-      skill: (id) => sprite("skills", id),
-      item: (id) => sprite("items", id),
-      misc: (id) => sprite("misc", id),
-      avatar: (id) => sprite("avatars", id),
-      scan: () => scan2(true)
-    };
-  })();
+  var GameAssets = Object.freeze({
+    ability: (id) => getGameSpriteHref("abilities", id),
+    skill: (id) => getGameSpriteHref("skills", id),
+    item: (id) => getGameSpriteHref("items", id),
+    misc: (id) => getGameSpriteHref("misc", id),
+    avatar: (id) => getGameSpriteHref("avatars", id),
+    scan: () => scanGameSpriteSources({ force: true })
+  });
   var SKILL_MODE_ICONS = {
     get attack() {
       return GameAssets.skill("attack");
@@ -37250,7 +35175,7 @@ ${locks}` : ""}`;
     function abilityLabel(value, english) {
       if (english)
         return clientAbilityName(value) || (value === "/abilities/natures_veil" ? "Nature's Veil" : "") || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-      return runtime.data.ZHOthersDic?.[value] || clientAbilityName(value) || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+      return getLocalizedEntityName("ability", value) || clientAbilityName(value) || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
     }
     function canonical(source, playerName = "") {
       const value = normalize2(source);
@@ -37281,8 +35206,8 @@ ${locks}` : ""}`;
         const itemDetailMap = runtime.state.initData_itemDetailMap;
         const itemDetail = itemDetailMap instanceof Map ? itemDetailMap.get(value) : itemDetailMap?.[value];
         const englishName = String(itemDetail?.name || "").trim() || itemLabels[value]?.[1] || value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-        const chineseName = runtime.data.ZHItemNames?.[value] || itemLabels[value]?.[0] || englishName;
-        return english ? englishName + " Effect" : "武器特效：" + chineseName;
+        const localizedName = getLocalizedEntityName("item", value) || itemLabels[value]?.[0] || englishName;
+        return english ? englishName + " Effect" : "武器特效：" + localizedName;
       }
       const tail2 = value.split("/").pop().replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
       return tail2 || labels.unknown[english ? 1 : 0];
@@ -37332,7 +35257,10 @@ ${locks}` : ""}`;
     }
     function monsterLabel(detail) {
       if (Settings.getLanguage() !== "en") {
-        const officialName = runtime.data.ZHOthersDic?.[detail.monsterHrid];
+        const officialName = getLocalizedEntityName(
+          "monster",
+          detail.monsterHrid
+        );
         if (officialName) return officialName;
       }
       if (detail.monsterName) return detail.monsterName;
@@ -44880,45 +42808,14 @@ ${locks}` : ""}`;
   });
 
   // src/main.js
-  function loadCachedClientData() {
-    const pageGlobal4 = globalThis.unsafeWindow ?? globalThis;
-    const localStorageUtil = pageGlobal4.localStorageUtil;
-    if (!localStorage.getItem("initClientData") || typeof localStorageUtil?.getInitClientData !== "function") {
-      return false;
-    }
-    const clientData = localStorageUtil.getInitClientData();
-    if (!clientData?.actionDetailMap || !clientData?.itemDetailMap) return false;
-    GM_setValue("init_client_data", JSON.stringify(clientData));
-    runtime.state.initData_actionDetailMap = clientData.actionDetailMap;
-    runtime.state.initData_levelExperienceTable = clientData.levelExperienceTable;
-    runtime.state.initData_enhancementLevelSuccessRateTable = clientData.enhancementLevelSuccessRateTable;
-    runtime.state.initData_enhancementLevelTotalBonusMultiplierTable = clientData.enhancementLevelTotalBonusMultiplierTable;
-    runtime.state.initData_itemDetailMap = clientData.itemDetailMap;
-    runtime.state.initData_itemLocationDetailMap = clientData.itemLocationDetailMap;
-    runtime.state.initData_houseRoomDetailMap = clientData.houseRoomDetailMap;
-    runtime.state.initData_actionCategoryDetailMap = clientData.actionCategoryDetailMap;
-    runtime.state.initData_abilityDetailMap = clientData.abilityDetailMap;
-    runtime.state.initData_shopItemDetailMap = clientData.shopItemDetailMap;
-    runtime.state.initData_taskShopItemDetailMap = clientData.taskShopItemDetailMap;
-    runtime.state.initData_labyrinthShopItemDetailMap = clientData.labyrinthShopItemDetailMap;
-    runtime.state.initData_openableLootDropMap = clientData.openableLootDropMap;
-    runtime.state.initData_guildBuffDetailMap = clientData.guildBuffDetailMap;
-    runtime.api.invalidateAssetValueCache();
-    for (const [key, value] of Object.entries(
-      runtime.state.initData_itemDetailMap
-    )) {
-      runtime.state.itemEnNameToHridMap[value.name] = key;
-    }
-    return true;
-  }
   async function startGame() {
-    const clientDataLoaded = loadCachedClientData();
+    const clientDataLoaded = runtime.api.refreshGameClientData();
     if (!clientDataLoaded) {
       runtime.features.register({
         id: "clientDataCache",
         initialize({ scope }) {
           const interval = scope.interval(() => {
-            if (loadCachedClientData()) clearInterval(interval);
+            if (runtime.api.refreshGameClientData()) clearInterval(interval);
           }, 250);
         }
       });

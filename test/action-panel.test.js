@@ -32,12 +32,21 @@ localStorage.setItem("i18nextLng", "zh-CN");
 
 const { runtime } = await import("../src/core/runtime.js");
 await import("../src/core/config.js");
-await import("../src/data/translations.js");
+await import("../src/core/game-data.js");
 await import("../src/core/state.js");
 await import("../src/core/market.js");
 await import("../src/core/action-projection.js");
 await import("../src/features/action-dashboard.js");
 await import("../src/features/action-panel.js");
+const { registerGameLocaleResources } =
+  await import("../src/core/game-localization.js");
+
+registerGameLocaleResources("zh", {
+  itemNames: { "/items/lumber": "木板" },
+  actionNames: { "/actions/crafting/lumber": "木板" },
+  monsterNames: { "/monsters/rat": "老鼠" },
+  abilityNames: { "/abilities/strike": "猛击" },
+});
 
 runtime.state.initData_actionDetailMap = {
   "/actions/crafting/lumber": {

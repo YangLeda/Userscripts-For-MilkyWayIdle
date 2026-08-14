@@ -12,6 +12,10 @@ import {
   taskCardTaskId,
 } from "../core/task-card-resolution.js";
 import { createFrameScheduler } from "../core/frame-scheduler.js";
+import {
+  getGameSpriteHref,
+  scanGameSpriteSources,
+} from "../core/game-assets.js";
 
 const STYLE_ID = "mwitools-task-style";
 const TASK_SELECTOR =
@@ -31,138 +35,16 @@ let lastRenderedCards = [];
 let lastTaskRenderSignature = "";
 let lastActionDetails = null;
 let lastActionCategories = null;
-let taskSpriteManifestPromise = null;
-const taskSpriteBases = new Map();
-let spriteScanDocument = null;
-let spriteSourcesScanned = false;
 let cachedTaskActionIndex = null;
 let cachedTaskActionIndexMap = null;
 let cachedTaskActionIndexLocale = "";
+let warnedMissingDungeonData = false;
 const taskActionCache = new WeakMap();
 const taskRemainingCache = new WeakMap();
 let pageOrderBySlot = new Map();
 let activeProfessionFilters = new Set();
 let combatFilterEnabled = false;
 let activeDungeonFilters = new Set();
-
-// The live game currently exposes empty fightInfo for dungeon actions, so
-// dungeon membership cannot be derived from initData_actionDetailMap alone.
-// Keep the known monster HRIDs as a fallback while still accepting runtime
-// fightInfo below if the game starts publishing dungeon rosters again.
-const KNOWN_DUNGEON_ROSTERS = [
-  {
-    actionHrid: "/actions/combat/chimerical_den",
-    sortIndex: 56,
-    monsters: new Set([
-      "/monsters/alligator",
-      "/monsters/aquahorse",
-      "/monsters/butterjerry",
-      "/monsters/centaur_archer",
-      "/monsters/crab",
-      "/monsters/dodocamel",
-      "/monsters/eye",
-      "/monsters/eyes",
-      "/monsters/frog",
-      "/monsters/gobo_boomy",
-      "/monsters/gobo_shooty",
-      "/monsters/gobo_slashy",
-      "/monsters/gobo_smashy",
-      "/monsters/gobo_stabby",
-      "/monsters/griffin",
-      "/monsters/jackalope",
-      "/monsters/jungle_sprite",
-      "/monsters/manticore",
-      "/monsters/myconid",
-      "/monsters/nom_nom",
-      "/monsters/porcupine",
-      "/monsters/rat",
-      "/monsters/sea_snail",
-      "/monsters/skunk",
-      "/monsters/slimy",
-      "/monsters/snake",
-      "/monsters/swampy",
-      "/monsters/turtle",
-      "/monsters/veyes",
-    ]),
-  },
-  {
-    actionHrid: "/actions/combat/sinister_circus",
-    sortIndex: 57,
-    monsters: new Set([
-      "/monsters/acrobat",
-      "/monsters/black_bear",
-      "/monsters/deranged_jester",
-      "/monsters/elementalist",
-      "/monsters/flame_sorcerer",
-      "/monsters/gobo_boomy",
-      "/monsters/gobo_shooty",
-      "/monsters/gobo_slashy",
-      "/monsters/gobo_smashy",
-      "/monsters/gobo_stabby",
-      "/monsters/grizzly_bear",
-      "/monsters/gummy_bear",
-      "/monsters/ice_sorcerer",
-      "/monsters/juggler",
-      "/monsters/magician",
-      "/monsters/novice_sorcerer",
-      "/monsters/panda",
-      "/monsters/polar_bear",
-      "/monsters/rabid_rabbit",
-      "/monsters/vampire",
-      "/monsters/werewolf",
-      "/monsters/zombie",
-      "/monsters/zombie_bear",
-    ]),
-  },
-  {
-    actionHrid: "/actions/combat/enchanted_fortress",
-    sortIndex: 58,
-    monsters: new Set([
-      "/monsters/abyssal_imp",
-      "/monsters/black_bear",
-      "/monsters/elementalist",
-      "/monsters/enchanted_bishop",
-      "/monsters/enchanted_king",
-      "/monsters/enchanted_knight",
-      "/monsters/enchanted_pawn",
-      "/monsters/enchanted_queen",
-      "/monsters/enchanted_rook",
-      "/monsters/flame_sorcerer",
-      "/monsters/grizzly_bear",
-      "/monsters/ice_sorcerer",
-      "/monsters/magnetic_golem",
-      "/monsters/novice_sorcerer",
-      "/monsters/panda",
-      "/monsters/polar_bear",
-      "/monsters/soul_hunter",
-      "/monsters/stalactite_golem",
-    ]),
-  },
-  {
-    actionHrid: "/actions/combat/pirate_cove",
-    sortIndex: 59,
-    monsters: new Set([
-      "/monsters/abyssal_imp",
-      "/monsters/anchor_shark",
-      "/monsters/brine_marksman",
-      "/monsters/captain_fishhook",
-      "/monsters/eye",
-      "/monsters/eyes",
-      "/monsters/granite_golem",
-      "/monsters/infernal_warlock",
-      "/monsters/magnetic_golem",
-      "/monsters/soul_hunter",
-      "/monsters/squawker",
-      "/monsters/stalactite_golem",
-      "/monsters/the_kraken",
-      "/monsters/tidal_conjuror",
-      "/monsters/vampire",
-      "/monsters/veyes",
-      "/monsters/werewolf",
-      "/monsters/zombie",
-    ]),
-  },
-];
 
 const PROFESSIONS = [
   ["milking", "挤奶", "Milking"],
@@ -176,12 +58,21 @@ const PROFESSIONS = [
   ["combat", "战斗", "Combat"],
 ].map(([key, zh, en], order) => ({ key, zh, en, order }));
 const LIFE_PROFESSIONS = PROFESSIONS.filter(({ key }) => key !== "combat");
-const DUNGEON_FILTERS = [
-  ["/actions/combat/chimerical_den", "奇幻洞穴", "Chimerical Den"],
-  ["/actions/combat/sinister_circus", "邪恶马戏团", "Sinister Circus"],
-  ["/actions/combat/enchanted_fortress", "迷人要塞", "Enchanted Fortress"],
-  ["/actions/combat/pirate_cove", "海盗湾", "Pirate Cove"],
-].map(([actionHrid, zh, en]) => ({ actionHrid, zh, en }));
+
+function dungeonFilters() {
+  return Object.values(runtime.state.initData_actionDetailMap ?? {})
+    .filter((detail) => detail?.combatZoneInfo?.isDungeon)
+    .sort(
+      (left, right) =>
+        Number(left.sortIndex ?? 0) - Number(right.sortIndex ?? 0),
+    )
+    .map((detail) => ({
+      actionHrid: detail.hrid,
+      label: getLocalizedEntityName("action", detail.hrid, {
+        fallback: detail.name,
+      }),
+    }));
+}
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -239,80 +130,6 @@ function hasActiveTaskFilters() {
     combatFilterEnabled ||
     activeDungeonFilters.size > 0
   );
-}
-
-function rememberSpriteBase(kind, value) {
-  const base = String(value ?? "").split("#")[0];
-  if (base.includes(`${kind}_sprite`) && base.endsWith(".svg")) {
-    taskSpriteBases.set(kind, base);
-  }
-}
-
-function scanTaskSpriteBases({ force = false } = {}) {
-  if (spriteScanDocument !== document) {
-    spriteScanDocument = document;
-    spriteSourcesScanned = false;
-  }
-  if (spriteSourcesScanned && !force) return;
-  spriteSourcesScanned = true;
-  try {
-    document
-      .querySelectorAll("svg use")
-      .forEach((use) =>
-        ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) =>
-            rememberSpriteBase(
-              kind,
-              use.getAttribute("href") ?? use.getAttribute("xlink:href"),
-            ),
-        ),
-      );
-    globalThis.performance
-      ?.getEntriesByType?.("resource")
-      ?.forEach((entry) =>
-        ["items", "actions", "combat_monsters", "skills", "misc"].forEach(
-          (kind) => rememberSpriteBase(kind, entry.name),
-        ),
-      );
-  } catch {
-    // Resource timing may be unavailable in tests or hardened browsers.
-  }
-}
-
-async function loadTaskSpriteManifest() {
-  if (taskSpriteManifestPromise) return taskSpriteManifestPromise;
-  taskSpriteManifestPromise = (async () => {
-    scanTaskSpriteBases({ force: true });
-    try {
-      const response = await globalThis.fetch(
-        new URL("/asset-manifest.json", globalThis.location?.origin).href,
-      );
-      if (!response.ok) return;
-      const manifest = await response.json();
-      for (const value of Object.values(manifest?.files ?? {})) {
-        for (const kind of [
-          "items",
-          "actions",
-          "combat_monsters",
-          "skills",
-          "misc",
-        ]) {
-          rememberSpriteBase(kind, value);
-        }
-      }
-    } catch {
-      // DOM and performance-resource discovery remain available as fallbacks.
-    }
-  })();
-  return taskSpriteManifestPromise;
-}
-
-function taskSpriteHref(kind, hrid) {
-  const base = taskSpriteBases.get(kind);
-  const symbol = String(hrid ?? "")
-    .split("/")
-    .at(-1);
-  return base && symbol ? `${base}#${symbol}` : "";
 }
 
 function addStyles() {
@@ -405,7 +222,6 @@ function getTaskActionIndex() {
     if (!String(detail?.hrid).startsWith("/actions/combat/")) continue;
     for (const name of [
       detail.name,
-      runtime.data.ZHActionNames?.[detail.hrid],
       getLocalizedEntityName("action", detail.hrid, { locale }),
     ]) {
       const normalized = normalizeTaskLookupName(name);
@@ -420,7 +236,27 @@ function getTaskActionIndex() {
     ) {
       zoneActionByCategory.set(detail.category, detail);
     }
-    const monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+    const dungeonInfo = detail?.combatZoneInfo?.dungeonInfo;
+    let monsters;
+    if (detail?.combatZoneInfo?.isDungeon) {
+      const hasDungeonSpawns = Boolean(
+        dungeonInfo?.randomSpawnInfoMap || dungeonInfo?.fixedSpawnsMap,
+      );
+      if (!hasDungeonSpawns && !warnedMissingDungeonData) {
+        warnedMissingDungeonData = true;
+        console.warn(
+          "[MWITools] Official dungeon spawn data is unavailable; dungeon task inference is disabled.",
+        );
+      }
+      monsters = hasDungeonSpawns
+        ? fightMonsterHrids([
+            dungeonInfo.randomSpawnInfoMap,
+            dungeonInfo.fixedSpawnsMap,
+          ])
+        : new Set();
+    } else {
+      monsters = fightMonsterHrids(detail?.combatZoneInfo?.fightInfo);
+    }
     for (const monsterHrid of monsters) {
       if (!combatByMonster.has(monsterHrid)) {
         combatByMonster.set(monsterHrid, detail);
@@ -567,9 +403,7 @@ function normalizeMonsterHrid(value) {
   if (value.startsWith("/monsters/")) return value;
   if (!value.startsWith("/actions/combat/")) return "";
   const candidate = value.replace("/actions/combat/", "/monsters/");
-  return Object.hasOwn(runtime.data.ZHOthersDic ?? {}, candidate)
-    ? candidate
-    : "";
+  return runtime.state.initData_monsterDetailMap?.[candidate] ? candidate : "";
 }
 
 function fightMonsterHrids(value, result = new Set(), visited = new Set()) {
@@ -644,7 +478,7 @@ function decorateCard(card, task, artwork = null) {
     card.querySelector(":scope > .mwi-task-bg")?.remove();
     return;
   }
-  const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+  const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!href) {
     existing?.remove();
@@ -671,7 +505,7 @@ function taskIconMatches(card, task) {
   const existing = card.querySelector(":scope > .mwi-task-bg");
   if (!runtime.settings.get("taskIcons")) return !existing;
   const artwork = taskArtworkForCard(card, task);
-  const href = artwork ? taskSpriteHref(artwork.kind, artwork.hrid) : "";
+  const href = artwork ? getGameSpriteHref(artwork.kind, artwork.hrid) : "";
   return href ? existing?.dataset.spriteHref === href : existing === null;
 }
 
@@ -824,10 +658,9 @@ function combatLocationForCard(
 ) {
   const categories = runtime.state.initData_actionCategoryDetailMap ?? {};
   if (detail?.combatZoneInfo?.isDungeon) {
-    const name =
-      (runtime.config.isZH
-        ? runtime.data.ZHActionNames?.[detail.hrid]
-        : detail.name) ?? detail.name;
+    const name = getLocalizedEntityName("action", detail.hrid, {
+      fallback: detail.name,
+    });
     return {
       key: `dungeon-${detail.hrid}`,
       label: name ? `${t("地牢", "Dungeon")} · ${name}` : t("地牢", "Dungeon"),
@@ -839,10 +672,9 @@ function combatLocationForCard(
     const zoneAction = getTaskActionIndex().zoneActionByCategory.get(
       detail.category,
     );
-    const name =
-      (runtime.config.isZH
-        ? runtime.data.ZHActionNames?.[zoneAction?.hrid]
-        : zoneAction?.name) ?? category?.name;
+    const name = getLocalizedEntityName("action", zoneAction?.hrid, {
+      fallback: zoneAction?.name ?? category?.name,
+    });
     const sortIndex = Number(category?.sortIndex ?? 9999);
     return {
       key: `zone-${detail.category}`,
@@ -866,10 +698,9 @@ function combatLocationForCard(
 }
 
 function dungeonLocation(detail) {
-  const name =
-    (runtime.config.isZH
-      ? runtime.data.ZHActionNames?.[detail?.hrid]
-      : detail?.name) ?? detail?.name;
+  const name = getLocalizedEntityName("action", detail?.hrid, {
+    fallback: detail?.name,
+  });
   return {
     key: `dungeon-${detail?.hrid}`,
     actionHrid: detail?.hrid ?? "",
@@ -905,24 +736,9 @@ export function dungeonLocationsForCard(card, task, context = {}) {
       (detail) => detail.hrid,
     ),
   );
-  for (const dungeon of KNOWN_DUNGEON_ROSTERS) {
-    if (dungeon.monsters.has(monsterHrid)) {
-      matchingDungeonHrids.add(dungeon.actionHrid);
-    }
-  }
   const matches = [...matchingDungeonHrids]
-    .map((dungeonActionHrid) => {
-      const known = KNOWN_DUNGEON_ROSTERS.find(
-        (dungeon) => dungeon.actionHrid === dungeonActionHrid,
-      );
-      return (
-        actionDetails[dungeonActionHrid] ?? {
-          hrid: dungeonActionHrid,
-          sortIndex: known?.sortIndex,
-          combatZoneInfo: { isDungeon: true },
-        }
-      );
-    })
+    .map((dungeonActionHrid) => actionDetails[dungeonActionHrid])
+    .filter(Boolean)
     .map(dungeonLocation)
     .sort(
       (left, right) =>
@@ -1308,7 +1124,7 @@ function updateTaskFilterIcon(button) {
   const icon = button.querySelector(".mwi-task-filter-icon");
   if (!icon) return;
   const href = button.dataset.iconKind
-    ? taskSpriteHref(button.dataset.iconKind, button.dataset.iconHrid)
+    ? getGameSpriteHref(button.dataset.iconKind, button.dataset.iconHrid)
     : "";
   const signature = href || `fallback:${button.dataset.iconFallback}`;
   if (icon.dataset.signature === signature) return;
@@ -1450,12 +1266,12 @@ function ensureTaskToolbar(rows) {
 
       const dungeons = document.createElement("div");
       dungeons.className = "mwi-task-dungeon-filters";
-      for (const dungeon of DUNGEON_FILTERS) {
+      for (const dungeon of dungeonFilters()) {
         dungeons.append(
           createTaskFilterButton({
             kind: "dungeon",
             value: dungeon.actionHrid,
-            label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+            label: dungeon.label,
             iconKind: "actions",
             iconHrid: dungeon.actionHrid,
             fallback: "◆",
@@ -1497,8 +1313,9 @@ function ensureTaskToolbar(rows) {
 
   if (!statisticsEnabled) return;
   const professionCounts = new Map(LIFE_PROFESSIONS.map(({ key }) => [key, 0]));
+  const currentDungeonFilters = dungeonFilters();
   const dungeonCounts = new Map(
-    DUNGEON_FILTERS.map(({ actionHrid }) => [actionHrid, 0]),
+    currentDungeonFilters.map(({ actionHrid }) => [actionHrid, 0]),
   );
   let combatCount = 0;
   for (const row of rows) {
@@ -1535,12 +1352,12 @@ function ensureTaskToolbar(rows) {
     count: combatCount,
     pressed: combatFilterEnabled,
   });
-  for (const dungeon of DUNGEON_FILTERS) {
+  for (const dungeon of currentDungeonFilters) {
     const button = toolbar.querySelector(
       `[data-filter-kind="dungeon"][data-filter-value="${dungeon.actionHrid}"]`,
     );
     updateTaskFilterButton(button, {
-      label: runtime.config.isZH ? dungeon.zh : dungeon.en,
+      label: dungeon.label,
       count: dungeonCounts.get(dungeon.actionHrid),
       pressed: activeDungeonFilters.has(dungeon.actionHrid),
     });
@@ -1894,7 +1711,7 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
       delete card.dataset.mwitoolsLocation;
     }
   });
-  if (runtime.settings.get("taskIcons")) scanTaskSpriteBases();
+  if (runtime.settings.get("taskIcons")) scanGameSpriteSources();
   const rows = orderedRows(cards, cardTasks, snapshots);
   rows.forEach((row) => decorateCard(row.card, row.task, row.artwork));
   wireMergeButtons(cards);
@@ -1955,7 +1772,6 @@ runtime.features.register({
   scope: "character",
   initialize({ scope }) {
     addStyles();
-    let active = true;
     let settleRetries = 0;
     let renderScheduler = null;
     const render = () => {
@@ -1971,12 +1787,8 @@ runtime.features.register({
     };
     renderScheduler = createFrameScheduler(render);
     const scheduleRender = () => renderScheduler.schedule();
+    scanGameSpriteSources({ force: true });
     render();
-    void loadTaskSpriteManifest().then(() => {
-      if (!active) return;
-      lastTaskRenderSignature = "";
-      scheduleRender();
-    });
     const observer = new MutationObserver((records) => {
       if (shouldRenderTaskMutations(records)) scheduleRender();
     });
@@ -1991,7 +1803,6 @@ runtime.features.register({
       }),
     );
     scope.add(() => {
-      active = false;
       renderScheduler.cancel();
       cleanupTasks();
     });

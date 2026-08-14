@@ -13,30 +13,79 @@ export const SUPPORTED_GAME_LOCALES = Object.freeze([
 ]);
 
 const LOCALE_SET = new Set(SUPPORTED_GAME_LOCALES);
+const LOCALE_CACHE_SCHEMA = 1;
+const LOCALE_CACHE_PREFIX = "MWITools_game_locale_v1";
 const ENTITY_TYPES = Object.freeze({
   item: {
     resourceKey: "itemNames",
+    clientDataKey: "itemDetailMap",
     stateKey: "initData_itemDetailMap",
     prefix: "/items/",
     sprite: "items_sprite",
   },
   action: {
     resourceKey: "actionNames",
+    clientDataKey: "actionDetailMap",
     stateKey: "initData_actionDetailMap",
     prefix: "/actions/",
     sprite: "actions_sprite",
   },
   monster: {
     resourceKey: "monsterNames",
-    stateKey: "initData_monsterDetailMap",
+    clientDataKey: "combatMonsterDetailMap",
+    stateKey: "initData_combatMonsterDetailMap",
     prefix: "/monsters/",
     sprite: "combat_monsters_sprite",
   },
   ability: {
     resourceKey: "abilityNames",
+    clientDataKey: "abilityDetailMap",
     stateKey: "initData_abilityDetailMap",
     prefix: "/abilities/",
     sprite: "abilities_sprite",
+  },
+  skill: {
+    resourceKey: "skillNames",
+    clientDataKey: "skillDetailMap",
+    stateKey: "initData_skillDetailMap",
+    prefix: "/skills/",
+    sprite: "skills_sprite",
+  },
+  houseRoom: {
+    resourceKey: "houseRoomNames",
+    clientDataKey: "houseRoomDetailMap",
+    stateKey: "initData_houseRoomDetailMap",
+    prefix: "/house_rooms/",
+  },
+  buffType: {
+    resourceKey: "buffTypeNames",
+    clientDataKey: "buffTypeDetailMap",
+    stateKey: "initData_buffTypeDetailMap",
+    prefix: "/buff_types/",
+  },
+  itemCategory: {
+    resourceKey: "itemCategoryNames",
+    clientDataKey: "itemCategoryDetailMap",
+    stateKey: "initData_itemCategoryDetailMap",
+    prefix: "/item_categories/",
+  },
+  actionCategory: {
+    resourceKey: "actionCategoryNames",
+    clientDataKey: "actionCategoryDetailMap",
+    stateKey: "initData_actionCategoryDetailMap",
+    prefix: "/action_categories/",
+  },
+  shopCategory: {
+    resourceKey: "shopCategoryNames",
+    clientDataKey: "shopCategoryDetailMap",
+    stateKey: "initData_shopCategoryDetailMap",
+    prefix: "/shop_categories/",
+  },
+  achievement: {
+    resourceKey: "achievementNames",
+    clientDataKey: "achievementDetailMap",
+    stateKey: "initData_achievementDetailMap",
+    prefix: "/achievements/",
   },
 });
 const TYPE_ALIASES = Object.freeze({
@@ -44,10 +93,21 @@ const TYPE_ALIASES = Object.freeze({
   actions: "action",
   monsters: "monster",
   abilities: "ability",
+  skills: "skill",
+  houseRooms: "houseRoom",
+  buffTypes: "buffType",
+  itemCategories: "itemCategory",
+  actionCategories: "actionCategory",
+  shopCategories: "shopCategory",
+  achievements: "achievement",
 });
 const localeResources = new Map();
 const reverseIndexes = new WeakMap();
 const warnedLocales = new Set();
+
+function localizedText(zh, en) {
+  return runtime.config.isZH ? zh : en;
+}
 
 function pageGlobal() {
   return globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
@@ -86,13 +146,11 @@ function webpackQueues(target = pageGlobal()) {
   const queues = [];
   for (const key of Object.getOwnPropertyNames(target ?? {})) {
     if (!/^webpack(?:Jsonp|Chunk)/i.test(key)) continue;
-    let value;
     try {
-      value = target[key];
+      if (Array.isArray(target[key])) queues.push(target[key]);
     } catch {
-      continue;
+      // Cross-realm properties may throw while the page is navigating.
     }
-    if (Array.isArray(value)) queues.push(value);
   }
   return queues;
 }
@@ -124,11 +182,7 @@ function runLocaleFactory(factory) {
   const module = { exports: {} };
   const exports = module.exports;
   const webpackRequire = () => {
-    throw new Error(
-      runtime.config.isZH
-        ? "游戏语言模块意外引用了其他模块"
-        : "The game locale unexpectedly imported another module",
-    );
+    throw new Error();
   };
   webpackRequire.r = (target) => {
     Object.defineProperty(target, "__esModule", { value: true });
@@ -140,10 +194,7 @@ function runLocaleFactory(factory) {
         : { [nameOrDefinition]: getter };
     for (const [name, get] of Object.entries(definition)) {
       if (typeof get !== "function" || Object.hasOwn(target, name)) continue;
-      Object.defineProperty(target, name, {
-        enumerable: true,
-        get,
-      });
+      Object.defineProperty(target, name, { enumerable: true, get });
     }
   };
   factory.call(exports, module, exports, webpackRequire);
@@ -171,25 +222,14 @@ export function extractGameLocaleResources(
   target = pageGlobal(),
 ) {
   const normalizedLocale = normalizeGameLocale(locale);
-  if (normalizedLocale === "en") return null;
   const entries = chunkEntries(target);
-  const moduleMap = localeModuleMap(entries);
-  const expectedModuleId = moduleMap.get(normalizedLocale);
+  const expectedModuleId = localeModuleMap(entries).get(normalizedLocale);
+  if (!expectedModuleId) return null;
   const candidates = [];
   for (const entry of entries) {
     for (const [moduleId, factory] of Object.entries(entry[1])) {
       if (typeof factory !== "function") continue;
-      if (expectedModuleId && moduleId !== expectedModuleId) continue;
-      const source = Function.prototype.toString.call(factory);
-      if (
-        !expectedModuleId &&
-        (!source.includes("itemNames") ||
-          !source.includes("actionNames") ||
-          !source.includes("monsterNames") ||
-          !source.includes("abilityNames"))
-      ) {
-        continue;
-      }
+      if (moduleId !== expectedModuleId) continue;
       candidates.push(factory);
     }
   }
@@ -198,70 +238,169 @@ export function extractGameLocaleResources(
       const resources = runLocaleFactory(factory);
       if (validateGameLocaleResources(resources)) return resources;
     } catch {
-      // A future game bundle may import shared modules from locale chunks.
+      // Future locale chunks may import shared modules; React remains primary.
     }
   }
   return null;
 }
 
+function i18nFromFiber(element) {
+  const fiberKey = Reflect.ownKeys(element ?? {}).find((key) =>
+    String(key).startsWith("__reactFiber$"),
+  );
+  for (
+    let fiber = fiberKey ? element[fiberKey] : null, depth = 0;
+    fiber && depth < 80;
+    fiber = fiber.return, depth += 1
+  ) {
+    for (const candidate of [
+      fiber.memoizedProps?.i18n,
+      fiber.pendingProps?.i18n,
+      fiber.stateNode?.props?.i18n,
+      fiber.stateNode?.i18n,
+    ]) {
+      if (candidate?.options?.resources) return candidate;
+    }
+  }
+  return null;
+}
+
+function translationForLocale(i18n, locale) {
+  const normalized = normalizeGameLocale(locale);
+  const match = Object.entries(i18n?.options?.resources ?? {}).find(
+    ([key]) => normalizeGameLocale(key) === normalized,
+  );
+  return match?.[1]?.translation ?? null;
+}
+
+export function extractReactGameLocaleResources(
+  locale = getGameLocale(),
+  documentTarget = globalThis.document,
+) {
+  if (!documentTarget?.querySelector) return null;
+  const candidates = new Set([
+    documentTarget.querySelector("#root"),
+    documentTarget.querySelector('[class^="GamePage"]'),
+    documentTarget.body,
+  ]);
+  if (![...candidates].some((element) => i18nFromFiber(element))) {
+    let inspected = 0;
+    for (const element of documentTarget.querySelectorAll("*")) {
+      if (inspected >= 300) break;
+      if (
+        Reflect.ownKeys(element).some((key) =>
+          String(key).startsWith("__reactFiber$"),
+        )
+      ) {
+        candidates.add(element);
+        inspected += 1;
+      }
+    }
+  }
+  for (const element of candidates) {
+    const resources = translationForLocale(i18nFromFiber(element), locale);
+    if (validateGameLocaleResources(resources)) return resources;
+  }
+  return null;
+}
+
+function clientData() {
+  return runtime.state.clientData ?? runtime.api.getGameClientData?.() ?? null;
+}
+
 function englishResourceMap(type) {
   const definition = ENTITY_TYPES[type];
-  const details = runtime.state[definition.stateKey];
-  if (!details || typeof details !== "object") return {};
-  return Object.fromEntries(
-    Object.entries(details)
+  const details =
+    clientData()?.[definition.clientDataKey] ??
+    runtime.state[definition.stateKey] ??
+    (type === "monster" ? runtime.state.initData_monsterDetailMap : null);
+  const result = Object.fromEntries(
+    Object.entries(details ?? {})
       .map(([hrid, detail]) => [hrid, String(detail?.name ?? "").trim()])
       .filter(([, name]) => name),
   );
+  if (type === "item") {
+    for (const [name, hrid] of Object.entries(
+      runtime.state.itemEnNameToHridMap ?? {},
+    )) {
+      if (!result[hrid] && name) result[hrid] = name;
+    }
+  }
+  return result;
 }
 
 function englishResources() {
-  const resources = {
-    itemNames: englishResourceMap("item"),
-    actionNames: englishResourceMap("action"),
-    monsterNames: englishResourceMap("monster"),
-    abilityNames: englishResourceMap("ability"),
-  };
-  for (const [hrid, name] of Object.entries(resources.actionNames)) {
-    if (!hrid.startsWith("/actions/combat/")) continue;
-    const monsterHrid = hrid.replace("/actions/combat/", "/monsters/");
-    if (!resources.monsterNames[monsterHrid]) {
-      resources.monsterNames[monsterHrid] = name;
-    }
-  }
-  return resources;
+  return Object.fromEntries(
+    Object.entries(ENTITY_TYPES).map(([type, definition]) => [
+      definition.resourceKey,
+      englishResourceMap(type),
+    ]),
+  );
 }
 
-function simplifiedResources() {
-  const others = runtime.data.ZHOthersDic ?? {};
-  return {
-    itemNames: runtime.data.ZHItemNames ?? {},
-    actionNames: runtime.data.ZHActionNames ?? {},
-    monsterNames: Object.fromEntries(
-      Object.entries(others).filter(([hrid]) => hrid.startsWith("/monsters/")),
-    ),
-    abilityNames: Object.fromEntries(
-      Object.entries(others).filter(([hrid]) => hrid.startsWith("/abilities/")),
-    ),
-  };
+function gameVersionKey() {
+  const data = clientData();
+  return String(data?.versionTimestamp ?? data?.gameVersion ?? "").trim();
+}
+
+function localeCacheKey(locale) {
+  const version = gameVersionKey();
+  return version
+    ? `${LOCALE_CACHE_PREFIX}:${encodeURIComponent(version)}:${normalizeGameLocale(locale)}`
+    : "";
+}
+
+function readCachedResources(locale) {
+  const key = localeCacheKey(locale);
+  if (!key) return null;
+  try {
+    const cached = JSON.parse(
+      globalThis.localStorage?.getItem?.(key) || "null",
+    );
+    return cached?.schemaVersion === LOCALE_CACHE_SCHEMA &&
+      validateGameLocaleResources(cached.resources)
+      ? cached.resources
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedResources(locale, resources) {
+  const key = localeCacheKey(locale);
+  if (!key || !validateGameLocaleResources(resources)) return;
+  try {
+    globalThis.localStorage?.setItem?.(
+      key,
+      JSON.stringify({ schemaVersion: LOCALE_CACHE_SCHEMA, resources }),
+    );
+  } catch {
+    // Locale caching is optional; memory resources stay available.
+  }
 }
 
 export function getGameLocaleResources(locale = getGameLocale()) {
   const normalizedLocale = normalizeGameLocale(locale);
-  if (normalizedLocale === "en") return englishResources();
   if (localeResources.has(normalizedLocale)) {
     return localeResources.get(normalizedLocale);
   }
-  const extracted = extractGameLocaleResources(normalizedLocale);
-  if (extracted) {
-    localeResources.set(normalizedLocale, extracted);
-    return extracted;
+  const official =
+    extractReactGameLocaleResources(normalizedLocale) ??
+    extractGameLocaleResources(normalizedLocale) ??
+    readCachedResources(normalizedLocale);
+  if (official) {
+    localeResources.set(normalizedLocale, official);
+    writeCachedResources(normalizedLocale, official);
+    return official;
   }
-  if (normalizedLocale === "zh") return simplifiedResources();
+  if (normalizedLocale === "en") return englishResources();
   if (!warnedLocales.has(normalizedLocale)) {
     warnedLocales.add(normalizedLocale);
     console.warn(
-      `[MWITools] The official ${normalizedLocale} game language resources are not available yet. Locale-dependent fallbacks will stay disabled.`,
+      localizedText(
+        `[MWITools] 官方 ${normalizedLocale} 语言资源尚未就绪，将暂时使用英文名称。`,
+        `[MWITools] Official ${normalizedLocale} resources are not ready; English names will be used temporarily.`,
+      ),
     );
   }
   return null;
@@ -269,11 +408,17 @@ export function getGameLocaleResources(locale = getGameLocale()) {
 
 export function registerGameLocaleResources(locale, resources) {
   const normalizedLocale = normalizeGameLocale(locale);
-  if (normalizedLocale === "en" || !validateGameLocaleResources(resources)) {
-    return false;
-  }
+  if (!validateGameLocaleResources(resources)) return false;
   localeResources.set(normalizedLocale, resources);
+  writeCachedResources(normalizedLocale, resources);
   return true;
+}
+
+export function refreshGameLocaleResources(locale = getGameLocale()) {
+  const normalizedLocale = normalizeGameLocale(locale);
+  localeResources.delete(normalizedLocale);
+  warnedLocales.delete(normalizedLocale);
+  return getGameLocaleResources(normalizedLocale);
 }
 
 function entityType(kind) {
@@ -312,9 +457,8 @@ function reverseIndex(resources, type) {
 }
 
 function directHrid(type, value) {
-  const definition = ENTITY_TYPES[type];
   const candidate = String(value ?? "").trim();
-  return candidate.startsWith(definition.prefix) ? candidate : "";
+  return candidate.startsWith(ENTITY_TYPES[type].prefix) ? candidate : "";
 }
 
 export function resolveLocalizedEntity(
@@ -328,21 +472,20 @@ export function resolveLocalizedEntity(
   if (direct) return direct;
   const key = normalizedName(name, type);
   if (!key) return "";
+  for (const resources of [
+    getGameLocaleResources(locale),
+    englishResources(),
+  ]) {
+    if (!resources) continue;
+    const match = reverseIndex(resources, type).get(key);
+    if (match) return match;
+  }
   if (type === "item") {
-    const directEnglish = runtime.state.itemEnNameToHridMap?.[name];
-    if (directEnglish) return directEnglish;
     for (const [englishName, hrid] of Object.entries(
       runtime.state.itemEnNameToHridMap ?? {},
     )) {
       if (normalizedName(englishName, type) === key) return hrid;
     }
-  }
-  const sources = [getGameLocaleResources(locale), englishResources()];
-  if (normalizeGameLocale(locale) !== "zh") sources.push(simplifiedResources());
-  for (const resources of sources) {
-    if (!resources) continue;
-    const match = reverseIndex(resources, type).get(key);
-    if (match) return match;
   }
   return "";
 }
@@ -355,9 +498,8 @@ export function getLocalizedEntityName(
   const type = entityType(kind);
   if (!type) return fallback;
   const definition = ENTITY_TYPES[type];
-  const resources = getGameLocaleResources(locale);
   return (
-    resources?.[definition.resourceKey]?.[hrid] ??
+    getGameLocaleResources(locale)?.[definition.resourceKey]?.[hrid] ??
     englishResources()[definition.resourceKey]?.[hrid] ??
     fallback
   );
@@ -384,6 +526,7 @@ function datasetHrid(type, element) {
     "actionHrid",
     "monsterHrid",
     "abilityHrid",
+    "skillHrid",
   ];
   for (const name of names) {
     const value = element?.dataset?.[name];
@@ -395,6 +538,7 @@ function datasetHrid(type, element) {
 
 function spriteHrid(type, element) {
   const definition = ENTITY_TYPES[type];
+  if (!definition.sprite) return "";
   const href = String(
     element?.getAttribute?.("href") ??
       element?.getAttribute?.("xlink:href") ??
@@ -402,8 +546,9 @@ function spriteHrid(type, element) {
       "",
   );
   const [base, fragment = ""] = href.split("#");
-  if (!fragment || !base.includes(definition.sprite)) return "";
-  return `${definition.prefix}${fragment}`;
+  return fragment && base.includes(definition.sprite)
+    ? `${definition.prefix}${fragment}`
+    : "";
 }
 
 export function resolveEntityFromElement(
@@ -475,14 +620,13 @@ export function matchesGameTranslations(
   ) {
     return true;
   }
-  return fallbackPatterns.some((pattern) => {
-    if (pattern instanceof RegExp) return pattern.test(value);
-    return (
-      String(pattern ?? "")
-        .trim()
-        .toLocaleLowerCase() === value.toLocaleLowerCase()
-    );
-  });
+  return fallbackPatterns.some((pattern) =>
+    pattern instanceof RegExp
+      ? pattern.test(value)
+      : String(pattern ?? "")
+          .trim()
+          .toLocaleLowerCase() === value.toLocaleLowerCase(),
+  );
 }
 
 export function resetGameLocalizationCache() {
@@ -494,6 +638,8 @@ Object.assign(runtime.api, {
   getGameLocale,
   getGameLocaleResources,
   registerGameLocaleResources,
+  refreshGameLocaleResources,
+  resetGameLocalizationCache,
   getGameTranslation,
   matchesGameTranslation,
   resolveLocalizedEntity,
