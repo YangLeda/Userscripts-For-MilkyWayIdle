@@ -305,7 +305,10 @@ function migratePlanningData(value) {
   return migrated;
 }
 
-function loadCharacterData(characterId) {
+function loadCharacterData(
+  characterId,
+  characterItems = runtime.state.initData_characterItems ?? [],
+) {
   activeCharacterId = String(characterId ?? "");
   activeStorageKey = activeCharacterId
     ? getCharacterStorageKey(activeCharacterId)
@@ -347,7 +350,7 @@ function loadCharacterData(characterId) {
       );
     }
   }
-  rebuildInventorySnapshot(runtime.state.initData_characterItems ?? []);
+  rebuildInventorySnapshot(characterItems);
   if (storedVersion < 3) {
     if (storedVersion < 2) migrateLegacyCartAllocations();
     persistData();
@@ -359,6 +362,21 @@ function loadCharacterData(characterId) {
   emit("plan:change", { plans: getPlans() });
   emit("planning:change", { planning: getPlanningData() });
   if (ready) emit("ready", { characterId: activeCharacterId });
+}
+
+function loadCharacterDataFromMessage(payload) {
+  const characterId =
+    payload?.character?.id ??
+    payload?.character?.characterID ??
+    payload?.characterID ??
+    payload?.characterSkills?.[0]?.characterID ??
+    runtime.state.currentCharacterId;
+  loadCharacterData(
+    characterId,
+    Array.isArray(payload?.characterItems)
+      ? payload.characterItems
+      : runtime.state.initData_characterItems,
+  );
 }
 
 function migrateLegacyCartAllocations() {
@@ -1577,8 +1595,8 @@ function parsePurchaseConfirmation(payload) {
 }
 
 function installMessageHandlers() {
-  runtime.onMessage("init_character_data", () => {
-    loadCharacterData(runtime.state.currentCharacterId);
+  runtime.onMessage("init_character_data", (payload) => {
+    loadCharacterDataFromMessage(payload);
   });
   runtime.onMessage("items_updated", (payload) => {
     applyInventoryUpdates(payload.endCharacterItems ?? []);

@@ -4,7 +4,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import LZString from "lz-string";
+
 import {
+  compressMarketBackup,
   getDevelopmentBanner,
   getProductionBanner,
 } from "../scripts/userscript-build.mjs";
@@ -77,7 +80,7 @@ test("generated userscript is standalone JavaScript", () => {
   assert.doesNotThrow(() => new vm.Script(output));
 });
 
-test("production userscript stays readable without identifier or whitespace minification", () => {
+test("production userscript stays readable and unminified", () => {
   assert.match(output, /function getEffectiveInputCount\(/);
   assert.ok(output.split("\n").length > 10_000);
 });
@@ -96,6 +99,20 @@ test("production userscript stays within the Greasy Fork source limit", () => {
     /Asset-center interface adapted from Everyday Profit Pro/,
   );
   assert.match(output, /Permission is hereby granted/);
+});
+
+test("market backup compression preserves the normalized JSON", async () => {
+  const source = await readFile(
+    new URL("../src/data/market-backup.json", import.meta.url),
+    "utf8",
+  );
+  const compressed = compressMarketBackup(source);
+
+  assert.equal(
+    LZString.decompressFromBase64(compressed),
+    JSON.stringify(JSON.parse(source)),
+  );
+  assert.ok(compressed.length < source.length / 2);
 });
 
 test("development metadata only changes the userscript identity", async () => {

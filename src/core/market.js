@@ -10,6 +10,15 @@ const PRODUCTION_MARKET_REFRESH_MS = 6 * 60 * 60 * 1000;
 
 let assetValuationMarketSnapshot = null;
 let assetValuationMarketDirty = false;
+let decodedLocalMarketBackup;
+
+function getLocalMarketBackup() {
+  const backup = runtime.data.MARKET_JSON_LOCAL_BACKUP;
+  if (!runtime.data.MARKET_JSON_LOCAL_BACKUP_IS_COMPRESSED) return backup;
+  if (decodedLocalMarketBackup !== undefined) return decodedLocalMarketBackup;
+  decodedLocalMarketBackup = LZString.decompressFromBase64(backup) || null;
+  return decodedLocalMarketBackup;
+}
 
 function getMarketEnvironment(hostname = globalThis.location?.hostname ?? "") {
   if (hostname.startsWith("test.")) return "test";
@@ -496,7 +505,7 @@ async function fetchMarketJSON(forceFetch = false) {
     if (cached) return cached;
   }
   if (getMarketEnvironment() === "test") return null;
-  return validateMarketJsonFetch(runtime.data.MARKET_JSON_LOCAL_BACKUP, false);
+  return validateMarketJsonFetch(getLocalMarketBackup(), false);
 }
 
 function applyMarketItemValues(payload) {

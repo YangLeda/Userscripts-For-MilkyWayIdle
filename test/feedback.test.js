@@ -413,9 +413,13 @@ test("announcement history preserves each release separately through 26.4.10", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 11);
+  assert.equal(current.body.zh.length, 12);
   assert.match(current.body.zh.join("\n"), /悬浮窗口字号.*标准、较大和最大/);
-  assert.match(current.body.zh.join("\n"), /Greasy Fork 大小上限/);
+  assert.match(current.body.zh.join("\n"), /角色初始化或重新连接.*旧库存/);
+  assert.match(
+    current.body.zh.join("\n"),
+    /压缩内置备用行情数据.*不增加外部 CDN/,
+  );
   assert.equal(earliest.body.zh.length, 20);
   assert.equal(earliest.body.en.length, 20);
   assert.match(earliest.body.zh.join("\n"), /任务页改为平铺布局/);

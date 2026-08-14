@@ -73,6 +73,48 @@ runtime.api.getTeaBuffsByActionHrid = () => ({ lessResource: 10 });
 procurement.setSetting("safetyLevel", "off");
 procurement.loadCharacterData("character-a");
 
+test("character initialization snapshots the message inventory instead of stale state", () => {
+  runtime.state.currentCharacterId = "stale-character";
+  runtime.state.initData_characterItems = [];
+
+  runtime.dispatchMessage({
+    type: "init_character_data",
+    character: { id: "message-character" },
+    characterItems: [
+      {
+        id: "message-log-stack",
+        itemHrid: "/items/log",
+        itemLocationHrid: "/item_locations/inventory",
+        enhancementLevel: 0,
+        count: 42,
+      },
+    ],
+  });
+
+  assert.equal(procurement.activeCharacterId, "message-character");
+  assert.equal(procurement.getInventoryCount("/items/log"), 42);
+  assert.deepEqual(runtime.state.initData_characterItems, []);
+
+  runtime.state.currentCharacterId = "character-a";
+  runtime.state.initData_characterItems = [
+    {
+      id: "log-stack",
+      itemHrid: "/items/log",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 5,
+    },
+    {
+      id: "nail-stack",
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 1,
+    },
+  ];
+  procurement.loadCharacterData("character-a");
+});
+
 test("procurement computes direct shortages and recursive upgrade leaves", () => {
   const direct = procurement.calculateRequirements(
     "/actions/crafting/final",
