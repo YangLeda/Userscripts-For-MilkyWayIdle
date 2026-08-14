@@ -27798,9 +27798,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
     }
     update(snapshot) {
       this.snapshot = snapshot ?? this.snapshot;
-      if (!this.root.hidden && ["chart", "analysis", "stats", "achievements"].includes(this.route)) {
-        this.render();
-      }
+      if (!this.root.hidden && this.route === "chart") this.updateChartSummary();
     }
     applyTheme() {
       const prefs = this.store.getPreferences();
@@ -27867,15 +27865,36 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
       const change = Number.isFinite(current.total) && Number.isFinite(previous.total) ? current.total - previous.total : null;
       return { entries, current, previous, change };
     }
-    metric(label, value, className = "") {
-      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}" title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+    metric(label, value, className = "", liveKey = "") {
+      return `<div class="ep-card ep-metric"><span>${label}</span><strong class="${className}"${liveKey ? ` data-live-metric="${liveKey}"` : ""} title="${Number.isFinite(value) ? escapeHtml(runtime.api.formatExactNumber?.(value, 0) ?? value) : ""}">${this.format(value, className !== "")}</strong></div>`;
+    }
+    chartSummaryValues() {
+      const { current, previous, change } = this.summaryValues();
+      return [
+        ["current", current.total, ""],
+        ["change", change, change >= 0 ? "pos" : "neg"],
+        ["percent", previous.total ? change / previous.total * 100 : null, ""],
+        ["average", this.store.sevenDayAverage(void 0, this.scopeKey), "pos"]
+      ];
+    }
+    updateChartSummary() {
+      for (const [key, value, className] of this.chartSummaryValues()) {
+        const metric4 = this.root.querySelector(`[data-live-metric="${key}"]`);
+        if (!metric4) continue;
+        metric4.classList.toggle("pos", className === "pos");
+        metric4.classList.toggle("neg", className === "neg");
+        const title = Number.isFinite(value) ? String(runtime.api.formatExactNumber?.(value, 0) ?? value) : "";
+        const text = this.format(value, className !== "");
+        if (metric4.title !== title) metric4.title = title;
+        if (metric4.textContent !== text) metric4.textContent = text;
+      }
     }
     renderChartPage(page) {
-      const { entries, current, previous, change } = this.summaryValues();
-      const percent = previous.total ? change / previous.total * 100 : null;
+      const { entries } = this.summaryValues();
+      const [current, change, percent, average] = this.chartSummaryValues();
       const prefs = this.store.getPreferences();
       const target = this.store.getGoalTarget(this.scopeKey);
-      page.innerHTML = `<div class="ep-grid">${this.metric(this.t("当前净资产", "Current net worth"), current.total)}${this.metric(this.t("本期盈亏", "Current P/L"), change, change >= 0 ? "pos" : "neg")}${this.metric(this.t("盈亏比例", "P/L percentage"), percent)}${this.metric(this.t("近 7 日平均", "7-day average"), this.store.sevenDayAverage(void 0, this.scopeKey), "pos")}</div>
+      page.innerHTML = `<div class="ep-grid">${this.metric(this.t("当前净资产", "Current net worth"), current[1], current[2], current[0])}${this.metric(this.t("本期盈亏", "Current P/L"), change[1], change[2], change[0])}${this.metric(this.t("盈亏比例", "P/L percentage"), percent[1], percent[2], percent[0])}${this.metric(this.t("近 7 日平均", "7-day average"), average[1], average[2], average[0])}</div>
       <section class="ep-card ep-section"><div class="ep-toolbar"><button class="ep-btn" data-chart-mode="total">${this.t("净资产", "Net worth")}</button><button class="ep-btn" data-chart-mode="profit">${this.t("盈亏", "P/L")}</button><button class="ep-btn" data-chart-mode="breakdown">${this.t("分项资产", "Components")}</button><span class="ep-spacer"></span>${[7, 15, 30].map((range) => `<button class="ep-btn" data-chart-range="${range}">${range}${this.t("天", "d")}</button>`).join("")}<button class="ep-btn" data-chart-range="all">${this.t("全部", "All")}</button><button class="ep-btn" data-reset-zoom>${this.t("重置缩放", "Reset zoom")}</button></div><div class="ep-chart"><canvas data-center-chart></canvas><div data-chart-fallback></div></div></section>
       <section class="ep-card ep-section"><div class="ep-section-title">🎯 ${this.t("目标追踪与蒙特卡洛", "Goal & Monte Carlo")}</div><div class="ep-section-body"><div class="ep-form"><label>${this.t("目标净资产", "Target net worth")}<input data-goal type="number" min="1" value="${target ?? ""}"></label><button class="ep-btn" data-save-goal>${this.t("保存目标", "Save target")}</button><button class="ep-btn" data-simulate>${this.t("运行 90 日模拟", "Run 90-day simulation")}</button></div><div data-simulation></div></div></section>
       <p class="ep-disclaimer">${this.t("盈亏按资产估值变化计算，包含市场波动，并非已实现交易利润；预测仅供参考和娱乐。", "P/L includes valuation changes and is not realized profit. Forecasts are for reference and entertainment only.")}</p>`;
@@ -43199,7 +43218,8 @@ ${locks}` : ""}`;
           "强化行动的剩余时间改为原位更新，并会在原生强化数量文字短暂缺失时沿用同一行动最后一次有效数量，不再闪成无限或消失。本次生产总耗时已移到数量、无限与最大控制右侧，以无边框的“耗时”文字显示；购物车与生产摘要的英文界面也改用更清晰的系统字体。",
           "行动队列更新现在按行动 ID 合并、去重并按真实序号排序，上下重排后会在已打开的队列内立即刷新耗时。遇到无限行动时保留此前可达的有限总时长并显示“有限时长 + ∞”，无限后的行动不再计算或残留旧时间；队列关闭后会立即停止相关观察与延迟校验。",
           "重复插件提醒新增 MWI TaskManager 识别，仅在任务排序标记与其专用任务、行动、战斗或副本标记组合出现时提示，避免单个通用页面标记造成误报。",
-          "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。"
+          "通用设置新增“悬浮窗口字号”，可在标准、较大和最大三档之间即时切换生产利润、宝箱估值与强化成本窗口的文字大小；只更新悬浮层样式，不影响游戏原生提示和页面布局。",
+          "修复资产中心在强化等高频资产更新期间反复重建当前页面，导致按钮无法点击、图表悬浮提示消失的问题；打开期间现在保持按钮和画布节点稳定，只原位更新顶部资产数字。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -43210,7 +43230,8 @@ ${locks}` : ""}`;
           "Enhancement remaining time now updates in place and keeps the last valid native quantity for the same action when that text briefly disappears, preventing the estimate from flashing to infinity or vanishing. Production duration now appears as unboxed Duration text to the right of the quantity, infinity, and Max controls, and English Shopping Cart and Production Summary surfaces use a clearer system UI font stack.",
           "Action updates now merge and deduplicate by action ID and sort by the authoritative ordinal, so moving actions up or down refreshes an open queue immediately. The queue keeps every reachable finite duration before the first infinite action and displays “finite duration + ∞”; actions after infinity are not calculated and stale timing is removed. Queue observers and transition checks stop as soon as the menu or feature closes.",
           "Duplicate-script warnings now recognize MWI TaskManager only when its task-sort marker appears together with its task, action, combat, or dungeon markers, avoiding false positives from a single generic page ID.",
-          "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched."
+          "General settings now include Tooltip panel font size, with Standard, Large, and Largest options that update production profit, loot valuation, and enhancement cost text immediately. Only the floating panel styles change, leaving native game tooltips and page layout untouched.",
+          "Fixed Asset Center repeatedly rebuilding the active page during high-frequency asset updates such as Enhancement, which made buttons unclickable and chart hover tooltips disappear. Open pages now keep their controls and canvas mounted while only the top asset figures update in place."
         ])
       })
     }),
