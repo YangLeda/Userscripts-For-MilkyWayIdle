@@ -420,7 +420,7 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 1);
+  assert.equal(current.body.zh.length, 2);
   assert.equal(previous.body.zh.length, previous.body.en.length);
   assert.equal(previous.body.zh.length, 24);
   assert.match(
@@ -442,6 +442,10 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(
     current.body.zh.join("\n"),
     /眼球怪、灵魂猎手.*多个地牢.*全部匹配地牢.*自身地牢/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /固定 Buff 区域.*卡片跳动.*独立展开为两行.*框内滚动.*跨战斗与刷新保留/,
   );
   assert.match(
     previous.body.zh.join("\n"),

@@ -15919,6 +15919,9 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
+  var EXPANSION_STORAGE_KEY = "MWITools_battle_buff_expansion_v1";
+  var COLLAPSED_CAPACITY = 3;
+  var EXPANDED_CAPACITY = 6;
   var abilityEffectIndexSource = null;
   var abilityEffectIndex = null;
   function buildAbilityEffectIndex() {
@@ -15980,7 +15983,12 @@ ${preview}`
     style.id = STYLE_ID6;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
+.mwi-buff-shell{width:100%;box-sizing:border-box;display:grid;grid-template-rows:21px 18px;margin-top:4px}
+.mwi-buff-shell[data-expanded="true"]{grid-template-rows:46px 18px}
+.mwi-buffbar{width:100%;height:21px;max-height:21px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;overflow:hidden;align-content:flex-start;align-items:center;justify-content:center}
+.mwi-buff-shell[data-expanded="true"] .mwi-buffbar{height:46px;max-height:46px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.mwi-buff-toggle{width:100%;height:18px;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:700 10px/18px "Trebuchet MS",Verdana,Arial,sans-serif;cursor:pointer;opacity:.7;text-align:center}
+.mwi-buff-toggle:hover,.mwi-buff-toggle:focus-visible{opacity:1;background:rgba(127,127,127,.12);outline:none}
 .mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
@@ -15997,6 +16005,27 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
+    const expandedUnitKeys = (() => {
+      try {
+        const stored = JSON.parse(
+          localStorage.getItem(EXPANSION_STORAGE_KEY) || "[]"
+        );
+        return new Set(
+          Array.isArray(stored) ? stored.filter((value) => typeof value === "string" && value) : []
+        );
+      } catch {
+        return /* @__PURE__ */ new Set();
+      }
+    })();
+    function persistExpandedUnitKeys() {
+      try {
+        localStorage.setItem(
+          EXPANSION_STORAGE_KEY,
+          JSON.stringify([...expandedUnitKeys].sort())
+        );
+      } catch {
+      }
+    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -16012,16 +16041,85 @@ ${preview}`
         monsters: getUnitElements("BattlePanel_monstersArea")
       };
     }
-    function ensureBuffBar(unitEl) {
-      let bar = unitEl.querySelector(".mwi-buffbar");
-      if (!bar) {
+    function unitStorageKeys(side, units) {
+      const occurrences = /* @__PURE__ */ new Map();
+      return units.map((unitEl, index) => {
+        const name = String(
+          unitEl.querySelector('[class*="CombatUnit_name"]')?.textContent ?? ""
+        ).replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
+        if (!name) return `${side}:slot:${index}`;
+        const occurrence = occurrences.get(name) ?? 0;
+        occurrences.set(name, occurrence + 1);
+        return `${side}:name:${name}:${occurrence}`;
+      });
+    }
+    function updateBuffToggle(shell2, effectCount) {
+      const expanded = shell2.dataset.expanded === "true";
+      const capacity = expanded ? EXPANDED_CAPACITY : COLLAPSED_CAPACITY;
+      const hiddenCount = Math.max(0, effectCount - capacity);
+      const toggle = shell2.querySelector(".mwi-buff-toggle");
+      if (!toggle) return;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      const direction = expanded ? "▴" : "▾";
+      toggle.textContent = hiddenCount ? `+${hiddenCount} ${direction}` : direction;
+      const action = expanded ? runtime.config.isZH ? "折叠 Buff" : "Collapse buffs" : runtime.config.isZH ? "展开 Buff" : "Expand buffs";
+      const overflow = hiddenCount ? runtime.config.isZH ? `，另有 ${hiddenCount} 个` : `, ${hiddenCount} more` : "";
+      toggle.setAttribute("aria-label", `${action}${overflow}`);
+      toggle.title = `${action}${overflow}`;
+    }
+    function setBuffShellExpanded(shell2, expanded, { persist = false } = {}) {
+      shell2.dataset.expanded = String(expanded);
+      const bar = shell2.querySelector(".mwi-buffbar");
+      if (!expanded && bar) bar.scrollTop = 0;
+      updateBuffToggle(shell2, bar?.childElementCount ?? 0);
+      if (!persist) return;
+      const storageKey = shell2.dataset.storageKey;
+      if (!storageKey) return;
+      if (expanded) expandedUnitKeys.add(storageKey);
+      else expandedUnitKeys.delete(storageKey);
+      persistExpandedUnitKeys();
+    }
+    function ensureBuffBar(unitEl, storageKey = "") {
+      let shell2 = unitEl.querySelector(".mwi-buff-shell");
+      let bar = shell2?.querySelector(".mwi-buffbar");
+      if (!shell2 || !bar) {
+        shell2 = document.createElement("div");
+        shell2.className = "mwi-buff-shell";
         bar = document.createElement("div");
         bar.className = "mwi-buffbar";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "mwi-buff-toggle";
+        toggle.addEventListener("click", () => {
+          setBuffShellExpanded(shell2, shell2.dataset.expanded !== "true", {
+            persist: true
+          });
+        });
+        shell2.append(bar, toggle);
         const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
         statusHost.classList.add("mwi-has-buffbar");
-        statusHost.appendChild(bar);
+        statusHost.appendChild(shell2);
+      }
+      const resolvedStorageKey = storageKey || unitEl.dataset.mwiBuffStorageKey || "";
+      if (resolvedStorageKey) {
+        unitEl.dataset.mwiBuffStorageKey = resolvedStorageKey;
+        if (shell2.dataset.storageKey !== resolvedStorageKey) {
+          shell2.dataset.storageKey = resolvedStorageKey;
+          setBuffShellExpanded(shell2, expandedUnitKeys.has(resolvedStorageKey));
+        }
+      } else if (!shell2.hasAttribute("data-expanded")) {
+        setBuffShellExpanded(shell2, false);
       }
       return bar;
+    }
+    function ensureBattleBuffBars(units = getBattleUnits()) {
+      for (const [side, unitList] of Object.entries(units)) {
+        const storageKeys = unitStorageKeys(side, unitList);
+        unitList.forEach((unitEl, index) => {
+          if (unitEl) ensureBuffBar(unitEl, storageKeys[index]);
+        });
+      }
+      return units;
     }
     function getState2(unitEl) {
       let state = UNIT_STATE.get(unitEl);
@@ -16066,7 +16164,11 @@ ${preview}`
         const state = UNIT_STATE.get(unitEl);
         if (state) state.effects.clear();
         const bar = unitEl.querySelector(".mwi-buffbar");
-        if (bar) bar.innerHTML = "";
+        if (bar) {
+          bar.replaceChildren();
+          const shell2 = bar.closest(".mwi-buff-shell");
+          if (shell2) updateBuffToggle(shell2, 0);
+        }
       }
     }
     function resetForNewBattle() {
@@ -16076,6 +16178,7 @@ ${preview}`
     }
     function handleNewBattle(signal) {
       resetForNewBattle();
+      ensureBattleBuffBars();
       clearMonsterBuffs();
       seedStateFromCombatant(signal.players, BATTLE_STATE.players);
       seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
@@ -16184,7 +16287,8 @@ ${preview}`
       state.effects = new Map(
         entries.map((effect) => [effect.abilityHrid, effect])
       );
-      bar.innerHTML = "";
+      const scrollTop = bar.scrollTop;
+      bar.replaceChildren();
       for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
         const chip = document.createElement("span");
         chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
@@ -16227,6 +16331,11 @@ ${preview}`
         chip.appendChild(ring);
         bar.appendChild(chip);
       }
+      if (bar.closest(".mwi-buff-shell")?.dataset.expanded === "true") {
+        bar.scrollTop = scrollTop;
+      }
+      const shell2 = bar.closest(".mwi-buff-shell");
+      if (shell2) updateBuffToggle(shell2, entries.length);
     }
     function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
       const state = getState2(unitEl);
@@ -16243,7 +16352,7 @@ ${preview}`
     function applyBattleUpdated(payload) {
       const pMap = payload?.pMap;
       const mMap = payload?.mMap;
-      const units = getBattleUnits();
+      const units = ensureBattleBuffBars();
       if (units.players.length === 0 && units.monsters.length === 0) return;
       ensureBuffStyles(scope);
       updateBattleState(payload);
@@ -16329,10 +16438,12 @@ ${preview}`
     function removeAllBuffBars() {
       const units = getBattleUnits();
       for (const unitEl of [...units.players, ...units.monsters]) {
+        const shell2 = unitEl?.querySelector(".mwi-buff-shell");
         const bar = unitEl?.querySelector(".mwi-buffbar");
-        if (bar) {
-          bar.closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
-          bar.remove();
+        if (shell2 || bar) {
+          (shell2 ?? bar).closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
+          (shell2 ?? bar).remove();
+          delete unitEl.dataset.mwiBuffStorageKey;
         }
       }
     }
@@ -16340,6 +16451,7 @@ ${preview}`
       handleNewBattle,
       applyBattleUpdated,
       hasActiveEffects,
+      mountBuffBars: ensureBattleBuffBars,
       tickCountdowns,
       removeAllBuffBars
     };
@@ -16349,6 +16461,8 @@ ${preview}`
     setting: "battleBuffs",
     initialize({ scope }) {
       const tracker = createBuffTracker(scope);
+      ensureBuffStyles(scope);
+      tracker.mountBuffBars();
       let countdownTimer = null;
       const tick = () => {
         countdownTimer = null;
@@ -27293,10 +27407,12 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。"
+          "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
+          "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。"
         ]),
         en: Object.freeze([
-          "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon."
+          "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
+          "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads."
         ])
       })
     }),

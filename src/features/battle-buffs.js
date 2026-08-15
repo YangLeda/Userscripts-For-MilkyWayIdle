@@ -9,6 +9,9 @@ import { getGameSpriteHref } from "../core/game-assets.js";
  */
 
 const STYLE_ID = "mwi-buff-style";
+const EXPANSION_STORAGE_KEY = "MWITools_battle_buff_expansion_v1";
+const COLLAPSED_CAPACITY = 3;
+const EXPANDED_CAPACITY = 6;
 let abilityEffectIndexSource = null;
 let abilityEffectIndex = null;
 
@@ -79,7 +82,12 @@ function ensureBuffStyles(scope) {
   style.id = STYLE_ID;
   style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
+.mwi-buff-shell{width:100%;box-sizing:border-box;display:grid;grid-template-rows:21px 18px;margin-top:4px}
+.mwi-buff-shell[data-expanded="true"]{grid-template-rows:46px 18px}
+.mwi-buffbar{width:100%;height:21px;max-height:21px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;overflow:hidden;align-content:flex-start;align-items:center;justify-content:center}
+.mwi-buff-shell[data-expanded="true"] .mwi-buffbar{height:46px;max-height:46px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.mwi-buff-toggle{width:100%;height:18px;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:700 10px/18px "Trebuchet MS",Verdana,Arial,sans-serif;cursor:pointer;opacity:.7;text-align:center}
+.mwi-buff-toggle:hover,.mwi-buff-toggle:focus-visible{opacity:1;background:rgba(127,127,127,.12);outline:none}
 .mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
@@ -102,6 +110,32 @@ function createBuffTracker(scope) {
   const BATTLE_STATE = { players: new Map(), monsters: new Map() };
   const PENDING_BUFFS = [];
   const PENDING_DEBUFFS = [];
+  const expandedUnitKeys = (() => {
+    try {
+      const stored = JSON.parse(
+        localStorage.getItem(EXPANSION_STORAGE_KEY) || "[]",
+      );
+      return new Set(
+        Array.isArray(stored)
+          ? stored.filter((value) => typeof value === "string" && value)
+          : [],
+      );
+    } catch {
+      return new Set();
+    }
+  })();
+
+  function persistExpandedUnitKeys() {
+    try {
+      localStorage.setItem(
+        EXPANSION_STORAGE_KEY,
+        JSON.stringify([...expandedUnitKeys].sort()),
+      );
+    } catch {
+      // Persistence is optional when browser storage is unavailable.
+    }
+  }
+
   function getUnitElements(areaClass) {
     const area = document.querySelector(`[class*="${areaClass}"]`);
     if (!area) return [];
@@ -119,23 +153,112 @@ function createBuffTracker(scope) {
     };
   }
 
-  function ensureBuffBar(unitEl) {
-    let bar = unitEl.querySelector(".mwi-buffbar");
-    if (!bar) {
+  function unitStorageKeys(side, units) {
+    const occurrences = new Map();
+    return units.map((unitEl, index) => {
+      const name = String(
+        unitEl.querySelector('[class*="CombatUnit_name"]')?.textContent ?? "",
+      )
+        .replaceAll(/\s+/g, " ")
+        .trim()
+        .toLocaleLowerCase();
+      if (!name) return `${side}:slot:${index}`;
+      const occurrence = occurrences.get(name) ?? 0;
+      occurrences.set(name, occurrence + 1);
+      return `${side}:name:${name}:${occurrence}`;
+    });
+  }
+
+  function updateBuffToggle(shell, effectCount) {
+    const expanded = shell.dataset.expanded === "true";
+    const capacity = expanded ? EXPANDED_CAPACITY : COLLAPSED_CAPACITY;
+    const hiddenCount = Math.max(0, effectCount - capacity);
+    const toggle = shell.querySelector(".mwi-buff-toggle");
+    if (!toggle) return;
+    toggle.setAttribute("aria-expanded", String(expanded));
+    const direction = expanded ? "▴" : "▾";
+    toggle.textContent = hiddenCount
+      ? `+${hiddenCount} ${direction}`
+      : direction;
+    const action = expanded
+      ? runtime.config.isZH
+        ? "折叠 Buff"
+        : "Collapse buffs"
+      : runtime.config.isZH
+        ? "展开 Buff"
+        : "Expand buffs";
+    const overflow = hiddenCount
+      ? runtime.config.isZH
+        ? `，另有 ${hiddenCount} 个`
+        : `, ${hiddenCount} more`
+      : "";
+    toggle.setAttribute("aria-label", `${action}${overflow}`);
+    toggle.title = `${action}${overflow}`;
+  }
+
+  function setBuffShellExpanded(shell, expanded, { persist = false } = {}) {
+    shell.dataset.expanded = String(expanded);
+    const bar = shell.querySelector(".mwi-buffbar");
+    if (!expanded && bar) bar.scrollTop = 0;
+    updateBuffToggle(shell, bar?.childElementCount ?? 0);
+    if (!persist) return;
+    const storageKey = shell.dataset.storageKey;
+    if (!storageKey) return;
+    if (expanded) expandedUnitKeys.add(storageKey);
+    else expandedUnitKeys.delete(storageKey);
+    persistExpandedUnitKeys();
+  }
+
+  function ensureBuffBar(unitEl, storageKey = "") {
+    let shell = unitEl.querySelector(".mwi-buff-shell");
+    let bar = shell?.querySelector(".mwi-buffbar");
+    if (!shell || !bar) {
+      shell = document.createElement("div");
+      shell.className = "mwi-buff-shell";
       bar = document.createElement("div");
       bar.className = "mwi-buffbar";
-      // Nest the bar inside the unit's status column. It stays in flow (so it
-      // never overlaps neighbouring units) and wraps to multiple rows when the
-      // icons exceed the fixed status width, keeping every buff visible.
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "mwi-buff-toggle";
+      toggle.addEventListener("click", () => {
+        setBuffShellExpanded(shell, shell.dataset.expanded !== "true", {
+          persist: true,
+        });
+      });
+      shell.append(bar, toggle);
+      // Nest the shell inside the unit's status column. It stays in flow (so it
+      // never overlaps neighbouring units) while its fixed viewport clips or
+      // scrolls overflow without changing the card height.
       const statusHost =
         unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
       // The game gives the status column a fixed height, which would clip the
       // wrapped rows. Flag only this host so it grows to fit the bar without
       // touching any other status column's layout.
       statusHost.classList.add("mwi-has-buffbar");
-      statusHost.appendChild(bar);
+      statusHost.appendChild(shell);
+    }
+    const resolvedStorageKey =
+      storageKey || unitEl.dataset.mwiBuffStorageKey || "";
+    if (resolvedStorageKey) {
+      unitEl.dataset.mwiBuffStorageKey = resolvedStorageKey;
+      if (shell.dataset.storageKey !== resolvedStorageKey) {
+        shell.dataset.storageKey = resolvedStorageKey;
+        setBuffShellExpanded(shell, expandedUnitKeys.has(resolvedStorageKey));
+      }
+    } else if (!shell.hasAttribute("data-expanded")) {
+      setBuffShellExpanded(shell, false);
     }
     return bar;
+  }
+
+  function ensureBattleBuffBars(units = getBattleUnits()) {
+    for (const [side, unitList] of Object.entries(units)) {
+      const storageKeys = unitStorageKeys(side, unitList);
+      unitList.forEach((unitEl, index) => {
+        if (unitEl) ensureBuffBar(unitEl, storageKeys[index]);
+      });
+    }
+    return units;
   }
 
   function getState(unitEl) {
@@ -190,7 +313,11 @@ function createBuffTracker(scope) {
       const state = UNIT_STATE.get(unitEl);
       if (state) state.effects.clear();
       const bar = unitEl.querySelector(".mwi-buffbar");
-      if (bar) bar.innerHTML = "";
+      if (bar) {
+        bar.replaceChildren();
+        const shell = bar.closest(".mwi-buff-shell");
+        if (shell) updateBuffToggle(shell, 0);
+      }
     }
   }
 
@@ -202,6 +329,7 @@ function createBuffTracker(scope) {
 
   function handleNewBattle(signal) {
     resetForNewBattle();
+    ensureBattleBuffBars();
     clearMonsterBuffs();
     seedStateFromCombatant(signal.players, BATTLE_STATE.players);
     seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
@@ -338,7 +466,8 @@ function createBuffTracker(scope) {
       entries.map((effect) => [effect.abilityHrid, effect]),
     );
 
-    bar.innerHTML = "";
+    const scrollTop = bar.scrollTop;
+    bar.replaceChildren();
     for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
       const chip = document.createElement("span");
       chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
@@ -381,6 +510,11 @@ function createBuffTracker(scope) {
       chip.appendChild(ring);
       bar.appendChild(chip);
     }
+    if (bar.closest(".mwi-buff-shell")?.dataset.expanded === "true") {
+      bar.scrollTop = scrollTop;
+    }
+    const shell = bar.closest(".mwi-buff-shell");
+    if (shell) updateBuffToggle(shell, entries.length);
   }
 
   function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
@@ -399,7 +533,7 @@ function createBuffTracker(scope) {
   function applyBattleUpdated(payload) {
     const pMap = payload?.pMap;
     const mMap = payload?.mMap;
-    const units = getBattleUnits();
+    const units = ensureBattleBuffBars();
     if (units.players.length === 0 && units.monsters.length === 0) return;
     ensureBuffStyles(scope);
     updateBattleState(payload);
@@ -506,10 +640,14 @@ function createBuffTracker(scope) {
   function removeAllBuffBars() {
     const units = getBattleUnits();
     for (const unitEl of [...units.players, ...units.monsters]) {
+      const shell = unitEl?.querySelector(".mwi-buff-shell");
       const bar = unitEl?.querySelector(".mwi-buffbar");
-      if (bar) {
-        bar.closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
-        bar.remove();
+      if (shell || bar) {
+        (shell ?? bar)
+          .closest(".mwi-has-buffbar")
+          ?.classList.remove("mwi-has-buffbar");
+        (shell ?? bar).remove();
+        delete unitEl.dataset.mwiBuffStorageKey;
       }
     }
   }
@@ -518,6 +656,7 @@ function createBuffTracker(scope) {
     handleNewBattle,
     applyBattleUpdated,
     hasActiveEffects,
+    mountBuffBars: ensureBattleBuffBars,
     tickCountdowns,
     removeAllBuffBars,
   };
@@ -528,6 +667,8 @@ runtime.features.register({
   setting: "battleBuffs",
   initialize({ scope }) {
     const tracker = createBuffTracker(scope);
+    ensureBuffStyles(scope);
+    tracker.mountBuffBars();
     let countdownTimer = null;
     const tick = () => {
       countdownTimer = null;
