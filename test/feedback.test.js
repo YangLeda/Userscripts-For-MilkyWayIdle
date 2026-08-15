@@ -415,7 +415,7 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 24);
+  assert.equal(current.body.zh.length, 25);
   assert.match(
     current.body.zh.join("\n"),
     /自托管更新源.*校验脚本、元数据、版本和更新地址.*CDN 缓存刷新/,
@@ -431,6 +431,10 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.match(
     current.body.zh.join("\n"),
     /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /眼球怪、灵魂猎手.*多个地牢.*全部匹配地牢.*自身地牢/,
   );
   assert.match(
     current.body.zh.join("\n"),
