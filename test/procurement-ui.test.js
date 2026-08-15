@@ -83,16 +83,26 @@ test("procurement owns a standalone three-tab shell outside global settings", as
     host.shadowRoot.querySelector(".title").textContent,
     "Shopping Cart",
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/nail",
+    name: "Nail",
+    quantity: 1,
+  });
   host.shadowRoot.querySelector('.tab[data-tab="settings"]').click();
+  assert.ok(host.shadowRoot.querySelector(".setting-section"));
   assert.doesNotMatch(host.shadowRoot.textContent, /[\u3400-\u9fff]/);
   assert.match(host.shadowRoot.textContent, /Expand after adding/);
   host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
+  assert.equal(host.shadowRoot.querySelector(".setting-section"), null);
+  assert.equal(host.shadowRoot.querySelectorAll(".cart-row").length, 1);
   assert.equal(
     Object.values(runtime.settings.catalog).some((setting) =>
       setting.id?.toLowerCase().includes("procurement"),
     ),
     true,
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
 });
 
 test("the global shopping-cart switch removes and restores every procurement entry", async () => {
@@ -209,9 +219,15 @@ test("cart rows and footer stay stable while pointer drag persists order", () =>
   const root = host.shadowRoot;
   root.querySelector('.tab[data-tab="cart"]').click();
   const firstRow = root.querySelector(".cart-row");
+  const firstIcon = firstRow.querySelector(".item-icon").firstElementChild;
   const clearButton = root.querySelector(".panel-footer .clear");
   runtime.api.renderProcurementShell();
   assert.equal(root.querySelector(".cart-row"), firstRow);
+  assert.equal(
+    root.querySelector(".cart-row .item-icon").firstElementChild,
+    firstIcon,
+    "unchanged cart icons must remain mounted across external redraws",
+  );
   assert.equal(root.querySelector(".panel-footer .clear"), clearButton);
 
   let pageScrolled = false;
@@ -325,13 +341,19 @@ test("cart quantity hold-repeat stops after redraw, release, and clear", async (
 test("production procurement uses its stable sibling slot beside the summary", () => {
   document.body.insertAdjacentHTML(
     "beforeend",
-    `<div class="SkillActionDetail_regularComponent__fixture">
-      <div class="SkillActionDetail_itemRequirements__fixture">
-        <div class="Item_itemContainer__fixture"><svg><use href="#nail"></use></svg></div>
+    `<div class="Modal_modalContainer__fixture">
+      <div class="Modal_modal__fixture">
+        <div class="Modal_modalContent__fixture">
+          <div class="SkillActionDetail_regularComponent__fixture">
+            <div class="SkillActionDetail_itemRequirements__fixture">
+              <div class="Item_itemContainer__fixture"><svg><use href="#nail"></use></svg></div>
+            </div>
+            <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
+            <div class="SkillActionDetail_actionContainer__fixture"></div>
+            <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
+          </div>
+        </div>
       </div>
-      <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
-      <div class="SkillActionDetail_actionContainer__fixture"></div>
-      <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
     </div>`,
   );
   runtime.api.renderProductionProcurement();
@@ -370,6 +392,48 @@ test("production procurement uses its stable sibling slot beside the summary", (
     true,
   );
   assert.match(badge.textContent, /^(缺|Need) /);
+  const visualModal = document.querySelector(
+    '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  const modalContainer = document.querySelector(
+    '[class*="Modal_modalContainer"]',
+  );
+  const refresh = document.querySelector(
+    "#mwitools-procurement-inventory-refresh",
+  );
+  assert.equal(refresh.parentElement, visualModal);
+  assert.equal(
+    visualModal.classList.contains("mwi-procurement-refresh-position-anchor"),
+    true,
+  );
+  assert.equal(
+    modalContainer.classList.contains("mwi-procurement-refresh-host"),
+    false,
+  );
+
+  const productionPanel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  productionPanel.style.display = "none";
+  const pagePanel = document.createElement("div");
+  pagePanel.className = "SkillActionDetail_regularComponent__page-fixture";
+  pagePanel.innerHTML = `<div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div><div class="SkillActionDetail_actionContainer__fixture"></div>`;
+  document.body.append(pagePanel);
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-inventory-refresh"),
+    refresh,
+    "a page-level production detail must not steal the modal refresh button",
+  );
+  assert.equal(refresh.parentElement, visualModal);
+  assert.equal(
+    visualModal.classList.contains("mwi-procurement-refresh-position-anchor"),
+    true,
+    "repeated renders must preserve the modal positioning anchor",
+  );
+  productionPanel.style.display = "";
+  pagePanel.remove();
+  runtime.api.renderProductionProcurement();
 
   document.querySelector(".mwi-production-extensions").remove();
   runtime.api.renderProductionProcurement();
@@ -383,6 +447,44 @@ test("production procurement uses its stable sibling slot beside the summary", (
     "shortage",
     "procurement must remain available without the optional production summary",
   );
+});
+
+test("combat action dialogs never show inventory refresh with stale enhancing context", () => {
+  const productionModal = document.querySelector(
+    '[class*="Modal_modalContainer"]',
+  );
+  productionModal.style.display = "none";
+  const combatModal = document.createElement("div");
+  combatModal.className = "Modal_modalContainer__combat-fixture";
+  combatModal.innerHTML = `<div class="Modal_modal__combat-fixture"><div class="SkillActionDetail_regularComponent__combat-fixture"><div class="SkillActionDetail_combatMonsters__combat-fixture"></div><div class="SkillActionDetail_maxActionCountInput__combat-fixture"><input value="58"></div><div class="SkillActionDetail_actionContainer__combat-fixture"></div></div></div>`;
+  const combatPanel = combatModal.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  combatPanel.__reactFiber$combatFixture = {
+    memoizedProps: {
+      actionDetail: {
+        hrid: "/actions/enhancing/enhance",
+        function: "/action_functions/enhancing",
+      },
+    },
+    return: null,
+  };
+  document.body.append(combatModal);
+
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-inventory-refresh"),
+    null,
+  );
+  assert.equal(
+    document.querySelector("#mwitools-procurement-production"),
+    null,
+  );
+
+  combatModal.remove();
+  productionModal.style.display = "";
+  runtime.api.renderProductionProcurement();
+  assert.ok(document.querySelector("#mwitools-procurement-inventory-refresh"));
 });
 
 test("production shortage keeps waiting and ready states stable and optionally hides ready", async () => {
@@ -441,6 +543,84 @@ test("sufficient materials keep their remaining quantity", () => {
   const badge = document.querySelector(".mwi-procurement-badge");
   assert.equal(badge.dataset.state, "ready");
   assert.match(badge.textContent, /^(余|Spare) /);
+});
+
+test("production refresh reads live inventory and recalculates cart projects", () => {
+  const procurement = runtime.api.procurement;
+  runtime.state.initData_characterItems = [
+    {
+      id: "refresh-nail-stack",
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 10,
+    },
+  ];
+  procurement.loadCharacterData("ui-character");
+  procurement.clearCart({ includeStarred: true });
+  for (const existing of procurement.getPlans()) {
+    procurement.removePlan(existing.id);
+  }
+  const plan = procurement.createPlan("/actions/crafting/board", 6, [
+    {
+      itemHrid: "/items/nail",
+      enhancementLevel: 0,
+      suggested: 12,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(plan.id);
+  procurement.addToCart({ itemHrid: "/items/nail", quantity: 4 });
+
+  const panel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  panel.__reactFiber$inventoryRefreshFixture = {
+    return: {
+      stateNode: {
+        state: {
+          character: { id: "ui-character" },
+          characterItemMap: new Map([
+            [
+              "refresh-nail-stack",
+              {
+                id: "refresh-nail-stack",
+                itemHrid: "/items/nail",
+                itemLocationHrid: "/item_locations/inventory",
+                enhancementLevel: 0,
+                count: 3,
+              },
+            ],
+          ]),
+        },
+      },
+      return: null,
+    },
+  };
+  runtime.api.renderProductionProcurement();
+  const refresh = document.querySelector(
+    "#mwitools-procurement-inventory-refresh",
+  );
+  assert.ok(refresh);
+  assert.match(refresh.title, /shopping cart.*project reservations/i);
+  refresh.click();
+
+  assert.equal(runtime.state.initData_characterItems[0].count, 3);
+  assert.equal(procurement.getInventoryCount("/items/nail"), 3);
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/nail"), {
+    total: 13,
+    manual: 4,
+    planning: 0,
+    project: 9,
+    projects: { [plan.id]: 9 },
+  });
+  const badge = document.querySelector(".mwi-procurement-badge");
+  assert.equal(badge.dataset.state, "missing");
+  assert.match(badge.textContent, /^(缺|Need) /);
+
+  delete panel.__reactFiber$inventoryRefreshFixture;
+  procurement.removePlan(plan.id);
+  procurement.clearCart({ includeStarred: true });
 });
 
 test("enhancing procurement uses the visible panel, live count, and net shortages", async () => {
@@ -974,10 +1154,25 @@ test("market shopping navigation renders item icons instead of name pills", () =
   const chip = document.querySelector(
     "#mwitools-procurement-market-nav .mwi-procurement-nav-chip",
   );
+  const chipIcon = chip.querySelector(".mwi-procurement-nav-icon svg");
   assert.ok(chip.querySelector(".mwi-procurement-nav-icon svg use"));
   assert.match(chip.querySelector("svg use").getAttribute("href"), /#cotton$/);
   assert.doesNotMatch(chip.textContent, /Cotton|棉花/);
   assert.match(chip.title, /Cotton/);
+
+  runtime.api.updateProcurementMarketUi();
+  assert.equal(
+    document.querySelector(
+      "#mwitools-procurement-market-nav .mwi-procurement-nav-chip",
+    ),
+    chip,
+    "unchanged third-party market mutations must not replace nav buttons",
+  );
+  assert.equal(
+    chip.querySelector(".mwi-procurement-nav-icon svg"),
+    chipIcon,
+    "unchanged third-party market mutations must not replace nav icons",
+  );
 
   modal.remove();
   const realNow = Date.now;

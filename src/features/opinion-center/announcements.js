@@ -2,6 +2,33 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.12",
+    version: "26.4.12",
+    publishedAt: "2026-08-15",
+    title: Object.freeze({
+      zh: "26.4.12 更新公告",
+      en: "Version 26.4.12 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
+        "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
+        "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
+        "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
+        "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。",
+        "生产详情右上角新增手动“更新仓库”按钮，会直接读取游戏当前仓库，并按最新库存重算生产余缺与购物车中的项目采购缺口；手工购物数量保持不变，常备阈值、项目占用和已计算规划也会收到库存更新，避免材料已消耗后仍显示旧余量。按钮固定在生产弹窗边框内，不会下推页面或改变弹窗原有的悬浮定位；游戏弹窗没有自带定位基准时也会正确显示，持续重绘时会保留该定位基准，不再与页面右上角来回切换闪烁。按钮仅在生产与强化详情中显示，战斗怪物面板不会再误显示。",
+      ]),
+      en: Object.freeze([
+        "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
+        "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
+        "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
+        "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
+        "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes.",
+        "Added a manual Refresh inventory button in the top-right of production details. It reads the game's current inventory and recalculates production shortages plus project-sourced cart quantities; manual cart quantities stay intact, while restock thresholds, project reservations, and calculated Planning are notified of the new inventory so consumed materials no longer leave stale spare counts. The button stays inside the production dialog border without pushing the page down or changing the dialog's floating position. When the dialog has no positioning context, that context now remains stable across continuous redraws so the button no longer jumps back and forth to the page's top-right corner. It appears only in production and enhancing details, never in combat monster panels.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.11",
     version: "26.4.11",
     publishedAt: "2026-08-14",
@@ -34,6 +61,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
         "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。",
         "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。",
+        "新增自托管更新源发布流程；发布前会校验脚本、元数据、版本和更新地址，并在 CDN 缓存刷新完成后再确认成功，避免损坏的更新文件或旧脚本被发布。",
       ]),
       en: Object.freeze([
         "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -59,6 +87,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
         "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons.",
         "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance.",
+        "Added the self-hosted update-channel publishing flow. It validates the script, metadata, version, and update URLs before publishing, then waits for CDN cache invalidation before confirming success so broken update files or stale scripts are not released.",
       ]),
     }),
   }),

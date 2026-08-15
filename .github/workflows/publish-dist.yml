@@ -11,6 +11,7 @@ on:
   workflow_dispatch: {}
 
 # OIDC: mint a short-lived token to assume the AWS role — no stored secrets.
+# The role needs CreateInvalidation and GetInvalidation for the publish wait.
 permissions:
   id-token: write
   contents: read
@@ -47,7 +48,28 @@ jobs:
               MWITools.js > mwitools.user.js
           awk '/==UserScript==/{f=1} f{print} /==\/UserScript==/{exit}' \
               mwitools.user.js > mwitools.meta.js
-          echo "VERSION=$(grep -m1 '@version' mwitools.meta.js | awk '{print $3}')" >> "$GITHUB_ENV"
+
+          fail() {
+            echo "::error::$1" >&2
+            exit 1
+          }
+          [[ -s mwitools.user.js ]] || fail "Built userscript is empty"
+          [[ -s mwitools.meta.js ]] || fail "Extracted metadata is empty"
+          grep -Fxq '// ==UserScript==' mwitools.meta.js || fail "Metadata header is missing"
+          grep -Fxq '// ==/UserScript==' mwitools.meta.js || fail "Metadata footer is missing"
+
+          version="$(awk '$2 == "@version" { print $3; exit }' mwitools.meta.js)"
+          update_url="$(awk '$2 == "@updateURL" { print $3; exit }' mwitools.meta.js)"
+          download_url="$(awk '$2 == "@downloadURL" { print $3; exit }' mwitools.meta.js)"
+          [[ -n "${version}" ]] || fail "Userscript version is empty"
+          [[ "${update_url}" == "https://${CF_DOMAIN}/mwitools.meta.js" ]] || \
+            fail "CloudFront update URL was not generated"
+          [[ "${download_url}" == "https://${CF_DOMAIN}/mwitools.user.js" ]] || \
+            fail "CloudFront download URL was not generated"
+          if grep -Fq 'https://update.greasyfork.org/scripts/494467/MWITools.' mwitools.user.js; then
+            fail "A GreasyFork auto-update URL remains in the distribution"
+          fi
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Upload to S3
         run: |
@@ -58,10 +80,23 @@ jobs:
             --content-type "text/javascript; charset=utf-8" --cache-control "max-age=300"
 
       - name: Invalidate CloudFront
+        id: invalidate
         run: |
-          aws cloudfront create-invalidation \
+          set -euo pipefail
+          invalidation_id="$(aws cloudfront create-invalidation \
             --distribution-id "${DISTRIBUTION_ID}" \
-            --paths "/mwitools.user.js" "/mwitools.meta.js"
+            --paths "/mwitools.user.js" "/mwitools.meta.js" \
+            --query 'Invalidation.Id' \
+            --output text)"
+          test -n "${invalidation_id}"
+          echo "invalidation_id=${invalidation_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for CloudFront invalidation
+        timeout-minutes: 15
+        run: |
+          aws cloudfront wait invalidation-completed \
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --id "${{ steps.invalidate.outputs.invalidation_id }}"
 
       - name: Summary
         run: echo "Published v${VERSION} → https://${CF_DOMAIN}/mwitools.user.js" >> "$GITHUB_STEP_SUMMARY"

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.11
+// @version      26.4.12
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -6039,6 +6039,77 @@
     if (!suppression.quantity) purchaseSuppressions.delete(key);
     return remaining;
   }
+  function reconcileProjectCartAllocations() {
+    const desiredByKey = /* @__PURE__ */ new Map();
+    const activePlans = [...plans.values()].filter((plan) => plan.status !== "completed").sort(
+      (left, right) => String(left.createdAt ?? "").localeCompare(
+        String(right.createdAt ?? "")
+      ) || String(left.id).localeCompare(String(right.id))
+    );
+    const demandsByKey = /* @__PURE__ */ new Map();
+    for (const plan of activePlans) {
+      for (const [key, quantity] of Object.entries(plan.materials ?? {})) {
+        const demand = Math.max(0, Math.ceil(Number(quantity) || 0));
+        if (!demand || isCoin(parseItemKey(key).itemHrid)) continue;
+        if (!demandsByKey.has(key)) demandsByKey.set(key, []);
+        demandsByKey.get(key).push({ planId: String(plan.id), demand });
+      }
+    }
+    for (const [key, demands] of demandsByKey) {
+      const parsed = parseItemKey(key);
+      let available = getInventoryCount2(parsed.itemHrid, parsed.enhancementLevel);
+      const desired = {};
+      for (const { planId, demand } of demands) {
+        const covered = Math.min(available, demand);
+        available -= covered;
+        const shortage = demand - covered;
+        if (shortage > 0) desired[planId] = shortage;
+      }
+      desiredByKey.set(key, desired);
+    }
+    let changed = false;
+    for (const [key, row] of [...cart]) {
+      let rowChanged = false;
+      const current = normalizeAllocations(
+        row.allocations,
+        row.quantity
+      ).projects;
+      const desired = desiredByKey.get(key) ?? {};
+      const projectIds = /* @__PURE__ */ new Set([
+        ...Object.keys(current),
+        ...Object.keys(desired)
+      ]);
+      for (const id of projectIds) {
+        const delta = (desired[id] ?? 0) - (current[id] ?? 0);
+        if (!delta) continue;
+        changeAllocation(row, { kind: "project", id }, delta);
+        changed = true;
+        rowChanged = true;
+      }
+      if (!rowChanged) continue;
+      row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel);
+      row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (row.quantity <= 0 && !row.starred) cart.delete(key);
+    }
+    const additions = [];
+    for (const [key, desired] of desiredByKey) {
+      if (cart.has(key)) continue;
+      const parsed = parseItemKey(key);
+      for (const [projectId, quantity] of Object.entries(desired)) {
+        additions.push({
+          itemHrid: parsed.itemHrid,
+          enhancementLevel: parsed.enhancementLevel,
+          name: resolveItemName(parsed.itemHrid),
+          quantity,
+          source: "project",
+          allocation: { kind: "project", projectId }
+        });
+      }
+    }
+    if (changed) saveCartAndEmit({ reason: "allocation" });
+    const added = additions.length ? addToCart(additions).added : 0;
+    return changed || added > 0;
+  }
   function applyInventoryUpdates(items) {
     const before = inventoryCounts();
     for (const item of items ?? []) {
@@ -6081,11 +6152,36 @@
       }
     }
     applyRestockThresholds();
+    reconcileProjectCartAllocations();
     refreshPlanProgress();
     persistData();
     emit("inventory:change", {
       changes: changes.map(({ key: _key, ...change }) => change)
     });
+  }
+  function replaceInventorySnapshot(items) {
+    const snapshot = (items ?? []).filter((item) => item?.itemHrid && Number(item.count) > 0).map((item) => ({ ...item }));
+    const before = inventoryCounts();
+    const removals = [...inventoryEntries.values()].map((item) => ({
+      ...item,
+      count: 0
+    }));
+    applyInventoryUpdates([...removals, ...snapshot]);
+    applyRestockThresholds();
+    reconcileProjectCartAllocations();
+    const after = inventoryCounts();
+    const keys = /* @__PURE__ */ new Set([...before.keys(), ...after.keys()]);
+    const changedItemCount = [...keys].filter(
+      (key) => (before.get(key) ?? 0) !== (after.get(key) ?? 0)
+    ).length;
+    return {
+      stackCount: snapshot.length,
+      changedItemCount,
+      cartItemCount: [...cart.values()].filter((row) => row.quantity > 0).length,
+      projectCount: [...plans.values()].filter(
+        (plan) => plan.status !== "completed"
+      ).length
+    };
   }
   function applyRestockThresholds() {
     if (!settings.autoRestockEnabled) return;
@@ -6402,6 +6498,7 @@
       setPlanningData,
       confirmMarketPurchase,
       applyInventoryUpdates,
+      replaceInventorySnapshot,
       applyRestockThresholds,
       recordActionCompletion,
       parsePurchaseConfirmation,
@@ -15919,6 +16016,9 @@ ${preview}`
 
   // src/features/battle-buffs.js
   var STYLE_ID6 = "mwi-buff-style";
+  var EXPANSION_STORAGE_KEY = "MWITools_battle_buff_expansion_v1";
+  var COLLAPSED_CAPACITY = 3;
+  var EXPANDED_CAPACITY = 6;
   var abilityEffectIndexSource = null;
   var abilityEffectIndex = null;
   function buildAbilityEffectIndex() {
@@ -15980,7 +16080,12 @@ ${preview}`
     style.id = STYLE_ID6;
     style.textContent = `
 .mwi-has-buffbar{height:auto!important;min-height:0;overflow:visible!important}
-.mwi-buffbar{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;align-items:center;justify-content:center}
+.mwi-buff-shell{width:100%;box-sizing:border-box;display:grid;grid-template-rows:21px 18px;margin-top:4px}
+.mwi-buff-shell[data-expanded="true"]{grid-template-rows:46px 18px}
+.mwi-buffbar{width:100%;height:21px;max-height:21px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;overflow:hidden;align-content:flex-start;align-items:center;justify-content:center}
+.mwi-buff-shell[data-expanded="true"] .mwi-buffbar{height:46px;max-height:46px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.mwi-buff-toggle{width:100%;height:18px;box-sizing:border-box;padding:0;border:0;background:transparent;color:inherit;font:700 10px/18px "Trebuchet MS",Verdana,Arial,sans-serif;cursor:pointer;opacity:.7;text-align:center}
+.mwi-buff-toggle:hover,.mwi-buff-toggle:focus-visible{opacity:1;background:rgba(127,127,127,.12);outline:none}
 .mwi-chip{font:11px/1.2 "Trebuchet MS", Verdana, Arial, sans-serif;padding:2px 6px;border-radius:10px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;position:relative}
 .mwi-icon-wrap{position:relative;width:15px;height:15px;display:inline-block}
 .mwi-icon{width:15px;height:15px;display:block}
@@ -15997,6 +16102,27 @@ ${preview}`
     const BATTLE_STATE = { players: /* @__PURE__ */ new Map(), monsters: /* @__PURE__ */ new Map() };
     const PENDING_BUFFS = [];
     const PENDING_DEBUFFS = [];
+    const expandedUnitKeys = (() => {
+      try {
+        const stored = JSON.parse(
+          localStorage.getItem(EXPANSION_STORAGE_KEY) || "[]"
+        );
+        return new Set(
+          Array.isArray(stored) ? stored.filter((value) => typeof value === "string" && value) : []
+        );
+      } catch {
+        return /* @__PURE__ */ new Set();
+      }
+    })();
+    function persistExpandedUnitKeys() {
+      try {
+        localStorage.setItem(
+          EXPANSION_STORAGE_KEY,
+          JSON.stringify([...expandedUnitKeys].sort())
+        );
+      } catch {
+      }
+    }
     function getUnitElements(areaClass) {
       const area = document.querySelector(`[class*="${areaClass}"]`);
       if (!area) return [];
@@ -16012,16 +16138,85 @@ ${preview}`
         monsters: getUnitElements("BattlePanel_monstersArea")
       };
     }
-    function ensureBuffBar(unitEl) {
-      let bar = unitEl.querySelector(".mwi-buffbar");
-      if (!bar) {
+    function unitStorageKeys(side, units) {
+      const occurrences = /* @__PURE__ */ new Map();
+      return units.map((unitEl, index) => {
+        const name = String(
+          unitEl.querySelector('[class*="CombatUnit_name"]')?.textContent ?? ""
+        ).replaceAll(/\s+/g, " ").trim().toLocaleLowerCase();
+        if (!name) return `${side}:slot:${index}`;
+        const occurrence = occurrences.get(name) ?? 0;
+        occurrences.set(name, occurrence + 1);
+        return `${side}:name:${name}:${occurrence}`;
+      });
+    }
+    function updateBuffToggle(shell2, effectCount) {
+      const expanded = shell2.dataset.expanded === "true";
+      const capacity = expanded ? EXPANDED_CAPACITY : COLLAPSED_CAPACITY;
+      const hiddenCount = Math.max(0, effectCount - capacity);
+      const toggle = shell2.querySelector(".mwi-buff-toggle");
+      if (!toggle) return;
+      toggle.setAttribute("aria-expanded", String(expanded));
+      const direction = expanded ? "▴" : "▾";
+      toggle.textContent = hiddenCount ? `+${hiddenCount} ${direction}` : direction;
+      const action = expanded ? runtime.config.isZH ? "折叠 Buff" : "Collapse buffs" : runtime.config.isZH ? "展开 Buff" : "Expand buffs";
+      const overflow = hiddenCount ? runtime.config.isZH ? `，另有 ${hiddenCount} 个` : `, ${hiddenCount} more` : "";
+      toggle.setAttribute("aria-label", `${action}${overflow}`);
+      toggle.title = `${action}${overflow}`;
+    }
+    function setBuffShellExpanded(shell2, expanded, { persist = false } = {}) {
+      shell2.dataset.expanded = String(expanded);
+      const bar = shell2.querySelector(".mwi-buffbar");
+      if (!expanded && bar) bar.scrollTop = 0;
+      updateBuffToggle(shell2, bar?.childElementCount ?? 0);
+      if (!persist) return;
+      const storageKey = shell2.dataset.storageKey;
+      if (!storageKey) return;
+      if (expanded) expandedUnitKeys.add(storageKey);
+      else expandedUnitKeys.delete(storageKey);
+      persistExpandedUnitKeys();
+    }
+    function ensureBuffBar(unitEl, storageKey = "") {
+      let shell2 = unitEl.querySelector(".mwi-buff-shell");
+      let bar = shell2?.querySelector(".mwi-buffbar");
+      if (!shell2 || !bar) {
+        shell2 = document.createElement("div");
+        shell2.className = "mwi-buff-shell";
         bar = document.createElement("div");
         bar.className = "mwi-buffbar";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "mwi-buff-toggle";
+        toggle.addEventListener("click", () => {
+          setBuffShellExpanded(shell2, shell2.dataset.expanded !== "true", {
+            persist: true
+          });
+        });
+        shell2.append(bar, toggle);
         const statusHost = unitEl.querySelector('[class*="CombatUnit_status"]') ?? unitEl;
         statusHost.classList.add("mwi-has-buffbar");
-        statusHost.appendChild(bar);
+        statusHost.appendChild(shell2);
+      }
+      const resolvedStorageKey = storageKey || unitEl.dataset.mwiBuffStorageKey || "";
+      if (resolvedStorageKey) {
+        unitEl.dataset.mwiBuffStorageKey = resolvedStorageKey;
+        if (shell2.dataset.storageKey !== resolvedStorageKey) {
+          shell2.dataset.storageKey = resolvedStorageKey;
+          setBuffShellExpanded(shell2, expandedUnitKeys.has(resolvedStorageKey));
+        }
+      } else if (!shell2.hasAttribute("data-expanded")) {
+        setBuffShellExpanded(shell2, false);
       }
       return bar;
+    }
+    function ensureBattleBuffBars(units = getBattleUnits()) {
+      for (const [side, unitList] of Object.entries(units)) {
+        const storageKeys = unitStorageKeys(side, unitList);
+        unitList.forEach((unitEl, index) => {
+          if (unitEl) ensureBuffBar(unitEl, storageKeys[index]);
+        });
+      }
+      return units;
     }
     function getState2(unitEl) {
       let state = UNIT_STATE.get(unitEl);
@@ -16066,7 +16261,11 @@ ${preview}`
         const state = UNIT_STATE.get(unitEl);
         if (state) state.effects.clear();
         const bar = unitEl.querySelector(".mwi-buffbar");
-        if (bar) bar.innerHTML = "";
+        if (bar) {
+          bar.replaceChildren();
+          const shell2 = bar.closest(".mwi-buff-shell");
+          if (shell2) updateBuffToggle(shell2, 0);
+        }
       }
     }
     function resetForNewBattle() {
@@ -16076,6 +16275,7 @@ ${preview}`
     }
     function handleNewBattle(signal) {
       resetForNewBattle();
+      ensureBattleBuffBars();
       clearMonsterBuffs();
       seedStateFromCombatant(signal.players, BATTLE_STATE.players);
       seedStateFromCombatant(signal.monsters, BATTLE_STATE.monsters);
@@ -16184,7 +16384,8 @@ ${preview}`
       state.effects = new Map(
         entries.map((effect) => [effect.abilityHrid, effect])
       );
-      bar.innerHTML = "";
+      const scrollTop = bar.scrollTop;
+      bar.replaceChildren();
       for (const effect of entries.sort((a, b) => a.expiresAt - b.expiresAt)) {
         const chip = document.createElement("span");
         chip.className = `mwi-chip ${effect.kind === "buff" ? "mwi-buff" : "mwi-debuff"}`;
@@ -16227,6 +16428,11 @@ ${preview}`
         chip.appendChild(ring);
         bar.appendChild(chip);
       }
+      if (bar.closest(".mwi-buff-shell")?.dataset.expanded === "true") {
+        bar.scrollTop = scrollTop;
+      }
+      const shell2 = bar.closest(".mwi-buff-shell");
+      if (shell2) updateBuffToggle(shell2, entries.length);
     }
     function updateUnitEffect(unitEl, kind, abilityHrid, durationSec) {
       const state = getState2(unitEl);
@@ -16243,7 +16449,7 @@ ${preview}`
     function applyBattleUpdated(payload) {
       const pMap = payload?.pMap;
       const mMap = payload?.mMap;
-      const units = getBattleUnits();
+      const units = ensureBattleBuffBars();
       if (units.players.length === 0 && units.monsters.length === 0) return;
       ensureBuffStyles(scope);
       updateBattleState(payload);
@@ -16329,10 +16535,12 @@ ${preview}`
     function removeAllBuffBars() {
       const units = getBattleUnits();
       for (const unitEl of [...units.players, ...units.monsters]) {
+        const shell2 = unitEl?.querySelector(".mwi-buff-shell");
         const bar = unitEl?.querySelector(".mwi-buffbar");
-        if (bar) {
-          bar.closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
-          bar.remove();
+        if (shell2 || bar) {
+          (shell2 ?? bar).closest(".mwi-has-buffbar")?.classList.remove("mwi-has-buffbar");
+          (shell2 ?? bar).remove();
+          delete unitEl.dataset.mwiBuffStorageKey;
         }
       }
     }
@@ -16340,6 +16548,7 @@ ${preview}`
       handleNewBattle,
       applyBattleUpdated,
       hasActiveEffects,
+      mountBuffBars: ensureBattleBuffBars,
       tickCountdowns,
       removeAllBuffBars
     };
@@ -16349,6 +16558,8 @@ ${preview}`
     setting: "battleBuffs",
     initialize({ scope }) {
       const tracker = createBuffTracker(scope);
+      ensureBuffStyles(scope);
+      tracker.mountBuffBars();
       let countdownTimer = null;
       const tick = () => {
         countdownTimer = null;
@@ -21412,8 +21623,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
+  var PRODUCTION_REFRESH_ID = "mwitools-procurement-inventory-refresh";
   var PROCUREMENT_SURFACE_SELECTOR = 'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
-  var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
+  var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},#${PRODUCTION_REFRESH_ID},.mwi-procurement-badge,.mwi-procurement-market-target,.mwi-procurement-refresh-host`;
   var procurement3 = runtime.api.procurement;
   var shell = null;
   var shadow = null;
@@ -21469,6 +21681,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
+    .mwi-procurement-refresh-position-anchor{position:relative!important}
+    #${PRODUCTION_REFRESH_ID}{position:absolute;top:6px;right:48px;z-index:4;min-height:24px;padding:2px 7px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(37,43,65,.94);color:var(--color-neutral-100,#eee);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.25 Roboto,Arial,sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.24)}
+    #${PRODUCTION_REFRESH_ID}:hover{background:var(--color-space-700,#46547e)}
+    #${PRODUCTION_REFRESH_ID}:disabled{opacity:.55;cursor:wait}
     #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${PRODUCTION_ID}[hidden]{display:none}
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
@@ -21584,6 +21800,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
+    if (body.dataset.tab !== activeTab) {
+      abandonCartDrag();
+      body.replaceChildren();
+      body.dataset.tab = activeTab;
+    }
     if (activeTab === "plans") renderPlans(body);
     else if (activeTab === "settings") renderProcurementSettings(body);
     else renderCart(body);
@@ -21729,7 +21950,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const icon = row.querySelector(".item-icon");
     icon.disabled = !marketEnabled;
     icon.title = marketEnabled ? t9("在市场中打开", "Open in marketplace") : "";
-    icon.innerHTML = renderItemIcon2(item);
+    const iconMarkup2 = renderItemIcon2(item);
+    if (icon.mwitoolsIconMarkup !== iconMarkup2) {
+      icon.innerHTML = iconMarkup2;
+      icon.mwitoolsIconMarkup = iconMarkup2;
+    }
     const name = row.querySelector(".item-name");
     name.disabled = !marketEnabled;
     name.title = item.name;
@@ -22283,7 +22508,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   }
   function resolveActionPanel() {
     const shared = runtime.api.resolveActiveProductionPanelContext?.();
-    if (shared?.panel && shared?.input && shared?.actionHrid) {
+    if (shared?.panel && shared?.input && shared?.actionHrid && !isCombatActionPanel(shared.panel)) {
       return {
         panel: shared.panel,
         input: shared.input,
@@ -22301,26 +22526,43 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     );
     for (const input of inputs) {
       const panel = input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ?? input.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input.parentElement;
-      if (!panel || isHiddenActionElement2(panel)) continue;
+      if (!panel || isHiddenActionElement2(panel) || isCombatActionPanel(panel)) {
+        continue;
+      }
       const fiberContext = resolveActionFiberContext(panel);
       const actionHrid = fiberContext?.actionHrid ?? runtime.api.resolveProductionAction?.(panel) ?? (panel.closest?.(
         '[class*="EnhancingPanel"], [class*="EnhancementPanel"], [class*="EnhancePanel"]'
       ) ? "/actions/enhancing/enhance" : null);
       const parsedCount = runtime.api.parseCompactNumber?.(input.value);
       if (!actionHrid) continue;
+      const actionFunction = resolveActionFunction(
+        panel,
+        actionHrid,
+        fiberContext?.actionFunction
+      );
+      if (!isProcurementProductionAction(actionHrid, actionFunction)) continue;
       return {
         panel,
         input,
         actionHrid,
-        actionFunction: resolveActionFunction(
-          panel,
-          actionHrid,
-          fiberContext?.actionFunction
-        ),
+        actionFunction,
         count: Number.isFinite(parsedCount) && parsedCount > 0 ? Math.ceil(parsedCount) : null
       };
     }
     return null;
+  }
+  function isCombatActionPanel(panel) {
+    return Boolean(
+      panel?.querySelector?.('[class*="SkillActionDetail_combatMonsters"]')
+    );
+  }
+  function isProcurementProductionAction(actionHrid, actionFunction) {
+    const normalizedFunction = String(actionFunction ?? "");
+    if (normalizedFunction.includes("enhancing")) return true;
+    if (normalizedFunction.includes("combat")) return false;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    if (!detail || String(detail.type ?? "").includes("combat")) return false;
+    return Boolean(runtime.api.getExpectedOutputs?.(detail)?.length);
   }
   function isHiddenActionElement2(element) {
     for (let node = element; node?.nodeType === 1; node = node.parentElement) {
@@ -22508,6 +22750,116 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     markRequirementCell(badge, row, "badge");
     panel.classList.add("mwi-procurement-panel");
   }
+  function removeInventoryRefreshButtons(keepHost = null) {
+    for (const button of document.querySelectorAll(`#${PRODUCTION_REFRESH_ID}`)) {
+      if (keepHost && button.parentElement === keepHost) continue;
+      const host = button.parentElement;
+      button.remove();
+      host?.classList.remove("mwi-procurement-refresh-host");
+      host?.classList.remove("mwi-procurement-refresh-position-anchor");
+    }
+    for (const host of document.querySelectorAll(
+      ".mwi-procurement-refresh-host"
+    )) {
+      if (host !== keepHost && !host.querySelector(`#${PRODUCTION_REFRESH_ID}`)) {
+        host.classList.remove("mwi-procurement-refresh-host");
+        host.classList.remove("mwi-procurement-refresh-position-anchor");
+      }
+    }
+  }
+  function resolveInventoryRefreshHost(panel) {
+    if (!panel) return null;
+    const modal = panel.closest?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    );
+    if (modal) return { host: modal, sourcePanel: panel };
+    const existingHost = document.getElementById(
+      PRODUCTION_REFRESH_ID
+    )?.parentElement;
+    if (existingHost?.isConnected && !isHiddenActionElement2(existingHost) && existingHost.matches?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    )) {
+      const sourcePanel = existingHost.querySelector(
+        'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+      );
+      return { host: existingHost, sourcePanel: sourcePanel ?? panel };
+    }
+    const modalContainer = panel.closest?.('[class*="Modal_modalContainer"]');
+    const nestedModal = modalContainer?.querySelector?.(
+      ':scope > [class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    );
+    if (nestedModal) return { host: nestedModal, sourcePanel: panel };
+    const modalPanel = [
+      ...document.querySelectorAll(
+        '[class*="Modal_modalContainer"] div[class*="SkillActionDetail_regularComponent"],[class*="Modal_modalContainer"] div[class*="SkillActionDetail_skillActionDetail"]'
+      )
+    ].find((candidate) => !isHiddenActionElement2(candidate));
+    const activeModal = modalPanel?.closest?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    );
+    return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
+  }
+  function ensureInventoryRefreshButton(panel) {
+    const resolved = resolveInventoryRefreshHost(panel);
+    if (!resolved) {
+      removeInventoryRefreshButtons();
+      return null;
+    }
+    const { host, sourcePanel } = resolved;
+    removeInventoryRefreshButtons(host);
+    const computedPosition = document.defaultView?.getComputedStyle?.(host)?.position ?? "";
+    const needsPositionAnchor = host.classList.contains("mwi-procurement-refresh-position-anchor") || !computedPosition || computedPosition === "static";
+    host.classList.add("mwi-procurement-refresh-host");
+    host.classList.toggle(
+      "mwi-procurement-refresh-position-anchor",
+      needsPositionAnchor
+    );
+    let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
+    if (button) return button;
+    button = document.createElement("button");
+    button.id = PRODUCTION_REFRESH_ID;
+    button.type = "button";
+    button.textContent = t9("↻ 仓库", "↻ Stock");
+    button.title = t9(
+      "从游戏当前状态更新仓库，并重新计算购物车、项目占用和生产余缺",
+      "Update inventory from the current game state and recalculate the shopping cart, project reservations, and production shortages"
+    );
+    button.setAttribute("aria-label", t9("更新仓库", "Refresh inventory"));
+    for (const eventName of ["pointerdown", "mousedown"]) {
+      button.addEventListener(eventName, (event) => event.stopPropagation());
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      button.disabled = true;
+      const liveItems = resolveLiveCharacterItems(sourcePanel);
+      if (liveItems === null) {
+        button.disabled = false;
+        showToast(
+          t9(
+            "暂时无法读取游戏当前仓库，请稍后再试",
+            "Could not read the current game inventory; try again shortly"
+          )
+        );
+        return;
+      }
+      runtime.state.initData_characterItems = liveItems.map((item) => ({
+        ...item
+      }));
+      const result = procurement3.replaceInventorySnapshot(liveItems);
+      lastProductionSignature = "";
+      renderShell();
+      runtime.api.renderProductionPanel?.();
+      renderProductionProcurement();
+      showToast(
+        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
+      );
+      if (button.isConnected) button.disabled = false;
+    });
+    host.append(button);
+    return button;
+  }
   function clearProductionUi() {
     document.getElementById(PRODUCTION_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-badge").forEach((node) => node.remove());
@@ -22525,6 +22877,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function renderProductionProcurement() {
     const context = resolveActionPanel();
     if (!context) {
+      removeInventoryRefreshButtons();
       const houseModal = findActiveHouseModal();
       if (!houseModal) {
         clearProductionUi();
@@ -22554,6 +22907,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         ) ?? context.input.parentElement;
         anchor.insertAdjacentElement("afterend", root2);
       }
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     const settings2 = procurement3.getSettings();
@@ -22561,6 +22915,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const direct = isEnhancing ? calculateEnhancingRequirements(context) : procurement3.calculateRequirements(context.actionHrid, context.count);
     if (!direct?.materials?.length) {
       clearProductionUi();
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     const chain = !isEnhancing && settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement3.calculateUpgradeChain(context.actionHrid, context.count) : null;
@@ -22581,6 +22936,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       ])
     ]);
     if (signature === lastProductionSignature && document.getElementById(PRODUCTION_ID)) {
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     clearProductionUi();
@@ -22730,6 +23086,7 @@ ${locks}` : ""}`;
         anchor.insertAdjacentElement("afterend", root);
       }
     }
+    ensureInventoryRefreshButton(context.panel);
   }
   function findReactFiber(element) {
     if (!element) return null;
@@ -22737,6 +23094,56 @@ ${locks}` : ""}`;
       (candidate) => candidate.startsWith("__reactFiber") || candidate.startsWith("__reactInternalInstance")
     );
     return key ? element[key] : null;
+  }
+  function liveItemsFromStateHost(host) {
+    const state = host?.state;
+    if (!state || state.characterItemMap == null) return null;
+    const characterId = state.character?.id ?? state.character?.characterID ?? state.currentCharacter?.id ?? state.characterId ?? state.characterID ?? null;
+    if (characterId != null && procurement3.activeCharacterId != null && String(characterId) !== String(procurement3.activeCharacterId)) {
+      return null;
+    }
+    const source = state.characterItemMap;
+    let values;
+    if (Array.isArray(source)) values = source;
+    else if (typeof source?.values === "function") values = [...source.values()];
+    else values = Object.values(source ?? {});
+    return values.filter((item) => item?.itemHrid && Number(item.count) > 0).map((item) => ({ ...item }));
+  }
+  function resolveLiveCharacterItems(panel) {
+    let fiber = findReactFiber(panel);
+    let depth = 0;
+    while (fiber && depth < 250) {
+      const items = liveItemsFromStateHost(fiber.stateNode);
+      if (items !== null) return items;
+      fiber = fiber.return;
+      depth += 1;
+    }
+    const root = document.getElementById("root");
+    const fibers = [];
+    const pushFiber = (value) => {
+      const candidate = value?.current ?? value;
+      if (candidate && typeof candidate === "object") fibers.push(candidate);
+    };
+    pushFiber(root?._reactRootContainer?.current);
+    pushFiber(root?._reactRootContainer?._internalRoot?.current);
+    for (const element of [root, document.body]) {
+      for (const key of Object.getOwnPropertyNames(element ?? {})) {
+        if (key.startsWith("__reactContainer") || key.startsWith("__reactFiber") || key.startsWith("__reactInternalInstance")) {
+          pushFiber(element[key]);
+        }
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    while (fibers.length && seen.size < 5e4) {
+      const candidate = fibers.pop();
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      const items = liveItemsFromStateHost(candidate.stateNode);
+      if (items !== null) return items;
+      if (candidate.child) fibers.push(candidate.child);
+      if (candidate.sibling) fibers.push(candidate.sibling);
+    }
+    return null;
   }
   function findObjectWithItemRequirements(value, depth = 0, seen = /* @__PURE__ */ new Set()) {
     if (!value || typeof value !== "object" || depth > 5 || seen.has(value)) {
@@ -23139,40 +23546,79 @@ ${locks}` : ""}`;
       nav.id = MARKET_NAV_ID;
       document.body.appendChild(nav);
     }
-    nav.replaceChildren();
-    const progress = document.createElement("span");
-    progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t9(`待购 ${items.length}`, `${items.length} pending`);
-    const list = document.createElement("div");
-    list.className = "mwi-procurement-nav-items";
-    for (const item of rows2) {
-      const chip = document.createElement("button");
-      chip.className = "mwi-procurement-nav-chip";
-      chip.dataset.current = String(!item.done && item.itemHrid === current);
-      chip.dataset.done = String(Boolean(item.done));
+    const progressText = t9(`待购 ${items.length}`, `${items.length} pending`);
+    const rowModels = rows2.map((item) => {
       const itemName4 = procurement3.resolveItemName(item.itemHrid) || item.name;
       const quantity = item.done ? t9("已完成", "Completed") : exactNumber(item.quantity);
-      chip.title = `${itemName4} · ${quantity}`;
-      chip.setAttribute("aria-label", chip.title);
-      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName4 })}</span><b>${item.done ? "✓" : formatNumber4(item.quantity)}</b>`;
-      if (!item.done) {
-        chip.addEventListener(
-          "click",
-          () => openMarketplace(item.itemHrid, item.enhancementLevel)
-        );
-      }
-      list.append(chip);
-    }
-    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
-    const nextButton = document.createElement("button");
-    nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t9("下一项 ›", "Next ›");
-    nextButton.disabled = !next;
-    nextButton.addEventListener("click", () => {
-      if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
-      armedNextItem = "";
+      return {
+        item,
+        itemName: itemName4,
+        quantity,
+        current: !item.done && item.itemHrid === current,
+        iconMarkup: renderItemIcon2({ ...item, name: itemName4 }),
+        badge: item.done ? "✓" : formatNumber4(item.quantity)
+      };
     });
-    nav.append(progress, list, nextButton);
+    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
+    const nextText = t9("下一项 ›", "Next ›");
+    const renderSignature = JSON.stringify({
+      progressText,
+      nextText,
+      next: next ? procurement3.itemKey(next.itemHrid, next.enhancementLevel) : "",
+      rows: rowModels.map(
+        ({
+          item,
+          itemName: itemName4,
+          quantity,
+          current: isCurrent,
+          iconMarkup: iconMarkup2,
+          badge
+        }) => ({
+          key: procurement3.itemKey(item.itemHrid, item.enhancementLevel),
+          done: Boolean(item.done),
+          itemName: itemName4,
+          quantity,
+          current: isCurrent,
+          iconMarkup: iconMarkup2,
+          badge
+        })
+      )
+    });
+    if (nav.mwitoolsRenderSignature !== renderSignature) {
+      nav.replaceChildren();
+      const progress = document.createElement("span");
+      progress.className = "mwi-procurement-nav-progress";
+      progress.textContent = progressText;
+      const list = document.createElement("div");
+      list.className = "mwi-procurement-nav-items";
+      for (const model of rowModels) {
+        const { item } = model;
+        const chip = document.createElement("button");
+        chip.className = "mwi-procurement-nav-chip";
+        chip.dataset.current = String(model.current);
+        chip.dataset.done = String(Boolean(item.done));
+        chip.title = `${model.itemName} · ${model.quantity}`;
+        chip.setAttribute("aria-label", chip.title);
+        chip.innerHTML = `<span class="mwi-procurement-nav-icon">${model.iconMarkup}</span><b>${model.badge}</b>`;
+        if (!item.done) {
+          chip.addEventListener(
+            "click",
+            () => openMarketplace(item.itemHrid, item.enhancementLevel)
+          );
+        }
+        list.append(chip);
+      }
+      const nextButton = document.createElement("button");
+      nextButton.className = "mwi-procurement-nav-next";
+      nextButton.textContent = nextText;
+      nextButton.disabled = !next;
+      nextButton.addEventListener("click", () => {
+        if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
+        armedNextItem = "";
+      });
+      nav.append(progress, list, nextButton);
+      nav.mwitoolsRenderSignature = renderSignature;
+    }
     const modal = panel.closest('[class*="MainPanel_marketplaceModal__"]') ?? panel.closest('[class*="Modal_modalContainer"]') ?? panel;
     const rect = modal.getBoundingClientRect();
     const height = nav.offsetHeight || 40;
@@ -23365,6 +23811,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         renderScheduler.cancel();
         stopActiveHoldRepeat();
+        removeInventoryRefreshButtons();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID9)?.remove();
@@ -25095,11 +25542,10 @@ ${locks}` : ""}`;
   function dungeonLocationsForCard(card, task, context = {}) {
     const actionHrid = taskActionHrid(task);
     const taskDetail = runtime.state.initData_actionDetailMap?.[actionHrid];
-    if (taskDetail?.combatZoneInfo?.isDungeon) {
-      return [dungeonLocation(taskDetail)];
-    }
     const monsterHrid = context.monsterHrid ?? monsterHridForCard(card, task, context.title ?? visibleTaskTitle(card));
-    if (!monsterHrid) return [nonDungeonLocation()];
+    if (!monsterHrid) {
+      return taskDetail?.combatZoneInfo?.isDungeon ? [dungeonLocation(taskDetail)] : [nonDungeonLocation()];
+    }
     const actionDetails = runtime.state.initData_actionDetailMap ?? {};
     const matchingDungeonHrids = new Set(
       (getTaskActionIndex().dungeonsByMonster.get(monsterHrid) ?? []).map(
@@ -27285,6 +27731,33 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.12",
+      version: "26.4.12",
+      publishedAt: "2026-08-15",
+      title: Object.freeze({
+        zh: "26.4.12 更新公告",
+        en: "Version 26.4.12 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
+          "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
+          "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
+          "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
+          "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。",
+          "生产详情右上角新增手动“更新仓库”按钮，会直接读取游戏当前仓库，并按最新库存重算生产余缺与购物车中的项目采购缺口；手工购物数量保持不变，常备阈值、项目占用和已计算规划也会收到库存更新，避免材料已消耗后仍显示旧余量。按钮固定在生产弹窗边框内，不会下推页面或改变弹窗原有的悬浮定位；游戏弹窗没有自带定位基准时也会正确显示，持续重绘时会保留该定位基准，不再与页面右上角来回切换闪烁。按钮仅在生产与强化详情中显示，战斗怪物面板不会再误显示。"
+        ]),
+        en: Object.freeze([
+          "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
+          "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
+          "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
+          "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
+          "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes.",
+          "Added a manual Refresh inventory button in the top-right of production details. It reads the game's current inventory and recalculates production shortages plus project-sourced cart quantities; manual cart quantities stay intact, while restock thresholds, project reservations, and calculated Planning are notified of the new inventory so consumed materials no longer leave stale spare counts. The button stays inside the production dialog border without pushing the page down or changing the dialog's floating position. When the dialog has no positioning context, that context now remains stable across continuous redraws so the button no longer jumps back and forth to the page's top-right corner. It appears only in production and enhancing details, never in combat monster panels."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.11",
       version: "26.4.11",
       publishedAt: "2026-08-14",
@@ -27316,7 +27789,8 @@ ${locks}` : ""}`;
           "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
           "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
           "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。",
-          "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。"
+          "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。",
+          "新增自托管更新源发布流程；发布前会校验脚本、元数据、版本和更新地址，并在 CDN 缓存刷新完成后再确认成功，避免损坏的更新文件或旧脚本被发布。"
         ]),
         en: Object.freeze([
           "Improved first-open and switching performance for Inventory: enhanced equipment now reuses matching probability plans, production, refining, and shop sources are looked up by target item, and the summary and sorting controls do less first-frame style work. Total assets, category values, and sorting still appear synchronously and in full.",
@@ -27341,7 +27815,8 @@ ${locks}` : ""}`;
           "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
           "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
           "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons.",
-          "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance."
+          "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance.",
+          "Added the self-hosted update-channel publishing flow. It validates the script, metadata, version, and update URLs before publishing, then waits for CDN cache invalidation before confirming success so broken update files or stale scripts are not released."
         ])
       })
     }),
@@ -31440,6 +31915,7 @@ ${locks}` : ""}`;
   var SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root";
   var SETTINGS_BUTTON_ID = "mwitools-settings-button";
   var SETTINGS_POPOVER_ID = "mwitools-settings-popover";
+  var SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1";
   var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
   var GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
   function normalizeGuildCreditRecommendationCount(value) {
@@ -32161,10 +32637,26 @@ ${locks}` : ""}`;
     const button = document.getElementById(SETTINGS_BUTTON_ID);
     const popover = document.getElementById(SETTINGS_POPOVER_ID);
     if (!popover || popover.hidden) return false;
+    persistSettingsPopoverScrollTop(popover.scrollTop);
     popover.hidden = true;
     button?.setAttribute("aria-expanded", "false");
     if (restoreFocus) button?.focus();
     return true;
+  }
+  function readSettingsPopoverScrollTop() {
+    try {
+      const stored = Number(localStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY));
+      return Number.isFinite(stored) && stored > 0 ? stored : 0;
+    } catch {
+      return 0;
+    }
+  }
+  function persistSettingsPopoverScrollTop(value) {
+    const scrollTop = Math.max(0, Number(value) || 0);
+    try {
+      localStorage.setItem(SETTINGS_POPOVER_SCROLL_KEY, String(scrollTop));
+    } catch {
+    }
   }
   function ensureSettingsPopover() {
     let popover = document.getElementById(SETTINGS_POPOVER_ID);
@@ -32191,6 +32683,11 @@ ${locks}` : ""}`;
         closeSettingsPopover({ restoreFocus: true });
       }
     });
+    popover.addEventListener(
+      "scroll",
+      () => persistSettingsPopoverScrollTop(popover.scrollTop),
+      { passive: true }
+    );
     document.body.append(popover);
     renderSettings(root);
     return popover;
@@ -32204,7 +32701,8 @@ ${locks}` : ""}`;
     popover.hidden = false;
     button.setAttribute("aria-expanded", "true");
     positionSettingsPopover();
-    popover.querySelector(".mwi-settings-search")?.focus();
+    popover.querySelector(".mwi-settings-search")?.focus({ preventScroll: true });
+    popover.scrollTop = readSettingsPopoverScrollTop();
     return true;
   }
   function ensureSettingsLauncher() {
@@ -33669,7 +34167,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.11");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.12");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

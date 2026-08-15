@@ -1216,6 +1216,22 @@ test("official dungeon spawn maps recognize Eye in every matching dungeon", () =
     ),
     ["/actions/combat/chimerical_den", "/actions/combat/pirate_cove"],
   );
+  assert.deepEqual(
+    dungeonLocationsForCard(probe.firstElementChild, {
+      monsterHrid: "/monsters/eye",
+    }).map((location) => location.actionHrid),
+    ["/actions/combat/chimerical_den", "/actions/combat/pirate_cove"],
+    "an inferred first dungeon must not hide the monster's other dungeons",
+  );
+  const dungeonProbe = document.createElement("div");
+  dungeonProbe.innerHTML = card("击败 - 奇幻洞穴", "0 / 1");
+  assert.deepEqual(
+    dungeonLocationsForCard(dungeonProbe.firstElementChild, {
+      actionHrid: "/actions/combat/chimerical_den",
+    }).map((location) => location.actionHrid),
+    ["/actions/combat/chimerical_den"],
+    "a task explicitly targeting a dungeon must stay assigned to that dungeon",
+  );
   assert.deepEqual(taskArtworkForCard(probe.firstElementChild, task), {
     kind: "combat_monsters",
     hrid: "/monsters/eye",

@@ -756,13 +756,14 @@ function nonDungeonLocation() {
 export function dungeonLocationsForCard(card, task, context = {}) {
   const actionHrid = taskActionHrid(task);
   const taskDetail = runtime.state.initData_actionDetailMap?.[actionHrid];
-  if (taskDetail?.combatZoneInfo?.isDungeon) {
-    return [dungeonLocation(taskDetail)];
-  }
   const monsterHrid =
     context.monsterHrid ??
     monsterHridForCard(card, task, context.title ?? visibleTaskTitle(card));
-  if (!monsterHrid) return [nonDungeonLocation()];
+  if (!monsterHrid) {
+    return taskDetail?.combatZoneInfo?.isDungeon
+      ? [dungeonLocation(taskDetail)]
+      : [nonDungeonLocation()];
+  }
   const actionDetails = runtime.state.initData_actionDetailMap ?? {};
   const matchingDungeonHrids = new Set(
     (getTaskActionIndex().dungeonsByMonster.get(monsterHrid) ?? []).map(
