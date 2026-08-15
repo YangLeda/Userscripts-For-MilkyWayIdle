@@ -21,6 +21,7 @@ const OPTIONAL_TOKEN_ASSET_HRIDS = new Set([
 ]);
 const ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
 const MAX_ACQUISITION_DEPTH = 12;
+const DUNGEON_CHEST_HRID_PATTERN = /^\/items\/(.+?)(?:_refinement)?_chest$/;
 
 const assetValueCache = new Map();
 const assetLiquidationCache = new Map();
@@ -61,6 +62,13 @@ function invalidateAssetValueCache() {
 
 function getItemDetails(itemHrid) {
   return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
+}
+
+function getDungeonEntryKeyItemHrid(itemHrid) {
+  const match = DUNGEON_CHEST_HRID_PATTERN.exec(String(itemHrid ?? ""));
+  if (!match) return null;
+  const entryKeyItemHrid = `/items/${match[1]}_entry_key`;
+  return getItemDetails(entryKeyItemHrid) ? entryKeyItemHrid : null;
 }
 
 function settingEnabled(id) {
@@ -199,10 +207,19 @@ function getOpenableValue(itemHrid, context) {
     total += expectedCount * value;
   }
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
-  if (!keyItemHrid) return total;
-  const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
-  if (!(keyCraftingCost > 0)) return 0;
-  return Math.max(0, total - keyCraftingCost);
+  let keyCost = 0;
+  if (keyItemHrid) {
+    const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
+    if (!(keyCraftingCost > 0)) return 0;
+    keyCost += keyCraftingCost;
+  }
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+  if (entryKeyItemHrid) {
+    const entryKeyCost = getAssetValueInternal(entryKeyItemHrid, 0, context);
+    if (!(entryKeyCost > 0)) return 0;
+    keyCost += entryKeyCost;
+  }
+  return Math.max(0, total - keyCost);
 }
 
 function isPersonalBuffScroll(itemHrid) {
@@ -644,16 +661,23 @@ function projectLootChestInternal(itemHrid, config, visited) {
   }
 
   const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
   const key = getLootKeyCost(keyItemHrid, config);
+  const entryKey = getLootKeyCost(entryKeyItemHrid, {
+    ...config,
+    fromFragments: false,
+  });
+  const keyCost = key.value + entryKey.value;
+  const keyComplete = key.complete && entryKey.complete;
   const selfRows = rows.filter((row) => row.pendingSelfReference);
   const selfExpectedCount = selfRows.reduce(
     (total, row) => total + row.expectedCount,
     0,
   );
-  if (selfRows.length && key.complete && selfExpectedCount < 1) {
+  if (selfRows.length && keyComplete && selfExpectedCount < 1) {
     const selfValue = Math.max(
       0,
-      (grossValue - key.value) / (1 - selfExpectedCount),
+      (grossValue - keyCost) / (1 - selfExpectedCount),
     );
     for (const row of selfRows) {
       row.unitValue = selfValue;
@@ -676,19 +700,27 @@ function projectLootChestInternal(itemHrid, config, visited) {
     }
   }
   for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
-  const complete = missing.size === 0 && key.complete;
-  const netValue = key.complete ? grossValue - key.value : null;
+  for (const missingItemHrid of entryKey.missing) {
+    missing.add(missingItemHrid);
+  }
+  const complete = missing.size === 0 && keyComplete;
+  const netValue = keyComplete ? grossValue - keyCost : null;
   visited.delete(itemHrid);
   return {
     itemHrid,
     keyItemHrid,
+    entryKeyItemHrid,
     config,
     drops: rows.sort((left, right) => right.value - left.value),
     redemptions: [...bestRedemptions.values()],
     grossValue,
-    keyCost: key.value,
+    keyCost,
+    chestKeyCost: key.value,
+    entryKeyCost: entryKey.value,
     keySource: key.source,
-    keyComplete: key.complete,
+    keyComplete,
+    chestKeyComplete: key.complete,
+    entryKeyComplete: entryKey.complete,
     netValue,
     complete,
     missing: [...missing],
@@ -1265,6 +1297,23 @@ function getOpenableLiquidationValue(itemHrid, mode, context) {
       ]);
     }
     total = Math.max(0, total - keyResult.value);
+  }
+  const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+  if (entryKeyItemHrid) {
+    const entryKeyResult = getAssetLiquidationValueInternal(
+      entryKeyItemHrid,
+      0,
+      mode,
+      context,
+    );
+    results.push(entryKeyResult);
+    if (!(entryKeyResult.value > 0)) {
+      return liquidationResult(0, "missing", [
+        ...mergeLiquidationMissing(results),
+        entryKeyItemHrid,
+      ]);
+    }
+    total = Math.max(0, total - entryKeyResult.value);
   }
   if (!(total > 0) && results.every((result) => result.complete)) {
     return {

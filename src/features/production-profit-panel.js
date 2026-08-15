@@ -128,6 +128,7 @@ function addStyles() {
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
+    .mwi-profit-valuation-row.mwi-loot-valuation-row.has-entry-key { grid-template-columns:126px repeat(4,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
@@ -554,6 +555,7 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
   const pinned = Boolean(options.pinned);
   const productName = itemName(itemHrid);
   const hasKey = Boolean(chest.keyItemHrid);
+  const hasEntryKey = Boolean(chest.entryKeyItemHrid);
   const statusClass = chest.complete ? "complete" : "partial";
   const statusLabel = chest.complete
     ? t("完整计价", "Fully priced")
@@ -565,7 +567,7 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml(hasKey ? t("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml(hasEntryKey ? t("开箱期望 · 已扣开箱钥匙与门票钥匙成本", "Opening estimate · net of chest and entry key costs") : hasKey ? t("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel}</div>
       ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
@@ -598,13 +600,13 @@ function renderLootChestPanel(panel, itemHrid, chest, options = {}) {
   panel.insertAdjacentHTML(
     "beforeend",
     `<div class="mwi-profit-valuations">
-      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
+      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${hasEntryKey ? " has-entry-key" : ""}${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
           <div class="mwi-profit-valuation-title">${t("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
         ${renderValuationMetric(t("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${hasEntryKey ? `${renderValuationMetric(t("开箱钥匙", "Chest key"), hasKey && !chest.chestKeyComplete ? null : chest.chestKeyCost)}${renderValuationMetric(t("门票钥匙", "Entry key"), chest.entryKeyComplete ? chest.entryKeyCost : null)}` : renderValuationMetric(t("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
         ${renderValuationMetric(t("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`,

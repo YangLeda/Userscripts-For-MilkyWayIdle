@@ -394,17 +394,37 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.13", () => {
-  const newest = ANNOUNCEMENTS[0];
-  const current = ANNOUNCEMENTS[1];
-  const previous = ANNOUNCEMENTS[2];
-  const prior = ANNOUNCEMENTS[3];
-  const older = ANNOUNCEMENTS[4];
-  const oldest = ANNOUNCEMENTS[5];
-  const earliest = ANNOUNCEMENTS[6];
+test("announcement history preserves each release separately through 26.4.14", () => {
+  const latest = ANNOUNCEMENTS[0];
+  const newest = ANNOUNCEMENTS[1];
+  const current = ANNOUNCEMENTS[2];
+  const previous = ANNOUNCEMENTS[3];
+  const prior = ANNOUNCEMENTS[4];
+  const older = ANNOUNCEMENTS[5];
+  const oldest = ANNOUNCEMENTS[6];
+  const earliest = ANNOUNCEMENTS[7];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.13", "26.4.12", "26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    [
+      "26.4.14",
+      "26.4.13",
+      "26.4.12",
+      "26.4.11",
+      "26.4.9",
+      "26.4.8",
+      "26.4.7",
+      "26.4.6",
+    ],
+  );
+  assert.equal(latest.version, "26.4.14");
+  assert.equal(latest.publishedAt, "2026-08-15");
+  assert.match(latest.title.zh, /26\.4\.14 更新公告/);
+  assert.match(latest.title.en, /Version 26\.4\.14 update/);
+  assert.equal(latest.body.zh.length, latest.body.en.length);
+  assert.equal(latest.body.zh.length, 1);
+  assert.match(
+    latest.body.zh.join("\n"),
+    /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,
   );
   assert.equal(newest.version, "26.4.13");
   assert.equal(newest.publishedAt, "2026-08-15");

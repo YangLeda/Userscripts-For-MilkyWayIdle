@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.13
+// @version      26.4.14
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -7850,6 +7850,7 @@
   ]);
   var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
   var MAX_ACQUISITION_DEPTH = 12;
+  var DUNGEON_CHEST_HRID_PATTERN = /^\/items\/(.+?)(?:_refinement)?_chest$/;
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
@@ -7882,6 +7883,12 @@
   }
   function getItemDetails(itemHrid) {
     return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
+  }
+  function getDungeonEntryKeyItemHrid(itemHrid) {
+    const match = DUNGEON_CHEST_HRID_PATTERN.exec(String(itemHrid ?? ""));
+    if (!match) return null;
+    const entryKeyItemHrid = `/items/${match[1]}_entry_key`;
+    return getItemDetails(entryKeyItemHrid) ? entryKeyItemHrid : null;
   }
   function settingEnabled(id) {
     return Boolean(
@@ -7998,10 +8005,19 @@
       total += expectedCount * value;
     }
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
-    if (!keyItemHrid) return total;
-    const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
-    if (!(keyCraftingCost > 0)) return 0;
-    return Math.max(0, total - keyCraftingCost);
+    let keyCost = 0;
+    if (keyItemHrid) {
+      const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
+      if (!(keyCraftingCost > 0)) return 0;
+      keyCost += keyCraftingCost;
+    }
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+    if (entryKeyItemHrid) {
+      const entryKeyCost = getAssetValueInternal(entryKeyItemHrid, 0, context);
+      if (!(entryKeyCost > 0)) return 0;
+      keyCost += entryKeyCost;
+    }
+    return Math.max(0, total - keyCost);
   }
   function isPersonalBuffScroll(itemHrid) {
     return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
@@ -8370,16 +8386,23 @@
       });
     }
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
     const key = getLootKeyCost(keyItemHrid, config);
+    const entryKey = getLootKeyCost(entryKeyItemHrid, {
+      ...config,
+      fromFragments: false
+    });
+    const keyCost = key.value + entryKey.value;
+    const keyComplete = key.complete && entryKey.complete;
     const selfRows = rows2.filter((row) => row.pendingSelfReference);
     const selfExpectedCount = selfRows.reduce(
       (total, row) => total + row.expectedCount,
       0
     );
-    if (selfRows.length && key.complete && selfExpectedCount < 1) {
+    if (selfRows.length && keyComplete && selfExpectedCount < 1) {
       const selfValue = Math.max(
         0,
-        (grossValue - key.value) / (1 - selfExpectedCount)
+        (grossValue - keyCost) / (1 - selfExpectedCount)
       );
       for (const row of selfRows) {
         row.unitValue = selfValue;
@@ -8400,19 +8423,27 @@
       }
     }
     for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
-    const complete = missing.size === 0 && key.complete;
-    const netValue = key.complete ? grossValue - key.value : null;
+    for (const missingItemHrid of entryKey.missing) {
+      missing.add(missingItemHrid);
+    }
+    const complete = missing.size === 0 && keyComplete;
+    const netValue = keyComplete ? grossValue - keyCost : null;
     visited.delete(itemHrid);
     return {
       itemHrid,
       keyItemHrid,
+      entryKeyItemHrid,
       config,
       drops: rows2.sort((left, right) => right.value - left.value),
       redemptions: [...bestRedemptions.values()],
       grossValue,
-      keyCost: key.value,
+      keyCost,
+      chestKeyCost: key.value,
+      entryKeyCost: entryKey.value,
       keySource: key.source,
-      keyComplete: key.complete,
+      keyComplete,
+      chestKeyComplete: key.complete,
+      entryKeyComplete: entryKey.complete,
       netValue,
       complete,
       missing: [...missing]
@@ -8900,6 +8931,23 @@
         ]);
       }
       total = Math.max(0, total - keyResult.value);
+    }
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+    if (entryKeyItemHrid) {
+      const entryKeyResult = getAssetLiquidationValueInternal(
+        entryKeyItemHrid,
+        0,
+        mode,
+        context
+      );
+      results.push(entryKeyResult);
+      if (!(entryKeyResult.value > 0)) {
+        return liquidationResult(0, "missing", [
+          ...mergeLiquidationMissing(results),
+          entryKeyItemHrid
+        ]);
+      }
+      total = Math.max(0, total - entryKeyResult.value);
     }
     if (!(total > 0) && results.every((result) => result.complete)) {
       return {
@@ -18466,6 +18514,7 @@ ${preview}`
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
+    .mwi-profit-valuation-row.mwi-loot-valuation-row.has-entry-key { grid-template-columns:126px repeat(4,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
@@ -18828,6 +18877,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const pinned = Boolean(options.pinned);
     const productName = itemName3(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
+    const hasEntryKey = Boolean(chest.entryKeyItemHrid);
     const statusClass = chest.complete ? "complete" : "partial";
     const statusLabel3 = chest.complete ? t7("完整计价", "Fully priced") : t7("部分计价", "Partial pricing");
     panel.dataset.status = statusClass;
@@ -18837,7 +18887,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml4(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(hasEntryKey ? t7("开箱期望 · 已扣开箱钥匙与门票钥匙成本", "Opening estimate · net of chest and entry key costs") : hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
       ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t7("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
@@ -18861,13 +18911,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-valuations">
-      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
+      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${hasEntryKey ? " has-entry-key" : ""}${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
           <div class="mwi-profit-valuation-title">${t7("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml4(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
         ${renderValuationMetric(t7("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${hasEntryKey ? `${renderValuationMetric(t7("开箱钥匙", "Chest key"), hasKey && !chest.chestKeyComplete ? null : chest.chestKeyCost)}${renderValuationMetric(t7("门票钥匙", "Entry key"), chest.entryKeyComplete ? chest.entryKeyCost : null)}` : renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
         ${renderValuationMetric(t7("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`
@@ -27766,6 +27816,23 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.14",
+      version: "26.4.14",
+      publishedAt: "2026-08-15",
+      title: Object.freeze({
+        zh: "26.4.14 更新公告",
+        en: "Version 26.4.14 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。"
+        ]),
+        en: Object.freeze([
+          "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.13",
       version: "26.4.13",
       publishedAt: "2026-08-15",
@@ -34223,7 +34290,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.13");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.14");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

@@ -262,6 +262,70 @@ test("loot projection weights drops and includes best token redemptions", () => 
   assert.deepEqual(chest.missing, [ITEM.junk]);
 });
 
+test("dungeon and refinement chests also subtract their matching entry key", () => {
+  const dungeonChestHrids = [
+    "/items/chimerical_chest",
+    "/items/chimerical_refinement_chest",
+  ];
+  const entryKeyItemHrid = "/items/chimerical_entry_key";
+  runtime.state.initData_itemDetailMap[entryKeyItemHrid] = {
+    hrid: entryKeyItemHrid,
+  };
+  for (const chestHrid of dungeonChestHrids) {
+    runtime.state.initData_itemDetailMap[chestHrid] = {
+      hrid: chestHrid,
+      openKeyItemHrid: ITEM.key,
+    };
+    runtime.state.initData_openableLootDropMap[chestHrid] = [
+      { itemHrid: ITEM.coin, dropRate: 1, count: 1_000 },
+    ];
+  }
+  askPrices.set(entryKeyItemHrid, 50);
+  bidPrices.set(entryKeyItemHrid, 40);
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: true,
+    fromFragments: false,
+  });
+
+  for (const chestHrid of dungeonChestHrids) {
+    const chest = runtime.api.projectLootChest(chestHrid);
+    assert.equal(chest.entryKeyItemHrid, entryKeyItemHrid);
+    assert.equal(chest.chestKeyCost, 300);
+    assert.equal(chest.entryKeyCost, 50);
+    assert.equal(chest.keyCost, 350);
+    assert.equal(chest.netValue, 650);
+    assert.equal(chest.complete, true);
+  }
+
+  const panel = runtime.api.showLootChestPanel(
+    ensureAnchor(),
+    dungeonChestHrids[0],
+  );
+  assert.match(panel.textContent, /开箱钥匙/);
+  assert.match(panel.textContent, /门票钥匙/);
+  runtime.api.hideProductionProfitPanel();
+
+  setLootSettings({
+    sellAtAsk: false,
+    buyAtAsk: false,
+    fromFragments: false,
+  });
+  const bid = runtime.api.projectLootChest(dungeonChestHrids[0]);
+  assert.equal(bid.chestKeyCost, 240);
+  assert.equal(bid.entryKeyCost, 40);
+  assert.equal(bid.keyCost, 280);
+  assert.equal(bid.netValue, 720);
+
+  askPrices.delete(entryKeyItemHrid);
+  bidPrices.delete(entryKeyItemHrid);
+  delete runtime.state.initData_itemDetailMap[entryKeyItemHrid];
+  for (const chestHrid of dungeonChestHrids) {
+    delete runtime.state.initData_itemDetailMap[chestHrid];
+    delete runtime.state.initData_openableLootDropMap[chestHrid];
+  }
+});
+
 test("sell-side changes can select a different best redemption", () => {
   setLootSettings({
     sellAtAsk: true,

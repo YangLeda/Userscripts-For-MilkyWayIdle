@@ -195,7 +195,7 @@ test("openable values support expected drops, nesting and cycle guards", () => {
   assert.equal(runtime.api.getAssetValue("/items/cyclic_crate"), 0);
 });
 
-test("keyed dungeon chests subtract one dynamically declared key", () => {
+test("keyed dungeon chests subtract their opening and entry keys", () => {
   const originalFairValue = runtime.api.getAssetFairValue;
   const originalNetSellPrice = runtime.api.getAssetNetSellPrice;
   const originalNetSellPriceAtAsk = runtime.api.getAssetNetSellPriceAtAsk;
@@ -210,6 +210,14 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
     "/items/pirate_chest",
     "/items/pirate_refinement_chest",
   ];
+  const entryKeyHrids = new Set(
+    chestHrids.map((chestHrid) =>
+      chestHrid.replace(/(?:_refinement)?_chest$/, "_entry_key"),
+    ),
+  );
+  for (const entryKeyHrid of entryKeyHrids) {
+    runtime.state.initData_itemDetailMap[entryKeyHrid] = {};
+  }
   for (const chestHrid of chestHrids) {
     runtime.state.initData_itemDetailMap[chestHrid] = {
       sellPrice: 77,
@@ -252,56 +260,63 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
     "/items/dungeon_test_loot": 1_000,
     "/items/dungeon_test_key": 200,
     "/items/dungeon_test_key_material": 50,
+    ...Object.fromEntries([...entryKeyHrids].map((hrid) => [hrid, 25])),
   };
   runtime.api.getAssetFairValue = (itemHrid) => fairValues[itemHrid] ?? 0;
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 700
-      : itemHrid === "/items/dungeon_test_key"
-        ? 100
-        : itemHrid === "/items/dungeon_test_key_material"
-          ? 40
-          : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : itemHrid === "/items/dungeon_test_key"
+          ? 100
+          : itemHrid === "/items/dungeon_test_key_material"
+            ? 40
+            : 0;
   runtime.api.getAssetNetSellPriceAtAsk = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 1_300
-      : itemHrid === "/items/dungeon_test_key"
-        ? 300
-        : itemHrid === "/items/dungeon_test_key_material"
-          ? 60
-          : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 30
+        : itemHrid === "/items/dungeon_test_key"
+          ? 300
+          : itemHrid === "/items/dungeon_test_key_material"
+            ? 60
+            : 0;
   runtime.api.getMarketTaxRate = () => 0.1;
   runtime.api.invalidateAssetValueCache();
 
   for (const chestHrid of chestHrids) {
-    assert.equal(runtime.api.getAssetValue(chestHrid), 900);
+    assert.equal(runtime.api.getAssetValue(chestHrid), 875);
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "conservative").value,
-      620,
+      600,
     );
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "fair").value,
-      810,
+      787.5,
     );
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "aggressive").value,
-      1_180,
+      1_150,
     );
   }
   assert.equal(
     runtime.api.getAssetValue("/items/keyless_refinement_chest"),
     1_000,
   );
-  assert.equal(runtime.api.getAssetValue("/items/outer_dungeon_chest"), 900);
+  assert.equal(runtime.api.getAssetValue("/items/outer_dungeon_chest"), 875);
 
   fairValues["/items/dungeon_test_loot"] = 100;
   fairValues["/items/dungeon_test_key_material"] = 100;
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 100
-      : itemHrid === "/items/dungeon_test_key_material"
-        ? 200
-        : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : itemHrid === "/items/dungeon_test_key_material"
+          ? 200
+          : 0;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
   assert.deepEqual(
@@ -316,7 +331,11 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
 
   delete fairValues["/items/dungeon_test_key_material"];
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
-    itemHrid === "/items/dungeon_test_loot" ? 100 : 0;
+    itemHrid === "/items/dungeon_test_loot"
+      ? 100
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : 0;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
   const incomplete = runtime.api.getAssetLiquidationValue(
@@ -343,6 +362,9 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
   ]) {
     delete runtime.state.initData_itemDetailMap[chestHrid];
     delete runtime.state.initData_openableLootDropMap[chestHrid];
+  }
+  for (const entryKeyHrid of entryKeyHrids) {
+    delete runtime.state.initData_itemDetailMap[entryKeyHrid];
   }
   delete runtime.state.initData_actionDetailMap.dungeon_test_key;
   runtime.api.invalidateAssetValueCache();

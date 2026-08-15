@@ -2,6 +2,23 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.14",
+    version: "26.4.14",
+    publishedAt: "2026-08-15",
+    title: Object.freeze({
+      zh: "26.4.14 更新公告",
+      en: "Version 26.4.14 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
+      ]),
+      en: Object.freeze([
+        "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.13",
     version: "26.4.13",
     publishedAt: "2026-08-15",
