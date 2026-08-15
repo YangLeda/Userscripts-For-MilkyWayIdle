@@ -2,6 +2,23 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.13",
+    version: "26.4.13",
+    publishedAt: "2026-08-15",
+    title: Object.freeze({
+      zh: "26.4.13 更新公告",
+      en: "Version 26.4.13 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复制作界面查看升级耗时时，目标等级在自动填写生产次数并触发界面刷新后回到当前等级 +1 的问题；例如从 130 级查看升到 135 级时，刷新后会继续保留 135 级及对应估算。",
+      ]),
+      en: Object.freeze([
+        "Fixed the target level in production upgrade-time estimates resetting to current level +1 after autofilling the action count refreshed the panel. For example, estimating level 130 to 135 now keeps level 135 and its estimate after the refresh.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.12",
     version: "26.4.12",
     publishedAt: "2026-08-15",

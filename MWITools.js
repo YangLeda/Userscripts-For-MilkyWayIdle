@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.12
+// @version      26.4.13
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -19989,6 +19989,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
   var actionPanelRetryStates = /* @__PURE__ */ new Map();
+  var targetLevelSelections = /* @__PURE__ */ new Map();
   function addActionPanelStyles() {
     if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -20092,9 +20093,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       const tillLevelInput = document.createElement("input");
       tillLevelInput.id = "tillLevelInput";
       tillLevelInput.type = "number";
-      tillLevelInput.value = String(currentLevel + 1);
       tillLevelInput.min = String(currentLevel + 1);
       tillLevelInput.max = String(maxLevel);
+      const savedTargetLevel = Number(targetLevelSelections.get(actionHrid));
+      const initialTargetLevel = Number.isSafeInteger(savedTargetLevel) && savedTargetLevel > currentLevel && savedTargetLevel <= maxLevel ? savedTargetLevel : currentLevel + 1;
+      tillLevelInput.value = String(initialTargetLevel);
       tillLevelInput.className = `${inputElem.className} mwi-target-level-input`;
       const tillLevelNumber = document.createElement("span");
       tillLevelNumber.id = "tillLevelNumber";
@@ -20154,6 +20157,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       };
       tillLevelInput.addEventListener("input", () => {
         targetLevelEdited = true;
+        const targetLevel = Number(tillLevelInput.value);
+        if (Number.isSafeInteger(targetLevel) && targetLevel > currentLevel && targetLevel <= maxLevel) {
+          targetLevelSelections.set(actionHrid, targetLevel);
+        }
         updateTargetLevel();
       });
       updateTargetLevel();
@@ -20411,6 +20418,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     setting: "actionPanel_totalTime",
     scope: "character",
     initialize({ scope }) {
+      targetLevelSelections.clear();
       const observer = new MutationObserver((mutations) => {
         const panels = /* @__PURE__ */ new Set();
         for (const mutation of mutations) {
@@ -20465,6 +20473,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       }
       scope.add(() => {
         clearActionPanelRetries();
+        targetLevelSelections.clear();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
         ).forEach((node) => node.remove());
@@ -27757,6 +27766,23 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.13",
+      version: "26.4.13",
+      publishedAt: "2026-08-15",
+      title: Object.freeze({
+        zh: "26.4.13 更新公告",
+        en: "Version 26.4.13 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复制作界面查看升级耗时时，目标等级在自动填写生产次数并触发界面刷新后回到当前等级 +1 的问题；例如从 130 级查看升到 135 级时，刷新后会继续保留 135 级及对应估算。"
+        ]),
+        en: Object.freeze([
+          "Fixed the target level in production upgrade-time estimates resetting to current level +1 after autofilling the action count refreshed the panel. For example, estimating level 130 to 135 now keeps level 135 and its estimate after the refresh."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.12",
       version: "26.4.12",
       publishedAt: "2026-08-15",
@@ -34197,7 +34223,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.12");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.13");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

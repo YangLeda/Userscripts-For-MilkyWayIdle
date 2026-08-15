@@ -394,16 +394,27 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.12", () => {
-  const current = ANNOUNCEMENTS[0];
-  const previous = ANNOUNCEMENTS[1];
-  const prior = ANNOUNCEMENTS[2];
-  const older = ANNOUNCEMENTS[3];
-  const oldest = ANNOUNCEMENTS[4];
-  const earliest = ANNOUNCEMENTS[5];
+test("announcement history preserves each release separately through 26.4.13", () => {
+  const newest = ANNOUNCEMENTS[0];
+  const current = ANNOUNCEMENTS[1];
+  const previous = ANNOUNCEMENTS[2];
+  const prior = ANNOUNCEMENTS[3];
+  const older = ANNOUNCEMENTS[4];
+  const oldest = ANNOUNCEMENTS[5];
+  const earliest = ANNOUNCEMENTS[6];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.12", "26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.13", "26.4.12", "26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+  );
+  assert.equal(newest.version, "26.4.13");
+  assert.equal(newest.publishedAt, "2026-08-15");
+  assert.match(newest.title.zh, /26\.4\.13 更新公告/);
+  assert.match(newest.title.en, /Version 26\.4\.13 update/);
+  assert.equal(newest.body.zh.length, newest.body.en.length);
+  assert.equal(newest.body.zh.length, 1);
+  assert.match(
+    newest.body.zh.join("\n"),
+    /制作界面.*升级耗时.*自动填写生产次数.*界面刷新.*当前等级 \+1.*130 级.*135 级.*继续保留 135 级/,
   );
   assert.equal(current.version, "26.4.12");
   assert.equal(current.publishedAt, "2026-08-15");

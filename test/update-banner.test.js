@@ -106,11 +106,11 @@ test("latest version alone does not trigger an important update", () => {
   );
 });
 
-test("release 26.4.12 keeps 26.4.11 as the important-update threshold", () => {
+test("release 26.4.13 keeps 26.4.11 as the important-update threshold", () => {
   const releaseManifest = JSON.parse(
     readFileSync(new URL("../release-manifest.json", import.meta.url), "utf8"),
   );
-  assert.equal(releaseManifest.latestVersion, "26.4.12");
+  assert.equal(releaseManifest.latestVersion, "26.4.13");
   assert.equal(releaseManifest.importantVersion, "26.4.11");
   assert.match(releaseManifest.title.zh, /26\.4\.11 重要更新/);
   assert.match(releaseManifest.title.en, /Important MWITools 26\.4\.11 update/);
@@ -149,6 +149,10 @@ test("release 26.4.12 keeps 26.4.11 as the important-update threshold", () => {
   );
   assert.equal(
     runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.12"),
+    false,
+  );
+  assert.equal(
+    runtime.api.shouldShowImportantUpdate(releaseManifest, "26.4.13"),
     false,
   );
 });

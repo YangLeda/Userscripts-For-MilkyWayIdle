@@ -263,6 +263,58 @@ test("target-level estimate retries cleanly after a partially mounted panel", as
   );
 });
 
+test("target level survives the production panel refresh caused by autofill", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  runtime.state.initData_characterSkills = [
+    { skillHrid: "/skills/crafting", level: 130, experience: 130_000 },
+  ];
+  panel.innerHTML = `<div class="SkillActionDetail_name__test">木板</div>
+    <div class="SkillActionDetail_expGain__test">8.5</div>
+    <div class="SkillActionDetail_info__test">
+      <div class="SkillActionDetail_label__test">持续时间</div>
+      <div class="SkillActionDetail_value__test">6.11s</div>
+    </div>
+    <div class="SkillActionDetail_actionContainer__test">
+      <div class="SkillActionDetail_maxActionCountInput__test">
+        <input class="Input_input__native" value="300">
+      </div>
+    </div>
+    <div class="SkillActionDetail_dropTable__test"></div>`;
+  delete panel.dataset.mwitoolsActionPanel;
+
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+  const target = panel.querySelector("#tillLevelInput");
+  assert.equal(target.value, "131");
+
+  target.value = "135";
+  target.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  const autofilledCount = panel.querySelector(
+    'div[class*="SkillActionDetail_maxActionCountInput"] input',
+  ).value;
+  assert.notEqual(autofilledCount, "300");
+
+  panel.querySelector("#mwi-level-progress").remove();
+  panel
+    .querySelectorAll(".mwi-native-level-stat")
+    .forEach((element) => element.remove());
+  delete panel.dataset.mwitoolsActionPanel;
+  assert.equal(await runtime.api.handleActionPanel(panel), true);
+
+  assert.equal(panel.querySelector("#tillLevelInput").value, "135");
+  assert.equal(
+    panel.querySelector(
+      'div[class*="SkillActionDetail_maxActionCountInput"] input',
+    ).value,
+    autofilledCount,
+  );
+
+  runtime.state.initData_characterSkills = [
+    { skillHrid: "/skills/crafting", level: 100, experience: 1_000 },
+  ];
+});
+
 test("nested production wrappers use the innermost actionable panel", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',
