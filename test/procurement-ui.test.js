@@ -449,6 +449,44 @@ test("production procurement uses its stable sibling slot beside the summary", (
   );
 });
 
+test("combat action dialogs never show inventory refresh with stale enhancing context", () => {
+  const productionModal = document.querySelector(
+    '[class*="Modal_modalContainer"]',
+  );
+  productionModal.style.display = "none";
+  const combatModal = document.createElement("div");
+  combatModal.className = "Modal_modalContainer__combat-fixture";
+  combatModal.innerHTML = `<div class="Modal_modal__combat-fixture"><div class="SkillActionDetail_regularComponent__combat-fixture"><div class="SkillActionDetail_combatMonsters__combat-fixture"></div><div class="SkillActionDetail_maxActionCountInput__combat-fixture"><input value="58"></div><div class="SkillActionDetail_actionContainer__combat-fixture"></div></div></div>`;
+  const combatPanel = combatModal.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  combatPanel.__reactFiber$combatFixture = {
+    memoizedProps: {
+      actionDetail: {
+        hrid: "/actions/enhancing/enhance",
+        function: "/action_functions/enhancing",
+      },
+    },
+    return: null,
+  };
+  document.body.append(combatModal);
+
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-inventory-refresh"),
+    null,
+  );
+  assert.equal(
+    document.querySelector("#mwitools-procurement-production"),
+    null,
+  );
+
+  combatModal.remove();
+  productionModal.style.display = "";
+  runtime.api.renderProductionProcurement();
+  assert.ok(document.querySelector("#mwitools-procurement-inventory-refresh"));
+});
+
 test("production shortage keeps waiting and ready states stable and optionally hides ready", async () => {
   const input = document.querySelector(
     'div[class*="SkillActionDetail_maxActionCountInput"] input',

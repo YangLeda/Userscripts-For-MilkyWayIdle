@@ -974,7 +974,12 @@ function createShell(scope) {
 
 function resolveActionPanel() {
   const shared = runtime.api.resolveActiveProductionPanelContext?.();
-  if (shared?.panel && shared?.input && shared?.actionHrid) {
+  if (
+    shared?.panel &&
+    shared?.input &&
+    shared?.actionHrid &&
+    !isCombatActionPanel(shared.panel)
+  ) {
     return {
       panel: shared.panel,
       input: shared.input,
@@ -999,7 +1004,9 @@ function resolveActionPanel() {
       input.closest('div[class*="SkillActionDetail_skillActionDetail"]') ??
       input.closest('div[class*="SkillActionDetail_regularComponent"]') ??
       input.parentElement;
-    if (!panel || isHiddenActionElement(panel)) continue;
+    if (!panel || isHiddenActionElement(panel) || isCombatActionPanel(panel)) {
+      continue;
+    }
     const fiberContext = resolveActionFiberContext(panel);
     const actionHrid =
       fiberContext?.actionHrid ??
@@ -1011,15 +1018,17 @@ function resolveActionPanel() {
         : null);
     const parsedCount = runtime.api.parseCompactNumber?.(input.value);
     if (!actionHrid) continue;
+    const actionFunction = resolveActionFunction(
+      panel,
+      actionHrid,
+      fiberContext?.actionFunction,
+    );
+    if (!isProcurementProductionAction(actionHrid, actionFunction)) continue;
     return {
       panel,
       input,
       actionHrid,
-      actionFunction: resolveActionFunction(
-        panel,
-        actionHrid,
-        fiberContext?.actionFunction,
-      ),
+      actionFunction,
       count:
         Number.isFinite(parsedCount) && parsedCount > 0
           ? Math.ceil(parsedCount)
@@ -1027,6 +1036,21 @@ function resolveActionPanel() {
     };
   }
   return null;
+}
+
+function isCombatActionPanel(panel) {
+  return Boolean(
+    panel?.querySelector?.('[class*="SkillActionDetail_combatMonsters"]'),
+  );
+}
+
+function isProcurementProductionAction(actionHrid, actionFunction) {
+  const normalizedFunction = String(actionFunction ?? "");
+  if (normalizedFunction.includes("enhancing")) return true;
+  if (normalizedFunction.includes("combat")) return false;
+  const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+  if (!detail || String(detail.type ?? "").includes("combat")) return false;
+  return Boolean(runtime.api.getExpectedOutputs?.(detail)?.length);
 }
 
 function isHiddenActionElement(element) {
