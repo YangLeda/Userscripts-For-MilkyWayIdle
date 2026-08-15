@@ -6039,6 +6039,77 @@
     if (!suppression.quantity) purchaseSuppressions.delete(key);
     return remaining;
   }
+  function reconcileProjectCartAllocations() {
+    const desiredByKey = /* @__PURE__ */ new Map();
+    const activePlans = [...plans.values()].filter((plan) => plan.status !== "completed").sort(
+      (left, right) => String(left.createdAt ?? "").localeCompare(
+        String(right.createdAt ?? "")
+      ) || String(left.id).localeCompare(String(right.id))
+    );
+    const demandsByKey = /* @__PURE__ */ new Map();
+    for (const plan of activePlans) {
+      for (const [key, quantity] of Object.entries(plan.materials ?? {})) {
+        const demand = Math.max(0, Math.ceil(Number(quantity) || 0));
+        if (!demand || isCoin(parseItemKey(key).itemHrid)) continue;
+        if (!demandsByKey.has(key)) demandsByKey.set(key, []);
+        demandsByKey.get(key).push({ planId: String(plan.id), demand });
+      }
+    }
+    for (const [key, demands] of demandsByKey) {
+      const parsed = parseItemKey(key);
+      let available = getInventoryCount2(parsed.itemHrid, parsed.enhancementLevel);
+      const desired = {};
+      for (const { planId, demand } of demands) {
+        const covered = Math.min(available, demand);
+        available -= covered;
+        const shortage = demand - covered;
+        if (shortage > 0) desired[planId] = shortage;
+      }
+      desiredByKey.set(key, desired);
+    }
+    let changed = false;
+    for (const [key, row] of [...cart]) {
+      let rowChanged = false;
+      const current = normalizeAllocations(
+        row.allocations,
+        row.quantity
+      ).projects;
+      const desired = desiredByKey.get(key) ?? {};
+      const projectIds = /* @__PURE__ */ new Set([
+        ...Object.keys(current),
+        ...Object.keys(desired)
+      ]);
+      for (const id of projectIds) {
+        const delta = (desired[id] ?? 0) - (current[id] ?? 0);
+        if (!delta) continue;
+        changeAllocation(row, { kind: "project", id }, delta);
+        changed = true;
+        rowChanged = true;
+      }
+      if (!rowChanged) continue;
+      row.baselineStock = getInventoryCount2(row.itemHrid, row.enhancementLevel);
+      row.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (row.quantity <= 0 && !row.starred) cart.delete(key);
+    }
+    const additions = [];
+    for (const [key, desired] of desiredByKey) {
+      if (cart.has(key)) continue;
+      const parsed = parseItemKey(key);
+      for (const [projectId, quantity] of Object.entries(desired)) {
+        additions.push({
+          itemHrid: parsed.itemHrid,
+          enhancementLevel: parsed.enhancementLevel,
+          name: resolveItemName(parsed.itemHrid),
+          quantity,
+          source: "project",
+          allocation: { kind: "project", projectId }
+        });
+      }
+    }
+    if (changed) saveCartAndEmit({ reason: "allocation" });
+    const added = additions.length ? addToCart(additions).added : 0;
+    return changed || added > 0;
+  }
   function applyInventoryUpdates(items) {
     const before = inventoryCounts();
     for (const item of items ?? []) {
@@ -6081,11 +6152,36 @@
       }
     }
     applyRestockThresholds();
+    reconcileProjectCartAllocations();
     refreshPlanProgress();
     persistData();
     emit("inventory:change", {
       changes: changes.map(({ key: _key, ...change }) => change)
     });
+  }
+  function replaceInventorySnapshot(items) {
+    const snapshot = (items ?? []).filter((item) => item?.itemHrid && Number(item.count) > 0).map((item) => ({ ...item }));
+    const before = inventoryCounts();
+    const removals = [...inventoryEntries.values()].map((item) => ({
+      ...item,
+      count: 0
+    }));
+    applyInventoryUpdates([...removals, ...snapshot]);
+    applyRestockThresholds();
+    reconcileProjectCartAllocations();
+    const after = inventoryCounts();
+    const keys = /* @__PURE__ */ new Set([...before.keys(), ...after.keys()]);
+    const changedItemCount = [...keys].filter(
+      (key) => (before.get(key) ?? 0) !== (after.get(key) ?? 0)
+    ).length;
+    return {
+      stackCount: snapshot.length,
+      changedItemCount,
+      cartItemCount: [...cart.values()].filter((row) => row.quantity > 0).length,
+      projectCount: [...plans.values()].filter(
+        (plan) => plan.status !== "completed"
+      ).length
+    };
   }
   function applyRestockThresholds() {
     if (!settings.autoRestockEnabled) return;
@@ -6402,6 +6498,7 @@
       setPlanningData,
       confirmMarketPurchase,
       applyInventoryUpdates,
+      replaceInventorySnapshot,
       applyRestockThresholds,
       recordActionCompletion,
       parsePurchaseConfirmation,
@@ -21526,8 +21623,9 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var HOST_ID = "mwitools-procurement-host";
   var MARKET_NAV_ID = "mwitools-procurement-market-nav";
   var PRODUCTION_ID = "mwitools-procurement-production";
+  var PRODUCTION_REFRESH_ID = "mwitools-procurement-inventory-refresh";
   var PROCUREMENT_SURFACE_SELECTOR = 'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
-  var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
+  var OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},#${PRODUCTION_REFRESH_ID},.mwi-procurement-badge,.mwi-procurement-market-target,.mwi-procurement-refresh-host`;
   var procurement3 = runtime.api.procurement;
   var shell = null;
   var shadow = null;
@@ -21583,6 +21681,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
+    .mwi-procurement-refresh-host{position:relative!important}
+    #${PRODUCTION_REFRESH_ID}{position:absolute;top:5px;right:34px;z-index:4;min-height:24px;padding:2px 7px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(37,43,65,.94);color:var(--color-neutral-100,#eee);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.25 Roboto,Arial,sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.24)}
+    #${PRODUCTION_REFRESH_ID}:hover{background:var(--color-space-700,#46547e)}
+    #${PRODUCTION_REFRESH_ID}:disabled{opacity:.55;cursor:wait}
     #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${PRODUCTION_ID}[hidden]{display:none}
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
@@ -22631,6 +22733,75 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     markRequirementCell(badge, row, "badge");
     panel.classList.add("mwi-procurement-panel");
   }
+  function removeInventoryRefreshButtons(keepHost = null) {
+    for (const button of document.querySelectorAll(`#${PRODUCTION_REFRESH_ID}`)) {
+      if (keepHost && button.parentElement === keepHost) continue;
+      const host = button.parentElement;
+      button.remove();
+      host?.classList.remove("mwi-procurement-refresh-host");
+    }
+    for (const host of document.querySelectorAll(
+      ".mwi-procurement-refresh-host"
+    )) {
+      if (host !== keepHost && !host.querySelector(`#${PRODUCTION_REFRESH_ID}`)) {
+        host.classList.remove("mwi-procurement-refresh-host");
+      }
+    }
+  }
+  function ensureInventoryRefreshButton(panel) {
+    const host = panel?.closest?.('[class*="Modal_modalContainer"]') ?? panel ?? null;
+    if (!host) {
+      removeInventoryRefreshButtons();
+      return null;
+    }
+    removeInventoryRefreshButtons(host);
+    host.classList.add("mwi-procurement-refresh-host");
+    let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
+    if (button) return button;
+    button = document.createElement("button");
+    button.id = PRODUCTION_REFRESH_ID;
+    button.type = "button";
+    button.textContent = t9("↻ 仓库", "↻ Stock");
+    button.title = t9(
+      "从游戏当前状态更新仓库，并重新计算购物车、项目占用和生产余缺",
+      "Update inventory from the current game state and recalculate the shopping cart, project reservations, and production shortages"
+    );
+    button.setAttribute("aria-label", t9("更新仓库", "Refresh inventory"));
+    for (const eventName of ["pointerdown", "mousedown"]) {
+      button.addEventListener(eventName, (event) => event.stopPropagation());
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      button.disabled = true;
+      const liveItems = resolveLiveCharacterItems(panel);
+      if (liveItems === null) {
+        button.disabled = false;
+        showToast(
+          t9(
+            "暂时无法读取游戏当前仓库，请稍后再试",
+            "Could not read the current game inventory; try again shortly"
+          )
+        );
+        return;
+      }
+      runtime.state.initData_characterItems = liveItems.map((item) => ({
+        ...item
+      }));
+      const result = procurement3.replaceInventorySnapshot(liveItems);
+      lastProductionSignature = "";
+      renderShell();
+      runtime.api.renderProductionPanel?.();
+      renderProductionProcurement();
+      showToast(
+        runtime.config.isZH ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算` : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`
+      );
+      if (button.isConnected) button.disabled = false;
+    });
+    host.append(button);
+    return button;
+  }
   function clearProductionUi() {
     document.getElementById(PRODUCTION_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-badge").forEach((node) => node.remove());
@@ -22648,6 +22819,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function renderProductionProcurement() {
     const context = resolveActionPanel();
     if (!context) {
+      removeInventoryRefreshButtons();
       const houseModal = findActiveHouseModal();
       if (!houseModal) {
         clearProductionUi();
@@ -22677,6 +22849,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         ) ?? context.input.parentElement;
         anchor.insertAdjacentElement("afterend", root2);
       }
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     const settings2 = procurement3.getSettings();
@@ -22684,6 +22857,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const direct = isEnhancing ? calculateEnhancingRequirements(context) : procurement3.calculateRequirements(context.actionHrid, context.count);
     if (!direct?.materials?.length) {
       clearProductionUi();
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     const chain = !isEnhancing && settings2.upgradeChainEnabled && direct.detail?.upgradeItemHrid ? procurement3.calculateUpgradeChain(context.actionHrid, context.count) : null;
@@ -22704,6 +22878,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       ])
     ]);
     if (signature === lastProductionSignature && document.getElementById(PRODUCTION_ID)) {
+      ensureInventoryRefreshButton(context.panel);
       return;
     }
     clearProductionUi();
@@ -22853,6 +23028,7 @@ ${locks}` : ""}`;
         anchor.insertAdjacentElement("afterend", root);
       }
     }
+    ensureInventoryRefreshButton(context.panel);
   }
   function findReactFiber(element) {
     if (!element) return null;
@@ -22860,6 +23036,56 @@ ${locks}` : ""}`;
       (candidate) => candidate.startsWith("__reactFiber") || candidate.startsWith("__reactInternalInstance")
     );
     return key ? element[key] : null;
+  }
+  function liveItemsFromStateHost(host) {
+    const state = host?.state;
+    if (!state || state.characterItemMap == null) return null;
+    const characterId = state.character?.id ?? state.character?.characterID ?? state.currentCharacter?.id ?? state.characterId ?? state.characterID ?? null;
+    if (characterId != null && procurement3.activeCharacterId != null && String(characterId) !== String(procurement3.activeCharacterId)) {
+      return null;
+    }
+    const source = state.characterItemMap;
+    let values;
+    if (Array.isArray(source)) values = source;
+    else if (typeof source?.values === "function") values = [...source.values()];
+    else values = Object.values(source ?? {});
+    return values.filter((item) => item?.itemHrid && Number(item.count) > 0).map((item) => ({ ...item }));
+  }
+  function resolveLiveCharacterItems(panel) {
+    let fiber = findReactFiber(panel);
+    let depth = 0;
+    while (fiber && depth < 250) {
+      const items = liveItemsFromStateHost(fiber.stateNode);
+      if (items !== null) return items;
+      fiber = fiber.return;
+      depth += 1;
+    }
+    const root = document.getElementById("root");
+    const fibers = [];
+    const pushFiber = (value) => {
+      const candidate = value?.current ?? value;
+      if (candidate && typeof candidate === "object") fibers.push(candidate);
+    };
+    pushFiber(root?._reactRootContainer?.current);
+    pushFiber(root?._reactRootContainer?._internalRoot?.current);
+    for (const element of [root, document.body]) {
+      for (const key of Object.getOwnPropertyNames(element ?? {})) {
+        if (key.startsWith("__reactContainer") || key.startsWith("__reactFiber") || key.startsWith("__reactInternalInstance")) {
+          pushFiber(element[key]);
+        }
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    while (fibers.length && seen.size < 5e4) {
+      const candidate = fibers.pop();
+      if (!candidate || seen.has(candidate)) continue;
+      seen.add(candidate);
+      const items = liveItemsFromStateHost(candidate.stateNode);
+      if (items !== null) return items;
+      if (candidate.child) fibers.push(candidate.child);
+      if (candidate.sibling) fibers.push(candidate.sibling);
+    }
+    return null;
   }
   function findObjectWithItemRequirements(value, depth = 0, seen = /* @__PURE__ */ new Set()) {
     if (!value || typeof value !== "object" || depth > 5 || seen.has(value)) {
@@ -23527,6 +23753,7 @@ ${locks}` : ""}`;
       scope.add(() => {
         renderScheduler.cancel();
         stopActiveHoldRepeat();
+        removeInventoryRefreshButtons();
         clearProductionUi();
         clearMarketUi();
         document.getElementById(STYLE_ID9)?.remove();
@@ -27459,14 +27686,16 @@ ${locks}` : ""}`;
           "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
           "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
           "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
-          "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。"
+          "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。",
+          "生产详情右上角新增手动“更新仓库”按钮，会直接读取游戏当前仓库，并按最新库存重算生产余缺与购物车中的项目采购缺口；手工购物数量保持不变，常备阈值、项目占用和已计算规划也会收到库存更新，避免材料已消耗后仍显示旧余量。"
         ]),
         en: Object.freeze([
           "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
           "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
           "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
           "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
-          "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes."
+          "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes.",
+          "Added a manual Refresh inventory button in the top-right of production details. It reads the game's current inventory and recalculates production shortages plus project-sourced cart quantities; manual cart quantities stay intact, while restock thresholds, project reservations, and calculated Planning are notified of the new inventory so consumed materials no longer leave stale spare counts."
         ])
       })
     }),

@@ -459,6 +459,84 @@ test("sufficient materials keep their remaining quantity", () => {
   assert.match(badge.textContent, /^(余|Spare) /);
 });
 
+test("production refresh reads live inventory and recalculates cart projects", () => {
+  const procurement = runtime.api.procurement;
+  runtime.state.initData_characterItems = [
+    {
+      id: "refresh-nail-stack",
+      itemHrid: "/items/nail",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 10,
+    },
+  ];
+  procurement.loadCharacterData("ui-character");
+  procurement.clearCart({ includeStarred: true });
+  for (const existing of procurement.getPlans()) {
+    procurement.removePlan(existing.id);
+  }
+  const plan = procurement.createPlan("/actions/crafting/board", 6, [
+    {
+      itemHrid: "/items/nail",
+      enhancementLevel: 0,
+      suggested: 12,
+      purchasable: true,
+    },
+  ]);
+  procurement.addProjectRequirementsToCart(plan.id);
+  procurement.addToCart({ itemHrid: "/items/nail", quantity: 4 });
+
+  const panel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  panel.__reactFiber$inventoryRefreshFixture = {
+    return: {
+      stateNode: {
+        state: {
+          character: { id: "ui-character" },
+          characterItemMap: new Map([
+            [
+              "refresh-nail-stack",
+              {
+                id: "refresh-nail-stack",
+                itemHrid: "/items/nail",
+                itemLocationHrid: "/item_locations/inventory",
+                enhancementLevel: 0,
+                count: 3,
+              },
+            ],
+          ]),
+        },
+      },
+      return: null,
+    },
+  };
+  runtime.api.renderProductionProcurement();
+  const refresh = document.querySelector(
+    "#mwitools-procurement-inventory-refresh",
+  );
+  assert.ok(refresh);
+  assert.match(refresh.title, /shopping cart.*project reservations/i);
+  refresh.click();
+
+  assert.equal(runtime.state.initData_characterItems[0].count, 3);
+  assert.equal(procurement.getInventoryCount("/items/nail"), 3);
+  assert.deepEqual(procurement.getCartAllocationSummary("/items/nail"), {
+    total: 13,
+    manual: 4,
+    planning: 0,
+    project: 9,
+    projects: { [plan.id]: 9 },
+  });
+  const badge = document.querySelector(".mwi-procurement-badge");
+  assert.equal(badge.dataset.state, "missing");
+  assert.match(badge.textContent, /^(缺|Need) /);
+
+  delete panel.__reactFiber$inventoryRefreshFixture;
+  procurement.removePlan(plan.id);
+  procurement.clearCart({ includeStarred: true });
+});
+
 test("enhancing procurement uses the visible panel, live count, and net shortages", async () => {
   const productionPanel = document.querySelector(
     '[class*="SkillActionDetail_regularComponent"]',

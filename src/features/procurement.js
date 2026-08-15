@@ -7,9 +7,10 @@ const STYLE_ID = "mwitools-procurement-style";
 const HOST_ID = "mwitools-procurement-host";
 const MARKET_NAV_ID = "mwitools-procurement-market-nav";
 const PRODUCTION_ID = "mwitools-procurement-production";
+const PRODUCTION_REFRESH_ID = "mwitools-procurement-inventory-refresh";
 const PROCUREMENT_SURFACE_SELECTOR =
   'div[class*="SkillActionDetail"],div[class*="MarketplacePanel"],div[class*="HousePanel"],div[class*="HouseRoom"]';
-const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},.mwi-procurement-badge,.mwi-procurement-market-target`;
+const OWNED_PROCUREMENT_SELECTOR = `#${HOST_ID},#${MARKET_NAV_ID},#${PRODUCTION_ID},#${PRODUCTION_REFRESH_ID},.mwi-procurement-badge,.mwi-procurement-market-target,.mwi-procurement-refresh-host`;
 const procurement = runtime.api.procurement;
 
 let shell = null;
@@ -80,6 +81,10 @@ function addStyles() {
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
+    .mwi-procurement-refresh-host{position:relative!important}
+    #${PRODUCTION_REFRESH_ID}{position:absolute;top:5px;right:34px;z-index:4;min-height:24px;padding:2px 7px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(37,43,65,.94);color:var(--color-neutral-100,#eee);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.25 Roboto,Arial,sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.24)}
+    #${PRODUCTION_REFRESH_ID}:hover{background:var(--color-space-700,#46547e)}
+    #${PRODUCTION_REFRESH_ID}:disabled{opacity:.55;cursor:wait}
     #${PRODUCTION_ID}{min-width:0;max-width:100%;box-sizing:border-box;margin-top:5px;padding-top:5px;border-top:1px solid rgba(255,255,255,.08);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${PRODUCTION_ID}[hidden]{display:none}
     .mwi-procurement-summary-line{display:flex;min-width:0;align-items:center;gap:5px;flex-wrap:wrap}
@@ -1242,6 +1247,80 @@ function layoutMaterialBadge(panel, host, badge) {
   panel.classList.add("mwi-procurement-panel");
 }
 
+function removeInventoryRefreshButtons(keepHost = null) {
+  for (const button of document.querySelectorAll(`#${PRODUCTION_REFRESH_ID}`)) {
+    if (keepHost && button.parentElement === keepHost) continue;
+    const host = button.parentElement;
+    button.remove();
+    host?.classList.remove("mwi-procurement-refresh-host");
+  }
+  for (const host of document.querySelectorAll(
+    ".mwi-procurement-refresh-host",
+  )) {
+    if (host !== keepHost && !host.querySelector(`#${PRODUCTION_REFRESH_ID}`)) {
+      host.classList.remove("mwi-procurement-refresh-host");
+    }
+  }
+}
+
+function ensureInventoryRefreshButton(panel) {
+  const host =
+    panel?.closest?.('[class*="Modal_modalContainer"]') ?? panel ?? null;
+  if (!host) {
+    removeInventoryRefreshButtons();
+    return null;
+  }
+  removeInventoryRefreshButtons(host);
+  host.classList.add("mwi-procurement-refresh-host");
+  let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
+  if (button) return button;
+  button = document.createElement("button");
+  button.id = PRODUCTION_REFRESH_ID;
+  button.type = "button";
+  button.textContent = t("↻ 仓库", "↻ Stock");
+  button.title = t(
+    "从游戏当前状态更新仓库，并重新计算购物车、项目占用和生产余缺",
+    "Update inventory from the current game state and recalculate the shopping cart, project reservations, and production shortages",
+  );
+  button.setAttribute("aria-label", t("更新仓库", "Refresh inventory"));
+  for (const eventName of ["pointerdown", "mousedown"]) {
+    button.addEventListener(eventName, (event) => event.stopPropagation());
+  }
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.disabled) return;
+    button.disabled = true;
+    const liveItems = resolveLiveCharacterItems(panel);
+    if (liveItems === null) {
+      button.disabled = false;
+      showToast(
+        t(
+          "暂时无法读取游戏当前仓库，请稍后再试",
+          "Could not read the current game inventory; try again shortly",
+        ),
+      );
+      return;
+    }
+    runtime.state.initData_characterItems = liveItems.map((item) => ({
+      ...item,
+    }));
+    const result = procurement.replaceInventorySnapshot(liveItems);
+    lastProductionSignature = "";
+    renderShell();
+    runtime.api.renderProductionPanel?.();
+    renderProductionProcurement();
+    showToast(
+      runtime.config.isZH
+        ? `仓库已更新：${result.changedItemCount} 种库存变化；购物车 ${result.cartItemCount} 项、项目 ${result.projectCount} 个已按最新库存重算`
+        : `Inventory updated: ${result.changedItemCount} item changes; ${result.cartItemCount} cart items and ${result.projectCount} projects recalculated`,
+    );
+    if (button.isConnected) button.disabled = false;
+  });
+  host.append(button);
+  return button;
+}
+
 function clearProductionUi() {
   document.getElementById(PRODUCTION_ID)?.remove();
   document
@@ -1268,6 +1347,7 @@ function clearProductionUi() {
 function renderProductionProcurement() {
   const context = resolveActionPanel();
   if (!context) {
+    removeInventoryRefreshButtons();
     const houseModal = findActiveHouseModal();
     if (!houseModal) {
       clearProductionUi();
@@ -1298,6 +1378,7 @@ function renderProductionProcurement() {
         ) ?? context.input.parentElement;
       anchor.insertAdjacentElement("afterend", root);
     }
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   const settings = procurement.getSettings();
@@ -1307,6 +1388,7 @@ function renderProductionProcurement() {
     : procurement.calculateRequirements(context.actionHrid, context.count);
   if (!direct?.materials?.length) {
     clearProductionUi();
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   const chain =
@@ -1335,6 +1417,7 @@ function renderProductionProcurement() {
     signature === lastProductionSignature &&
     document.getElementById(PRODUCTION_ID)
   ) {
+    ensureInventoryRefreshButton(context.panel);
     return;
   }
   clearProductionUi();
@@ -1503,6 +1586,7 @@ function renderProductionProcurement() {
       anchor.insertAdjacentElement("afterend", root);
     }
   }
+  ensureInventoryRefreshButton(context.panel);
 }
 
 function findReactFiber(element) {
@@ -1513,6 +1597,75 @@ function findReactFiber(element) {
       candidate.startsWith("__reactInternalInstance"),
   );
   return key ? element[key] : null;
+}
+
+function liveItemsFromStateHost(host) {
+  const state = host?.state;
+  if (!state || state.characterItemMap == null) return null;
+  const characterId =
+    state.character?.id ??
+    state.character?.characterID ??
+    state.currentCharacter?.id ??
+    state.characterId ??
+    state.characterID ??
+    null;
+  if (
+    characterId != null &&
+    procurement.activeCharacterId != null &&
+    String(characterId) !== String(procurement.activeCharacterId)
+  ) {
+    return null;
+  }
+  const source = state.characterItemMap;
+  let values;
+  if (Array.isArray(source)) values = source;
+  else if (typeof source?.values === "function") values = [...source.values()];
+  else values = Object.values(source ?? {});
+  return values
+    .filter((item) => item?.itemHrid && Number(item.count) > 0)
+    .map((item) => ({ ...item }));
+}
+
+function resolveLiveCharacterItems(panel) {
+  let fiber = findReactFiber(panel);
+  let depth = 0;
+  while (fiber && depth < 250) {
+    const items = liveItemsFromStateHost(fiber.stateNode);
+    if (items !== null) return items;
+    fiber = fiber.return;
+    depth += 1;
+  }
+
+  const root = document.getElementById("root");
+  const fibers = [];
+  const pushFiber = (value) => {
+    const candidate = value?.current ?? value;
+    if (candidate && typeof candidate === "object") fibers.push(candidate);
+  };
+  pushFiber(root?._reactRootContainer?.current);
+  pushFiber(root?._reactRootContainer?._internalRoot?.current);
+  for (const element of [root, document.body]) {
+    for (const key of Object.getOwnPropertyNames(element ?? {})) {
+      if (
+        key.startsWith("__reactContainer") ||
+        key.startsWith("__reactFiber") ||
+        key.startsWith("__reactInternalInstance")
+      ) {
+        pushFiber(element[key]);
+      }
+    }
+  }
+  const seen = new Set();
+  while (fibers.length && seen.size < 50_000) {
+    const candidate = fibers.pop();
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    const items = liveItemsFromStateHost(candidate.stateNode);
+    if (items !== null) return items;
+    if (candidate.child) fibers.push(candidate.child);
+    if (candidate.sibling) fibers.push(candidate.sibling);
+  }
+  return null;
 }
 
 function findObjectWithItemRequirements(value, depth = 0, seen = new Set()) {
@@ -2318,6 +2471,7 @@ runtime.features.register({
     scope.add(() => {
       renderScheduler.cancel();
       stopActiveHoldRepeat();
+      removeInventoryRefreshButtons();
       clearProductionUi();
       clearMarketUi();
       document.getElementById(STYLE_ID)?.remove();
