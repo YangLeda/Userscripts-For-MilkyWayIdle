@@ -420,7 +420,7 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 6);
+  assert.equal(current.body.zh.length, 7);
   assert.match(
     current.body.zh.join("\n"),
     /Ranged Way Idle.*购物车.*图标.*无法点击.*保持原节点/,
@@ -428,6 +428,10 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(
     current.body.zh.join("\n"),
     /更新仓库.*游戏当前仓库.*项目采购缺口.*手工购物数量保持不变.*项目占用.*旧余量.*弹窗边框内.*不会下推页面.*悬浮定位.*没有自带定位基准.*正确显示.*持续重绘.*保留.*定位基准.*页面右上角.*来回切换闪烁.*仅在生产与强化详情.*战斗怪物面板.*不会再误显示/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /自托管更新文件.*已经上传.*CDN 缓存刷新.*误报失败.*不再依赖.*状态读取权限/,
   );
   assert.equal(previous.body.zh.length, previous.body.en.length);
   assert.equal(previous.body.zh.length, 24);

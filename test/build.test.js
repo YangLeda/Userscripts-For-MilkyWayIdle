@@ -137,3 +137,14 @@ test("development metadata only changes the userscript identity", async () => {
     normalizeIdentity(productionBanner),
   );
 });
+
+test("CloudFront publishing requests invalidation without status polling", async () => {
+  const workflow = await readFile(
+    new URL("../.github/workflows/publish-dist.yml", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(workflow, /aws cloudfront create-invalidation/);
+  assert.doesNotMatch(workflow, /cloudfront wait invalidation-completed/);
+  assert.doesNotMatch(workflow, /GetInvalidation/);
+});
