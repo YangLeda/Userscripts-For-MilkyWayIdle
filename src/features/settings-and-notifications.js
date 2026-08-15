@@ -21,6 +21,7 @@ const SETTINGS_PANEL_ATTRIBUTE = "data-mwitools-settings-panel";
 const SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root";
 const SETTINGS_BUTTON_ID = "mwitools-settings-button";
 const SETTINGS_POPOVER_ID = "mwitools-settings-popover";
+const SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1";
 const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
 const GUILD_CREDIT_RECOMMENDATION_COUNT_KEY =
   "MWITools_guild_credit_recommendation_count_v1";
@@ -865,10 +866,29 @@ function closeSettingsPopover({ restoreFocus = false } = {}) {
   const button = document.getElementById(SETTINGS_BUTTON_ID);
   const popover = document.getElementById(SETTINGS_POPOVER_ID);
   if (!popover || popover.hidden) return false;
+  persistSettingsPopoverScrollTop(popover.scrollTop);
   popover.hidden = true;
   button?.setAttribute("aria-expanded", "false");
   if (restoreFocus) button?.focus();
   return true;
+}
+
+function readSettingsPopoverScrollTop() {
+  try {
+    const stored = Number(localStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY));
+    return Number.isFinite(stored) && stored > 0 ? stored : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function persistSettingsPopoverScrollTop(value) {
+  const scrollTop = Math.max(0, Number(value) || 0);
+  try {
+    localStorage.setItem(SETTINGS_POPOVER_SCROLL_KEY, String(scrollTop));
+  } catch {
+    // Remembering the position is optional when browser storage is unavailable.
+  }
 }
 
 function ensureSettingsPopover() {
@@ -896,6 +916,11 @@ function ensureSettingsPopover() {
       closeSettingsPopover({ restoreFocus: true });
     }
   });
+  popover.addEventListener(
+    "scroll",
+    () => persistSettingsPopoverScrollTop(popover.scrollTop),
+    { passive: true },
+  );
   document.body.append(popover);
   renderSettings(root);
   return popover;
@@ -910,7 +935,8 @@ function toggleSettingsPopover() {
   popover.hidden = false;
   button.setAttribute("aria-expanded", "true");
   positionSettingsPopover();
-  popover.querySelector(".mwi-settings-search")?.focus();
+  popover.querySelector(".mwi-settings-search")?.focus({ preventScroll: true });
+  popover.scrollTop = readSettingsPopoverScrollTop();
   return true;
 }
 

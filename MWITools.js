@@ -27408,11 +27408,13 @@ ${locks}` : ""}`;
       body: Object.freeze({
         zh: Object.freeze([
           "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
-          "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。"
+          "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
+          "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。"
         ]),
         en: Object.freeze([
           "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
-          "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads."
+          "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
+          "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off."
         ])
       })
     }),
@@ -31574,6 +31576,7 @@ ${locks}` : ""}`;
   var SETTINGS_ROOT_ATTRIBUTE = "data-mwitools-settings-root";
   var SETTINGS_BUTTON_ID = "mwitools-settings-button";
   var SETTINGS_POPOVER_ID = "mwitools-settings-popover";
+  var SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1";
   var TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
   var GUILD_CREDIT_RECOMMENDATION_COUNT_KEY = "MWITools_guild_credit_recommendation_count_v1";
   function normalizeGuildCreditRecommendationCount(value) {
@@ -32295,10 +32298,26 @@ ${locks}` : ""}`;
     const button = document.getElementById(SETTINGS_BUTTON_ID);
     const popover = document.getElementById(SETTINGS_POPOVER_ID);
     if (!popover || popover.hidden) return false;
+    persistSettingsPopoverScrollTop(popover.scrollTop);
     popover.hidden = true;
     button?.setAttribute("aria-expanded", "false");
     if (restoreFocus) button?.focus();
     return true;
+  }
+  function readSettingsPopoverScrollTop() {
+    try {
+      const stored = Number(localStorage.getItem(SETTINGS_POPOVER_SCROLL_KEY));
+      return Number.isFinite(stored) && stored > 0 ? stored : 0;
+    } catch {
+      return 0;
+    }
+  }
+  function persistSettingsPopoverScrollTop(value) {
+    const scrollTop = Math.max(0, Number(value) || 0);
+    try {
+      localStorage.setItem(SETTINGS_POPOVER_SCROLL_KEY, String(scrollTop));
+    } catch {
+    }
   }
   function ensureSettingsPopover() {
     let popover = document.getElementById(SETTINGS_POPOVER_ID);
@@ -32325,6 +32344,11 @@ ${locks}` : ""}`;
         closeSettingsPopover({ restoreFocus: true });
       }
     });
+    popover.addEventListener(
+      "scroll",
+      () => persistSettingsPopoverScrollTop(popover.scrollTop),
+      { passive: true }
+    );
     document.body.append(popover);
     renderSettings(root);
     return popover;
@@ -32338,7 +32362,8 @@ ${locks}` : ""}`;
     popover.hidden = false;
     button.setAttribute("aria-expanded", "true");
     positionSettingsPopover();
-    popover.querySelector(".mwi-settings-search")?.focus();
+    popover.querySelector(".mwi-settings-search")?.focus({ preventScroll: true });
+    popover.scrollTop = readSettingsPopoverScrollTop();
     return true;
   }
   function ensureSettingsLauncher() {
