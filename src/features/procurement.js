@@ -1270,13 +1270,36 @@ function resolveInventoryRefreshHost(panel) {
   const modal = panel.closest?.(
     '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
   );
-  if (modal) return { host: modal, fallback: false };
+  if (modal) return { host: modal, sourcePanel: panel };
+  const existingHost = document.getElementById(
+    PRODUCTION_REFRESH_ID,
+  )?.parentElement;
+  if (
+    existingHost?.isConnected &&
+    !isHiddenActionElement(existingHost) &&
+    existingHost.matches?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+    )
+  ) {
+    const sourcePanel = existingHost.querySelector(
+      'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]',
+    );
+    return { host: existingHost, sourcePanel: sourcePanel ?? panel };
+  }
   const modalContainer = panel.closest?.('[class*="Modal_modalContainer"]');
   const nestedModal = modalContainer?.querySelector?.(
     ':scope > [class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
   );
-  if (nestedModal) return { host: nestedModal, fallback: false };
-  return { host: panel, fallback: true };
+  if (nestedModal) return { host: nestedModal, sourcePanel: panel };
+  const modalPanel = [
+    ...document.querySelectorAll(
+      '[class*="Modal_modalContainer"] div[class*="SkillActionDetail_regularComponent"],[class*="Modal_modalContainer"] div[class*="SkillActionDetail_skillActionDetail"]',
+    ),
+  ].find((candidate) => !isHiddenActionElement(candidate));
+  const activeModal = modalPanel?.closest?.(
+    '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
 }
 
 function ensureInventoryRefreshButton(panel) {
@@ -1285,12 +1308,12 @@ function ensureInventoryRefreshButton(panel) {
     removeInventoryRefreshButtons();
     return null;
   }
-  const { host, fallback } = resolved;
+  const { host, sourcePanel } = resolved;
   removeInventoryRefreshButtons(host);
   const computedPosition =
     document.defaultView?.getComputedStyle?.(host)?.position ?? "";
   const needsPositionAnchor =
-    fallback || !computedPosition || computedPosition === "static";
+    !computedPosition || computedPosition === "static";
   host.classList.add("mwi-procurement-refresh-host");
   host.classList.toggle(
     "mwi-procurement-refresh-position-anchor",
@@ -1315,7 +1338,7 @@ function ensureInventoryRefreshButton(panel) {
     event.stopPropagation();
     if (button.disabled) return;
     button.disabled = true;
-    const liveItems = resolveLiveCharacterItems(panel);
+    const liveItems = resolveLiveCharacterItems(sourcePanel);
     if (liveItems === null) {
       button.disabled = false;
       showToast(

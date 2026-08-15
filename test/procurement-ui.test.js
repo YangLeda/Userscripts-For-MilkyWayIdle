@@ -411,6 +411,25 @@ test("production procurement uses its stable sibling slot beside the summary", (
     false,
   );
 
+  const productionPanel = document.querySelector(
+    '[class*="SkillActionDetail_regularComponent"]',
+  );
+  productionPanel.style.display = "none";
+  const pagePanel = document.createElement("div");
+  pagePanel.className = "SkillActionDetail_regularComponent__page-fixture";
+  pagePanel.innerHTML = `<div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div><div class="SkillActionDetail_actionContainer__fixture"></div>`;
+  document.body.append(pagePanel);
+  runtime.api.renderProductionProcurement();
+  assert.equal(
+    document.querySelector("#mwitools-procurement-inventory-refresh"),
+    refresh,
+    "a page-level production detail must not steal the modal refresh button",
+  );
+  assert.equal(refresh.parentElement, visualModal);
+  productionPanel.style.display = "";
+  pagePanel.remove();
+  runtime.api.renderProductionProcurement();
+
   document.querySelector(".mwi-production-extensions").remove();
   runtime.api.renderProductionProcurement();
   const standalone = document.querySelector("#mwitools-procurement-production");

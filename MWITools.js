@@ -22755,13 +22755,32 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const modal = panel.closest?.(
       '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
     );
-    if (modal) return { host: modal, fallback: false };
+    if (modal) return { host: modal, sourcePanel: panel };
+    const existingHost = document.getElementById(
+      PRODUCTION_REFRESH_ID
+    )?.parentElement;
+    if (existingHost?.isConnected && !isHiddenActionElement2(existingHost) && existingHost.matches?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    )) {
+      const sourcePanel = existingHost.querySelector(
+        'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+      );
+      return { host: existingHost, sourcePanel: sourcePanel ?? panel };
+    }
     const modalContainer = panel.closest?.('[class*="Modal_modalContainer"]');
     const nestedModal = modalContainer?.querySelector?.(
       ':scope > [class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
     );
-    if (nestedModal) return { host: nestedModal, fallback: false };
-    return { host: panel, fallback: true };
+    if (nestedModal) return { host: nestedModal, sourcePanel: panel };
+    const modalPanel = [
+      ...document.querySelectorAll(
+        '[class*="Modal_modalContainer"] div[class*="SkillActionDetail_regularComponent"],[class*="Modal_modalContainer"] div[class*="SkillActionDetail_skillActionDetail"]'
+      )
+    ].find((candidate) => !isHiddenActionElement2(candidate));
+    const activeModal = modalPanel?.closest?.(
+      '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])'
+    );
+    return activeModal ? { host: activeModal, sourcePanel: modalPanel } : null;
   }
   function ensureInventoryRefreshButton(panel) {
     const resolved = resolveInventoryRefreshHost(panel);
@@ -22769,10 +22788,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       removeInventoryRefreshButtons();
       return null;
     }
-    const { host, fallback } = resolved;
+    const { host, sourcePanel } = resolved;
     removeInventoryRefreshButtons(host);
     const computedPosition = document.defaultView?.getComputedStyle?.(host)?.position ?? "";
-    const needsPositionAnchor = fallback || !computedPosition || computedPosition === "static";
+    const needsPositionAnchor = !computedPosition || computedPosition === "static";
     host.classList.add("mwi-procurement-refresh-host");
     host.classList.toggle(
       "mwi-procurement-refresh-position-anchor",
@@ -22797,7 +22816,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       event.stopPropagation();
       if (button.disabled) return;
       button.disabled = true;
-      const liveItems = resolveLiveCharacterItems(panel);
+      const liveItems = resolveLiveCharacterItems(sourcePanel);
       if (liveItems === null) {
         button.disabled = false;
         showToast(
@@ -27709,7 +27728,7 @@ ${locks}` : ""}`;
           "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
           "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
           "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。",
-          "生产详情右上角新增手动“更新仓库”按钮，会直接读取游戏当前仓库，并按最新库存重算生产余缺与购物车中的项目采购缺口；手工购物数量保持不变，常备阈值、项目占用和已计算规划也会收到库存更新，避免材料已消耗后仍显示旧余量。按钮固定在生产弹窗边框内，不会下推页面或改变弹窗原有的悬浮定位；游戏弹窗没有自带定位基准时也会正确显示，不再跑出可视区域。"
+          "生产详情右上角新增手动“更新仓库”按钮，会直接读取游戏当前仓库，并按最新库存重算生产余缺与购物车中的项目采购缺口；手工购物数量保持不变，常备阈值、项目占用和已计算规划也会收到库存更新，避免材料已消耗后仍显示旧余量。按钮固定在生产弹窗边框内，不会下推页面或改变弹窗原有的悬浮定位；游戏弹窗没有自带定位基准时也会正确显示，并且不会再与页面右上角的行动详情来回切换闪烁。"
         ]),
         en: Object.freeze([
           "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
@@ -27717,7 +27736,7 @@ ${locks}` : ""}`;
           "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
           "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
           "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes.",
-          "Added a manual Refresh inventory button in the top-right of production details. It reads the game's current inventory and recalculates production shortages plus project-sourced cart quantities; manual cart quantities stay intact, while restock thresholds, project reservations, and calculated Planning are notified of the new inventory so consumed materials no longer leave stale spare counts. The button stays inside the production dialog border without pushing the page down or changing the dialog's floating position, and remains visible when the game dialog does not provide its own positioning context."
+          "Added a manual Refresh inventory button in the top-right of production details. It reads the game's current inventory and recalculates production shortages plus project-sourced cart quantities; manual cart quantities stay intact, while restock thresholds, project reservations, and calculated Planning are notified of the new inventory so consumed materials no longer leave stale spare counts. The button stays inside the production dialog border without pushing the page down or changing the dialog's floating position, remains visible when the dialog has no positioning context, and no longer jumps back and forth between the dialog and the page-level action detail."
         ])
       })
     }),
