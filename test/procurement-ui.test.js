@@ -341,13 +341,19 @@ test("cart quantity hold-repeat stops after redraw, release, and clear", async (
 test("production procurement uses its stable sibling slot beside the summary", () => {
   document.body.insertAdjacentHTML(
     "beforeend",
-    `<div class="SkillActionDetail_regularComponent__fixture">
-      <div class="SkillActionDetail_itemRequirements__fixture">
-        <div class="Item_itemContainer__fixture"><svg><use href="#nail"></use></svg></div>
+    `<div class="Modal_modalContainer__fixture">
+      <div class="Modal_modal__fixture">
+        <div class="Modal_modalContent__fixture">
+          <div class="SkillActionDetail_regularComponent__fixture">
+            <div class="SkillActionDetail_itemRequirements__fixture">
+              <div class="Item_itemContainer__fixture"><svg><use href="#nail"></use></svg></div>
+            </div>
+            <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
+            <div class="SkillActionDetail_actionContainer__fixture"></div>
+            <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
+          </div>
+        </div>
       </div>
-      <div class="SkillActionDetail_maxActionCountInput__fixture"><input value="3"></div>
-      <div class="SkillActionDetail_actionContainer__fixture"></div>
-      <div class="mwi-production-extensions"><section id="mwi-production-summary" data-mwitools-production-slot="summary"></section></div>
     </div>`,
   );
   runtime.api.renderProductionProcurement();
@@ -386,6 +392,24 @@ test("production procurement uses its stable sibling slot beside the summary", (
     true,
   );
   assert.match(badge.textContent, /^(缺|Need) /);
+  const visualModal = document.querySelector(
+    '[class*="Modal_modal__"]:not([class*="Modal_modalContainer"])',
+  );
+  const modalContainer = document.querySelector(
+    '[class*="Modal_modalContainer"]',
+  );
+  const refresh = document.querySelector(
+    "#mwitools-procurement-inventory-refresh",
+  );
+  assert.equal(refresh.parentElement, visualModal);
+  assert.equal(
+    visualModal.classList.contains("mwi-procurement-refresh-host-fallback"),
+    false,
+  );
+  assert.equal(
+    modalContainer.classList.contains("mwi-procurement-refresh-host"),
+    false,
+  );
 
   document.querySelector(".mwi-production-extensions").remove();
   runtime.api.renderProductionProcurement();
