@@ -219,9 +219,15 @@ test("cart rows and footer stay stable while pointer drag persists order", () =>
   const root = host.shadowRoot;
   root.querySelector('.tab[data-tab="cart"]').click();
   const firstRow = root.querySelector(".cart-row");
+  const firstIcon = firstRow.querySelector(".item-icon").firstElementChild;
   const clearButton = root.querySelector(".panel-footer .clear");
   runtime.api.renderProcurementShell();
   assert.equal(root.querySelector(".cart-row"), firstRow);
+  assert.equal(
+    root.querySelector(".cart-row .item-icon").firstElementChild,
+    firstIcon,
+    "unchanged cart icons must remain mounted across external redraws",
+  );
   assert.equal(root.querySelector(".panel-footer .clear"), clearButton);
 
   let pageScrolled = false;
@@ -984,10 +990,25 @@ test("market shopping navigation renders item icons instead of name pills", () =
   const chip = document.querySelector(
     "#mwitools-procurement-market-nav .mwi-procurement-nav-chip",
   );
+  const chipIcon = chip.querySelector(".mwi-procurement-nav-icon svg");
   assert.ok(chip.querySelector(".mwi-procurement-nav-icon svg use"));
   assert.match(chip.querySelector("svg use").getAttribute("href"), /#cotton$/);
   assert.doesNotMatch(chip.textContent, /Cotton|棉花/);
   assert.match(chip.title, /Cotton/);
+
+  runtime.api.updateProcurementMarketUi();
+  assert.equal(
+    document.querySelector(
+      "#mwitools-procurement-market-nav .mwi-procurement-nav-chip",
+    ),
+    chip,
+    "unchanged third-party market mutations must not replace nav buttons",
+  );
+  assert.equal(
+    chip.querySelector(".mwi-procurement-nav-icon svg"),
+    chipIcon,
+    "unchanged third-party market mutations must not replace nav icons",
+  );
 
   modal.remove();
   const realNow = Date.now;

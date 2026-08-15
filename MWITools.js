@@ -21848,7 +21848,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const icon = row.querySelector(".item-icon");
     icon.disabled = !marketEnabled;
     icon.title = marketEnabled ? t9("在市场中打开", "Open in marketplace") : "";
-    icon.innerHTML = renderItemIcon2(item);
+    const iconMarkup2 = renderItemIcon2(item);
+    if (icon.mwitoolsIconMarkup !== iconMarkup2) {
+      icon.innerHTML = iconMarkup2;
+      icon.mwitoolsIconMarkup = iconMarkup2;
+    }
     const name = row.querySelector(".item-name");
     name.disabled = !marketEnabled;
     name.title = item.name;
@@ -23258,40 +23262,79 @@ ${locks}` : ""}`;
       nav.id = MARKET_NAV_ID;
       document.body.appendChild(nav);
     }
-    nav.replaceChildren();
-    const progress = document.createElement("span");
-    progress.className = "mwi-procurement-nav-progress";
-    progress.textContent = t9(`待购 ${items.length}`, `${items.length} pending`);
-    const list = document.createElement("div");
-    list.className = "mwi-procurement-nav-items";
-    for (const item of rows2) {
-      const chip = document.createElement("button");
-      chip.className = "mwi-procurement-nav-chip";
-      chip.dataset.current = String(!item.done && item.itemHrid === current);
-      chip.dataset.done = String(Boolean(item.done));
+    const progressText = t9(`待购 ${items.length}`, `${items.length} pending`);
+    const rowModels = rows2.map((item) => {
       const itemName4 = procurement3.resolveItemName(item.itemHrid) || item.name;
       const quantity = item.done ? t9("已完成", "Completed") : exactNumber(item.quantity);
-      chip.title = `${itemName4} · ${quantity}`;
-      chip.setAttribute("aria-label", chip.title);
-      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon2({ ...item, name: itemName4 })}</span><b>${item.done ? "✓" : formatNumber4(item.quantity)}</b>`;
-      if (!item.done) {
-        chip.addEventListener(
-          "click",
-          () => openMarketplace(item.itemHrid, item.enhancementLevel)
-        );
-      }
-      list.append(chip);
-    }
-    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
-    const nextButton = document.createElement("button");
-    nextButton.className = "mwi-procurement-nav-next";
-    nextButton.textContent = t9("下一项 ›", "Next ›");
-    nextButton.disabled = !next;
-    nextButton.addEventListener("click", () => {
-      if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
-      armedNextItem = "";
+      return {
+        item,
+        itemName: itemName4,
+        quantity,
+        current: !item.done && item.itemHrid === current,
+        iconMarkup: renderItemIcon2({ ...item, name: itemName4 }),
+        badge: item.done ? "✓" : formatNumber4(item.quantity)
+      };
     });
-    nav.append(progress, list, nextButton);
+    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
+    const nextText = t9("下一项 ›", "Next ›");
+    const renderSignature = JSON.stringify({
+      progressText,
+      nextText,
+      next: next ? procurement3.itemKey(next.itemHrid, next.enhancementLevel) : "",
+      rows: rowModels.map(
+        ({
+          item,
+          itemName: itemName4,
+          quantity,
+          current: isCurrent,
+          iconMarkup: iconMarkup2,
+          badge
+        }) => ({
+          key: procurement3.itemKey(item.itemHrid, item.enhancementLevel),
+          done: Boolean(item.done),
+          itemName: itemName4,
+          quantity,
+          current: isCurrent,
+          iconMarkup: iconMarkup2,
+          badge
+        })
+      )
+    });
+    if (nav.mwitoolsRenderSignature !== renderSignature) {
+      nav.replaceChildren();
+      const progress = document.createElement("span");
+      progress.className = "mwi-procurement-nav-progress";
+      progress.textContent = progressText;
+      const list = document.createElement("div");
+      list.className = "mwi-procurement-nav-items";
+      for (const model of rowModels) {
+        const { item } = model;
+        const chip = document.createElement("button");
+        chip.className = "mwi-procurement-nav-chip";
+        chip.dataset.current = String(model.current);
+        chip.dataset.done = String(Boolean(item.done));
+        chip.title = `${model.itemName} · ${model.quantity}`;
+        chip.setAttribute("aria-label", chip.title);
+        chip.innerHTML = `<span class="mwi-procurement-nav-icon">${model.iconMarkup}</span><b>${model.badge}</b>`;
+        if (!item.done) {
+          chip.addEventListener(
+            "click",
+            () => openMarketplace(item.itemHrid, item.enhancementLevel)
+          );
+        }
+        list.append(chip);
+      }
+      const nextButton = document.createElement("button");
+      nextButton.className = "mwi-procurement-nav-next";
+      nextButton.textContent = nextText;
+      nextButton.disabled = !next;
+      nextButton.addEventListener("click", () => {
+        if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
+        armedNextItem = "";
+      });
+      nav.append(progress, list, nextButton);
+      nav.mwitoolsRenderSignature = renderSignature;
+    }
     const modal = panel.closest('[class*="MainPanel_marketplaceModal__"]') ?? panel.closest('[class*="Modal_modalContainer"]') ?? panel;
     const rect = modal.getBoundingClientRect();
     const height = nav.offsetHeight || 40;
@@ -27415,13 +27458,15 @@ ${locks}` : ""}`;
           "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
           "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
           "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
-          "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。"
+          "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
+          "修复与 Ranged Way Idle 等持续观察市场界面的脚本同时使用时，打开市场后购物车和采购导航图标反复闪烁、无法点击的问题；未变化的物品图标与导航按钮现在会保持原节点，不再被外部界面刷新反复替换。"
         ]),
         en: Object.freeze([
           "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
           "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
           "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
-          "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable."
+          "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
+          "Fixed shopping-cart and procurement navigation icons flickering and becoming unclickable after opening the marketplace alongside scripts such as Ranged Way Idle. Unchanged item icons and navigation buttons now stay mounted instead of being repeatedly replaced by external UI refreshes."
         ])
       })
     }),

@@ -373,7 +373,11 @@ function updateCartRow(row, item, { marketEnabled, pricesEnabled, price }) {
   const icon = row.querySelector(".item-icon");
   icon.disabled = !marketEnabled;
   icon.title = marketEnabled ? t("在市场中打开", "Open in marketplace") : "";
-  icon.innerHTML = renderItemIcon(item);
+  const iconMarkup = renderItemIcon(item);
+  if (icon.mwitoolsIconMarkup !== iconMarkup) {
+    icon.innerHTML = iconMarkup;
+    icon.mwitoolsIconMarkup = iconMarkup;
+  }
   const name = row.querySelector(".item-name");
   name.disabled = !marketEnabled;
   name.title = item.name;
@@ -2001,42 +2005,81 @@ function renderMarketNav(panel) {
     nav.id = MARKET_NAV_ID;
     document.body.appendChild(nav);
   }
-  nav.replaceChildren();
-  const progress = document.createElement("span");
-  progress.className = "mwi-procurement-nav-progress";
-  progress.textContent = t(`待购 ${items.length}`, `${items.length} pending`);
-  const list = document.createElement("div");
-  list.className = "mwi-procurement-nav-items";
-  for (const item of rows) {
-    const chip = document.createElement("button");
-    chip.className = "mwi-procurement-nav-chip";
-    chip.dataset.current = String(!item.done && item.itemHrid === current);
-    chip.dataset.done = String(Boolean(item.done));
+  const progressText = t(`待购 ${items.length}`, `${items.length} pending`);
+  const rowModels = rows.map((item) => {
     const itemName = procurement.resolveItemName(item.itemHrid) || item.name;
     const quantity = item.done
       ? t("已完成", "Completed")
       : exactNumber(item.quantity);
-    chip.title = `${itemName} · ${quantity}`;
-    chip.setAttribute("aria-label", chip.title);
-    chip.innerHTML = `<span class="mwi-procurement-nav-icon">${renderItemIcon({ ...item, name: itemName })}</span><b>${item.done ? "✓" : formatNumber(item.quantity)}</b>`;
-    if (!item.done) {
-      chip.addEventListener("click", () =>
-        openMarketplace(item.itemHrid, item.enhancementLevel),
-      );
-    }
-    list.append(chip);
-  }
+    return {
+      item,
+      itemName,
+      quantity,
+      current: !item.done && item.itemHrid === current,
+      iconMarkup: renderItemIcon({ ...item, name: itemName }),
+      badge: item.done ? "✓" : formatNumber(item.quantity),
+    };
+  });
   const next =
     items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
-  const nextButton = document.createElement("button");
-  nextButton.className = "mwi-procurement-nav-next";
-  nextButton.textContent = t("下一项 ›", "Next ›");
-  nextButton.disabled = !next;
-  nextButton.addEventListener("click", () => {
-    if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
-    armedNextItem = "";
+  const nextText = t("下一项 ›", "Next ›");
+  const renderSignature = JSON.stringify({
+    progressText,
+    nextText,
+    next: next ? procurement.itemKey(next.itemHrid, next.enhancementLevel) : "",
+    rows: rowModels.map(
+      ({
+        item,
+        itemName,
+        quantity,
+        current: isCurrent,
+        iconMarkup,
+        badge,
+      }) => ({
+        key: procurement.itemKey(item.itemHrid, item.enhancementLevel),
+        done: Boolean(item.done),
+        itemName,
+        quantity,
+        current: isCurrent,
+        iconMarkup,
+        badge,
+      }),
+    ),
   });
-  nav.append(progress, list, nextButton);
+  if (nav.mwitoolsRenderSignature !== renderSignature) {
+    nav.replaceChildren();
+    const progress = document.createElement("span");
+    progress.className = "mwi-procurement-nav-progress";
+    progress.textContent = progressText;
+    const list = document.createElement("div");
+    list.className = "mwi-procurement-nav-items";
+    for (const model of rowModels) {
+      const { item } = model;
+      const chip = document.createElement("button");
+      chip.className = "mwi-procurement-nav-chip";
+      chip.dataset.current = String(model.current);
+      chip.dataset.done = String(Boolean(item.done));
+      chip.title = `${model.itemName} · ${model.quantity}`;
+      chip.setAttribute("aria-label", chip.title);
+      chip.innerHTML = `<span class="mwi-procurement-nav-icon">${model.iconMarkup}</span><b>${model.badge}</b>`;
+      if (!item.done) {
+        chip.addEventListener("click", () =>
+          openMarketplace(item.itemHrid, item.enhancementLevel),
+        );
+      }
+      list.append(chip);
+    }
+    const nextButton = document.createElement("button");
+    nextButton.className = "mwi-procurement-nav-next";
+    nextButton.textContent = nextText;
+    nextButton.disabled = !next;
+    nextButton.addEventListener("click", () => {
+      if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
+      armedNextItem = "";
+    });
+    nav.append(progress, list, nextButton);
+    nav.mwitoolsRenderSignature = renderSignature;
+  }
   const modal =
     panel.closest('[class*="MainPanel_marketplaceModal__"]') ??
     panel.closest('[class*="Modal_modalContainer"]') ??

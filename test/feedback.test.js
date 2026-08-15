@@ -420,7 +420,11 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 4);
+  assert.equal(current.body.zh.length, 5);
+  assert.match(
+    current.body.zh.join("\n"),
+    /Ranged Way Idle.*购物车.*图标.*无法点击.*保持原节点/,
+  );
   assert.equal(previous.body.zh.length, previous.body.en.length);
   assert.equal(previous.body.zh.length, 24);
   assert.match(
