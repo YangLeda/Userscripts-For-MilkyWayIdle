@@ -420,7 +420,7 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 7);
+  assert.equal(current.body.zh.length, 8);
   assert.match(
     current.body.zh.join("\n"),
     /Ranged Way Idle.*购物车.*图标.*无法点击.*保持原节点/,
@@ -454,6 +454,10 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(
     current.body.zh.join("\n"),
     /眼球怪、灵魂猎手.*多个地牢.*全部匹配地牢.*自身地牢/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /金币未计入库存价值.*固定按 1:1.*货币分类.*总资产.*市场行情快照.*月神之蝶.*星球 BOSS 怪物.*BOSS 刷新数据.*每 10 场.*40 次.*普通怪物与地牢任务.*原数量/,
   );
   assert.match(
     current.body.zh.join("\n"),

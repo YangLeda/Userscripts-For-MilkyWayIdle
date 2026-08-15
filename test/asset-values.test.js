@@ -99,6 +99,17 @@ runtime.state.initData_itemDetailMap = {
     equipmentDetail: { type: "/equipment_types/back" },
   },
 };
+
+test("coin keeps its fixed asset value without market data", () => {
+  const originalGetAssetFairValue = runtime.api.getAssetFairValue;
+  runtime.api.getAssetFairValue = () => {
+    throw new Error("coin valuation must not read the market snapshot");
+  };
+
+  assert.equal(runtime.api.getAssetValue("/items/coin"), 1);
+
+  runtime.api.getAssetFairValue = originalGetAssetFairValue;
+});
 runtime.state.initData_shopItemDetailMap = {
   dungeon_reward: {
     itemHrid: "/items/dungeon_reward",

@@ -230,6 +230,12 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
       enhancementLevel: 0,
       count: 4,
     },
+    {
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 50,
+    },
   ];
   runtime.state.initData_myMarketListings = [
     {
@@ -245,6 +251,7 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
     "/items/equipment": { fair: 10, ask: 12, bid: 8 },
     "/items/inventory": { fair: 20, ask: 22, bid: 18 },
     "/items/token": { fair: 30, ask: 0, bid: 0 },
+    "/items/coin": { fair: 1, ask: 1, bid: 1 },
   };
   runtime.api.fetchMarketJSON = async () => ({ marketData: {} });
   runtime.api.ensureMarketValueSource = async () => true;
@@ -268,15 +275,15 @@ test("snapshot service calculates seven categories, totals, and taxed listings",
   const result = await getAssetSnapshot();
   assert.deepEqual(result.values, {
     equipment: 20,
-    inventory: 60,
+    inventory: 110,
     marketListings: 222,
     houses: 2_000_000,
     abilities: 3_000_000,
     nonTradableTokens: 120,
     shrine: 400,
-    liquid: 302,
+    liquid: 352,
     fixed: 5_000_520,
-    total: 5_000_822,
+    total: 5_000_872,
   });
   assert.equal(result.complete, true);
 });

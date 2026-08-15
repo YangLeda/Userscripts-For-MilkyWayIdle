@@ -11,6 +11,7 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "修复金币未计入库存价值的问题；金币现在固定按 1:1 计入库存、货币分类和总资产，不再受市场行情快照是否包含金币影响。以月神之蝶等星球 BOSS 怪物为目标的任务从任务页前往时，也会按官方 BOSS 刷新数据自动换算战斗次数，例如剩余 4 只且每 10 场出现一只时会填写 40 次；普通怪物与地牢任务保持原数量。",
         "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
         "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
         "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
@@ -20,6 +21,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "修复自托管更新文件已经上传并成功请求 CDN 缓存刷新后，发布任务仍因无权查询刷新进度而误报失败的问题；发布流程会继续校验产物并请求缓存刷新，但不再依赖额外的刷新状态读取权限。",
       ]),
       en: Object.freeze([
+        "Fixed coins being omitted from inventory value. Coins now always count 1:1 toward inventory, the currency category, and total assets regardless of whether the market snapshot contains a coin record. Going to a task targeting a planet boss monster such as Luna Butterfly now also converts the remaining bosses through the official boss spawn data—for example, four remaining bosses that spawn every ten battles fill in 40 actions—while regular monsters and dungeon task counts stay unchanged.",
         "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
         "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
         "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",

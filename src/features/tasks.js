@@ -329,6 +329,29 @@ function taskRemaining(task) {
   return value;
 }
 
+function taskRequiredActionCount(task) {
+  const remaining = taskRemaining(task);
+  const monsterHrid = normalizeMonsterHrid(
+    nestedValue(task, [
+      "monsterHrid",
+      "targetMonsterHrid",
+      "combatMonsterHrid",
+    ]),
+  );
+  if (!monsterHrid) return remaining;
+  for (const detail of Object.values(
+    runtime.state.initData_actionDetailMap ?? {},
+  )) {
+    if (detail?.combatZoneInfo?.isDungeon) continue;
+    const fightInfo = detail?.combatZoneInfo?.fightInfo;
+    const battlesPerBoss = Number(fightInfo?.battlesPerBoss);
+    if (!(Number.isFinite(battlesPerBoss) && battlesPerBoss > 0)) continue;
+    if (!fightMonsterHrids(fightInfo?.bossSpawns).has(monsterHrid)) continue;
+    return remaining * battlesPerBoss;
+  }
+  return remaining;
+}
+
 function rewardValue(task) {
   let rewards = nestedValue(task, ["rewardItems", "rewards", "items"]);
   if (!Array.isArray(rewards) && task?.itemRewardsJSON) {
@@ -1502,7 +1525,10 @@ function wireMergeButtons(cards) {
       if (!matching.length) return;
       runtime.state.pendingMergedTask = {
         actionHrid,
-        count: matching.reduce((sum, task) => sum + taskRemaining(task), 0),
+        count: matching.reduce(
+          (sum, task) => sum + taskRequiredActionCount(task),
+          0,
+        ),
         taskCount: matching.length,
       };
     };

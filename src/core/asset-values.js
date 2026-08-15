@@ -891,6 +891,7 @@ function getAssetValueInternal(
   options = {},
 ) {
   if (!itemHrid) return 0;
+  if (itemHrid === "/items/coin") return 1;
   const level = Number(enhancementLevel) || 0;
   const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
   const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);

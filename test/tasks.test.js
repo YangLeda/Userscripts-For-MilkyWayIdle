@@ -75,6 +75,7 @@ registerGameLocaleResources("zh", {
     "/monsters/rat": "杰瑞",
     "/monsters/eye": "独眼",
     "/monsters/frost_sniper": "霜冻狙击手",
+    "/monsters/luna_butterfly": "月神之蝶",
   },
   abilityNames: { "/abilities/strike": "猛击" },
 });
@@ -126,7 +127,13 @@ runtime.state.initData_actionDetailMap = {
     name: "Smelly Planet",
     type: "/action_types/combat",
     category: "/action_categories/combat/smelly_planet",
-    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 10 } },
+    combatZoneInfo: {
+      isDungeon: false,
+      fightInfo: {
+        battlesPerBoss: 10,
+        bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+      },
+    },
   },
   "/actions/combat/aquahorse": {
     hrid: "/actions/combat/aquahorse",
@@ -1703,6 +1710,103 @@ test("rerolled reused cards merge the latest matching task totals", () => {
   runtime.state.characterQuests = [];
   replacementButton.click();
   assert.equal(runtime.state.pendingMergedTask, null);
+});
+
+test("planet boss tasks convert remaining bosses into required battles", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/smelly_planet": {
+      hrid: "/actions/combat/smelly_planet",
+      name: "Smelly Planet",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: {
+        isDungeon: false,
+        fightInfo: {
+          battlesPerBoss: 10,
+          bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+        },
+      },
+    },
+  };
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__planet-boss";
+  list.innerHTML = card("击败 - 月神之蝶", "0 / 4");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "smelly-planet-boss",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+  ];
+
+  runtime.api.renderTasks();
+  list.querySelectorAll("button")[1].click();
+
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/combat/smelly_planet",
+    count: 40,
+    taskCount: 1,
+  });
+  runtime.state.pendingMergedTask = null;
+  runtime.state.initData_actionDetailMap = previousActionMap;
+});
+
+test("matching planet boss tasks merge after converting each boss count", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/smelly_planet": {
+      hrid: "/actions/combat/smelly_planet",
+      name: "Smelly Planet",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: {
+        isDungeon: false,
+        fightInfo: {
+          battlesPerBoss: 10,
+          bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+        },
+      },
+    },
+  };
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__merged-planet-boss";
+  list.innerHTML = [
+    card("击败 - 月神之蝶", "0 / 4"),
+    card("击败 - 月神之蝶", "1 / 3"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "smelly-planet-boss-a",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+    {
+      id: "smelly-planet-boss-b",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 3,
+      currentCount: 1,
+    },
+  ];
+
+  runtime.api.renderTasks();
+  list.querySelectorAll(TASK_SELECTOR)[0].querySelectorAll("button")[1].click();
+
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/combat/smelly_planet",
+    count: 60,
+    taskCount: 2,
+  });
+  runtime.state.pendingMergedTask = null;
+  runtime.state.initData_actionDetailMap = previousActionMap;
 });
 
 test("full task capacity still renders the task module beside its reward card", () => {

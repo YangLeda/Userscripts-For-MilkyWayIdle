@@ -699,6 +699,34 @@ test("optional token setting excludes the same stacks from inventory category va
   runtime.api.getAssetValue = previousAsset;
 });
 
+test("currency category value includes coins without a market record", () => {
+  const previousItems = runtime.state.initData_characterItems;
+  const previousDetails = runtime.state.initData_itemDetailMap;
+  runtime.state.initData_characterItems = [
+    {
+      itemHrid: "/items/coin",
+      itemLocationHrid: "/item_locations/inventory",
+      enhancementLevel: 0,
+      count: 250,
+    },
+  ];
+  runtime.state.initData_itemDetailMap = {
+    "/items/coin": { categoryHrid: "/item_categories/currency" },
+  };
+  runtime.api.invalidateAssetValueCache();
+
+  assert.equal(
+    runtime.api
+      .calculateInventoryCategoryValues()
+      .get("/item_categories/currency"),
+    250,
+  );
+
+  runtime.state.initData_characterItems = previousItems;
+  runtime.state.initData_itemDetailMap = previousDetails;
+  runtime.api.invalidateAssetValueCache();
+});
+
 test("market value sorting ranks every stack descending inside its category", async () => {
   document.body.innerHTML = `<section id="sort-parent"><div class="Inventory_items__newHash">
     <div class="Inventory_category__newHash"><div class="Inventory_itemGrid__newHash">
