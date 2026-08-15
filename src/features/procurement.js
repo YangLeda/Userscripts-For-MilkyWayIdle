@@ -1313,7 +1313,9 @@ function ensureInventoryRefreshButton(panel) {
   const computedPosition =
     document.defaultView?.getComputedStyle?.(host)?.position ?? "";
   const needsPositionAnchor =
-    !computedPosition || computedPosition === "static";
+    host.classList.contains("mwi-procurement-refresh-position-anchor") ||
+    !computedPosition ||
+    computedPosition === "static";
   host.classList.add("mwi-procurement-refresh-host");
   host.classList.toggle(
     "mwi-procurement-refresh-position-anchor",

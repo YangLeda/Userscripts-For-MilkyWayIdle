@@ -426,6 +426,11 @@ test("production procurement uses its stable sibling slot beside the summary", (
     "a page-level production detail must not steal the modal refresh button",
   );
   assert.equal(refresh.parentElement, visualModal);
+  assert.equal(
+    visualModal.classList.contains("mwi-procurement-refresh-position-anchor"),
+    true,
+    "repeated renders must preserve the modal positioning anchor",
+  );
   productionPanel.style.display = "";
   pagePanel.remove();
   runtime.api.renderProductionProcurement();
