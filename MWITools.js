@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.11
+// @version      26.4.12
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -27284,6 +27284,23 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.12",
+      version: "26.4.12",
+      publishedAt: "2026-08-15",
+      title: Object.freeze({
+        zh: "26.4.12 更新公告",
+        en: "Version 26.4.12 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。"
+        ]),
+        en: Object.freeze([
+          "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.11",
       version: "26.4.11",
       publishedAt: "2026-08-14",
@@ -27313,7 +27330,6 @@ ${locks}` : ""}`;
           "修复部分浏览器在资产快照刷新或切换角色页面时抛出 contains 权限错误、导致资产图表刷新失败的问题；图表现在只会在画布仍连接页面时绘制，并会安全处理游戏界面重建。",
           "修复打开角色页“盈亏”后隐藏状态监听与图表重建相互触发、导致单核 CPU 持续占满的问题；盈亏页现在会在界面稳定后停止工作，行动、公会、任务、角色页与顶部入口也会共享重复的页面观察，降低默认运行开销。",
           "恢复任务页地牢筛选按钮的官方图标；即使当前页面尚未加载行动图集，也会从游戏资源清单补全图集地址并自动替换菱形占位符。属于地牢的怪物任务卡现在也会在怪物图旁显示所有匹配地牢的同尺寸图标。",
-          "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
           "恢复食物与饮品的回复性价比悬浮提示，可按市场价值查看回复 100 血或蓝所需金币；设置中的“消耗品性价比”默认开启，不再显示旧版的每分钟回复和理论每日用量。",
           "优化任务页打开速度：官方名称回退和图集地址现在按当前游戏数据复用，旧地图序号会直接沿用任务分类结果，避免每张任务卡重复扫描整套实体数据和全页图标。",
           "DPS 命中率悬浮明细现在会在怪物名称前显示对应的官方怪物图标，多个目标更容易快速区分。",
@@ -27340,7 +27356,6 @@ ${locks}` : ""}`;
           "Fixed some browsers throwing a contains permission error during asset snapshot refreshes or Character page switches, which could stop asset charts from refreshing. Charts now render only while their canvas remains connected and safely handle game UI rebuilds.",
           "Fixed the Character-page P/L view saturating one CPU core when hidden-state observation repeatedly triggered chart rebuilds. P/L now becomes idle once the UI settles, while action, guild, task, Character-page, and header features share duplicate page observers to reduce default runtime overhead.",
           "Restored the official icons on Task-page dungeon filters. When the current page has not loaded the action sprite yet, MWITools now completes its sprite registry from the game asset manifest and automatically replaces the diamond placeholders. Monster task cards now also show same-size icons for every matching dungeon beside the monster artwork.",
-          "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
           "Restored recovery-efficiency details in food and drink tooltips, showing the market-value cost to restore 100 HP or MP. The Consumable efficiency setting is enabled by default without bringing back the old recovery-per-minute or theoretical daily-use figures.",
           "Improved Task-page opening speed by reusing official-name fallbacks and sprite locations for the current game data. Legacy zone labels now consume the existing task classification instead of rescanning every card, the full entity catalog, and page-wide icons.",
           "DPS accuracy details now show each monster's official icon beside its name, making multiple targets easier to distinguish at a glance.",
@@ -33672,7 +33687,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.11");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.12");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;

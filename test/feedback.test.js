@@ -394,42 +394,49 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.11", () => {
+test("announcement history preserves each release separately through 26.4.12", () => {
   const current = ANNOUNCEMENTS[0];
   const previous = ANNOUNCEMENTS[1];
-  const older = ANNOUNCEMENTS[2];
-  const oldest = ANNOUNCEMENTS[3];
-  const earliest = ANNOUNCEMENTS[4];
+  const prior = ANNOUNCEMENTS[2];
+  const older = ANNOUNCEMENTS[3];
+  const oldest = ANNOUNCEMENTS[4];
+  const earliest = ANNOUNCEMENTS[5];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    ["26.4.12", "26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
   );
-  assert.equal(current.version, "26.4.11");
-  assert.equal(current.publishedAt, "2026-08-14");
-  assert.match(current.title.zh, /26\.4\.11 重要更新公告/);
-  assert.match(current.title.en, /Important version 26\.4\.11 update/);
-  assert.equal(previous.version, "26.4.9");
-  assert.equal(previous.publishedAt, "2026-08-13");
+  assert.equal(current.version, "26.4.12");
+  assert.equal(current.publishedAt, "2026-08-15");
+  assert.match(current.title.zh, /26\.4\.12 更新公告/);
+  assert.match(current.title.en, /Version 26\.4\.12 update/);
+  assert.equal(previous.version, "26.4.11");
+  assert.equal(previous.publishedAt, "2026-08-14");
+  assert.match(previous.title.zh, /26\.4\.11 重要更新公告/);
+  assert.match(previous.title.en, /Important version 26\.4\.11 update/);
+  assert.equal(prior.version, "26.4.9");
+  assert.equal(prior.publishedAt, "2026-08-13");
   assert.equal(older.version, "26.4.8");
   assert.equal(oldest.version, "26.4.7");
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 25);
+  assert.equal(current.body.zh.length, 1);
+  assert.equal(previous.body.zh.length, previous.body.en.length);
+  assert.equal(previous.body.zh.length, 24);
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /自托管更新源.*校验脚本、元数据、版本和更新地址.*CDN 缓存刷新/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /稳定射击.*实时命中率排行.*各怪物的命中率.*排除辅助、持续伤害、反伤/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /DPS 标题栏.*永久缺失大部分图标.*资源就绪后自动补回.*图集路径/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /恢复任务页地牢筛选按钮的官方图标.*菱形占位符.*所有匹配地牢的同尺寸图标/,
   );
   assert.match(
@@ -437,30 +444,30 @@ test("announcement history preserves each release separately through 26.4.11", (
     /眼球怪、灵魂猎手.*多个地牢.*全部匹配地牢.*自身地牢/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /盈亏.*单核 CPU.*共享重复的页面观察/,
   );
-  assert.match(current.body.zh.join("\n"), /悬浮窗口字号.*标准、较大和最大/);
-  assert.match(current.body.zh.join("\n"), /角色初始化或重新连接.*旧库存/);
+  assert.match(previous.body.zh.join("\n"), /悬浮窗口字号.*标准、较大和最大/);
+  assert.match(previous.body.zh.join("\n"), /角色初始化或重新连接.*旧库存/);
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /压缩内置备用行情数据.*不增加外部 CDN/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /全部九种游戏语言.*不会新增游戏数据网络请求/,
   );
-  assert.match(current.body.zh.join("\n"), /contains 权限错误.*界面重建/);
+  assert.match(previous.body.zh.join("\n"), /contains 权限错误.*界面重建/);
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /恢复食物与饮品的回复性价比.*回复 100 血或蓝所需金币/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /优化任务页打开速度.*复用.*避免每张任务卡重复扫描/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /DPS 命中率悬浮明细.*官方怪物图标.*快速区分/,
   );
   assert.equal(earliest.body.zh.length, 20);
@@ -470,38 +477,38 @@ test("announcement history preserves each release separately through 26.4.11", (
   assert.match(oldest.body.zh.join("\n"), /版本公告恢复按版本独立保存/);
   assert.match(older.body.zh.join("\n"), /炼金与强化/);
   assert.match(
-    previous.body.zh.join("\n"),
+    prior.body.zh.join("\n"),
     /切换到技能页再返回库存.*晚到回调再次写入隐藏状态也会保持可见/,
   );
   assert.match(
-    previous.body.zh.join("\n"),
+    prior.body.zh.join("\n"),
     /评分和总资产现在会在本次页面会话首次计算后保持不变.*单独移除摘要时也会自动补回/,
   );
   assert.match(
-    previous.body.zh.join("\n"),
+    prior.body.zh.join("\n"),
     /更换战斗技能后，目标等级和生产次数快捷输入不显示/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /小紫牛风格的性能初始化引导.*流畅优先.*重新开始/,
   );
   assert.match(
-    current.body.en.join("\n"),
+    previous.body.en.join("\n"),
     /Purple Cow-style performance setup.*Smooth.*restart the guide/,
   );
   assert.match(
-    current.body.zh.join("\n"),
+    previous.body.zh.join("\n"),
     /左上角总进度.*应用配置后自动刷新页面/,
   );
   assert.match(
-    current.body.en.join("\n"),
+    previous.body.en.join("\n"),
     /overall progress bar.*refreshes the page automatically/,
   );
-  assert.match(current.body.zh.join("\n"), /自动开启铁牛模式适配/);
-  assert.match(current.body.zh.join("\n"), /刷新价值.*鼠标和触屏拖动排序/);
-  assert.match(current.body.zh.join("\n"), /有限时长 \+ ∞/);
-  assert.match(current.body.en.join("\n"), /MWI TaskManager/);
-  assert.doesNotMatch(previous.body.zh.join("\n"), /小紫牛风格|自动开启铁牛/);
+  assert.match(previous.body.zh.join("\n"), /自动开启铁牛模式适配/);
+  assert.match(previous.body.zh.join("\n"), /刷新价值.*鼠标和触屏拖动排序/);
+  assert.match(previous.body.zh.join("\n"), /有限时长 \+ ∞/);
+  assert.match(previous.body.en.join("\n"), /MWI TaskManager/);
+  assert.doesNotMatch(prior.body.zh.join("\n"), /小紫牛风格|自动开启铁牛/);
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {
