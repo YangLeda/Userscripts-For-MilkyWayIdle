@@ -18,6 +18,17 @@ export const ENHANCEMENT_PROFILE = Object.freeze({
   teaDurationSeconds: 300,
 });
 
+export const DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+  playerLevel: 136,
+  houseLevel: 8,
+  enhancerBonusPercent: 5.26,
+  gearSpeedBonusPercent: 37.22,
+  teaType: "ultra_enhancing_tea",
+  blessedTea: true,
+  timeFeePerHour: 0,
+  taxRatePercent: 2,
+});
+
 const DEFAULT_SUCCESS_RATES = [
   0.5, 0.45, 0.45, 0.4, 0.4, 0.4, 0.35, 0.35, 0.35, 0.35, 0.3, 0.3, 0.3, 0.3,
   0.3, 0.3, 0.3, 0.3, 0.3, 0.3,
@@ -280,7 +291,51 @@ export function getEnhancementProfileStats({
   itemDetailMap = runtime.state.initData_itemDetailMap,
   bonusMultiplierTable = runtime.state
     .initData_enhancementLevelTotalBonusMultiplierTable,
+  simulationProfile = null,
 } = {}) {
+  if (simulationProfile) {
+    const targetItemLevel = Number(itemLevel);
+    if (!Number.isFinite(targetItemLevel) || targetItemLevel <= 0) {
+      return null;
+    }
+    const teaLevelBonus =
+      {
+        enhancing_tea: 3,
+        super_enhancing_tea: 6,
+        ultra_enhancing_tea: 8,
+      }[simulationProfile.teaType] ?? 0;
+    const playerLevel = Number(simulationProfile.playerLevel) || 0;
+    const houseLevel = Number(simulationProfile.houseLevel) || 0;
+    const effectiveLevel = playerLevel + teaLevelBonus;
+    const levelSuccess =
+      effectiveLevel >= targetItemLevel
+        ? (effectiveLevel + houseLevel - targetItemLevel) * 0.0005
+        : -0.5 * (1 - effectiveLevel / targetItemLevel) + houseLevel * 0.0005;
+    const successBonus =
+      levelSuccess +
+      (Number(simulationProfile.enhancerBonusPercent) || 0) / 100;
+    const speedBonus =
+      (houseLevel +
+        (Number(simulationProfile.gearSpeedBonusPercent) || 0) +
+        (effectiveLevel > targetItemLevel
+          ? effectiveLevel - targetItemLevel
+          : 0)) /
+      100;
+    return {
+      effectiveLevel,
+      toolSuccess: (Number(simulationProfile.enhancerBonusPercent) || 0) / 100,
+      gloveSpeed: (Number(simulationProfile.gearSpeedBonusPercent) || 0) / 100,
+      topSpeed: 0,
+      bottomsSpeed: 0,
+      capeSpeed: 0,
+      successBonus,
+      speedBonus,
+      blessedChance: simulationProfile.blessedTea ? 0.01 : 0,
+      secondsPerAction:
+        ENHANCEMENT_PROFILE.baseActionSeconds / (1 + speedBonus),
+    };
+  }
+
   const bonusTable = normalizedTable(
     bonusMultiplierTable,
     DEFAULT_BONUS_MULTIPLIERS,
@@ -725,6 +780,7 @@ export function calculateEnhancementPlan({
   projectAction = runtime.api.projectAction,
   forcedProtectionItemHrid = null,
   allowPhilosopherMirror = true,
+  simulationProfile = null,
 } = {}) {
   const target = Math.max(0, Math.floor(Number(targetLevel) || 0));
   const baseItemHrid = itemHrid.endsWith("_refined")
@@ -742,6 +798,7 @@ export function calculateEnhancementPlan({
     itemLevel: item.itemLevel,
     itemDetailMap,
     bonusMultiplierTable,
+    simulationProfile,
   });
   if (!stats) return unavailableResult();
 
@@ -796,9 +853,23 @@ export function calculateEnhancementPlan({
     if (!unitPrice) hasMissingRequiredPrice = true;
     refinementCost += unitPrice * Number(cost.count || 0);
   }
-  const ultraTeaPrice = marketPrice("/items/ultra_enhancing_tea", 0);
-  const blessedTeaPrice = marketPrice("/items/blessed_tea", 0);
-  if (!ultraTeaPrice || !blessedTeaPrice) hasMissingRequiredPrice = true;
+  const teaType = simulationProfile?.teaType ?? "ultra_enhancing_tea";
+  const enhancingTeaHrid = teaType === "none" ? null : `/items/${teaType}`;
+  const enhancingTeaPrice = enhancingTeaHrid
+    ? marketPrice(enhancingTeaHrid, 0)
+    : 0;
+  const useBlessedTea = simulationProfile
+    ? Boolean(simulationProfile.blessedTea)
+    : true;
+  const blessedTeaPrice = useBlessedTea
+    ? marketPrice("/items/blessed_tea", 0)
+    : 0;
+  if (
+    (enhancingTeaHrid && !enhancingTeaPrice) ||
+    (useBlessedTea && !blessedTeaPrice)
+  ) {
+    hasMissingRequiredPrice = true;
+  }
   if (hasMissingRequiredPrice) return unavailableResult([...missing]);
 
   let protectionChoice = null;
@@ -829,16 +900,20 @@ export function calculateEnhancementPlan({
   const protectionPrice = protectionChoice?.value ?? 0;
   const philosopherMirrorPrice = marketPrice("/items/philosophers_mirror", 0);
   const successRates = normalizedTable(successRateTable, DEFAULT_SUCCESS_RATES);
-  const ultraTeaCostPerAction =
+  const enhancingTeaCostPerAction =
     (stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds) *
-    ultraTeaPrice;
+    enhancingTeaPrice;
   const blessedTeaCostPerNormalAction =
     (stats.secondsPerAction / ENHANCEMENT_PROFILE.teaDurationSeconds) *
     blessedTeaPrice;
+  const timeFeePerAction =
+    (stats.secondsPerAction / 3600) *
+    (Number(simulationProfile?.timeFeePerHour) || 0);
   const normalActionCost =
     materialCostPerAction +
-    ultraTeaCostPerAction +
-    blessedTeaCostPerNormalAction;
+    enhancingTeaCostPerAction +
+    blessedTeaCostPerNormalAction +
+    timeFeePerAction;
   let best = null;
   const flowTable = getCachedEnhancementFlowTable({
     targetLevel: target,
@@ -886,7 +961,10 @@ export function calculateEnhancementPlan({
         if (flow.protectionCount > EPSILON && !protectionPrice) continue;
         const totalCost =
           flow.baseItemCount * basePrice +
-          flow.totalActions * (materialCostPerAction + ultraTeaCostPerAction) +
+          flow.totalActions *
+            (materialCostPerAction +
+              enhancingTeaCostPerAction +
+              timeFeePerAction) +
           (flow.totalActions - flow.mirrorCount) *
             blessedTeaCostPerNormalAction +
           flow.protectionCount * protectionPrice +
@@ -909,9 +987,19 @@ export function calculateEnhancementPlan({
   }
 
   if (!best) return unavailableResult([...missing]);
+  const taxMultiplier =
+    simulationProfile && Number(simulationProfile.taxRatePercent) > 0
+      ? 1 / (1 - Number(simulationProfile.taxRatePercent) / 100)
+      : 1;
+  const totalCostBeforeTax = best.totalCost + refinementCost;
   return {
     status: "complete",
-    totalCost: best.totalCost + refinementCost,
+    totalCost: totalCostBeforeTax * taxMultiplier,
+    totalCostBeforeTax,
+    taxRatePercent: simulationProfile
+      ? Number(simulationProfile.taxRatePercent) || 0
+      : 0,
+    simulationProfile: simulationProfile ? { ...simulationProfile } : null,
     baseCost: basePrice,
     refinementCost,
     totalSeconds: best.totalActions * stats.secondsPerAction,

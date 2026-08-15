@@ -144,6 +144,30 @@ test("setting changes persist the versioned and rollback-compatible shapes", asy
   );
 });
 
+test("enhancement simulation profile persists separately from feature toggles", () => {
+  const profile = runtime.api.setEnhancementSimulationProfile({
+    playerLevel: 150,
+    houseLevel: 9,
+    enhancerBonusPercent: 6.5,
+    gearSpeedBonusPercent: 42.25,
+    teaType: "super_enhancing_tea",
+    blessedTea: false,
+    timeFeePerHour: 12345,
+    taxRatePercent: 3,
+  });
+
+  assert.deepEqual(runtime.api.getEnhancementSimulationProfile(), profile);
+  assert.equal(profile.playerLevel, 150);
+  assert.equal(profile.teaType, "super_enhancing_tea");
+  assert.equal(profile.blessedTea, false);
+  assert.equal(
+    JSON.parse(
+      localStorage.getItem("MWITools_enhancement_simulation_profile_v1"),
+    ).gearSpeedBonusPercent,
+    42.25,
+  );
+});
+
 test("legacy disabled production summaries migrate to off mode", () => {
   localStorage.removeItem("MWITools_settings_v2");
   localStorage.setItem(
@@ -510,7 +534,10 @@ test("card settings render every visible setting with nested children and search
   assert.equal(popover.hidden, true);
   settingsButton.click();
   document.dispatchEvent(
-    new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    new dom.window.KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+    }),
   );
   assert.equal(popover.hidden, true);
   assert.equal(document.activeElement, settingsButton);

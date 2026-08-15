@@ -25,6 +25,159 @@ const SETTINGS_POPOVER_SCROLL_KEY = "MWITools_settings_popover_scroll_v1";
 const TOOLTIP_PROFIT_SHORTCUT_KEY = "MWITools_tooltip_profit_key_v1";
 const GUILD_CREDIT_RECOMMENDATION_COUNT_KEY =
   "MWITools_guild_credit_recommendation_count_v1";
+const ENHANCEMENT_SIMULATION_PROFILE_KEY =
+  "MWITools_enhancement_simulation_profile_v1";
+
+const DEFAULT_ENHANCEMENT_SIMULATION_PROFILE = Object.freeze({
+  playerLevel: 136,
+  houseLevel: 8,
+  enhancerBonusPercent: 5.26,
+  gearSpeedBonusPercent: 37.22,
+  teaType: "ultra_enhancing_tea",
+  blessedTea: true,
+  timeFeePerHour: 0,
+  taxRatePercent: 2,
+});
+
+const ENHANCEMENT_SIMULATION_FIELDS = Object.freeze([
+  {
+    key: "playerLevel",
+    type: "number",
+    min: 1,
+    step: 1,
+    label: { zh: "强化等级", en: "Enhancing level" },
+  },
+  {
+    key: "houseLevel",
+    type: "number",
+    min: 0,
+    step: 1,
+    label: { zh: "房子等级", en: "House level" },
+  },
+  {
+    key: "enhancerBonusPercent",
+    type: "number",
+    min: 0,
+    step: 0.01,
+    label: { zh: "强化器成功率加成", en: "Enhancer success bonus" },
+    suffix: "%",
+  },
+  {
+    key: "gearSpeedBonusPercent",
+    type: "number",
+    min: 0,
+    step: 0.01,
+    label: { zh: "装备速度加成", en: "Gear speed bonus" },
+    suffix: "%",
+  },
+  {
+    key: "teaType",
+    type: "select",
+    label: { zh: "强化茶", en: "Enhancing tea" },
+    options: [
+      ["none", { zh: "无", en: "None" }],
+      ["enhancing_tea", { zh: "强化茶", en: "Enhancing Tea" }],
+      ["super_enhancing_tea", { zh: "超级强化茶", en: "Super Enhancing Tea" }],
+      ["ultra_enhancing_tea", { zh: "究极强化茶", en: "Ultra Enhancing Tea" }],
+    ],
+  },
+  {
+    key: "blessedTea",
+    type: "checkbox",
+    label: { zh: "幸运茶", en: "Blessed Tea" },
+  },
+  {
+    key: "timeFeePerHour",
+    type: "number",
+    min: 0,
+    step: 1,
+    label: { zh: "工时费/小时", en: "Hourly time fee" },
+  },
+  {
+    key: "taxRatePercent",
+    type: "number",
+    min: 0,
+    max: 99,
+    step: 0.1,
+    label: { zh: "市场税率", en: "Market tax" },
+    suffix: "%",
+  },
+]);
+
+function normalizeEnhancementSimulationProfile(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const profile = { ...DEFAULT_ENHANCEMENT_SIMULATION_PROFILE };
+  for (const field of ENHANCEMENT_SIMULATION_FIELDS) {
+    if (!Object.hasOwn(source, field.key)) continue;
+    if (field.type === "checkbox") {
+      profile[field.key] = Boolean(source[field.key]);
+    } else if (field.type === "select") {
+      const allowed = field.options.map(([option]) => option);
+      profile[field.key] = allowed.includes(source[field.key])
+        ? source[field.key]
+        : profile[field.key];
+    } else {
+      const number = Number(source[field.key]);
+      if (!Number.isFinite(number)) continue;
+      profile[field.key] = Math.min(
+        field.max ?? Number.POSITIVE_INFINITY,
+        Math.max(field.min ?? Number.NEGATIVE_INFINITY, number),
+      );
+    }
+  }
+  return profile;
+}
+
+function loadEnhancementSimulationProfile() {
+  try {
+    const storedRaw = localStorage.getItem(ENHANCEMENT_SIMULATION_PROFILE_KEY);
+    if (storedRaw) {
+      return normalizeEnhancementSimulationProfile(JSON.parse(storedRaw));
+    }
+    const legacy = JSON.parse(
+      localStorage.getItem("script_settingsMap") || "null",
+    );
+    const mapped = {};
+    const legacyMap = {
+      enhancing_level: "playerLevel",
+      laboratory_level: "houseLevel",
+      enhancer_bonus: "enhancerBonusPercent",
+      enhance_gear_speed_bonus: "gearSpeedBonusPercent",
+      tea_type: "teaType",
+      tea_blessed: "blessedTea",
+      time_fee: "timeFeePerHour",
+      tax_rate: "taxRatePercent",
+    };
+    for (const [legacyKey, nextKey] of Object.entries(legacyMap)) {
+      const entry = legacy?.[legacyKey];
+      if (!entry) continue;
+      mapped[nextKey] = Object.hasOwn(entry, "value")
+        ? entry.value
+        : entry.isTrue;
+    }
+    return normalizeEnhancementSimulationProfile(mapped);
+  } catch {
+    return normalizeEnhancementSimulationProfile();
+  }
+}
+
+let enhancementSimulationProfile = loadEnhancementSimulationProfile();
+
+function getEnhancementSimulationProfile() {
+  return { ...enhancementSimulationProfile };
+}
+
+function setEnhancementSimulationProfile(patch = {}) {
+  enhancementSimulationProfile = normalizeEnhancementSimulationProfile({
+    ...enhancementSimulationProfile,
+    ...patch,
+  });
+  localStorage.setItem(
+    ENHANCEMENT_SIMULATION_PROFILE_KEY,
+    JSON.stringify(enhancementSimulationProfile),
+  );
+  return getEnhancementSimulationProfile();
+}
 
 function normalizeGuildCreditRecommendationCount(value) {
   const count = Math.floor(Number(value));
@@ -316,7 +469,12 @@ function addSettingsStyles() {
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
-    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } }
+    .mwi-enhancement-settings-grid { display:grid; grid-template-columns:repeat(2,minmax(190px,1fr)); gap:7px 12px; margin:7px 44px 2px 0; padding:8px; border:1px solid rgba(255,255,255,.075); border-radius:6px; background:rgba(0,0,0,.12); }
+    .mwi-enhancement-setting-field { display:grid; grid-template-columns:minmax(0,1fr) minmax(88px,auto) auto; align-items:center; gap:5px; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
+    .mwi-enhancement-setting-field input[type="number"],.mwi-enhancement-setting-field select { min-width:88px; width:100%; box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 6px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
+    .mwi-enhancement-setting-field input[type="checkbox"] { justify-self:end; }
+    .mwi-enhancement-setting-field input:disabled,.mwi-enhancement-setting-field select:disabled { cursor:not-allowed; opacity:.5; }
+    @media (max-width:700px) { #${SETTINGS_POPOVER_ID} { padding:8px; } .mwi-settings-hero { align-items:stretch; flex-direction:column; } .mwi-settings-hero-actions { width:100%; } .mwi-settings-hero-actions .mwi-settings-search { flex:1; } .mwi-settings-search { width:100%; } .mwi-performance-settings-card { align-items:flex-start; } .mwi-performance-settings-open { max-width:118px; } .mwi-setting-row { grid-template-columns:minmax(0,1fr) auto; gap:3px 10px; padding:3px 0; } .mwi-setting-title-line { grid-column:1;grid-row:1; } .mwi-setting-summary { grid-column:1;grid-row:2;white-space:normal; } .mwi-setting-more { grid-column:1;grid-row:3; } .mwi-setting-more[open] { grid-column:1 / 3;grid-row:3; } .mwi-setting-toggle { grid-column:2;grid-row:1 / 4; } .mwi-setting-primary-select { grid-column:2;grid-row:1 / 3; } .mwi-enhancement-settings-grid { grid-template-columns:1fr; margin-right:0; } }
   `;
   styleHost.appendChild(style);
 }
@@ -519,7 +677,7 @@ function createSettingCard(definition, options = {}) {
   summary.textContent = localizedText(definition.summary);
   const status = document.createElement("span");
   status.className = "mwi-setting-status";
-  const setStatus = () => {
+  let setStatus = () => {
     const current = featureStatusForSetting(definition.id);
     status.dataset.status = current.status;
     status.textContent = statusLabel(current.status);
@@ -639,6 +797,65 @@ function createSettingCard(definition, options = {}) {
     countRow.append(countLabel, countSelect);
     card.append(countRow);
     auxiliaryControl = countSelect;
+  }
+  if (definition.id === "enhanceSim") {
+    const profileGrid = document.createElement("div");
+    profileGrid.className = "mwi-enhancement-settings-grid";
+    const controls = [];
+    const profile = getEnhancementSimulationProfile();
+    for (const field of ENHANCEMENT_SIMULATION_FIELDS) {
+      const wrapper = document.createElement("label");
+      wrapper.className = "mwi-enhancement-setting-field";
+      const label = document.createElement("span");
+      label.textContent = localizedText(field.label);
+      let control;
+      if (field.type === "select") {
+        control = document.createElement("select");
+        for (const [value, optionLabel] of field.options) {
+          const option = document.createElement("option");
+          option.value = value;
+          option.textContent = localizedText(optionLabel);
+          control.append(option);
+        }
+        control.value = profile[field.key];
+      } else if (field.type === "checkbox") {
+        control = document.createElement("input");
+        control.type = "checkbox";
+        control.checked = Boolean(profile[field.key]);
+      } else {
+        control = document.createElement("input");
+        control.type = "number";
+        if (field.min !== undefined) control.min = String(field.min);
+        if (field.max !== undefined) control.max = String(field.max);
+        if (field.step !== undefined) control.step = String(field.step);
+        control.value = String(profile[field.key]);
+      }
+      control.dataset.enhancementProfileKey = field.key;
+      control.disabled = !checkbox.checked;
+      control.addEventListener("change", () => {
+        const value =
+          field.type === "checkbox"
+            ? control.checked
+            : field.type === "number"
+              ? Number(control.value)
+              : control.value;
+        const next = setEnhancementSimulationProfile({
+          [field.key]: value,
+        });
+        if (field.type === "number") control.value = String(next[field.key]);
+      });
+      controls.push(control);
+      const suffix = document.createElement("span");
+      suffix.textContent = field.suffix ?? "";
+      wrapper.append(label, control, suffix);
+      profileGrid.append(wrapper);
+    }
+    const previousSetStatus = setStatus;
+    setStatus = () => {
+      previousSetStatus();
+      for (const control of controls) control.disabled = !checkbox.checked;
+    };
+    card.append(profileGrid);
   }
   for (const child of children) {
     card.append(createSettingCard(child, { child: true }));
@@ -1410,6 +1627,8 @@ Object.assign(runtime.api, {
   getTooltipProfitShortcut,
   setTooltipProfitShortcut,
   matchesTooltipProfitShortcut,
+  getEnhancementSimulationProfile,
+  setEnhancementSimulationProfile,
   getGuildCreditRecommendationCount,
   setGuildCreditRecommendationCount,
   getEquipmentWarning,

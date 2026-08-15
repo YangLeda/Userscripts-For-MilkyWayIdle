@@ -5,6 +5,7 @@ import {
   calculateEnhancementPlan,
   calculateNormalEnhancementFlow,
   calculatePhilosopherEnhancementFlow,
+  DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
   ENHANCEMENT_PROFILE,
   getEnhancementProfileStats,
 } from "../src/features/enhancement-planner.js";
@@ -91,6 +92,67 @@ test("fixed profile derives all requested equipment, house and tea buffs", () =>
   assert.equal(stats.blessedChance, 0.01);
   assert.ok(Math.abs(stats.successBonus - 0.091084) < 1e-12);
   assert.ok(Math.abs(stats.speedBonus - 1.0998) < 1e-12);
+});
+
+test("custom simulation profile restores configurable enhancement assumptions", () => {
+  const stats = getEnhancementProfileStats({
+    itemLevel: 100,
+    simulationProfile: DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
+  });
+
+  assert.equal(stats.effectiveLevel, 144);
+  assert.equal(stats.toolSuccess, 0.0526);
+  assert.equal(stats.gloveSpeed, 0.3722);
+  assert.equal(stats.blessedChance, 0.01);
+  assert.ok(Math.abs(stats.successBonus - 0.0786) < 1e-12);
+  assert.ok(Math.abs(stats.speedBonus - 0.8922) < 1e-12);
+});
+
+test("custom simulation profile prices selected tea, time fee and display tax", () => {
+  const values = prices({
+    "/items/enhancing_tea": 3_000,
+    "/items/ultra_enhancing_tea": 0,
+    "/items/blessed_tea": 0,
+  });
+  const basePlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 3,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    getMarketValue: (hrid) => values[hrid] ?? 0,
+    simulationProfile: {
+      ...DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
+      teaType: "enhancing_tea",
+      blessedTea: false,
+      timeFeePerHour: 0,
+      taxRatePercent: 0,
+    },
+  });
+  const feeAndTaxPlan = calculateEnhancementPlan({
+    itemHrid: "/items/target",
+    targetLevel: 3,
+    itemDetailMap: itemDetailMap(),
+    bonusMultiplierTable: MULTIPLIERS,
+    getFairValue: (hrid) => values[hrid] ?? 0,
+    getMarketValue: (hrid) => values[hrid] ?? 0,
+    simulationProfile: {
+      ...DEFAULT_ENHANCEMENT_SIMULATION_PROFILE,
+      teaType: "enhancing_tea",
+      blessedTea: false,
+      timeFeePerHour: 3600,
+      taxRatePercent: 2,
+    },
+  });
+
+  assert.equal(basePlan.status, "complete");
+  assert.equal(feeAndTaxPlan.status, "complete");
+  assert.ok(feeAndTaxPlan.totalCostBeforeTax > basePlan.totalCost);
+  assert.equal(
+    feeAndTaxPlan.totalCost,
+    feeAndTaxPlan.totalCostBeforeTax / 0.98,
+  );
+  assert.equal(feeAndTaxPlan.simulationProfile.teaType, "enhancing_tea");
 });
 
 test("normal flow matches the reference Markov expectation", () => {
