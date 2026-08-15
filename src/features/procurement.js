@@ -81,7 +81,7 @@ function addStyles() {
     .mwi-procurement-badge[data-state="missing"]{color:#ffad62;border-color:rgba(255,153,51,.45)}
     .mwi-procurement-badge[data-state="ready"]{color:#43d17f;border-color:#43c979;background:rgba(48,176,105,.12)}
     .mwi-procurement-badge[data-state="locked"]{color:#d9bd72;border-color:rgba(210,180,90,.4)}
-    .mwi-procurement-refresh-host-fallback{position:relative!important}
+    .mwi-procurement-refresh-position-anchor{position:relative!important}
     #${PRODUCTION_REFRESH_ID}{position:absolute;top:6px;right:48px;z-index:4;min-height:24px;padding:2px 7px;border:1px solid rgba(255,255,255,.18);border-radius:4px;background:rgba(37,43,65,.94);color:var(--color-neutral-100,#eee);font:600 calc(.6875rem * var(--mwi-ui-font-scale,1))/1.25 Roboto,Arial,sans-serif;white-space:nowrap;cursor:pointer;box-shadow:0 2px 7px rgba(0,0,0,.24)}
     #${PRODUCTION_REFRESH_ID}:hover{background:var(--color-space-700,#46547e)}
     #${PRODUCTION_REFRESH_ID}:disabled{opacity:.55;cursor:wait}
@@ -1253,14 +1253,14 @@ function removeInventoryRefreshButtons(keepHost = null) {
     const host = button.parentElement;
     button.remove();
     host?.classList.remove("mwi-procurement-refresh-host");
-    host?.classList.remove("mwi-procurement-refresh-host-fallback");
+    host?.classList.remove("mwi-procurement-refresh-position-anchor");
   }
   for (const host of document.querySelectorAll(
     ".mwi-procurement-refresh-host",
   )) {
     if (host !== keepHost && !host.querySelector(`#${PRODUCTION_REFRESH_ID}`)) {
       host.classList.remove("mwi-procurement-refresh-host");
-      host.classList.remove("mwi-procurement-refresh-host-fallback");
+      host.classList.remove("mwi-procurement-refresh-position-anchor");
     }
   }
 }
@@ -1287,8 +1287,15 @@ function ensureInventoryRefreshButton(panel) {
   }
   const { host, fallback } = resolved;
   removeInventoryRefreshButtons(host);
+  const computedPosition =
+    document.defaultView?.getComputedStyle?.(host)?.position ?? "";
+  const needsPositionAnchor =
+    fallback || !computedPosition || computedPosition === "static";
   host.classList.add("mwi-procurement-refresh-host");
-  host.classList.toggle("mwi-procurement-refresh-host-fallback", fallback);
+  host.classList.toggle(
+    "mwi-procurement-refresh-position-anchor",
+    needsPositionAnchor,
+  );
   let button = host.querySelector(`#${PRODUCTION_REFRESH_ID}`);
   if (button) return button;
   button = document.createElement("button");

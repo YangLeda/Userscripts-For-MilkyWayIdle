@@ -403,8 +403,8 @@ test("production procurement uses its stable sibling slot beside the summary", (
   );
   assert.equal(refresh.parentElement, visualModal);
   assert.equal(
-    visualModal.classList.contains("mwi-procurement-refresh-host-fallback"),
-    false,
+    visualModal.classList.contains("mwi-procurement-refresh-position-anchor"),
+    true,
   );
   assert.equal(
     modalContainer.classList.contains("mwi-procurement-refresh-host"),
