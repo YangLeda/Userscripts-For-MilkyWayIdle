@@ -420,7 +420,7 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 3);
+  assert.equal(current.body.zh.length, 4);
   assert.equal(previous.body.zh.length, previous.body.en.length);
   assert.equal(previous.body.zh.length, 24);
   assert.match(
@@ -450,6 +450,10 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(
     current.body.zh.join("\n"),
     /右上角快捷设置.*滚动位置.*重新打开或刷新页面.*原处继续查看/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /购物车有商品.*“设置”切回“清单”.*设置内容下方.*正确移除上一页内容.*稳定显示/,
   );
   assert.match(
     previous.body.zh.join("\n"),

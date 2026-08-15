@@ -209,6 +209,11 @@ function renderShell() {
     button.dataset.active = String(button.dataset.tab === activeTab);
   }
   const body = shadow.querySelector(".body");
+  if (body.dataset.tab !== activeTab) {
+    abandonCartDrag();
+    body.replaceChildren();
+    body.dataset.tab = activeTab;
+  }
   if (activeTab === "plans") renderPlans(body);
   else if (activeTab === "settings") renderProcurementSettings(body);
   else renderCart(body);

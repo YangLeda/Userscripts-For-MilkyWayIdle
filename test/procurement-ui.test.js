@@ -83,16 +83,26 @@ test("procurement owns a standalone three-tab shell outside global settings", as
     host.shadowRoot.querySelector(".title").textContent,
     "Shopping Cart",
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
+  runtime.api.procurement.addToCart({
+    itemHrid: "/items/nail",
+    name: "Nail",
+    quantity: 1,
+  });
   host.shadowRoot.querySelector('.tab[data-tab="settings"]').click();
+  assert.ok(host.shadowRoot.querySelector(".setting-section"));
   assert.doesNotMatch(host.shadowRoot.textContent, /[\u3400-\u9fff]/);
   assert.match(host.shadowRoot.textContent, /Expand after adding/);
   host.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
+  assert.equal(host.shadowRoot.querySelector(".setting-section"), null);
+  assert.equal(host.shadowRoot.querySelectorAll(".cart-row").length, 1);
   assert.equal(
     Object.values(runtime.settings.catalog).some((setting) =>
       setting.id?.toLowerCase().includes("procurement"),
     ),
     true,
   );
+  runtime.api.procurement.clearCart({ includeStarred: true });
 });
 
 test("the global shopping-cart switch removes and restores every procurement entry", async () => {

@@ -14,11 +14,13 @@ export const ANNOUNCEMENTS = Object.freeze([
         "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
         "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
         "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
+        "修复购物车有商品时从“设置”切回“清单”会让清单跑到设置内容下方的问题；页签切换现在会正确移除上一页内容，同时保留清单内部更新时的稳定显示。",
       ]),
       en: Object.freeze([
         "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
         "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
         "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
+        "Fixed shopping-list rows appearing below the Settings content when returning to the Cart tab with existing items. Switching tabs now removes the previous view correctly while keeping in-tab cart updates stable.",
       ]),
     }),
   }),
