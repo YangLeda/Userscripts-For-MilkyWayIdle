@@ -20,13 +20,15 @@ Object.defineProperty(globalThis, "performance", {
   configurable: true,
   value: {
     now: () => currentTime,
-    getEntriesByType: () => [
-      {
-        name: "https://cdn.example.test/assets/abilities_sprite.live.svg",
-      },
-    ],
+    getEntriesByType: () => resourceEntries,
   },
 });
+
+let resourceEntries = [
+  {
+    name: "https://cdn.example.test/assets/abilities_sprite.live.svg",
+  },
+];
 
 let currentTime = 1;
 
@@ -88,6 +90,30 @@ test("missing sprite kinds stay empty and accept later runtime discovery", () =>
   assert.equal(fetchCalls, 0);
 });
 
+test("loaded game resources outrank stale sprite references injected into the DOM", () => {
+  resetGameSpriteSources();
+  const stale = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  stale.innerHTML =
+    '<use href="/static/media/items_sprite.328d6606.svg#coin"></use>';
+  document.body.append(stale);
+  resourceEntries = [
+    ...resourceEntries,
+    { name: "/static/media/items_sprite.f58c9476.svg" },
+  ];
+  try {
+    scanGameSpriteSources({ force: true });
+    assert.equal(
+      getGameSpriteHref("items", "/items/lumber"),
+      "/static/media/items_sprite.f58c9476.svg#lumber",
+    );
+  } finally {
+    stale.remove();
+    resourceEntries = resourceEntries.filter(
+      ({ name }) => !name.includes("items_sprite.f58c9476.svg"),
+    );
+  }
+});
+
 test("asset manifest restores sprite kinds not loaded by the current page", async () => {
   resetGameSpriteSources();
   const previousFetch = globalThis.fetch;
@@ -99,6 +125,7 @@ test("asset manifest restores sprite kinds not loaded by the current page", asyn
       json: async () => ({
         files: {
           "actions.svg": "/static/media/actions_sprite.manifest.svg",
+          "items.svg": "/static/media/items_sprite.manifest.svg",
           "skills.svg": "/static/media/skills_sprite.manifest.svg",
         },
       }),
@@ -114,6 +141,16 @@ test("asset manifest restores sprite kinds not loaded by the current page", asyn
       getGameSpriteHref("actions", "/actions/combat/chimerical_den"),
       "/static/media/actions_sprite.manifest.svg#chimerical_den",
     );
+    const stale = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    stale.innerHTML =
+      '<use href="/static/media/items_sprite.328d6606.svg#coin"></use>';
+    document.body.append(stale);
+    scanGameSpriteSources({ force: true });
+    assert.equal(
+      getGameSpriteHref("items", "/items/lumber"),
+      "/static/media/items_sprite.manifest.svg#lumber",
+    );
+    stale.remove();
   } finally {
     globalThis.fetch = previousFetch;
   }

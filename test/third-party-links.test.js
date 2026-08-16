@@ -37,18 +37,26 @@ test("third-party navigation links use the requested sites and order", () => {
     links.map((link) => link.textContent),
     [
       "插件合集 Q7",
-      "利润网 Polokikiki",
+      "利润网 Polokikiki（含强化模拟）",
       "战斗模拟 shykai",
       "新战斗模拟 Stella",
       "战斗榜 socko",
       "人才市场 Shiin",
       "牛牛手册",
-      "插件设置",
     ],
   );
   assert.doesNotMatch(
     links.map((link) => link.textContent).join(" "),
-    /强化模拟|Mooneycalc|Milkonomy|Cowculator/,
+    /Mooneycalc|Milkonomy|Cowculator/,
+  );
+  assert.match(links[1].textContent, /利润网.*含强化模拟/);
+  assert.equal(
+    THIRD_PARTY_LINKS[1].en,
+    "Profit site Polokikiki (incl. enhancement simulator)",
+  );
+  assert.doesNotMatch(
+    links.map((link) => link.textContent).join(" "),
+    /插件设置|Script settings/,
   );
   assert.deepEqual(
     THIRD_PARTY_LINKS.map(({ url }) => url),

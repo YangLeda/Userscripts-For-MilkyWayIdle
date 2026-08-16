@@ -2,6 +2,60 @@ const STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
 
 export const ANNOUNCEMENTS = Object.freeze([
   Object.freeze({
+    id: "26.4.14",
+    version: "26.4.14",
+    publishedAt: "2026-08-16",
+    title: Object.freeze({
+      zh: "26.4.14 更新公告",
+      en: "Version 26.4.14 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "战斗与生活着装评分现在会分别计入当前公会全部战斗神龛和生活神龛的累计升级价值；查看他人资料时会使用对方公开的神龛等级，缺少公会数据时显示横线且不影响其余评分。",
+        "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
+        "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
+        "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
+        "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表会把统计列统一排在试炼层数等原生列之后，横向滚动和闲置人数判断也已修复。",
+        "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+        "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
+        "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
+        "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
+        "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页；确认刷新后即使支付选项仍停留在卡片上，任务图片也会立即跟随新任务更新，不再需要点击返回，游戏只更新标题文字节点的情况也能正确同步。关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。长按进度会在按住 0.5 秒后才开始显示，满 1 秒才切换锁定；普通短按会立即切换并高亮筛选，刷新确认层打开时锁图标和筛选高亮也会即时同步。",
+        "26.4.14 现已标记为重要更新；旧版本玩家会收到顶部更新提示，以获得任务筛选长按锁定、刷新卡片保留和任务图片即时同步等改进。",
+      ]),
+      en: Object.freeze([
+        "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
+        "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
+        "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
+        "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
+        "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution statistics now stay after native columns such as Trial Level, while horizontal scrolling and idle-member detection have also been fixed.",
+        "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+        "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
+        "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
+        "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
+        "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered. Once a reroll is confirmed, its artwork follows the new task immediately even while the payment choices remain on the card, without requiring Back navigation; title-text-only game updates are synchronized as well. Disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately. Hold progress now appears only after a 0.5-second grace period and toggles the lock at one second; ordinary taps immediately toggle and highlight filters, while lock icons and filter highlighting stay synchronized even when the reroll confirmation is open.",
+        "Version 26.4.14 is now marked as an important update. Players on older releases will see the top update prompt for long-press task-filter locks, rerolled-card retention, immediate task-artwork synchronization, and the other improvements in this release.",
+      ]),
+    }),
+  }),
+  Object.freeze({
+    id: "26.4.13",
+    version: "26.4.13",
+    publishedAt: "2026-08-15",
+    title: Object.freeze({
+      zh: "26.4.13 更新公告",
+      en: "Version 26.4.13 update",
+    }),
+    body: Object.freeze({
+      zh: Object.freeze([
+        "修复制作界面查看升级耗时时，目标等级在自动填写生产次数并触发界面刷新后回到当前等级 +1 的问题；例如从 130 级查看升到 135 级时，刷新后会继续保留 135 级及对应估算。",
+      ]),
+      en: Object.freeze([
+        "Fixed the target level in production upgrade-time estimates resetting to current level +1 after autofilling the action count refreshed the panel. For example, estimating level 130 to 135 now keeps level 135 and its estimate after the refresh.",
+      ]),
+    }),
+  }),
+  Object.freeze({
     id: "26.4.12",
     version: "26.4.12",
     publishedAt: "2026-08-15",
@@ -11,6 +65,7 @@ export const ANNOUNCEMENTS = Object.freeze([
     }),
     body: Object.freeze({
       zh: Object.freeze([
+        "修复金币未计入库存价值的问题；金币现在固定按 1:1 计入库存、货币分类和总资产，不再受市场行情快照是否包含金币影响。以月神之蝶等星球 BOSS 怪物为目标的任务从任务页前往时，也会按官方 BOSS 刷新数据自动换算战斗次数，例如剩余 4 只且每 10 场出现一只时会填写 40 次；普通怪物与地牢任务保持原数量。",
         "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
         "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
         "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
@@ -20,6 +75,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "修复自托管更新文件已经上传并成功请求 CDN 缓存刷新后，发布任务仍因无权查询刷新进度而误报失败的问题；发布流程会继续校验产物并请求缓存刷新，但不再依赖额外的刷新状态读取权限。",
       ]),
       en: Object.freeze([
+        "Fixed coins being omitted from inventory value. Coins now always count 1:1 toward inventory, the currency category, and total assets regardless of whether the market snapshot contains a coin record. Going to a task targeting a planet boss monster such as Luna Butterfly now also converts the remaining bosses through the official boss spawn data—for example, four remaining bosses that spawn every ten battles fill in 40 actions—while regular monsters and dungeon task counts stay unchanged.",
         "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
         "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
         "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",

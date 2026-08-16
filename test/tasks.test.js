@@ -43,9 +43,15 @@ await import("../src/core/state.js");
 await import("../src/core/action-projection.js");
 await import("../src/core/procurement.js");
 const {
+  TASK_MUTATION_OBSERVER_OPTIONS,
   dungeonLocationsForCard,
+  readTaskFilterLocks,
+  repairRangedWayIdleRerollButtons,
   shouldRenderTaskMutations,
   taskArtworkForCard,
+  taskFilterLocksStorageKey,
+  wireTaskFilterLongPress,
+  writeTaskFilterLocks,
 } = await import("../src/features/tasks.js");
 const { taskNewStorageKey, writeTaskNewState } =
   await import("../src/features/task-new-badge.js");
@@ -75,6 +81,7 @@ registerGameLocaleResources("zh", {
     "/monsters/rat": "杰瑞",
     "/monsters/eye": "独眼",
     "/monsters/frost_sniper": "霜冻狙击手",
+    "/monsters/luna_butterfly": "月神之蝶",
   },
   abilityNames: { "/abilities/strike": "猛击" },
 });
@@ -126,7 +133,13 @@ runtime.state.initData_actionDetailMap = {
     name: "Smelly Planet",
     type: "/action_types/combat",
     category: "/action_categories/combat/smelly_planet",
-    combatZoneInfo: { isDungeon: false, fightInfo: { battlesPerBoss: 10 } },
+    combatZoneInfo: {
+      isDungeon: false,
+      fightInfo: {
+        battlesPerBoss: 10,
+        bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+      },
+    },
   },
   "/actions/combat/aquahorse": {
     hrid: "/actions/combat/aquahorse",
@@ -274,6 +287,15 @@ test("tasks use a flat sorted list with statistics filters", () => {
   assert.match(
     styles,
     /\.mwi-task-merge-toast[^}]*position:fixed[^}]*z-index:2147483200/,
+  );
+  assert.match(
+    styles,
+    /data-mwitools-lock-pressing[^}]*mwi-task-lock-progress var\(--mwi-task-lock-progress-duration,500ms\)/,
+  );
+  assert.match(styles, /data-mwitools-task-lock-disabled/);
+  assert.doesNotMatch(
+    styles,
+    /data-mwitools-task-locked="true"\]\s*\{[^}]*opacity:\s*1/,
   );
   assert.doesNotMatch(styles, /repeat\(auto-fit/);
   assert.match(styles, /@media \(max-width:640px\)/);
@@ -742,6 +764,34 @@ test("opening the native reset payment choice pauses task regrouping", () => {
   assert.equal(shouldRenderTaskMutations(records), false);
   assert.equal(shouldRenderTaskMutations(records, Date.now() + 10_001), true);
 
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__reset-choice";
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(options);
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [options], removedNodes: [] },
+    ]),
+    true,
+    "the reroll surface must render even during the native guard window",
+  );
+  runtime.api.renderTasks();
+  options.querySelector("button").click();
+  options.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [], removedNodes: [options] },
+    ]),
+    true,
+    "closing the confirmed reroll surface must schedule the new artwork",
+  );
+  runtime.api.renderTasks();
+  assert.equal(
+    shouldRenderTaskMutations(records),
+    true,
+    "a confirmed reroll ends the native guard immediately",
+  );
+
   const replacement = document.createElement("button");
   replacement.textContent = "重置";
   resetButton.replaceWith(replacement);
@@ -759,6 +809,190 @@ test("opening the native reset payment choice pauses task regrouping", () => {
     id: "reset-choice-completed",
   };
   runtime.api.renderTasks();
+});
+
+test("Ranged Way Idle interop restores only a stale preferred reroll button", () => {
+  const container = document.createElement("div");
+  container.className = "RandomTask_rerollOptionsContainer__ranged-fixture";
+  const expensive = document.createElement("button");
+  expensive.className = "RangedWayIdleTaskButton Button_disabled__fixture";
+  expensive.dataset.moreExpensive = "true";
+  expensive.disabled = true;
+  const preferred = document.createElement("button");
+  preferred.className = "RangedWayIdleTaskButton Button_disabled__fixture";
+  preferred.dataset.moreExpensive = "false";
+  preferred.disabled = true;
+  const preferredState = { isOnCooldown: true };
+  preferred.__reactFiber$rangedFixture = {
+    return: { stateNode: { state: preferredState } },
+  };
+  container.append(expensive, preferred);
+  document.body.append(container);
+
+  assert.equal(repairRangedWayIdleRerollButtons(), 1);
+  assert.equal(preferred.disabled, false);
+  assert.equal(preferredState.isOnCooldown, false);
+  assert.equal(
+    [...preferred.classList].some((name) =>
+      name.startsWith("Button_disabled__"),
+    ),
+    false,
+  );
+  assert.equal(expensive.disabled, true);
+  assert.equal(expensive.classList.contains("Button_disabled__fixture"), true);
+
+  expensive.disabled = false;
+  expensive.classList.remove("Button_disabled__fixture");
+  preferred.disabled = true;
+  preferredState.isOnCooldown = true;
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+  assert.equal(
+    preferred.disabled,
+    true,
+    "disabled mode must be inferred safely",
+  );
+  assert.equal(preferredState.isOnCooldown, true);
+
+  const extra = document.createElement("button");
+  extra.className = "RangedWayIdleTaskButton";
+  extra.dataset.moreExpensive = "false";
+  container.append(extra);
+  expensive.disabled = true;
+  expensive.classList.add("Button_disabled__fixture");
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+  container.remove();
+});
+
+test("an open reroll pauses artwork only until a payment choice is confirmed", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<div class="TasksPanel_taskList__reroll-pause">
+       ${card("制作 - 木板", "0 / 5")}
+     </div>`,
+  );
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [
+    { id: "reroll-pause", actionHrid: "/actions/crafting/lumber" },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__reroll-pause " + TASK_SELECTOR,
+  );
+  const background = taskCard.querySelector(".mwi-task-bg");
+  const resetButton = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  resetButton.click();
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__pause";
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  taskCard.append(options);
+  assert.equal(runtime.api.renderTasks(), true);
+  taskCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - New Output";
+  runtime.state.initData_actionDetailMap["/actions/crafting/new_output"] = {
+    hrid: "/actions/crafting/new_output",
+    name: "New Output",
+    type: "/action_types/crafting",
+    outputItems: [{ itemHrid: "/items/new_output", count: 1 }],
+  };
+  runtime.state.characterQuests = [
+    { id: "reroll-pause-new", actionHrid: "/actions/crafting/new_output" },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
+  assert.match(
+    background.querySelector("use").getAttribute("href"),
+    /#lumber$/,
+  );
+
+  options.querySelector("button").click();
+  assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(options.isConnected, true);
+  assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
+  assert.match(
+    background.querySelector("use").getAttribute("href"),
+    /#new_output$/,
+    "confirmed rerolls update artwork before the payment choices close",
+  );
+  options.remove();
+  runtime.api.renderTasks();
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
+});
+
+test("a native title text update refreshes rerolled artwork without leaving the page", async () => {
+  assert.deepEqual(TASK_MUTATION_OBSERVER_OPTIONS, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "afterbegin",
+    `<svg class="title-artwork-refresh-sprites" style="display:none">
+       <use href="/static/media/items_sprite.title-refresh.svg#seed"></use>
+       <use href="/static/media/actions_sprite.title-refresh.svg#seed"></use>
+     </svg>
+     <div class="TasksPanel_taskList__title-artwork-refresh">
+       ${card("制作 - 木板", "0 / 5")}
+     </div>`,
+  );
+  resetGameSpriteSources();
+  runtime.settings.settingsMap.taskNewBadge.isTrue = false;
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "title-artwork-old",
+      actionHrid: "/actions/crafting/lumber",
+      goalCount: 5,
+      currentCount: 0,
+    },
+  ];
+  assert.equal(runtime.api.renderTasks(), true);
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__title-artwork-refresh " + TASK_SELECTOR,
+  );
+  assert.match(
+    taskCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#lumber$/,
+  );
+
+  let observedTitleChanges = 0;
+  const observer = new dom.window.MutationObserver((records) => {
+    const titleRecords = records.filter(
+      (record) => record.type === "characterData",
+    );
+    if (!titleRecords.length) return;
+    observedTitleChanges += titleRecords.length;
+    if (shouldRenderTaskMutations(titleRecords, Number.MAX_SAFE_INTEGER)) {
+      runtime.api.renderTasks({ allowReusedPositional: false });
+    }
+  });
+  observer.observe(document.body, TASK_MUTATION_OBSERVER_OPTIONS);
+  runtime.state.characterQuests = [
+    {
+      id: "title-artwork-new",
+      actionHrid: "/actions/milking/cow",
+      goalCount: 5,
+      currentCount: 0,
+    },
+  ];
+  taskCard.querySelector('[class*="RandomTask_name"]').firstChild.data =
+    "挤奶 - 奶牛";
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  observer.disconnect();
+
+  assert.equal(observedTitleChanges, 1);
+  assert.match(
+    taskCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#cow$/,
+    "changing only the native title text refreshes the task artwork",
+  );
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
+  document.querySelector(".title-artwork-refresh-sprites")?.remove();
+  resetGameSpriteSources();
 });
 
 test("disabling task statistics keeps the manual sort control only", () => {
@@ -1705,6 +1939,167 @@ test("rerolled reused cards merge the latest matching task totals", () => {
   assert.equal(runtime.state.pendingMergedTask, null);
 });
 
+test("planet boss tasks convert remaining bosses into required battles", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/smelly_planet": {
+      hrid: "/actions/combat/smelly_planet",
+      name: "Smelly Planet",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: {
+        isDungeon: false,
+        fightInfo: {
+          battlesPerBoss: 10,
+          bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+        },
+      },
+    },
+  };
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__planet-boss";
+  list.innerHTML = card("击败 - 月神之蝶", "0 / 4");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "smelly-planet-boss",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+  ];
+
+  runtime.api.renderTasks();
+  list.querySelectorAll("button")[1].click();
+
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/combat/smelly_planet",
+    count: 40,
+    taskCount: 1,
+  });
+  runtime.state.pendingMergedTask = null;
+  runtime.state.initData_actionDetailMap = previousActionMap;
+});
+
+test("matching planet boss tasks merge after converting each boss count", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  runtime.state.initData_actionDetailMap = {
+    "/actions/combat/smelly_planet": {
+      hrid: "/actions/combat/smelly_planet",
+      name: "Smelly Planet",
+      type: "/action_types/combat",
+      category: "/action_categories/combat/smelly_planet",
+      combatZoneInfo: {
+        isDungeon: false,
+        fightInfo: {
+          battlesPerBoss: 10,
+          bossSpawns: [{ combatMonsterHrid: "/monsters/luna_butterfly" }],
+        },
+      },
+    },
+  };
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__merged-planet-boss";
+  list.innerHTML = [
+    card("击败 - 月神之蝶", "0 / 4"),
+    card("击败 - 月神之蝶", "1 / 3"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "smelly-planet-boss-a",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+    {
+      id: "smelly-planet-boss-b",
+      monsterHrid: "/monsters/luna_butterfly",
+      goalCount: 3,
+      currentCount: 1,
+    },
+  ];
+
+  runtime.api.renderTasks();
+  list.querySelectorAll(TASK_SELECTOR)[0].querySelectorAll("button")[1].click();
+
+  assert.deepEqual(runtime.state.pendingMergedTask, {
+    actionHrid: "/actions/combat/smelly_planet",
+    count: 60,
+    taskCount: 2,
+  });
+  runtime.state.pendingMergedTask = null;
+  runtime.state.initData_actionDetailMap = previousActionMap;
+});
+
+test("same-monster combat tasks merge across compatible combat actions", () => {
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  const previousActionMap = runtime.state.initData_actionDetailMap;
+  const previousResolver = runtime.api.getActionHridFromItemName;
+  runtime.state.initData_actionDetailMap = Object.fromEntries(
+    ["zone_a", "zone_b"].map((zone) => [
+      `/actions/combat/${zone}`,
+      {
+        hrid: `/actions/combat/${zone}`,
+        type: "/action_types/combat",
+        combatZoneInfo: {
+          isDungeon: false,
+          fightInfo: {
+            randomSpawns: [{ combatMonsterHrid: "/monsters/fly" }],
+          },
+        },
+      },
+    ]),
+  );
+  const list = document.createElement("div");
+  list.className = "TasksPanel_taskList__same-monster";
+  list.innerHTML = [
+    card("击败 - 苍蝇", "0 / 4"),
+    card("击败 - 苍蝇", "1 / 6"),
+  ].join("");
+  document.body.appendChild(list);
+  runtime.settings.settingsMap.taskMergeActions.isTrue = true;
+  runtime.state.characterQuests = [
+    {
+      id: "fly-a",
+      actionHrid: "/actions/combat/zone_a",
+      monsterHrid: "/monsters/fly",
+      goalCount: 4,
+      currentCount: 0,
+    },
+    {
+      id: "fly-b",
+      actionHrid: "/actions/combat/zone_b",
+      monsterHrid: "/monsters/fly",
+      goalCount: 6,
+      currentCount: 1,
+    },
+  ];
+  runtime.api.renderTasks();
+  list.querySelectorAll(TASK_SELECTOR)[0].querySelectorAll("button")[1].click();
+  assert.equal(runtime.state.pendingMergedTask.count, 9);
+  assert.equal(runtime.state.pendingMergedTask.taskCount, 2);
+
+  const panel = document.createElement("div");
+  panel.className = "SkillActionDetail_regularComponent__same-monster";
+  panel.innerHTML = `
+    <div class="SkillActionDetail_name__same-monster">Zone B</div>
+    <div class="SkillActionDetail_maxActionCountInput__same-monster"><input value="1"></div>`;
+  document.body.append(panel);
+  runtime.api.getActionHridFromItemName = () => "/actions/combat/zone_b";
+  runtime.api.renderTasks();
+  assert.equal(panel.querySelector("input").value, "9");
+  assert.equal(runtime.state.pendingMergedTask, null);
+
+  panel.remove();
+  runtime.api.getActionHridFromItemName = previousResolver;
+  runtime.state.initData_actionDetailMap = previousActionMap;
+});
+
 test("full task capacity still renders the task module beside its reward card", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   const quests = Array.from({ length: 30 }, (_, index) => ({
@@ -1795,6 +2190,9 @@ test("reused task cards keep the old icon during transition and settle on the ne
     reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
     /items_sprite\.test\.svg#old_output$|items_sprite\.reuse\.svg#old_output$/,
   );
+  const background = reusedCard.querySelector(".mwi-task-bg");
+  const artworkSvg = background.querySelector("svg");
+  const artworkUse = artworkSvg.querySelector("use");
 
   runtime.state.characterQuests = [newQuest];
   assert.equal(
@@ -1818,6 +2216,9 @@ test("reused task cards keep the old icon during transition and settle on the ne
     reusedCard.querySelector(".mwi-task-bg use").getAttribute("href"),
     /#new_output$/,
   );
+  assert.equal(reusedCard.querySelector(".mwi-task-bg"), background);
+  assert.equal(background.querySelector("svg"), artworkSvg);
+  assert.equal(artworkSvg.querySelector("use"), artworkUse);
 
   const removedBackground = reusedCard.querySelector(".mwi-task-bg");
   removedBackground.remove();
@@ -1890,4 +2291,399 @@ test("localized task controls wire merge and reset behavior", () => {
   });
   runtime.state.pendingMergedTask = null;
   localStorage.setItem("i18nextLng", "zh-CN");
+});
+
+test("task filter long press completes, cancels, and suppresses its click", async () => {
+  const button = document.createElement("button");
+  document.body.append(button);
+  let longPresses = 0;
+  let clicks = 0;
+  wireTaskFilterLongPress(
+    button,
+    () => {
+      longPresses += 1;
+    },
+    { holdMs: 40, feedbackDelayMs: 20, moveTolerance: 5 },
+  );
+  button.addEventListener("click", () => {
+    clicks += 1;
+  });
+  const pointer = (type, x = 0, y = 0) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      button: 0,
+      clientX: x,
+      clientY: y,
+    });
+    Object.defineProperty(event, "pointerId", { value: 7 });
+    return event;
+  };
+
+  button.click();
+  assert.equal(clicks, 1);
+  button.dispatchEvent(pointer("pointerdown"));
+  assert.equal(button.dataset.mwitoolsLockPressing, undefined);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(button.dataset.mwitoolsLockPressing, "true");
+  button.dispatchEvent(pointer("pointerup"));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.equal(longPresses, 0);
+
+  button.dispatchEvent(pointer("pointerdown"));
+  button.dispatchEvent(pointer("pointermove", 10, 0));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.equal(longPresses, 0);
+
+  button.dispatchEvent(pointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  assert.equal(longPresses, 1);
+  button.dispatchEvent(pointer("pointerup"));
+  button.click();
+  assert.equal(clicks, 1, "the click following a completed hold is suppressed");
+
+  button.dispatchEvent(pointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  button.dispatchEvent(pointer("pointerup"));
+  assert.equal(longPresses, 2, "the same gesture can unlock again");
+  button.dispatchEvent(pointer("pointerdown"));
+  button.dispatchEvent(pointer("pointerup"));
+  button.click();
+  assert.equal(
+    clicks,
+    2,
+    "a new short press is never consumed by stale long-press suppression",
+  );
+  button.remove();
+});
+
+test("task filter locks persist per character and disable both reroll choices", async () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-lock-role";
+  const storageKey = taskFilterLocksStorageKey(characterId);
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      locked: [
+        "profession:crafting",
+        "dungeon:/actions/combat/chimerical_den",
+        "profession:unknown",
+        "invalid",
+      ],
+    }),
+  );
+  assert.deepEqual([...readTaskFilterLocks(storageKey)].sort(), [
+    "dungeon:/actions/combat/chimerical_den",
+    "profession:crafting",
+  ]);
+
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__filter-lock">
+      ${card("制作 - 木板", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "locked-crafting", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.settings.settingsMap.taskStatistics.isTrue = true;
+  runtime.api.renderTasks();
+
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  const craftingFilter = toolbar.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  assert.equal(craftingFilter.dataset.mwitoolsTaskLocked, "true");
+  assert.ok(craftingFilter.querySelector(".mwi-task-filter-lock"));
+  assert.equal(
+    craftingFilter.getAttribute("aria-pressed"),
+    "false",
+    "locking a filter must not select or highlight it",
+  );
+  craftingFilter.click();
+  toolbar.querySelector('[data-filter-kind="reset"]').click();
+  assert.equal(
+    craftingFilter.dataset.mwitoolsTaskLocked,
+    "true",
+    "resetting visible filters must not unlock a type",
+  );
+
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__filter-lock " + TASK_SELECTOR,
+  );
+  const sourceReset = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  sourceReset.click();
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__locked";
+  for (const expensive of [true, false]) {
+    const option = document.createElement("button");
+    option.className = "RangedWayIdleTaskButton";
+    option.dataset.moreExpensive = String(expensive);
+    option.textContent = expensive ? "Expensive" : "Preferred";
+    options.append(option);
+  }
+  document.body.append(options);
+  runtime.api.renderTasks();
+  const choices = [...options.querySelectorAll("button")];
+  assert.equal(sourceReset.disabled, false);
+  assert.ok(
+    choices.every(
+      (button) =>
+        button.disabled &&
+        button.dataset.mwitoolsTaskLockDisabled === "true" &&
+        button.querySelector(".mwi-task-reroll-lock"),
+    ),
+  );
+  assert.equal(repairRangedWayIdleRerollButtons(), 0);
+
+  const filterPointer = (type) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+    });
+    Object.defineProperty(event, "pointerId", { value: 19 });
+    return event;
+  };
+  craftingFilter.dispatchEvent(filterPointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 1_050));
+  assert.equal(craftingFilter.dataset.mwitoolsTaskLocked, undefined);
+  assert.equal(
+    craftingFilter.querySelector(".mwi-task-filter-lock"),
+    null,
+    "unlocking removes the lock icon even while reroll choices pause rendering",
+  );
+  assert.ok(choices.every((button) => !button.disabled));
+  craftingFilter.dispatchEvent(filterPointer("pointerup"));
+
+  craftingFilter.dispatchEvent(filterPointer("pointerdown"));
+  craftingFilter.dispatchEvent(filterPointer("pointerup"));
+  craftingFilter.click();
+  assert.equal(
+    craftingFilter.getAttribute("aria-pressed"),
+    "true",
+    "the first short tap after a hold still highlights the filter",
+  );
+  craftingFilter.click();
+
+  runtime.settings.settingsMap.taskStatistics.isTrue = false;
+  runtime.api.renderTasks();
+  assert.deepEqual(JSON.parse(localStorage.getItem(storageKey)), {
+    locked: [],
+  });
+  assert.ok(choices.every((button) => !button.disabled));
+  options.remove();
+  runtime.settings.settingsMap.taskStatistics.isTrue = true;
+  runtime.api.renderTasks();
+  const unlockedCraftingFilter = document.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  assert.equal(unlockedCraftingFilter.dataset.mwitoolsTaskLocked, undefined);
+  assert.equal(
+    unlockedCraftingFilter.querySelector(".mwi-task-filter-lock"),
+    null,
+    "unlocking removes the lock indicator node immediately",
+  );
+  runtime.state.currentCharacterId = originalCharacterId;
+  localStorage.removeItem(storageKey);
+});
+
+test("a rerolled task that becomes a locked type is protected next time", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-new-lock-role";
+  const storageKey = taskFilterLocksStorageKey(characterId);
+  writeTaskFilterLocks(storageKey, new Set(["profession:crafting"]));
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__new-lock">
+      ${card("挤奶 - 奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "new-lock-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  runtime.api.renderTasks();
+  const taskCard = document.querySelector(
+    ".TasksPanel_taskList__new-lock " + TASK_SELECTOR,
+  );
+  const reset = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  reset.click();
+  const firstOptions = document.createElement("div");
+  firstOptions.className = "RandomTask_rerollOptionsContainer__first";
+  firstOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(firstOptions);
+  runtime.api.renderTasks();
+  assert.ok(
+    [...firstOptions.querySelectorAll("button")].every(
+      (button) => !button.disabled,
+    ),
+  );
+  firstOptions.querySelector("button").click();
+  firstOptions.remove();
+
+  taskCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 新木板";
+  runtime.state.characterQuests = [
+    { id: "new-lock-crafting", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.api.renderTasks();
+  reset.click();
+  const secondOptions = document.createElement("div");
+  secondOptions.className = "RandomTask_rerollOptionsContainer__second";
+  secondOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(secondOptions);
+  runtime.api.renderTasks();
+  assert.ok(
+    [...secondOptions.querySelectorAll("button")].every(
+      (button) => button.dataset.mwitoolsTaskLockDisabled === "true",
+    ),
+  );
+  secondOptions.remove();
+  runtime.api.renderTasks();
+  runtime.state.currentCharacterId = originalCharacterId;
+  localStorage.removeItem(storageKey);
+});
+
+test("a filtered reroll stays visible until the task page is re-entered", () => {
+  const originalCharacterId = runtime.state.currentCharacterId;
+  const characterId = "task-filter-sticky-role";
+  localStorage.removeItem(taskFilterLocksStorageKey(characterId));
+  runtime.state.currentCharacterId = characterId;
+  document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__sticky-filter">
+      ${card("制作 - 木板", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [
+    { id: "sticky-crafting", actionHrid: "/actions/crafting/lumber" },
+    { id: "sticky-milking", actionHrid: "/actions/milking/cow" },
+  ];
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
+  runtime.api.renderTasks();
+  const toolbar = document.querySelector(".mwi-task-toolbar");
+  const craftingFilter = toolbar.querySelector(
+    '[data-filter-kind="profession"][data-filter-value="crafting"]',
+  );
+  craftingFilter.click();
+  const stickyCard = [...document.querySelectorAll(TASK_SELECTOR)].find(
+    (taskCard) =>
+      taskCard.querySelector('[class*="RandomTask_name"]').textContent ===
+      "制作 - 木板",
+  );
+  assert.match(
+    stickyCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#lumber$/,
+  );
+  [...stickyCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "重置")
+    .click();
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__sticky";
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(options);
+  runtime.api.renderTasks();
+  options.querySelector("button").click();
+  options.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [], removedNodes: [options] },
+    ]),
+    true,
+    "a filtered reroll closing must request an immediate card refresh",
+  );
+
+  stickyCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "挤奶 - 奶牛";
+  runtime.state.characterQuests[0] = {
+    id: "sticky-rerolled-milking",
+    actionHrid: "/actions/milking/cow",
+  };
+  runtime.api.renderTasks({ allowReusedPositional: false });
+  assert.equal(stickyCard.dataset.mwitoolsFiltered, "false");
+  assert.match(
+    stickyCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#cow$/,
+    "the retained card artwork updates as soon as the reroll identity settles",
+  );
+
+  craftingFilter.click();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="foraging"]',
+    )
+    .click();
+  assert.equal(
+    stickyCard.dataset.mwitoolsFiltered,
+    "false",
+    "a retained card remains visible after later filter changes",
+  );
+
+  document.querySelector(".TasksPanel_taskList__sticky-filter").remove();
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    `<div class="TasksPanel_taskList__sticky-reentered">
+      ${card("挤奶 - 奶牛", "0 / 5")}
+    </div>`,
+  );
+  runtime.state.characterQuests = [runtime.state.characterQuests[0]];
+  runtime.api.renderTasks();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"]',
+    )
+    .click();
+  assert.equal(
+    document.querySelector(
+      ".TasksPanel_taskList__sticky-reentered " + TASK_SELECTOR,
+    ).dataset.mwitoolsFiltered,
+    "true",
+  );
+
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="crafting"]',
+    )
+    .click();
+  document
+    .querySelector(
+      '[data-filter-kind="profession"][data-filter-value="milking"]',
+    )
+    .click();
+  const reenteredCard = document.querySelector(
+    ".TasksPanel_taskList__sticky-reentered " + TASK_SELECTOR,
+  );
+  [...reenteredCard.querySelectorAll("button")]
+    .find((button) => button.textContent === "重置")
+    .click();
+  const cancelledOptions = document.createElement("div");
+  cancelledOptions.className = "RandomTask_rerollOptionsContainer__cancelled";
+  cancelledOptions.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(cancelledOptions);
+  runtime.api.renderTasks();
+  cancelledOptions.remove();
+  runtime.api.renderTasks();
+  reenteredCard.querySelector('[class*="RandomTask_name"]').textContent =
+    "制作 - 取消后变化";
+  runtime.state.characterQuests = [
+    { id: "cancelled-change", actionHrid: "/actions/crafting/lumber" },
+  ];
+  runtime.api.renderTasks();
+  assert.equal(
+    reenteredCard.dataset.mwitoolsFiltered,
+    "true",
+    "cancelling the reroll must not retain a later replacement",
+  );
+  runtime.state.currentCharacterId = originalCharacterId;
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });

@@ -55,7 +55,7 @@ runtime.api.getSelfBuildScores = async () => ({
   assets: { allHouses: 0, allAbilities: 0 },
 });
 runtime.api.getGuildShrineValue = () => 0;
-const { AssetHistoryStore } =
+const { AssetHistoryStore, getUtc8DayKey } =
   await import("../src/features/asset-history/10-store.js");
 const { AssetCenter } =
   await import("../src/features/asset-history/25-center.js");
@@ -88,6 +88,71 @@ function gameShell(labels = ["库存", "装备", "技能", "房屋", "配装"]) 
   document.body.appendChild(shell);
   return shell;
 }
+
+test("P/L summary separates liquid and non-current changes on the next row", () => {
+  document.body.replaceChildren();
+  intervals.clear();
+  gameShell();
+  const scope = runtime.createCleanupScope();
+  const store = new AssetHistoryStore(localStorage);
+  const scopeKey = "production:pl-cards";
+  const today = getUtc8DayKey();
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  store.insertDay(
+    yesterday,
+    {
+      equipment: 100,
+      inventory: 200,
+      marketListings: 300,
+      houses: 400,
+      abilities: 500,
+      nonTradableTokens: 600,
+      shrine: 700,
+    },
+    scopeKey,
+  );
+  const ui = createAssetHistoryUi({ scope, store, scopeKey });
+  document.querySelector("#mwitools-asset-history-tab").click();
+  ui.update({
+    values: {
+      total: 3_100,
+      liquid: 750,
+      fixed: 2_350,
+      equipment: 150,
+      inventory: 250,
+      marketListings: 350,
+      houses: 450,
+      abilities: 550,
+      nonTradableTokens: 650,
+      shrine: 700,
+    },
+  });
+  assert.equal(
+    document.querySelector("#mwi-asset-liquid-change").textContent,
+    "+150",
+  );
+  assert.equal(
+    document.querySelector("#mwi-asset-fixed-change").textContent,
+    "+150",
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll(".mwi-asset-summary .mwi-asset-card")].map(
+      (card) => card.querySelector(".mwi-asset-card-label").textContent,
+    ),
+    [
+      "当前总资产",
+      "总盈亏",
+      "流动资产盈亏",
+      "非流动资产盈亏",
+      "盈亏比例",
+      "近 7 日平均",
+    ],
+  );
+  ui.destroy();
+  scope.cleanup();
+});
 
 test("P/L mounts beside character tabs in non-English game languages", () => {
   document.body.replaceChildren();

@@ -21,7 +21,7 @@ test("generated userscript has a single valid metadata block", () => {
   assert.equal(output.indexOf("// ==UserScript=="), 0);
   assert.equal(output.match(/\/\/ ==UserScript==/g)?.length, 1);
   assert.equal(output.match(/\/\/ ==\/UserScript==/g)?.length, 1);
-  assert.match(output, /^\/\/ @version\s+26\.4\.12$/m);
+  assert.match(output, /^\/\/ @version\s+26\.4\.14$/m);
   assert.match(output, /^\/\/ @author\s+bot7420, shykai, Stella$/m);
   assert.match(
     output,
@@ -40,6 +40,7 @@ test("generated userscript has a single valid metadata block", () => {
     "// @match        https://www.milkywayidle.com/*",
     "// @match        https://test.milkywayidle.com/*",
     "// @match        https://www.milkywayidlecn.com/*",
+    "// @match        https://milkywayidlecn.com/*",
     "// @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*",
     "// @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*",
     "// @match        https://mooneycalc.netlify.app/*",

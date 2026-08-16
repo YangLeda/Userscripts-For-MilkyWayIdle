@@ -99,6 +99,17 @@ runtime.state.initData_itemDetailMap = {
     equipmentDetail: { type: "/equipment_types/back" },
   },
 };
+
+test("coin keeps its fixed asset value without market data", () => {
+  const originalGetAssetFairValue = runtime.api.getAssetFairValue;
+  runtime.api.getAssetFairValue = () => {
+    throw new Error("coin valuation must not read the market snapshot");
+  };
+
+  assert.equal(runtime.api.getAssetValue("/items/coin"), 1);
+
+  runtime.api.getAssetFairValue = originalGetAssetFairValue;
+});
 runtime.state.initData_shopItemDetailMap = {
   dungeon_reward: {
     itemHrid: "/items/dungeon_reward",
@@ -184,7 +195,7 @@ test("openable values support expected drops, nesting and cycle guards", () => {
   assert.equal(runtime.api.getAssetValue("/items/cyclic_crate"), 0);
 });
 
-test("keyed dungeon chests subtract one dynamically declared key", () => {
+test("keyed dungeon chests subtract their opening and entry keys", () => {
   const originalFairValue = runtime.api.getAssetFairValue;
   const originalNetSellPrice = runtime.api.getAssetNetSellPrice;
   const originalNetSellPriceAtAsk = runtime.api.getAssetNetSellPriceAtAsk;
@@ -199,6 +210,14 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
     "/items/pirate_chest",
     "/items/pirate_refinement_chest",
   ];
+  const entryKeyHrids = new Set(
+    chestHrids.map((chestHrid) =>
+      chestHrid.replace(/(?:_refinement)?_chest$/, "_entry_key"),
+    ),
+  );
+  for (const entryKeyHrid of entryKeyHrids) {
+    runtime.state.initData_itemDetailMap[entryKeyHrid] = {};
+  }
   for (const chestHrid of chestHrids) {
     runtime.state.initData_itemDetailMap[chestHrid] = {
       sellPrice: 77,
@@ -241,56 +260,63 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
     "/items/dungeon_test_loot": 1_000,
     "/items/dungeon_test_key": 200,
     "/items/dungeon_test_key_material": 50,
+    ...Object.fromEntries([...entryKeyHrids].map((hrid) => [hrid, 25])),
   };
   runtime.api.getAssetFairValue = (itemHrid) => fairValues[itemHrid] ?? 0;
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 700
-      : itemHrid === "/items/dungeon_test_key"
-        ? 100
-        : itemHrid === "/items/dungeon_test_key_material"
-          ? 40
-          : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : itemHrid === "/items/dungeon_test_key"
+          ? 100
+          : itemHrid === "/items/dungeon_test_key_material"
+            ? 40
+            : 0;
   runtime.api.getAssetNetSellPriceAtAsk = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 1_300
-      : itemHrid === "/items/dungeon_test_key"
-        ? 300
-        : itemHrid === "/items/dungeon_test_key_material"
-          ? 60
-          : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 30
+        : itemHrid === "/items/dungeon_test_key"
+          ? 300
+          : itemHrid === "/items/dungeon_test_key_material"
+            ? 60
+            : 0;
   runtime.api.getMarketTaxRate = () => 0.1;
   runtime.api.invalidateAssetValueCache();
 
   for (const chestHrid of chestHrids) {
-    assert.equal(runtime.api.getAssetValue(chestHrid), 900);
+    assert.equal(runtime.api.getAssetValue(chestHrid), 875);
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "conservative").value,
-      620,
+      600,
     );
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "fair").value,
-      810,
+      787.5,
     );
     assert.equal(
       runtime.api.getAssetLiquidationValue(chestHrid, 0, "aggressive").value,
-      1_180,
+      1_150,
     );
   }
   assert.equal(
     runtime.api.getAssetValue("/items/keyless_refinement_chest"),
     1_000,
   );
-  assert.equal(runtime.api.getAssetValue("/items/outer_dungeon_chest"), 900);
+  assert.equal(runtime.api.getAssetValue("/items/outer_dungeon_chest"), 875);
 
   fairValues["/items/dungeon_test_loot"] = 100;
   fairValues["/items/dungeon_test_key_material"] = 100;
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
     itemHrid === "/items/dungeon_test_loot"
       ? 100
-      : itemHrid === "/items/dungeon_test_key_material"
-        ? 200
-        : 0;
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : itemHrid === "/items/dungeon_test_key_material"
+          ? 200
+          : 0;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
   assert.deepEqual(
@@ -305,7 +331,11 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
 
   delete fairValues["/items/dungeon_test_key_material"];
   runtime.api.getAssetNetSellPrice = (itemHrid) =>
-    itemHrid === "/items/dungeon_test_loot" ? 100 : 0;
+    itemHrid === "/items/dungeon_test_loot"
+      ? 100
+      : entryKeyHrids.has(itemHrid)
+        ? 20
+        : 0;
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue(chestHrids[0]), 0);
   const incomplete = runtime.api.getAssetLiquidationValue(
@@ -332,6 +362,9 @@ test("keyed dungeon chests subtract one dynamically declared key", () => {
   ]) {
     delete runtime.state.initData_itemDetailMap[chestHrid];
     delete runtime.state.initData_openableLootDropMap[chestHrid];
+  }
+  for (const entryKeyHrid of entryKeyHrids) {
+    delete runtime.state.initData_itemDetailMap[entryKeyHrid];
   }
   delete runtime.state.initData_actionDetailMap.dungeon_test_key;
   runtime.api.invalidateAssetValueCache();
@@ -743,7 +776,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
     received.forcedProtectionItemHrid,
     "/items/mirror_of_protection",
   );
-  assert.equal(received.allowPhilosopherMirror, false);
+  assert.equal(received.allowPhilosopherMirror, true);
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/test_quiver", 5), 123_456);
   assert.equal(
@@ -758,7 +791,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
     received.forcedProtectionItemHrid,
     "/items/mirror_of_protection",
   );
-  assert.equal(received.allowPhilosopherMirror, false);
+  assert.equal(received.allowPhilosopherMirror, true);
   runtime.api.invalidateAssetValueCache();
   assert.equal(
     runtime.api.getAssetValue("/items/artificer_cape_refined", 5),
@@ -784,6 +817,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
 test("guild shrine value accumulates every purchased buff level", () => {
   runtime.state.initData_guildBuffDetailMap = {
     "/guild_buffs/force_combat": {
+      isCombat: true,
       levelCosts: [
         null,
         {
@@ -797,6 +831,7 @@ test("guild shrine value accumulates every purchased buff level", () => {
       ],
     },
     "/guild_buffs/force_skilling": {
+      isCombat: false,
       levelCosts: [
         null,
         {
@@ -805,16 +840,66 @@ test("guild shrine value accumulates every purchased buff level", () => {
         },
       ],
     },
+    "/guild_buffs/scholar_combat": {
+      isCombat: true,
+      levelCosts: [
+        null,
+        {
+          guildTokenCost: 0,
+          creditCosts: [{ itemHrid: "/items/green_guild_credit", count: 4 }],
+        },
+      ],
+    },
+    "/guild_buffs/scholar_skilling": {
+      isCombat: false,
+      levelCosts: [
+        null,
+        {
+          guildTokenCost: 0,
+          creditCosts: [{ itemHrid: "/items/green_guild_credit", count: 6 }],
+        },
+      ],
+    },
   };
   runtime.state.guildBuffLevels = {
     "/guild_buffs/force_combat": { level: 2 },
     "/guild_buffs/force_skilling": 1,
+    "/guild_buffs/scholar_combat": 1,
+    "/guild_buffs/scholar_skilling": 1,
   };
   runtime.state.guildDataLoaded = true;
-  assert.equal(runtime.api.getGuildShrineValue(), 800);
+  assert.deepEqual(runtime.api.getGuildShrineValues(), {
+    battle: 840,
+    skilling: 160,
+    total: 1000,
+  });
+  assert.equal(runtime.api.getGuildShrineValue(), 1000);
 
   runtime.state.guildDataLoaded = false;
   assert.equal(runtime.api.getGuildShrineValue(), null);
+  assert.deepEqual(
+    runtime.api.getGuildShrineValues({
+      "/guild_buffs/force_combat": 1,
+      "/guild_buffs/force_skilling": 0,
+      "/guild_buffs/scholar_combat": 0,
+      "/guild_buffs/scholar_skilling": 0,
+    }),
+    { battle: 460, skilling: 0, total: 460 },
+  );
+
+  const savedCost =
+    runtime.state.initData_guildBuffDetailMap["/guild_buffs/force_combat"]
+      .levelCosts[2];
+  runtime.state.initData_guildBuffDetailMap[
+    "/guild_buffs/force_combat"
+  ].levelCosts[2] = null;
+  assert.deepEqual(
+    runtime.api.getGuildShrineValues(runtime.state.guildBuffLevels),
+    { battle: null, skilling: 160, total: null },
+  );
+  runtime.state.initData_guildBuffDetailMap[
+    "/guild_buffs/force_combat"
+  ].levelCosts[2] = savedCost;
 });
 
 test("recipe and shop reverse indexes rebuild when source objects are replaced", () => {

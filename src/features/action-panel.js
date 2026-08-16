@@ -8,6 +8,7 @@ const ACTION_PANEL_SELECTOR =
   'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
 const ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1000];
 const actionPanelRetryStates = new Map();
+const targetLevelSelections = new Map();
 
 function addActionPanelStyles() {
   if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
@@ -153,9 +154,16 @@ async function handleActionPanel(panel) {
     const tillLevelInput = document.createElement("input");
     tillLevelInput.id = "tillLevelInput";
     tillLevelInput.type = "number";
-    tillLevelInput.value = String(currentLevel + 1);
     tillLevelInput.min = String(currentLevel + 1);
     tillLevelInput.max = String(maxLevel);
+    const savedTargetLevel = Number(targetLevelSelections.get(actionHrid));
+    const initialTargetLevel =
+      Number.isSafeInteger(savedTargetLevel) &&
+      savedTargetLevel > currentLevel &&
+      savedTargetLevel <= maxLevel
+        ? savedTargetLevel
+        : currentLevel + 1;
+    tillLevelInput.value = String(initialTargetLevel);
     tillLevelInput.className = `${inputElem.className} mwi-target-level-input`;
     const tillLevelNumber = document.createElement("span");
     tillLevelNumber.id = "tillLevelNumber";
@@ -223,6 +231,14 @@ async function handleActionPanel(panel) {
     };
     tillLevelInput.addEventListener("input", () => {
       targetLevelEdited = true;
+      const targetLevel = Number(tillLevelInput.value);
+      if (
+        Number.isSafeInteger(targetLevel) &&
+        targetLevel > currentLevel &&
+        targetLevel <= maxLevel
+      ) {
+        targetLevelSelections.set(actionHrid, targetLevel);
+      }
       updateTargetLevel();
     });
     updateTargetLevel();
@@ -276,6 +292,23 @@ function scheduleActionPanel(panel) {
     state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[state.attempt]);
   };
   state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
+}
+
+function refreshProductionActionPanel(panel) {
+  if (
+    !runtime.settings.settingsMap.actionPanel_totalTime.isTrue ||
+    !panel?.isConnected
+  ) {
+    return false;
+  }
+  if (
+    !panel.querySelector("#mwi-level-progress") ||
+    panel.querySelectorAll(".mwi-native-level-stat").length !== 4
+  ) {
+    delete panel.dataset.mwitoolsActionPanel;
+  }
+  scheduleActionPanel(panel);
+  return true;
 }
 
 function clearActionPanelRetries() {
@@ -485,6 +518,7 @@ const removeInsertedDivs = () =>
 
 Object.assign(runtime.api, {
   handleActionPanel,
+  refreshProductionActionPanel,
   getTotalEffiPercentage,
   getActionEfficiencyDetails,
   getTotalTimeStr,
@@ -550,6 +584,7 @@ runtime.features.register({
   setting: "actionPanel_totalTime",
   scope: "character",
   initialize({ scope }) {
+    targetLevelSelections.clear();
     const observer = new MutationObserver((mutations) => {
       const panels = new Set();
       for (const mutation of mutations) {
@@ -614,6 +649,7 @@ runtime.features.register({
     }
     scope.add(() => {
       clearActionPanelRetries();
+      targetLevelSelections.clear();
       document
         .querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat",

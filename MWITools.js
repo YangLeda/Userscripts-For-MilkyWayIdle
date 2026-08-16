@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MWITools
 // @namespace    http://tampermonkey.net/
-// @version      26.4.12
+// @version      26.4.14
 // @updateURL    https://update.greasyfork.org/scripts/494467/MWITools.meta.js
 // @downloadURL  https://update.greasyfork.org/scripts/494467/MWITools.user.js
 // @description  Tools for MilkyWayIdle. Includes a feedback center, action projections, market insights, asset history, DPS/HPS statistics, inventory tools, tasks, and guild utilities.
@@ -10,6 +10,7 @@
 // @match        https://www.milkywayidle.com/*
 // @match        https://test.milkywayidle.com/*
 // @match        https://www.milkywayidlecn.com/*
+// @match        https://milkywayidlecn.com/*
 // @match        https://amvoidguy.github.io/MWICombatSimulatorTest/*
 // @match        https://shykai.github.io/MWICombatSimulatorTest/dist/*
 // @match        https://mooneycalc.netlify.app/*
@@ -970,6 +971,11 @@
 
   // src/core/game-assets.js
   var SPRITE_PATTERN = /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
+  var SPRITE_SOURCE_PRIORITY = Object.freeze({
+    dom: 1,
+    resource: 2,
+    manifest: 3
+  });
   var spriteBases = /* @__PURE__ */ new Map();
   var lastScanAt = Number.NEGATIVE_INFINITY;
   var spriteManifestPromise = null;
@@ -983,11 +989,17 @@
     if (value === "skill") return "skills";
     return value;
   }
-  function registerGameSpriteSource(rawValue) {
+  function registerGameSpriteSource(rawValue, options = {}) {
     const value = String(rawValue ?? "").split("#")[0];
     const match = value.match(SPRITE_PATTERN);
     if (!match) return false;
-    spriteBases.set(normalizeKind(match[2]), match[1]);
+    const kind = normalizeKind(match[2]);
+    const source = String(options.source ?? "dom");
+    const priority = SPRITE_SOURCE_PRIORITY[source] ?? SPRITE_SOURCE_PRIORITY.dom;
+    const existing = spriteBases.get(kind);
+    if (!existing || priority > existing.priority || priority === existing.priority && options.replaceSamePriority === true) {
+      spriteBases.set(kind, { base: match[1], priority });
+    }
     return true;
   }
   function scanGameSpriteSources({ force = false } = {}) {
@@ -998,7 +1010,10 @@
       for (const entry of globalThis.performance?.getEntriesByType?.(
         "resource"
       ) ?? []) {
-        registerGameSpriteSource(entry?.name);
+        registerGameSpriteSource(entry?.name, {
+          source: "resource",
+          replaceSamePriority: true
+        });
       }
     } catch {
     }
@@ -1007,7 +1022,8 @@
         "svg use,img[src],link[href]"
       ) ?? []) {
         registerGameSpriteSource(
-          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src
+          node.getAttribute?.("href") ?? node.getAttribute?.("xlink:href") ?? node.getAttribute?.("src") ?? node.currentSrc ?? node.src,
+          { source: "dom" }
         );
       }
     } catch {
@@ -1029,7 +1045,10 @@
         if (!response.ok) return spriteBases.size;
         const manifest = await response.json();
         for (const value of Object.values(manifest?.files ?? {})) {
-          registerGameSpriteSource(value);
+          registerGameSpriteSource(value, {
+            source: "manifest",
+            replaceSamePriority: true
+          });
         }
       } catch {
       }
@@ -1040,7 +1059,7 @@
   function getGameSpriteBase(kind) {
     const normalizedKind = normalizeKind(kind);
     if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
-    return spriteBases.get(normalizedKind) ?? "";
+    return spriteBases.get(normalizedKind)?.base ?? "";
   }
   function getGameSpriteHref(kind, hrid) {
     const base = getGameSpriteBase(kind);
@@ -1251,7 +1270,7 @@
     },
     ThirdPartyLinks: {
       id: "ThirdPartyLinks",
-      desc: isZH ? "左侧菜单栏显示：第三方工具网站链接、脚本设置链接" : "Left sidebar: Links to 3rd-party websites, script settings.",
+      desc: isZH ? "左侧菜单栏显示：第三方工具网站链接" : "Left sidebar: Links to 3rd-party websites.",
       isTrue: true
     },
     actionQueue: {
@@ -2065,8 +2084,8 @@
       "tools",
       "第三方工具入口",
       "External tool shortcuts",
-      "在左侧菜单提供模拟器、计算器和脚本设置入口。",
-      "Add sidebar shortcuts for simulators, calculators, and MWITools settings."
+      "在左侧菜单提供模拟器、计算器和第三方数据入口。",
+      "Add sidebar shortcuts for simulators, calculators, and third-party data."
     ],
     [
       "skillbook",
@@ -2116,6 +2135,24 @@
       ["largest", { zh: "最大", en: "Largest" }]
     ]
   };
+  settingsCatalog.productionQuickHours = Object.freeze({
+    id: "productionQuickHours",
+    group: "production",
+    hidden: true,
+    control: Object.freeze({
+      type: "text",
+      preference: "productionQuickHours"
+    })
+  });
+  settingsCatalog.productionQuickCounts = Object.freeze({
+    id: "productionQuickCounts",
+    group: "production",
+    hidden: true,
+    control: Object.freeze({
+      type: "text",
+      preference: "productionQuickCounts"
+    })
+  });
   var settingParents = {
     actionBarProfit: "totalActionTime",
     actionQueue: "totalActionTime",
@@ -2152,6 +2189,11 @@
   }
   var settingListeners = /* @__PURE__ */ new Map();
   var preferenceListeners = /* @__PURE__ */ new Map();
+  function normalizeTextPreference(value, fallback) {
+    if (typeof value !== "string" && typeof value !== "number") return fallback;
+    const normalized = String(value).trim().slice(0, 256);
+    return normalized || fallback;
+  }
   var preferenceDefinitions = Object.freeze({
     productionSummaryMode: Object.freeze({
       defaultValue: "collapsed",
@@ -2164,6 +2206,18 @@
     hoverFontScale: Object.freeze({
       defaultValue: "standard",
       values: Object.freeze(["standard", "large", "largest"])
+    }),
+    productionQuickHours: Object.freeze({
+      defaultValue: "0.5,1,2,3,4,5,6,10,12,24",
+      normalize(value) {
+        return normalizeTextPreference(value, this.defaultValue);
+      }
+    }),
+    productionQuickCounts: Object.freeze({
+      defaultValue: "10,100,300,500,1000,2000",
+      normalize(value) {
+        return normalizeTextPreference(value, this.defaultValue);
+      }
     })
   });
   var preferenceValues = Object.fromEntries(
@@ -2178,6 +2232,9 @@
   function normalizePreference(id, value) {
     const definition = preferenceDefinitions[id];
     if (!definition) return void 0;
+    if (typeof definition.normalize === "function") {
+      return definition.normalize(value);
+    }
     return definition.values.includes(value) ? value : definition.defaultValue;
   }
   function getPreference(id) {
@@ -2260,7 +2317,8 @@
       if (!preferenceDefinitions[id]) {
         throw new TypeError(`Unknown MWITools preference: ${id}`);
       }
-      if (!preferenceDefinitions[id].values.includes(value)) {
+      const definition = preferenceDefinitions[id];
+      if (definition.values && !definition.values.includes(value) || definition.normalize && typeof value !== "string") {
         throw new TypeError(`Invalid MWITools preference value for ${id}`);
       }
     }
@@ -3451,7 +3509,7 @@
       case "test":
         return "https://test.milkywayidle.com/game_data/marketplace.json";
       case "china":
-        return "https://www.milkywayidlecn.com/game_data/marketplace.json";
+        return "https://milkywayidlecn.com/game_data/marketplace.json";
       default:
         return "https://www.milkywayidle.com/game_data/marketplace.json";
     }
@@ -7850,6 +7908,7 @@
   ]);
   var ENHANCED_EQUIPMENT_MAX_MARKET_DEVIATION = 0.2;
   var MAX_ACQUISITION_DEPTH = 12;
+  var DUNGEON_CHEST_HRID_PATTERN = /^\/items\/(.+?)(?:_refinement)?_chest$/;
   var assetValueCache = /* @__PURE__ */ new Map();
   var assetLiquidationCache = /* @__PURE__ */ new Map();
   var guildCreditHridCache = null;
@@ -7882,6 +7941,12 @@
   }
   function getItemDetails(itemHrid) {
     return runtime.state.initData_itemDetailMap?.[itemHrid] ?? null;
+  }
+  function getDungeonEntryKeyItemHrid(itemHrid) {
+    const match = DUNGEON_CHEST_HRID_PATTERN.exec(String(itemHrid ?? ""));
+    if (!match) return null;
+    const entryKeyItemHrid = `/items/${match[1]}_entry_key`;
+    return getItemDetails(entryKeyItemHrid) ? entryKeyItemHrid : null;
   }
   function settingEnabled(id) {
     return Boolean(
@@ -7998,10 +8063,19 @@
       total += expectedCount * value;
     }
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid;
-    if (!keyItemHrid) return total;
-    const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
-    if (!(keyCraftingCost > 0)) return 0;
-    return Math.max(0, total - keyCraftingCost);
+    let keyCost = 0;
+    if (keyItemHrid) {
+      const keyCraftingCost = getCraftedAcquisitionValue(keyItemHrid, 0, context);
+      if (!(keyCraftingCost > 0)) return 0;
+      keyCost += keyCraftingCost;
+    }
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+    if (entryKeyItemHrid) {
+      const entryKeyCost = getAssetValueInternal(entryKeyItemHrid, 0, context);
+      if (!(entryKeyCost > 0)) return 0;
+      keyCost += entryKeyCost;
+    }
+    return Math.max(0, total - keyCost);
   }
   function isPersonalBuffScroll(itemHrid) {
     return Boolean(getItemDetails(itemHrid)?.scrollDetail?.personalBuffTypeHrid);
@@ -8370,16 +8444,23 @@
       });
     }
     const keyItemHrid = getItemDetails(itemHrid)?.openKeyItemHrid ?? null;
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
     const key = getLootKeyCost(keyItemHrid, config);
+    const entryKey = getLootKeyCost(entryKeyItemHrid, {
+      ...config,
+      fromFragments: false
+    });
+    const keyCost = key.value + entryKey.value;
+    const keyComplete = key.complete && entryKey.complete;
     const selfRows = rows2.filter((row) => row.pendingSelfReference);
     const selfExpectedCount = selfRows.reduce(
       (total, row) => total + row.expectedCount,
       0
     );
-    if (selfRows.length && key.complete && selfExpectedCount < 1) {
+    if (selfRows.length && keyComplete && selfExpectedCount < 1) {
       const selfValue = Math.max(
         0,
-        (grossValue - key.value) / (1 - selfExpectedCount)
+        (grossValue - keyCost) / (1 - selfExpectedCount)
       );
       for (const row of selfRows) {
         row.unitValue = selfValue;
@@ -8400,19 +8481,27 @@
       }
     }
     for (const missingItemHrid of key.missing) missing.add(missingItemHrid);
-    const complete = missing.size === 0 && key.complete;
-    const netValue = key.complete ? grossValue - key.value : null;
+    for (const missingItemHrid of entryKey.missing) {
+      missing.add(missingItemHrid);
+    }
+    const complete = missing.size === 0 && keyComplete;
+    const netValue = keyComplete ? grossValue - keyCost : null;
     visited.delete(itemHrid);
     return {
       itemHrid,
       keyItemHrid,
+      entryKeyItemHrid,
       config,
       drops: rows2.sort((left, right) => right.value - left.value),
       redemptions: [...bestRedemptions.values()],
       grossValue,
-      keyCost: key.value,
+      keyCost,
+      chestKeyCost: key.value,
+      entryKeyCost: entryKey.value,
       keySource: key.source,
-      keyComplete: key.complete,
+      keyComplete,
+      chestKeyComplete: key.complete,
+      entryKeyComplete: entryKey.complete,
       netValue,
       complete,
       missing: [...missing]
@@ -8541,7 +8630,7 @@
       itemHrid,
       targetLevel: enhancementLevel,
       forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
-      allowPhilosopherMirror: !backEquipment,
+      allowPhilosopherMirror: true,
       getFairValue: (hrid, level = 0) => acquisitionCostValue(hrid, level, context),
       getMarketValue: (hrid, level = 0) => runtime.api.getAssetFairValue(hrid, level)
     });
@@ -8577,6 +8666,7 @@
   }
   function getAssetValueInternal(itemHrid, enhancementLevel, context, options = {}) {
     if (!itemHrid) return 0;
+    if (itemHrid === "/items/coin") return 1;
     const level = Number(enhancementLevel) || 0;
     const directFairValue = runtime.api.getAssetFairValue(itemHrid, level);
     const backEquipment = isBackEquipment(itemHrid, options.itemLocationHrid);
@@ -8900,6 +8990,23 @@
       }
       total = Math.max(0, total - keyResult.value);
     }
+    const entryKeyItemHrid = getDungeonEntryKeyItemHrid(itemHrid);
+    if (entryKeyItemHrid) {
+      const entryKeyResult = getAssetLiquidationValueInternal(
+        entryKeyItemHrid,
+        0,
+        mode,
+        context
+      );
+      results.push(entryKeyResult);
+      if (!(entryKeyResult.value > 0)) {
+        return liquidationResult(0, "missing", [
+          ...mergeLiquidationMissing(results),
+          entryKeyItemHrid
+        ]);
+      }
+      total = Math.max(0, total - entryKeyResult.value);
+    }
     if (!(total > 0) && results.every((result) => result.complete)) {
       return {
         value: 0,
@@ -8967,8 +9074,7 @@
       /* @__PURE__ */ new Set()
     );
   }
-  function getGuildBuffLevel(guildBuffHrid) {
-    const levels = runtime.state.guildBuffLevels;
+  function getGuildBuffLevel(guildBuffHrid, levels) {
     const record = Array.isArray(levels) ? levels.find(
       (value) => (value?.guildBuffHrid ?? value?.hrid) === guildBuffHrid
     ) : levels?.[guildBuffHrid];
@@ -8977,39 +9083,71 @@
     );
     return Number.isSafeInteger(level) && level > 0 ? level : 0;
   }
-  function getGuildShrineValue() {
-    if (!runtime.state.guildDataLoaded) return null;
+  function getGuildShrineValues(guildBuffLevels2) {
+    const usesCurrentCharacter = guildBuffLevels2 === void 0;
+    if (usesCurrentCharacter && !runtime.state.guildDataLoaded) return null;
+    const levels = usesCurrentCharacter ? runtime.state.guildBuffLevels : guildBuffLevels2;
+    if (!levels || typeof levels !== "object") return null;
     const details = entriesOfMap(runtime.state.initData_guildBuffDetailMap);
     if (!details.length) return null;
-    let total = 0;
+    const values = { battle: 0, skilling: 0 };
+    const valid = { battle: true, skilling: true };
     for (const [fallbackHrid, detail] of details) {
       const guildBuffHrid = detail?.guildBuffHrid ?? detail?.hrid ?? fallbackHrid;
-      const levelCosts = detail?.levelCosts;
-      if (!guildBuffHrid || !levelCosts) continue;
-      const currentLevel = getGuildBuffLevel(guildBuffHrid);
+      if (!guildBuffHrid) continue;
+      const currentLevel = getGuildBuffLevel(guildBuffHrid, levels);
+      if (!currentLevel) continue;
+      if (typeof detail?.isCombat !== "boolean") return null;
+      const group = detail.isCombat ? "battle" : "skilling";
+      if (!valid[group]) continue;
+      const levelCosts = detail.levelCosts;
+      if (!levelCosts) {
+        valid[group] = false;
+        continue;
+      }
       for (let level = 1; level <= currentLevel; level += 1) {
         const cost = levelCosts[level] ?? levelCosts[String(level)];
-        if (!cost) return null;
+        if (!cost) {
+          valid[group] = false;
+          break;
+        }
         const guildTokenCount = positiveNumber2(cost.guildTokenCost);
         if (guildTokenCount) {
           const tokenValue = getAssetValue("/items/guild_token", 0);
-          if (!(tokenValue > 0)) return null;
-          total += guildTokenCount * tokenValue;
+          if (!(tokenValue > 0)) {
+            valid[group] = false;
+            break;
+          }
+          values[group] += guildTokenCount * tokenValue;
         }
         for (const creditCost of cost.creditCosts ?? []) {
           const count = positiveNumber2(creditCost?.count);
           if (!count) continue;
           const creditValue = getAssetValue(creditCost.itemHrid, 0);
-          if (!(creditValue > 0)) return null;
-          total += count * creditValue;
+          if (!(creditValue > 0)) {
+            valid[group] = false;
+            break;
+          }
+          values[group] += count * creditValue;
         }
+        if (!valid[group]) break;
       }
     }
-    return total;
+    const battle = valid.battle ? values.battle : null;
+    const skilling = valid.skilling ? values.skilling : null;
+    return {
+      battle,
+      skilling,
+      total: Number.isFinite(battle) && Number.isFinite(skilling) ? battle + skilling : null
+    };
+  }
+  function getGuildShrineValue() {
+    return getGuildShrineValues()?.total ?? null;
   }
   Object.assign(runtime.api, {
     getAssetValue,
     getAssetLiquidationValue,
+    getGuildShrineValues,
     getGuildShrineValue,
     projectLootChest,
     isBackEquipment,
@@ -9564,26 +9702,42 @@
     }
     return { combat, skilling, all };
   }
+  function createEmptyShrineScores() {
+    return { battle: null, skilling: null };
+  }
+  function calculateGuildShrineScores(guildBuffLevels2) {
+    if (typeof runtime.api.getGuildShrineValues !== "function") {
+      return createEmptyShrineScores();
+    }
+    const values = guildBuffLevels2 === void 0 ? runtime.api.getGuildShrineValues() : runtime.api.getGuildShrineValues(guildBuffLevels2);
+    return {
+      battle: Number.isFinite(values?.battle) ? values.battle / SCORE_UNIT : null,
+      skilling: Number.isFinite(values?.skilling) ? values.skilling / SCORE_UNIT : null
+    };
+  }
   function createScoreResult({
     houseScores,
     abilityScore,
     allAbilityScore,
     gearScores,
+    shrineScores = createEmptyShrineScores(),
     equipmentHidden = false
   }) {
     const battle = {
       house: houseScores.combat,
       abilities: abilityScore,
-      equipment: gearScores.combatEquipment
+      equipment: gearScores.combatEquipment,
+      shrine: shrineScores.battle
     };
-    battle.total = battle.house + battle.abilities + battle.equipment;
+    battle.total = battle.house + battle.abilities + battle.equipment + (Number.isFinite(battle.shrine) ? battle.shrine : 0);
     const skilling = {
       house: houseScores.skilling,
       tools: gearScores.skillingTools,
       equipment: gearScores.skillingEquipment,
+      shrine: shrineScores.skilling,
       available: !equipmentHidden
     };
-    skilling.total = skilling.house + skilling.tools + skilling.equipment;
+    skilling.total = skilling.house + skilling.tools + skilling.equipment + (Number.isFinite(skilling.shrine) ? skilling.shrine : 0);
     return {
       battle,
       skilling,
@@ -9599,6 +9753,9 @@
       runtime.state.initData_characterHouseRoomMap
     );
     const gearScores = calculateGearScores(runtime.state.initData_characterItems);
+    const guildBuffLevels2 = runtime.state.guildBuffLevels;
+    const hasGuildBuffLevels = Array.isArray(guildBuffLevels2) ? guildBuffLevels2.length > 0 : Object.keys(guildBuffLevels2 ?? {}).length > 0;
+    const shrineScores = runtime.state.guildDataLoaded && (Boolean(runtime.state.guild) || hasGuildBuffLevels) ? calculateGuildShrineScores() : createEmptyShrineScores();
     let abilityScore = 0;
     try {
       abilityScore = await calculateAbilityScore();
@@ -9621,7 +9778,8 @@
       houseScores,
       abilityScore,
       allAbilityScore,
-      gearScores
+      gearScores,
+      shrineScores
     });
   }
   async function getHouseFullBuildPrice(house) {
@@ -9714,6 +9872,7 @@
     const scores = await getBuildScoreByProfile(profile_shared_obj);
     const hiddenText = scores.equipmentHidden ? runtime.config.isZH ? "（装备隐藏）" : " (Equipment hidden)" : "";
     const hiddenValue = scores.equipmentHidden ? "-" : null;
+    const optionalScore = (value) => Number.isFinite(value) ? runtime.api.formatScore(value) : "—";
     const panel = await getInfoPanel();
     panel.style.height = "auto";
     panel.querySelector("#script_profile_gear_scores")?.remove();
@@ -9738,6 +9897,10 @@
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.battle.equipment)}</span>
                     </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.battle.shrine)}</span>
+                    </p>
             </section>
             <p id="toggleSkillingScores_profile" style="display: block !important; margin: 4px 0 !important; padding: 4px 0 !important; cursor: pointer !important; font-weight: 650 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                     <span class="mwi-profile-toggle-icon" style="display: inline !important; font-weight: bold !important; margin-right: 4px !important; float: none !important;">+</span>
@@ -9756,6 +9919,10 @@
                     <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
                             <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "装备：" : "Equipment: "}</span>
                             <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${hiddenValue ?? runtime.api.formatScore(scores.skilling.equipment)}</span>
+                    </p>
+                    <p style="display: block !important; margin: 2px 0 !important; padding: 3px 0 !important; text-align: left !important; width: fit-content !important; float: none !important;">
+                            <span style="display: inline !important; color: var(--color-text-secondary, #9da6b2) !important; float: none !important;">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span>
+                            <span style="display: inline !important; font-weight: 600 !important; color: #f3f5f7 !important; margin-left: 2px !important; float: none !important;">${optionalScore(scores.skilling.shrine)}</span>
                     </p>
             </section>
         </section>`
@@ -9779,6 +9946,7 @@
   async function getBuildScoreByProfile(profile_shared_obj) {
     const profile = profile_shared_obj.profile;
     const houseScores = await calculateHouseScores(profile.characterHouseRoomMap);
+    const shrineScores = profile.guildId && profile.guildBuffLevelMap && typeof profile.guildBuffLevelMap === "object" ? calculateGuildShrineScores(profile.guildBuffLevelMap) : createEmptyShrineScores();
     const equipmentHidden = profile.hideWearableItems === true;
     const emptyGearScores = createEmptyGearScores();
     if (equipmentHidden) {
@@ -9787,6 +9955,7 @@
         abilityScore: 0,
         allAbilityScore: 0,
         gearScores: emptyGearScores,
+        shrineScores,
         equipmentHidden: true
       });
     }
@@ -9812,7 +9981,8 @@
       houseScores,
       abilityScore,
       allAbilityScore: 0,
-      gearScores
+      gearScores,
+      shrineScores
     });
   }
   async function calculateSkill(profile_shared_obj) {
@@ -9866,6 +10036,7 @@
     isSkillingHouse,
     calculateGearScores,
     calculateHouseScores,
+    calculateGuildShrineScores,
     calculateAbilityScore,
     getInfoPanel,
     showBuildScoreOnProfile,
@@ -9876,12 +10047,21 @@
 
   // src/features/duplicate-script-warning.js
   var WARNING_ID = "mwitools-duplicate-script-warning";
+  var MUTED_DUPLICATES_KEY = "MWITools_muted_duplicate_scripts_v1";
+  var DUPLICATE_IDS = Object.freeze({
+    "MWI 市场伴侣 / MWI Market Mate": "market-mate",
+    "银河奶牛 DPS 统计 / Galaxy Cow DPS": "galaxy-cow-dps",
+    "Everyday Profit Plus Fixed": "everyday-profit-plus",
+    "MWI TaskManager": "mwi-task-manager"
+  });
+  var activeDuplicateWarningMonitor = null;
   var pageWindow = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var dpsWasPresentAtLoad = Boolean(pageWindow.__MWI_DPS);
   function detectDuplicateScripts(options = {}) {
     const target = options.pageWindow ?? pageWindow;
     const documentRef = options.documentRef ?? globalThis.document;
     const duplicates = [];
+    const taskInsightsEnabled = options.taskInsightsEnabled ?? runtime.settings.get?.("taskInsights") ?? true;
     if (target.MWIMM || documentRef?.getElementById("mwi-mm2-host")) {
       duplicates.push("MWI 市场伴侣 / MWI Market Mate");
     }
@@ -9893,17 +10073,38 @@
     )) {
       duplicates.push("Everyday Profit Plus Fixed");
     }
-    if (documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
+    if (taskInsightsEnabled && documentRef?.querySelector("#TaskSort") && documentRef?.querySelector(
       "#taskChekerInCoin,#ActionIcon,#BattleIcon,#DungeonIcon"
     )) {
       duplicates.push("MWI TaskManager");
     }
     return duplicates;
   }
+  function duplicateScriptId(name) {
+    return DUPLICATE_IDS[name] ?? String(name ?? "").trim().toLowerCase();
+  }
+  function readMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+    try {
+      const value = JSON.parse(storage?.getItem(MUTED_DUPLICATES_KEY) || "[]");
+      return new Set(Array.isArray(value) ? value.map(String) : []);
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  function writeMutedDuplicateScriptIds(ids, storage = globalThis.localStorage) {
+    const value = [...new Set(ids ?? [])].map(String).filter(Boolean).sort();
+    storage?.setItem(MUTED_DUPLICATES_KEY, JSON.stringify(value));
+    return value;
+  }
+  function clearMutedDuplicateScriptIds(storage = globalThis.localStorage) {
+    storage?.removeItem(MUTED_DUPLICATES_KEY);
+    activeDuplicateWarningMonitor?.schedule();
+  }
   function showDuplicateWarning(duplicates, {
     documentRef = globalThis.document,
     isZH: isZH3 = runtime.config.isZH,
-    onDismiss = null
+    onDismiss = null,
+    onMute = null
   } = {}) {
     if (!duplicates.length || !documentRef?.body) return null;
     let warning = documentRef.getElementById(WARNING_ID);
@@ -9919,16 +10120,32 @@
       close.setAttribute("aria-label", isZH3 ? "关闭提醒" : "Close warning");
       close.style.cssText = "position:absolute;top:5px;right:7px;width:26px;height:26px;border:0;background:transparent;color:#bbb;font:20px/26px sans-serif;cursor:pointer";
       close.addEventListener("click", () => {
-        onDismiss?.();
+        warning._mwitoolsOnDismiss?.();
         warning.remove();
       });
-      warning.append(close, documentRef.createElement("div"));
+      const content2 = documentRef.createElement("div");
+      const message2 = documentRef.createElement("div");
+      const mute2 = documentRef.createElement("button");
+      mute2.type = "button";
+      mute2.dataset.mwitoolsDuplicateMute = "";
+      mute2.style.cssText = "margin-top:8px;border:1px solid rgba(245,158,11,.55);border-radius:5px;padding:4px 9px;background:rgba(245,158,11,.12);color:#ffd58a;font:inherit;cursor:pointer";
+      mute2.addEventListener("click", () => {
+        warning._mwitoolsOnMute?.();
+        warning.remove();
+      });
+      content2.append(message2, mute2);
+      warning.append(close, content2);
       documentRef.body.append(warning);
     }
+    warning._mwitoolsOnDismiss = onDismiss;
+    warning._mwitoolsOnMute = onMute;
     const content = warning.lastElementChild;
     const names = duplicates.join(isZH3 ? "、" : ", ");
     const message = isZH3 ? `检测到与新版 MWITools 功能重复的脚本：${names}。为避免重复监听、面板冲突和重复计算，建议在脚本管理器中停用或删除。` : `Scripts overlapping with the new MWITools were detected: ${names}. Disable or remove them in your userscript manager to avoid duplicate listeners, panels, and calculations.`;
-    if (content.textContent !== message) content.textContent = message;
+    const messageNode = content.firstElementChild;
+    if (messageNode.textContent !== message) messageNode.textContent = message;
+    const mute = content.querySelector("[data-mwitools-duplicate-mute]");
+    mute.textContent = isZH3 ? "不再提示这些脚本" : "Don't remind me again";
     return warning;
   }
   function duplicateSignature(duplicates) {
@@ -9944,6 +10161,9 @@
     const Observer = options.MutationObserverRef ?? globalThis.MutationObserver;
     const intervalMs = options.intervalMs ?? 1e4;
     const detected = /* @__PURE__ */ new Set();
+    const usesStoredMuted = !options.muted;
+    const muted = options.muted ?? readMutedDuplicateScriptIds(options.storage);
+    const isDuplicateEnabled = options.isDuplicateEnabled ?? ((name) => duplicateScriptId(name) !== "mwi-task-manager" || (runtime.settings.get?.("taskInsights") ?? true));
     let lastSignature = "";
     let dismissed = false;
     let pending = false;
@@ -9951,9 +10171,26 @@
     const scan2 = () => {
       pending = false;
       if (destroyed || dismissed) return;
-      for (const name of detect()) detected.add(name);
-      if (!detected.size) return;
-      const duplicates = [...detected].sort();
+      if (usesStoredMuted) {
+        muted.clear();
+        for (const id of readMutedDuplicateScriptIds(options.storage)) {
+          muted.add(id);
+        }
+      }
+      const current = detect();
+      if (!current.some((name) => duplicateScriptId(name) === "mwi-task-manager")) {
+        for (const name of detected) {
+          if (duplicateScriptId(name) === "mwi-task-manager")
+            detected.delete(name);
+        }
+      }
+      for (const name of current) detected.add(name);
+      const duplicates = [...detected].filter((name) => isDuplicateEnabled(name)).filter((name) => !muted.has(duplicateScriptId(name))).sort();
+      if (!duplicates.length) {
+        documentRef?.getElementById(WARNING_ID)?.remove();
+        lastSignature = "";
+        return;
+      }
       const signature = duplicateSignature(duplicates);
       if (signature === lastSignature) return;
       lastSignature = signature;
@@ -9962,6 +10199,11 @@
         isZH: options.isZH ?? runtime.config.isZH,
         onDismiss() {
           dismissed = true;
+        },
+        onMute() {
+          for (const name of duplicates) muted.add(duplicateScriptId(name));
+          writeMutedDuplicateScriptIds(muted, options.storage);
+          lastSignature = "";
         }
       });
     };
@@ -10002,8 +10244,21 @@
     id: "duplicateScriptWarning",
     initialize({ scope }) {
       const monitor = createDuplicateWarningMonitor();
-      scope.add(() => monitor.destroy());
+      activeDuplicateWarningMonitor = monitor;
+      scope.add(() => {
+        monitor.destroy();
+        if (activeDuplicateWarningMonitor === monitor) {
+          activeDuplicateWarningMonitor = null;
+        }
+      });
+      scope.add(
+        runtime.settings.onChange?.("taskInsights", () => monitor.schedule())
+      );
     }
+  });
+  Object.assign(runtime.api, {
+    clearMutedDuplicateScriptIds,
+    getMutedDuplicateScriptIds: () => [...readMutedDuplicateScriptIds()]
   });
 
   // src/features/mobile-viewport-fix.js
@@ -13071,6 +13326,8 @@ ${values.map((item) => item.date).join("\n")}`
       <div class="mwi-asset-summary">
         ${createCard(t3("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t3("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t3("流动资产盈亏", "Liquid-asset P/L"), "mwi-asset-liquid-change")}
+        ${createCard(t3("非流动资产盈亏", "Non-current-asset P/L"), "mwi-asset-fixed-change")}
         ${createCard(t3("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
         ${createCard(t3("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
       </div>
@@ -13303,6 +13560,16 @@ ${preview}`
       setNumber("#mwi-asset-total-change", totalChange, {
         signed: true,
         className: valueClass(totalChange)
+      });
+      const liquidChange = Number.isFinite(current.liquid) && Number.isFinite(previous.liquid) ? current.liquid - previous.liquid : null;
+      const fixedChange = Number.isFinite(current.fixed) && Number.isFinite(previous.fixed) ? current.fixed - previous.fixed : null;
+      setNumber("#mwi-asset-liquid-change", liquidChange, {
+        signed: true,
+        className: valueClass(liquidChange)
+      });
+      setNumber("#mwi-asset-fixed-change", fixedChange, {
+        signed: true,
+        className: valueClass(fixedChange)
       });
       this.host.querySelector("#mwi-asset-compare-date").textContent = compareText;
       setNumber("#mwi-asset-total-percent", null, {
@@ -15145,11 +15412,12 @@ ${preview}`
 
   // src/features/public-api.js
   var PUBLIC_API_VERSION = 1;
-  var SCORE_SCHEMA_VERSION = 1;
+  var SCORE_SCHEMA_VERSION = 2;
   var SCORES_UPDATED_EVENT = "mwitools:scores-updated";
   var pageGlobal3 = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
   var latestScores = null;
   function finiteOrNull3(value) {
+    if (value === null || value === void 0) return null;
     const number3 = Number(value);
     return Number.isFinite(number3) ? number3 : null;
   }
@@ -15171,13 +15439,15 @@ ${preview}`
         total: finiteOrNull3(scores.battle.total),
         house: finiteOrNull3(scores.battle.house),
         abilities: finiteOrNull3(scores.battle.abilities),
-        equipment: finiteOrNull3(scores.battle.equipment)
+        equipment: finiteOrNull3(scores.battle.equipment),
+        shrine: finiteOrNull3(scores.battle.shrine)
       },
       skilling: {
         total: finiteOrNull3(scores.skilling.total),
         house: finiteOrNull3(scores.skilling.house),
         tools: finiteOrNull3(scores.skilling.tools),
         equipment: finiteOrNull3(scores.skilling.equipment),
+        shrine: finiteOrNull3(scores.skilling.shrine),
         available: scores.skilling.available !== false
       }
     };
@@ -16702,6 +16972,10 @@ ${preview}`
       line-height: inherit;
       overflow-wrap: anywhere;
     }
+    .mwi-summary-today-profit { margin-left:.22rem; font-size:.82em; font-weight:650; white-space:nowrap; }
+    .mwi-summary-today-profit.is-positive { color:#5fce83; }
+    .mwi-summary-today-profit.is-negative { color:#ff7474; }
+    .mwi-summary-today-profit.is-neutral { color:var(--color-text-secondary,#aeb5c0); }
     .mwi-summary-chevron {
       width: .375rem;
       height: .375rem;
@@ -16897,6 +17171,21 @@ ${preview}`
   function numberHtml(value) {
     return `<span class="mwi-number" title="${runtime.api.formatExactNumber(value, 0)}">${runtime.api.numberFormatter(value)}</span>`;
   }
+  function inventoryTodayProfitHtml(values) {
+    const comparison = runtime.api.assetHistory?.getComparison?.();
+    const previous = comparison?.record?.values;
+    if (comparison?.gapDays !== 1) return "";
+    if (!Number.isFinite(values?.total) || !Number.isFinite(previous?.total)) {
+      return "";
+    }
+    const change = values.total - previous.total;
+    const sign = change > 0 ? "+" : change < 0 ? "−" : "";
+    const className = change > 0 ? "is-positive" : change < 0 ? "is-negative" : "is-neutral";
+    const formatted = runtime.api.numberFormatter(Math.abs(change));
+    const exact = runtime.api.formatExactNumber(change, 0);
+    const [open, close] = runtime.config.isZH ? ["（", "）"] : ["(", ")"];
+    return `<span class="mwi-summary-today-profit ${className}" title="${exact}">${open}${sign}${formatted}${close}</span>`;
+  }
   function scheduleNetworthRefresh() {
     addInventorySummaryStyles();
     if (!Array.isArray(runtime.state.initData_characterItems)) return;
@@ -17046,6 +17335,7 @@ ${preview}`
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "技能：" : "Abilities: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.abilities)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.battle.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "战斗神龛：" : "Combat shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.battle.shrine) ? runtime.api.formatScore(scores.battle.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>
@@ -17063,6 +17353,7 @@ ${preview}`
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "房屋：" : "House: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.house)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "工具：" : "Tools: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.tools)}</span></div>
                 <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "装备：" : "Equipment: "}</span><span class="mwi-summary-stat-value">${runtime.api.formatScore(scores.skilling.equipment)}</span></div>
+                <div class="mwi-summary-stat"><span class="mwi-summary-stat-label">${runtime.config.isZH ? "生活神龛：" : "Skilling shrine: "}</span><span class="mwi-summary-stat-value">${Number.isFinite(scores.skilling.shrine) ? runtime.api.formatScore(scores.skilling.shrine) : "—"}</span></div>
               </div>
             </div>
           </section>
@@ -17072,7 +17363,7 @@ ${preview}`
               <span class="mwi-summary-chevron" aria-hidden="true"></span>
               <span class="mwi-summary-heading">
                 <span class="mwi-summary-label">${runtime.config.isZH ? "总资产：" : "Total assets: "}</span>
-                <span class="mwi-summary-value">${numberHtml(values.total)}</span>
+                <span class="mwi-summary-value">${numberHtml(values.total)}${inventoryTodayProfitHtml(values)}</span>
               </span>
             </button>
             <div class="mwi-summary-details" id="netWorthDetails" style="display: none;" hidden>
@@ -17564,6 +17855,7 @@ ${preview}`
     addInventoryCategoryValues,
     getInventorySortUnitValue,
     getInventoryItemEnhancementLevel,
+    inventoryTodayProfitHtml,
     isSortableInventoryCategory,
     addInvSortButton,
     addGuildCreditConversionsSortButton
@@ -18465,6 +18757,7 @@ ${preview}`
     .mwi-profit-valuation-row[data-mode="conservative"] { --mwi-valuation-color:#e1b65d; }
     .mwi-profit-valuation-row[data-mode="aggressive"] { --mwi-valuation-color:#68c98e; }
     .mwi-profit-valuation-row.mwi-loot-valuation-row { grid-template-columns:126px repeat(3,minmax(0,1fr)); }
+    .mwi-profit-valuation-row.mwi-loot-valuation-row.has-entry-key { grid-template-columns:126px repeat(4,minmax(0,1fr)); }
     .mwi-profit-valuation-row.incomplete { opacity:.72; }
     .mwi-profit-valuation-name { display:flex; min-width:0; flex-direction:column; justify-content:center; gap:1px; padding:5px 8px; border-right:1px solid rgba(255,255,255,.08); }
     .mwi-profit-valuation-title { color:#fff; font-size:calc(10.5px * var(--mwi-hover-font-scale,1)); font-weight:750; line-height:1.2; }
@@ -18827,6 +19120,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const pinned = Boolean(options.pinned);
     const productName = itemName3(itemHrid);
     const hasKey = Boolean(chest.keyItemHrid);
+    const hasEntryKey = Boolean(chest.entryKeyItemHrid);
     const statusClass = chest.complete ? "complete" : "partial";
     const statusLabel3 = chest.complete ? t7("完整计价", "Fully priced") : t7("部分计价", "Partial pricing");
     panel.dataset.status = statusClass;
@@ -18836,7 +19130,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       <div class="mwi-profit-header-icon">${renderItemIcon(itemHrid, productName)}</div>
       <div class="mwi-profit-header-main">
         <div class="mwi-profit-title">${escapeHtml4(productName)}</div>
-        <div class="mwi-profit-subtitle">${escapeHtml4(hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
+        <div class="mwi-profit-subtitle">${escapeHtml4(hasEntryKey ? t7("开箱期望 · 已扣开箱钥匙与门票钥匙成本", "Opening estimate · net of chest and entry key costs") : hasKey ? t7("开箱期望 · 已扣钥匙成本", "Opening estimate · net of key cost") : t7("开箱期望", "Opening estimate"))}</div>
       </div>
       <div class="mwi-profit-status ${statusClass}">${statusLabel3}</div>
       ${pinned ? `<button type="button" class="mwi-profit-close" aria-label="${t7("关闭", "Close")}" data-mwi-loot-close="1">×</button>` : ""}
@@ -18860,13 +19154,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     panel.insertAdjacentHTML(
       "beforeend",
       `<div class="mwi-profit-valuations">
-      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${chest.complete ? "" : " incomplete"}" data-mode="fair">
+      <section class="mwi-profit-valuation-row mwi-loot-valuation-row${hasEntryKey ? " has-entry-key" : ""}${chest.complete ? "" : " incomplete"}" data-mode="fair">
         <div class="mwi-profit-valuation-name">
           <div class="mwi-profit-valuation-title">${t7("期望价值", "Expected value")}</div>
           <div class="mwi-profit-valuation-state">${escapeHtml4(`${sellLabel} · ${keyLabel}`)}</div>
         </div>
         ${renderValuationMetric(t7("毛期望价值", "Gross value"), chest.grossValue)}
-        ${renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
+        ${hasEntryKey ? `${renderValuationMetric(t7("开箱钥匙", "Chest key"), hasKey && !chest.chestKeyComplete ? null : chest.chestKeyCost)}${renderValuationMetric(t7("门票钥匙", "Entry key"), chest.entryKeyComplete ? chest.entryKeyCost : null)}` : renderValuationMetric(t7("钥匙成本", "Key cost"), hasKey && !chest.keyComplete ? null : chest.keyCost)}
         ${renderValuationMetric(t7("净期望价值", "Net value"), chest.netValue, true)}
       </section>
     </div>`
@@ -19365,21 +19659,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   }
   var tooltipObserver = new MutationObserver(async function(mutations) {
     for (const mutation of mutations) {
-      for (const removed of mutation.removedNodes) {
-        if (removed?.nodeType === 1 && (removed.matches?.(".MuiTooltip-popper") || removed.querySelector?.(".MuiTooltip-popper"))) {
-          runtime.api.disconnectActionQueueObserver?.(removed);
-        }
-      }
       for (const added of mutation.addedNodes) {
         if (added?.nodeType === 1 && added.classList.contains("MuiTooltip-popper")) {
           if (added.querySelector("div.ItemTooltipText_name__2JAHA")) {
             await handleTooltipItem(added);
-          } else if (added.querySelector("div.QueuedActions_queuedActionsEditMenu__3OoQH")) {
-            runtime.api.handleActionQueueMenue(
-              added.querySelector(
-                "div.QueuedActions_queuedActionsEditMenu__3OoQH"
-              )
-            );
           } else if (runtime.settings.settingsMap.itemTooltip_profit.isTrue) {
             const actionHrid = resolveGatheringActionFromElement(added);
             if (actionHrid) {
@@ -19988,6 +20271,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var ACTION_PANEL_SELECTOR = 'div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var ACTION_PANEL_RETRY_DELAYS = [0, 100, 300, 1e3];
   var actionPanelRetryStates = /* @__PURE__ */ new Map();
+  var targetLevelSelections = /* @__PURE__ */ new Map();
   function addActionPanelStyles() {
     if (document.getElementById(ACTION_PANEL_STYLE_ID)) return;
     const style = document.createElement("style");
@@ -20091,9 +20375,11 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       const tillLevelInput = document.createElement("input");
       tillLevelInput.id = "tillLevelInput";
       tillLevelInput.type = "number";
-      tillLevelInput.value = String(currentLevel + 1);
       tillLevelInput.min = String(currentLevel + 1);
       tillLevelInput.max = String(maxLevel);
+      const savedTargetLevel = Number(targetLevelSelections.get(actionHrid));
+      const initialTargetLevel = Number.isSafeInteger(savedTargetLevel) && savedTargetLevel > currentLevel && savedTargetLevel <= maxLevel ? savedTargetLevel : currentLevel + 1;
+      tillLevelInput.value = String(initialTargetLevel);
       tillLevelInput.className = `${inputElem.className} mwi-target-level-input`;
       const tillLevelNumber = document.createElement("span");
       tillLevelNumber.id = "tillLevelNumber";
@@ -20153,6 +20439,10 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       };
       tillLevelInput.addEventListener("input", () => {
         targetLevelEdited = true;
+        const targetLevel = Number(tillLevelInput.value);
+        if (Number.isSafeInteger(targetLevel) && targetLevel > currentLevel && targetLevel <= maxLevel) {
+          targetLevelSelections.set(actionHrid, targetLevel);
+        }
         updateTargetLevel();
       });
       updateTargetLevel();
@@ -20192,6 +20482,16 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[state.attempt]);
     };
     state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
+  }
+  function refreshProductionActionPanel(panel) {
+    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue || !panel?.isConnected) {
+      return false;
+    }
+    if (!panel.querySelector("#mwi-level-progress") || panel.querySelectorAll(".mwi-native-level-stat").length !== 4) {
+      delete panel.dataset.mwitoolsActionPanel;
+    }
+    scheduleActionPanel(panel);
+    return true;
   }
   function clearActionPanelRetries() {
     for (const state of actionPanelRetryStates.values()) {
@@ -20356,6 +20656,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var removeInsertedDivs = () => document.querySelectorAll("span.insertedSpan").forEach((div) => div.parentNode.removeChild(div));
   Object.assign(runtime.api, {
     handleActionPanel,
+    refreshProductionActionPanel,
     getTotalEffiPercentage,
     getActionEfficiencyDetails,
     getTotalTimeStr,
@@ -20410,6 +20711,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     setting: "actionPanel_totalTime",
     scope: "character",
     initialize({ scope }) {
+      targetLevelSelections.clear();
       const observer = new MutationObserver((mutations) => {
         const panels = /* @__PURE__ */ new Set();
         for (const mutation of mutations) {
@@ -20464,6 +20766,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       }
       scope.add(() => {
         clearActionPanelRetries();
+        targetLevelSelections.clear();
         document.querySelectorAll(
           "#showTotalTime,#quickInputHourButtons,#quickInputCountButtons,#mwi-level-progress,#tillLevel,#expPerHour,#currentEfficiency,#totalProfit,.mwi-native-level-stat"
         ).forEach((node) => node.remove());
@@ -20544,8 +20847,8 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     "character_abilities_updated"
   ]);
   var STYLE_ID8 = "mwitools-action-dashboard-style";
-  var QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
-  var QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
+  var DEFAULT_QUICK_HOURS = [0.5, 1, 2, 3, 4, 5, 6, 10, 12, 24];
+  var DEFAULT_QUICK_COUNTS = [10, 100, 300, 500, 1e3, 2e3];
   var ACTION_SURFACE_SELECTOR = 'div[class*="Header_actionName"],div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]';
   var OWNED_ACTION_UI_SELECTOR = "#mwi-action-dashboard,#mwi-production-summary,.mwi-production-quick-inputs,.mwi-max-action-button,.mwi-production-duration-inline,.mwi-production-extensions";
   var PRODUCTION_MODULE_ORDER = Object.freeze({
@@ -20554,8 +20857,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     shortage: 30,
     targetLevel: 40
   });
+  var PRODUCTION_RECOVERY_DELAYS = Object.freeze([0, 80, 220, 450, 900, 1500]);
+  var PRODUCTION_RECOVERY_MODULE_SELECTOR = ".mwi-production-extensions,#mwi-production-summary,.mwi-production-quick-inputs,#mwitools-procurement-production,#mwi-level-progress,.mwi-max-action-button,.mwi-production-duration-inline";
+  var PRODUCTION_DROPDOWN_SELECTOR = '[role="listbox"],[class*="MuiPopover-root"],[class*="MuiMenu-root"]';
   var productionDataRevision = 0;
   var enhancementTimingCache = { identity: "", count: null };
+  var productionRecoveryGeneration = 0;
+  var productionRecoveryTimers = /* @__PURE__ */ new Set();
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -20742,13 +21050,59 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const count = parseCompactNumber(match[1]);
     return Number.isSafeInteger(count) && count >= 0 ? count : null;
   }
+  function parseProductionDurationSeconds(value) {
+    const token = String(value ?? "").match(/[-+]?\d[\d\s\u00a0\u202f.,]*/)?.[0];
+    if (!token) return null;
+    let normalized = token.replace(/[\s\u00a0\u202f]/g, "");
+    const dot = normalized.lastIndexOf(".");
+    const comma = normalized.lastIndexOf(",");
+    const decimalIndex = Math.max(dot, comma);
+    if (decimalIndex >= 0) {
+      const whole = normalized.slice(0, decimalIndex).replace(/[.,]/g, "");
+      const fraction = normalized.slice(decimalIndex + 1).replace(/[.,]/g, "");
+      normalized = fraction ? `${whole}.${fraction}` : whole;
+    }
+    const number3 = Number(normalized);
+    return Number.isFinite(number3) && number3 > 0 ? number3 : null;
+  }
+  function parseProductionQuickPresets(value, { integer = false, fallback = [] } = {}) {
+    const result = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const token of String(value ?? "").split(/[,;\s]+/)) {
+      if (!token) continue;
+      const number3 = Number(token);
+      if (!Number.isFinite(number3) || number3 <= 0 || integer && !Number.isSafeInteger(number3)) {
+        continue;
+      }
+      const key = String(number3);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(number3);
+    }
+    return result.length ? result : [...fallback];
+  }
+  function productionQuickPresets() {
+    return {
+      hours: parseProductionQuickPresets(
+        runtime.settings.getPreference("productionQuickHours"),
+        { fallback: DEFAULT_QUICK_HOURS }
+      ),
+      counts: parseProductionQuickPresets(
+        runtime.settings.getPreference("productionQuickCounts"),
+        { integer: true, fallback: DEFAULT_QUICK_COUNTS }
+      )
+    };
+  }
   function getProductionPanelDuration(panel) {
     for (const value of panel?.querySelectorAll(
       'div[class*="SkillActionDetail_value"]'
     ) ?? []) {
-      const text = String(runtime.api.getOriTextFromElement?.(value) ?? "").trim().replaceAll(runtime.config.THOUSAND_SEPERATOR, "").replace(runtime.config.DECIMAL_SEPERATOR, ".");
-      const match = text.match(/^([\d.]+)\s*s$/i);
-      if (match && Number(match[1]) > 0) return Number(match[1]);
+      const text = String(
+        runtime.api.getOriTextFromElement?.(value) ?? ""
+      ).trim();
+      if (!/s\s*$/i.test(text)) continue;
+      const duration = parseProductionDurationSeconds(text);
+      if (duration) return duration;
     }
     return null;
   }
@@ -20967,6 +21321,69 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       );
     });
   }
+  function shouldSettleActionUi(records) {
+    return records.some(
+      (record) => [...record.addedNodes ?? [], ...record.removedNodes ?? []].some(
+        (node) => node?.nodeType === 1 && (node.matches?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+        ) || node.querySelector?.(
+          '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+        ))
+      )
+    );
+  }
+  function clearProductionRecoveryTimers() {
+    for (const timer of productionRecoveryTimers) clearTimeout(timer);
+    productionRecoveryTimers.clear();
+  }
+  function recoverProductionModules() {
+    const context = resolveActiveProductionPanelContext();
+    if (!context?.panel?.isConnected) return false;
+    if (runtime.settings.get("actionPanel_totalTime_quickInputs")) {
+      renderProductionQuickInputs();
+    }
+    if (runtime.settings.get("productionSummary")) renderProductionPanel();
+    if (runtime.settings.get("procurementAssistant") && typeof runtime.api.renderProductionProcurement === "function") {
+      runtime.api.renderProductionProcurement();
+    }
+    if (runtime.settings.get("actionPanel_totalTime") && typeof runtime.api.refreshProductionActionPanel === "function") {
+      runtime.api.refreshProductionActionPanel(context.panel);
+    }
+    return true;
+  }
+  function scheduleProductionUiRecovery() {
+    productionRecoveryGeneration += 1;
+    const generation = productionRecoveryGeneration;
+    clearProductionRecoveryTimers();
+    for (const delay of PRODUCTION_RECOVERY_DELAYS) {
+      const timer = setTimeout(() => {
+        productionRecoveryTimers.delete(timer);
+        if (generation !== productionRecoveryGeneration) return;
+        recoverProductionModules();
+      }, delay);
+      productionRecoveryTimers.add(timer);
+    }
+    return generation;
+  }
+  function shouldRecoverProductionUi(records) {
+    return records.some((record) => {
+      const target = mutationElement(record.target);
+      if (record.type === "attributes" && record.attributeName === "aria-hidden" && (target?.matches?.(ACTION_SURFACE_SELECTOR) || target?.querySelector?.(ACTION_SURFACE_SELECTOR))) {
+        return true;
+      }
+      const added = [...record.addedNodes ?? []].filter(
+        (node) => node?.nodeType === 1
+      );
+      if (added.some(
+        (node) => node.matches?.(PRODUCTION_DROPDOWN_SELECTOR) || node.querySelector?.(PRODUCTION_DROPDOWN_SELECTOR) || node.matches?.(ACTION_SURFACE_SELECTOR) || node.querySelector?.(ACTION_SURFACE_SELECTOR)
+      )) {
+        return true;
+      }
+      return [...record.removedNodes ?? []].some(
+        (node) => node?.nodeType === 1 && (node.matches?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) || node.querySelector?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) || node.matches?.(ACTION_SURFACE_SELECTOR) || node.querySelector?.(ACTION_SURFACE_SELECTOR))
+      );
+    });
+  }
   function bindActionUiRenderer(scope, render, messages = []) {
     const scheduler = createFrameScheduler(render);
     const schedule = () => scheduler.schedule();
@@ -20978,7 +21395,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         scope
       },
       (records) => {
-        if (shouldScheduleActionUi(records)) schedule();
+        if (!shouldScheduleActionUi(records)) return;
+        schedule();
+        if (shouldSettleActionUi(records)) {
+          scope.timeout(schedule, 80);
+          scope.timeout(schedule, 220);
+          scope.timeout(schedule, 450);
+        }
       }
     );
     const scheduleFromInput = (event) => {
@@ -21004,7 +21427,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   function isHiddenActionElement(element) {
     for (let current = element; current; current = current.parentElement) {
       const className = String(current.className ?? "");
-      if (current.hidden || current.getAttribute?.("aria-hidden") === "true" || current.style?.display === "none" || current.style?.visibility === "hidden" || /MainPanel_/.test(className) && /hidden/i.test(className)) {
+      if (current.hidden || current.style?.display === "none" || current.style?.visibility === "hidden" || /MainPanel_/.test(className) && /hidden/i.test(className)) {
         return true;
       }
       const style = current.ownerDocument?.defaultView?.getComputedStyle(current);
@@ -21187,15 +21610,22 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     if (!countGroup) return null;
     let host = panel.querySelector(".mwi-production-quick-inputs");
     const duration = getProductionPanelDuration(panel);
+    const presets = productionQuickPresets();
+    const presetSignature = `${presets.hours.join(",")}|${presets.counts.join(",")}`;
+    if (host && host.dataset.presetSignature !== presetSignature) {
+      host.remove();
+      host = null;
+    }
     if (!host) {
       host = document.createElement("div");
       host.className = "mwi-production-quick-inputs";
+      host.dataset.presetSignature = presetSignature;
       const hours = createProductionQuickRow({
         panel,
         input,
         id: "quickInputHourButtons",
         label: t8("时长", "Hours"),
-        values: QUICK_HOURS,
+        values: presets.hours,
         resolveCount: (hoursValue) => {
           const liveDuration = getProductionPanelDuration(panel);
           return getMinimumCountForDuration(
@@ -21210,7 +21640,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         input,
         id: "quickInputCountButtons",
         label: t8("次数", "Count"),
-        values: QUICK_COUNTS,
+        values: presets.counts,
         resolveCount: (count) => count
       });
       host.append(hours, counts);
@@ -21508,6 +21938,34 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     document.querySelectorAll(".mwi-production-extensions:empty").forEach((mount) => mount.remove());
   }
   runtime.features.register({
+    id: "productionUiRecovery",
+    scope: "global",
+    initialize({ scope }) {
+      const attach = () => {
+        if (!document.body) return false;
+        const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+        if (!MutationObserverRef) return false;
+        const observer = new MutationObserverRef((records) => {
+          if (shouldRecoverProductionUi(records)) scheduleProductionUiRecovery();
+        });
+        scope.observer(observer, document.body, {
+          attributes: true,
+          attributeFilter: ["aria-hidden"],
+          childList: true,
+          subtree: true
+        });
+        return true;
+      };
+      if (!attach()) {
+        scope.event(document, "DOMContentLoaded", attach, { once: true });
+      }
+      scope.add(() => {
+        productionRecoveryGeneration += 1;
+        clearProductionRecoveryTimers();
+      });
+    }
+  });
+  runtime.features.register({
     id: "totalActionTime",
     setting: "totalActionTime",
     scope: "character",
@@ -21552,6 +22010,18 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         "actions_updated",
         ...PRODUCTION_PROFILE_MESSAGES
       ]);
+      scope.add(
+        runtime.settings.onPreferenceChange?.(
+          "productionQuickHours",
+          () => renderProductionQuickInputs()
+        )
+      );
+      scope.add(
+        runtime.settings.onPreferenceChange?.(
+          "productionQuickCounts",
+          () => renderProductionQuickInputs()
+        )
+      );
       scope.add(removeProductionQuickInputs);
     }
   });
@@ -21608,11 +22078,14 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     renderActionDashboard,
     renderProductionPanel,
     getProductionPanelDuration,
+    parseProductionDurationSeconds,
+    parseProductionQuickPresets,
     getLiveActionTiming,
     resolveProductionAction: resolvePanelAction,
     resolveActiveProductionPanelContext,
     getProductionPanelMount,
     mountProductionModule,
+    scheduleProductionUiRecovery,
     renderProductionQuickInputs,
     removeProductionQuickInputs,
     removeActionUi
@@ -21640,9 +22113,12 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var marketSessionModalSeen = false;
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
+  var currentMarketLevel = 0;
+  var marketNavigationRevision = 0;
   var lastProductionSignature = "";
   var activeHoldRepeatStop = null;
   var activeCartDrag = null;
+  var cartScrollStates = /* @__PURE__ */ new Map();
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
@@ -21704,7 +22180,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-chain-stage span:last-child{margin-left:auto;color:#d7bb67;white-space:nowrap}
     .mwi-procurement-market-target{outline:2px solid rgba(245,158,11,.72)!important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 3px rgba(245,158,11,.12)}
-    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
+    #${MARKET_NAV_ID}{position:fixed;z-index:2147482001;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${MARKET_NAV_ID}[data-inside="true"]{border-radius:5px 5px 0 0;box-shadow:0 -5px 16px rgba(0,0,0,.35)}
     .mwi-procurement-nav-progress{flex:0 0 auto;color:var(--color-space-300,#9da9d0);white-space:nowrap}
     .mwi-procurement-nav-items{display:flex;min-width:0;flex:1;gap:4px;overflow-x:auto;padding:1px}
@@ -21713,7 +22189,8 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-nav-chip[data-done="true"]{opacity:.68;border-color:#4d9d68;cursor:default}
     .mwi-procurement-nav-icon{display:flex;width:27px;height:27px;align-items:center;justify-content:center;overflow:hidden}.mwi-procurement-nav-icon svg{display:block;width:27px;height:27px}.mwi-procurement-nav-icon .item-icon-fallback{font-size:11px;font-weight:700}
     .mwi-procurement-nav-chip b{position:absolute;right:-2px;bottom:-2px;min-width:13px;padding:0 2px;border-radius:5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);font-size:.55rem;line-height:12px;text-align:center;box-shadow:0 0 0 1px var(--color-midnight-400,#505776)}.mwi-procurement-nav-chip[data-done="true"] b{color:#62d88e}
-    .mwi-procurement-nav-next{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-next,.mwi-procurement-nav-remove{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-remove{background:rgba(184,72,84,.78)}.mwi-procurement-nav-remove:hover{background:rgba(210,82,95,.92)}
     .mwi-procurement-toast{position:fixed;right:14px;top:14px;z-index:2147483000;max-width:min(360px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.96);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -21722,15 +22199,16 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const fontFamily = runtime.config.isZH ? '"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif' : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     return `
     :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
+    :host([data-market-session="true"]){position:relative;z-index:2147482000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
     ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{border-radius:4px;background:color-mix(in srgb,var(--muted) 28%,transparent)}
-    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;touch-action:none;user-select:none;transition:opacity .15s}
+    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;pointer-events:auto;touch-action:none;user-select:none;transition:opacity .15s}
     .handle:hover{opacity:1}.handle .icon{width:16px;height:16px}.handle[data-has-items="true"]{box-shadow:-2px 2px 10px rgba(0,0,0,.3),inset 2px 0 0 var(--gold)}
     .handle-badge{position:absolute;top:9px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px var(--panel)}
     .handle-badge::after{content:"";position:absolute;inset:-3px;border:1.5px solid var(--gold);border-radius:50%;opacity:.6;animation:badge-pulse 1.6s ease-out infinite}@keyframes badge-pulse{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.9);opacity:0}}
-    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);transform:translateX(calc(100% + 18px));transition:transform .2s ease}
+    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);pointer-events:auto;transform:translateX(calc(100% + 18px));transition:transform .2s ease}
     .drawer[data-open="true"]{transform:translateX(0)}.resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;border-radius:10px 0 0 10px;cursor:ew-resize;touch-action:none}.resize:hover{background:color-mix(in srgb,var(--accent) 25%,transparent)}
     .header{display:flex;flex:0 0 auto;align-items:center;gap:8px;padding:11px 14px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
     .title{font-size:14px;font-weight:700;letter-spacing:.2px}.head-count{padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--gold) 12%,transparent);color:color-mix(in srgb,var(--gold) 85%,white);font-size:10.5px}.head-count:empty{display:none}
@@ -21781,6 +22259,49 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     }
     return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml5(item.name)}"><use href="${escapeHtml5(href)}" xlink:href="${escapeHtml5(href)}"></use></svg>`;
   }
+  function captureCartScroll(body) {
+    if (!body) return null;
+    const rows2 = [...body.querySelectorAll(".cart-row")];
+    if (!rows2.length)
+      return { scrollTop: body.scrollTop || 0, keys: [], offset: 0 };
+    const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+    let anchorIndex = rows2.findIndex((row) => {
+      const rect = row.getBoundingClientRect?.();
+      return rect && rect.bottom > bodyTop;
+    });
+    if (anchorIndex < 0) anchorIndex = rows2.length - 1;
+    const anchor = rows2[anchorIndex];
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+    return {
+      scrollTop: body.scrollTop || 0,
+      keys: [
+        ...rows2.slice(anchorIndex).map((row) => row.dataset.cartKey),
+        ...rows2.slice(0, anchorIndex).reverse().map((row) => row.dataset.cartKey)
+      ],
+      offset: anchorTop - bodyTop
+    };
+  }
+  function restoreCartScroll(body, state) {
+    if (!body || !state) return;
+    const anchor = state.keys?.map(
+      (key) => [...body.querySelectorAll(".cart-row")].find(
+        (row) => row.dataset.cartKey === key
+      )
+    ).find(Boolean);
+    if (!anchor) {
+      body.scrollTop = state.scrollTop || 0;
+      return;
+    }
+    const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+    const delta = anchorTop - bodyTop - (state.offset || 0);
+    body.scrollTop = Math.max(0, (body.scrollTop || 0) + delta);
+  }
+  function rememberBodyScroll(body, tab = body?.dataset.tab) {
+    if (!body || !tab) return;
+    const state = tab === "cart" ? captureCartScroll(body) : { scrollTop: body.scrollTop || 0 };
+    cartScrollStates.set(tab, state);
+  }
   function renderShell() {
     if (!shadow) return;
     const settings2 = procurement3.getSettings();
@@ -21789,6 +22310,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const handle = shadow.querySelector(".handle");
     const drawer = shadow.querySelector(".drawer");
     if (!handle || !drawer) return;
+    shell.dataset.marketSession = String(marketSessionActive);
     handle.style.top = `${clampHandleY(settings2.handleY)}px`;
     drawer.style.setProperty("--drawer-width", `${settings2.drawerWidth}px`);
     drawer.dataset.open = String(drawerOpen);
@@ -21800,14 +22322,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
+    let scrollState = null;
     if (body.dataset.tab !== activeTab) {
+      rememberBodyScroll(body);
       abandonCartDrag();
       body.replaceChildren();
       body.dataset.tab = activeTab;
+      body.scrollTop = cartScrollStates.get(activeTab)?.scrollTop ?? 0;
+      scrollState = cartScrollStates.get(activeTab) ?? null;
+    } else if (activeTab === "cart") {
+      scrollState = captureCartScroll(body);
     }
     if (activeTab === "plans") renderPlans(body);
     else if (activeTab === "settings") renderProcurementSettings(body);
-    else renderCart(body);
+    else renderCart(body, scrollState);
+    if (activeTab === "cart") {
+      cartScrollStates.set("cart", captureCartScroll(body));
+    }
   }
   function prepareFooter(mode) {
     const footer = shadow.querySelector(".panel-footer");
@@ -21901,7 +22432,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     row.querySelector(".delete").addEventListener("click", () => {
       stopActiveHoldRepeat();
       const item = latestCartItem(row);
-      if (item) procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
+      if (item) removeCartItemAndAdvance(item);
     });
     const quantityInput = row.querySelector(".qty");
     quantityInput.addEventListener("change", () => {
@@ -22006,7 +22537,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     small.textContent = unpriced ? `${unpriced} ${t9("项未估价", "unpriced")}` : "";
     clear.textContent = t9("清空未收藏", "Clear");
   }
-  function renderCart(body) {
+  function renderCart(body, scrollState = captureCartScroll(body)) {
     const items = procurement3.getCartItems();
     if (!items.length) {
       if (activeCartDrag) finishCartDrag(true);
@@ -22032,6 +22563,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       ])
     );
     const wantedKeys = /* @__PURE__ */ new Set();
+    const desiredRows = [];
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
@@ -22044,15 +22576,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         else unpriced += 1;
       }
       updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
-      if (!activeCartDrag) body.append(row);
-      else if (!row.isConnected) body.append(row);
+      desiredRows.push(row);
     }
     for (const [key, row] of currentRows) {
       if (wantedKeys.has(key)) continue;
       if (activeCartDrag?.row === row) abandonCartDrag();
       row.remove();
     }
+    if (!activeCartDrag) {
+      desiredRows.forEach((row, index) => {
+        const current = body.children[index] ?? null;
+        if (current !== row) body.insertBefore(row, current);
+      });
+    } else {
+      desiredRows.filter((row) => !row.isConnected).forEach((row) => body.append(row));
+    }
     renderCartFooter({ marketEnabled, settings: settings2, total, unpriced });
+    restoreCartScroll(body, scrollState);
   }
   function stopActiveHoldRepeat() {
     activeHoldRepeatStop?.();
@@ -22500,6 +23040,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     });
     scope.add(() => {
       abandonCartDrag();
+      cartScrollStates.clear();
       shell?.remove();
       shell = null;
       shadow = null;
@@ -23337,6 +23878,31 @@ ${locks}` : ""}`;
     }
     return fallback;
   }
+  function beginMarketSession(resolved, { requiresModal, restoreNavTarget = "" }) {
+    const continuing = marketSessionActive && marketSessionRequiresModal === requiresModal && (!requiresModal || marketSessionHost === resolved.host);
+    if (!continuing) {
+      marketSessionDone = /* @__PURE__ */ new Map();
+      marketSessionRestoreNavTarget = restoreNavTarget;
+    } else if (!marketSessionRestoreNavTarget && restoreNavTarget) {
+      marketSessionRestoreNavTarget = restoreNavTarget;
+    }
+    marketSessionActive = true;
+    marketSessionRequiresModal = requiresModal;
+    marketSessionStartedAt = Date.now();
+    marketSessionModalSeen = false;
+    marketSessionHost = requiresModal ? resolved.host : null;
+    if (shell) shell.dataset.marketSession = "true";
+    return continuing;
+  }
+  function scheduleMarketUiUpdates(revision) {
+    for (const delay of [80, 240, 600, 1200]) {
+      setTimeout(() => {
+        if (revision === marketNavigationRevision && marketSessionActive) {
+          updateMarketUi(true);
+        }
+      }, delay);
+    }
+  }
   function openMarketplace(itemHrid, enhancementLevel = 0) {
     if (marketFeaturesSuppressed()) return false;
     const resolved = resolveMarketplaceHandler();
@@ -23349,24 +23915,35 @@ ${locks}` : ""}`;
       );
       return false;
     }
-    currentMarketTarget = procurement3.normalizeItemHrid(itemHrid);
-    const bareItemId = currentMarketTarget.replace(/^\/items\//, "");
+    const target = procurement3.normalizeItemHrid(itemHrid);
+    const bareItemId = target.replace(/^\/items\//, "");
     const level = Number(enhancementLevel) || 0;
     const argumentSets = [
-      [currentMarketTarget, level],
-      [currentMarketTarget],
+      [target, level],
+      [target],
       [bareItemId, level],
       [bareItemId]
     ];
+    const revision = ++marketNavigationRevision;
     let lastError = null;
     if (resolved.floating) {
       try {
-        const restoreNavTarget = resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        const newSession = !marketSessionActive || !marketSessionRequiresModal || marketSessionHost !== resolved.host;
+        const restoreNavTarget = newSession && resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        const continuingSession = beginMarketSession(resolved, {
+          requiresModal: true,
+          restoreNavTarget
+        });
+        currentMarketTarget = target;
+        currentMarketLevel = level;
         const showFloatingModal = () => {
+          if (revision !== marketNavigationRevision || !marketSessionActive) {
+            return;
+          }
           resolved.host.setState({
             showMarketplaceModal: true,
             marketViewOverrideData: {
-              itemHrid: currentMarketTarget,
+              itemHrid: target,
               enhancementLevel: level
             }
           });
@@ -23377,27 +23954,23 @@ ${locks}` : ""}`;
             showFloatingModal
           );
           setTimeout(() => {
-            if (marketSessionActive && currentMarketTarget === procurement3.normalizeItemHrid(itemHrid) && resolved.host.state?.navTarget !== "marketplace") {
-              resolved.fn.call(resolved.host, currentMarketTarget, level);
+            if (marketSessionActive && revision === marketNavigationRevision && currentMarketTarget === target && resolved.host.state?.navTarget !== "marketplace") {
+              resolved.fn.call(resolved.host, target, level);
             }
           }, 240);
+        } else if (resolved.host.state?.showMarketplaceModal || continuingSession) {
+          resolved.host.setState(
+            { showMarketplaceModal: false },
+            showFloatingModal
+          );
         } else {
           showFloatingModal();
         }
-        marketSessionActive = true;
-        marketSessionRequiresModal = true;
-        marketSessionStartedAt = Date.now();
-        marketSessionModalSeen = false;
-        marketSessionHost = resolved.host;
-        marketSessionRestoreNavTarget = restoreNavTarget;
-        marketSessionDone = /* @__PURE__ */ new Map();
         if (window.matchMedia?.("(max-width:760px)").matches) {
           drawerOpen = false;
           renderShell();
         }
-        for (const delay of [80, 240, 600, 1200]) {
-          setTimeout(() => updateMarketUi(true), delay);
-        }
+        scheduleMarketUiUpdates(revision);
         return true;
       } catch (error) {
         lastError = error;
@@ -23406,20 +23979,14 @@ ${locks}` : ""}`;
     for (const args of argumentSets) {
       try {
         resolved.fn.call(resolved.host, ...args);
-        marketSessionActive = true;
-        marketSessionRequiresModal = false;
-        marketSessionStartedAt = Date.now();
-        marketSessionModalSeen = false;
-        marketSessionHost = null;
-        marketSessionRestoreNavTarget = "";
-        marketSessionDone = /* @__PURE__ */ new Map();
+        beginMarketSession(resolved, { requiresModal: false });
+        currentMarketTarget = target;
+        currentMarketLevel = level;
         if (window.matchMedia?.("(max-width:760px)").matches) {
           drawerOpen = false;
           renderShell();
         }
-        for (const delay of [80, 240, 600, 1200]) {
-          setTimeout(() => updateMarketUi(true), delay);
-        }
+        scheduleMarketUiUpdates(revision);
         return true;
       } catch (error) {
         lastError = error;
@@ -23451,12 +24018,40 @@ ${locks}` : ""}`;
     const fragment = href.split("#").at(-1);
     return fragment ? procurement3.normalizeItemHrid(fragment) : "";
   }
-  function clearMarketUi({ preserveSession = false } = {}) {
+  function isCurrentMarketItem(item) {
+    return Boolean(
+      marketSessionActive && procurement3.normalizeItemHrid(item?.itemHrid) === currentMarketTarget && (Number(item?.enhancementLevel) || 0) === currentMarketLevel
+    );
+  }
+  function removeCartItemAndAdvance(item) {
+    if (!item) return false;
+    const ordered = pendingItems();
+    const key = procurement3.itemKey(item.itemHrid, item.enhancementLevel);
+    const currentIndex = ordered.findIndex(
+      (candidate) => procurement3.itemKey(candidate.itemHrid, candidate.enhancementLevel) === key
+    );
+    const shouldAdvance = isCurrentMarketItem(item);
+    const removed = procurement3.removeFromCart(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    if (!removed.ok || !shouldAdvance) return removed.ok;
+    const remaining = pendingItems();
+    if (!remaining.length) {
+      clearMarketUi({ closeModal: true });
+      return true;
+    }
+    const next = remaining[Math.max(0, currentIndex) % remaining.length];
+    openMarketplace(next.itemHrid, next.enhancementLevel);
+    return true;
+  }
+  function clearMarketUi({ preserveSession = false, closeModal = false } = {}) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
     if (!preserveSession) {
       const restoreHost = marketSessionHost;
       const restoreNavTarget = marketSessionRestoreNavTarget;
+      marketNavigationRevision += 1;
       marketSessionActive = false;
       marketSessionRequiresModal = false;
       marketSessionStartedAt = 0;
@@ -23464,8 +24059,21 @@ ${locks}` : ""}`;
       marketSessionHost = null;
       marketSessionRestoreNavTarget = "";
       currentMarketTarget = "";
+      currentMarketLevel = 0;
       armedNextItem = "";
       marketSessionDone = /* @__PURE__ */ new Map();
+      if (shell) shell.dataset.marketSession = "false";
+      if (closeModal && restoreHost) {
+        try {
+          if (typeof restoreHost.handleCloseMarketplaceModal === "function") {
+            restoreHost.handleCloseMarketplaceModal();
+          } else if (typeof restoreHost.setState === "function") {
+            restoreHost.setState({ showMarketplaceModal: false });
+          }
+        } catch (error) {
+          console.info("[MWITools] Marketplace modal close unavailable", error);
+        }
+      }
       if (restoreNavTarget && typeof restoreHost?.setState === "function" && restoreHost.state?.navTarget !== restoreNavTarget) {
         restoreHost.setState({ navTarget: restoreNavTarget });
       }
@@ -23533,11 +24141,15 @@ ${locks}` : ""}`;
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
-    const current = detectMarketItem(panel);
+    const detectedCurrent = detectMarketItem(panel);
+    const current = currentMarketTarget || detectedCurrent;
+    const currentKey = procurement3.itemKey(current, currentMarketLevel);
     const rows2 = [
       ...items.map((item) => ({ ...item, done: false })),
       ...[...marketSessionDone.values()].filter(
-        (done) => !items.some((item) => item.itemHrid === done.itemHrid)
+        (done) => !items.some(
+          (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) === procurement3.itemKey(done.itemHrid, done.enhancementLevel)
+        )
       )
     ];
     let nav = document.getElementById(MARKET_NAV_ID);
@@ -23554,16 +24166,24 @@ ${locks}` : ""}`;
         item,
         itemName: itemName4,
         quantity,
-        current: !item.done && item.itemHrid === current,
+        current: !item.done && procurement3.itemKey(item.itemHrid, item.enhancementLevel) === currentKey,
         iconMarkup: renderItemIcon2({ ...item, name: itemName4 }),
         badge: item.done ? "✓" : formatNumber4(item.quantity)
       };
     });
-    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
+    const next = items.find(
+      (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) !== currentKey
+    ) ?? items.at(0) ?? null;
+    const currentItem = items.find(
+      (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) === currentKey
+    );
     const nextText = t9("下一项 ›", "Next ›");
+    const removeText = t9("删除当前", "Remove");
     const renderSignature = JSON.stringify({
       progressText,
       nextText,
+      removeText,
+      currentKey: currentItem ? currentKey : "",
       next: next ? procurement3.itemKey(next.itemHrid, next.enhancementLevel) : "",
       rows: rowModels.map(
         ({
@@ -23616,7 +24236,14 @@ ${locks}` : ""}`;
         if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
         armedNextItem = "";
       });
-      nav.append(progress, list, nextButton);
+      const removeButton = document.createElement("button");
+      removeButton.className = "mwi-procurement-nav-remove";
+      removeButton.textContent = removeText;
+      removeButton.hidden = !currentItem;
+      removeButton.addEventListener("click", () => {
+        if (currentItem) removeCartItemAndAdvance(currentItem);
+      });
+      nav.append(progress, list, removeButton, nextButton);
       nav.mwitoolsRenderSignature = renderSignature;
     }
     const modal = panel.closest('[class*="MainPanel_marketplaceModal__"]') ?? panel.closest('[class*="Modal_modalContainer"]') ?? panel;
@@ -23766,6 +24393,22 @@ ${locks}` : ""}`;
           const changed = [...record.addedNodes, ...record.removedNodes].filter(
             (node) => node?.nodeType === 1
           );
+          const removedProductionModule = [...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`
+            ) || node.querySelector?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`
+            ))
+          );
+          if (removedProductionModule) return true;
+          const replacedProductionMount = changed.some(
+            (node) => node.matches?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+            ) || node.querySelector?.(
+              '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
+            )
+          );
+          if (replacedProductionMount) return true;
           if (target?.closest?.(OWNED_PROCUREMENT_SELECTOR) || changed.length && changed.every(
             (node) => node.matches?.(OWNED_PROCUREMENT_SELECTOR) || node.closest?.(OWNED_PROCUREMENT_SELECTOR)
           )) {
@@ -23776,7 +24419,13 @@ ${locks}` : ""}`;
             (node) => node.matches?.(PROCUREMENT_SURFACE_SELECTOR) || node.querySelector?.(PROCUREMENT_SURFACE_SELECTOR)
           );
         });
-        if (relevant) scheduleRender();
+        if (relevant) {
+          runtime.api.scheduleProductionUiRecovery?.();
+          scheduleRender();
+          scope.timeout(scheduleRender, 80);
+          scope.timeout(scheduleRender, 220);
+          scope.timeout(scheduleRender, 450);
+        }
       });
       scope.observer(observer, document.body, {
         childList: true,
@@ -24963,8 +25612,21 @@ ${locks}` : ""}`;
   // src/features/tasks.js
   var STYLE_ID11 = "mwitools-task-style";
   var TASK_SELECTOR = 'div[class*="RandomTask_randomTask"]:not([data-mwitools-task-mirror="true"])';
-  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,[data-mwitools-task-mirror="true"]';
+  var REROLL_OPTIONS_SELECTOR = '[class*="RandomTask_rerollOptionsContainer"]';
+  var RANGED_REROLL_BUTTON_SELECTOR = ".RangedWayIdleTaskButton[data-more-expensive]";
+  var TASK_FILTER_LOCK_STORAGE_PREFIX = "MWITools_task_filter_locks_v1";
+  var TASK_FILTER_LOCK_HOLD_MS = 1e3;
+  var TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
+  var TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
+  var TASK_MUTATION_OBSERVER_OPTIONS = Object.freeze({
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+  var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
+  var REROLL_LOCK_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskRerollLockHandler");
+  var REROLL_CHOICE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskRerollChoiceHandler");
   var originalCards = [];
   var taskListParent = null;
   var pageClassifications = /* @__PURE__ */ new Map();
@@ -24987,6 +25649,13 @@ ${locks}` : ""}`;
   var activeProfessionFilters = /* @__PURE__ */ new Set();
   var combatFilterEnabled = false;
   var activeDungeonFilters = /* @__PURE__ */ new Set();
+  var lockedTaskFilters = /* @__PURE__ */ new Set();
+  var taskFilterLockStorageKey = "";
+  var stickyVisibleSlots = /* @__PURE__ */ new Set();
+  var pendingStickyResetSlots = /* @__PURE__ */ new Map();
+  var activeRerollContext = null;
+  var warnedUnexpectedRerollButtons = false;
+  var rerollButtonSnapshots = /* @__PURE__ */ new WeakMap();
   var PROFESSIONS = [
     ["milking", "挤奶", "Milking"],
     ["foraging", "采摘", "Foraging"],
@@ -25014,6 +25683,82 @@ ${locks}` : ""}`;
   }
   function taskId(task) {
     return taskCardTaskId(task);
+  }
+  function taskFilterLocksStorageKey(characterId, server = globalThis.location?.hostname ?? "unknown") {
+    return `${TASK_FILTER_LOCK_STORAGE_PREFIX}:${server}:${String(characterId ?? "")}`;
+  }
+  function normalizedTaskFilterLock(value) {
+    const entry = String(value ?? "");
+    const separator = entry.indexOf(":");
+    if (separator <= 0) return "";
+    const kind = entry.slice(0, separator);
+    const filterValue = entry.slice(separator + 1);
+    if (kind === "profession" && LIFE_PROFESSIONS.some(({ key }) => key === filterValue)) {
+      return entry;
+    }
+    if (kind === "combat" && filterValue === "combat") return entry;
+    if (kind === "dungeon" && filterValue.startsWith("/actions/combat/")) {
+      return entry;
+    }
+    return "";
+  }
+  function readTaskFilterLocks(storageKey) {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      return new Set(
+        (Array.isArray(value?.locked) ? value.locked : []).map(normalizedTaskFilterLock).filter(Boolean)
+      );
+    } catch {
+      return /* @__PURE__ */ new Set();
+    }
+  }
+  function writeTaskFilterLocks(storageKey, locks) {
+    if (!storageKey) return;
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ locked: [...locks].sort() })
+      );
+    } catch {
+    }
+  }
+  function ensureTaskFilterLockState(characterId = runtime.state.currentCharacterId) {
+    const storageKey = taskFilterLocksStorageKey(characterId);
+    if (taskFilterLockStorageKey === storageKey) return;
+    taskFilterLockStorageKey = storageKey;
+    lockedTaskFilters = readTaskFilterLocks(storageKey);
+  }
+  function taskFilterLockKey(kind, value) {
+    return normalizedTaskFilterLock(`${kind}:${value}`);
+  }
+  function isTaskFilterLocked(kind, value) {
+    const key = taskFilterLockKey(kind, value);
+    return Boolean(key && lockedTaskFilters.has(key));
+  }
+  function clearTaskFilterLocks({ persist = true } = {}) {
+    if (!lockedTaskFilters.size) return false;
+    lockedTaskFilters.clear();
+    if (persist)
+      writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
+    lastTaskRenderSignature = "";
+    return true;
+  }
+  function toggleTaskFilterLock(kind, value) {
+    ensureTaskFilterLockState();
+    const key = taskFilterLockKey(kind, value);
+    if (!key) return false;
+    if (lockedTaskFilters.has(key)) lockedTaskFilters.delete(key);
+    else lockedTaskFilters.add(key);
+    const locked = lockedTaskFilters.has(key);
+    writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
+    lastTaskRenderSignature = "";
+    for (const button of document.querySelectorAll(".mwi-task-filter")) {
+      if (button.dataset.filterKind === kind && button.dataset.filterValue === value) {
+        updateTaskFilterLockIndicator(button, locked);
+      }
+    }
+    renderTasks();
+    return locked;
   }
   function armTemporaryTaskReturn(expiresAt) {
     const deadline = Number(expiresAt);
@@ -25057,6 +25802,7 @@ ${locks}` : ""}`;
     const style = document.createElement("style");
     style.id = STYLE_ID11;
     style.textContent = `
+    @property --mwi-task-lock-angle { syntax:"<angle>"; inherits:false; initial-value:0deg; }
     [class*="TasksPanel_taskList"] { grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr)) !important; gap:8px !important; }
     [class*="TasksPanel_taskList"] > * { min-width:0 !important; max-width:100% !important; box-sizing:border-box !important; }
     [class*="RandomTask_randomTask"] { min-width:0 !important; }
@@ -25070,22 +25816,30 @@ ${locks}` : ""}`;
     .mwi-task-filter-group--life,.mwi-task-filter-group--combat { flex-wrap:nowrap; }
     .mwi-task-filter-group--combat { flex:0 0 auto; }
     .mwi-task-dungeon-filters { display:inline-flex; align-items:center; gap:3px; padding-left:4px; border-left:1px solid rgba(255,255,255,.12); }
-    .mwi-task-filter,.mwi-task-sort-button { display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter,.mwi-task-sort-button { position:relative; display:inline-flex; min-height:28px; align-items:center; justify-content:center; gap:4px; box-sizing:border-box; padding:3px 7px; border:1px solid rgba(255,255,255,.14); border-radius:5px; background:rgba(255,255,255,.08); color:var(--color-text-primary,#eee); font:inherit; font-size:.7rem; cursor:pointer; }
+    .mwi-task-filter { touch-action:manipulation; user-select:none; -webkit-user-select:none; }
     .mwi-task-filter:hover,.mwi-task-sort-button:hover { background:rgba(255,255,255,.14); }
     .mwi-task-filter:disabled { opacity:.38; cursor:default; filter:saturate(.35); }
     .mwi-task-filter:focus-visible,.mwi-task-sort-button:focus-visible { outline:2px solid ${runtime.config.SCRIPT_COLOR_MAIN}; outline-offset:1px; }
     .mwi-task-filter[aria-pressed="true"] { border-color:rgba(226,181,79,.62); background:rgba(226,181,79,.18); color:#f3d58b; }
     .mwi-task-filter[aria-pressed="false"] { opacity:.38; filter:saturate(.35); }
+    .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
+    .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
+    .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
+    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress var(--mwi-task-lock-progress-duration,${TASK_FILTER_LOCK_HOLD_MS - TASK_FILTER_LOCK_FEEDBACK_DELAY_MS}ms) linear forwards; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
     .mwi-task-filter-count { min-width:1.1em; color:inherit; font-weight:750; font-variant-numeric:tabular-nums; text-align:center; }
     .mwi-task-sort-button { margin-left:auto; border-color:rgba(120,174,255,.45); color:#b8d5ff; }
+    ${REROLL_OPTIONS_SELECTOR} button[data-mwitools-task-lock-disabled="true"] { position:relative!important; opacity:.38!important; filter:grayscale(.72) saturate(.25)!important; cursor:not-allowed!important; }
+    .mwi-task-reroll-lock { position:absolute; z-index:4; top:3px; right:3px; display:inline-flex; width:16px; height:16px; align-items:center; justify-content:center; border-radius:50%; background:rgba(20,34,48,.94); color:#dff3ff; font:700 10px/1 system-ui,sans-serif; box-shadow:0 1px 4px rgba(0,0,0,.55); pointer-events:none; }
     ${TASK_SELECTOR}[data-mwitools-filtered="true"] { display:none !important; }
     .mwi-task-bg { position:absolute; z-index:0; top:6%; right:8%; left:0; display:flex; height:88%; flex-direction:row-reverse; align-items:center; justify-content:flex-start; opacity:.3; pointer-events:none; }
     .mwi-task-bg svg { width:24%; height:100%; flex:0 0 24%; }
     ${TASK_SELECTOR} > :not(.mwi-task-bg) { position:relative; z-index:1; }
     .mwi-task-merge-toast { position:fixed; top:56px; right:14px; z-index:2147483200; max-width:min(360px,calc(100vw - 28px)); box-sizing:border-box; padding:8px 11px; border:1px solid rgba(102,205,135,.5); border-radius:6px; background:rgba(15,24,20,.97); box-shadow:0 8px 22px rgba(0,0,0,.4); color:#a8e5b7; font-size:.75rem; line-height:1.35; animation:mwi-task-toast-in .16s ease-out; }
+    @keyframes mwi-task-lock-progress { from { --mwi-task-lock-angle:0deg; } to { --mwi-task-lock-angle:360deg; } }
     @keyframes mwi-task-toast-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
     @media (max-width:640px) {
       .mwi-task-toolbar { gap:3px; padding:4px; }
@@ -25211,6 +25965,28 @@ ${locks}` : ""}`;
     taskRemainingCache.set(task, { currentSource, targetSource, value });
     return value;
   }
+  function taskRequiredActionCount(task) {
+    const remaining = taskRemaining(task);
+    const monsterHrid = normalizeMonsterHrid(
+      nestedValue(task, [
+        "monsterHrid",
+        "targetMonsterHrid",
+        "combatMonsterHrid"
+      ])
+    );
+    if (!monsterHrid) return remaining;
+    for (const detail of Object.values(
+      runtime.state.initData_actionDetailMap ?? {}
+    )) {
+      if (detail?.combatZoneInfo?.isDungeon) continue;
+      const fightInfo = detail?.combatZoneInfo?.fightInfo;
+      const battlesPerBoss = Number(fightInfo?.battlesPerBoss);
+      if (!(Number.isFinite(battlesPerBoss) && battlesPerBoss > 0)) continue;
+      if (!fightMonsterHrids(fightInfo?.bossSpawns).has(monsterHrid)) continue;
+      return remaining * battlesPerBoss;
+    }
+    return remaining;
+  }
   function rewardValue(task) {
     let rewards = nestedValue(task, ["rewardItems", "rewards", "items"]);
     if (!Array.isArray(rewards) && task?.itemRewardsJSON) {
@@ -25304,6 +26080,25 @@ ${locks}` : ""}`;
     if (fightCandidates.length === 1) return fightCandidates[0];
     return normalizeMonsterHrid(actionHrid) || null;
   }
+  function taskMonsterHrid(task) {
+    const direct = normalizeMonsterHrid(
+      nestedValue(task, [
+        "monsterHrid",
+        "targetMonsterHrid",
+        "combatMonsterHrid"
+      ])
+    );
+    if (direct) return direct;
+    const detail = runtime.state.initData_actionDetailMap?.[String(taskActionHrid(task) ?? "")];
+    const monsters = [...fightMonsterHrids(detail?.combatZoneInfo?.fightInfo)];
+    return monsters.length === 1 ? monsters[0] : "";
+  }
+  function actionContainsMonster(actionHrid, monsterHrid) {
+    if (!monsterHrid) return false;
+    if (normalizeMonsterHrid(actionHrid) === monsterHrid) return true;
+    const detail = runtime.state.initData_actionDetailMap?.[actionHrid];
+    return fightMonsterHrids(detail?.combatZoneInfo?.fightInfo).has(monsterHrid);
+  }
   function taskArtworkForCard(card, task, context = {}) {
     const title = context.title ?? visibleTaskTitle(card);
     const profession = context.profession ?? professionForCard(card, task, title);
@@ -25339,6 +26134,40 @@ ${locks}` : ""}`;
   function artworkHrefs(artworks) {
     return artworks.map(({ kind, hrid }) => getGameSpriteHref(kind, hrid)).filter(Boolean);
   }
+  function createArtworkSvg(href) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("aria-hidden", "true");
+    const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    use.setAttribute("href", href);
+    svg.appendChild(use);
+    return svg;
+  }
+  function syncArtworkBackground(existing, hrefs) {
+    const background = existing ?? document.createElement("div");
+    if (!existing) background.className = "mwi-task-bg";
+    hrefs.forEach((href, index) => {
+      let svg = background.children[index];
+      if (svg?.namespaceURI !== "http://www.w3.org/2000/svg") {
+        const replacement = createArtworkSvg(href);
+        if (svg) svg.replaceWith(replacement);
+        else background.appendChild(replacement);
+        svg = replacement;
+      }
+      let use = svg.querySelector(":scope > use");
+      if (!use) {
+        use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+        svg.appendChild(use);
+      }
+      if (use.getAttribute("href") !== href) use.setAttribute("href", href);
+    });
+    while (background.children.length > hrefs.length) {
+      background.lastElementChild?.remove();
+    }
+    background.dataset.spriteHref = hrefs.join("\n");
+    return background;
+  }
   function decorateCard(card, task, artworks = null) {
     card.querySelector(".mwi-task-insight")?.remove();
     if (!runtime.settings.get("taskIcons")) {
@@ -25354,24 +26183,13 @@ ${locks}` : ""}`;
       card.dataset.mwitoolsTaskIconSignature = "";
       return;
     }
-    card.dataset.mwitoolsTaskIconSignature = signature;
-    if (existing?.dataset.spriteHref === signature) return;
-    existing?.remove();
-    const background = document.createElement("div");
-    background.className = "mwi-task-bg";
-    background.dataset.spriteHref = signature;
-    for (const href of hrefs) {
-      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-      svg.setAttribute("width", "100%");
-      svg.setAttribute("height", "100%");
-      svg.setAttribute("aria-hidden", "true");
-      const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-      use.setAttribute("href", href);
-      svg.appendChild(use);
-      background.appendChild(svg);
+    if (card.dataset.mwitoolsTaskIconSignature !== signature) {
+      card.dataset.mwitoolsTaskIconSignature = signature;
     }
+    if (existing?.dataset.spriteHref === signature) return;
+    const background = syncArtworkBackground(existing, hrefs);
     card.style.position = "relative";
-    card.appendChild(background);
+    if (!existing) card.appendChild(background);
   }
   function taskIconMatches(card) {
     const existing = card.querySelector(":scope > .mwi-task-bg");
@@ -25659,13 +26477,7 @@ ${locks}` : ""}`;
       if (enteredNewTaskPage || !previousId) {
         if (freshIds.has(id)) pageNewTaskIds.add(id);
       } else if (changed) {
-        if (pendingResetSlots.has(slot)) {
-          if (pageClassifications.get(slot)?.state === "new") {
-            pageNewTaskIds.add(id);
-          }
-        } else if (freshIds.has(id)) {
-          pageNewTaskIds.add(id);
-        }
+        if (freshIds.has(id)) pageNewTaskIds.add(id);
         pendingResetSlots.delete(slot);
       } else if (freshIds.has(id)) {
         pageNewTaskIds.add(id);
@@ -25845,6 +26657,112 @@ ${locks}` : ""}`;
       button.setAttribute("aria-pressed", value);
     }
   }
+  function syncTaskFilterPressedIndicators(root = document) {
+    for (const button of root.querySelectorAll?.(".mwi-task-filter") ?? []) {
+      const { filterKind: kind, filterValue: value } = button.dataset;
+      if (kind === "profession") {
+        updatePressedState(button, activeProfessionFilters.has(value));
+      } else if (kind === "combat") {
+        updatePressedState(button, combatFilterEnabled);
+      } else if (kind === "dungeon") {
+        updatePressedState(button, activeDungeonFilters.has(value));
+      }
+    }
+  }
+  function wireTaskFilterLongPress(button, onLongPress, {
+    holdMs = TASK_FILTER_LOCK_HOLD_MS,
+    feedbackDelayMs = TASK_FILTER_LOCK_FEEDBACK_DELAY_MS,
+    moveTolerance = TASK_FILTER_LOCK_MOVE_TOLERANCE
+  } = {}) {
+    let press = null;
+    let suppressClickUntil = 0;
+    const progressDelay = Math.min(
+      Math.max(0, Number(feedbackDelayMs) || 0),
+      Math.max(0, Number(holdMs) || 0)
+    );
+    const progressDuration = Math.max(0, holdMs - progressDelay);
+    const cancelPress = () => {
+      if (!press) return;
+      clearTimeout(press.timer);
+      clearTimeout(press.feedbackTimer);
+      press = null;
+      delete button.dataset.mwitoolsLockPressing;
+      button.style.removeProperty("--mwi-task-lock-progress-duration");
+    };
+    const finishPress = (event) => {
+      if (!press || press.pointerId !== event.pointerId) return;
+      cancelPress();
+    };
+    button.addEventListener("pointerdown", (event) => {
+      if (button.disabled || event.button !== void 0 && event.button !== 0) {
+        return;
+      }
+      cancelPress();
+      suppressClickUntil = 0;
+      const current = {
+        pointerId: event.pointerId,
+        x: Number(event.clientX) || 0,
+        y: Number(event.clientY) || 0,
+        timer: null,
+        feedbackTimer: null
+      };
+      current.timer = setTimeout(() => {
+        if (press !== current || !button.isConnected || button.disabled) {
+          cancelPress();
+          return;
+        }
+        suppressClickUntil = Date.now() + 700;
+        onLongPress();
+      }, holdMs);
+      press = current;
+      const showProgress = () => {
+        if (press !== current || !button.isConnected || button.disabled) return;
+        button.style.setProperty(
+          "--mwi-task-lock-progress-duration",
+          `${progressDuration}ms`
+        );
+        button.dataset.mwitoolsLockPressing = "true";
+      };
+      if (progressDelay > 0) {
+        current.feedbackTimer = setTimeout(showProgress, progressDelay);
+      } else {
+        showProgress();
+      }
+      try {
+        if (event.pointerId !== void 0) {
+          button.setPointerCapture?.(event.pointerId);
+        }
+      } catch {
+      }
+    });
+    button.addEventListener("pointermove", (event) => {
+      if (!press || press.pointerId !== event.pointerId) return;
+      if (Math.hypot(
+        (Number(event.clientX) || 0) - press.x,
+        (Number(event.clientY) || 0) - press.y
+      ) > moveTolerance) {
+        cancelPress();
+      }
+    });
+    button.addEventListener("pointerup", finishPress);
+    button.addEventListener("pointercancel", finishPress);
+    button.addEventListener("lostpointercapture", cancelPress);
+    button.addEventListener("contextmenu", (event) => {
+      if (!press && Date.now() > suppressClickUntil) return;
+      event.preventDefault();
+    });
+    button.addEventListener(
+      "click",
+      (event) => {
+        if (Date.now() > suppressClickUntil) return;
+        suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true
+    );
+    return cancelPress;
+  }
   function createTaskFilterButton({
     kind,
     value,
@@ -25854,7 +26772,8 @@ ${locks}` : ""}`;
     fallback = "•",
     showLabel = false,
     showCount = true,
-    onClick
+    onClick,
+    onLongPress = null
   }) {
     const button = document.createElement("button");
     button.type = "button";
@@ -25878,6 +26797,9 @@ ${locks}` : ""}`;
       button.append(text);
     }
     if (showCount) button.append(count);
+    if (onLongPress) {
+      wireTaskFilterLongPress(button, onLongPress);
+    }
     button.addEventListener("click", onClick);
     return button;
   }
@@ -25900,17 +26822,48 @@ ${locks}` : ""}`;
     svg.append(use);
     icon.append(svg);
   }
-  function updateTaskFilterButton(button, { label, count, pressed }) {
+  function updateTaskFilterLockIndicator(button, locked) {
+    let lock = button.querySelector(":scope > .mwi-task-filter-lock");
+    if (locked) {
+      button.dataset.mwitoolsTaskLocked = "true";
+      if (!lock) {
+        lock = document.createElement("span");
+        lock.className = "mwi-task-filter-lock";
+        lock.textContent = "🔒";
+        lock.setAttribute("aria-hidden", "true");
+        button.append(lock);
+      }
+    } else {
+      delete button.dataset.mwitoolsTaskLocked;
+      lock?.remove();
+    }
+    const title = button.title;
+    const accessibleLabel = locked ? `${title} · ${t11("已锁定", "Locked")}` : title;
+    if (button.getAttribute("aria-label") !== accessibleLabel) {
+      button.setAttribute("aria-label", accessibleLabel);
+    }
+  }
+  function updateTaskFilterButton(button, { label, count, pressed, locked }) {
     updatePressedState(button, pressed);
     const countText = String(count);
     const countNode = button.querySelector(".mwi-task-filter-count");
     if (countNode?.textContent !== countText) countNode.textContent = countText;
     const title = `${label} (${countText})`;
     if (button.title !== title) button.title = title;
-    if (button.getAttribute("aria-label") !== title) {
-      button.setAttribute("aria-label", title);
-    }
+    updateTaskFilterLockIndicator(button, locked);
     updateTaskFilterIcon(button);
+  }
+  function taskMatchesLockedFilters(classification) {
+    if (!classification || !runtime.settings.get("taskStatistics")) return false;
+    if (classification.profession?.key !== "combat" && isTaskFilterLocked("profession", classification.profession?.key)) {
+      return true;
+    }
+    if (classification.profession?.key === "combat" && isTaskFilterLocked("combat", "combat")) {
+      return true;
+    }
+    return classification.dungeonLocations?.some(
+      ({ isDungeon, actionHrid }) => isDungeon && isTaskFilterLocked("dungeon", actionHrid)
+    );
   }
   function applyTaskFilters(rows2) {
     const statisticsEnabled = runtime.settings.get("taskStatistics");
@@ -25923,7 +26876,7 @@ ${locks}` : ""}`;
         const dungeonMatches = row.profession.key === "combat" && row.dungeonLocations.some(
           ({ isDungeon, actionHrid }) => isDungeon && activeDungeonFilters.has(actionHrid)
         );
-        visible2 = professionMatches || combatMatches || dungeonMatches;
+        visible2 = stickyVisibleSlots.has(row.slot) || professionMatches || combatMatches || dungeonMatches;
       }
       const filtered = String(!visible2);
       if (row.card.dataset.mwitoolsFiltered !== filtered) {
@@ -25961,6 +26914,7 @@ ${locks}` : ""}`;
             showCount: false,
             onClick: () => {
               resetTaskFilters();
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             }
@@ -25980,12 +26934,14 @@ ${locks}` : ""}`;
               iconKind: "skills",
               iconHrid: profession.key,
               fallback: (runtime.config.isZH ? profession.zh : profession.en)[0],
+              onLongPress: () => toggleTaskFilterLock("profession", profession.key),
               onClick: () => {
                 if (activeProfessionFilters.has(profession.key)) {
                   activeProfessionFilters.delete(profession.key);
                 } else {
                   activeProfessionFilters.add(profession.key);
                 }
+                syncTaskFilterPressedIndicators();
                 lastTaskRenderSignature = "";
                 renderTasks();
               }
@@ -26003,8 +26959,10 @@ ${locks}` : ""}`;
             iconKind: "misc",
             iconHrid: "combat",
             fallback: "⚔",
+            onLongPress: () => toggleTaskFilterLock("combat", "combat"),
             onClick: () => {
               combatFilterEnabled = !combatFilterEnabled;
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             }
@@ -26021,12 +26979,14 @@ ${locks}` : ""}`;
               iconKind: "actions",
               iconHrid: dungeon.actionHrid,
               fallback: "◆",
+              onLongPress: () => toggleTaskFilterLock("dungeon", dungeon.actionHrid),
               onClick: () => {
                 if (activeDungeonFilters.has(dungeon.actionHrid)) {
                   activeDungeonFilters.delete(dungeon.actionHrid);
                 } else {
                   activeDungeonFilters.add(dungeon.actionHrid);
                 }
+                syncTaskFilterPressedIndicators();
                 lastTaskRenderSignature = "";
                 renderTasks();
               }
@@ -26087,13 +27047,15 @@ ${locks}` : ""}`;
       updateTaskFilterButton(button, {
         label: runtime.config.isZH ? profession.zh : profession.en,
         count: professionCounts.get(profession.key),
-        pressed: activeProfessionFilters.has(profession.key)
+        pressed: activeProfessionFilters.has(profession.key),
+        locked: isTaskFilterLocked("profession", profession.key)
       });
     }
     updateTaskFilterButton(toolbar.querySelector('[data-filter-kind="combat"]'), {
       label: t11("战斗", "Combat"),
       count: combatCount,
-      pressed: combatFilterEnabled
+      pressed: combatFilterEnabled,
+      locked: isTaskFilterLocked("combat", "combat")
     });
     for (const dungeon of currentDungeonFilters) {
       const button = toolbar.querySelector(
@@ -26102,7 +27064,8 @@ ${locks}` : ""}`;
       updateTaskFilterButton(button, {
         label: dungeon.label,
         count: dungeonCounts.get(dungeon.actionHrid),
-        pressed: activeDungeonFilters.has(dungeon.actionHrid)
+        pressed: activeDungeonFilters.has(dungeon.actionHrid),
+        locked: isTaskFilterLocked("dungeon", dungeon.actionHrid)
       });
     }
   }
@@ -26169,19 +27132,59 @@ ${locks}` : ""}`;
         const currentTask = liveTaskForCard(card, tasks);
         const actionHrid = taskActionHrid(currentTask);
         if (!actionHrid) return;
+        const monsterHrid = monsterHridForCard(card, currentTask);
         const matching = tasks.filter(
-          (task) => taskActionHrid(task) === actionHrid
+          (task) => monsterHrid ? taskMonsterHrid(task) === monsterHrid : taskActionHrid(task) === actionHrid
         );
         if (!matching.length) return;
-        runtime.state.pendingMergedTask = {
+        const pendingMergedTask = {
           actionHrid,
-          count: matching.reduce((sum, task) => sum + taskRemaining(task), 0),
+          count: matching.reduce(
+            (sum, task) => sum + taskRequiredActionCount(task),
+            0
+          ),
           taskCount: matching.length
         };
+        if (monsterHrid) {
+          Object.defineProperty(pendingMergedTask, "monsterHrid", {
+            configurable: true,
+            value: monsterHrid
+          });
+        }
+        runtime.state.pendingMergedTask = pendingMergedTask;
       };
       card[MERGE_HANDLER] = handler;
       card.dataset.mwitoolsMergeWired = "true";
       card.addEventListener("click", handler, true);
+    });
+  }
+  function stickyResetSignature(card, task) {
+    return [taskId(task), taskActionHrid(task), visibleTaskTitle(card)].join(
+      ""
+    );
+  }
+  function clearPendingStickyReset(slot) {
+    const pending = pendingStickyResetSlots.get(slot);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingStickyResetSlots.delete(slot);
+  }
+  function clearAllPendingStickyResets() {
+    for (const slot of [...pendingStickyResetSlots.keys()]) {
+      clearPendingStickyReset(slot);
+    }
+  }
+  function finalizeStickyResetSlots(cards, tasks) {
+    cards.forEach((card, index) => {
+      const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
+      const pending = pendingStickyResetSlots.get(slot);
+      if (!pending) return;
+      const task = tasks[index];
+      if (task === pending.task && stickyResetSignature(card, task) === pending.signature) {
+        return;
+      }
+      stickyVisibleSlots.add(slot);
+      clearPendingStickyReset(slot);
     });
   }
   function wireResetButtons(cards) {
@@ -26205,6 +27208,30 @@ ${locks}` : ""}`;
           nativeResetChoiceUntil = Date.now() + 1e4;
           const slot = Number(card.dataset.mwitoolsOriginalIndex ?? index);
           pendingResetSlots.add(slot);
+          activeRerollContext = {
+            slot,
+            optionsSeen: false,
+            confirmed: false
+          };
+          clearPendingStickyReset(slot);
+          if (runtime.settings.get("taskStatistics") && hasActiveTaskFilters() && card.dataset.mwitoolsFiltered !== "true") {
+            const task = liveTaskForCard(
+              card,
+              runtime.state.characterQuests ?? []
+            );
+            const pending = {
+              task,
+              signature: stickyResetSignature(card, task),
+              timeout: null
+            };
+            pending.timeout = setTimeout(() => {
+              if (pendingStickyResetSlots.get(slot) === pending) {
+                pendingStickyResetSlots.delete(slot);
+              }
+            }, 3e4);
+            pending.timeout?.unref?.();
+            pendingStickyResetSlots.set(slot, pending);
+          }
           const timeout = setTimeout(
             () => pendingResetSlots.delete(slot),
             3e4
@@ -26218,17 +27245,29 @@ ${locks}` : ""}`;
   function applyPendingMerge() {
     const pending = runtime.state.pendingMergedTask;
     if (!pending) return;
-    const input = document.querySelector(
-      'div[class*="SkillActionDetail_maxActionCountInput"] input'
-    );
+    const input = [
+      ...document.querySelectorAll(
+        'div[class*="SkillActionDetail_maxActionCountInput"] input'
+      )
+    ].find((candidate) => {
+      const panel = candidate.closest('div[class*="SkillActionDetail_regularComponent"]') ?? candidate.closest('div[class*="Modal_modalContainer"]')?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ?? candidate.parentElement;
+      const name = runtime.api.getOriTextFromElement?.(
+        panel?.querySelector('div[class*="SkillActionDetail_name"]')
+      );
+      const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
+      return actionHrid === pending.actionHrid || actionContainsMonster(actionHrid, pending.monsterHrid);
+    });
     if (!input) return;
-    const panel = input.closest('div[class*="SkillActionDetail_regularComponent"]') ?? input.closest('div[class*="Modal_modalContainer"]')?.querySelector('div[class*="SkillActionDetail_regularComponent"]') ?? input.parentElement;
-    const name = runtime.api.getOriTextFromElement?.(
-      panel.querySelector('div[class*="SkillActionDetail_name"]')
-    );
-    const actionHrid = resolveLocalizedEntity("action", name) || runtime.api.getActionHridFromItemName?.(name);
-    if (actionHrid !== pending.actionHrid) return;
-    runtime.api.reactInputTriggerHack?.(input, pending.count);
+    if (runtime.api.reactInputTriggerHack) {
+      runtime.api.reactInputTriggerHack(input, pending.count);
+    } else {
+      input.value = String(pending.count);
+      input.dispatchEvent(
+        new (input.ownerDocument?.defaultView?.Event ?? Event)("input", {
+          bubbles: true
+        })
+      );
+    }
     document.querySelectorAll(".mwi-task-merged-note,.mwi-task-merge-toast").forEach((node) => node.remove());
     const toast = document.createElement("div");
     toast.className = "mwi-task-merge-toast";
@@ -26243,6 +27282,17 @@ ${locks}` : ""}`;
     runtime.state.pendingMergedTask = null;
   }
   function shouldRenderTaskMutations(records, now = Date.now()) {
+    const rerollOptionsChanged = records.some((record) => {
+      const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+      const changedNodes = [
+        ...record.addedNodes ?? [],
+        ...record.removedNodes ?? []
+      ].filter((node) => node?.nodeType === 1);
+      return target?.closest?.(REROLL_OPTIONS_SELECTOR) || changedNodes.some(
+        (node) => node.matches?.(REROLL_OPTIONS_SELECTOR) || node.querySelector?.(REROLL_OPTIONS_SELECTOR)
+      );
+    });
+    if (rerollOptionsChanged) return true;
     if (now < nativeResetChoiceUntil) return false;
     const removedBackground = records.some((record) => {
       const target = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
@@ -26274,6 +27324,179 @@ ${locks}` : ""}`;
       );
     });
   }
+  function reactCooldownState(button) {
+    const key = Object.getOwnPropertyNames(button ?? {}).find(
+      (name) => name.startsWith("__reactFiber$") || name.startsWith("__reactInternalInstance$")
+    );
+    let fiber = key ? button[key] : null;
+    for (let depth = 0; fiber && depth < 8; depth += 1) {
+      const state = fiber.stateNode?.state;
+      if (state && "isOnCooldown" in state) return state;
+      fiber = fiber.return;
+    }
+    return null;
+  }
+  function hasNativeDisabledClass(button) {
+    return [...button?.classList ?? []].some(
+      (name) => name.startsWith("Button_disabled__")
+    );
+  }
+  function rerollChoiceButtons(container) {
+    const ranged = [...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR)];
+    if (ranged.length) return ranged.length === 2 ? ranged : [];
+    const native = [...container.querySelectorAll("button")];
+    return native.length === 2 ? native : [];
+  }
+  function wireRerollChoiceButton(button) {
+    if (button[REROLL_CHOICE_HANDLER]) return;
+    const handler = () => {
+      if (button.dataset.mwitoolsTaskLockDisabled === "true") return;
+      if (activeRerollContext) activeRerollContext.confirmed = true;
+    };
+    button[REROLL_CHOICE_HANDLER] = handler;
+    button.addEventListener("click", handler, true);
+  }
+  function lockRerollButton(button) {
+    wireRerollChoiceButton(button);
+    if (!rerollButtonSnapshots.has(button)) {
+      rerollButtonSnapshots.set(button, {
+        disabled: button.disabled,
+        ariaDisabled: button.getAttribute("aria-disabled"),
+        ariaLabel: button.getAttribute("aria-label")
+      });
+    }
+    if (!button[REROLL_LOCK_HANDLER]) {
+      const handler = (event) => {
+        if (button.dataset.mwitoolsTaskLockDisabled !== "true") return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      button[REROLL_LOCK_HANDLER] = handler;
+      button.addEventListener("click", handler, true);
+    }
+    button.dataset.mwitoolsTaskLockDisabled = "true";
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+    const snapshot = rerollButtonSnapshots.get(button);
+    const baseLabel = snapshot.ariaLabel || String(button.textContent ?? "").trim();
+    button.setAttribute(
+      "aria-label",
+      `${baseLabel}${baseLabel ? " · " : ""}${t11("已锁定", "Locked")}`
+    );
+    let icon = button.querySelector(":scope > .mwi-task-reroll-lock");
+    if (!icon) {
+      icon = document.createElement("span");
+      icon.className = "mwi-task-reroll-lock";
+      icon.textContent = "🔒";
+      icon.setAttribute("aria-hidden", "true");
+      button.append(icon);
+    }
+  }
+  function restoreRerollButton(button) {
+    if (button.dataset.mwitoolsTaskLockDisabled !== "true") return;
+    const snapshot = rerollButtonSnapshots.get(button);
+    if (snapshot) {
+      button.disabled = snapshot.disabled;
+      if (snapshot.ariaDisabled === null) button.removeAttribute("aria-disabled");
+      else button.setAttribute("aria-disabled", snapshot.ariaDisabled);
+      if (snapshot.ariaLabel === null) button.removeAttribute("aria-label");
+      else button.setAttribute("aria-label", snapshot.ariaLabel);
+    }
+    delete button.dataset.mwitoolsTaskLockDisabled;
+    button.querySelector(":scope > .mwi-task-reroll-lock")?.remove();
+    const handler = button[REROLL_LOCK_HANDLER];
+    if (handler) button.removeEventListener("click", handler, true);
+    delete button[REROLL_LOCK_HANDLER];
+    rerollButtonSnapshots.delete(button);
+  }
+  function syncTaskRerollLocks(root = document) {
+    ensureTaskFilterLockState();
+    const containers = [
+      ...root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ?? []
+    ];
+    if (!containers.length) {
+      for (const button of root.querySelectorAll?.(
+        '[data-mwitools-task-lock-disabled="true"]'
+      ) ?? []) {
+        restoreRerollButton(button);
+      }
+      if (activeRerollContext?.optionsSeen) {
+        if (!activeRerollContext.confirmed) {
+          clearPendingStickyReset(activeRerollContext.slot);
+          pendingResetSlots.delete(activeRerollContext.slot);
+        } else {
+          nativeResetChoiceUntil = 0;
+        }
+        activeRerollContext = null;
+      }
+      return 0;
+    }
+    if (activeRerollContext) activeRerollContext.optionsSeen = true;
+    const classification = activeRerollContext ? pageClassifications.get(activeRerollContext.slot) : null;
+    const locked = taskMatchesLockedFilters(classification);
+    let changed = 0;
+    for (const container of containers) {
+      const buttons = rerollChoiceButtons(container);
+      if (buttons.length !== 2) {
+        if (activeRerollContext && container.querySelector("button") && !warnedUnexpectedRerollButtons) {
+          warnedUnexpectedRerollButtons = true;
+          console.warn(
+            "[MWITools] Task reroll choices were not recognized; filter locks were left unchanged."
+          );
+        }
+        continue;
+      }
+      for (const button of buttons) {
+        wireRerollChoiceButton(button);
+        if (locked) {
+          lockRerollButton(button);
+          changed += 1;
+        } else {
+          restoreRerollButton(button);
+        }
+      }
+    }
+    return changed;
+  }
+  function repairRangedWayIdleRerollButtons(root = document) {
+    let repaired = 0;
+    for (const container of root.querySelectorAll?.(REROLL_OPTIONS_SELECTOR) ?? []) {
+      const buttons = [
+        ...container.querySelectorAll(RANGED_REROLL_BUTTON_SELECTOR)
+      ];
+      if (buttons.length !== 2) continue;
+      if (buttons.some(
+        (button2) => button2.dataset.mwitoolsTaskLockDisabled === "true"
+      )) {
+        continue;
+      }
+      const expensive = buttons.filter(
+        (button2) => button2.dataset.moreExpensive === "true"
+      );
+      const preferred = buttons.filter(
+        (button2) => button2.dataset.moreExpensive === "false"
+      );
+      if (expensive.length !== 1 || preferred.length !== 1) continue;
+      if (!expensive[0].disabled && !hasNativeDisabledClass(expensive[0])) {
+        continue;
+      }
+      const button = preferred[0];
+      const cooldownState = reactCooldownState(button);
+      const disabledClass = hasNativeDisabledClass(button);
+      if (!button.disabled && !disabledClass && cooldownState?.isOnCooldown !== true) {
+        continue;
+      }
+      button.disabled = false;
+      for (const name of [...button.classList]) {
+        if (name.startsWith("Button_disabled__")) button.classList.remove(name);
+      }
+      if (cooldownState?.isOnCooldown === true) {
+        cooldownState.isOnCooldown = false;
+      }
+      repaired += 1;
+    }
+    return repaired;
+  }
   function taskRenderSignature(snapshots) {
     const settings2 = [
       runtime.config.isZH,
@@ -26283,7 +27506,9 @@ ${locks}` : ""}`;
       [...pageNewTaskIds].sort().join(","),
       [...activeProfessionFilters].sort().join(","),
       combatFilterEnabled,
-      [...activeDungeonFilters].sort().join(",")
+      [...activeDungeonFilters].sort().join(","),
+      [...lockedTaskFilters].sort().join(","),
+      [...stickyVisibleSlots].sort((left, right) => left - right).join(",")
     ];
     const rows2 = snapshots.map((snapshot) => {
       return [
@@ -26297,6 +27522,13 @@ ${locks}` : ""}`;
     return [...settings2, ...rows2].join("");
   }
   function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
+    ensureTaskFilterLockState();
+    if (!runtime.settings.get("taskStatistics")) clearTaskFilterLocks();
+    syncTaskRerollLocks();
+    repairRangedWayIdleRerollButtons();
+    if (document.querySelector(REROLL_OPTIONS_SELECTOR) && !activeRerollContext?.confirmed) {
+      return true;
+    }
     let cards = [...document.querySelectorAll(TASK_SELECTOR)];
     if (!cards.length) {
       applyPendingMerge();
@@ -26313,6 +27545,8 @@ ${locks}` : ""}`;
           pageTaskIds = /* @__PURE__ */ new Map();
           pageNewTaskIds = /* @__PURE__ */ new Set();
           pendingResetSlots = /* @__PURE__ */ new Set();
+          stickyVisibleSlots = /* @__PURE__ */ new Set();
+          clearAllPendingStickyResets();
           pageOrderBySlot = /* @__PURE__ */ new Map();
           runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
         }
@@ -26335,6 +27569,9 @@ ${locks}` : ""}`;
         pendingResetSlots = /* @__PURE__ */ new Set();
       }
       if (!resumedResetPage) {
+        stickyVisibleSlots = /* @__PURE__ */ new Set();
+        clearAllPendingStickyResets();
+        activeRerollContext = null;
         pageOrderBySlot = /* @__PURE__ */ new Map();
         resetTaskFilters();
       }
@@ -26359,6 +27596,7 @@ ${locks}` : ""}`;
     if (cardEntries.some((entry) => !entry.resolved)) return false;
     const cardTasks = cardEntries.map(({ task }) => task);
     assignStablePageSlots(cards, cardTasks);
+    finalizeStickyResetSlots(cards, cardTasks);
     const newTaskSetChanged = syncPageNewTasks(
       cards,
       cardTasks,
@@ -26406,6 +27644,11 @@ ${locks}` : ""}`;
     renderTasks({ forceSort: true });
   }
   function cleanupTasks() {
+    for (const button of document.querySelectorAll(
+      '[data-mwitools-task-lock-disabled="true"]'
+    )) {
+      restoreRerollButton(button);
+    }
     cleanupListDecorations();
     document.querySelectorAll(
       ".mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast"
@@ -26426,6 +27669,9 @@ ${locks}` : ""}`;
     pageTaskIds = /* @__PURE__ */ new Map();
     pageNewTaskIds = /* @__PURE__ */ new Set();
     pendingResetSlots = /* @__PURE__ */ new Set();
+    stickyVisibleSlots = /* @__PURE__ */ new Set();
+    clearAllPendingStickyResets();
+    activeRerollContext = null;
     nativeResetChoiceUntil = 0;
     temporaryTaskReturn = null;
     runtime.state.mwitoolsPageNewTaskIds = /* @__PURE__ */ new Set();
@@ -26434,13 +27680,17 @@ ${locks}` : ""}`;
     lastActionDetails = null;
     lastActionCategories = null;
     pageOrderBySlot = /* @__PURE__ */ new Map();
+    lockedTaskFilters = /* @__PURE__ */ new Set();
+    taskFilterLockStorageKey = "";
+    warnedUnexpectedRerollButtons = false;
     resetTaskFilters();
   }
   runtime.features.register({
     id: "taskInsights",
     setting: "taskInsights",
     scope: "character",
-    initialize({ scope }) {
+    initialize({ scope, characterId }) {
+      ensureTaskFilterLockState(characterId);
       addStyles9();
       let settleRetries = 0;
       let renderScheduler = null;
@@ -26467,10 +27717,12 @@ ${locks}` : ""}`;
         {
           name: "task-surface",
           target: document.body,
-          options: { childList: true, subtree: true },
+          options: TASK_MUTATION_OBSERVER_OPTIONS,
           scope
         },
         (records) => {
+          syncTaskRerollLocks();
+          repairRangedWayIdleRerollButtons();
           if (shouldRenderTaskMutations(records)) scheduleRender();
         }
       );
@@ -26851,6 +28103,19 @@ ${locks}` : ""}`;
     }
     return state;
   }
+  function syncQuestSnapshot(state, previousIds, quests) {
+    const before = previousIds instanceof Set ? previousIds : new Set(previousIds);
+    const current = new Set((quests ?? []).map(questId).filter(Boolean));
+    for (const id of current) {
+      if (!before.has(id)) state.fresh.add(id);
+      state.known.add(id);
+    }
+    for (const id of [...state.fresh]) {
+      if (!current.has(id)) state.fresh.delete(id);
+    }
+    state.initialized = true;
+    return current;
+  }
   function addStyles11() {
     if (document.getElementById(STYLE_ID13)) return;
     const style = document.createElement("style");
@@ -26901,6 +28166,7 @@ ${locks}` : ""}`;
       const initial = runtime.state.characterQuests ?? [];
       initializeQuestState(state, initial);
       writeTaskNewState(storageKey, state);
+      let authoritativeIds = new Set(initial.map(questId).filter(Boolean));
       const render = () => {
         const quests = runtime.state.characterQuests ?? [];
         const activeIds = new Set(quests.map(questId).filter(Boolean));
@@ -26939,15 +28205,12 @@ ${locks}` : ""}`;
       const renderScheduler = createFrameScheduler(render);
       const schedule = () => renderScheduler.schedule();
       scope.add(
-        runtime.onMessage("quests_updated", (payload) => {
-          const updates = payload.endCharacterQuests ?? payload.characterQuests ?? [];
-          applyQuestUpdates(state, updates);
-          const liveIds = new Set(
-            (runtime.state.characterQuests ?? []).map(questId)
+        runtime.onMessage("quests_updated", () => {
+          authoritativeIds = syncQuestSnapshot(
+            state,
+            authoritativeIds,
+            runtime.state.characterQuests ?? []
           );
-          for (const id of [...state.fresh]) {
-            if (!liveIds.has(id)) state.fresh.delete(id);
-          }
           writeTaskNewState(storageKey, state);
           schedule();
         })
@@ -27731,6 +28994,60 @@ ${locks}` : ""}`;
   var STORAGE_KEY = "MWITools_opinion_center_seen_announcements_v1";
   var ANNOUNCEMENTS = Object.freeze([
     Object.freeze({
+      id: "26.4.14",
+      version: "26.4.14",
+      publishedAt: "2026-08-16",
+      title: Object.freeze({
+        zh: "26.4.14 更新公告",
+        en: "Version 26.4.14 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "战斗与生活着装评分现在会分别计入当前公会全部战斗神龛和生活神龛的累计升级价值；查看他人资料时会使用对方公开的神龛等级，缺少公会数据时显示横线且不影响其余评分。",
+          "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
+          "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
+          "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
+          "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表会把统计列统一排在试炼层数等原生列之后，横向滚动和闲置人数判断也已修复。",
+          "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+          "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
+          "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
+          "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
+          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页；确认刷新后即使支付选项仍停留在卡片上，任务图片也会立即跟随新任务更新，不再需要点击返回，游戏只更新标题文字节点的情况也能正确同步。关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。长按进度会在按住 0.5 秒后才开始显示，满 1 秒才切换锁定；普通短按会立即切换并高亮筛选，刷新确认层打开时锁图标和筛选高亮也会即时同步。",
+          "26.4.14 现已标记为重要更新；旧版本玩家会收到顶部更新提示，以获得任务筛选长按锁定、刷新卡片保留和任务图片即时同步等改进。"
+        ]),
+        en: Object.freeze([
+          "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
+          "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
+          "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
+          "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
+          "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution statistics now stay after native columns such as Trial Level, while horizontal scrolling and idle-member detection have also been fixed.",
+          "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+          "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
+          "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
+          "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
+          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered. Once a reroll is confirmed, its artwork follows the new task immediately even while the payment choices remain on the card, without requiring Back navigation; title-text-only game updates are synchronized as well. Disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately. Hold progress now appears only after a 0.5-second grace period and toggles the lock at one second; ordinary taps immediately toggle and highlight filters, while lock icons and filter highlighting stay synchronized even when the reroll confirmation is open.",
+          "Version 26.4.14 is now marked as an important update. Players on older releases will see the top update prompt for long-press task-filter locks, rerolled-card retention, immediate task-artwork synchronization, and the other improvements in this release."
+        ])
+      })
+    }),
+    Object.freeze({
+      id: "26.4.13",
+      version: "26.4.13",
+      publishedAt: "2026-08-15",
+      title: Object.freeze({
+        zh: "26.4.13 更新公告",
+        en: "Version 26.4.13 update"
+      }),
+      body: Object.freeze({
+        zh: Object.freeze([
+          "修复制作界面查看升级耗时时，目标等级在自动填写生产次数并触发界面刷新后回到当前等级 +1 的问题；例如从 130 级查看升到 135 级时，刷新后会继续保留 135 级及对应估算。"
+        ]),
+        en: Object.freeze([
+          "Fixed the target level in production upgrade-time estimates resetting to current level +1 after autofilling the action count refreshed the panel. For example, estimating level 130 to 135 now keeps level 135 and its estimate after the refresh."
+        ])
+      })
+    }),
+    Object.freeze({
       id: "26.4.12",
       version: "26.4.12",
       publishedAt: "2026-08-15",
@@ -27740,6 +29057,7 @@ ${locks}` : ""}`;
       }),
       body: Object.freeze({
         zh: Object.freeze([
+          "修复金币未计入库存价值的问题；金币现在固定按 1:1 计入库存、货币分类和总资产，不再受市场行情快照是否包含金币影响。以月神之蝶等星球 BOSS 怪物为目标的任务从任务页前往时，也会按官方 BOSS 刷新数据自动换算战斗次数，例如剩余 4 只且每 10 场出现一只时会填写 40 次；普通怪物与地牢任务保持原数量。",
           "修复眼球怪、灵魂猎手等同时出现在多个地牢的战斗任务只显示首个地牢的问题；怪物任务现在会完整显示官方刷怪数据中的全部匹配地牢，明确以地牢为目标的任务仍只显示自身地牢。",
           "战斗人物卡现在会预留一行固定 Buff 区域，Buff 增减不再因换行让卡片跳动；每张卡可独立展开为两行，更多 Buff 会在框内滚动，展开状态会跨战斗与刷新保留。",
           "右上角快捷设置现在会记住上次浏览到的滚动位置，关闭后重新打开或刷新页面都可从原处继续查看。",
@@ -27749,6 +29067,7 @@ ${locks}` : ""}`;
           "修复自托管更新文件已经上传并成功请求 CDN 缓存刷新后，发布任务仍因无权查询刷新进度而误报失败的问题；发布流程会继续校验产物并请求缓存刷新，但不再依赖额外的刷新状态读取权限。"
         ]),
         en: Object.freeze([
+          "Fixed coins being omitted from inventory value. Coins now always count 1:1 toward inventory, the currency category, and total assets regardless of whether the market snapshot contains a coin record. Going to a task targeting a planet boss monster such as Luna Butterfly now also converts the remaining bosses through the official boss spawn data—for example, four remaining bosses that spawn every ten battles fill in 40 actions—while regular monsters and dungeon task counts stay unchanged.",
           "Fixed combat tasks for Eye, Soul Hunter, and other monsters found in multiple dungeons showing only the first dungeon. Monster tasks now show every matching dungeon in the official spawn data, while tasks explicitly targeting a dungeon still show only that dungeon.",
           "Combat unit cards now reserve one fixed row for buffs, so adding or removing buffs no longer makes cards jump when icons wrap. Each card can expand independently to two rows, additional buffs scroll inside the box, and expansion choices persist across battles and reloads.",
           "The top-right quick settings now remember the last scroll position, so reopening the panel or refreshing the page resumes where you left off.",
@@ -29165,21 +30484,50 @@ ${locks}` : ""}`;
     }
     return { found: false, value: void 0 };
   }
+  function findOwnFieldDeep(object, keys, maxDepth = 4) {
+    const pending = [{ value: object, depth: 0 }];
+    const visited = /* @__PURE__ */ new Set();
+    while (pending.length) {
+      const { value, depth } = pending.shift();
+      if (!value || typeof value !== "object" || visited.has(value) || depth > maxDepth) {
+        continue;
+      }
+      visited.add(value);
+      const own = findOwnField(value, keys);
+      if (own.found) return own;
+      for (const child of Object.values(value)) {
+        if (child && typeof child === "object") {
+          pending.push({ value: child, depth: depth + 1 });
+        }
+      }
+    }
+    return { found: false, value: void 0 };
+  }
   function isGuildMemberIdle(member) {
-    const hidden = findOwnField(member, [
+    const hidden = findOwnFieldDeep(member, [
       "hideOnlineStatus",
       "isOnlineHidden",
       "onlineStatusHidden"
-    ]).value;
-    const online = findOwnField(member, ["isOnline", "online"]).value;
-    if (Boolean(hidden) || online !== true) return false;
-    const action = findOwnField(member, [
+    ]);
+    const online = findOwnFieldDeep(member, ["isOnline", "online"]);
+    if (hidden.found && (hidden.value === true || hidden.value === 1 || /^(?:true|hidden)$/i.test(String(hidden.value ?? "").trim()))) {
+      return false;
+    }
+    if (online.found && (online.value === false || online.value === 0 || /^(?:false|offline)$/i.test(String(online.value ?? "").trim()))) {
+      return false;
+    }
+    let action = findOwnFieldDeep(member, [
       "actionType",
       "currentActionType",
       "currentActionHrid",
-      "actionHrid",
-      "currentAction"
+      "actionHrid"
     ]);
+    if (!action.found) {
+      const currentAction = findOwnFieldDeep(member, ["currentAction"]);
+      if (currentAction.found && (currentAction.value === null || currentAction.value === false)) {
+        action = currentAction;
+      }
+    }
     if (!action.found) return false;
     if (action.value === null || action.value === false) return true;
     if (typeof action.value === "string") {
@@ -29286,8 +30634,9 @@ ${locks}` : ""}`;
     .mwi-guild-trend polyline { fill:none; stroke:#ffa500; stroke-width:2; vector-effect:non-scaling-stroke; }
     .mwi-guild-idle { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:8px; }
     .mwi-guild-idle span { padding:2px 7px; border-radius:999px; background:rgba(255,255,255,.07); font-size:.68rem; }
-    .mwi-guild-members-wide { width:100% !important; max-width:980px !important; }
-    .mwi-guild-members-wide .mwi-guild-member-table { width:100%; }
+    .mwi-guild-members-wide { width:100% !important; max-width:none !important; min-width:0 !important; }
+    .mwi-guild-member-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+    .mwi-guild-members-wide .mwi-guild-member-table { width:max-content !important; min-width:100% !important; table-layout:auto !important; }
     .mwi-guild-member-table > thead > tr > th { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > tbody > tr > td:not(:first-child) { white-space:nowrap; word-break:keep-all; }
     .mwi-guild-member-table > thead > tr > th:nth-child(2),
@@ -29562,6 +30911,7 @@ ${locks}` : ""}`;
     table.classList.add(`mwi-guild-${kind}-table`);
     if (kind === "member") {
       table.closest('[class*="GuildPanel_membersTab__"]')?.classList.add("mwi-guild-members-wide");
+      table.parentElement?.classList.add("mwi-guild-member-table-wrap");
     }
     const header = table.tHead.rows[0];
     if (!header.querySelector(".mwi-guild-recent-head")) {
@@ -29629,6 +30979,14 @@ ${locks}` : ""}`;
         });
         header.append(cell);
       }
+    }
+    for (const selector of [
+      ".mwi-guild-recent-head",
+      ".mwi-guild-day-head",
+      ...kind === "member" ? [".mwi-guild-week-head"] : []
+    ]) {
+      const rateHeader = header.querySelector(selector);
+      if (rateHeader) header.append(rateHeader);
     }
     const sourceByKey = new Map(
       rows2.map((source) => [objectKey(kind, source, parentId), source])
@@ -29817,6 +31175,9 @@ ${locks}` : ""}`;
           document.querySelectorAll(`table.mwi-guild-${kind}-table`).forEach((table) => {
             if (kind === "member") {
               table.closest(".mwi-guild-members-wide")?.classList.remove("mwi-guild-members-wide");
+              table.parentElement?.classList.remove(
+                "mwi-guild-member-table-wrap"
+              );
             }
             table.querySelectorAll(
               ".mwi-guild-rate-cell,.mwi-guild-recent-head,.mwi-guild-day-head,.mwi-guild-week-head"
@@ -30493,8 +31854,8 @@ ${locks}` : ""}`;
       url: "https://js.nainai.eu.org/"
     },
     {
-      zh: "利润网 Polokikiki",
-      en: "Profit site Polokikiki",
+      zh: "利润网 Polokikiki（含强化模拟）",
+      en: "Profit site Polokikiki (incl. enhancement simulator)",
       url: "https://polokikiki.github.io/Milkonomy/#/dashboard"
     },
     {
@@ -30551,22 +31912,12 @@ ${locks}` : ""}`;
         })
       );
     }
-    links.push(
-      createMinorNavigationLink(
-        runtime.config.isZH ? "插件设置" : "Script settings",
-        () => {
-          const array = document.querySelectorAll(
-            ".NavigationBar_navigationLink__3eAHA"
-          );
-          array[array.length - 1]?.click();
-        }
-      )
-    );
     const fragment = document.createDocumentFragment();
     links.forEach((link) => fragment.append(link));
     targetNode.insertBefore(fragment, targetNode.firstChild);
   }
   var activeActionQueueObserver = null;
+  var ACTION_QUEUE_MENU_SELECTOR = "div.QueuedActions_queuedActionsEditMenu__3OoQH";
   function disconnectActionQueueObserver(root = null) {
     if (!activeActionQueueObserver) return false;
     if (root && activeActionQueueObserver.menu !== root && !root.contains?.(activeActionQueueObserver.menu)) {
@@ -30597,13 +31948,19 @@ ${locks}` : ""}`;
         disconnectActionQueueObserver(added);
         return;
       }
-      handleActionQueueMenueCalculateTime(added);
-      if (retry) {
-        active.retryId = setTimeout(() => {
-          if (activeActionQueueObserver === active && added.isConnected) {
-            handleActionQueueMenueCalculateTime(added);
-          }
-        }, 100);
+      const settled = handleActionQueueMenueCalculateTime(added);
+      if (retry && !settled && active.retryCount < 4) {
+        active.retryCount += 1;
+        active.retryId = setTimeout(
+          () => {
+            if (activeActionQueueObserver === active && added.isConnected) {
+              scheduleActionQueueRefresh(added, { retry: true });
+            }
+          },
+          [50, 100, 200, 350][active.retryCount - 1]
+        );
+      } else if (settled) {
+        active.retryCount = 0;
       }
     });
   }
@@ -30615,6 +31972,7 @@ ${locks}` : ""}`;
     const listDiv = added.querySelector(".QueuedActions_actions__2Lur6");
     if (!listDiv) return;
     if (activeActionQueueObserver?.menu === added) {
+      activeActionQueueObserver.retryCount = 0;
       scheduleActionQueueRefresh(added);
       return;
     }
@@ -30630,7 +31988,8 @@ ${locks}` : ""}`;
       menu: added,
       observer,
       frameId: null,
-      retryId: null
+      retryId: null,
+      retryCount: 0
     };
     observer.observe(listDiv, {
       characterData: false,
@@ -30654,14 +32013,20 @@ ${locks}` : ""}`;
       return false;
     }
     let finitePrefixSeconds = 0;
-    let reachedInfinite = false;
+    let blockedBy = "";
     const now = Date.now();
     for (const [index, actionObj] of actions.entries()) {
       const queuedRow = index > 0 ? actionDivList[index - 1] : null;
       const target = queuedRow?.querySelector("div");
       const current = target?.querySelector("div.script_actionTime");
-      if (reachedInfinite) {
-        current?.remove();
+      if (blockedBy) {
+        if (queuedRow) {
+          const output = current ?? document.createElement("div");
+          output.className = "script_actionTime";
+          output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
+          output.textContent = blockedBy === "infinite" ? runtime.config.isZH ? "前序动作无限，无法预计" : "After an infinite action" : runtime.config.isZH ? "前序动作无法预计" : "After an unavailable estimate";
+          if (!current) target?.append(output);
+        }
         continue;
       }
       const actionHrid = String(actionObj.actionHrid ?? "");
@@ -30675,15 +32040,15 @@ ${locks}` : ""}`;
       const totalTimeSec = timing?.totalSeconds;
       const unavailable = !Number.isFinite(totalTimeSec);
       const boundary = isInfinite || unavailable;
-      if (boundary) reachedInfinite = true;
+      if (boundary) blockedBy = isInfinite ? "infinite" : "unavailable";
       else finitePrefixSeconds += totalTimeSec;
       if (queuedRow) {
         const output = current ?? document.createElement("div");
         output.className = "script_actionTime";
         output.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-        output.textContent = formatRemainingTiming(
-          boundary ? Infinity : totalTimeSec,
-          boundary ? null : now + finitePrefixSeconds * 1e3,
+        output.textContent = isInfinite ? "∞" : unavailable ? runtime.config.isZH ? "无法预计" : "Unavailable" : formatRemainingTiming(
+          totalTimeSec,
+          now + finitePrefixSeconds * 1e3,
           { isZH: runtime.config.isZH, now }
         );
         if (!current) target?.append(output);
@@ -30695,7 +32060,8 @@ ${locks}` : ""}`;
     const total = currentTotal ?? document.createElement("div");
     total.id = "script_queueTotalTime";
     total.style.color = runtime.config.SCRIPT_COLOR_MAIN;
-    const totalText = reachedInfinite ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ∞` : "∞" : formatRemainingTiming(
+    const blockedText = blockedBy === "infinite" ? "∞" : runtime.config.isZH ? "无法预计" : "Unavailable";
+    const totalText = blockedBy ? finitePrefixSeconds > 0 ? `${formatRemainingDuration(finitePrefixSeconds, runtime.config.isZH)} + ${blockedText}` : blockedText : formatRemainingTiming(
       finitePrefixSeconds,
       now + finitePrefixSeconds * 1e3,
       { isZH: runtime.config.isZH, now }
@@ -30703,6 +32069,36 @@ ${locks}` : ""}`;
     total.textContent = `${runtime.config.isZH ? "总时间：" : "Total time: "}${totalText}`;
     if (!currentTotal) added.insertAdjacentElement("afterend", total);
     return true;
+  }
+  function actionQueueMenuFromNode(node) {
+    if (node?.nodeType !== 1) return null;
+    if (node.matches?.(ACTION_QUEUE_MENU_SELECTOR)) return node;
+    return node.querySelector?.(ACTION_QUEUE_MENU_SELECTOR) ?? null;
+  }
+  function observeActionQueueMenus(scope) {
+    const attach = () => {
+      if (!document.body) return false;
+      const existing = document.querySelector(ACTION_QUEUE_MENU_SELECTOR);
+      if (existing) handleActionQueueMenue(existing);
+      const observer = new MutationObserver((records) => {
+        for (const record of records) {
+          for (const removed of record.removedNodes ?? []) {
+            if (activeActionQueueObserver?.menu && (removed === activeActionQueueObserver.menu || removed.contains?.(activeActionQueueObserver.menu))) {
+              disconnectActionQueueObserver();
+            }
+          }
+          for (const added of record.addedNodes ?? []) {
+            const menu = actionQueueMenuFromNode(added);
+            if (menu) handleActionQueueMenue(menu);
+          }
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      scope.add(() => observer.disconnect());
+      return true;
+    };
+    if (!attach())
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
   }
   runtime.onMessage("actions_updated", () => {
     if (activeActionQueueObserver) {
@@ -30725,7 +32121,8 @@ ${locks}` : ""}`;
     getActiveActionQueueObserverCount: () => activeActionQueueObserver === null ? 0 : 1,
     getOriTextFromElement,
     handleActionQueueMenue,
-    handleActionQueueMenueCalculateTime
+    handleActionQueueMenueCalculateTime,
+    observeActionQueueMenus
   });
 
   // src/features/enhancement-planner.js
@@ -31835,7 +33232,7 @@ ${locks}` : ""}`;
     );
     return {
       forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
-      allowPhilosopherMirror: !forceProtectionMirror,
+      allowPhilosopherMirror: true,
       getFairValue: (hrid, level = 0) => runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true
       }) || runtime.api.getFairValue(hrid, level) || 0,
@@ -32154,6 +33551,8 @@ ${locks}` : ""}`;
     .mwi-setting-retry { margin-left:8px; border:0; border-radius:4px; padding:2px 6px; cursor:pointer; color:inherit; background:rgba(255,255,255,.1); }
     .mwi-setting-shortcut-row { display:flex; align-items:center; justify-content:flex-end; gap:8px; margin:5px 44px 1px 0; color:var(--color-text-secondary,#aaa); font-size:calc(.7rem * var(--mwi-ui-font-scale,1)); }
     .mwi-setting-shortcut { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 8px; cursor:pointer; color:inherit; background:rgba(255,255,255,.07); }
+    .mwi-setting-preset-input { width:min(310px,62vw); box-sizing:border-box; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:5px 8px; color:inherit; background:rgba(0,0,0,.2); font:inherit; }
+    .mwi-setting-preset-input:disabled { cursor:not-allowed; opacity:.5; }
     .mwi-setting-select { min-width:92px; border:1px solid rgba(255,255,255,.16); border-radius:5px; padding:4px 24px 4px 8px; color:inherit; background:var(--color-background-secondary,#292929); font:inherit; }
     .mwi-setting-primary-select { grid-column:4; grid-row:1; justify-self:end; }
     .mwi-setting-select:disabled { cursor:not-allowed; opacity:.5; }
@@ -32303,7 +33702,8 @@ ${locks}` : ""}`;
     const descendants = getSettingDescendants(definition.id);
     const card = document.createElement("article");
     let cancelShortcutCapture = null;
-    let auxiliaryControl = null;
+    const auxiliaryControls = [];
+    const preferenceCleanups = [];
     card.className = "mwi-setting-card";
     if (options.child) card.classList.add("mwi-setting-child");
     card.dataset.search = [
@@ -32347,7 +33747,9 @@ ${locks}` : ""}`;
         );
         status.appendChild(retry);
       }
-      if (auxiliaryControl) auxiliaryControl.disabled = !checkbox.checked;
+      for (const control of auxiliaryControls) {
+        control.disabled = !checkbox.checked;
+      }
     };
     setStatus();
     const titleLine = document.createElement("div");
@@ -32444,8 +33846,47 @@ ${locks}` : ""}`;
       });
       countRow.append(countLabel, countSelect);
       card.append(countRow);
-      auxiliaryControl = countSelect;
+      auxiliaryControls.push(countSelect);
     }
+    if (definition.id === "actionPanel_totalTime_quickInputs") {
+      const presets = [
+        [
+          "productionQuickHours",
+          runtime.config.isZH ? "快捷小时" : "Quick hours",
+          runtime.config.isZH ? "例如：0.5, 1, 2, 6" : "Example: 0.5, 1, 2, 6"
+        ],
+        [
+          "productionQuickCounts",
+          runtime.config.isZH ? "快捷次数" : "Quick counts",
+          runtime.config.isZH ? "例如：10, 100, 500" : "Example: 10, 100, 500"
+        ]
+      ];
+      for (const [preferenceId, labelText, placeholder] of presets) {
+        const presetRow = document.createElement("label");
+        presetRow.className = "mwi-setting-shortcut-row";
+        const presetLabel = document.createElement("span");
+        presetLabel.textContent = labelText;
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "mwi-setting-preset-input";
+        input.placeholder = placeholder;
+        input.value = runtime.settings.getPreference(preferenceId);
+        input.setAttribute("aria-label", labelText);
+        input.addEventListener("change", async () => {
+          await runtime.settings.setPreference(preferenceId, input.value);
+          input.value = runtime.settings.getPreference(preferenceId);
+        });
+        preferenceCleanups.push(
+          runtime.settings.onPreferenceChange(preferenceId, (value) => {
+            if (document.activeElement !== input) input.value = value;
+          })
+        );
+        auxiliaryControls.push(input);
+        presetRow.append(presetLabel, input);
+        card.append(presetRow);
+      }
+    }
+    setStatus();
     for (const child of children) {
       card.append(createSettingCard(child, { child: true }));
     }
@@ -32470,9 +33911,39 @@ ${locks}` : ""}`;
     );
     card._mwitoolsCleanup = () => {
       cancelShortcutCapture?.();
+      preferenceCleanups.forEach((cleanup4) => cleanup4?.());
       stopStatusListener?.();
       stopSettingListener?.();
     };
+    return card;
+  }
+  function createDuplicateWarningSettingsCard() {
+    const card = document.createElement("article");
+    card.className = "mwi-performance-settings-card";
+    card.dataset.search = "冲突 提醒 不再提示 conflict warning restore reset";
+    const copy = document.createElement("div");
+    copy.className = "mwi-performance-settings-copy";
+    const title = document.createElement("div");
+    title.className = "mwi-performance-settings-title";
+    title.textContent = runtime.config.isZH ? "冲突脚本提醒" : "Conflicting-script warnings";
+    const summary = document.createElement("div");
+    summary.className = "mwi-performance-settings-summary";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mwi-performance-settings-open";
+    const update = () => {
+      const count = runtime.api.getMutedDuplicateScriptIds?.().length ?? 0;
+      summary.textContent = count ? runtime.config.isZH ? `已永久静默 ${count} 个脚本。` : `${count} script warning(s) muted.` : runtime.config.isZH ? "当前没有永久静默的冲突提醒。" : "No conflict warnings are currently muted.";
+      button.disabled = count === 0;
+      button.textContent = runtime.config.isZH ? "恢复提醒" : "Restore warnings";
+    };
+    button.addEventListener("click", () => {
+      runtime.api.clearMutedDuplicateScriptIds?.();
+      update();
+    });
+    update();
+    copy.append(title, summary);
+    card.append(copy, button);
     return card;
   }
   function performanceProfileLabel(state = runtime.api.performanceProfiles?.getState?.()) {
@@ -32580,7 +34051,12 @@ ${locks}` : ""}`;
       head.append(groupTitle, groupSummary);
       const grid = document.createElement("div");
       grid.className = "mwi-settings-grid";
-      if (groupId === "general") grid.append(createPerformanceSettingsCard());
+      if (groupId === "general") {
+        grid.append(
+          createPerformanceSettingsCard(),
+          createDuplicateWarningSettingsCard()
+        );
+      }
       for (const definition of definitions) {
         grid.appendChild(createSettingCard(definition));
       }
@@ -34169,7 +35645,7 @@ ${locks}` : ""}`;
     return value?.[runtime.config.isZH ? "zh" : "en"] ?? value?.en ?? "";
   }
   function currentVersion() {
-    return String(globalThis.GM_info?.script?.version ?? "26.4.12");
+    return String(globalThis.GM_info?.script?.version ?? "26.4.14");
   }
   function isTestBuild() {
     const info = globalThis.GM_info?.script;
@@ -43965,6 +45441,9 @@ ${locks}` : ""}`;
     },
     actionQueue: {
       scope: "character",
+      initialize({ scope }) {
+        runtime.api.observeActionQueueMenus?.(scope);
+      },
       cleanup() {
         runtime.api.disconnectActionQueueObservers?.();
         removeAll(".script_actionTime,#script_queueTotalTime");

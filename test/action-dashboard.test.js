@@ -127,6 +127,41 @@ runtime.api.getFairValue = (itemHrid) => {
   return netSell > 0 ? netSell / 0.95 : 0;
 };
 
+test("production duration accepts either decimal separator and mixed grouping", () => {
+  assert.equal(runtime.api.parseProductionDurationSeconds("13.68s"), 13.68);
+  assert.equal(runtime.api.parseProductionDurationSeconds("13,68s"), 13.68);
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1.234,56 s"),
+    1234.56,
+  );
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1,234.56 s"),
+    1234.56,
+  );
+  assert.equal(
+    runtime.api.parseProductionDurationSeconds("1\u202f234,5s"),
+    1234.5,
+  );
+});
+
+test("production quick presets deduplicate valid values and fall back as a group", () => {
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("0.5, 1 2,2 bad"),
+    [0.5, 1, 2],
+  );
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("10, 20.5, 10 nope", {
+      integer: true,
+      fallback: [100],
+    }),
+    [10],
+  );
+  assert.deepEqual(
+    runtime.api.parseProductionQuickPresets("bad, -1", { fallback: [1, 2] }),
+    [1, 2],
+  );
+});
+
 test("Chinese crafting dialogs keep the market-value profit", () => {
   const nativeDrop = document.createElement("div");
   nativeDrop.className = "SkillActionDetail_dropTable__native";
@@ -427,6 +462,51 @@ test("replacing a loadout panel restores one stable set of production modules", 
   oldPanel.hidden = false;
   runtime.api.renderProductionQuickInputs();
   runtime.api.renderProductionPanel();
+});
+
+test("opening a loadout dropdown restores individually removed production modules", async () => {
+  const panel = document.querySelector(
+    'div[class*="SkillActionDetail_regularComponent"]',
+  );
+  const modal = panel.closest('[class*="Modal_modalContainer"]');
+  runtime.api.renderProductionQuickInputs();
+  runtime.api.renderProductionPanel();
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  await runtime.features.enable("productionUiRecovery");
+
+  modal.setAttribute("aria-hidden", "true");
+  const mount = panel.querySelector(":scope > .mwi-production-extensions");
+  panel.querySelector("#mwi-production-summary").remove();
+  panel.querySelector(".mwi-production-quick-inputs").remove();
+  panel.querySelector(".mwi-max-action-button")?.remove();
+  panel.querySelector(".mwi-production-duration-inline")?.remove();
+  const dropdown = document.createElement("div");
+  dropdown.setAttribute("role", "listbox");
+  dropdown.textContent = "Loadout";
+  document.body.append(dropdown);
+
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(runtime.api.resolveActiveProductionPanelContext().panel, panel);
+  assert.equal(
+    panel.querySelector(":scope > .mwi-production-extensions"),
+    mount,
+  );
+  assert.equal(panel.querySelectorAll(".mwi-production-extensions").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-quick-inputs").length,
+    1,
+  );
+  assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  assert.equal(panel.querySelectorAll(".mwi-max-action-button").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-duration-inline").length,
+    1,
+  );
+
+  dropdown.remove();
+  modal.removeAttribute("aria-hidden");
+  await runtime.features.disable("productionUiRecovery");
 });
 
 test("production durations over one day use whole days, hours, and minutes", () => {

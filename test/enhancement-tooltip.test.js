@@ -80,11 +80,11 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   );
   assert.equal(options.getMarketValue("/items/chance_cape", 0), 0);
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");
-  assert.equal(options.allowPhilosopherMirror, false);
+  assert.equal(options.allowPhilosopherMirror, true);
 
   options = getTooltipEnhancementPlanOptions("/items/enchanted_quiver");
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");
-  assert.equal(options.allowPhilosopherMirror, false);
+  assert.equal(options.allowPhilosopherMirror, true);
 
   runtime.api.getFairValue = () => 999_999;
   runtime.api.getAssetValue = () => 123_456;
@@ -103,7 +103,7 @@ test("enhancement tooltip values every back type with protection mirrors", () =>
   runtime.settings.settingsMap.valueBackEquipmentWithProtectionMirror.isTrue = true;
   options = getTooltipEnhancementPlanOptions("/items/chance_cape_refined");
   assert.equal(options.forcedProtectionItemHrid, "/items/mirror_of_protection");
-  assert.equal(options.allowPhilosopherMirror, false);
+  assert.equal(options.allowPhilosopherMirror, true);
 
   runtime.api.getFairValue = originals.getFairValue;
   runtime.api.getAssetValue = originals.getAssetValue;

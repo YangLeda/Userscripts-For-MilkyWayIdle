@@ -1,13 +1,14 @@
 import { runtime } from "../core/runtime.js";
 
 const PUBLIC_API_VERSION = 1;
-const SCORE_SCHEMA_VERSION = 1;
+const SCORE_SCHEMA_VERSION = 2;
 const SCORES_UPDATED_EVENT = "mwitools:scores-updated";
 
 const pageGlobal = globalThis.unsafeWindow ?? globalThis.window ?? globalThis;
 let latestScores = null;
 
 function finiteOrNull(value) {
+  if (value === null || value === undefined) return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -33,12 +34,14 @@ function createPublicScoreSnapshot(assetSnapshot) {
       house: finiteOrNull(scores.battle.house),
       abilities: finiteOrNull(scores.battle.abilities),
       equipment: finiteOrNull(scores.battle.equipment),
+      shrine: finiteOrNull(scores.battle.shrine),
     },
     skilling: {
       total: finiteOrNull(scores.skilling.total),
       house: finiteOrNull(scores.skilling.house),
       tools: finiteOrNull(scores.skilling.tools),
       equipment: finiteOrNull(scores.skilling.equipment),
+      shrine: finiteOrNull(scores.skilling.shrine),
       available: scores.skilling.available !== false,
     },
   };

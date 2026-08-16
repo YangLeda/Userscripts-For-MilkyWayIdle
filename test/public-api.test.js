@@ -34,12 +34,19 @@ function scoreSnapshot(overrides = {}) {
     server: "test",
     characterId: "11923",
     scores: {
-      battle: { total: 123, house: 10, abilities: 20, equipment: 93 },
+      battle: {
+        total: 123,
+        house: 10,
+        abilities: 20,
+        equipment: 90,
+        shrine: 3,
+      },
       skilling: {
         total: 67,
         house: 5,
         tools: 30,
-        equipment: 32,
+        equipment: 28,
+        shrine: 4,
         available: true,
       },
     },
@@ -60,10 +67,12 @@ test("public API exposes copied score snapshots and update events", () => {
   snapshotListener(latestSnapshot);
 
   const scores = api.getScores();
-  assert.equal(scores.schemaVersion, 1);
+  assert.equal(scores.schemaVersion, 2);
   assert.equal(scores.unit, "million_coins");
   assert.equal(scores.battle.total, 123);
+  assert.equal(scores.battle.shrine, 3);
   assert.equal(scores.skilling.total, 67);
+  assert.equal(scores.skilling.shrine, 4);
   assert.equal(eventDetail.characterId, "11923");
 
   scores.battle.total = -1;
@@ -74,12 +83,19 @@ test("public API can request the first or a refreshed calculation", async () => 
   latestSnapshot = scoreSnapshot({
     recordedAt: "2026-08-10T09:01:00.000Z",
     scores: {
-      battle: { total: 200, house: 20, abilities: 30, equipment: 150 },
+      battle: {
+        total: 200,
+        house: 20,
+        abilities: 30,
+        equipment: 140,
+        shrine: 10,
+      },
       skilling: {
         total: 80,
         house: 10,
         tools: 30,
-        equipment: 40,
+        equipment: 35,
+        shrine: null,
         available: true,
       },
     },
@@ -87,5 +103,7 @@ test("public API can request the first or a refreshed calculation", async () => 
 
   const scores = await dom.window.MWIToolsAPI.refreshScores();
   assert.equal(scores.battle.total, 200);
+  assert.equal(scores.battle.shrine, 10);
   assert.equal(scores.skilling.total, 80);
+  assert.equal(scores.skilling.shrine, null);
 });

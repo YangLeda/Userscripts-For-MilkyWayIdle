@@ -442,6 +442,8 @@ class AssetHistoryPanel {
       <div class="mwi-asset-summary">
         ${createCard(t("当前总资产", "Current total assets"), "mwi-asset-current-total")}
         ${createCard(t("总盈亏", "Total P/L"), "mwi-asset-total-change", "mwi-asset-compare-date")}
+        ${createCard(t("流动资产盈亏", "Liquid-asset P/L"), "mwi-asset-liquid-change")}
+        ${createCard(t("非流动资产盈亏", "Non-current-asset P/L"), "mwi-asset-fixed-change")}
         ${createCard(t("盈亏比例", "P/L percentage"), "mwi-asset-total-percent")}
         ${createCard(t("近 7 日平均", "7-day average"), "mwi-asset-seven-average")}
       </div>
@@ -725,6 +727,22 @@ class AssetHistoryPanel {
     setNumber("#mwi-asset-total-change", totalChange, {
       signed: true,
       className: valueClass(totalChange),
+    });
+    const liquidChange =
+      Number.isFinite(current.liquid) && Number.isFinite(previous.liquid)
+        ? current.liquid - previous.liquid
+        : null;
+    const fixedChange =
+      Number.isFinite(current.fixed) && Number.isFinite(previous.fixed)
+        ? current.fixed - previous.fixed
+        : null;
+    setNumber("#mwi-asset-liquid-change", liquidChange, {
+      signed: true,
+      className: valueClass(liquidChange),
+    });
+    setNumber("#mwi-asset-fixed-change", fixedChange, {
+      signed: true,
+      className: valueClass(fixedChange),
     });
     this.host.querySelector("#mwi-asset-compare-date").textContent =
       compareText;

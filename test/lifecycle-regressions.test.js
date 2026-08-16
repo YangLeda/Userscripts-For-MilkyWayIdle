@@ -135,6 +135,32 @@ test("disabling queue timing disconnects observers that could recreate output", 
   assert.equal(document.querySelector("#script_queueTotalTime"), null);
 });
 
+test("queue timing mounts while hover prices are disabled", async () => {
+  await runtime.settings.set("itemTooltip_prices", false, {
+    persist: false,
+    force: true,
+  });
+  await runtime.settings.set("actionQueue", true, {
+    persist: false,
+    force: true,
+  });
+  document.body.replaceChildren();
+  const popper = document.createElement("div");
+  popper.className = "MuiTooltip-popper";
+  popper.innerHTML = `
+    <div class="QueuedActions_queuedActionsEditMenu__3OoQH">
+      <div class="QueuedActions_actions__2Lur6">
+        <div class="QueuedActions_action__r3HlD"><div></div></div>
+      </div>
+    </div>`;
+  document.body.append(popper);
+  await settle();
+  assert.ok(document.querySelector(".script_actionTime"));
+  assert.ok(document.querySelector("#script_queueTotalTime"));
+  await runtime.settings.set("actionQueue", false, { persist: false });
+  await runtime.settings.set("itemTooltip_prices", true, { persist: false });
+});
+
 test("queued action timing uses community speed and total efficiency", () => {
   const originalLanguage = runtime.config.isZH;
   runtime.config.isZH = true;
@@ -270,7 +296,10 @@ test("queue totals keep the finite prefix and stop at the first infinity", () =>
     /^10分/,
   );
   assert.equal(rows[1].querySelector(".script_actionTime").textContent, "∞");
-  assert.equal(rows[2].querySelector(".script_actionTime"), null);
+  assert.match(
+    rows[2].querySelector(".script_actionTime").textContent,
+    /前序动作无限|After an infinite action/,
+  );
 
   runtime.state.currentActionsHridList = [
     {
@@ -295,7 +324,10 @@ test("queue totals keep the finite prefix and stop at the first infinity", () =>
     document.querySelector("#script_queueTotalTime").textContent,
     "总时间：∞",
   );
-  assert.equal(rows[0].querySelector(".script_actionTime"), null);
+  assert.match(
+    rows[0].querySelector(".script_actionTime").textContent,
+    /前序动作无限|After an infinite action/,
+  );
 });
 
 test("open queue timing refreshes after an actions_updated reorder", async () => {

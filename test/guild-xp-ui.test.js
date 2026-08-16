@@ -282,6 +282,10 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
       .querySelector(".GuildPanel_membersTab__test")
       .classList.contains("mwi-guild-members-wide"),
   );
+  assert.ok(
+    table.parentElement.classList.contains("mwi-guild-member-table-wrap"),
+  );
+  assert.equal(table.rows[0].cells.length, table.rows[1].cells.length);
   assert.deepEqual(
     [...table.querySelectorAll("thead th")].map((cell) =>
       cell.textContent.replace("↕", ""),
@@ -306,6 +310,33 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
       ),
     ),
     [["50%", "50%", "25%"], ["100%", "100%", "100%"], []],
+  );
+
+  const trialHeader = document.createElement("th");
+  trialHeader.textContent = "试炼层数";
+  table.tHead.rows[0].append(trialHeader);
+  [...table.tBodies[0].rows].forEach((row, index) => {
+    row
+      .querySelectorAll(".mwi-guild-rate-cell")
+      .forEach((cell) => cell.remove());
+    const trialCell = document.createElement("td");
+    trialCell.textContent = String(142 - index * 5);
+    row.append(trialCell);
+  });
+  runtime.api.renderGuildTables();
+
+  assert.deepEqual(
+    [...table.querySelectorAll("thead th")].map((cell) =>
+      cell.textContent.replace("↕", ""),
+    ),
+    ["成员", "试炼层数", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+  );
+  assert.ok(
+    [...table.tBodies[0].rows].every(
+      (row) =>
+        row.cells.length === table.tHead.rows[0].cells.length &&
+        /^\d+$/.test(row.cells[1].textContent),
+    ),
   );
 
   const recentHeader = table.querySelector(".mwi-guild-recent-head");
@@ -393,6 +424,11 @@ test("guild idle status requires an explicit empty activity type", async () => {
   runtime.state.guildCharacters = [
     { name: "Working", isOnline: true, actionType: "/action_types/crafting" },
     { name: "Idle", isOnline: true, actionType: "" },
+    { name: "Nested Idle", sharable: { actionType: "" } },
+    {
+      name: "Nested Working",
+      sharable: { actionType: "/action_types/combat" },
+    },
     { name: "Unknown", isOnline: true },
     {
       name: "Hidden",
@@ -407,10 +443,10 @@ test("guild idle status requires an explicit empty activity type", async () => {
   await runtime.api.renderGuildOverview();
 
   const idleRow = document.querySelector(".mwi-guild-idle");
-  assert.match(idleRow.textContent, /当前闲置 \(1\)/);
+  assert.match(idleRow.textContent, /当前闲置 \(2\)/);
   assert.deepEqual(
     [...idleRow.querySelectorAll("span")].map((node) => node.textContent),
-    ["Idle"],
+    ["Idle", "Nested Idle"],
   );
 });
 

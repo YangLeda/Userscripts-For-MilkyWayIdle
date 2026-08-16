@@ -2,6 +2,11 @@ import { runtime } from "./runtime.js";
 
 const SPRITE_PATTERN =
   /((?:https?:\/\/[^/]+)?[^?#]*\/(abilities|actions|avatars|combat_monsters|items|misc|skills)_sprite(?:\.[^/#?]+)?\.svg(?:\?[^#]*)?)/i;
+const SPRITE_SOURCE_PRIORITY = Object.freeze({
+  dom: 1,
+  resource: 2,
+  manifest: 3,
+});
 const spriteBases = new Map();
 let lastScanAt = Number.NEGATIVE_INFINITY;
 let spriteManifestPromise = null;
@@ -17,11 +22,21 @@ function normalizeKind(kind) {
   return value;
 }
 
-export function registerGameSpriteSource(rawValue) {
+export function registerGameSpriteSource(rawValue, options = {}) {
   const value = String(rawValue ?? "").split("#")[0];
   const match = value.match(SPRITE_PATTERN);
   if (!match) return false;
-  spriteBases.set(normalizeKind(match[2]), match[1]);
+  const kind = normalizeKind(match[2]);
+  const source = String(options.source ?? "dom");
+  const priority = SPRITE_SOURCE_PRIORITY[source] ?? SPRITE_SOURCE_PRIORITY.dom;
+  const existing = spriteBases.get(kind);
+  if (
+    !existing ||
+    priority > existing.priority ||
+    (priority === existing.priority && options.replaceSamePriority === true)
+  ) {
+    spriteBases.set(kind, { base: match[1], priority });
+  }
   return true;
 }
 
@@ -33,7 +48,10 @@ export function scanGameSpriteSources({ force = false } = {}) {
     for (const entry of globalThis.performance?.getEntriesByType?.(
       "resource",
     ) ?? []) {
-      registerGameSpriteSource(entry?.name);
+      registerGameSpriteSource(entry?.name, {
+        source: "resource",
+        replaceSamePriority: true,
+      });
     }
   } catch {
     // Resource timing is optional in hardened browsers and unit tests.
@@ -48,6 +66,7 @@ export function scanGameSpriteSources({ force = false } = {}) {
           node.getAttribute?.("src") ??
           node.currentSrc ??
           node.src,
+        { source: "dom" },
       );
     }
   } catch {
@@ -74,7 +93,10 @@ export function loadGameSpriteManifest() {
       if (!response.ok) return spriteBases.size;
       const manifest = await response.json();
       for (const value of Object.values(manifest?.files ?? {})) {
-        registerGameSpriteSource(value);
+        registerGameSpriteSource(value, {
+          source: "manifest",
+          replaceSamePriority: true,
+        });
       }
     } catch {
       // Already loaded DOM and performance entries remain usable as fallbacks.
@@ -87,7 +109,7 @@ export function loadGameSpriteManifest() {
 export function getGameSpriteBase(kind) {
   const normalizedKind = normalizeKind(kind);
   if (!spriteBases.has(normalizedKind)) scanGameSpriteSources();
-  return spriteBases.get(normalizedKind) ?? "";
+  return spriteBases.get(normalizedKind)?.base ?? "";
 }
 
 export function getGameSpriteHref(kind, hrid) {

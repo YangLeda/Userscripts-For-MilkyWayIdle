@@ -394,16 +394,87 @@ test("the shared Ctrl tooltip announcement is red, bold, and underlined", () => 
   scope.cleanup();
 });
 
-test("announcement history preserves each release separately through 26.4.12", () => {
-  const current = ANNOUNCEMENTS[0];
-  const previous = ANNOUNCEMENTS[1];
-  const prior = ANNOUNCEMENTS[2];
-  const older = ANNOUNCEMENTS[3];
-  const oldest = ANNOUNCEMENTS[4];
-  const earliest = ANNOUNCEMENTS[5];
+test("announcement history preserves each release separately through 26.4.14", () => {
+  const latest = ANNOUNCEMENTS[0];
+  const newest = ANNOUNCEMENTS[1];
+  const current = ANNOUNCEMENTS[2];
+  const previous = ANNOUNCEMENTS[3];
+  const prior = ANNOUNCEMENTS[4];
+  const older = ANNOUNCEMENTS[5];
+  const oldest = ANNOUNCEMENTS[6];
+  const earliest = ANNOUNCEMENTS[7];
   assert.deepEqual(
     ANNOUNCEMENTS.map(({ version }) => version),
-    ["26.4.12", "26.4.11", "26.4.9", "26.4.8", "26.4.7", "26.4.6"],
+    [
+      "26.4.14",
+      "26.4.13",
+      "26.4.12",
+      "26.4.11",
+      "26.4.9",
+      "26.4.8",
+      "26.4.7",
+      "26.4.6",
+    ],
+  );
+  assert.equal(latest.version, "26.4.14");
+  assert.equal(latest.publishedAt, "2026-08-16");
+  assert.match(latest.title.zh, /26\.4\.14 更新公告/);
+  assert.match(latest.title.en, /Version 26\.4\.14 update/);
+  assert.equal(latest.body.zh.length, latest.body.en.length);
+  assert.equal(latest.body.zh.length, 11);
+  assert.match(
+    latest.body.zh.join("\n"),
+    /战斗与生活着装评分.*全部战斗神龛和生活神龛.*对方公开的神龛等级.*缺少公会数据.*不影响其余评分/,
+  );
+  assert.match(
+    latest.body.en.join("\n"),
+    /Combat and Skilling Gear Scores.*every matching guild shrine.*player's public shrine levels.*missing guild data.*without affecting the remaining score/i,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /26\.4\.14.*重要更新.*顶部更新提示.*长按锁定.*刷新卡片保留.*图片即时同步/,
+  );
+  assert.match(
+    latest.body.en.join("\n"),
+    /26\.4\.14.*important update.*top update prompt.*long-press.*rerolled-card retention.*artwork synchronization/i,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /披风.*背部装备.*贤者之镜.*精炼 \+14.*保护之镜.*总成本更低/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /完整队列.*悬浮价格.*目标怪物合并.*真正新增的任务/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /流动资产.*非流动资产.*今日盈亏.*公会贡献表.*试炼层数.*闲置人数/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /打开配装下拉.*切换配装.*制造链.*生产摘要.*快捷小时.*逗号小数/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /购物清单.*滚动位置.*商品弹窗.*直接切换.*删除当前项.*下一项/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /中国服.*无 www.*TaskManager.*永久静默.*恢复提醒/,
+  );
+  assert.equal(newest.version, "26.4.13");
+  assert.equal(newest.publishedAt, "2026-08-15");
+  assert.match(newest.title.zh, /26\.4\.13 更新公告/);
+  assert.match(newest.title.en, /Version 26\.4\.13 update/);
+  assert.equal(newest.body.zh.length, newest.body.en.length);
+  assert.equal(newest.body.zh.length, 1);
+  assert.match(
+    newest.body.zh.join("\n"),
+    /制作界面.*升级耗时.*自动填写生产次数.*界面刷新.*当前等级 \+1.*130 级.*135 级.*继续保留 135 级/,
   );
   assert.equal(current.version, "26.4.12");
   assert.equal(current.publishedAt, "2026-08-15");
@@ -420,7 +491,7 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.equal(earliest.version, "26.4.6");
   assert.equal(earliest.publishedAt, "2026-08-12");
   assert.equal(current.body.zh.length, current.body.en.length);
-  assert.equal(current.body.zh.length, 7);
+  assert.equal(current.body.zh.length, 8);
   assert.match(
     current.body.zh.join("\n"),
     /Ranged Way Idle.*购物车.*图标.*无法点击.*保持原节点/,
@@ -454,6 +525,10 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(
     current.body.zh.join("\n"),
     /眼球怪、灵魂猎手.*多个地牢.*全部匹配地牢.*自身地牢/,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /金币未计入库存价值.*固定按 1:1.*货币分类.*总资产.*市场行情快照.*月神之蝶.*星球 BOSS 怪物.*BOSS 刷新数据.*每 10 场.*40 次.*普通怪物与地牢任务.*原数量/,
   );
   assert.match(
     current.body.zh.join("\n"),
@@ -533,6 +608,51 @@ test("announcement history preserves each release separately through 26.4.12", (
   assert.match(previous.body.zh.join("\n"), /有限时长 \+ ∞/);
   assert.match(previous.body.en.join("\n"), /MWI TaskManager/);
   assert.doesNotMatch(prior.body.zh.join("\n"), /小紫牛风格|自动开启铁牛/);
+});
+
+test("the current announcement covers task reroll and navigation compatibility", () => {
+  const current = ANNOUNCEMENTS.find(({ version }) => version === "26.4.14");
+  assert.match(
+    current.body.zh.join("\n"),
+    /利润网.*强化模拟.*插件设置.*任务图片.*Ranged Way Idle.*刷新选项/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /profit-site.*enhancement simulator.*script-settings.*Task artwork/i,
+  );
+  assert.match(current.body.en.join("\n"), /reroll options.*Ranged Way Idle/i);
+  assert.match(
+    current.body.zh.join("\n"),
+    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*任务图片.*立即.*清除已有锁定/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*artwork.*immediately.*clears existing locks/i,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /只显示小锁.*不会改变筛选高亮.*再次长按解锁.*立即消失/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /small padlock.*without changing filter highlighting.*hold unlocks.*removes the padlock immediately/i,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /0\.5 秒后才开始显示.*满 1 秒才切换锁定.*普通短按.*立即.*高亮筛选.*刷新确认层.*即时同步/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /0\.5-second grace period.*one second.*ordinary taps immediately.*highlight filters.*synchronized.*reroll confirmation/i,
+  );
+  assert.match(
+    current.body.zh.join("\n"),
+    /确认刷新后.*支付选项仍停留.*任务图片.*立即.*不再需要点击返回.*只更新标题文字节点.*正确同步/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /reroll is confirmed.*artwork.*immediately.*payment choices remain.*without requiring Back navigation.*title-text-only.*synchronized/i,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {
