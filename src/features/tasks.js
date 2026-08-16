@@ -2345,7 +2345,12 @@ function renderTasks({ forceSort = false, allowReusedPositional = true } = {}) {
   if (!runtime.settings.get("taskStatistics")) clearTaskFilterLocks();
   syncTaskRerollLocks();
   repairRangedWayIdleRerollButtons();
-  if (document.querySelector(REROLL_OPTIONS_SELECTOR)) return true;
+  if (
+    document.querySelector(REROLL_OPTIONS_SELECTOR) &&
+    !activeRerollContext?.confirmed
+  ) {
+    return true;
+  }
   let cards = [...document.querySelectorAll(TASK_SELECTOR)];
   if (!cards.length) {
     applyPendingMerge();

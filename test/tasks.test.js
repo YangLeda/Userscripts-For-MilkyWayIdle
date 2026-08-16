@@ -863,7 +863,7 @@ test("Ranged Way Idle interop restores only a stale preferred reroll button", ()
   container.remove();
 });
 
-test("an open reroll payment choice pauses task artwork writes until it closes", () => {
+test("an open reroll pauses artwork only until a payment choice is confirmed", () => {
   document.querySelector('[class*="TasksPanel_taskList"]')?.remove();
   document.body.insertAdjacentHTML(
     "afterbegin",
@@ -881,9 +881,15 @@ test("an open reroll payment choice pauses task artwork writes until it closes",
     ".TasksPanel_taskList__reroll-pause " + TASK_SELECTOR,
   );
   const background = taskCard.querySelector(".mwi-task-bg");
+  const resetButton = [...taskCard.querySelectorAll("button")].find(
+    (button) => button.textContent === "重置",
+  );
+  resetButton.click();
   const options = document.createElement("div");
   options.className = "RandomTask_rerollOptionsContainer__pause";
-  document.body.append(options);
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  taskCard.append(options);
+  assert.equal(runtime.api.renderTasks(), true);
   taskCard.querySelector('[class*="RandomTask_name"]').textContent =
     "制作 - New Output";
   runtime.state.initData_actionDetailMap["/actions/crafting/new_output"] = {
@@ -902,13 +908,17 @@ test("an open reroll payment choice pauses task artwork writes until it closes",
     /#lumber$/,
   );
 
-  options.remove();
+  options.querySelector("button").click();
   assert.equal(runtime.api.renderTasks(), true);
+  assert.equal(options.isConnected, true);
   assert.equal(taskCard.querySelector(".mwi-task-bg"), background);
   assert.match(
     background.querySelector("use").getAttribute("href"),
     /#new_output$/,
+    "confirmed rerolls update artwork before the payment choices close",
   );
+  options.remove();
+  runtime.api.renderTasks();
   runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
 

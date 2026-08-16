@@ -615,11 +615,11 @@ test("the current announcement covers task reroll and navigation compatibility",
   assert.match(current.body.en.join("\n"), /reroll options.*Ranged Way Idle/i);
   assert.match(
     current.body.zh.join("\n"),
-    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*立即更新任务图片.*清除已有锁定/,
+    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*任务图片.*立即.*清除已有锁定/,
   );
   assert.match(
     current.body.en.join("\n"),
-    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*artwork updates immediately.*clears existing locks/i,
+    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*artwork.*immediately.*clears existing locks/i,
   );
   assert.match(
     current.body.zh.join("\n"),
@@ -639,11 +639,11 @@ test("the current announcement covers task reroll and navigation compatibility",
   );
   assert.match(
     current.body.zh.join("\n"),
-    /只更新任务标题的文字节点.*图片.*自动同步.*不再需要点击返回/,
+    /确认刷新后.*支付选项仍停留.*任务图片.*立即.*不再需要点击返回.*只更新标题文字节点.*正确同步/,
   );
   assert.match(
     current.body.en.join("\n"),
-    /updates only the task title text.*without requiring Back navigation/i,
+    /reroll is confirmed.*artwork.*immediately.*payment choices remain.*without requiring Back navigation.*title-text-only.*synchronized/i,
   );
 });
 
