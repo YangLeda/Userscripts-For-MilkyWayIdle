@@ -289,7 +289,7 @@ test("tasks use a flat sorted list with statistics filters", () => {
   );
   assert.match(
     styles,
-    /data-mwitools-lock-pressing[^}]*mwi-task-lock-progress 1000ms/,
+    /data-mwitools-lock-pressing[^}]*mwi-task-lock-progress var\(--mwi-task-lock-progress-duration,500ms\)/,
   );
   assert.match(styles, /data-mwitools-task-lock-disabled/);
   assert.doesNotMatch(
@@ -2219,7 +2219,7 @@ test("task filter long press completes, cancels, and suppresses its click", asyn
     () => {
       longPresses += 1;
     },
-    { holdMs: 20, moveTolerance: 5 },
+    { holdMs: 40, feedbackDelayMs: 20, moveTolerance: 5 },
   );
   button.addEventListener("click", () => {
     clicks += 1;
@@ -2238,33 +2238,41 @@ test("task filter long press completes, cancels, and suppresses its click", asyn
   button.click();
   assert.equal(clicks, 1);
   button.dispatchEvent(pointer("pointerdown"));
+  assert.equal(button.dataset.mwitoolsLockPressing, undefined);
+  await new Promise((resolve) => setTimeout(resolve, 25));
   assert.equal(button.dataset.mwitoolsLockPressing, "true");
   button.dispatchEvent(pointer("pointerup"));
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 45));
   assert.equal(longPresses, 0);
 
   button.dispatchEvent(pointer("pointerdown"));
   button.dispatchEvent(pointer("pointermove", 10, 0));
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 45));
   assert.equal(longPresses, 0);
 
   button.dispatchEvent(pointer("pointerdown"));
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 45));
   assert.equal(longPresses, 1);
   button.dispatchEvent(pointer("pointerup"));
   button.click();
   assert.equal(clicks, 1, "the click following a completed hold is suppressed");
 
   button.dispatchEvent(pointer("pointerdown"));
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  button.dispatchEvent(pointer("pointerup"));
+  assert.equal(longPresses, 2, "the same gesture can unlock again");
+  button.dispatchEvent(pointer("pointerdown"));
   button.dispatchEvent(pointer("pointerup"));
   button.click();
-  assert.equal(longPresses, 2, "the same gesture can unlock again");
-  assert.equal(clicks, 1);
+  assert.equal(
+    clicks,
+    2,
+    "a new short press is never consumed by stale long-press suppression",
+  );
   button.remove();
 });
 
-test("task filter locks persist per character and disable both reroll choices", () => {
+test("task filter locks persist per character and disable both reroll choices", async () => {
   const originalCharacterId = runtime.state.currentCharacterId;
   const characterId = "task-filter-lock-role";
   const storageKey = taskFilterLocksStorageKey(characterId);
@@ -2346,6 +2354,37 @@ test("task filter locks persist per character and disable both reroll choices", 
     ),
   );
   assert.equal(repairRangedWayIdleRerollButtons(), 0);
+
+  const filterPointer = (type) => {
+    const event = new dom.window.MouseEvent(type, {
+      bubbles: true,
+      button: 0,
+      clientX: 0,
+      clientY: 0,
+    });
+    Object.defineProperty(event, "pointerId", { value: 19 });
+    return event;
+  };
+  craftingFilter.dispatchEvent(filterPointer("pointerdown"));
+  await new Promise((resolve) => setTimeout(resolve, 1_050));
+  assert.equal(craftingFilter.dataset.mwitoolsTaskLocked, undefined);
+  assert.equal(
+    craftingFilter.querySelector(".mwi-task-filter-lock"),
+    null,
+    "unlocking removes the lock icon even while reroll choices pause rendering",
+  );
+  assert.ok(choices.every((button) => !button.disabled));
+  craftingFilter.dispatchEvent(filterPointer("pointerup"));
+
+  craftingFilter.dispatchEvent(filterPointer("pointerdown"));
+  craftingFilter.dispatchEvent(filterPointer("pointerup"));
+  craftingFilter.click();
+  assert.equal(
+    craftingFilter.getAttribute("aria-pressed"),
+    "true",
+    "the first short tap after a hold still highlights the filter",
+  );
+  craftingFilter.click();
 
   runtime.settings.settingsMap.taskStatistics.isTrue = false;
   runtime.api.renderTasks();

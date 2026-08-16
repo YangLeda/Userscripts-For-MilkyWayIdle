@@ -26,6 +26,7 @@ const RANGED_REROLL_BUTTON_SELECTOR =
   ".RangedWayIdleTaskButton[data-more-expensive]";
 const TASK_FILTER_LOCK_STORAGE_PREFIX = "MWITools_task_filter_locks_v1";
 const TASK_FILTER_LOCK_HOLD_MS = 1_000;
+const TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
 const TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
 const OWNED_TASK_SELECTOR =
   '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
@@ -182,10 +183,19 @@ function toggleTaskFilterLock(kind, value) {
   if (!key) return false;
   if (lockedTaskFilters.has(key)) lockedTaskFilters.delete(key);
   else lockedTaskFilters.add(key);
+  const locked = lockedTaskFilters.has(key);
   writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
   lastTaskRenderSignature = "";
+  for (const button of document.querySelectorAll(".mwi-task-filter")) {
+    if (
+      button.dataset.filterKind === kind &&
+      button.dataset.filterValue === value
+    ) {
+      updateTaskFilterLockIndicator(button, locked);
+    }
+  }
   renderTasks();
-  return lockedTaskFilters.has(key);
+  return locked;
 }
 
 export function armTemporaryTaskReturn(expiresAt) {
@@ -267,7 +277,7 @@ function addStyles() {
     .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
     .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
     .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
-    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress ${TASK_FILTER_LOCK_HOLD_MS}ms linear forwards; }
+    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress var(--mwi-task-lock-progress-duration,${TASK_FILTER_LOCK_HOLD_MS - TASK_FILTER_LOCK_FEEDBACK_DELAY_MS}ms) linear forwards; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -1317,22 +1327,43 @@ function updatePressedState(button, pressed) {
   }
 }
 
+function syncTaskFilterPressedIndicators(root = document) {
+  for (const button of root.querySelectorAll?.(".mwi-task-filter") ?? []) {
+    const { filterKind: kind, filterValue: value } = button.dataset;
+    if (kind === "profession") {
+      updatePressedState(button, activeProfessionFilters.has(value));
+    } else if (kind === "combat") {
+      updatePressedState(button, combatFilterEnabled);
+    } else if (kind === "dungeon") {
+      updatePressedState(button, activeDungeonFilters.has(value));
+    }
+  }
+}
+
 export function wireTaskFilterLongPress(
   button,
   onLongPress,
   {
     holdMs = TASK_FILTER_LOCK_HOLD_MS,
+    feedbackDelayMs = TASK_FILTER_LOCK_FEEDBACK_DELAY_MS,
     moveTolerance = TASK_FILTER_LOCK_MOVE_TOLERANCE,
   } = {},
 ) {
   let press = null;
   let suppressClickUntil = 0;
+  const progressDelay = Math.min(
+    Math.max(0, Number(feedbackDelayMs) || 0),
+    Math.max(0, Number(holdMs) || 0),
+  );
+  const progressDuration = Math.max(0, holdMs - progressDelay);
 
   const cancelPress = () => {
     if (!press) return;
     clearTimeout(press.timer);
+    clearTimeout(press.feedbackTimer);
     press = null;
     delete button.dataset.mwitoolsLockPressing;
+    button.style.removeProperty("--mwi-task-lock-progress-duration");
   };
   const finishPress = (event) => {
     if (!press || press.pointerId !== event.pointerId) return;
@@ -1344,11 +1375,13 @@ export function wireTaskFilterLongPress(
       return;
     }
     cancelPress();
+    suppressClickUntil = 0;
     const current = {
       pointerId: event.pointerId,
       x: Number(event.clientX) || 0,
       y: Number(event.clientY) || 0,
       timer: null,
+      feedbackTimer: null,
     };
     current.timer = setTimeout(() => {
       if (press !== current || !button.isConnected || button.disabled) {
@@ -1359,7 +1392,19 @@ export function wireTaskFilterLongPress(
       onLongPress();
     }, holdMs);
     press = current;
-    button.dataset.mwitoolsLockPressing = "true";
+    const showProgress = () => {
+      if (press !== current || !button.isConnected || button.disabled) return;
+      button.style.setProperty(
+        "--mwi-task-lock-progress-duration",
+        `${progressDuration}ms`,
+      );
+      button.dataset.mwitoolsLockPressing = "true";
+    };
+    if (progressDelay > 0) {
+      current.feedbackTimer = setTimeout(showProgress, progressDelay);
+    } else {
+      showProgress();
+    }
     try {
       if (event.pointerId !== undefined) {
         button.setPointerCapture?.(event.pointerId);
@@ -1462,8 +1507,7 @@ function updateTaskFilterIcon(button) {
   icon.append(svg);
 }
 
-function updateTaskFilterButton(button, { label, count, pressed, locked }) {
-  updatePressedState(button, pressed);
+function updateTaskFilterLockIndicator(button, locked) {
   let lock = button.querySelector(":scope > .mwi-task-filter-lock");
   if (locked) {
     button.dataset.mwitoolsTaskLocked = "true";
@@ -1478,17 +1522,23 @@ function updateTaskFilterButton(button, { label, count, pressed, locked }) {
     delete button.dataset.mwitoolsTaskLocked;
     lock?.remove();
   }
-  const countText = String(count);
-  const countNode = button.querySelector(".mwi-task-filter-count");
-  if (countNode?.textContent !== countText) countNode.textContent = countText;
-  const title = `${label} (${countText})`;
-  if (button.title !== title) button.title = title;
+  const title = button.title;
   const accessibleLabel = locked
     ? `${title} · ${t("已锁定", "Locked")}`
     : title;
   if (button.getAttribute("aria-label") !== accessibleLabel) {
     button.setAttribute("aria-label", accessibleLabel);
   }
+}
+
+function updateTaskFilterButton(button, { label, count, pressed, locked }) {
+  updatePressedState(button, pressed);
+  const countText = String(count);
+  const countNode = button.querySelector(".mwi-task-filter-count");
+  if (countNode?.textContent !== countText) countNode.textContent = countText;
+  const title = `${label} (${countText})`;
+  if (button.title !== title) button.title = title;
+  updateTaskFilterLockIndicator(button, locked);
   updateTaskFilterIcon(button);
 }
 
@@ -1571,6 +1621,7 @@ function ensureTaskToolbar(rows) {
           showCount: false,
           onClick: () => {
             resetTaskFilters();
+            syncTaskFilterPressedIndicators();
             lastTaskRenderSignature = "";
             renderTasks();
           },
@@ -1600,6 +1651,7 @@ function ensureTaskToolbar(rows) {
               } else {
                 activeProfessionFilters.add(profession.key);
               }
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             },
@@ -1622,6 +1674,7 @@ function ensureTaskToolbar(rows) {
           onLongPress: () => toggleTaskFilterLock("combat", "combat"),
           onClick: () => {
             combatFilterEnabled = !combatFilterEnabled;
+            syncTaskFilterPressedIndicators();
             lastTaskRenderSignature = "";
             renderTasks();
           },
@@ -1647,6 +1700,7 @@ function ensureTaskToolbar(rows) {
               } else {
                 activeDungeonFilters.add(dungeon.actionHrid);
               }
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             },

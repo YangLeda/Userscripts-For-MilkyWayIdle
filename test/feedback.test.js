@@ -629,6 +629,14 @@ test("the current announcement covers task reroll and navigation compatibility",
     current.body.en.join("\n"),
     /small padlock.*without changing filter highlighting.*hold unlocks.*removes the padlock immediately/i,
   );
+  assert.match(
+    current.body.zh.join("\n"),
+    /0\.5 秒后才开始显示.*满 1 秒才切换锁定.*普通短按.*立即.*高亮筛选.*刷新确认层.*即时同步/,
+  );
+  assert.match(
+    current.body.en.join("\n"),
+    /0\.5-second grace period.*one second.*ordinary taps immediately.*highlight filters.*synchronized.*reroll confirmation/i,
+  );
 });
 
 test("the announcement history covers every player-facing update bilingually", () => {

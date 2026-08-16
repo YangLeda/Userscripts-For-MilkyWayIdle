@@ -25616,6 +25616,7 @@ ${locks}` : ""}`;
   var RANGED_REROLL_BUTTON_SELECTOR = ".RangedWayIdleTaskButton[data-more-expensive]";
   var TASK_FILTER_LOCK_STORAGE_PREFIX = "MWITools_task_filter_locks_v1";
   var TASK_FILTER_LOCK_HOLD_MS = 1e3;
+  var TASK_FILTER_LOCK_FEEDBACK_DELAY_MS = 500;
   var TASK_FILTER_LOCK_MOVE_TOLERANCE = 10;
   var OWNED_TASK_SELECTOR = '.mwi-task-insight,.mwi-task-toolbar,.mwi-task-profession-group,.mwi-task-combat-location,.mwi-task-combat-mode,.mwi-task-bg,.mwi-task-merged-note,.mwi-task-merge-toast,.mwi-task-train-planner,.mwi-task-new-badge,.mwi-task-reroll-lock,[data-mwitools-task-mirror="true"]';
   var MERGE_HANDLER = /* @__PURE__ */ Symbol("mwitoolsTaskMergeHandler");
@@ -25743,10 +25744,16 @@ ${locks}` : ""}`;
     if (!key) return false;
     if (lockedTaskFilters.has(key)) lockedTaskFilters.delete(key);
     else lockedTaskFilters.add(key);
+    const locked = lockedTaskFilters.has(key);
     writeTaskFilterLocks(taskFilterLockStorageKey, lockedTaskFilters);
     lastTaskRenderSignature = "";
+    for (const button of document.querySelectorAll(".mwi-task-filter")) {
+      if (button.dataset.filterKind === kind && button.dataset.filterValue === value) {
+        updateTaskFilterLockIndicator(button, locked);
+      }
+    }
     renderTasks();
-    return lockedTaskFilters.has(key);
+    return locked;
   }
   function armTemporaryTaskReturn(expiresAt) {
     const deadline = Number(expiresAt);
@@ -25814,7 +25821,7 @@ ${locks}` : ""}`;
     .mwi-task-filter-lock { position:absolute; z-index:3; top:-5px; right:-5px; display:none; width:13px; height:13px; align-items:center; justify-content:center; border:1px solid rgba(151,211,255,.85); border-radius:50%; background:#15304a; color:#dff3ff; font:700 8px/1 system-ui,sans-serif; box-shadow:0 1px 3px rgba(0,0,0,.55); pointer-events:none; }
     .mwi-task-filter[data-mwitools-task-locked="true"] > .mwi-task-filter-lock { display:inline-flex; }
     .mwi-task-filter::after { content:""; position:absolute; z-index:4; inset:-4px; border-radius:9px; padding:2px; opacity:0; background:conic-gradient(from -90deg,${runtime.config.SCRIPT_COLOR_MAIN} var(--mwi-task-lock-angle),transparent var(--mwi-task-lock-angle)); -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0); -webkit-mask-composite:xor; mask-composite:exclude; pointer-events:none; }
-    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress ${TASK_FILTER_LOCK_HOLD_MS}ms linear forwards; }
+    .mwi-task-filter[data-mwitools-lock-pressing="true"]::after { opacity:1; animation:mwi-task-lock-progress var(--mwi-task-lock-progress-duration,${TASK_FILTER_LOCK_HOLD_MS - TASK_FILTER_LOCK_FEEDBACK_DELAY_MS}ms) linear forwards; }
     .mwi-task-filter-icon { display:inline-flex; width:18px; height:18px; flex:0 0 18px; align-items:center; justify-content:center; font-size:13px; line-height:1; }
     .mwi-task-filter-icon svg { width:100%; height:100%; }
     .mwi-task-filter-label { white-space:nowrap; }
@@ -26645,17 +26652,37 @@ ${locks}` : ""}`;
       button.setAttribute("aria-pressed", value);
     }
   }
+  function syncTaskFilterPressedIndicators(root = document) {
+    for (const button of root.querySelectorAll?.(".mwi-task-filter") ?? []) {
+      const { filterKind: kind, filterValue: value } = button.dataset;
+      if (kind === "profession") {
+        updatePressedState(button, activeProfessionFilters.has(value));
+      } else if (kind === "combat") {
+        updatePressedState(button, combatFilterEnabled);
+      } else if (kind === "dungeon") {
+        updatePressedState(button, activeDungeonFilters.has(value));
+      }
+    }
+  }
   function wireTaskFilterLongPress(button, onLongPress, {
     holdMs = TASK_FILTER_LOCK_HOLD_MS,
+    feedbackDelayMs = TASK_FILTER_LOCK_FEEDBACK_DELAY_MS,
     moveTolerance = TASK_FILTER_LOCK_MOVE_TOLERANCE
   } = {}) {
     let press = null;
     let suppressClickUntil = 0;
+    const progressDelay = Math.min(
+      Math.max(0, Number(feedbackDelayMs) || 0),
+      Math.max(0, Number(holdMs) || 0)
+    );
+    const progressDuration = Math.max(0, holdMs - progressDelay);
     const cancelPress = () => {
       if (!press) return;
       clearTimeout(press.timer);
+      clearTimeout(press.feedbackTimer);
       press = null;
       delete button.dataset.mwitoolsLockPressing;
+      button.style.removeProperty("--mwi-task-lock-progress-duration");
     };
     const finishPress = (event) => {
       if (!press || press.pointerId !== event.pointerId) return;
@@ -26666,11 +26693,13 @@ ${locks}` : ""}`;
         return;
       }
       cancelPress();
+      suppressClickUntil = 0;
       const current = {
         pointerId: event.pointerId,
         x: Number(event.clientX) || 0,
         y: Number(event.clientY) || 0,
-        timer: null
+        timer: null,
+        feedbackTimer: null
       };
       current.timer = setTimeout(() => {
         if (press !== current || !button.isConnected || button.disabled) {
@@ -26681,7 +26710,19 @@ ${locks}` : ""}`;
         onLongPress();
       }, holdMs);
       press = current;
-      button.dataset.mwitoolsLockPressing = "true";
+      const showProgress = () => {
+        if (press !== current || !button.isConnected || button.disabled) return;
+        button.style.setProperty(
+          "--mwi-task-lock-progress-duration",
+          `${progressDuration}ms`
+        );
+        button.dataset.mwitoolsLockPressing = "true";
+      };
+      if (progressDelay > 0) {
+        current.feedbackTimer = setTimeout(showProgress, progressDelay);
+      } else {
+        showProgress();
+      }
       try {
         if (event.pointerId !== void 0) {
           button.setPointerCapture?.(event.pointerId);
@@ -26776,8 +26817,7 @@ ${locks}` : ""}`;
     svg.append(use);
     icon.append(svg);
   }
-  function updateTaskFilterButton(button, { label, count, pressed, locked }) {
-    updatePressedState(button, pressed);
+  function updateTaskFilterLockIndicator(button, locked) {
     let lock = button.querySelector(":scope > .mwi-task-filter-lock");
     if (locked) {
       button.dataset.mwitoolsTaskLocked = "true";
@@ -26792,15 +26832,20 @@ ${locks}` : ""}`;
       delete button.dataset.mwitoolsTaskLocked;
       lock?.remove();
     }
+    const title = button.title;
+    const accessibleLabel = locked ? `${title} · ${t11("已锁定", "Locked")}` : title;
+    if (button.getAttribute("aria-label") !== accessibleLabel) {
+      button.setAttribute("aria-label", accessibleLabel);
+    }
+  }
+  function updateTaskFilterButton(button, { label, count, pressed, locked }) {
+    updatePressedState(button, pressed);
     const countText = String(count);
     const countNode = button.querySelector(".mwi-task-filter-count");
     if (countNode?.textContent !== countText) countNode.textContent = countText;
     const title = `${label} (${countText})`;
     if (button.title !== title) button.title = title;
-    const accessibleLabel = locked ? `${title} · ${t11("已锁定", "Locked")}` : title;
-    if (button.getAttribute("aria-label") !== accessibleLabel) {
-      button.setAttribute("aria-label", accessibleLabel);
-    }
+    updateTaskFilterLockIndicator(button, locked);
     updateTaskFilterIcon(button);
   }
   function taskMatchesLockedFilters(classification) {
@@ -26864,6 +26909,7 @@ ${locks}` : ""}`;
             showCount: false,
             onClick: () => {
               resetTaskFilters();
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             }
@@ -26890,6 +26936,7 @@ ${locks}` : ""}`;
                 } else {
                   activeProfessionFilters.add(profession.key);
                 }
+                syncTaskFilterPressedIndicators();
                 lastTaskRenderSignature = "";
                 renderTasks();
               }
@@ -26910,6 +26957,7 @@ ${locks}` : ""}`;
             onLongPress: () => toggleTaskFilterLock("combat", "combat"),
             onClick: () => {
               combatFilterEnabled = !combatFilterEnabled;
+              syncTaskFilterPressedIndicators();
               lastTaskRenderSignature = "";
               renderTasks();
             }
@@ -26933,6 +26981,7 @@ ${locks}` : ""}`;
                 } else {
                   activeDungeonFilters.add(dungeon.actionHrid);
                 }
+                syncTaskFilterPressedIndicators();
                 lastTaskRenderSignature = "";
                 renderTasks();
               }
@@ -28956,7 +29005,7 @@ ${locks}` : ""}`;
           "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
           "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
           "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
-          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，并会在刷新确认完成后立即更新任务图片；关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。"
+          "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页，并会在刷新确认完成后立即更新任务图片；关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。长按进度会在按住 0.5 秒后才开始显示，满 1 秒才切换锁定；普通短按会立即切换并高亮筛选，刷新确认层打开时锁图标和筛选高亮也会即时同步。"
         ]),
         en: Object.freeze([
           "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
@@ -28968,7 +29017,7 @@ ${locks}` : ""}`;
           "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
           "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
           "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
-          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and their artwork updates immediately once the reroll is confirmed; disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately."
+          "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered, and their artwork updates immediately once the reroll is confirmed; disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately. Hold progress now appears only after a 0.5-second grace period and toggles the lock at one second; ordinary taps immediately toggle and highlight filters, while lock icons and filter highlighting stay synchronized even when the reroll confirmation is open."
         ])
       })
     }),
