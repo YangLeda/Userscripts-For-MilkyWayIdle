@@ -294,6 +294,23 @@ function scheduleActionPanel(panel) {
   state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
 }
 
+function refreshProductionActionPanel(panel) {
+  if (
+    !runtime.settings.settingsMap.actionPanel_totalTime.isTrue ||
+    !panel?.isConnected
+  ) {
+    return false;
+  }
+  if (
+    !panel.querySelector("#mwi-level-progress") ||
+    panel.querySelectorAll(".mwi-native-level-stat").length !== 4
+  ) {
+    delete panel.dataset.mwitoolsActionPanel;
+  }
+  scheduleActionPanel(panel);
+  return true;
+}
+
 function clearActionPanelRetries() {
   for (const state of actionPanelRetryStates.values()) {
     if (state.timer !== null) clearTimeout(state.timer);
@@ -501,6 +518,7 @@ const removeInsertedDivs = () =>
 
 Object.assign(runtime.api, {
   handleActionPanel,
+  refreshProductionActionPanel,
   getTotalEffiPercentage,
   getActionEfficiencyDetails,
   getTotalTimeStr,

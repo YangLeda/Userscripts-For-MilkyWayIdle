@@ -284,6 +284,50 @@ test("cart rows and footer stay stable while pointer drag persists order", () =>
   procurement.clearCart({ includeStarred: true });
 });
 
+test("cart redraws and deletion preserve the visible scroll anchor", () => {
+  const procurement = runtime.api.procurement;
+  procurement.clearCart({ includeStarred: true });
+  const items = Array.from({ length: 6 }, (_, index) => ({
+    itemHrid: `/items/scroll_${index}`,
+    name: `Scroll ${index}`,
+    quantity: index + 1,
+  }));
+  items.forEach((item) => procurement.addToCart(item));
+  runtime.api.renderProcurementShell();
+
+  const root = document.querySelector("#mwitools-procurement-host").shadowRoot;
+  root.querySelector('.tab[data-tab="cart"]').click();
+  const body = root.querySelector(".body");
+  body.getBoundingClientRect = () => ({ top: 0, bottom: 180, height: 180 });
+  const installRects = () => {
+    [...body.querySelectorAll(".cart-row")].forEach((row) => {
+      row.getBoundingClientRect = () => {
+        const index = [...body.querySelectorAll(".cart-row")].indexOf(row);
+        const top = index * 60 - body.scrollTop;
+        return { top, bottom: top + 56, height: 56 };
+      };
+    });
+  };
+  installRects();
+  body.scrollTop = 70;
+  const anchor = body.querySelectorAll(".cart-row")[1];
+  const successor = body.querySelectorAll(".cart-row")[2];
+
+  runtime.api.renderProcurementShell();
+  assert.equal(body.scrollTop, 70);
+  assert.equal(body.querySelectorAll(".cart-row")[1], anchor);
+
+  anchor.querySelector('.step[data-step="1"]').click();
+  assert.equal(body.scrollTop, 70);
+  assert.equal(body.querySelectorAll(".cart-row")[1], anchor);
+
+  anchor.querySelector(".delete").click();
+  installRects();
+  assert.equal(body.scrollTop, 70);
+  assert.equal(body.querySelectorAll(".cart-row")[1], successor);
+  procurement.clearCart({ includeStarred: true });
+});
+
 test("cart quantity hold-repeat stops after redraw, release, and clear", async () => {
   const host = document.querySelector("#mwitools-procurement-host");
   const drawer = host.shadowRoot.querySelector(".drawer");
@@ -1076,6 +1120,66 @@ test("shopping item clicks prefer and force the game's floating market modal", (
     },
   ]);
   assert.equal(misleadingCalls, 0);
+
+  stateUpdates.length = 0;
+  assert.equal(runtime.api.openProcurementMarketplace("/items/nail", 1), true);
+  assert.deepEqual(stateUpdates, [
+    { showMarketplaceModal: false },
+    {
+      showMarketplaceModal: true,
+      marketViewOverrideData: {
+        itemHrid: "/items/nail",
+        enhancementLevel: 1,
+      },
+    },
+  ]);
+  gameRoot.remove();
+});
+
+test("rapid shopping-item switches ignore stale floating-modal callbacks", () => {
+  const stateUpdates = [];
+  const callbacks = [];
+  let deferCallbacks = false;
+  const modalHost = {
+    state: { navTarget: "milking", showMarketplaceModal: false },
+    handleGoToMarketplace() {},
+    handleCloseMarketplaceModal() {},
+    setState(update, callback) {
+      stateUpdates.push(update);
+      Object.assign(this.state, update);
+      if (!callback) return;
+      if (deferCallbacks) callbacks.push(callback);
+      else callback();
+    },
+  };
+  const gameRoot = document.createElement("div");
+  gameRoot.id = "root";
+  gameRoot._reactRootContainer = { current: { stateNode: modalHost } };
+  document.body.append(gameRoot);
+
+  assert.equal(runtime.api.openProcurementMarketplace("/items/board"), true);
+  deferCallbacks = true;
+  stateUpdates.length = 0;
+  assert.equal(runtime.api.openProcurementMarketplace("/items/nail"), true);
+  assert.equal(
+    runtime.api.openProcurementMarketplace("/items/astral_enhancer"),
+    true,
+  );
+  callbacks.shift()?.();
+  callbacks.shift()?.();
+
+  assert.deepEqual(stateUpdates.at(-1), {
+    showMarketplaceModal: true,
+    marketViewOverrideData: {
+      itemHrid: "/items/astral_enhancer",
+      enhancementLevel: 0,
+    },
+  });
+  assert.equal(
+    stateUpdates.filter((update) => update.showMarketplaceModal === true)
+      .length,
+    1,
+  );
   gameRoot.remove();
 });
 
@@ -1184,6 +1288,97 @@ test("market shopping navigation renders item icons instead of name pills", () =
     null,
   );
   runtime.api.procurement.removeFromCart("/items/cotton");
+});
+
+test("market-session deletion works from both the drawer and product navigation", () => {
+  const procurement = runtime.api.procurement;
+  procurement.clearCart({ includeStarred: true });
+  procurement.addToCart({ itemHrid: "/items/nail", name: "Nail", quantity: 1 });
+  procurement.addToCart({
+    itemHrid: "/items/board",
+    name: "Board",
+    quantity: 1,
+  });
+  procurement.addToCart({
+    itemHrid: "/items/astral_enhancer",
+    name: "Astral Enhancer",
+    quantity: 1,
+  });
+  let closeCalls = 0;
+  const modalHost = {
+    state: { navTarget: "milking", showMarketplaceModal: false },
+    handleGoToMarketplace() {},
+    handleCloseMarketplaceModal() {
+      closeCalls += 1;
+      this.state.showMarketplaceModal = false;
+    },
+    setState(update, callback) {
+      Object.assign(this.state, update);
+      callback?.();
+    },
+  };
+  const gameRoot = document.createElement("div");
+  gameRoot.id = "root";
+  gameRoot._reactRootContainer = { current: { stateNode: modalHost } };
+  document.body.append(gameRoot);
+  assert.equal(runtime.api.openProcurementMarketplace("/items/nail"), true);
+
+  const modal = document.createElement("div");
+  modal.className = "MainPanel_marketplaceModal__delete-fixture";
+  const panel = document.createElement("section");
+  panel.className = "MarketplacePanel_marketplacePanel__delete-fixture";
+  panel.innerHTML = `<div class="MarketplacePanel_currentItem__fixture"><svg><use href="/static/media/items_sprite.test.svg#nail"></use></svg></div>`;
+  panel.getClientRects = () => [{}];
+  panel.getBoundingClientRect = () => ({
+    left: 20,
+    right: 420,
+    top: 40,
+    bottom: 500,
+    width: 400,
+    height: 460,
+  });
+  modal.append(panel);
+  document.body.append(modal);
+  runtime.api.updateProcurementMarketUi();
+
+  const cartHost = document.querySelector("#mwitools-procurement-host");
+  assert.equal(cartHost.dataset.marketSession, "true");
+  cartHost.shadowRoot.querySelector('.tab[data-tab="cart"]').click();
+  const boardRow = [...cartHost.shadowRoot.querySelectorAll(".cart-row")].find(
+    (row) =>
+      procurement.parseItemKey(row.dataset.cartKey).itemHrid === "/items/board",
+  );
+  boardRow.querySelector(".delete").click();
+  assert.equal(procurement.getCartItem("/items/board"), null);
+  assert.equal(modalHost.state.marketViewOverrideData.itemHrid, "/items/nail");
+
+  document
+    .querySelector(
+      "#mwitools-procurement-market-nav .mwi-procurement-nav-remove",
+    )
+    .click();
+  assert.equal(procurement.getCartItem("/items/nail"), null);
+  assert.equal(
+    modalHost.state.marketViewOverrideData.itemHrid,
+    "/items/astral_enhancer",
+  );
+
+  runtime.api.updateProcurementMarketUi();
+  document
+    .querySelector(
+      "#mwitools-procurement-market-nav .mwi-procurement-nav-remove",
+    )
+    .click();
+  assert.equal(procurement.getCartItems().length, 0);
+  assert.equal(closeCalls, 1);
+  assert.equal(
+    document.querySelector("#mwitools-procurement-market-nav"),
+    null,
+  );
+  assert.equal(cartHost.dataset.marketSession, "false");
+
+  modal.remove();
+  gameRoot.remove();
 });
 
 test("iron-cow adaptation keeps shortages while suppressing market shopping UI", async () => {

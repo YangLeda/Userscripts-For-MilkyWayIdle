@@ -26,9 +26,12 @@ let marketSessionStartedAt = 0;
 let marketSessionModalSeen = false;
 let marketSessionHost = null;
 let marketSessionRestoreNavTarget = "";
+let currentMarketLevel = 0;
+let marketNavigationRevision = 0;
 let lastProductionSignature = "";
 let activeHoldRepeatStop = null;
 let activeCartDrag = null;
+const cartScrollStates = new Map();
 
 const MARKET_SESSION_OPEN_GRACE_MS = 2_500;
 
@@ -104,7 +107,7 @@ function addStyles() {
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-chain-stage span:last-child{margin-left:auto;color:#d7bb67;white-space:nowrap}
     .mwi-procurement-market-target{outline:2px solid rgba(245,158,11,.72)!important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 3px rgba(245,158,11,.12)}
-    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
+    #${MARKET_NAV_ID}{position:fixed;z-index:2147482001;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${MARKET_NAV_ID}[data-inside="true"]{border-radius:5px 5px 0 0;box-shadow:0 -5px 16px rgba(0,0,0,.35)}
     .mwi-procurement-nav-progress{flex:0 0 auto;color:var(--color-space-300,#9da9d0);white-space:nowrap}
     .mwi-procurement-nav-items{display:flex;min-width:0;flex:1;gap:4px;overflow-x:auto;padding:1px}
@@ -113,7 +116,8 @@ function addStyles() {
     .mwi-procurement-nav-chip[data-done="true"]{opacity:.68;border-color:#4d9d68;cursor:default}
     .mwi-procurement-nav-icon{display:flex;width:27px;height:27px;align-items:center;justify-content:center;overflow:hidden}.mwi-procurement-nav-icon svg{display:block;width:27px;height:27px}.mwi-procurement-nav-icon .item-icon-fallback{font-size:11px;font-weight:700}
     .mwi-procurement-nav-chip b{position:absolute;right:-2px;bottom:-2px;min-width:13px;padding:0 2px;border-radius:5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);font-size:.55rem;line-height:12px;text-align:center;box-shadow:0 0 0 1px var(--color-midnight-400,#505776)}.mwi-procurement-nav-chip[data-done="true"] b{color:#62d88e}
-    .mwi-procurement-nav-next{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-next,.mwi-procurement-nav-remove{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-remove{background:rgba(184,72,84,.78)}.mwi-procurement-nav-remove:hover{background:rgba(210,82,95,.92)}
     .mwi-procurement-toast{position:fixed;right:14px;top:14px;z-index:2147483000;max-width:min(360px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.96);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
   `;
   (document.head ?? document.documentElement).appendChild(style);
@@ -125,15 +129,16 @@ function shellStyles() {
     : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
   return `
     :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
+    :host([data-market-session="true"]){position:relative;z-index:2147482000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
     ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{border-radius:4px;background:color-mix(in srgb,var(--muted) 28%,transparent)}
-    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;touch-action:none;user-select:none;transition:opacity .15s}
+    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;pointer-events:auto;touch-action:none;user-select:none;transition:opacity .15s}
     .handle:hover{opacity:1}.handle .icon{width:16px;height:16px}.handle[data-has-items="true"]{box-shadow:-2px 2px 10px rgba(0,0,0,.3),inset 2px 0 0 var(--gold)}
     .handle-badge{position:absolute;top:9px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px var(--panel)}
     .handle-badge::after{content:"";position:absolute;inset:-3px;border:1.5px solid var(--gold);border-radius:50%;opacity:.6;animation:badge-pulse 1.6s ease-out infinite}@keyframes badge-pulse{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.9);opacity:0}}
-    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);transform:translateX(calc(100% + 18px));transition:transform .2s ease}
+    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);pointer-events:auto;transform:translateX(calc(100% + 18px));transition:transform .2s ease}
     .drawer[data-open="true"]{transform:translateX(0)}.resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;border-radius:10px 0 0 10px;cursor:ew-resize;touch-action:none}.resize:hover{background:color-mix(in srgb,var(--accent) 25%,transparent)}
     .header{display:flex;flex:0 0 auto;align-items:center;gap:8px;padding:11px 14px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
     .title{font-size:14px;font-weight:700;letter-spacing:.2px}.head-count{padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--gold) 12%,transparent);color:color-mix(in srgb,var(--gold) 85%,white);font-size:10.5px}.head-count:empty{display:none}
@@ -193,6 +198,60 @@ function renderItemIcon(item) {
   return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml(item.name)}"><use href="${escapeHtml(href)}" xlink:href="${escapeHtml(href)}"></use></svg>`;
 }
 
+function captureCartScroll(body) {
+  if (!body) return null;
+  const rows = [...body.querySelectorAll(".cart-row")];
+  if (!rows.length)
+    return { scrollTop: body.scrollTop || 0, keys: [], offset: 0 };
+  const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+  let anchorIndex = rows.findIndex((row) => {
+    const rect = row.getBoundingClientRect?.();
+    return rect && rect.bottom > bodyTop;
+  });
+  if (anchorIndex < 0) anchorIndex = rows.length - 1;
+  const anchor = rows[anchorIndex];
+  const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+  return {
+    scrollTop: body.scrollTop || 0,
+    keys: [
+      ...rows.slice(anchorIndex).map((row) => row.dataset.cartKey),
+      ...rows
+        .slice(0, anchorIndex)
+        .reverse()
+        .map((row) => row.dataset.cartKey),
+    ],
+    offset: anchorTop - bodyTop,
+  };
+}
+
+function restoreCartScroll(body, state) {
+  if (!body || !state) return;
+  const anchor = state.keys
+    ?.map((key) =>
+      [...body.querySelectorAll(".cart-row")].find(
+        (row) => row.dataset.cartKey === key,
+      ),
+    )
+    .find(Boolean);
+  if (!anchor) {
+    body.scrollTop = state.scrollTop || 0;
+    return;
+  }
+  const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+  const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+  const delta = anchorTop - bodyTop - (state.offset || 0);
+  body.scrollTop = Math.max(0, (body.scrollTop || 0) + delta);
+}
+
+function rememberBodyScroll(body, tab = body?.dataset.tab) {
+  if (!body || !tab) return;
+  const state =
+    tab === "cart"
+      ? captureCartScroll(body)
+      : { scrollTop: body.scrollTop || 0 };
+  cartScrollStates.set(tab, state);
+}
+
 function renderShell() {
   if (!shadow) return;
   const settings = procurement.getSettings();
@@ -201,6 +260,7 @@ function renderShell() {
   const handle = shadow.querySelector(".handle");
   const drawer = shadow.querySelector(".drawer");
   if (!handle || !drawer) return;
+  shell.dataset.marketSession = String(marketSessionActive);
   handle.style.top = `${clampHandleY(settings.handleY)}px`;
   drawer.style.setProperty("--drawer-width", `${settings.drawerWidth}px`);
   drawer.dataset.open = String(drawerOpen);
@@ -214,14 +274,23 @@ function renderShell() {
     button.dataset.active = String(button.dataset.tab === activeTab);
   }
   const body = shadow.querySelector(".body");
+  let scrollState = null;
   if (body.dataset.tab !== activeTab) {
+    rememberBodyScroll(body);
     abandonCartDrag();
     body.replaceChildren();
     body.dataset.tab = activeTab;
+    body.scrollTop = cartScrollStates.get(activeTab)?.scrollTop ?? 0;
+    scrollState = cartScrollStates.get(activeTab) ?? null;
+  } else if (activeTab === "cart") {
+    scrollState = captureCartScroll(body);
   }
   if (activeTab === "plans") renderPlans(body);
   else if (activeTab === "settings") renderProcurementSettings(body);
-  else renderCart(body);
+  else renderCart(body, scrollState);
+  if (activeTab === "cart") {
+    cartScrollStates.set("cart", captureCartScroll(body));
+  }
 }
 
 function prepareFooter(mode) {
@@ -326,7 +395,7 @@ function createCartRow(key, body) {
   row.querySelector(".delete").addEventListener("click", () => {
     stopActiveHoldRepeat();
     const item = latestCartItem(row);
-    if (item) procurement.removeFromCart(item.itemHrid, item.enhancementLevel);
+    if (item) removeCartItemAndAdvance(item);
   });
   const quantityInput = row.querySelector(".qty");
   quantityInput.addEventListener("change", () => {
@@ -444,7 +513,7 @@ function renderCartFooter({ marketEnabled, settings, total, unpriced }) {
   clear.textContent = t("清空未收藏", "Clear");
 }
 
-function renderCart(body) {
+function renderCart(body, scrollState = captureCartScroll(body)) {
   const items = procurement.getCartItems();
   if (!items.length) {
     if (activeCartDrag) finishCartDrag(true);
@@ -470,6 +539,7 @@ function renderCart(body) {
     ]),
   );
   const wantedKeys = new Set();
+  const desiredRows = [];
   let total = 0;
   let unpriced = 0;
   for (const item of items) {
@@ -486,15 +556,25 @@ function renderCart(body) {
       else unpriced += 1;
     }
     updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
-    if (!activeCartDrag) body.append(row);
-    else if (!row.isConnected) body.append(row);
+    desiredRows.push(row);
   }
   for (const [key, row] of currentRows) {
     if (wantedKeys.has(key)) continue;
     if (activeCartDrag?.row === row) abandonCartDrag();
     row.remove();
   }
+  if (!activeCartDrag) {
+    desiredRows.forEach((row, index) => {
+      const current = body.children[index] ?? null;
+      if (current !== row) body.insertBefore(row, current);
+    });
+  } else {
+    desiredRows
+      .filter((row) => !row.isConnected)
+      .forEach((row) => body.append(row));
+  }
   renderCartFooter({ marketEnabled, settings, total, unpriced });
+  restoreCartScroll(body, scrollState);
 }
 
 function stopActiveHoldRepeat() {
@@ -965,6 +1045,7 @@ function createShell(scope) {
   });
   scope.add(() => {
     abandonCartDrag();
+    cartScrollStates.clear();
     shell?.remove();
     shell = null;
     shadow = null;
@@ -1979,6 +2060,39 @@ function resolveMarketplaceHandler() {
   return fallback;
 }
 
+function beginMarketSession(
+  resolved,
+  { requiresModal, restoreNavTarget = "" },
+) {
+  const continuing =
+    marketSessionActive &&
+    marketSessionRequiresModal === requiresModal &&
+    (!requiresModal || marketSessionHost === resolved.host);
+  if (!continuing) {
+    marketSessionDone = new Map();
+    marketSessionRestoreNavTarget = restoreNavTarget;
+  } else if (!marketSessionRestoreNavTarget && restoreNavTarget) {
+    marketSessionRestoreNavTarget = restoreNavTarget;
+  }
+  marketSessionActive = true;
+  marketSessionRequiresModal = requiresModal;
+  marketSessionStartedAt = Date.now();
+  marketSessionModalSeen = false;
+  marketSessionHost = requiresModal ? resolved.host : null;
+  if (shell) shell.dataset.marketSession = "true";
+  return continuing;
+}
+
+function scheduleMarketUiUpdates(revision) {
+  for (const delay of [80, 240, 600, 1_200]) {
+    setTimeout(() => {
+      if (revision === marketNavigationRevision && marketSessionActive) {
+        updateMarketUi(true);
+      }
+    }, delay);
+  }
+}
+
 function openMarketplace(itemHrid, enhancementLevel = 0) {
   if (marketFeaturesSuppressed()) return false;
   const resolved = resolveMarketplaceHandler();
@@ -1991,25 +2105,41 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
     );
     return false;
   }
-  currentMarketTarget = procurement.normalizeItemHrid(itemHrid);
-  const bareItemId = currentMarketTarget.replace(/^\/items\//, "");
+  const target = procurement.normalizeItemHrid(itemHrid);
+  const bareItemId = target.replace(/^\/items\//, "");
   const level = Number(enhancementLevel) || 0;
   const argumentSets = [
-    [currentMarketTarget, level],
-    [currentMarketTarget],
+    [target, level],
+    [target],
     [bareItemId, level],
     [bareItemId],
   ];
+  const revision = ++marketNavigationRevision;
   let lastError = null;
   if (resolved.floating) {
     try {
+      const newSession =
+        !marketSessionActive ||
+        !marketSessionRequiresModal ||
+        marketSessionHost !== resolved.host;
       const restoreNavTarget =
-        resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        newSession && resolved.host.state?.navTarget === "marketplace"
+          ? "marketplace"
+          : "";
+      const continuingSession = beginMarketSession(resolved, {
+        requiresModal: true,
+        restoreNavTarget,
+      });
+      currentMarketTarget = target;
+      currentMarketLevel = level;
       const showFloatingModal = () => {
+        if (revision !== marketNavigationRevision || !marketSessionActive) {
+          return;
+        }
         resolved.host.setState({
           showMarketplaceModal: true,
           marketViewOverrideData: {
-            itemHrid: currentMarketTarget,
+            itemHrid: target,
             enhancementLevel: level,
           },
         });
@@ -2022,29 +2152,29 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
         setTimeout(() => {
           if (
             marketSessionActive &&
-            currentMarketTarget === procurement.normalizeItemHrid(itemHrid) &&
+            revision === marketNavigationRevision &&
+            currentMarketTarget === target &&
             resolved.host.state?.navTarget !== "marketplace"
           ) {
-            resolved.fn.call(resolved.host, currentMarketTarget, level);
+            resolved.fn.call(resolved.host, target, level);
           }
         }, 240);
+      } else if (
+        resolved.host.state?.showMarketplaceModal ||
+        continuingSession
+      ) {
+        resolved.host.setState(
+          { showMarketplaceModal: false },
+          showFloatingModal,
+        );
       } else {
         showFloatingModal();
       }
-      marketSessionActive = true;
-      marketSessionRequiresModal = true;
-      marketSessionStartedAt = Date.now();
-      marketSessionModalSeen = false;
-      marketSessionHost = resolved.host;
-      marketSessionRestoreNavTarget = restoreNavTarget;
-      marketSessionDone = new Map();
       if (window.matchMedia?.("(max-width:760px)").matches) {
         drawerOpen = false;
         renderShell();
       }
-      for (const delay of [80, 240, 600, 1_200]) {
-        setTimeout(() => updateMarketUi(true), delay);
-      }
+      scheduleMarketUiUpdates(revision);
       return true;
     } catch (error) {
       lastError = error;
@@ -2053,20 +2183,14 @@ function openMarketplace(itemHrid, enhancementLevel = 0) {
   for (const args of argumentSets) {
     try {
       resolved.fn.call(resolved.host, ...args);
-      marketSessionActive = true;
-      marketSessionRequiresModal = false;
-      marketSessionStartedAt = Date.now();
-      marketSessionModalSeen = false;
-      marketSessionHost = null;
-      marketSessionRestoreNavTarget = "";
-      marketSessionDone = new Map();
+      beginMarketSession(resolved, { requiresModal: false });
+      currentMarketTarget = target;
+      currentMarketLevel = level;
       if (window.matchMedia?.("(max-width:760px)").matches) {
         drawerOpen = false;
         renderShell();
       }
-      for (const delay of [80, 240, 600, 1_200]) {
-        setTimeout(() => updateMarketUi(true), delay);
-      }
+      scheduleMarketUiUpdates(revision);
       return true;
     } catch (error) {
       lastError = error;
@@ -2107,7 +2231,40 @@ function detectMarketItem(panel) {
   return fragment ? procurement.normalizeItemHrid(fragment) : "";
 }
 
-function clearMarketUi({ preserveSession = false } = {}) {
+function isCurrentMarketItem(item) {
+  return Boolean(
+    marketSessionActive &&
+    procurement.normalizeItemHrid(item?.itemHrid) === currentMarketTarget &&
+    (Number(item?.enhancementLevel) || 0) === currentMarketLevel,
+  );
+}
+
+function removeCartItemAndAdvance(item) {
+  if (!item) return false;
+  const ordered = pendingItems();
+  const key = procurement.itemKey(item.itemHrid, item.enhancementLevel);
+  const currentIndex = ordered.findIndex(
+    (candidate) =>
+      procurement.itemKey(candidate.itemHrid, candidate.enhancementLevel) ===
+      key,
+  );
+  const shouldAdvance = isCurrentMarketItem(item);
+  const removed = procurement.removeFromCart(
+    item.itemHrid,
+    item.enhancementLevel,
+  );
+  if (!removed.ok || !shouldAdvance) return removed.ok;
+  const remaining = pendingItems();
+  if (!remaining.length) {
+    clearMarketUi({ closeModal: true });
+    return true;
+  }
+  const next = remaining[Math.max(0, currentIndex) % remaining.length];
+  openMarketplace(next.itemHrid, next.enhancementLevel);
+  return true;
+}
+
+function clearMarketUi({ preserveSession = false, closeModal = false } = {}) {
   document.getElementById(MARKET_NAV_ID)?.remove();
   document
     .querySelectorAll(".mwi-procurement-market-target")
@@ -2115,6 +2272,7 @@ function clearMarketUi({ preserveSession = false } = {}) {
   if (!preserveSession) {
     const restoreHost = marketSessionHost;
     const restoreNavTarget = marketSessionRestoreNavTarget;
+    marketNavigationRevision += 1;
     marketSessionActive = false;
     marketSessionRequiresModal = false;
     marketSessionStartedAt = 0;
@@ -2122,8 +2280,21 @@ function clearMarketUi({ preserveSession = false } = {}) {
     marketSessionHost = null;
     marketSessionRestoreNavTarget = "";
     currentMarketTarget = "";
+    currentMarketLevel = 0;
     armedNextItem = "";
     marketSessionDone = new Map();
+    if (shell) shell.dataset.marketSession = "false";
+    if (closeModal && restoreHost) {
+      try {
+        if (typeof restoreHost.handleCloseMarketplaceModal === "function") {
+          restoreHost.handleCloseMarketplaceModal();
+        } else if (typeof restoreHost.setState === "function") {
+          restoreHost.setState({ showMarketplaceModal: false });
+        }
+      } catch (error) {
+        console.info("[MWITools] Marketplace modal close unavailable", error);
+      }
+    }
     if (
       restoreNavTarget &&
       typeof restoreHost?.setState === "function" &&
@@ -2218,11 +2389,18 @@ function renderMarketNav(panel) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     return;
   }
-  const current = detectMarketItem(panel);
+  const detectedCurrent = detectMarketItem(panel);
+  const current = currentMarketTarget || detectedCurrent;
+  const currentKey = procurement.itemKey(current, currentMarketLevel);
   const rows = [
     ...items.map((item) => ({ ...item, done: false })),
     ...[...marketSessionDone.values()].filter(
-      (done) => !items.some((item) => item.itemHrid === done.itemHrid),
+      (done) =>
+        !items.some(
+          (item) =>
+            procurement.itemKey(item.itemHrid, item.enhancementLevel) ===
+            procurement.itemKey(done.itemHrid, done.enhancementLevel),
+        ),
     ),
   ];
   let nav = document.getElementById(MARKET_NAV_ID);
@@ -2241,17 +2419,33 @@ function renderMarketNav(panel) {
       item,
       itemName,
       quantity,
-      current: !item.done && item.itemHrid === current,
+      current:
+        !item.done &&
+        procurement.itemKey(item.itemHrid, item.enhancementLevel) ===
+          currentKey,
       iconMarkup: renderItemIcon({ ...item, name: itemName }),
       badge: item.done ? "✓" : formatNumber(item.quantity),
     };
   });
   const next =
-    items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
+    items.find(
+      (item) =>
+        procurement.itemKey(item.itemHrid, item.enhancementLevel) !==
+        currentKey,
+    ) ??
+    items.at(0) ??
+    null;
+  const currentItem = items.find(
+    (item) =>
+      procurement.itemKey(item.itemHrid, item.enhancementLevel) === currentKey,
+  );
   const nextText = t("下一项 ›", "Next ›");
+  const removeText = t("删除当前", "Remove");
   const renderSignature = JSON.stringify({
     progressText,
     nextText,
+    removeText,
+    currentKey: currentItem ? currentKey : "",
     next: next ? procurement.itemKey(next.itemHrid, next.enhancementLevel) : "",
     rows: rowModels.map(
       ({
@@ -2303,7 +2497,14 @@ function renderMarketNav(panel) {
       if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
       armedNextItem = "";
     });
-    nav.append(progress, list, nextButton);
+    const removeButton = document.createElement("button");
+    removeButton.className = "mwi-procurement-nav-remove";
+    removeButton.textContent = removeText;
+    removeButton.hidden = !currentItem;
+    removeButton.addEventListener("click", () => {
+      if (currentItem) removeCartItemAndAdvance(currentItem);
+    });
+    nav.append(progress, list, removeButton, nextButton);
     nav.mwitoolsRenderSignature = renderSignature;
   }
   const modal =
@@ -2491,6 +2692,17 @@ runtime.features.register({
         const changed = [...record.addedNodes, ...record.removedNodes].filter(
           (node) => node?.nodeType === 1,
         );
+        const removedProductionModule = [...record.removedNodes].some(
+          (node) =>
+            node?.nodeType === 1 &&
+            (node.matches?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`,
+            ) ||
+              node.querySelector?.(
+                `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`,
+              )),
+        );
+        if (removedProductionModule) return true;
         const replacedProductionMount = changed.some(
           (node) =>
             node.matches?.(
@@ -2520,6 +2732,7 @@ runtime.features.register({
         );
       });
       if (relevant) {
+        runtime.api.scheduleProductionUiRecovery?.();
         scheduleRender();
         scope.timeout(scheduleRender, 80);
         scope.timeout(scheduleRender, 220);

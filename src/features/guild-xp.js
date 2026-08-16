@@ -698,6 +698,14 @@ function appendRateColumns(table, rows, kind, parentId = "") {
       header.append(cell);
     }
   }
+  for (const selector of [
+    ".mwi-guild-recent-head",
+    ".mwi-guild-day-head",
+    ...(kind === "member" ? [".mwi-guild-week-head"] : []),
+  ]) {
+    const rateHeader = header.querySelector(selector);
+    if (rateHeader) header.append(rateHeader);
+  }
 
   const sourceByKey = new Map(
     rows.map((source) => [objectKey(kind, source, parentId), source]),

@@ -464,7 +464,7 @@ test("replacing a loadout panel restores one stable set of production modules", 
   runtime.api.renderProductionPanel();
 });
 
-test("opening a loadout dropdown restores production modules behind MUI aria hiding", () => {
+test("opening a loadout dropdown restores individually removed production modules", async () => {
   const panel = document.querySelector(
     'div[class*="SkillActionDetail_regularComponent"]',
   );
@@ -472,27 +472,41 @@ test("opening a loadout dropdown restores production modules behind MUI aria hid
   runtime.api.renderProductionQuickInputs();
   runtime.api.renderProductionPanel();
   assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  await runtime.features.enable("productionUiRecovery");
 
   modal.setAttribute("aria-hidden", "true");
-  panel.querySelector(":scope > .mwi-production-extensions").remove();
+  const mount = panel.querySelector(":scope > .mwi-production-extensions");
+  panel.querySelector("#mwi-production-summary").remove();
+  panel.querySelector(".mwi-production-quick-inputs").remove();
+  panel.querySelector(".mwi-max-action-button")?.remove();
+  panel.querySelector(".mwi-production-duration-inline")?.remove();
   const dropdown = document.createElement("div");
   dropdown.setAttribute("role", "listbox");
   dropdown.textContent = "Loadout";
   document.body.append(dropdown);
 
-  runtime.api.renderProductionQuickInputs();
-  runtime.api.renderProductionPanel();
+  await new Promise((resolve) => setTimeout(resolve, 40));
 
   assert.equal(runtime.api.resolveActiveProductionPanelContext().panel, panel);
+  assert.equal(
+    panel.querySelector(":scope > .mwi-production-extensions"),
+    mount,
+  );
   assert.equal(panel.querySelectorAll(".mwi-production-extensions").length, 1);
   assert.equal(
     panel.querySelectorAll(".mwi-production-quick-inputs").length,
     1,
   );
   assert.equal(panel.querySelectorAll("#mwi-production-summary").length, 1);
+  assert.equal(panel.querySelectorAll(".mwi-max-action-button").length, 1);
+  assert.equal(
+    panel.querySelectorAll(".mwi-production-duration-inline").length,
+    1,
+  );
 
   dropdown.remove();
   modal.removeAttribute("aria-hidden");
+  await runtime.features.disable("productionUiRecovery");
 });
 
 test("production durations over one day use whole days, hours, and minutes", () => {

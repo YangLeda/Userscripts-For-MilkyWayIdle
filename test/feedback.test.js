@@ -421,7 +421,7 @@ test("announcement history preserves each release separately through 26.4.14", (
   assert.match(latest.title.zh, /26\.4\.14 更新公告/);
   assert.match(latest.title.en, /Version 26\.4\.14 update/);
   assert.equal(latest.body.zh.length, latest.body.en.length);
-  assert.equal(latest.body.zh.length, 6);
+  assert.equal(latest.body.zh.length, 7);
   assert.match(
     latest.body.zh.join("\n"),
     /地牢宝箱.*精炼宝箱.*库存估值.*开箱期望.*宝箱开启钥匙.*地牢门票钥匙.*分别展示.*普通无门票宝箱.*不受影响/,
@@ -436,11 +436,15 @@ test("announcement history preserves each release separately through 26.4.14", (
   );
   assert.match(
     latest.body.zh.join("\n"),
-    /流动资产.*非流动资产.*今日盈亏.*公会贡献表.*闲置人数/,
+    /流动资产.*非流动资产.*今日盈亏.*公会贡献表.*试炼层数.*闲置人数/,
   );
   assert.match(
     latest.body.zh.join("\n"),
     /打开配装下拉.*切换配装.*制造链.*生产摘要.*快捷小时.*逗号小数/,
+  );
+  assert.match(
+    latest.body.zh.join("\n"),
+    /购物清单.*滚动位置.*商品弹窗.*直接切换.*删除当前项.*下一项/,
   );
   assert.match(
     latest.body.zh.join("\n"),

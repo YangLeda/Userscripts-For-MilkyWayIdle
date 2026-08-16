@@ -44,8 +44,15 @@ const PRODUCTION_MODULE_ORDER = Object.freeze({
   shortage: 30,
   targetLevel: 40,
 });
+const PRODUCTION_RECOVERY_DELAYS = Object.freeze([0, 80, 220, 450, 900, 1_500]);
+const PRODUCTION_RECOVERY_MODULE_SELECTOR =
+  ".mwi-production-extensions,#mwi-production-summary,.mwi-production-quick-inputs,#mwitools-procurement-production,#mwi-level-progress,.mwi-max-action-button,.mwi-production-duration-inline";
+const PRODUCTION_DROPDOWN_SELECTOR =
+  '[role="listbox"],[class*="MuiPopover-root"],[class*="MuiMenu-root"]';
 let productionDataRevision = 0;
 let enhancementTimingCache = { identity: "", count: null };
+let productionRecoveryGeneration = 0;
+const productionRecoveryTimers = new Set();
 
 function t(zh, en) {
   return runtime.config.isZH ? zh : en;
@@ -611,6 +618,84 @@ function shouldSettleActionUi(records) {
           )),
     ),
   );
+}
+
+function clearProductionRecoveryTimers() {
+  for (const timer of productionRecoveryTimers) clearTimeout(timer);
+  productionRecoveryTimers.clear();
+}
+
+function recoverProductionModules() {
+  const context = resolveActiveProductionPanelContext();
+  if (!context?.panel?.isConnected) return false;
+  if (runtime.settings.get("actionPanel_totalTime_quickInputs")) {
+    renderProductionQuickInputs();
+  }
+  if (runtime.settings.get("productionSummary")) renderProductionPanel();
+  if (
+    runtime.settings.get("procurementAssistant") &&
+    typeof runtime.api.renderProductionProcurement === "function"
+  ) {
+    runtime.api.renderProductionProcurement();
+  }
+  if (
+    runtime.settings.get("actionPanel_totalTime") &&
+    typeof runtime.api.refreshProductionActionPanel === "function"
+  ) {
+    runtime.api.refreshProductionActionPanel(context.panel);
+  }
+  return true;
+}
+
+function scheduleProductionUiRecovery() {
+  productionRecoveryGeneration += 1;
+  const generation = productionRecoveryGeneration;
+  clearProductionRecoveryTimers();
+  for (const delay of PRODUCTION_RECOVERY_DELAYS) {
+    const timer = setTimeout(() => {
+      productionRecoveryTimers.delete(timer);
+      if (generation !== productionRecoveryGeneration) return;
+      recoverProductionModules();
+    }, delay);
+    productionRecoveryTimers.add(timer);
+  }
+  return generation;
+}
+
+function shouldRecoverProductionUi(records) {
+  return records.some((record) => {
+    const target = mutationElement(record.target);
+    if (
+      record.type === "attributes" &&
+      record.attributeName === "aria-hidden" &&
+      (target?.matches?.(ACTION_SURFACE_SELECTOR) ||
+        target?.querySelector?.(ACTION_SURFACE_SELECTOR))
+    ) {
+      return true;
+    }
+    const added = [...(record.addedNodes ?? [])].filter(
+      (node) => node?.nodeType === 1,
+    );
+    if (
+      added.some(
+        (node) =>
+          node.matches?.(PRODUCTION_DROPDOWN_SELECTOR) ||
+          node.querySelector?.(PRODUCTION_DROPDOWN_SELECTOR) ||
+          node.matches?.(ACTION_SURFACE_SELECTOR) ||
+          node.querySelector?.(ACTION_SURFACE_SELECTOR),
+      )
+    ) {
+      return true;
+    }
+    return [...(record.removedNodes ?? [])].some(
+      (node) =>
+        node?.nodeType === 1 &&
+        (node.matches?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) ||
+          node.querySelector?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) ||
+          node.matches?.(ACTION_SURFACE_SELECTOR) ||
+          node.querySelector?.(ACTION_SURFACE_SELECTOR)),
+    );
+  });
 }
 
 function bindActionUiRenderer(scope, render, messages = []) {
@@ -1286,6 +1371,36 @@ function removeActionUi() {
 }
 
 runtime.features.register({
+  id: "productionUiRecovery",
+  scope: "global",
+  initialize({ scope }) {
+    const attach = () => {
+      if (!document.body) return false;
+      const MutationObserverRef =
+        globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+      if (!MutationObserverRef) return false;
+      const observer = new MutationObserverRef((records) => {
+        if (shouldRecoverProductionUi(records)) scheduleProductionUiRecovery();
+      });
+      scope.observer(observer, document.body, {
+        attributes: true,
+        attributeFilter: ["aria-hidden"],
+        childList: true,
+        subtree: true,
+      });
+      return true;
+    };
+    if (!attach()) {
+      scope.event(document, "DOMContentLoaded", attach, { once: true });
+    }
+    scope.add(() => {
+      productionRecoveryGeneration += 1;
+      clearProductionRecoveryTimers();
+    });
+  },
+});
+
+runtime.features.register({
   id: "totalActionTime",
   setting: "totalActionTime",
   scope: "character",
@@ -1412,6 +1527,7 @@ Object.assign(runtime.api, {
   resolveActiveProductionPanelContext,
   getProductionPanelMount,
   mountProductionModule,
+  scheduleProductionUiRecovery,
   renderProductionQuickInputs,
   removeProductionQuickInputs,
   removeActionUi,

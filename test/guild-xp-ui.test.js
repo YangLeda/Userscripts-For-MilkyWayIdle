@@ -312,6 +312,33 @@ test("guild XP columns draw relative bars and sort in both directions", async ()
     [["50%", "50%", "25%"], ["100%", "100%", "100%"], []],
   );
 
+  const trialHeader = document.createElement("th");
+  trialHeader.textContent = "试炼层数";
+  table.tHead.rows[0].append(trialHeader);
+  [...table.tBodies[0].rows].forEach((row, index) => {
+    row
+      .querySelectorAll(".mwi-guild-rate-cell")
+      .forEach((cell) => cell.remove());
+    const trialCell = document.createElement("td");
+    trialCell.textContent = String(142 - index * 5);
+    row.append(trialCell);
+  });
+  runtime.api.renderGuildTables();
+
+  assert.deepEqual(
+    [...table.querySelectorAll("thead th")].map((cell) =>
+      cell.textContent.replace("↕", ""),
+    ),
+    ["成员", "试炼层数", "近 6 小时 XP/h", "24 小时 XP/h", "本周平均 XP/h"],
+  );
+  assert.ok(
+    [...table.tBodies[0].rows].every(
+      (row) =>
+        row.cells.length === table.tHead.rows[0].cells.length &&
+        /^\d+$/.test(row.cells[1].textContent),
+    ),
+  );
+
   const recentHeader = table.querySelector(".mwi-guild-recent-head");
   recentHeader.click();
   assert.deepEqual(

@@ -20396,6 +20396,16 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     };
     state.timer = setTimeout(run, ACTION_PANEL_RETRY_DELAYS[0]);
   }
+  function refreshProductionActionPanel(panel) {
+    if (!runtime.settings.settingsMap.actionPanel_totalTime.isTrue || !panel?.isConnected) {
+      return false;
+    }
+    if (!panel.querySelector("#mwi-level-progress") || panel.querySelectorAll(".mwi-native-level-stat").length !== 4) {
+      delete panel.dataset.mwitoolsActionPanel;
+    }
+    scheduleActionPanel(panel);
+    return true;
+  }
   function clearActionPanelRetries() {
     for (const state of actionPanelRetryStates.values()) {
       if (state.timer !== null) clearTimeout(state.timer);
@@ -20559,6 +20569,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var removeInsertedDivs = () => document.querySelectorAll("span.insertedSpan").forEach((div) => div.parentNode.removeChild(div));
   Object.assign(runtime.api, {
     handleActionPanel,
+    refreshProductionActionPanel,
     getTotalEffiPercentage,
     getActionEfficiencyDetails,
     getTotalTimeStr,
@@ -20759,8 +20770,13 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     shortage: 30,
     targetLevel: 40
   });
+  var PRODUCTION_RECOVERY_DELAYS = Object.freeze([0, 80, 220, 450, 900, 1500]);
+  var PRODUCTION_RECOVERY_MODULE_SELECTOR = ".mwi-production-extensions,#mwi-production-summary,.mwi-production-quick-inputs,#mwitools-procurement-production,#mwi-level-progress,.mwi-max-action-button,.mwi-production-duration-inline";
+  var PRODUCTION_DROPDOWN_SELECTOR = '[role="listbox"],[class*="MuiPopover-root"],[class*="MuiMenu-root"]';
   var productionDataRevision = 0;
   var enhancementTimingCache = { identity: "", count: null };
+  var productionRecoveryGeneration = 0;
+  var productionRecoveryTimers = /* @__PURE__ */ new Set();
   function t8(zh, en) {
     return runtime.config.isZH ? zh : en;
   }
@@ -21228,6 +21244,58 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         ))
       )
     );
+  }
+  function clearProductionRecoveryTimers() {
+    for (const timer of productionRecoveryTimers) clearTimeout(timer);
+    productionRecoveryTimers.clear();
+  }
+  function recoverProductionModules() {
+    const context = resolveActiveProductionPanelContext();
+    if (!context?.panel?.isConnected) return false;
+    if (runtime.settings.get("actionPanel_totalTime_quickInputs")) {
+      renderProductionQuickInputs();
+    }
+    if (runtime.settings.get("productionSummary")) renderProductionPanel();
+    if (runtime.settings.get("procurementAssistant") && typeof runtime.api.renderProductionProcurement === "function") {
+      runtime.api.renderProductionProcurement();
+    }
+    if (runtime.settings.get("actionPanel_totalTime") && typeof runtime.api.refreshProductionActionPanel === "function") {
+      runtime.api.refreshProductionActionPanel(context.panel);
+    }
+    return true;
+  }
+  function scheduleProductionUiRecovery() {
+    productionRecoveryGeneration += 1;
+    const generation = productionRecoveryGeneration;
+    clearProductionRecoveryTimers();
+    for (const delay of PRODUCTION_RECOVERY_DELAYS) {
+      const timer = setTimeout(() => {
+        productionRecoveryTimers.delete(timer);
+        if (generation !== productionRecoveryGeneration) return;
+        recoverProductionModules();
+      }, delay);
+      productionRecoveryTimers.add(timer);
+    }
+    return generation;
+  }
+  function shouldRecoverProductionUi(records) {
+    return records.some((record) => {
+      const target = mutationElement(record.target);
+      if (record.type === "attributes" && record.attributeName === "aria-hidden" && (target?.matches?.(ACTION_SURFACE_SELECTOR) || target?.querySelector?.(ACTION_SURFACE_SELECTOR))) {
+        return true;
+      }
+      const added = [...record.addedNodes ?? []].filter(
+        (node) => node?.nodeType === 1
+      );
+      if (added.some(
+        (node) => node.matches?.(PRODUCTION_DROPDOWN_SELECTOR) || node.querySelector?.(PRODUCTION_DROPDOWN_SELECTOR) || node.matches?.(ACTION_SURFACE_SELECTOR) || node.querySelector?.(ACTION_SURFACE_SELECTOR)
+      )) {
+        return true;
+      }
+      return [...record.removedNodes ?? []].some(
+        (node) => node?.nodeType === 1 && (node.matches?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) || node.querySelector?.(PRODUCTION_RECOVERY_MODULE_SELECTOR) || node.matches?.(ACTION_SURFACE_SELECTOR) || node.querySelector?.(ACTION_SURFACE_SELECTOR))
+      );
+    });
   }
   function bindActionUiRenderer(scope, render, messages = []) {
     const scheduler = createFrameScheduler(render);
@@ -21783,6 +21851,34 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     document.querySelectorAll(".mwi-production-extensions:empty").forEach((mount) => mount.remove());
   }
   runtime.features.register({
+    id: "productionUiRecovery",
+    scope: "global",
+    initialize({ scope }) {
+      const attach = () => {
+        if (!document.body) return false;
+        const MutationObserverRef = globalThis.MutationObserver ?? document.defaultView?.MutationObserver;
+        if (!MutationObserverRef) return false;
+        const observer = new MutationObserverRef((records) => {
+          if (shouldRecoverProductionUi(records)) scheduleProductionUiRecovery();
+        });
+        scope.observer(observer, document.body, {
+          attributes: true,
+          attributeFilter: ["aria-hidden"],
+          childList: true,
+          subtree: true
+        });
+        return true;
+      };
+      if (!attach()) {
+        scope.event(document, "DOMContentLoaded", attach, { once: true });
+      }
+      scope.add(() => {
+        productionRecoveryGeneration += 1;
+        clearProductionRecoveryTimers();
+      });
+    }
+  });
+  runtime.features.register({
     id: "totalActionTime",
     setting: "totalActionTime",
     scope: "character",
@@ -21902,6 +21998,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     resolveActiveProductionPanelContext,
     getProductionPanelMount,
     mountProductionModule,
+    scheduleProductionUiRecovery,
     renderProductionQuickInputs,
     removeProductionQuickInputs,
     removeActionUi
@@ -21929,9 +22026,12 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
   var marketSessionModalSeen = false;
   var marketSessionHost = null;
   var marketSessionRestoreNavTarget = "";
+  var currentMarketLevel = 0;
+  var marketNavigationRevision = 0;
   var lastProductionSignature = "";
   var activeHoldRepeatStop = null;
   var activeCartDrag = null;
+  var cartScrollStates = /* @__PURE__ */ new Map();
   var MARKET_SESSION_OPEN_GRACE_MS = 2500;
   var CART_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1.6"/><circle cx="19" cy="21" r="1.6"/><path d="M2 3h3l2.6 12.5a2 2 0 0 0 2 1.5h8.7a2 2 0 0 0 2-1.6L22 7H6"/></svg>`;
   var STAR_ICON = `<svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
@@ -21993,7 +22093,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-chain-stage span:first-of-type{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .mwi-procurement-chain-stage span:last-child{margin-left:auto;color:#d7bb67;white-space:nowrap}
     .mwi-procurement-market-target{outline:2px solid rgba(245,158,11,.72)!important;outline-offset:1px;border-radius:4px;box-shadow:0 0 0 3px rgba(245,158,11,.12)}
-    #${MARKET_NAV_ID}{position:fixed;z-index:1005;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
+    #${MARKET_NAV_ID}{position:fixed;z-index:2147482001;display:flex;box-sizing:border-box;align-items:center;gap:7px;min-height:40px;padding:5px 8px;border:1px solid var(--color-midnight-400,#505776);border-radius:0 0 5px 5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);box-shadow:0 7px 18px rgba(0,0,0,.38);font:inherit;font-size:calc(.6875rem * var(--mwi-ui-font-scale,1))}
     #${MARKET_NAV_ID}[data-inside="true"]{border-radius:5px 5px 0 0;box-shadow:0 -5px 16px rgba(0,0,0,.35)}
     .mwi-procurement-nav-progress{flex:0 0 auto;color:var(--color-space-300,#9da9d0);white-space:nowrap}
     .mwi-procurement-nav-items{display:flex;min-width:0;flex:1;gap:4px;overflow-x:auto;padding:1px}
@@ -22002,7 +22102,8 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     .mwi-procurement-nav-chip[data-done="true"]{opacity:.68;border-color:#4d9d68;cursor:default}
     .mwi-procurement-nav-icon{display:flex;width:27px;height:27px;align-items:center;justify-content:center;overflow:hidden}.mwi-procurement-nav-icon svg{display:block;width:27px;height:27px}.mwi-procurement-nav-icon .item-icon-fallback{font-size:11px;font-weight:700}
     .mwi-procurement-nav-chip b{position:absolute;right:-2px;bottom:-2px;min-width:13px;padding:0 2px;border-radius:5px;background:var(--color-midnight-900,#151927);color:var(--color-neutral-100,#eee);font-size:.55rem;line-height:12px;text-align:center;box-shadow:0 0 0 1px var(--color-midnight-400,#505776)}.mwi-procurement-nav-chip[data-done="true"] b{color:#62d88e}
-    .mwi-procurement-nav-next{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-next,.mwi-procurement-nav-remove{flex:0 0 auto;min-height:28px;padding:3px 10px;border:0;border-radius:4px;background:var(--color-space-600,#52649a);color:#fff;cursor:pointer;white-space:nowrap}
+    .mwi-procurement-nav-remove{background:rgba(184,72,84,.78)}.mwi-procurement-nav-remove:hover{background:rgba(210,82,95,.92)}
     .mwi-procurement-toast{position:fixed;right:14px;top:14px;z-index:2147483000;max-width:min(360px,calc(100vw - 28px));padding:8px 11px;border:1px solid rgba(245,158,11,.55);border-radius:5px;background:rgba(15,18,28,.96);color:#eee;font-size:.75rem;box-shadow:0 8px 22px rgba(0,0,0,.4)}
   `;
     (document.head ?? document.documentElement).appendChild(style);
@@ -22011,15 +22112,16 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const fontFamily = runtime.config.isZH ? '"PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif' : 'ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif';
     return `
     :host{all:initial;color-scheme:dark;--panel:#171b2a;--card:#23283b;--text:#e7e9ef;--muted:#9299aa;--line:#505773;--accent:#5669ab;--gold:#e8c87f;font-family:${fontFamily}}
+    :host([data-market-session="true"]){position:relative;z-index:2147482000;pointer-events:none}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     button,input,select{border:0;background:none;color:inherit;font:inherit}
     button{cursor:pointer}.icon{display:block}
     ::-webkit-scrollbar{width:7px}::-webkit-scrollbar-thumb{border-radius:4px;background:color-mix(in srgb,var(--muted) 28%,transparent)}
-    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;touch-action:none;user-select:none;transition:opacity .15s}
+    .handle{position:fixed;right:0;z-index:1002;display:flex;width:32px;height:62px;align-items:center;justify-content:center;border-radius:9px 0 0 9px;background:var(--panel);color:var(--text);box-shadow:-2px 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.86;pointer-events:auto;touch-action:none;user-select:none;transition:opacity .15s}
     .handle:hover{opacity:1}.handle .icon{width:16px;height:16px}.handle[data-has-items="true"]{box-shadow:-2px 2px 10px rgba(0,0,0,.3),inset 2px 0 0 var(--gold)}
     .handle-badge{position:absolute;top:9px;right:7px;width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 2px var(--panel)}
     .handle-badge::after{content:"";position:absolute;inset:-3px;border:1.5px solid var(--gold);border-radius:50%;opacity:.6;animation:badge-pulse 1.6s ease-out infinite}@keyframes badge-pulse{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.9);opacity:0}}
-    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);transform:translateX(calc(100% + 18px));transition:transform .2s ease}
+    .drawer{position:fixed;top:56px;right:10px;z-index:1001;display:flex;width:var(--drawer-width,360px);max-width:calc(100vw - 26px);min-height:320px;max-height:calc(100vh - 96px);flex-direction:column;border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 10px 32px rgba(0,0,0,.45),0 0 0 1px color-mix(in srgb,var(--line) 70%,transparent);pointer-events:auto;transform:translateX(calc(100% + 18px));transition:transform .2s ease}
     .drawer[data-open="true"]{transform:translateX(0)}.resize{position:absolute;left:-3px;top:0;bottom:0;width:7px;border-radius:10px 0 0 10px;cursor:ew-resize;touch-action:none}.resize:hover{background:color-mix(in srgb,var(--accent) 25%,transparent)}
     .header{display:flex;flex:0 0 auto;align-items:center;gap:8px;padding:11px 14px 9px;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent)}
     .title{font-size:14px;font-weight:700;letter-spacing:.2px}.head-count{padding:2px 7px;border-radius:5px;background:color-mix(in srgb,var(--gold) 12%,transparent);color:color-mix(in srgb,var(--gold) 85%,white);font-size:10.5px}.head-count:empty{display:none}
@@ -22070,6 +22172,49 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     }
     return `<svg viewBox="0 0 32 32" aria-label="${escapeHtml5(item.name)}"><use href="${escapeHtml5(href)}" xlink:href="${escapeHtml5(href)}"></use></svg>`;
   }
+  function captureCartScroll(body) {
+    if (!body) return null;
+    const rows2 = [...body.querySelectorAll(".cart-row")];
+    if (!rows2.length)
+      return { scrollTop: body.scrollTop || 0, keys: [], offset: 0 };
+    const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+    let anchorIndex = rows2.findIndex((row) => {
+      const rect = row.getBoundingClientRect?.();
+      return rect && rect.bottom > bodyTop;
+    });
+    if (anchorIndex < 0) anchorIndex = rows2.length - 1;
+    const anchor = rows2[anchorIndex];
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+    return {
+      scrollTop: body.scrollTop || 0,
+      keys: [
+        ...rows2.slice(anchorIndex).map((row) => row.dataset.cartKey),
+        ...rows2.slice(0, anchorIndex).reverse().map((row) => row.dataset.cartKey)
+      ],
+      offset: anchorTop - bodyTop
+    };
+  }
+  function restoreCartScroll(body, state) {
+    if (!body || !state) return;
+    const anchor = state.keys?.map(
+      (key) => [...body.querySelectorAll(".cart-row")].find(
+        (row) => row.dataset.cartKey === key
+      )
+    ).find(Boolean);
+    if (!anchor) {
+      body.scrollTop = state.scrollTop || 0;
+      return;
+    }
+    const bodyTop = body.getBoundingClientRect?.().top ?? 0;
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? bodyTop;
+    const delta = anchorTop - bodyTop - (state.offset || 0);
+    body.scrollTop = Math.max(0, (body.scrollTop || 0) + delta);
+  }
+  function rememberBodyScroll(body, tab = body?.dataset.tab) {
+    if (!body || !tab) return;
+    const state = tab === "cart" ? captureCartScroll(body) : { scrollTop: body.scrollTop || 0 };
+    cartScrollStates.set(tab, state);
+  }
   function renderShell() {
     if (!shadow) return;
     const settings2 = procurement3.getSettings();
@@ -22078,6 +22223,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     const handle = shadow.querySelector(".handle");
     const drawer = shadow.querySelector(".drawer");
     if (!handle || !drawer) return;
+    shell.dataset.marketSession = String(marketSessionActive);
     handle.style.top = `${clampHandleY(settings2.handleY)}px`;
     drawer.style.setProperty("--drawer-width", `${settings2.drawerWidth}px`);
     drawer.dataset.open = String(drawerOpen);
@@ -22089,14 +22235,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       button.dataset.active = String(button.dataset.tab === activeTab);
     }
     const body = shadow.querySelector(".body");
+    let scrollState = null;
     if (body.dataset.tab !== activeTab) {
+      rememberBodyScroll(body);
       abandonCartDrag();
       body.replaceChildren();
       body.dataset.tab = activeTab;
+      body.scrollTop = cartScrollStates.get(activeTab)?.scrollTop ?? 0;
+      scrollState = cartScrollStates.get(activeTab) ?? null;
+    } else if (activeTab === "cart") {
+      scrollState = captureCartScroll(body);
     }
     if (activeTab === "plans") renderPlans(body);
     else if (activeTab === "settings") renderProcurementSettings(body);
-    else renderCart(body);
+    else renderCart(body, scrollState);
+    if (activeTab === "cart") {
+      cartScrollStates.set("cart", captureCartScroll(body));
+    }
   }
   function prepareFooter(mode) {
     const footer = shadow.querySelector(".panel-footer");
@@ -22190,7 +22345,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     row.querySelector(".delete").addEventListener("click", () => {
       stopActiveHoldRepeat();
       const item = latestCartItem(row);
-      if (item) procurement3.removeFromCart(item.itemHrid, item.enhancementLevel);
+      if (item) removeCartItemAndAdvance(item);
     });
     const quantityInput = row.querySelector(".qty");
     quantityInput.addEventListener("change", () => {
@@ -22295,7 +22450,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     small.textContent = unpriced ? `${unpriced} ${t9("项未估价", "unpriced")}` : "";
     clear.textContent = t9("清空未收藏", "Clear");
   }
-  function renderCart(body) {
+  function renderCart(body, scrollState = captureCartScroll(body)) {
     const items = procurement3.getCartItems();
     if (!items.length) {
       if (activeCartDrag) finishCartDrag(true);
@@ -22321,6 +22476,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
       ])
     );
     const wantedKeys = /* @__PURE__ */ new Set();
+    const desiredRows = [];
     let total = 0;
     let unpriced = 0;
     for (const item of items) {
@@ -22333,15 +22489,23 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
         else unpriced += 1;
       }
       updateCartRow(row, item, { marketEnabled, pricesEnabled, price });
-      if (!activeCartDrag) body.append(row);
-      else if (!row.isConnected) body.append(row);
+      desiredRows.push(row);
     }
     for (const [key, row] of currentRows) {
       if (wantedKeys.has(key)) continue;
       if (activeCartDrag?.row === row) abandonCartDrag();
       row.remove();
     }
+    if (!activeCartDrag) {
+      desiredRows.forEach((row, index) => {
+        const current = body.children[index] ?? null;
+        if (current !== row) body.insertBefore(row, current);
+      });
+    } else {
+      desiredRows.filter((row) => !row.isConnected).forEach((row) => body.append(row));
+    }
     renderCartFooter({ marketEnabled, settings: settings2, total, unpriced });
+    restoreCartScroll(body, scrollState);
   }
   function stopActiveHoldRepeat() {
     activeHoldRepeatStop?.();
@@ -22789,6 +22953,7 @@ ${t7("概率", "Chance")}: ${chance} · ${t7("数量", "Count")}: ${countRange} 
     });
     scope.add(() => {
       abandonCartDrag();
+      cartScrollStates.clear();
       shell?.remove();
       shell = null;
       shadow = null;
@@ -23626,6 +23791,31 @@ ${locks}` : ""}`;
     }
     return fallback;
   }
+  function beginMarketSession(resolved, { requiresModal, restoreNavTarget = "" }) {
+    const continuing = marketSessionActive && marketSessionRequiresModal === requiresModal && (!requiresModal || marketSessionHost === resolved.host);
+    if (!continuing) {
+      marketSessionDone = /* @__PURE__ */ new Map();
+      marketSessionRestoreNavTarget = restoreNavTarget;
+    } else if (!marketSessionRestoreNavTarget && restoreNavTarget) {
+      marketSessionRestoreNavTarget = restoreNavTarget;
+    }
+    marketSessionActive = true;
+    marketSessionRequiresModal = requiresModal;
+    marketSessionStartedAt = Date.now();
+    marketSessionModalSeen = false;
+    marketSessionHost = requiresModal ? resolved.host : null;
+    if (shell) shell.dataset.marketSession = "true";
+    return continuing;
+  }
+  function scheduleMarketUiUpdates(revision) {
+    for (const delay of [80, 240, 600, 1200]) {
+      setTimeout(() => {
+        if (revision === marketNavigationRevision && marketSessionActive) {
+          updateMarketUi(true);
+        }
+      }, delay);
+    }
+  }
   function openMarketplace(itemHrid, enhancementLevel = 0) {
     if (marketFeaturesSuppressed()) return false;
     const resolved = resolveMarketplaceHandler();
@@ -23638,24 +23828,35 @@ ${locks}` : ""}`;
       );
       return false;
     }
-    currentMarketTarget = procurement3.normalizeItemHrid(itemHrid);
-    const bareItemId = currentMarketTarget.replace(/^\/items\//, "");
+    const target = procurement3.normalizeItemHrid(itemHrid);
+    const bareItemId = target.replace(/^\/items\//, "");
     const level = Number(enhancementLevel) || 0;
     const argumentSets = [
-      [currentMarketTarget, level],
-      [currentMarketTarget],
+      [target, level],
+      [target],
       [bareItemId, level],
       [bareItemId]
     ];
+    const revision = ++marketNavigationRevision;
     let lastError = null;
     if (resolved.floating) {
       try {
-        const restoreNavTarget = resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        const newSession = !marketSessionActive || !marketSessionRequiresModal || marketSessionHost !== resolved.host;
+        const restoreNavTarget = newSession && resolved.host.state?.navTarget === "marketplace" ? "marketplace" : "";
+        const continuingSession = beginMarketSession(resolved, {
+          requiresModal: true,
+          restoreNavTarget
+        });
+        currentMarketTarget = target;
+        currentMarketLevel = level;
         const showFloatingModal = () => {
+          if (revision !== marketNavigationRevision || !marketSessionActive) {
+            return;
+          }
           resolved.host.setState({
             showMarketplaceModal: true,
             marketViewOverrideData: {
-              itemHrid: currentMarketTarget,
+              itemHrid: target,
               enhancementLevel: level
             }
           });
@@ -23666,27 +23867,23 @@ ${locks}` : ""}`;
             showFloatingModal
           );
           setTimeout(() => {
-            if (marketSessionActive && currentMarketTarget === procurement3.normalizeItemHrid(itemHrid) && resolved.host.state?.navTarget !== "marketplace") {
-              resolved.fn.call(resolved.host, currentMarketTarget, level);
+            if (marketSessionActive && revision === marketNavigationRevision && currentMarketTarget === target && resolved.host.state?.navTarget !== "marketplace") {
+              resolved.fn.call(resolved.host, target, level);
             }
           }, 240);
+        } else if (resolved.host.state?.showMarketplaceModal || continuingSession) {
+          resolved.host.setState(
+            { showMarketplaceModal: false },
+            showFloatingModal
+          );
         } else {
           showFloatingModal();
         }
-        marketSessionActive = true;
-        marketSessionRequiresModal = true;
-        marketSessionStartedAt = Date.now();
-        marketSessionModalSeen = false;
-        marketSessionHost = resolved.host;
-        marketSessionRestoreNavTarget = restoreNavTarget;
-        marketSessionDone = /* @__PURE__ */ new Map();
         if (window.matchMedia?.("(max-width:760px)").matches) {
           drawerOpen = false;
           renderShell();
         }
-        for (const delay of [80, 240, 600, 1200]) {
-          setTimeout(() => updateMarketUi(true), delay);
-        }
+        scheduleMarketUiUpdates(revision);
         return true;
       } catch (error) {
         lastError = error;
@@ -23695,20 +23892,14 @@ ${locks}` : ""}`;
     for (const args of argumentSets) {
       try {
         resolved.fn.call(resolved.host, ...args);
-        marketSessionActive = true;
-        marketSessionRequiresModal = false;
-        marketSessionStartedAt = Date.now();
-        marketSessionModalSeen = false;
-        marketSessionHost = null;
-        marketSessionRestoreNavTarget = "";
-        marketSessionDone = /* @__PURE__ */ new Map();
+        beginMarketSession(resolved, { requiresModal: false });
+        currentMarketTarget = target;
+        currentMarketLevel = level;
         if (window.matchMedia?.("(max-width:760px)").matches) {
           drawerOpen = false;
           renderShell();
         }
-        for (const delay of [80, 240, 600, 1200]) {
-          setTimeout(() => updateMarketUi(true), delay);
-        }
+        scheduleMarketUiUpdates(revision);
         return true;
       } catch (error) {
         lastError = error;
@@ -23740,12 +23931,40 @@ ${locks}` : ""}`;
     const fragment = href.split("#").at(-1);
     return fragment ? procurement3.normalizeItemHrid(fragment) : "";
   }
-  function clearMarketUi({ preserveSession = false } = {}) {
+  function isCurrentMarketItem(item) {
+    return Boolean(
+      marketSessionActive && procurement3.normalizeItemHrid(item?.itemHrid) === currentMarketTarget && (Number(item?.enhancementLevel) || 0) === currentMarketLevel
+    );
+  }
+  function removeCartItemAndAdvance(item) {
+    if (!item) return false;
+    const ordered = pendingItems();
+    const key = procurement3.itemKey(item.itemHrid, item.enhancementLevel);
+    const currentIndex = ordered.findIndex(
+      (candidate) => procurement3.itemKey(candidate.itemHrid, candidate.enhancementLevel) === key
+    );
+    const shouldAdvance = isCurrentMarketItem(item);
+    const removed = procurement3.removeFromCart(
+      item.itemHrid,
+      item.enhancementLevel
+    );
+    if (!removed.ok || !shouldAdvance) return removed.ok;
+    const remaining = pendingItems();
+    if (!remaining.length) {
+      clearMarketUi({ closeModal: true });
+      return true;
+    }
+    const next = remaining[Math.max(0, currentIndex) % remaining.length];
+    openMarketplace(next.itemHrid, next.enhancementLevel);
+    return true;
+  }
+  function clearMarketUi({ preserveSession = false, closeModal = false } = {}) {
     document.getElementById(MARKET_NAV_ID)?.remove();
     document.querySelectorAll(".mwi-procurement-market-target").forEach((node) => node.classList.remove("mwi-procurement-market-target"));
     if (!preserveSession) {
       const restoreHost = marketSessionHost;
       const restoreNavTarget = marketSessionRestoreNavTarget;
+      marketNavigationRevision += 1;
       marketSessionActive = false;
       marketSessionRequiresModal = false;
       marketSessionStartedAt = 0;
@@ -23753,8 +23972,21 @@ ${locks}` : ""}`;
       marketSessionHost = null;
       marketSessionRestoreNavTarget = "";
       currentMarketTarget = "";
+      currentMarketLevel = 0;
       armedNextItem = "";
       marketSessionDone = /* @__PURE__ */ new Map();
+      if (shell) shell.dataset.marketSession = "false";
+      if (closeModal && restoreHost) {
+        try {
+          if (typeof restoreHost.handleCloseMarketplaceModal === "function") {
+            restoreHost.handleCloseMarketplaceModal();
+          } else if (typeof restoreHost.setState === "function") {
+            restoreHost.setState({ showMarketplaceModal: false });
+          }
+        } catch (error) {
+          console.info("[MWITools] Marketplace modal close unavailable", error);
+        }
+      }
       if (restoreNavTarget && typeof restoreHost?.setState === "function" && restoreHost.state?.navTarget !== restoreNavTarget) {
         restoreHost.setState({ navTarget: restoreNavTarget });
       }
@@ -23822,11 +24054,15 @@ ${locks}` : ""}`;
       document.getElementById(MARKET_NAV_ID)?.remove();
       return;
     }
-    const current = detectMarketItem(panel);
+    const detectedCurrent = detectMarketItem(panel);
+    const current = currentMarketTarget || detectedCurrent;
+    const currentKey = procurement3.itemKey(current, currentMarketLevel);
     const rows2 = [
       ...items.map((item) => ({ ...item, done: false })),
       ...[...marketSessionDone.values()].filter(
-        (done) => !items.some((item) => item.itemHrid === done.itemHrid)
+        (done) => !items.some(
+          (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) === procurement3.itemKey(done.itemHrid, done.enhancementLevel)
+        )
       )
     ];
     let nav = document.getElementById(MARKET_NAV_ID);
@@ -23843,16 +24079,24 @@ ${locks}` : ""}`;
         item,
         itemName: itemName4,
         quantity,
-        current: !item.done && item.itemHrid === current,
+        current: !item.done && procurement3.itemKey(item.itemHrid, item.enhancementLevel) === currentKey,
         iconMarkup: renderItemIcon2({ ...item, name: itemName4 }),
         badge: item.done ? "✓" : formatNumber4(item.quantity)
       };
     });
-    const next = items.find((item) => item.itemHrid !== current) ?? items.at(0) ?? null;
+    const next = items.find(
+      (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) !== currentKey
+    ) ?? items.at(0) ?? null;
+    const currentItem = items.find(
+      (item) => procurement3.itemKey(item.itemHrid, item.enhancementLevel) === currentKey
+    );
     const nextText = t9("下一项 ›", "Next ›");
+    const removeText = t9("删除当前", "Remove");
     const renderSignature = JSON.stringify({
       progressText,
       nextText,
+      removeText,
+      currentKey: currentItem ? currentKey : "",
       next: next ? procurement3.itemKey(next.itemHrid, next.enhancementLevel) : "",
       rows: rowModels.map(
         ({
@@ -23905,7 +24149,14 @@ ${locks}` : ""}`;
         if (next) openMarketplace(next.itemHrid, next.enhancementLevel);
         armedNextItem = "";
       });
-      nav.append(progress, list, nextButton);
+      const removeButton = document.createElement("button");
+      removeButton.className = "mwi-procurement-nav-remove";
+      removeButton.textContent = removeText;
+      removeButton.hidden = !currentItem;
+      removeButton.addEventListener("click", () => {
+        if (currentItem) removeCartItemAndAdvance(currentItem);
+      });
+      nav.append(progress, list, removeButton, nextButton);
       nav.mwitoolsRenderSignature = renderSignature;
     }
     const modal = panel.closest('[class*="MainPanel_marketplaceModal__"]') ?? panel.closest('[class*="Modal_modalContainer"]') ?? panel;
@@ -24055,6 +24306,14 @@ ${locks}` : ""}`;
           const changed = [...record.addedNodes, ...record.removedNodes].filter(
             (node) => node?.nodeType === 1
           );
+          const removedProductionModule = [...record.removedNodes].some(
+            (node) => node?.nodeType === 1 && (node.matches?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`
+            ) || node.querySelector?.(
+              `#${PRODUCTION_ID},.mwi-production-quick-inputs,#mwi-production-summary,#mwi-level-progress`
+            ))
+          );
+          if (removedProductionModule) return true;
           const replacedProductionMount = changed.some(
             (node) => node.matches?.(
               '.mwi-production-extensions,div[class*="SkillActionDetail_regularComponent"],div[class*="SkillActionDetail_skillActionDetail"]'
@@ -24074,6 +24333,7 @@ ${locks}` : ""}`;
           );
         });
         if (relevant) {
+          runtime.api.scheduleProductionUiRecovery?.();
           scheduleRender();
           scope.timeout(scheduleRender, 80);
           scope.timeout(scheduleRender, 220);
@@ -28114,16 +28374,18 @@ ${locks}` : ""}`;
           "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
           "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。",
           "完整队列的耗时与完成时间不再依赖市场悬浮价格；队列重建、无限动作和缺少投影时会自动重试或显示明确原因。普通战斗任务会按目标怪物合并，任务“新”标记只跟随真正新增的任务。",
-          "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表的列对齐、横向滚动和闲置人数判断也已修复。",
-          "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+          "盈亏摘要新增流动资产与非流动资产盈亏，库存总资产会在有昨日记录时显示今日盈亏；公会贡献表会把统计列统一排在试炼层数等原生列之后，横向滚动和闲置人数判断也已修复。",
+          "制造面板在打开配装下拉、切换配装或延迟重建后会恢复制造链、计划、缺料、生产摘要和快捷输入等模块；即使游戏只移除其中一张卡片也会自动补回。设置中新增自定义快捷小时与次数，并修复逗号小数及不同千位分隔格式造成的耗时误读。",
+          "购物清单较长时，修改数量、删除或打开商品会保持当前滚动位置；商品弹窗打开后可直接切换其他购物项，也可从购物清单或商品导航删除当前项并自动前往下一项。",
           "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。"
         ]),
         en: Object.freeze([
           "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
           "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost.",
           "Full-queue duration and completion estimates no longer depend on hover prices. Queue rebuilds now retry, while infinite actions and missing projections show an explicit reason. Regular combat tasks merge by target monster, and New badges follow only genuinely added task IDs.",
-          "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution alignment, horizontal scrolling, and idle-member detection have also been fixed.",
-          "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+          "The P/L summary now includes liquid and non-current asset profit, and Inventory shows today's P/L beside total assets when a prior-day record exists. Guild contribution statistics now stay after native columns such as Trial Level, while horizontal scrolling and idle-member detection have also been fixed.",
+          "Manufacturing chains, plans, shortages, production summaries, targets, and quick inputs now recover after opening the loadout picker, switching loadouts, or delayed panel rebuilds, even when the game removes only one extension card. Settings add custom quick-hour and quick-count presets, and duration parsing now supports comma decimals and mixed thousands separators.",
+          "Long shopping lists now keep their scroll position when quantities change, items are removed, or products are opened. While a product modal is open, another shopping item can be opened directly, and the current item can be removed from either the cart or product navigation before advancing automatically.",
           "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings."
         ])
       })
@@ -30077,6 +30339,14 @@ ${locks}` : ""}`;
         });
         header.append(cell);
       }
+    }
+    for (const selector of [
+      ".mwi-guild-recent-head",
+      ".mwi-guild-day-head",
+      ...kind === "member" ? [".mwi-guild-week-head"] : []
+    ]) {
+      const rateHeader = header.querySelector(selector);
+      if (rateHeader) header.append(rateHeader);
     }
     const sourceByKey = new Map(
       rows2.map((source) => [objectKey(kind, source, parentId), source])
