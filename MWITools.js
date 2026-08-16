@@ -8572,7 +8572,7 @@
       itemHrid,
       targetLevel: enhancementLevel,
       forcedProtectionItemHrid: backEquipment ? "/items/mirror_of_protection" : null,
-      allowPhilosopherMirror: !backEquipment,
+      allowPhilosopherMirror: true,
       getFairValue: (hrid, level = 0) => acquisitionCostValue(hrid, level, context),
       getMarketValue: (hrid, level = 0) => runtime.api.getAssetFairValue(hrid, level)
     });
@@ -27818,17 +27818,19 @@ ${locks}` : ""}`;
     Object.freeze({
       id: "26.4.14",
       version: "26.4.14",
-      publishedAt: "2026-08-15",
+      publishedAt: "2026-08-16",
       title: Object.freeze({
         zh: "26.4.14 更新公告",
         en: "Version 26.4.14 update"
       }),
       body: Object.freeze({
         zh: Object.freeze([
-          "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。"
+          "地牢宝箱与精炼宝箱的库存估值和开箱期望现在都会同时扣除宝箱开启钥匙与对应地牢门票钥匙；开箱面板会分别展示两项成本，普通无门票宝箱不受影响。",
+          "修复强化披风与其他背部装备时未比较贤者之镜方案的问题；包括精炼 +14 在内的强化成本现在会保留保护之镜作为普通保护材料，同时完整比较贤者之镜合成方案并选择总成本更低的路线。"
         ]),
         en: Object.freeze([
-          "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged."
+          "Inventory valuations and opening estimates for dungeon and refinement chests now deduct both the chest key and the matching dungeon entry key. The opening panel shows the two costs separately, while ordinary chests without entry keys are unchanged.",
+          "Fixed Philosopher's Mirror plans being skipped for enhanced capes and other back equipment. Enhancement costs, including refined +14 items, now keep Mirrors of Protection for regular protection while comparing the full Philosopher's Mirror synthesis route and selecting the lower total cost."
         ])
       })
     }),
@@ -31956,7 +31958,7 @@ ${locks}` : ""}`;
     );
     return {
       forcedProtectionItemHrid: forceProtectionMirror ? "/items/mirror_of_protection" : null,
-      allowPhilosopherMirror: !forceProtectionMirror,
+      allowPhilosopherMirror: true,
       getFairValue: (hrid, level = 0) => runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true
       }) || runtime.api.getFairValue(hrid, level) || 0,

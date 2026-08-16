@@ -776,7 +776,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
     received.forcedProtectionItemHrid,
     "/items/mirror_of_protection",
   );
-  assert.equal(received.allowPhilosopherMirror, false);
+  assert.equal(received.allowPhilosopherMirror, true);
   runtime.api.invalidateAssetValueCache();
   assert.equal(runtime.api.getAssetValue("/items/test_quiver", 5), 123_456);
   assert.equal(
@@ -791,7 +791,7 @@ test("all enhanced back equipment uses forced protection-mirror value", () => {
     received.forcedProtectionItemHrid,
     "/items/mirror_of_protection",
   );
-  assert.equal(received.allowPhilosopherMirror, false);
+  assert.equal(received.allowPhilosopherMirror, true);
   runtime.api.invalidateAssetValueCache();
   assert.equal(
     runtime.api.getAssetValue("/items/artificer_cape_refined", 5),

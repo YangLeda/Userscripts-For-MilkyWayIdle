@@ -872,7 +872,7 @@ function getEnhancedEquipmentCost(
     forcedProtectionItemHrid: backEquipment
       ? "/items/mirror_of_protection"
       : null,
-    allowPhilosopherMirror: !backEquipment,
+    allowPhilosopherMirror: true,
     getFairValue: (hrid, level = 0) =>
       acquisitionCostValue(hrid, level, context),
     getMarketValue: (hrid, level = 0) =>

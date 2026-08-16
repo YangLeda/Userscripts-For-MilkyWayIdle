@@ -57,7 +57,7 @@ export function getTooltipEnhancementPlanOptions(itemHrid) {
     forcedProtectionItemHrid: forceProtectionMirror
       ? "/items/mirror_of_protection"
       : null,
-    allowPhilosopherMirror: !forceProtectionMirror,
+    allowPhilosopherMirror: true,
     getFairValue: (hrid, level = 0) =>
       runtime.api.getAssetValue?.(hrid, level, {
         forceAcquisitionValue: true,
