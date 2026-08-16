@@ -21,6 +21,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "中国服同时兼容有无 www 的访问地址，市场接口统一使用无 www 端点；关闭 MWITools 任务功能时不再提示 TaskManager 冲突，也可按脚本永久静默并在设置中恢复提醒。",
         "左侧利润网入口现在会注明包含强化模拟，并移除重复的插件设置入口；任务图片会在多次刷新时保持稳定，也修复了与 Ranged Way Idle 同时使用时便宜刷新选项可能错误卡死的问题。",
         "任务筛选按钮现在可用鼠标或触屏长按 1 秒分别锁定；命中锁定类型的任务会让两种刷新选项变灰并显示锁图标。筛选中刷新出的卡片即使改变类型也会保留到重新进入任务页；确认刷新后即使支付选项仍停留在卡片上，任务图片也会立即跟随新任务更新，不再需要点击返回，游戏只更新标题文字节点的情况也能正确同步。关闭任务统计筛选栏会清除已有锁定。锁定只显示小锁，不会改变筛选高亮，再次长按解锁后小锁会立即消失。长按进度会在按住 0.5 秒后才开始显示，满 1 秒才切换锁定；普通短按会立即切换并高亮筛选，刷新确认层打开时锁图标和筛选高亮也会即时同步。",
+        "26.4.14 现已标记为重要更新；旧版本玩家会收到顶部更新提示，以获得任务筛选长按锁定、刷新卡片保留和任务图片即时同步等改进。",
       ]),
       en: Object.freeze([
         "Combat and Skilling Gear Scores now include the cumulative upgrade value of every matching guild shrine. Shared profiles use that player's public shrine levels, while missing guild data shows a dash without affecting the remaining score.",
@@ -33,6 +34,7 @@ export const ANNOUNCEMENTS = Object.freeze([
         "China servers now support both www and bare hostnames while using the bare-host market endpoint. TaskManager warnings are silent when MWITools task features are off, and individual conflicts can be muted permanently and restored from Settings.",
         "The sidebar profit-site shortcut now notes that it includes an enhancement simulator, and the redundant script-settings shortcut has been removed. Task artwork stays stable through repeated rerolls, and cheaper reroll options no longer become incorrectly stuck when Ranged Way Idle is also enabled.",
         "Task filter buttons can now be locked individually with a one-second mouse or touch hold. Tasks matching a locked type gray out both reroll choices and show lock icons. Cards rerolled while filtering remain visible even if their type changes until the task page is re-entered. Once a reroll is confirmed, its artwork follows the new task immediately even while the payment choices remain on the card, without requiring Back navigation; title-text-only game updates are synchronized as well. Disabling task statistics filters clears existing locks. Locking only shows the small padlock without changing filter highlighting, and another one-second hold unlocks it and removes the padlock immediately. Hold progress now appears only after a 0.5-second grace period and toggles the lock at one second; ordinary taps immediately toggle and highlight filters, while lock icons and filter highlighting stay synchronized even when the reroll confirmation is open.",
+        "Version 26.4.14 is now marked as an important update. Players on older releases will see the top update prompt for long-press task-filter locks, rerolled-card retention, immediate task-artwork synchronization, and the other improvements in this release.",
       ]),
     }),
   }),

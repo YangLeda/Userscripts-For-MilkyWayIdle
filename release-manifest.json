@@ -1,13 +1,13 @@
 {
   "version": 1,
   "latestVersion": "26.4.14",
-  "importantVersion": "26.4.11",
+  "importantVersion": "26.4.14",
   "title": {
-    "zh": "MWITools 26.4.11 重要更新",
-    "en": "Important MWITools 26.4.11 update"
+    "zh": "MWITools 26.4.14 重要更新",
+    "en": "Important MWITools 26.4.14 update"
   },
   "message": {
-    "zh": "26.4.11 是重要更新：新增游戏原生风格的性能初始化引导与分档配置，全面改用当前游戏版本的官方数据和九种语言资源，并集中优化库存、规划、购物清单、行动队列、资产中心与 DPS。建议前往 Greasy Fork 更新。",
-    "en": "Version 26.4.11 is an important update. It adds a native-style performance setup with configurable profiles, moves fully to official data and all nine locale resources for the current game version, and delivers focused improvements to Inventory, Planning, the shopping list, action queues, Asset Center, and DPS. Update on Greasy Fork."
+    "zh": "26.4.14 是重要更新：任务筛选新增长按锁定与刷新卡片保留，任务刷新后的类型、锁定状态和图片会即时同步；同时修复生产、购物清单、资产与公会统计等问题，并加入公会神龛着装评分。建议前往 Greasy Fork 更新。",
+    "en": "Version 26.4.14 is an important update. Task filters add long-press locks and rerolled-card retention, with task types, lock state, and artwork synchronizing immediately after rerolls. It also fixes Production, the shopping list, Asset and Guild statistics, and adds guild-shrine Gear Scores. Update on Greasy Fork."
   }
 }
