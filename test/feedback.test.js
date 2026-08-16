@@ -615,11 +615,11 @@ test("the current announcement covers task reroll and navigation compatibility",
   assert.match(current.body.en.join("\n"), /reroll options.*Ranged Way Idle/i);
   assert.match(
     current.body.zh.join("\n"),
-    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*清除已有锁定/,
+    /筛选按钮.*长按 1 秒.*锁定.*两种刷新选项.*重新进入任务页.*立即更新任务图片.*清除已有锁定/,
   );
   assert.match(
     current.body.en.join("\n"),
-    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*clears existing locks/i,
+    /filter buttons.*one-second.*locked type.*both reroll choices.*re-entered.*artwork updates immediately.*clears existing locks/i,
   );
   assert.match(
     current.body.zh.join("\n"),

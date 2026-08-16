@@ -1990,6 +1990,25 @@ function applyPendingMerge() {
 }
 
 export function shouldRenderTaskMutations(records, now = Date.now()) {
+  const rerollOptionsChanged = records.some((record) => {
+    const target =
+      record.target?.nodeType === 1
+        ? record.target
+        : record.target?.parentElement;
+    const changedNodes = [
+      ...(record.addedNodes ?? []),
+      ...(record.removedNodes ?? []),
+    ].filter((node) => node?.nodeType === 1);
+    return (
+      target?.closest?.(REROLL_OPTIONS_SELECTOR) ||
+      changedNodes.some(
+        (node) =>
+          node.matches?.(REROLL_OPTIONS_SELECTOR) ||
+          node.querySelector?.(REROLL_OPTIONS_SELECTOR),
+      )
+    );
+  });
+  if (rerollOptionsChanged) return true;
   if (now < nativeResetChoiceUntil) return false;
   const removedBackground = records.some((record) => {
     const target =
@@ -2020,16 +2039,6 @@ export function shouldRenderTaskMutations(records, now = Date.now()) {
       ...(record.addedNodes ?? []),
       ...(record.removedNodes ?? []),
     ].filter((node) => node?.nodeType === 1);
-    if (
-      target?.closest?.(REROLL_OPTIONS_SELECTOR) ||
-      changedNodes.some(
-        (node) =>
-          node.matches?.(REROLL_OPTIONS_SELECTOR) ||
-          node.querySelector?.(REROLL_OPTIONS_SELECTOR),
-      )
-    ) {
-      return true;
-    }
     if (
       changedNodes.length &&
       changedNodes.every(
@@ -2158,6 +2167,8 @@ function syncTaskRerollLocks(root = document) {
       if (!activeRerollContext.confirmed) {
         clearPendingStickyReset(activeRerollContext.slot);
         pendingResetSlots.delete(activeRerollContext.slot);
+      } else {
+        nativeResetChoiceUntil = 0;
       }
       activeRerollContext = null;
     }

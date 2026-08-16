@@ -763,6 +763,34 @@ test("opening the native reset payment choice pauses task regrouping", () => {
   assert.equal(shouldRenderTaskMutations(records), false);
   assert.equal(shouldRenderTaskMutations(records, Date.now() + 10_001), true);
 
+  const options = document.createElement("div");
+  options.className = "RandomTask_rerollOptionsContainer__reset-choice";
+  options.innerHTML = "<button>One</button><button>Two</button>";
+  document.body.append(options);
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [options], removedNodes: [] },
+    ]),
+    true,
+    "the reroll surface must render even during the native guard window",
+  );
+  runtime.api.renderTasks();
+  options.querySelector("button").click();
+  options.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [], removedNodes: [options] },
+    ]),
+    true,
+    "closing the confirmed reroll surface must schedule the new artwork",
+  );
+  runtime.api.renderTasks();
+  assert.equal(
+    shouldRenderTaskMutations(records),
+    true,
+    "a confirmed reroll ends the native guard immediately",
+  );
+
   const replacement = document.createElement("button");
   replacement.textContent = "重置";
   resetButton.replaceWith(replacement);
@@ -2418,6 +2446,7 @@ test("a filtered reroll stays visible until the task page is re-entered", () => 
     { id: "sticky-crafting", actionHrid: "/actions/crafting/lumber" },
     { id: "sticky-milking", actionHrid: "/actions/milking/cow" },
   ];
+  runtime.settings.settingsMap.taskIcons.isTrue = true;
   runtime.api.renderTasks();
   const toolbar = document.querySelector(".mwi-task-toolbar");
   const craftingFilter = toolbar.querySelector(
@@ -2429,6 +2458,10 @@ test("a filtered reroll stays visible until the task page is re-entered", () => 
       taskCard.querySelector('[class*="RandomTask_name"]').textContent ===
       "制作 - 木板",
   );
+  assert.match(
+    stickyCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#lumber$/,
+  );
   [...stickyCard.querySelectorAll("button")]
     .find((button) => button.textContent === "重置")
     .click();
@@ -2439,15 +2472,27 @@ test("a filtered reroll stays visible until the task page is re-entered", () => 
   runtime.api.renderTasks();
   options.querySelector("button").click();
   options.remove();
+  assert.equal(
+    shouldRenderTaskMutations([
+      { target: document.body, addedNodes: [], removedNodes: [options] },
+    ]),
+    true,
+    "a filtered reroll closing must request an immediate card refresh",
+  );
 
   stickyCard.querySelector('[class*="RandomTask_name"]').textContent =
-    "挤奶 - 新奶牛";
+    "挤奶 - 奶牛";
   runtime.state.characterQuests[0] = {
     id: "sticky-rerolled-milking",
     actionHrid: "/actions/milking/cow",
   };
-  runtime.api.renderTasks();
+  runtime.api.renderTasks({ allowReusedPositional: false });
   assert.equal(stickyCard.dataset.mwitoolsFiltered, "false");
+  assert.match(
+    stickyCard.querySelector(".mwi-task-bg use").getAttribute("href"),
+    /#cow$/,
+    "the retained card artwork updates as soon as the reroll identity settles",
+  );
 
   craftingFilter.click();
   document
@@ -2465,7 +2510,7 @@ test("a filtered reroll stays visible until the task page is re-entered", () => 
   document.body.insertAdjacentHTML(
     "beforeend",
     `<div class="TasksPanel_taskList__sticky-reentered">
-      ${card("挤奶 - 新奶牛", "0 / 5")}
+      ${card("挤奶 - 奶牛", "0 / 5")}
     </div>`,
   );
   runtime.state.characterQuests = [runtime.state.characterQuests[0]];
@@ -2517,4 +2562,5 @@ test("a filtered reroll stays visible until the task page is re-entered", () => 
     "cancelling the reroll must not retain a later replacement",
   );
   runtime.state.currentCharacterId = originalCharacterId;
+  runtime.settings.settingsMap.taskIcons.isTrue = false;
 });
